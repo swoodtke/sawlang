@@ -6,7 +6,9 @@ including while loops, for loops (using Iterator), and break/continue statements
 
 Loop representation:
 - Loops use basic blocks: condition, body, and end
-- Loop stack tracks (continue_block, break_block, result_storage) for nested loops
+- Loop stack tracks (continue_block, break_block, result_storage, cleanup_depth)
+  for nested loops; `cleanup_depth` is `len(self.cleanup_stack)` at loop entry,
+  which is what `break`/`continue` unwind down to (DF-218r)
 - For loops desugar to Iterator::next() calls
 
 Usage:
@@ -30,7 +32,32 @@ class LoopsMixin:
         _generate_while_expr_value: Generate while loop (expression context)
         _generate_break_statement: Generate break statement
         _generate_continue_statement: Generate continue statement
+        _cleanup_to_loop_boundary: Release the scopes a break/continue exits
     """
+
+    def _cleanup_to_loop_boundary(self, cleanup_depth: int):
+        """Release every scope a `break`/`continue` exits, innermost first.
+
+        DF-218r: a nonlocal exit that is NOT a return used to skip the cleanup
+        stack entirely, so a loop-body local leaked on both edges while the
+        `return` edge (`_cleanup_all_scopes`, statements.py) dropped it. This is
+        that same walk, bounded at the loop's own entry depth instead of running
+        to the function's frame: every scope pushed since the loop was entered
+        is exited by the branch, and nothing outside the loop is.
+
+        `cleanup_depth` is recorded when the loop pushes itself onto
+        `loop_stack`, BEFORE the loop's own bindings are registered — so a `for`
+        loop's design-65 owning loop variable (its scope is pushed after that
+        point) is released here too, which the per-iteration pop at the body's
+        fall-through cannot do once the block is terminated.
+
+        Nothing is popped: the fall-through edge out of the same body still owes
+        its own cleanup, and a drop is guarded by the binding's runtime drop
+        flag, so the two edges are independent CFG paths dropping at most once
+        each.
+        """
+        for scope_vars in reversed(self.cleanup_stack[cleanup_depth:]):
+            self._cleanup_scope(scope_vars)
 
     def _generate_while_expr(self, stmt: WhileExpr):
         """Generate LLVM IR for a while loop (statement context)."""
@@ -41,8 +68,10 @@ class LoopsMixin:
         body_block = func.append_basic_block("while.body")
         end_block = func.append_basic_block("while.end")
 
-        # Push loop blocks onto stack for break/continue (no result storage)
-        self.loop_stack.append((cond_block, end_block, None))
+        # Push loop blocks onto stack for break/continue (no result storage).
+        # The cleanup depth is the boundary `break`/`continue` unwind to.
+        self.loop_stack.append((cond_block, end_block, None,
+                                len(self.cleanup_stack)))
 
         # Jump to condition block
         self.builder.branch(cond_block)
@@ -130,8 +159,11 @@ class LoopsMixin:
         end_block = func.append_basic_block("for.end")
 
         # Push loop blocks onto stack for break/continue
-        # continue goes to cond block (call next again), break goes to end
-        self.loop_stack.append((cond_block, end_block, None))
+        # continue goes to cond block (call next again), break goes to end.
+        # Recorded BEFORE the owning loop variable's scope, so both edges
+        # release it (DF-218r).
+        self.loop_stack.append((cond_block, end_block, None,
+                                len(self.cleanup_stack)))
 
         # Jump to condition block
         self.builder.branch(cond_block)
@@ -312,7 +344,8 @@ class LoopsMixin:
 
         # Push loop info with result storage
         # continue goes to cond block (call next again), break goes to end
-        self.loop_stack.append((cond_block, end_block, result_alloca))
+        self.loop_stack.append((cond_block, end_block, result_alloca,
+                                len(self.cleanup_stack)))
 
         # Jump to condition block
         self.builder.branch(cond_block)
@@ -424,7 +457,8 @@ class LoopsMixin:
         end_block = func.append_basic_block("while.end")
 
         # Push loop info with result storage
-        self.loop_stack.append((cond_block, end_block, result_alloca))
+        self.loop_stack.append((cond_block, end_block, result_alloca,
+                                len(self.cleanup_stack)))
 
         # Jump to condition block
         self.builder.branch(cond_block)
@@ -466,7 +500,7 @@ class LoopsMixin:
         if not self.loop_stack:
             raise ValueError("break outside of loop")
 
-        _, break_block, result_storage = self.loop_stack[-1]
+        _, break_block, result_storage, cleanup_depth = self.loop_stack[-1]
 
         # If there's a break value and result storage, store it
         if stmt.value and result_storage:
@@ -488,6 +522,17 @@ class LoopsMixin:
                 # Direct value storage (infinite loop)
                 self.builder.store(value, result_storage)
 
+        # Drain this statement's own temporaries and release every scope the
+        # branch exits, in that order — the same sequence `return` runs
+        # (statements.py `_generate_return_statement`), bounded at the loop.
+        # The break VALUE is already stored above and is never a statement temp,
+        # so it is not what gets dropped here.
+        if self.statement_temps:
+            for slot, saw_type in reversed(self.statement_temps):
+                self._emit_drop_at(slot, saw_type)
+            self.statement_temps = []
+        self._cleanup_to_loop_boundary(cleanup_depth)
+
         # Jump to the break block (end of loop)
         self.builder.branch(break_block)
 
@@ -499,6 +544,9 @@ class LoopsMixin:
         if not self.loop_stack:
             raise ValueError("continue outside of loop")
 
-        # Jump to the continue block (condition check)
-        continue_block, _, _ = self.loop_stack[-1]
+        # Release every scope the branch exits, innermost first — the current
+        # iteration's body locals (and a `for`'s owning loop variable) die here
+        # exactly as they do on the fall-through edge (DF-218r).
+        continue_block, _, _, cleanup_depth = self.loop_stack[-1]
+        self._cleanup_to_loop_boundary(cleanup_depth)
         self.builder.branch(continue_block)

@@ -1,0 +1,79 @@
+// XFAIL: DF-218s a driven body's done path releases its FRAME FIELDS ahead of
+// the surviving REAL locals of inner scopes, inverting the sync twin's LIFO order
+//
+// The two twins below differ only by a `yield_now()`. `outer` is declared in the
+// function body and `inner` in a nested `if` that spans no suspension, so in the
+// driven twin `outer` is a frame FIELD and `inner` stays an ordinary codegen
+// local — and the `return` inside the `if` exits both scopes at once.
+//
+// Sync drops `inner` then `outer` (LIFO by scope depth). Driven drops `outer`
+// first: `_done_seq` emits `self.release()` as a STATEMENT ahead of the lowered
+// `return Poll.Done`, and codegen's `_cleanup_all_scopes` — which is what drops
+// `inner` — runs at that return, i.e. after every statement the transform put in
+// front of it.
+//
+// MECHANISM (obligation 4): two release systems meet at one exit and the frame's
+// runs first. The positions it reaches are every `return` (and every diverging
+// tail) lowered IN PLACE inside a non-spanning nested block that owns real
+// locals — an `if`/`else` branch, a `match` arm, a nested `while`/`for` body, a
+// `try`/`catch` arm. It does NOT reach a body whose locals are all
+// frame-resident: there the frame's own reverse-declaration order already agrees
+// with scope-LIFO, because a block is frame-resident only if it transitively
+// contains a suspension, which makes every frame scope an ANCESTOR of every
+// real-local scope.
+//
+// That same containment fact is why the fix is not a reordering inside the
+// transform: the frame's release can only be emitted BEFORE the return statement
+// that carries codegen's scope cleanup, so no statement the transform can write
+// lands after `inner`'s drop. See designs/218b-scope-end-spec.md (stage C) — the
+// scope-end migration made the frame's own clears scope-ordered, which is the
+// half that was in reach.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -- sync
+// have outer
+// have inner
+// DEINIT inner
+// DEINIT outer
+// -- driven
+// have outer
+// have inner
+// DEINIT inner
+// DEINIT outer
+
+import std.task.{yield_now}
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+
+func sync_early_return(n: Int) {
+    let outer = Res(name: "outer")
+    print("have {outer.name}")
+    if n > 0 {
+        let inner = Res(name: "inner")
+        print("have {inner.name}")
+        return
+    }
+    print("no return")
+}
+
+func driven_early_return(n: Int) {
+    let outer = Res(name: "outer")
+    yield_now()
+    print("have {outer.name}")
+    if n > 0 {
+        let inner = Res(name: "inner")
+        print("have {inner.name}")
+        return
+    }
+    print("no return")
+}
+
+func main() {
+    print("-- sync")
+    sync_early_return(1)
+    print("-- driven")
+    driven_early_return(1)
+}

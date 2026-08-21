@@ -1,0 +1,279 @@
+// Conformance row K70 — deterministic destruction in a DRIVEN body: a
+// frame-resident local is released at the end of the scope that owns it, in the
+// same order and at the same point its non-suspending twin releases it.
+//
+// XFAIL: DF-217p a frame-resident local in a driven body is released at FRAME
+// TEARDOWN instead of at the end of the scope that owns it
+//
+// Deterministic destruction is a headline guarantee, and a driven body is where
+// it stopped holding: the coroutine transform lifts an across-suspend local into
+// a frame FIELD, and a field lived until the frame died. So a `File` or a
+// `TcpStream` bound in a driven loop stayed open for the rest of the frame. The
+// counts always balanced, which is why this is an ORDER row and never a leak
+// row.
+//
+// The matrix is one cell per SCOPE KIND a driven body can have
+// (designs/218b-scope-end-spec.md, rows SC2-SC8), each written TWICE — a
+// non-suspending twin and a driven twin differing only by a `yield_now()`. The
+// twins print the same banner-delimited block, so the EXPECT below is the
+// parity claim itself: read the two halves of each cell against each other.
+//
+//   SC2 loop body, per iteration       SC6 `if let` then-branch (binding + local)
+//   SC3 loop exit via `break`          SC7 `match` arm (payload binding + local)
+//   SC4 loop exit via `continue`       SC8 design-107 same-scope redefinition
+//   SC5 `if` branch
+//
+// SC3 and SC4 rest on the SYNC twin being right about its own two edges, which
+// it was not until DF-218r (`examples/loop_exit_releases_body_local.saw`).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -- SC2 sync
+// iter a0
+// DEINIT a0
+// iter a1
+// DEINIT a1
+// after loop
+// -- SC2 driven
+// iter a0
+// DEINIT a0
+// iter a1
+// DEINIT a1
+// after loop
+// -- SC3 sync
+// iter b0
+// DEINIT b0
+// iter b1
+// DEINIT b1
+// after break
+// -- SC3 driven
+// iter b0
+// DEINIT b0
+// iter b1
+// DEINIT b1
+// after break
+// -- SC4 sync
+// iter c0
+// DEINIT c0
+// iter c1
+// DEINIT c1
+// after continue
+// -- SC4 driven
+// iter c0
+// DEINIT c0
+// iter c1
+// DEINIT c1
+// after continue
+// -- SC5 sync
+// in if d-inner
+// DEINIT d-inner
+// after if c-outer
+// DEINIT c-outer
+// -- SC5 driven
+// in if d-inner
+// DEINIT d-inner
+// after if c-outer
+// DEINIT c-outer
+// -- SC6 sync
+// got p1
+// DEINIT p1
+// after iflet
+// -- SC6 driven
+// got p1
+// DEINIT p1
+// after iflet
+// -- SC7 sync
+// arm m1
+// DEINIT m1
+// after match
+// -- SC7 driven
+// arm m1
+// DEINIT m1
+// after match
+// -- SC8 sync
+// DEINIT s1
+// now s1-2
+// DEINIT s1-2
+// -- SC8 driven
+// DEINIT s1
+// now s1-2
+// DEINIT s1-2
+
+import std.task.{yield_now}
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+
+enum Held { case Has(r: Res), case Empty }
+extension Held: NoCopy {}
+
+// ---------------------------------------------------------------- SC2 loop body
+func sc2_sync() {
+    var i = 0
+    while i < 2 {
+        let a = Res(name: "a{i}")
+        print("iter {a.name}")
+        i += 1
+    }
+    print("after loop")
+}
+
+func sc2_driven() {
+    var i = 0
+    while i < 2 {
+        yield_now()
+        let a = Res(name: "a{i}")
+        print("iter {a.name}")
+        i += 1
+    }
+    print("after loop")
+}
+
+// -------------------------------------------------------------------- SC3 break
+func sc3_sync() {
+    var i = 0
+    while i < 3 {
+        let b = Res(name: "b{i}")
+        print("iter {b.name}")
+        if i == 1 { break }
+        i += 1
+    }
+    print("after break")
+}
+
+func sc3_driven() {
+    var i = 0
+    while i < 3 {
+        yield_now()
+        let b = Res(name: "b{i}")
+        print("iter {b.name}")
+        if i == 1 { break }
+        i += 1
+    }
+    print("after break")
+}
+
+// ----------------------------------------------------------------- SC4 continue
+func sc4_sync() {
+    var i = 0
+    while i < 2 {
+        let c = Res(name: "c{i}")
+        print("iter {c.name}")
+        i += 1
+        if i == 1 { continue }
+    }
+    print("after continue")
+}
+
+func sc4_driven() {
+    var i = 0
+    while i < 2 {
+        yield_now()
+        let c = Res(name: "c{i}")
+        print("iter {c.name}")
+        i += 1
+        if i == 1 { continue }
+    }
+    print("after continue")
+}
+
+// ---------------------------------------------------------------- SC5 if branch
+func sc5_sync(n: Int) {
+    let c = Res(name: "c-outer")
+    if n > 0 {
+        let d = Res(name: "d-inner")
+        print("in if {d.name}")
+    }
+    print("after if {c.name}")
+}
+
+func sc5_driven(n: Int) {
+    let c = Res(name: "c-outer")
+    if n > 0 {
+        yield_now()
+        let d = Res(name: "d-inner")
+        print("in if {d.name}")
+    }
+    print("after if {c.name}")
+}
+
+// ------------------------------------------------------------------- SC6 if let
+func sc6_sync() {
+    var opt: Res? = Res(name: "p1")
+    if let p = move opt {
+        print("got {p.name}")
+    }
+    print("after iflet")
+}
+
+func sc6_driven() {
+    var opt: Res? = Res(name: "p1")
+    if let p = move opt {
+        yield_now()
+        print("got {p.name}")
+    }
+    print("after iflet")
+}
+
+// -------------------------------------------------------------- SC7 match arm
+func sc7_sync() {
+    match Held.Has(r: Res(name: "m1")) {
+        case Has(r) -> { print("arm {r.name}") },
+        case Empty -> { print("arm empty") }
+    }
+    print("after match")
+}
+
+func sc7_driven() {
+    match Held.Has(r: Res(name: "m1")) {
+        case Has(r) -> { yield_now()  print("arm {r.name}") },
+        case Empty -> { print("arm empty") }
+    }
+    print("after match")
+}
+
+// ------------------------------------------------- SC8 same-scope redefinition
+func sc8_sync() {
+    let s = Res(name: "s1")
+    let s = Res(name: "{s.name}-2")
+    print("now {s.name}")
+}
+
+func sc8_driven() {
+    yield_now()
+    let s = Res(name: "s1")
+    let s = Res(name: "{s.name}-2")
+    print("now {s.name}")
+}
+
+func main() {
+    print("-- SC2 sync")
+    sc2_sync()
+    print("-- SC2 driven")
+    sc2_driven()
+    print("-- SC3 sync")
+    sc3_sync()
+    print("-- SC3 driven")
+    sc3_driven()
+    print("-- SC4 sync")
+    sc4_sync()
+    print("-- SC4 driven")
+    sc4_driven()
+    print("-- SC5 sync")
+    sc5_sync(1)
+    print("-- SC5 driven")
+    sc5_driven(1)
+    print("-- SC6 sync")
+    sc6_sync()
+    print("-- SC6 driven")
+    sc6_driven()
+    print("-- SC7 sync")
+    sc7_sync()
+    print("-- SC7 driven")
+    sc7_driven()
+    print("-- SC8 sync")
+    sc8_sync()
+    print("-- SC8 driven")
+    sc8_driven()
+}

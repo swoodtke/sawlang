@@ -55,7 +55,7 @@ Main `CodeGenerator` class with:
 | `self.functions` | `dict[str, ir.Function]` | Function name → LLVM function |
 | `self.struct_types` | `dict` | Struct name → (LLVM type, field order) |
 | `self.enum_types` | `dict` | Enum name → (LLVM type, variant tags, variant info) |
-| `self.loop_stack` | `list[tuple]` | Stack of (continue_block, break_block, result_storage) |
+| `self.loop_stack` | `list[tuple]` | Stack of (continue_block, break_block, result_storage, cleanup_depth) |
 | `self.cleanup_stack` | `list[list]` | Stack of variables needing cleanup per scope |
 | `self.type_param_context` | `dict[str, SawType]` | Type parameter substitutions during monomorphization |
 
@@ -174,10 +174,12 @@ While loops, for loops, break, and continue.
 | `_generate_continue_statement(stmt)` | Generate continue |
 
 #### Loop Stack
-`self.loop_stack` tracks nested loops as `(continue_block, break_block, result_storage)`:
+`self.loop_stack` tracks nested loops as `(continue_block, break_block, result_storage, cleanup_depth)`:
 - `continue_block`: Target for continue statements
 - `break_block`: Target for break statements
 - `result_storage`: Alloca for loop expression result (None for statement context)
+- `cleanup_depth`: `len(self.cleanup_stack)` at loop entry — the boundary
+  `break`/`continue` unwind to (`_cleanup_to_loop_boundary`, DF-218r)
 
 ### `methods.py` (362 lines)
 Method and function body generation.

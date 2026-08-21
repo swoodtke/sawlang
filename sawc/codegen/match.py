@@ -251,7 +251,9 @@ class MatchMixin:
             # When we take ownership of an owning scrutinee's payload (consume
             # mode), each owning binding is registered into a per-arm cleanup
             # scope so an un-`move`d binding drops exactly once at arm end and an
-            # early `return`/`break` cleans it via `_cleanup_all_scopes`.
+            # early exit cleans it on its own edge — `return` via
+            # `_cleanup_all_scopes`, `break`/`continue` via
+            # `_cleanup_to_loop_boundary` (DF-218r).
             arm_scope_pushed = False
             owning_bindings = []
             # The arm's lent payload bindings, as (payload field index, alloca)
@@ -360,12 +362,15 @@ class MatchMixin:
                         # design 65 (L17): an owning payload field discarded with
                         # `_` under the consume model is UNCLAIMED — the scrutinee's
                         # own drop is suppressed, so nothing else drops it. DROP it
-                        # now inline: a deferred scope-exit drop would be skipped by
-                        # `break`/`return`/`continue` inside the arm body (those
-                        # paths do not run `_cleanup_all_scopes`), which leaks. Named
-                        # bindings share the same limitation (DF-217p); the timing
-                        # difference is observable only when the deinit has side
-                        # effects, which the test below documents.
+                        # now inline: it is registered in NO cleanup scope (a `_`
+                        # names no binding to register), so no scope exit — not the
+                        # arm's own, not the `return`/`break`/`continue` unwinds —
+                        # would ever reach it. Named bindings ARE registered and are
+                        # released by whichever edge the arm leaves through
+                        # (DF-218r gave `break`/`continue` their unwind); the timing
+                        # difference between inline and arm-end is observable only
+                        # when the deinit has side effects, which the test below
+                        # documents.
                         #
                         # `_emit_drop_at` is correct here: a consumed payload is
                         # OWNED, not retained, and its deinit must fire. For Copy

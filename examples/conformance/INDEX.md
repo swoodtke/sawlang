@@ -6,7 +6,7 @@ either a file in this directory or an existing `examples/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
-**450 rows: 345 carry a file here, 105 are covered elsewhere** (recounted Aug 16
+**452 rows: 346 carry a file here, 106 are covered elsewhere** (recounted Aug 16
 from the table itself — the audit-era "121 here, 198 elsewhere" had gone stale
 across the briefs listed below). (The audit's 247 plus
 the rows later briefs added: W02-W05, design 194 unit 4; W06-W19, design 195
@@ -28,7 +28,7 @@ files auditable as the ONLY gap it had to fill; U31-U36, design 226 unit 2's
 closed-construction rows; R43-R44, the two STORE positions DF-216e's fix
 closed; B18-B19, DF-232n's relative-path package identity; B20-B22, the Aug-21
 signature-visibility ruling; W20-W24, design 205 unit 1's transfer-position
-matrix.)
+matrix; K70-K71, design 218 unit 2's scope-end migration.)
 
 ## How to read it
 
@@ -479,6 +479,8 @@ Claim source: spec 6 *Send and Sync* + *Cooperative tasks*; designs 75, 88, 103,
 | K67 | a quiescent channel deadlock is REPORTED, not waited out | `K67_quiescent_channel_deadlock_is_reported.saw` | 230 unit B — design 225's D-e, buildable at last: the state it keys on was unreachable while a channel wait suspended READY (DQ-225n), and unit A's park created it. Sound by elimination rather than heuristic — no ready or active frame, no io registration, no timer, no readiness word set, no unjoined `spawn {}` task — because a resume-counting heuristic cannot tell a permanent wait from design 127's force-yielded long computation |
 | K68 | control: the deadlock report does NOT fire while anything could still run | `K68_deadlock_report_does_not_fire_on_a_live_program.saw` | 230 unit B, and the half that matters more — an abort that fires on a correct program is worse than the hang it replaces. One satisfiable wait per source the walk must account for: a sleeping sibling, a `spawn {}` thread-engine task (which no run queue knows about at all, so the walk counts them separately), and an MT-group task |
 | K69 | cancellation reaches a task PARKED in `receive()` | `K69_cancel_reaches_a_parked_channel_receive.saw` + `channel_receive_cancel_mt.saw` | DF-230a — the one park in std that did not observe cancellation, so `h.cancel()` on a waiting consumer turned into a hang at the group's `Deinit`. Two halves that only work together: the receive checks at its loop top (`Err(Cancelled)`) and the executor wakes a cancelled parked frame, which design 230 correctly refused to do while no check existed. The check is ahead of the dequeue, so the row also pins that a cancelled receive takes no further message; the MT file is the second engine, whose worker promotes in its own under-the-lock scan |
+| K70 | a frame-resident local of a DRIVEN body is released at the end of the scope that owns it, per scope kind | `K70_driven_scope_end_release_matrix.saw` | DF-217p, ruled Aug 20 — deterministic destruction is unconditional, so the driven twin must agree with the sync twin. The transform lifts an across-suspend local into a frame FIELD and a field lived until the frame died, so a `File` bound in a driven loop stayed open for the rest of the frame; the counts always balanced, which is why the corodiff matrix filed 66 cells of it as DEINIT-ORDER and never as LEAK. Seven scope kinds (SC2-SC8 of designs/218b-scope-end-spec.md), each as a twin pair differing only by a `yield_now()` — so the EXPECT block IS the parity claim |
+| K71 | a SYNC loop releases the iteration's locals on the `break` and `continue` edges | `loop_exit_releases_body_local.saw` | DF-218r — the other half of K70's guarantee, and its ORACLE: `return` ran `_cleanup_all_scopes` while `break`/`continue` branched to the loop's exit block with no scope cleanup at all, so the iteration's locals LEAKED (counts unbalanced). Five cells: break, continue, the `return` control, a break from a NESTED block (two scopes, LIFO), and a range-`for`'s continue |
 
 ## Visibility and module boundaries
 
