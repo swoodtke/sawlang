@@ -7564,6 +7564,19 @@ class _FrameBuilder:
         elif value is not None:
             seq.append(self._store_result(value))
         seq.extend(self._forgets(forgets))
+        # E-RET (design 218b): every open scope releases here, innermost first,
+        # AFTER the result store (so a `return move local` still has its value
+        # to hand back) and AHEAD of `release()`. `release()` survives as the
+        # backstop — it finds these slots empty and drops only what no scope
+        # owned, which is the params plus any field on a path the scope walk
+        # could not prove.
+        #
+        # This restores scope order among the FRAME's own fields. It cannot
+        # order them against codegen's REAL locals (DF-218s): codegen's
+        # `_cleanup_all_scopes` runs at the lowered `return Poll.Done`, i.e.
+        # after every statement the transform is able to emit, so nothing put
+        # here can land after a real local's drop.
+        seq.extend(self._scope_release_all())
         seq.append(self._release_call())
         done_lit = _int(0)  # patched to the done-state marker after CFG assembly
         self._done_lits.append(done_lit)
