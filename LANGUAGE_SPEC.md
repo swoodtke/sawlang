@@ -8187,6 +8187,74 @@ Consequences:
   genuinely-shared std internals are marked `public(package)` (std is the
   package). User code is always a separate module from std.
 
+#### Signature visibility: a public API needs public types
+
+A declaration may not name a type less visible than the declaration's own
+reach. A `public` function's parameters and return type are `public`; a
+`public(package)` declaration's signature names types that are at least
+`public(package)`; a `public` field's type is at least as visible as the field.
+A private declaration may name anything, because nothing it names can leave the
+module.
+
+```saw
+struct Hidden {
+    n: Int
+}
+
+public func give() -> Hidden {
+    Hidden(n: 2)
+}
+```
+
+```
+error: function `give` is public, but the return type names `Hidden`, which is
+       private — a public API needs public types
+hint: either widen the type — mark the struct `Hidden` `public` — or narrow the
+      declaration, so its signature stays where `Hidden` can be named. A caller
+      that can reach a declaration must be able to name every type in its
+      signature
+```
+
+The refusal is at the declaration, which is where both fixes live. Without it a
+caller holds a value it cannot name: the type is not in scope, so there is no
+annotation to write, no way to declare a field of it, and no way to pass it on.
+The rule reads the modifier as written, so it applies inside a single-module
+program as much as across a package boundary — the same discipline a `public`
+generic follows when it has to declare the tier it requires.
+
+Every position where a declaration names a type is covered: a parameter, a
+return type, the type a `borrows` accessor lends, a struct field, an enum case
+payload, a `static`'s type, a `type` alias's target, a trait requirement's
+signature, a generic parameter's bound and its default, a trait's parent, and
+an extension's associated-type assignment. A type ARGUMENT is a named type like
+any other, so `Vector<Hidden>` exposes `Hidden` exactly as a bare `Hidden`
+does.
+
+A member's reach is capped by the type it belongs to. A `public` member of a
+non-public struct is already inert (above), so its effective reach is the
+struct's, and the rule asks no more of it than that:
+
+```saw
+struct Inner {
+    n: Int
+}
+
+extension Inner {
+    public func widen(&self) -> Hidden {   // fine: `Inner` is private, so this
+        Hidden(n: self.n * 3)              // method is unreachable from outside
+    }
+}
+```
+
+Enum case payloads follow their enum's tier, and a trait requirement follows
+its trait's, since neither carries a modifier of its own. An extension's own
+generics and its associated-type assignments are judged at the widest reach
+among its members, which is what a caller meets.
+
+Function BODIES are outside the rule. A local, a `let` annotation, a temporary
+and a closure's inferred type are not on the declaration's surface, and every
+use of a member is already gated where it happens.
+
 #### Extension scoping (design 142)
 
 Visibility says whether a member MAY be reached. Scoping says whether it is

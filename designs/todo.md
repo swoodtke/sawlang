@@ -50,7 +50,6 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-232d — `mod.STATIC = v` assignment position (entry below) — FOLDED into the small-fix batch (mechanism read, fix unambiguous: route a qualifier-object MemberAccess assignment target to the static path)
 - DF-232e — import-cycle diagnostic (entry below) — FOLDED into the small-fix batch (mechanism read, fix is the diagnostic)
 - DF-232g — imported-const static folding (entry below) — FOLDED into the small-fix batch (matrix probed; the const-static collector must resolve imported const names)
-- DF-232o face 2 — RULED Aug 21 (user): "a public API needs public types" — a declaration may not name a type LESS VISIBLE than the declaration's own effective reach; declaration-site refusal (Rust E0446 shape, design 219's public-declaration precedent). Fix DISPATCHED (branch private-in-public): the signature-visibility funnel, corpus sweep (contract flip: the value path currently ALLOWS), place-lowering identity verified or fixed behind it (entry below; face 1 closed Aug 20)
 - DF-235a — a constant EXPRESSION source reaching a plain array-literal element or a Result payload slot ICEs at codegen (entry below; found by design 235's coercion-adoption grid) — FOLDED into the small-fix batch (same funnel as 235b)
 - DF-235b — a constant EXPRESSION source is never range-checked at MOST fixed-width positions (silent truncation or silent over-width storage), and is spuriously refused at compound-assign's RHS (entry below; same funnel gap as DF-235a) — FOLDED into the small-fix batch; NOTE: silent truncation cuts against the "bounds/overflow checks always on" language claim, so this is the batch's priority item
 - Extension-head visibility — RULED Aug 20: BANNED, visibility belongs on members; ~107-site migration rides the small-fix batch after 239 (entry below; the narrowing landed before the ban, leaving the one `public(package) extension Console` head untouched for the batch)
@@ -699,8 +698,8 @@ and unaffected, and `libs/toml/src`), and kcore's siblings import each other as
 ## DF-232o — a visibility-refused TYPE re-resolves as a distinct same-named
 ## type: "expects `SosStatus` but got `SosStatus`" cascades, and a private
 ## type surfaces as place/optional errors with NO visibility line (filed
-## Aug 20, the re-narrowing audit) — FACE 1 CLOSED Aug 20, FACE 2 OPEN
-## (a ruling on private-in-public is owed)
+## Aug 20, the re-narrowing audit) — FACE 1 CLOSED Aug 20, FACE 2 CLOSED
+## Aug 21 (the private-in-public ruling landed)
 
 One mechanism, two faces. When a type name is refused by tier, the checker
 does not stop at the refusal — the name re-resolves to a
@@ -739,8 +738,8 @@ compile. PINS: `examples/package_tier_refused_type_no_cascade_error.saw` and
 `// EXPECT-ERROR-ABSENT:` (TESTING.md) — a fix that is about lines NO LONGER
 PRINTED cannot be pinned by `EXPECT-ERROR-CONTAINS` alone.
 
-FACE 2 (the place path) OPEN — STOPPED AND REPORTED rather than patched, because
-what it needs is a RULING. THE MECHANISM, probed (`--module-path` fixture, a
+FACE 2 (the place path) WAS OPEN — STOPPED AND REPORTED rather than patched,
+because what it needed was a RULING. THE MECHANISM, probed (`--module-path` fixture, a
 module-private `Hidden` behind a public `Carrier`):
   * a module-private type's VALUE flows out today and its `public` methods are
     callable: `c.get().doubled()`, `c.get().n` and a `public` field of that type
@@ -768,6 +767,56 @@ type — and the place case then COMPILES, so nothing says "visibility" and the
 brief's success criterion for this face is the wrong target. If NO, the refusal
 belongs on the VALUE path too, which is a new rule owing a corpus sweep (std and
 blade both return module-private types today). Deliberately not decided here.
+
+RULED Aug 21 (user): **"a public API needs public types."** NO — a declaration
+may not name a type LESS VISIBLE than its own effective reach, refused at the
+DECLARATION (Rust's E0446 shape, on design 219's precedent that a `public`
+declaration hard-requires what an internal one may infer). So the refusal moves
+onto the VALUE path too, and the place case never arises.
+
+FACE 2 CLOSED Aug 21 (branch `private-in-public`). THE FUNNEL is
+`sawc/typechecker/sigvis.py` — one decision procedure over one position matrix
+(16 rows, each naming its covering test), entered from `check` and
+`check_module` at the same seam; the reach comparison REUSES design 80's
+relation (tier ranks for "at least as wide", `visibility_relation_allows` for
+"and the same scope") rather than restating it. A member's reach is CAPPED by
+its type, so design 80's "legal but inert" stays true and the rule asks nothing
+extra of a public member of a private struct. A `borrows` accessor is judged on
+`place_type`, so no diagnostic names the synthesized `__window`. Three
+compiler-registered prelude symbols (`String`, the primitive pseudo-structs,
+`Result`) now say `public`: they had no declaration to read a tier off, and the
+PRIVATE default refused every signature naming a `Result`.
+
+THE CORPUS SWEEP (obligation 2 — a contract flip) found EIGHT sites across
+suite + sos + bootstrap + a forced `sawc/rt/` rebuild. Five WIDEN THE TYPE:
+std's `StringBytes`/`StringChars`/`VectorIterator`/`EnumeratedIterator` (the
+iterators `for x in v.iter()` consumes — `std.data`'s `DataIterator` was
+already `public`, fields stay private), `libs/toml`'s `TomlTable` (its own
+init/get/add and both `TomlSection` accessors are `public`; it WAS `public`
+until 718a9784, the DF-232f rider's file-local narrowing that DF-232q found
+inverted), sos `WaitAnswer` and `ProcessSlot` + the fields their sibling
+modules read. One NARROWS THE DECLARATION: `pkg232n`'s `make_box`, a fixture
+written to exhibit the leak. Side-finding, recorded not filed: the two sos
+widenings turned the FIELD gate on where it had been bypassed — while those
+structs were private a sibling module read their private fields with no
+diagnostic, and the only route to that was a private-in-public leak, which the
+type-level rule now refuses.
+
+THE RESIDUE, probed rather than assumed: the `__window` failure cannot be
+produced by legal code (pinned by `EXPECT-ERROR-ABSENT: __window` in
+conformance B22), and the parse-time `place_type` identity gap does NOT
+misbehave for LEGAL same-named cross-module types — a `public Cell` lent across
+a boundary keeps its identity through a read, a write in place, a conditional
+lend and a forced one, beside the caller's own unrelated `Cell`
+(`examples/place_cross_module_same_name_type.saw`). Nothing to fix there.
+
+PINS: conformance rows B20 (refusal) + B21 (control: the cap and the private
+declaration) + B22 (the cross-module face) added FIRST, over the new fixture
+`examples/conformance/modules/hidden232o/`; the position matrix at
+`examples/private_in_public_positions_error.saw` and
+`…_extension_surface_error.saw`; a declaration-side row family added to
+`examples/module_matrix/INDEX.md` grid 2. Gate: full suite 2087 passed /
+29 xfailed, sos_runner 80/80 across riscv32 + arm64, blade bootstrap green.
 
 ## DF-232p — a refused CALL swallows a refusal in its own ARGUMENT (filed
 ## Aug 20, the re-narrowing audit; diagnostic completeness — filed "minor",

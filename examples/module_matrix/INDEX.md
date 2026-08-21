@@ -97,6 +97,27 @@ file, so the mechanism is not re-derived per kind five more times.
 | `public(package)` | cross package (`--module-path`-mapped) | qualified, selective, one-hop facade, two-hop facade, glob facade, whole-module facade | `existing: module_path_package_visibility_error.saw`, `module_path_qualified_no_widen_error.saw`, `module_path_reexport_no_widen_error.saw`, `module_path_reexport_twohop_no_widen_error.saw`, `module_path_reexport_kinds_no_widen_error.saw`, `module_path_glob_facade_no_widen_error.saw`, `module_path_whole_facade_no_widen_error.saw`, `module_path_facade_selection_error.saw` (conformance row B15 — every spelling refuses, no widening) |
 | `public(package)` | reached via a RELATIVE-path import (no `--module-path`, no package-root identity on either side) | qualified | RED (DF-232n): `visibility_package_relative_import_fails_open.saw` |
 
+**A SECOND QUESTION joined this grid on Aug 21** ("a public API needs public
+types"). Every row above asks whether an ACCESS may reach a name; the ruling
+adds whether a DECLARATION may name one — a declaration may not name a type
+less visible than its own effective reach, refused where it is written. It is
+the same tier relation (`Namespace.visibility_relation_allows`) asked from the
+declaration side, so it belongs here rather than in a grid of its own; the
+position axis (which declared slots name a type) is the funnel's own matrix,
+`SignatureVisibilityMixin.SIGNATURE_VISIBILITY_POSITIONS` in
+`sawc/typechecker/sigvis.py`.
+
+| Tier of the declaration | Tier of the type it names | Cell |
+|---|---|---|
+| `public` | private, same module | `existing: conformance/B20_private_type_in_public_signature_error.saw`; all sixteen declared positions at `existing: private_in_public_positions_error.saw` + `private_in_public_extension_surface_error.saw` |
+| `public` | private, across a module boundary (value path AND design-141 place path) | `existing: conformance/B22_private_type_escapes_module_error.saw` |
+| `public` | `public(package)` | `existing: private_in_public_positions_error.saw` (`pkg`) |
+| `public(package)` | `public(package)`, same package | `existing: module_tests/pkg232n/tests/package_tier_same_package_reach.saw` (`make_box`, narrowed to the tier of what it returns by this ruling) |
+| private | anything | `existing: conformance/B21_private_declaration_names_anything.saw` |
+| `public` member | of a NON-public type (design 80's "legal but inert" cap) | `existing: conformance/B21_private_declaration_names_anything.saw` |
+
+**Cell counts, the declaration-side rows**: 6 green, 0 red, 0 N/A, 0 OPEN.
+
 **The DF-232n row is the one genuine red cell this grid adds.** Every
 `public(package)` row above that refuses correctly does so because BOTH
 sides carry a `--module-path`-mapped package-root identity; the moment

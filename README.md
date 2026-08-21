@@ -393,6 +393,13 @@ nobody else — or `public(parent)`, visible to the enclosing module. Struct
 fields and extension methods are private by default outside their defining
 module, and `public` marks the API surface.
 
+A public API needs public types. A declaration may not name a type less
+visible than itself, so a `public` function's parameters and return type are
+`public` and a `public(package)` one's are at least `public(package)`. The
+refusal is at the declaration and offers both fixes, widen the type or narrow
+the declaration; a private declaration may name anything. Otherwise a caller
+ends up holding a value with no name it can write.
+
 Type identity is the defining module plus the name, so a dependency's private
 `struct Header` reserves nothing in your program, and two packages' public
 `Header`s coexist; import one under an alias

@@ -2132,6 +2132,32 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
   (3) `public` on a member of a private struct is legal but inert. std is
   under the gate too — you reach its public API, never its internals; each std
   FILE is its own module (design 82), so std internals are private per-file.
+- **A PUBLIC API NEEDS PUBLIC TYPES** (user ruling, Aug 21). A declaration may
+  not name a type LESS VISIBLE than its own reach: a `public func`'s parameters
+  and return are `public`, a `public(package)` declaration's signature types are
+  at least `public(package)`, a `public` field's type is at least as visible as
+  the field. Refused AT THE DECLARATION, naming the type, both tiers and the two
+  fixes:
+  ```saw
+  struct Hidden { n: Int }
+  public func give() -> Hidden { Hidden(n: 2) }
+  // error: function `give` is public, but the return type names `Hidden`,
+  //        which is private — a public API needs public types
+  // hint: either widen the type — mark the struct `Hidden` `public` — or
+  //       narrow the declaration ...
+  ```
+  A PRIVATE declaration names anything, and a `public` member of a non-public
+  type is capped at that type (gotcha 3 above), so the rule asks nothing extra
+  there. Covers every position a declaration NAMES a type — parameter, return,
+  the type a `borrows` accessor LENDS, struct field, enum case payload,
+  `static`, `type` alias target, trait REQUIREMENT (the trait's tier is the
+  bar), a generic parameter's BOUND and DEFAULT, a trait's parent, an
+  extension's associated type — and a type ARGUMENT counts, so `Vector<Hidden>`
+  exposes `Hidden` like a bare one. Function BODIES are untouched. Judged on the
+  modifier AS WRITTEN, so it fires in a single-file program too: one more reason
+  not to cargo-cult `public` there (gotcha 1). The shape it retires is a value a
+  caller can hold and cannot NAME — which used to compile on the value path and
+  fail on the PLACE path with an unrelated `__window` type mismatch.
 
 ## Allocation failure (design 123 — one policy, two tiers)
 An **infallible signature PANICS** on allocator exhaustion, naming its method
