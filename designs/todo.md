@@ -225,6 +225,15 @@ this surfaced in the freestanding suite and not in the compiler suite.
 MECHANISM (obligation 4): the qualified free-function call path resolves the
 callee but does not thread its signature into argument checking, so the
 expected-type propagation every other call shape performs simply does not run.
+
+WHY IT IS SILENT RATHER THAN AN ERROR, and this is a COMPOSITION with a finding
+already on this tracker: the literal that never adopted stays a platform `Int`,
+and `_types_compatible` admits a platform `Int`/`UInt` into any integer type —
+which is DF-195b, filed and pinned separately. 238a is why the literal is still
+an `Int` at the call; 195b is why an `Int` may land in a `UInt8` with nothing
+said. Fixing EITHER turns the 44 into a diagnostic; fixing 238a is the one that
+makes it the RIGHT diagnostic, at the literal and naming the range. Whoever
+takes one should read the other first.
 POSITION MATRIX, probed with compile/run evidence on both targets:
 
 | spelling | literal adopts + range-checks? |
