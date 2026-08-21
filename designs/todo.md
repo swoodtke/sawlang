@@ -47,7 +47,6 @@ for sawos; "238 before more M3 work" is absolute.
 
 - `public(package) import` — should the scoped re-export form exist? Refused today (design 229). Real use case: an INTERNAL PRELUDE, one sibling aggregating names for the others (Rust's `pub(crate) use`). Against: siblings can already import each other directly, so it buys convenience, not capability — and kcore, the biggest multi-file package and the one that motivated the tier, does NOT want it (its `public import` block is the EXTERNAL facade). Wait for a package that feels the pain (entry: the re-narrowing rider section)
 - DF-239b — deep argument typing unchecked on the generic-bound call path (entry below, beside DF-239a)
-- DF-232d — `mod.STATIC = v` assignment position (entry below) — FOLDED into the small-fix batch (mechanism read, fix unambiguous: route a qualifier-object MemberAccess assignment target to the static path)
 - DF-232e — import-cycle diagnostic (entry below) — FOLDED into the small-fix batch (mechanism read, fix is the diagnostic)
 - DF-232g — imported-const static folding (entry below) — FOLDED into the small-fix batch (matrix probed; the const-static collector must resolve imported const names)
 - DF-240a — a const expression whose LEAF is a module `static` still does not adopt its fixed-width slot (entry below) — WANTS A RULING, filed by design 240 items 1-2's own sweep
@@ -1027,6 +1026,7 @@ first). [232, design 82/150]
 
 ## DF-232d — ASSIGNMENT THROUGH A MODULE QUALIFIER is the one member-access
 ## position that does not resolve (filed Aug 17, the kcore split's unit-0 probe)
+## — CLOSED Aug 21, design 240 item 6 (branch `design-240`)
 
 `mod.STATIC = v` from another module is `error: undefined variable `mod``,
 pointed at the assignment. READING the same static works, and so does every other
@@ -1085,6 +1085,37 @@ probe) `mod.X += v` — ✗ (ICE, codegen). PINS:
 design 235's grid 2; the array/field-write ICE is the SAME
 `qualname_mod_static.saw` neighborhood — see that ledger's INDEX.md for the
 full cell list rather than restating it here).
+
+LANDED Aug 21 (design 240 item 6). TWO layers, as the corrected matrix said.
+TYPECHECK: `_qualified_static_symbol` is the one place that asks "does this
+member access name a module static", and two callers use it — the
+static-root walk (`_assign_target_static_root`, where a qualified static is
+now the ROOT rather than something to peel past, which is what keeps the
+IMMUTABLE refusal honest) and `_check_assign_statement`, which routes a
+mutable one to `_check_static_var_assign` beside the bare spelling. Design
+150 pin 4 rides along free: the helper asks `_module_qualifier`, so a local
+named after the qualifier still wins (probed — `let qdep = 7` then
+`qdep.X = 5` is "cannot assign to field of immutable variable `qdep`").
+CODEGEN: `_static_global` answers for the qualified stamp
+(`resolved_static_name`) as well as the bare one, and the three address
+paths that bypassed the lvalue funnel now ask it — `_get_lvalue_pointer`'s
+MemberAccess arm, `_generate_reference_expr`'s, and
+`_get_array_element_pointer`'s — plus a `mod.NAME = v` arm in
+`_generate_assign_statement` and a compound-assign arm that goes through
+`_get_lvalue_pointer` instead of straight to `_get_member_pointer`.
+MATRIX (probed, all green): `mod.X = v`, `+=`, `&var`, `&`, `mod.ARR[i] = v`,
+`mod.ARR[i] += v`, `&var mod.ARR[i]`, `mod.CELL.v = v`, `+=`, `&var
+mod.CELL.v`, the plain read, the by-value argument, and the immutable
+refusal. ONE SIBLING the sweep found and fixed with it:
+`&STATIC_ARR[i]` on a BARE static raised "Undefined variable" too —
+`_get_array_element_pointer`'s Identifier arm was the only address path that
+never learned about statics at all.
+PINS (renamed for the behaviour they now pin, un-XFAIL'd):
+`qualname_mod_static_assign.saw`, `_compound_assign.saw`, `_refarg.saw`,
+`_elem_write.saw`, plus the new `_immutable_error.saw`; the fixture gained a
+`Cell` and an immutable `K`. Grid 2's row is green in
+`examples/coercion/INDEX.md`, and grid 1's module-qualified-static-assign row
+with it.
 
 ## SOS M3 — scoping session RATIFIED (designs/232), unit 1 BUILT
 

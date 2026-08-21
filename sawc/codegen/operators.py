@@ -1352,6 +1352,13 @@ class OperatorsMixin:
                 raise ValueError("'self' not available in this context")
             return self.variables["self"]
         elif isinstance(inner_expr, MemberAccess):
+            # `&mod.STATIC` / `&var mod.STATIC` (DF-232d): the qualified
+            # spelling of the `&STATIC` lend the Identifier arm above gives,
+            # asked before the field GEP — which would resolve the qualifier as
+            # a value and find it names none.
+            gv = self._static_global(inner_expr)
+            if gv is not None:
+                return gv
             # Reference to struct field - get GEP pointer
             return self._get_member_pointer(inner_expr)
         elif isinstance(inner_expr, ArrayIndex):
@@ -1407,12 +1414,24 @@ class OperatorsMixin:
         # Obtain a pointer to the container's storage.
         if isinstance(container_expr, Identifier):
             if container_expr.name not in self.variables:
-                raise ValueError(f"Undefined variable: {container_expr.name}")
-            container_ptr = self.variables[container_expr.name]
+                # A module STATIC's global IS its storage — the same answer
+                # `_get_lvalue_pointer` gives, and the reason `&ARR[i]` on one
+                # is a lend of the real element rather than "Undefined
+                # variable" (DF-232d's sweep).
+                gv = self._static_global(container_expr)
+                if gv is None:
+                    raise ValueError(f"Undefined variable: {container_expr.name}")
+                container_ptr = gv
+            else:
+                container_ptr = self.variables[container_expr.name]
         elif isinstance(container_expr, SelfExpr):
             container_ptr = self.variables["self"]
         elif isinstance(container_expr, MemberAccess):
-            container_ptr = self._get_member_pointer(container_expr)
+            # `&mod.ARR[i]` — the qualified static's global, asked before the
+            # field GEP (DF-232d).
+            gv = self._static_global(container_expr)
+            container_ptr = (gv if gv is not None
+                             else self._get_member_pointer(container_expr))
         elif isinstance(container_expr, ArrayIndex):
             container_ptr = self._get_array_element_pointer(container_expr)
         else:

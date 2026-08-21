@@ -1,0 +1,19 @@
+// Position matrix (design 235), grid 2 — `mod.STATIC` × compound-assign.
+// `mod.STATIC += v` reads and writes the same storage the plain assignment
+// does (see qualname_mod_static_assign.saw).
+//
+// This row used to be WORSE than the plain assignment it was filed beside: the
+// typechecker accepted it (the target is checked as an ordinary READ, which
+// resolves a qualifier fine) and codegen then tried to address the qualifier as
+// a value, dying `Undefined variable: mod` (DF-232d's Aug 20 correction). The
+// compound path now takes the same lvalue funnel every other write does.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: 6
+
+import modules.qualname_static_dep
+
+func main() unsafe {
+    qualname_static_dep.X += 5
+    print("{qualname_static_dep.X}")
+}

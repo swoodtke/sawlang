@@ -65,7 +65,7 @@ covered once, here.
 | assign — local | `existing: assignment_target_adopts_fixed_width.saw` | `existing: assignment_target_adopts_fixed_width.saw` ("folded" row, in-range) + `const_expression_range_checked_narrow.saw` |
 | assign — field | `existing: assignment_target_adopts_fixed_width.saw` | `adopt_assign_field_const.saw` (in-range) + `const_expression_range_checked_narrow.saw` |
 | assign — field-through-element | `existing: assignment_target_adopts_fixed_width.saw` | `adopt_assign_field_const.saw` (in-range) + `const_expression_range_checked_narrow.saw` |
-| module-qualified static assign | RED (DF-232d): see grid 2, `mod.STATIC` × assign | RED (DF-232d): see grid 2 — the assign target itself never reaches an RHS-source question |
+| module-qualified static assign | `existing:` see grid 2, `mod.STATIC` × assign | `existing:` see grid 2 — the target routes to the static path, where the RHS takes the same funnel every other assignment's does |
 | static initializer | `adopt_static_initializer.saw` | `adopt_static_initializer.saw` (in-range) + `const_expression_range_checked_narrow.saw` |
 | argument — positional | `adopt_argument_return.saw` | `adopt_argument_return.saw` (in-range) + `const_expression_range_checked_narrow.saw` |
 | argument — labeled | `adopt_argument_return.saw` | `adopt_argument_return.saw` (in-range) + `const_expression_range_checked_narrow.saw` |
@@ -110,12 +110,11 @@ the same funnel's coverage:
   enum case's, and design 185 unit 4 says a flag-enum read is a constant only IN
   a const position.
 
-**Cell counts, grid 1** (22 positions × 8 sources = 176 nominal cells): 43
-green (own file or a same-shape existing-file cite: 21 on S1 + 22 on S3 —
+**Cell counts, grid 1** (22 positions × 8 sources = 176 nominal cells): 44
+green (own file or a same-shape existing-file cite: 22 on S1 + 22 on S3 —
 every position the adoption funnel serves, since design 240 gave it the
-const-expression case), 1 red (on S1 — the module-qualified static assign
-row, which points at grid 2's DF-232d cells rather than duplicating them),
-132 cited (S2's 22 cells plus S4-S8's 110 cells, all pointing at
+const-expression case and turned grid 2's `mod.STATIC` row green),
+0 red, 132 cited (S2's 22 cells plus S4-S8's 110 cells, all pointing at
 `adopt_typed_source_sweep.saw` or the row's own S1 file per the Conventions
 note above), 0 OPEN. Two SUPPLEMENTARY cells outside the 176 (enum raw
 value × S6/S7) are green (correctly refused, no ICE); two more (enum raw
@@ -140,14 +139,20 @@ saw-lang skill's own note).
 | local | `qualname_local.saw` | `qualname_local.saw` | `qualname_local.saw` | `qualname_local.saw` | `qualname_local.saw` |
 | `obj.field` | `qualname_obj_field.saw` | `qualname_obj_field.saw` | `qualname_obj_field.saw` | `qualname_obj_field.saw` | `qualname_obj_field.saw` |
 | `arr[i].field` | `qualname_arr_elem_field.saw` | `qualname_arr_elem_field.saw` | `qualname_arr_elem_field.saw` | `qualname_arr_elem_field.saw` | `qualname_arr_elem_field.saw` |
-| `mod.STATIC` | `qualname_mod_static.saw` | RED (DF-232d): `qualname_mod_static_assign_error.saw` | RED (DF-232d): `qualname_mod_static_compound_assign_ice.saw` | RED (DF-232d): `qualname_mod_static_refarg_ice.saw` | RED (DF-232d): `qualname_mod_static_write_ice.saw` |
+| `mod.STATIC` | `qualname_mod_static.saw` | `qualname_mod_static_assign.saw` | `qualname_mod_static_compound_assign.saw` | `qualname_mod_static_refarg.saw` | `qualname_mod_static_elem_write.saw` |
 
-**Cell counts, grid 2**: 16 green, 4 red (all DF-232d, all pinned above), 0
-N/A, 0 OPEN. The `mod.STATIC` row is the one DF-232d's Aug 20 correction
-widened: the finding's original matrix marked three of these four
-operations working; design 235's direct compile evidence found only READ
-actually is, on today's tree, via a plain relative import AND via
-`--module-path` alike.
+One row outside the operation cross, because a refusal cannot share a file
+with a passing statement: an IMMUTABLE static reached through a qualifier is
+refused in the bare spelling's own words and names the qualified spelling —
+`qualname_mod_static_immutable_error.saw`.
+
+**Cell counts, grid 2**: 20 green, 0 red, 0 N/A, 0 OPEN. The `mod.STATIC` row
+is the one DF-232d's Aug 20 correction widened — the finding's original matrix
+marked three of these four operations working and design 235's direct compile
+evidence found only READ actually was — and design 240 item 6 turned the whole
+row green: a module-qualified static is now the ROOT of a write target rather
+than something to peel past, and its global is the address every write and
+reference shape resolves to.
 
 **Why `mod.STATIC`'s place-window cell has no Vector/Map fixture.** A
 `borrows`-accessor-backed container (`Vector`, `Map`) cannot BE a module
@@ -159,7 +164,9 @@ cell is tested through a fixed-array ELEMENT WRITE instead
 (`mod.ARR[i] = v`) — the same shape DF-232d's own original matrix used for
 this row, kept for continuity even though a plain fixed-array index is,
 strictly, outside the `borrows`-window mechanism the other three access
-paths exercise through a `Vector`.
+paths exercise through a `Vector`. The FIELD hop into a qualified static
+(`mod.CELL.v = v`) rides the same file, since it is the other way storage
+inside one is reached.
 
 ## Findings filed by this ledger
 
@@ -178,13 +185,14 @@ paths exercise through a `Vector`.
   `const_expression_unary_adopts.saw` and
   `const_expression_signed_domain_error.saw` for the unary shapes and the
   fold domain's boundary.
-- **DF-232d correction** — the finding's "writes"/"refs" rows for
-  `mod.STATIC` do not hold; every write/reference shape through a
-  qualifier ICEs at codegen, not just the originally-filed plain
-  assignment (which refuses cleanly at typecheck). Pins:
-  `qualname_mod_static_assign_error.saw` (original),
-  `qualname_mod_static_compound_assign_ice.saw`,
-  `qualname_mod_static_refarg_ice.saw`, `qualname_mod_static_write_ice.saw`.
+- **DF-232d correction** (FIXED, design 240 item 6) — the finding's
+  "writes"/"refs" rows for `mod.STATIC` did not hold; every write/reference
+  shape through a qualifier ICEd at codegen, not just the originally-filed
+  plain assignment (which refused cleanly at typecheck). Regression tests:
+  `qualname_mod_static_assign.saw`,
+  `qualname_mod_static_compound_assign.saw`,
+  `qualname_mod_static_refarg.saw`, `qualname_mod_static_elem_write.saw`,
+  `qualname_mod_static_immutable_error.saw`.
 
 - **DF-240a** (OPEN, filed by design 240's own sweep) — a const expression whose
   leaf is a module `static` does not adopt, so it is not range-checked. Pin:

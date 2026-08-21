@@ -2161,6 +2161,17 @@ class StatementsMixin:
                     return node.name
                 return None
             if isinstance(node, MemberAccess):
+                # DF-232d: a module-qualified static IS the root — the walk must
+                # stop here rather than peel to the qualifier, which is a module
+                # NAME and not storage at all. Without this, `mod.K = v` on an
+                # immutable static peeled past the static and answered "no static
+                # root", and the write went on to be reported as `undefined
+                # variable `mod``.
+                qual_sym = self._qualified_static_symbol(node)
+                if qual_sym is not None:
+                    if getattr(qual_sym, 'is_var', False):
+                        return None
+                    return f"{node.object.name}.{node.member}"
                 node = node.object
             elif isinstance(node, ArrayIndex):
                 node = node.array_expr
@@ -2178,6 +2189,37 @@ class StatementsMixin:
         if sym is None or not getattr(sym, 'is_var', False):
             return None
         return sym
+
+    def _qualified_static_symbol(self, node):
+        """The StaticSymbol a `mod.NAME` member access denotes, or None
+        (DF-232d). THE one place that asks the question for a WRITE or a
+        REFERENCE target; the read path asks it for itself, in
+        `_check_member_access`.
+
+        A write target is the one member-access position that never reached the
+        qualifier. Every other consumer of `mod.X` goes through the general
+        expression path, which knows what a qualifier is; an assignment target
+        instead type-checks its OBJECT as an expression — right for `a.b.c = v`,
+        whose object is a value, and wrong for a module NAME, which is not one
+        and answers "undefined variable `mod`".
+
+        Design 150 pin 4 is honoured by asking `_module_qualifier`, which
+        consults a value binding of the name first, so a local called `mod`
+        shadows the qualifier here exactly as it does in a read.
+        """
+        from namespace import SymbolKind
+        if not isinstance(node, MemberAccess) or \
+                not isinstance(node.object, Identifier):
+            return None
+        module_sym = self._module_qualifier(node.object.name)
+        if module_sym is None or not module_sym.namespace:
+            return None
+        symbol = module_sym.namespace.resolve(
+            node.member, check_visibility=True,
+            accessor_module=self._accessor_vis_module(), through_import=True)
+        if symbol is None or symbol.kind != SymbolKind.STATIC:
+            return None
+        return symbol
 
     def _check_assign_rhs(self, stmt, target_type, slot_noun: str,
                           transfer_what: str):
@@ -2240,23 +2282,30 @@ class StatementsMixin:
                                    stmt.line, stmt.column)
         return value_type
 
-    def _check_static_var_assign(self, stmt, static_sym) -> None:
+    def _check_static_var_assign(self, stmt, static_sym,
+                                 display_name: Optional[str] = None) -> None:
         """Check `MUTABLE_STATIC = value` (design 149 unit a).
 
         Naming the static is what makes the writing function `unsafe`, so the
         contact is recorded here — the target of an assignment does not go
         through the identifier read path that records it everywhere else.
+
+        `display_name` is the spelling for the diagnostic and the unsafe-contact
+        note; it is the bare name for an `Identifier` target and `mod.NAME` for
+        the qualified one (DF-232d), which is the only difference between the
+        two spellings once the symbol is in hand.
         """
         target_type = static_sym.type
+        name = display_name or stmt.target.name
         # Codegen reads the place's type off the node (a static has no entry in
         # its variable tables) and its symbol off the same stamp every read site
         # writes.
         stmt.target.resolved_type = target_type
         if static_sym.mangled_name:
             stmt.target.resolved_static_symbol = static_sym.mangled_name
-        self._note_unsafe_static_contact(stmt.target.name, stmt.target)
+        self._note_unsafe_static_contact(name, stmt.target)
         self._check_assign_rhs(stmt, target_type,
-                               f"static `{stmt.target.name}`", "assignment")
+                               f"static `{name}`", "assignment")
 
     def _capture_write_root(self, target) -> Optional[str]:
         """If an assignment target writes into a closure's BY-VALUE capture,
@@ -2518,6 +2567,19 @@ class StatementsMixin:
             mutable_static = self._mutable_static_symbol(stmt.target.name)
             if mutable_static is not None:
                 self._check_static_var_assign(stmt, mutable_static)
+                return
+
+        # DF-232d: the same write, spelled through a module QUALIFIER. It is the
+        # same static and the same rule — only the way the name was found
+        # differs — so it takes the same arm rather than falling into the
+        # MemberAccess field-assignment arm below, which would type-check the
+        # qualifier as an expression and call the module undefined.
+        if isinstance(stmt.target, MemberAccess):
+            qual_static = self._qualified_static_symbol(stmt.target)
+            if qual_static is not None and getattr(qual_static, 'is_var', False):
+                self._check_static_var_assign(
+                    stmt, qual_static,
+                    f"{stmt.target.object.name}.{stmt.target.member}")
                 return
 
         # design 227: the write-target funnel — static root, capture write,

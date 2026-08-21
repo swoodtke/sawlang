@@ -1133,6 +1133,14 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         name = getattr(expr, 'name', None)
         if name is not None and name in self.static_globals:
             return self.static_globals[name]
+        # DF-232d: the MODULE-QUALIFIED spelling, `mod.NAME`. The typechecker
+        # tags the member on the member access exactly as it stamps the bare
+        # name on an identifier, so both spellings answer here and every
+        # write/reference position gets the address rather than trying to
+        # codegen the qualifier — which names no runtime value at all.
+        qualified = getattr(expr, 'resolved_static_name', None)
+        if qualified is not None and qualified in self.static_globals:
+            return self.static_globals[qualified]
         return None
 
     def _identifier_storage(self, expr):

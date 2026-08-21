@@ -1,7 +1,12 @@
 //! Fixture for grid 2's `mod.STATIC` access-path row (design 235). Compound
 //! mutable module state, reached by every consumer through the `dep.`
-//! qualifier a plain relative import binds.
+//! qualifier a plain relative import binds. `K` is the immutable member, for
+//! the refusal row.
 // EXPECT: skip
+
+public struct Cell { public v: Int }
 
 public unsafe static var X: Int = 1
 public unsafe static var ARR: [Int; 4] = [0; 4]
+public unsafe static var CELL: Cell = Cell(v: 0)
+public static K: Int = 3

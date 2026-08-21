@@ -472,6 +472,26 @@ class StatementsMixin:
                 self._revive_assigned_binding(stmt.target.name, var_type)
 
         elif (isinstance(stmt.target, MemberAccess)
+                and self._static_global(stmt.target) is not None):
+            # DF-232d: `mod.NAME = v` — the module-qualified spelling of the
+            # static write the Identifier arm above handles. Same storage (the
+            # static's global), same rules: a static is immortal and design 149
+            # admits only trivially-destructible types, so there is no old value
+            # to deinit and no drop flag to re-arm. Split out ahead of the field
+            # arm below, which would resolve the target's OBJECT as a value and
+            # find the qualifier names none.
+            target_ptr = self._static_global(stmt.target)
+            var_type = stmt.target.resolved_type
+            if var_type is not None:
+                if self._frame_owning_read_copy(stmt.value):
+                    value = self._generate_copy(value,
+                                                self._expr_type(stmt.value))
+                elif isinstance(stmt.value, Identifier) or \
+                        self._transfer_site_needs_copy(stmt.value):
+                    value = self._generate_copy_for_dest(value, var_type)
+            self._store_assigned_value(value, target_ptr, stmt.value)
+
+        elif (isinstance(stmt.target, MemberAccess)
                 and getattr(stmt.target, 'tuple_field_index', None) is not None):
             # NAMED-TUPLE element write `pair.x = fresh` (DF-151j): the label is
             # a position, so this is the tuple-slot store below under its other
@@ -849,8 +869,12 @@ class StatementsMixin:
                 self.builder.store(new_val, target_ptr)
 
         elif isinstance(stmt.target, MemberAccess):
-            # Field compound assignment: obj.field += value
-            field_ptr = self._get_member_pointer(stmt.target)
+            # Field compound assignment: obj.field += value — through the
+            # lvalue funnel rather than straight to `_get_member_pointer`, so a
+            # module-qualified static (`mod.N += v`) gets the same address every
+            # other write shape gets (DF-232d). Everything else routes on to
+            # `_get_member_pointer` exactly as before.
+            field_ptr = self._get_lvalue_pointer(stmt.target)
             current_val = self.builder.load(field_ptr, name="field_val")
             rhs = self._generate_expression(stmt.value)
             new_val = self._apply_compound_op(stmt.op, current_val, rhs, signed)

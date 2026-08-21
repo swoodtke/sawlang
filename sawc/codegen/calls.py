@@ -2697,6 +2697,15 @@ class CallsMixin:
         if isinstance(expr, SelfExpr) and "self" in self.variables:
             return self.variables["self"]
         if isinstance(expr, MemberAccess):
+            # DF-232d: `mod.NAME` names a module static, whose global IS its
+            # storage — the same answer the bare spelling gets one branch up.
+            # Asked BEFORE `_get_member_pointer`, which would resolve the base
+            # object as a value and die on the qualifier ("Undefined variable:
+            # mod"): that is what made every write and reference shape through a
+            # qualifier a codegen crash while the read worked.
+            qual_static = self._static_global(expr)
+            if qual_static is not None:
+                return qual_static
             return self._get_member_pointer(expr)
         if isinstance(expr, ArrayIndex):
             return self._get_element_pointer(expr)

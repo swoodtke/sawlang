@@ -1,0 +1,33 @@
+// Position matrix (design 235), grid 2 — `mod.STATIC` × `&var` argument.
+// `f(&var mod.STATIC)` lends the static's own storage, so the callee's write
+// lands on it — the qualified spelling of the `&STATIC` lend design 41 always
+// had. The SHARED form `f(&mod.STATIC)` is the same address, read-only, and
+// an ELEMENT of a qualified static array (`&var mod.ARR[i]`) lends its slot.
+//
+// Every one of these was a codegen crash until design 240 item 6 (DF-232d's
+// Aug 20 correction found the finding's "refs ✓" claim did not hold): the
+// typechecker accepted the reference and codegen tried to generate the
+// qualifier `Identifier` as an ordinary runtime value, which has none.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 20
+// 20
+// 7
+
+import modules.qualname_static_dep
+
+func bump(r: &var Int) {
+    r = 20
+}
+
+func peek(r: &Int) -> Int { r }
+
+func main() unsafe {
+    bump(&var qualname_static_dep.X)
+    print("{qualname_static_dep.X}")
+    print("{peek(&qualname_static_dep.X)}")
+    bump(&var qualname_static_dep.ARR[2])
+    qualname_static_dep.ARR[2] -= 13
+    print("{qualname_static_dep.ARR[2]}")
+}

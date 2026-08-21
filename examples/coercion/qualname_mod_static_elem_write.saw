@@ -1,0 +1,28 @@
+// Position matrix (design 235), grid 2 — `mod.STATIC` × place window, tested
+// through an element write on a fixed array (`mod.ARR[i] = v`), plus the FIELD
+// hop (`mod.CELL.v = v`) that reaches storage inside a qualified static.
+//
+// This is the exact shape DF-232d's original matrix marked working and design
+// 235's grid 2 found is not: it ICE'd in codegen, one layer below the
+// typechecker gap the finding was filed on. Both hops now resolve the
+// qualified static's global as the root and GEP from there.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 41
+// 42
+// 7
+// 8
+
+import modules.qualname_static_dep
+
+func main() unsafe {
+    qualname_static_dep.ARR[1] = 41
+    print("{qualname_static_dep.ARR[1]}")
+    qualname_static_dep.ARR[1] += 1
+    print("{qualname_static_dep.ARR[1]}")
+    qualname_static_dep.CELL.v = 7
+    print("{qualname_static_dep.CELL.v}")
+    qualname_static_dep.CELL.v += 1
+    print("{qualname_static_dep.CELL.v}")
+}

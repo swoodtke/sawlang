@@ -1,0 +1,21 @@
+// Position matrix (design 235), grid 2 — the REFUSAL the write path owes: an
+// IMMUTABLE static reached through a qualifier is refused in the same words
+// the bare spelling is refused in, and names the qualified spelling.
+//
+// The routing that made `mod.STATIC = v` work (design 240 item 6) had to carry
+// this with it, or the fix would have turned one wrong diagnostic into
+// another: the static-root walk peeled past a qualified static to the
+// qualifier, found no static root, and let the write fall through to
+// `undefined variable `mod``. A module-qualified static IS the root, so the
+// walk stops there.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign to static `qualname_static_dep.K`
+// EXPECT-ERROR-CONTAINS: statics are immutable
+
+import modules.qualname_static_dep
+
+func main() {
+    qualname_static_dep.K = 5
+    print("{qualname_static_dep.K}")
+}
