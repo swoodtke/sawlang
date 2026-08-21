@@ -1,6 +1,26 @@
 # Design 218b — unit 2 remainder: the scope-end release migration spec
 
-**Status: DRAFT (spec agent, Aug 21 2026). SPEC ONLY — no implementation.**
+**Status: RULED (user, Aug 21 2026) — ALL SIX open questions RATIFIED as
+recommended; implementation dispatched same day.**
+
+## RULINGS (user, Aug 21 — section 7's questions, ratified wholesale)
+
+1. Sync-LIFO is the contract at the done path — the scope-end ruling covers
+   ORDER, not only timing; DF-218s's inversion is fixed in stage C.
+2. DF-218r (the sync break/continue leak) lands as STAGE 0 of this unit —
+   the oracle is corrected before the loop face rests on it.
+3. The no-scope-structure boundary stands: panic releases nothing (sync
+   parity); box-teardown of a never-completed frame keeps reverse-declaration
+   order (it already exceeds the sync analog, process death).
+4. The scrutinee-temp pairing: the DF-210f forget survives on consuming
+   arms, the idempotent merge-point release closes the non-consuming half,
+   FAM_SCRUTINEE_TEMP stays a cited deferral, narrowed.
+5. DF-218e's fix is CONSUMPTION SYMMETRY — a generic template naming a
+   consumed suspending callee is itself consumed at the splice; the
+   obligation-4 sweep in section 4 is owed with it.
+6. Scope-end covers EVERY owning field, deferred families included, in the
+   legacy spelling via the shared release-shape helper — deterministic
+   destruction is UNCONDITIONAL, not gated on the Slot migration.
 
 Charter: design 218 unit 2's REMAINDER, per the process ruling that a spec
 agent documents the exact form first (218a is the precedent and the model),
