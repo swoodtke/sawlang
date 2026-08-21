@@ -197,6 +197,31 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # `("<std>",)`. Without it these modules had NO root, and the tier
         # fell through check_visibility's fail-open arm to plain `public`.
         self.mapped_packages: Set[str] = set(mapped_packages or ())
+        # ---------------------------------------------------------------- #
+        # DF-232o: THE POISON SET — type names this module was REFUSED.
+        #
+        # A refusal answers None, and a type name that resolves to nothing is
+        # not dropped: it becomes an opaque type of that same name (design 144
+        # canonicalization is total, because a bare name may be a type
+        # parameter or a forward reference). So the ONE true refusal is
+        # followed by a structural mismatch at every use — and the printer
+        # renders both sides short, which is how "field `status` expects type
+        # `SosStatus` but got `SosStatus`" happens, 100+ times, burying the
+        # line that says what is actually wrong.
+        #
+        # Once a name is refused HERE, every later disagreement about it is
+        # that refusal's shadow. `_types_compatible` — the one place two types
+        # are judged — answers compatible for a poisoned name, so the cascade
+        # never starts. The compile still fails: the refusal was reported.
+        #
+        # Populated at the two places a TYPE reference is refused by tier: the
+        # selective import (`check_module`), and the qualified spelling
+        # (`_resolve_qualified_symbol` -> `_note_type_refusal`, which also
+        # keeps the refusal itself so `_check_qualified_type_resolves` can say
+        # "is public(package) in `m`" instead of "does not resolve").
+        # ---------------------------------------------------------------- #
+        self._poisoned_type_names: Set[str] = set()
+        self._type_refusals: Dict[str, object] = {}
         # DF-232n: module path -> package identity, for every module the driver
         # loaded (`ModuleResolver.package_identity`). A package reached by
         # RELATIVE path has no mapped name to root it at, so this is what makes
@@ -1079,6 +1104,32 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         top-level visibility rules."""
         return self.namespace.visibility_relation_allows(
             def_module, visibility, accessor, package_root)
+
+    def _note_type_refusal(self, written: str, refusal) -> None:
+        """Record that a TYPE reference was refused by tier (DF-232o).
+
+        Two things come of it, and both are about the diagnostics downstream:
+        `_check_qualified_type_resolves` names the TIER instead of saying the
+        name "does not resolve", and `_types_compatible` stops reporting the
+        structural mismatch a refused name causes at every later use — the
+        refusal is the cause, and one report of a cause beats fifty of its
+        shadow.
+
+        Keyed on the SIMPLE name, which is what the fabricated opaque type
+        carries; an identity-carrying spelling reduces to the same key.
+        """
+        name = getattr(refusal, 'name', None)
+        if not name:
+            return
+        self._type_refusals[written] = refusal
+        self._poisoned_type_names.add(name)
+
+    def _poison_refused_type_name(self, name: str) -> None:
+        """The selective-import half of `_note_type_refusal` (DF-232o), where
+        the refusal is reported by `check_module` itself and only the poison is
+        owed."""
+        if name:
+            self._poisoned_type_names.add(name)
 
     def _report_visibility_refusal(self, refusals, line: int, column: int,
                                    surface_hint: Optional[str] = None) -> bool:
@@ -2907,6 +2958,14 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                                 hint=f"mark it `public` in `{sel_label}` to "
                                      f"expose it; "
                                      + self._available_hint(_sel_names()))
+                            # DF-232o: the name is refused, so every use of it
+                            # below resolves to an opaque same-named type and
+                            # disagrees with the real one at each one. This
+                            # refusal is the cause; poison the name so its
+                            # shadow is not reported again per use.
+                            if sel_kind in ("struct", "enum", "trait",
+                                            "type alias"):
+                                self._poison_refused_type_name(local)
                             continue
                         _note_import(imp, local, sel_label)
                         if sel_kind in ("struct", "enum", "trait", "type alias"):

@@ -393,7 +393,10 @@ class StatementsMixin:
             self._check_result_discard(getattr(method.body, 'final_expr', None))
 
         if expected_return.kind != TypeKind.VOID:
-            if body_type is None and not self.found_return_with_value:
+            if (body_type is None and not self.found_return_with_value
+                    and not self._signature_names_poisoned_type(method)):
+                # DF-232o: see `_reconcile_return_type` — a signature naming a
+                # refused type cannot type its own body.
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"method `{method.name}` should return `{expected_return}` but body has no value",
@@ -553,6 +556,10 @@ class StatementsMixin:
         # 1. An explicit return statement (found_return_with_value)
         # 2. A final expression in the body (body_type)
         if body_type is None and not self.found_return_with_value:
+            # DF-232o: not when the signature names a REFUSED type — the body
+            # could not type because the tier already refused what it works on.
+            if self._signature_names_poisoned_type(func):
+                return
             self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"function `{func.name}` should return `{resolved_return_type}` but body has no value",

@@ -19,3 +19,16 @@ public(package) struct PkgBox {
 public func pkg_open() -> Int {
     11
 }
+
+// A second package-tier function, so a call and its ARGUMENT can be refused
+// independently (DF-232p).
+public(package) func pkg_scale(x: Int) -> Int {
+    x * 2
+}
+
+// The private-in-public shape a refused TYPE is met through (DF-232o): the
+// function is `public` and hands back a value of the package-tier type, so an
+// outside module holds one it may not NAME.
+public func make_box() -> PkgBox {
+    PkgBox(n: 4)
+}

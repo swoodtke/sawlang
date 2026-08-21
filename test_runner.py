@@ -73,6 +73,11 @@ Test expectations are specified via comments in the source files:
     // some output
     // more output
     // EXPECT-ERROR-CONTAINS: text  - Error message should contain "text"
+    // EXPECT-ERROR-ABSENT: text  - ...and must NOT contain "text" (DF-232o:
+                                a diagnostic fix is often about the lines that
+                                are GONE — a refusal buried under a cascade of
+                                its own consequences is only pinned by
+                                asserting the cascade away)
     // EXPECT-PANIC-CONTAINS: text  - Panic message should contain "text"
     // EXPECT-WARNING-CONTAINS: text - Compiler output should contain "text"
                                 (design 150: warnings are reported on the
@@ -148,6 +153,12 @@ class TestCase:
     expected_output: List[str]
     expected_error_contains: List[str]
     expected_panic_contains: List[str]  # For panic tests
+    # DF-232o: text the compile's diagnostics must NOT contain. Some fixes are
+    # about what is NO LONGER said — a refusal that used to bury itself under a
+    # cascade of its own consequences is only pinned by asserting the cascade is
+    # gone, and `EXPECT-ERROR-CONTAINS` cannot say that. Same shape as
+    # `EXPECT-IR-ABSENT`, on the diagnostics rather than the IR.
+    expected_error_absent: List[str] = None  # '// EXPECT-ERROR-ABSENT:'
     xfail_reason: Optional[str] = None  # Set by '// XFAIL: reason'
     compile_flags: List[str] = None  # Extra sawc flags from '// COMPILE-FLAGS:'
     expected_undefined_symbols: List[str] = None  # '// EXPECT-SYMBOL-UNDEFINED:'
@@ -233,6 +244,7 @@ def parse_test_metadata(file_path: Path) -> Optional[TestCase]:
     expect_type = None  # Must be explicitly set
     expected_output = []
     expected_error_contains = []
+    expected_error_absent = []
     expected_panic_contains = []
     xfail_reason = None
     compile_flags = []
@@ -326,6 +338,11 @@ def parse_test_metadata(file_path: Path) -> Optional[TestCase]:
                 expected_error_contains.append(error_text)
                 in_output_block = False
 
+            elif '// EXPECT-ERROR-ABSENT:' in line:
+                error_text = line.split('// EXPECT-ERROR-ABSENT:')[1].strip()
+                expected_error_absent.append(error_text)
+                in_output_block = False
+
             elif '// EXPECT-PANIC-CONTAINS:' in line:
                 panic_text = line.split('// EXPECT-PANIC-CONTAINS:')[1].strip()
                 expected_panic_contains.append(panic_text)
@@ -379,6 +396,7 @@ def parse_test_metadata(file_path: Path) -> Optional[TestCase]:
         expect_type=expect_type,
         expected_output=expected_output,
         expected_error_contains=expected_error_contains,
+        expected_error_absent=expected_error_absent,
         expected_panic_contains=expected_panic_contains,
         xfail_reason=xfail_reason,
         compile_flags=compile_flags,
@@ -1400,6 +1418,12 @@ def compile_test(test: TestCase, compile_fn=None,
             if expected_text not in combined_output:
                 return CompileOutcome(True, False,
                                       f"Error message should contain '{expected_text}'\nGot: {combined_output[:300]}")
+        # DF-232o: and what it must NOT say. A diagnostic fix is often about a
+        # line that is gone.
+        for absent_text in (test.expected_error_absent or ()):
+            if absent_text in combined_output:
+                return CompileOutcome(True, False,
+                                      f"Error message should NOT contain '{absent_text}'\nGot: {combined_output[:300]}")
 
         return CompileOutcome(True, True, "Failed as expected")
 

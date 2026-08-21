@@ -50,8 +50,7 @@ User-reserved (hand fixes): DF-232h (rides 234 u1 unless taken earlier), DF-217m
 - DF-232d — `mod.STATIC = v` assignment position (entry below) — FOLDED into the small-fix batch (mechanism read, fix unambiguous: route a qualifier-object MemberAccess assignment target to the static path)
 - DF-232e — import-cycle diagnostic (entry below) — FOLDED into the small-fix batch (mechanism read, fix is the diagnostic)
 - DF-232g — imported-const static folding (entry below) — FOLDED into the small-fix batch (matrix probed; the const-static collector must resolve imported const names)
-- DF-232o — tier-refused type re-resolves same-named: X-but-got-X cascades, place-path loses the visibility line (entry below)
-- DF-232p — a refused call swallows its argument's refusal (entry below; a census hazard since DF-232q, not minor)
+- DF-232o face 2 — the PLACE path over a type the caller cannot name; a RULING is owed on private-in-public before it can be fixed (entry below; face 1, the cascade, closed Aug 20)
 - DF-235a — a constant EXPRESSION source reaching a plain array-literal element or a Result payload slot ICEs at codegen (entry below; found by design 235's coercion-adoption grid) — FOLDED into the small-fix batch (same funnel as 235b)
 - DF-235b — a constant EXPRESSION source is never range-checked at MOST fixed-width positions (silent truncation or silent over-width storage), and is spuriously refused at compound-assign's RHS (entry below; same funnel gap as DF-235a) — FOLDED into the small-fix batch; NOTE: silent truncation cuts against the "bounds/overflow checks always on" language claim, so this is the batch's priority item
 - Extension-head visibility — RULED Aug 20: BANNED, visibility belongs on members; ~107-site migration rides the small-fix batch after 239 (entry below; the narrowing landed before the ban, leaving the one `public(package) extension Console` head untouched for the batch)
@@ -715,6 +714,59 @@ poison downstream uses (design-63-style distinct-type printing would also
 stop the X-but-got-X rendering: name the module in at least one side).
 [audit report, 141, 80]
 
+FACE 1 (the cascade) CLOSED Aug 20 (branch `df-batch-232n`, unit 3). A refused
+type reference is now POISONED: `_types_compatible` — the one place two types
+are judged, and therefore the funnel under all fifteen mismatch diagnostics —
+answers compatible for a poisoned name, so the cascade never starts and the one
+reported refusal stands as the story. Poison is recorded at the two places a
+type reference is refused BY TIER: the selective import (`check_module`, which
+already reported it) and the qualified spelling
+(`_resolve_qualified_symbol` -> `_note_type_refusal`). The qualified spelling
+also gained the right diagnostic: `_resolve_qualified_symbol` answered None for
+both "the name is absent" and "the name is refused", so the message could only
+guess ("type `lib.PkgBox` ... does not resolve", hint "check the import and that
+`PkgBox` is `public`"); it now names the TIER in the standard wording. Two
+"body has no value" verdicts consult the poison too — a signature naming a
+refused type cannot type its own body, and that is the refusal's shadow. LIVE
+ON THE AUDIT'S OWN CASE: `SosStatus` narrowed to `public(package)` and the
+kernel rebuilt gives exactly ONE error, the tier refusal, where the audit
+recorded 100+ self-contradicting lines. Poison is per-COMPILE and keyed on the
+simple name, which is deliberate over-suppression on an already-failing
+compile. PINS: `examples/package_tier_refused_type_no_cascade_error.saw` and
+`…_qualified_error.saw`, over a new test_runner directive
+`// EXPECT-ERROR-ABSENT:` (TESTING.md) — a fix that is about lines NO LONGER
+PRINTED cannot be pinned by `EXPECT-ERROR-CONTAINS` alone.
+
+FACE 2 (the place path) OPEN — STOPPED AND REPORTED rather than patched, because
+what it needs is a RULING. THE MECHANISM, probed (`--module-path` fixture, a
+module-private `Hidden` behind a public `Carrier`):
+  * a module-private type's VALUE flows out today and its `public` methods are
+    callable: `c.get().doubled()`, `c.get().n` and a `public` field of that type
+    both COMPILE AND RUN from a module that cannot name `Hidden`. Private-in-
+    public is permitted as the language stands.
+  * the PLACE path over the same type does not: `c.at(0).n` /
+    `c.maybe(0)!.doubled()` fail with ``argument `__window` expects
+    `(&var Hidden) sync -> Hidden` but got `(&var Hidden) -> Void``, exactly the
+    toml shape. Traced: the synthesized window closure's BODY (a member access
+    on the lent element) types as NOTHING, silently, so the closure comes out
+    `-> Void`. `place_transform` records `decl.place_type` at PARSE time as the
+    NAME the author wrote and the `__window` parameter's function type carries
+    that same raw name; neither is canonicalized to a design-144 IDENTITY, so
+    the use site re-resolves the name in the CALLING module. A `public` element
+    type resolves there and everything works — which is why this only ever shows
+    on a type the caller may not name.
+  * the same probe with the caller declaring its OWN `Hidden` (design 144 says a
+    dep's private name reserves nothing) does NOT type-confuse — it fails the
+    same way — so this is a broken path and a bad diagnostic, not a soundness
+    hole.
+THE RULING OWED: may a value of a type this module cannot NAME be reached at
+all? If YES (today's answer on the value path), the fix is design 144's own rule
+— carry the element type's IDENTITY through `place_type` and the `__window`
+type — and the place case then COMPILES, so nothing says "visibility" and the
+brief's success criterion for this face is the wrong target. If NO, the refusal
+belongs on the VALUE path too, which is a new rule owing a corpus sweep (std and
+blade both return module-private types today). Deliberately not decided here.
+
 ## DF-232p — a refused CALL swallows a refusal in its own ARGUMENT (filed
 ## Aug 20, the re-narrowing audit; diagnostic completeness — filed "minor",
 ## ELEVATED Aug 20 by DF-232q to a real census hazard)
@@ -728,6 +780,16 @@ member-access refusal path next (likely DF-232o's). [audit report]
 Aug 20: DF-232q measured the under-count at 72 sites across three waves, which
 is not a diagnostic nicety — it is what made the audit's headline verdict
 wrong. Treat this as a census hazard, not a minor wart.
+
+CLOSED Aug 20 (branch `df-batch-232n`, unit 3). A call that cannot resolve now
+type-checks its own ARGUMENTS before it bails, for their diagnostics alone —
+`_check_arguments_anyway`, one funnel whose docstring names its five entry
+points (the chained and the qualifier module arms of `_check_method_call`, on
+every exit each: refusal/absence, the enum-spelling error, not-callable). The
+member-visibility gate is deliberately NOT one: it REPORTS and lets the call go
+on, so its arguments are already checked by the ordinary path. PIN:
+`examples/package_tier_refused_argument_reported_error.saw` — both refusals of
+`lib.pkg_scale(lib.pkg_secret())` reported, where before only the outer was.
 
 ## DF-232q — the re-narrowing audit's file-local verdict was INVERTED: 72 of
 ## 78 sites have kcore sibling consumers (filed Aug 20, the narrowing unit)

@@ -5838,6 +5838,37 @@ class ExpressionsMixin:
                 expr.line, expr.column,
                 hint=f"mark it `public` in the extension of `{struct_name}` to expose it")
 
+    def _check_arguments_anyway(self, expr) -> None:
+        """Type-check a failed call's own ARGUMENTS, for their diagnostics alone
+        (DF-232p).
+
+        A call that cannot resolve — refused by visibility, or naming a symbol
+        the module does not export — returns before the argument list is ever
+        looked at, so every refusal INSIDE it is swallowed:
+        `uart.write_str(hal.arch_name())` with both refused reported only
+        `write_str`. That is not a wart but a census hazard: DF-232q measured a
+        visibility survey under-counting by 72 sites across three waves,
+        precisely because each failing outer form hid what was nested in it.
+
+        ENTRY POINTS (obligation 1) — every place a call bails while holding an
+        unchecked argument list:
+          * `_check_method_call`'s CHAINED module arm (`pkg.mod.f(...)`), on both
+            of its exits: the refusal/absence one and the not-callable one.
+          * `_check_method_call`'s QUALIFIER module arm (`mod.f(...)`), on all
+            three: refusal/absence, the enum-spelling error, and not-callable.
+
+        The member-visibility gate is deliberately NOT an entry point: it
+        REPORTS and lets the call go on, so its arguments are checked by the
+        ordinary path already.
+
+        Errors from the arguments are reported by the walk itself; the result
+        types are of no use to a call that is not happening.
+        """
+        for arg in getattr(expr, 'arguments', ()) or ():
+            value = getattr(arg, 'value', None)
+            if value is not None:
+                self._check_expression(value)
+
     def _check_member_access(self, expr: MemberAccess) -> Optional[SawType]:
         """Check member access for struct fields, enum variants, or module symbols."""
         if isinstance(expr.object, MemberAccess):
@@ -8814,6 +8845,7 @@ class ExpressionsMixin:
                         if self._report_visibility_refusal(
                                 refusals, expr.line, expr.column,
                                 surface_hint):
+                            self._check_arguments_anyway(expr)  # DF-232p
                             return None
                         self._error(
                             ErrorKind.UNDEFINED_FUNCTION,
@@ -8821,6 +8853,7 @@ class ExpressionsMixin:
                             expr.line, expr.column,
                             hint=surface_hint
                         )
+                        self._check_arguments_anyway(expr)  # DF-232p
                         return None
                     if symbol.kind == SymbolKind.FUNCTION:
                         # Overloading (design 55): resolve against the module's
@@ -8840,6 +8873,7 @@ class ExpressionsMixin:
                             f"`{expr.method_name}` is not callable",
                             expr.line, expr.column
                         )
+                        self._check_arguments_anyway(expr)  # DF-232p
                         return None
         if isinstance(expr.object, Identifier):
             # Design 150 pin 4: a value binding of this name wins; the qualifier
@@ -8861,6 +8895,7 @@ class ExpressionsMixin:
                         expr.object.name)
                     if self._report_visibility_refusal(
                             refusals, expr.line, expr.column, surface_hint):
+                        self._check_arguments_anyway(expr)  # DF-232p
                         return None
                     self._error(
                         ErrorKind.UNDEFINED_FUNCTION,
@@ -8868,6 +8903,7 @@ class ExpressionsMixin:
                         expr.line, expr.column,
                         hint=surface_hint
                     )
+                    self._check_arguments_anyway(expr)  # DF-232p
                     return None
                 if symbol.kind == SymbolKind.FUNCTION:
                     # Overloading (design 55): resolve against the module's
@@ -8887,6 +8923,7 @@ class ExpressionsMixin:
                         f"use `{expr.object.name}.{expr.method_name}.Variant(...)` to create enum values",
                         expr.line, expr.column
                     )
+                    self._check_arguments_anyway(expr)  # DF-232p
                     return None
                 else:
                     self._error(
@@ -8894,6 +8931,7 @@ class ExpressionsMixin:
                         f"`{expr.method_name}` is not callable",
                         expr.line, expr.column
                     )
+                    self._check_arguments_anyway(expr)  # DF-232p
                     return None
         if isinstance(expr.object, Identifier):
             # Prelude discipline (design 82 Part B): a bare `TcpStream.connect(...)`

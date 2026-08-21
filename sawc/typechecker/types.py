@@ -1528,14 +1528,22 @@ class TypeUtilsMixin:
             else:
                 return None
 
+        refusals = []
         symbol = current_ns.resolve(
             simple_name, check_visibility=True,
             # DF-232j: the module of the CODE being checked, which the std-leaf
             # case makes different from the loaded namespace's path.
             accessor_module=self._accessor_vis_module(),
-            through_import=through_import,
+            through_import=through_import, refusals=refusals,
         )
         if not symbol:
+            # DF-232o: WHICH None this is. "The name is not there" and "the name
+            # is there and this module is not entitled to it" are different
+            # facts, and the second one is the whole story — so record it, for
+            # the diagnostic that reports this annotation and for the poison
+            # that keeps its shadow from being reported fifty more times.
+            if refusals:
+                self._note_type_refusal(dotted_name, refusals[0])
             return None
         # Design 144: the resolved reference carries the target's IDENTITY, not
         # the spelling `mod.Type` was written with, so codegen never re-resolves
@@ -2477,9 +2485,25 @@ class TypeUtilsMixin:
 
     def _check_qualified_type_resolves(self, t, context: str, line: int, column: int,
                                        source_file=None):
-        """Report a module-qualified type that did not resolve (DF-140c)."""
+        """Report a module-qualified type that did not resolve (DF-140c).
+
+        DF-232o: when the resolution was REFUSED rather than absent, the tier is
+        the story — "check the import and that `Secret` is `public`" is a guess
+        at what this already knows. Same wording as every other refusal, so one
+        rule reads the same wherever it is met."""
         name = self._unresolved_qualified_name(t)
         if name is None:
+            return
+        refusal = self._type_refusals.get(name)
+        if refusal is not None:
+            self._error(
+                ErrorKind.UNKNOWN_TYPE,
+                f"`{refusal.name}` is {self._vis_word(refusal.visibility)} in "
+                f"`{refusal.module_label}`",
+                line, column, source_file=source_file,
+                hint=f"mark it `public` in `{refusal.module_label}` to expose "
+                     f"it — a `public import` re-export hands on the NAME, "
+                     f"never a wider tier")
             return
         module, _, simple = name.rpartition('.')
         self._error(
@@ -2610,6 +2634,48 @@ class TypeUtilsMixin:
                 names.add(cur.struct_name)
         return names
 
+    def _type_is_poisoned(self, t, depth: int = 0) -> bool:
+        """Does this type NAME (or contain) a type reference that was refused
+        here (DF-232o)?
+
+        Walks the wrappers a written type puts around a nominal one, so a
+        `Vector<Secret>` parameter and a `Secret?` field are as poisoned as the
+        bare name. The key is the SIMPLE name, which every spelling of one
+        reference reduces to: the bare name a fabricated opaque type carries,
+        the design-144 identity a resolved one carries (`Name$m$module`), and
+        the qualified spelling an unresolved annotation keeps (`mod.Name`).
+        """
+        if t is None or depth > 6:
+            return False
+        for name in (t.struct_name, t.enum_name):
+            if name and (name.split('$', 1)[0].rpartition('.')[2]
+                         in self._poisoned_type_names):
+                return True
+        for child in (t.inner_type, t.array_element_type, t.func_return_type):
+            if self._type_is_poisoned(child, depth + 1):
+                return True
+        for children in (t.type_args, t.element_types, t.param_types):
+            for child in (children or ()):
+                if self._type_is_poisoned(child, depth + 1):
+                    return True
+        return False
+
+    def _signature_names_poisoned_type(self, decl) -> bool:
+        """Does this declaration's own signature name a REFUSED type (DF-232o)?
+
+        A parameter of a refused type is opaque, so every read off it answers
+        nothing and the body types as no value at all. That is the refusal's
+        shadow — the ONE mistake is the tier, reported where the type is named —
+        so the two "body has no value" verdicts (`_check_method_body`,
+        `_reconcile_return_type`) consult this before adding a second story.
+        """
+        if not self._poisoned_type_names or decl is None:
+            return False
+        for param in (getattr(decl, 'parameters', None) or ()):
+            if self._type_is_poisoned(getattr(param, 'type', None)):
+                return True
+        return self._type_is_poisoned(getattr(decl, 'return_type', None))
+
     def _types_compatible(self, a: Optional[SawType], b: Optional[SawType],
                           allow_literal_to_distinct: bool = False) -> bool:
         """Check if two types are compatible.
@@ -2622,6 +2688,18 @@ class TypeUtilsMixin:
         """
         if a is None or b is None:
             return True  # Assume compatible if we couldn't determine types
+
+        # DF-232o: a name this module was REFUSED is POISONED, and every
+        # disagreement about it downstream is that refusal's shadow — the
+        # refused reference became an opaque type of the same name, so the two
+        # sides differ structurally and print identically ("expects `SosStatus`
+        # but got `SosStatus`"). Answer compatible and let the one reported
+        # refusal stand as the story. Judged here because this is the single
+        # place two types are compared; the fifteen mismatch diagnostics that
+        # ask it are all downstream of this one answer.
+        if self._poisoned_type_names and (
+                self._type_is_poisoned(a) or self._type_is_poisoned(b)):
+            return True
 
         # A diverging expression has the bottom type NEVER (design 49): it never
         # produces a value, so it is assignable into any expected home.

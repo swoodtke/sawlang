@@ -1,0 +1,19 @@
+// DF-232p: a refused CALL does not swallow the refusal in its own ARGUMENT.
+// `lib.pkg_scale(lib.pkg_secret())` refuses both, and reports both — before the
+// fix the outer form returned the moment it had reported itself, and the
+// argument list was never looked at.
+//
+// Not a diagnostic nicety: DF-232q measured a visibility survey under-counting
+// by 72 sites across three waves for exactly this reason, since each failing
+// outer form hid what was nested inside it. Any batch visibility census is
+// sound only when iterated to a clean build; this is the half of that the
+// compiler owes.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `pkg_scale` is public(package) in `module_tests.pkg232n.src.lib`
+// EXPECT-ERROR-CONTAINS: `pkg_secret` is public(package) in `module_tests.pkg232n.src.lib`
+import module_tests.pkg232n.src.lib
+
+func main() {
+    print(lib.pkg_scale(lib.pkg_secret()))
+    print(lib.pkg_open())
+}

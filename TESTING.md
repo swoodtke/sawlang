@@ -98,6 +98,7 @@ The rest constrain what the run must show:
 | `// EXPECT-OUTPUT:` | Lines following are expected stdout (one line per `//`) |
 | `// EXPECT-OUTPUT-CONTAINS: text` | Stdout must contain "text". Repeatable, and matched IN ORDER — each match starts where the previous one ended. One space after the colon is the separator and everything after it counts, LEADING WHITESPACE INCLUDED, which is what `EXPECT-OUTPUT:` cannot express (it strips every line, so indented output is unmatchable there) |
 | `// EXPECT-ERROR-CONTAINS: text` | Error message must contain "text" |
+| `// EXPECT-ERROR-ABSENT: text` | …and must NOT contain "text". A diagnostic fix is often about the lines that are GONE — DF-232o's refusal used to bury itself under a cascade of its own consequences, and nothing else can pin the cascade away |
 | `// EXPECT-PANIC-CONTAINS: text` | Panic message must contain "text" |
 | `// EXPECT-WARNING-CONTAINS: text` | A warning must contain "text" (warnings ride the SUCCESS path and never change the exit code, so they need their own directive) |
 | `// EXPECT-NO-WARNINGS` | The compile must emit no warning at all |
