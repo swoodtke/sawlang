@@ -1,0 +1,153 @@
+// The call-site auto-wrap (design 57's `T -> T?`, DF-218f's `T -> Result<T, E>`)
+// at an argument the coroutine transform SUBSTITUTES a node into.
+//
+// The wrap is not a node in the tree — it is an annotation the typechecker
+// stamps on the argument expression, read by codegen when it materializes the
+// value. The transform replaces that expression whenever the argument suspends
+// (it becomes a hoisted temp) or names a frame-resident local (it becomes a
+// frame-field read), and a fresh node carried none of the annotation. In
+// ordinary code the post-transform pass re-derives it; in a DRIVEN body it
+// cannot, because design 210 marks the user's own call `embed_preserved` and
+// the re-check skips that subtree whole. So the raw payload was emitted into a
+// wrapper-shaped parameter and the compiler died at the author's line with
+// `Type of #N arg mismatch` — DF-224c, and its `Result` twin found by design
+// 237's census. Closed by design 237 unit 3: a substitution MOVES the position
+// marks onto the replacement (`_substitute`).
+//
+// The rows are the wrap kinds crossed with the two substitution shapes plus the
+// callee kinds an argument edge has.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// opt call 6
+// opt local 7
+// result call 8
+// result local 9
+// result err bad 10
+// double 11
+// method 12
+// enum payload 13
+// channel 14
+// struct field 15
+
+import std.channel.{Channel}
+import std.task.{yield_now}
+
+struct Bad { code: Int }
+extension Bad: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("bad ")
+        into.append(value: self.code)
+    }
+}
+extension Bad: Error {}
+
+struct Sink { seen: Int }
+extension Sink {
+    func take_opt(&self, v: Int?) -> Int { v ?? -1 }
+}
+
+enum Holder { case Wrapped(v: Int?), case Empty }
+
+struct Field { v: Int? }
+
+func s(n: Int) -> Int {
+    yield_now()
+    n
+}
+
+func s_bad(n: Int) -> Bad {
+    yield_now()
+    Bad(code: n)
+}
+
+func takes_opt(v: Int?) -> Int { v ?? -1 }
+
+func takes_result(r: Result<Int, Bad>) -> String {
+    match r {
+        case Ok(v) -> "{v}",
+        case Err(e) -> "{e}"
+    }
+}
+
+func takes_double(r: Result<Int?, Bad>) -> Int {
+    match r {
+        case Ok(v) -> v ?? -1,
+        case Err(_) -> -2
+    }
+}
+
+// The argument IS the suspending call: the ANF hoist lifts it to a temp and
+// substitutes an `Identifier` into the argument position.
+func opt_from_call() {
+    print("opt call {takes_opt(s(6))}")
+}
+
+// The argument is a LOCAL that lives across a suspension, so the frame rewrite
+// substitutes a field read into the argument position.
+func opt_from_frame_local() {
+    let v = 7
+    let _ = s(0)
+    print("opt local {takes_opt(v)}")
+}
+
+func result_from_call() {
+    print("result call {takes_result(s(8))}")
+}
+
+func result_from_frame_local() {
+    let v = 9
+    let _ = s(0)
+    print("result local {takes_result(v)}")
+}
+
+// The Err side of the same edge — the mark says WHICH side.
+func result_err_side() {
+    print("result err {takes_result(s_bad(10))}")
+}
+
+// `Result<T?, E>` fed a bare `T`: both marks ride one node, applied inner-first.
+func double_wrap() {
+    print("double {takes_double(s(11))}")
+}
+
+// A METHOD argument, not a free function's.
+func method_argument() {
+    let sink = Sink(seen: 0)
+    print("method {sink.take_opt(s(12))}")
+}
+
+// An enum payload is an argument edge too.
+func enum_payload() {
+    let h = Holder.Wrapped(v: s(13))
+    match h {
+        case Wrapped(v) -> print("enum payload {v ?? -1}"),
+        case Empty -> print("enum payload none")
+    }
+}
+
+// DF-224c as filed: a GENERIC parameter instantiated to an optional.
+func channel_send() {
+    let ch = Channel<Int?>()
+    try! ch.send(s(14))
+    let got = try! ch.receive()
+    print("channel {got ?? -1}")
+}
+
+// A struct field value takes the same edge.
+func struct_field() {
+    let f = Field(v: s(15))
+    print("struct field {f.v ?? -1}")
+}
+
+func main() {
+    opt_from_call()
+    opt_from_frame_local()
+    result_from_call()
+    result_from_frame_local()
+    result_err_side()
+    double_wrap()
+    method_argument()
+    enum_payload()
+    channel_send()
+    struct_field()
+}

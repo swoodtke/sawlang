@@ -1092,6 +1092,90 @@ def _answered(node, saw_type):
     return node
 
 
+# --------------------------------------------------------------------------- #
+# design 237: THE POSITION MARKS
+# --------------------------------------------------------------------------- #
+#
+# An annotation the typechecker stamped on a child node ABOUT ITS POSITION
+# rather than about the value it holds. The call-site auto-wrap is the whole
+# family: `_check_argument_type` decides, at the argument edge, that a bare `T`
+# handed to a `T?`/`Result<T, E>` parameter owes a wrapper, and records the
+# answer on the ARGUMENT EXPRESSION because that is the node codegen has in
+# hand when it materializes the value (`_maybe_autowrap_optional`).
+#
+# The transform SUBSTITUTES nodes into those positions — a hoisted call becomes
+# `Identifier(__anfN)`, a frame-resident local becomes `self.x.take()` — and a
+# fresh node carries none of it. That is invisible in ordinary code, because the
+# post-transform pass re-derives every argument's wrap. It is NOT invisible in a
+# DRIVEN body: design 210 marks the user's own call `embed_preserved` and the
+# re-check skips that subtree WHOLESALE, so the answer that travelled with the
+# node is the only answer there is. Dropping it emitted the raw payload into a
+# wrapper-shaped parameter — `Type of #1 arg mismatch: {i1, i64} != i64` at the
+# author's line (DF-224c, and its `Result` twin).
+#
+# THE RULE IS A TRANSFER, EXACTLY ONCE. The mark describes the POSITION, and
+# after the substitution the old node no longer occupies it — it is the
+# initializer of `let __anfN = ...`, which is a transfer site of its own and
+# would apply the wrapper a SECOND time, into a temp typed for the unwrapped
+# value. So `_substitute` moves the marks and clears the source, on the same
+# transfers-exactly-once discipline the hoisted temp's ownership follows.
+#
+# WHAT IS NOT HERE, and why (the annotation set swept, obligation 4).
+# `expected_type` is position-derived too, but its consumers are the
+# typechecker's literal/collection-literal/const-fold paths and the transform
+# never substitutes a LITERAL: a literal holds no suspension, so the hoist does
+# not lift one, and `_anf_children`'s side-effecting-sibling lift exempts every
+# pure node. Everything else on `Expression` describes the VALUE and belongs to
+# the node that keeps holding it: `needs_copy` and `payload_needs_copy` (what
+# this read owes its source — `_read_field`'s `frame_owning_read` is the
+# transform's own answer for a frame read), `closure_lend` (a closure operand,
+# never lifted), `place_value_read`/`place_abstract_read`,
+# `enum_variant_literal`, `resolved_type_identity`, and the transform's own
+# `frame_place_read`/`frame_move_read`/`embed_preserved`/`frame_slot_op`.
+#
+# Each row is `(name, empty)` — the annotation and the value that means "no mark
+# here", which is what the source is reset to. Both are falsy, so the carry test
+# is a plain truth test and never asks a `SawType` for equality.
+_POSITION_MARKS = (("autowrap_to_optional", None),
+                   ("autowrap_to_result", None),
+                   ("autowrap_result_err", False))
+
+
+def _substitute(old, new):
+    """Return `new`, having MOVED `old`'s position marks onto it.
+
+    THE ONE PLACE the transform puts a different node in a position an earlier
+    pass already answered for. Everything the transform builds is unmarked by
+    construction (`THE EMBED CONTRACT` family 5), so a substitution that does
+    not come through here silently drops the answer.
+
+    ENTRY POINTS (obligation 1 — a funnel names its entries), which together are
+    every substitution the transform makes into a position it did not create:
+      * `_FrameBuilder._anf_lift` — stage 1's `let __anfN = <expr>` temp, in
+        every child position `_map_uncond_children` reaches (design 120)
+      * `_FrameBuilder._vc_hoist_to_temp` — stage 2's `let __vchN = <cond>`
+        temp for a value-position conditional (design 120 stage 2 / 133 unit B)
+      * `_FrameBuilder._head_lift` — a container HEAD lifted to `let __headN`
+        (design 224)
+      * `_FrameBuilder._hoist_cond` — the `if let`/`guard let` subject (design
+        62 G2) and `_maybe_hoist_match` — the `match` scrutinee (design 96)
+      * `_FrameBuilder._maybe_hoist_try` — the `try!`/`try`/`try?` subject,
+        which becomes a `move` of the temp (design 92)
+      * `_FrameBuilder._rewrite_expr` — the frame rewrite's own exit: every
+        local/param read that becomes a frame-field read, the receiver that
+        becomes `self.__recv.deref()`, and the closure call that becomes an
+        indirect field call
+    """
+    if new is old or not isinstance(old, ASTNode) or not isinstance(new, ASTNode):
+        return new
+    for mark, empty in _POSITION_MARKS:
+        carried = getattr(old, mark, empty)
+        if carried:
+            setattr(new, mark, carried)
+            setattr(old, mark, empty)
+    return new
+
+
 def _read_field(name, encoding, line=0, column=0, owning_read=False,
                 move_read=False, saw_type=None):
     """The rewritten read of frame field `name`.
@@ -2016,7 +2100,7 @@ class _FrameBuilder:
             # Carry the optional type so downstream typing of the temp field is
             # exact (its value's `resolved_type` is the callee's `T?`).
             ident.resolved_type = getattr(cond, 'resolved_type', None)
-            return (let_stmt, ident)
+            return (let_stmt, _substitute(cond, ident))
         return None
 
     def _hoist_suspending_try(self):
@@ -2075,7 +2159,7 @@ class _FrameBuilder:
         # Carry the callee's Result type so the driven-call classification and the
         # try lowering both see the exact instantiation.
         mv.resolved_type = getattr(inner, 'resolved_type', None)
-        tnode.expr = mv
+        tnode.expr = _substitute(inner, mv)
         return [let_stmt, s]
 
     def _hoist_suspending_match(self):
@@ -2126,7 +2210,7 @@ class _FrameBuilder:
         # Carry the callee's result type so the driven-call classification and the
         # match lowering both see the exact instantiation.
         ident.resolved_type = getattr(inner, 'resolved_type', None)
-        m.matched_expr = ident
+        m.matched_expr = _substitute(inner, ident)
         return [let_stmt, s]
 
     # ------------------------------------------------------------------ #
@@ -2269,7 +2353,7 @@ class _FrameBuilder:
         # Carry the subexpression's resolved type so the temp is typed exactly
         # (frame-local typing, method-call classification, and codegen all read it).
         ident.resolved_type = getattr(expr, 'resolved_type', None)
-        return ident
+        return _substitute(expr, ident)
 
     def _anf_is_pure(self, expr):
         """Conservative purity for the evaluation-order hoist (DF-133a).
@@ -2656,7 +2740,7 @@ class _FrameBuilder:
             line=line, column=col)))
         ref = Identifier(name=tmp, line=line, column=col)
         ref.resolved_type = t
-        return ref
+        return _substitute(expr, ref)
 
     def _vc_head_hoist(self, cond, out):
         """Lift a value-conditional nested in `cond`'s unconditional HEAD position
@@ -3103,7 +3187,7 @@ class _FrameBuilder:
         # Carry the head's own type so the temp's frame field is typed exactly
         # (frame-local typing, call classification and codegen all read it).
         ident.resolved_type = t
-        return ident
+        return _substitute(head, ident)
 
     def _while_head_into_body(self, s, w):
         """Rewrite a `while <cond> { body }` whose CONDITION spans a suspension
@@ -6530,7 +6614,15 @@ class _FrameBuilder:
         `self.<field>` read; `move <frame local>` -> field read (+ record an
         opt-encoded move in `forgets`). Does NOT descend into control-flow blocks
         differently — callers process nested statement lists via
-        `_lower_stmt_list` so forgets are scoped to the executing branch."""
+        `_lower_stmt_list` so forgets are scoped to the executing branch.
+
+        The rewrite's ONE exit, so every node it puts in a position the source
+        wrote goes through `_substitute` and inherits that position's marks
+        (design 237). `_rewrite_expr_node` below is the dispatch; when it hands
+        back the node it was given the carry is a no-op."""
+        return _substitute(node, self._rewrite_expr_node(node, forgets))
+
+    def _rewrite_expr_node(self, node, forgets):
         from ast_nodes import MoveExpr
         # design 52b item 3: `cancelled()` inside task code reads THIS task's
         # cancel word (observed cooperatively; NO forced destroy) — the frame's
@@ -6639,11 +6731,10 @@ class _FrameBuilder:
             # taking here would trade a late release for no release at all.
             # Borrowing keeps the payload in the slot, where the frame's own
             # `clear()` releases it exactly once.
-            node.expr = _read_field(node.expr.name,
-                                    self.encmap[node.expr.name],
-                                    node.expr.line, node.expr.column,
-                                    owning_read=True,
-                                    saw_type=node.expr.resolved_type)
+            inner = node.expr
+            node.expr = _substitute(inner, _read_field(
+                inner.name, self.encmap[inner.name], inner.line, inner.column,
+                owning_read=True, saw_type=inner.resolved_type))
             return node
         if isinstance(node, Identifier) and node.name in self.encmap:
             enc = self.encmap[node.name]
