@@ -188,11 +188,19 @@ class SignatureVisibilityMixin:
     # ------------------------------------------------------------------ #
 
     def _sigvis_exempt(self) -> bool:
-        """The whole-pass exemptions, the same three the prelude gate honours.
+        """The whole-pass exemptions — TWO of the prelude gate's three.
 
         A compiler-synthesized declaration answers for itself (the coroutine
         transform's frames hold std internals in fields no author wrote), and
         the post-transform re-check reads exactly that output.
+
+        `_checking_builtins` is deliberately NOT among them. The prelude gate
+        exempts std because std's own bodies name std types by construction,
+        which says nothing about whether a std SIGNATURE may hand out a std
+        internal — and it may not: design 82 makes each std file its own module,
+        so std is under this rule like any other package. The sweep that turned
+        the rule on found four std declarations returning a private iterator
+        type, and widening those types is what the rule asked for.
         """
         return bool(getattr(self, 'exempt_prelude_gate', False)
                     or self._in_synthesized_context())
@@ -201,7 +209,6 @@ class SignatureVisibilityMixin:
         """Run the rule over every declared position of one module's AST."""
         if self._sigvis_exempt():
             return
-        self._sigvis_reported = getattr(self, '_sigvis_reported', set())
         for (t, what, decl_what, reach, line, column, source_file) in (
                 self._signature_visibility_positions(program)):
             self._check_signature_type(t, what, decl_what, reach,
