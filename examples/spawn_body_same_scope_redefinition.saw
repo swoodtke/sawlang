@@ -1,0 +1,120 @@
+// A design-107 same-scope redefinition drops the REPLACED binding at the
+// redefinition point in a body the coroutine transform touches, whether or not
+// that body suspends (DF-218u, fixed by design 218 unit 2).
+//
+// MECHANISM: `_uniquify_bindings` (DF-151a) gives every binding in a
+// transformed body a name unique WITHIN it, so the two halves of `let v = ...`
+// / `let v = derive(v)` come out with DIFFERENT names. Codegen's
+// `_drop_redefined_same_scope` matches by NAME, so the pair read as two
+// unrelated locals and the replaced value survived to the scope's end. The
+// transform now hands the pairing over on `LetStatement.coro_redefines`.
+//
+// The positions the mechanism reaches are every body the transform renames: a
+// SPAWN root with no suspension (below — its locals stay ordinary codegen
+// locals, so codegen owns the drop), and a driven body whose locals are NOT
+// frame-resident. A frame-resident replaced binding takes the transform's own
+// E-REDEF edge instead and is covered by
+// `coro_frame_local_released_at_scope_end.saw`. An UN-transformed body never
+// renames, which is why the plain control below always worked.
+//
+// `Tag` is Copy-tier over an `Arc<Res>`, so `derive_tag(v1)` RETAINS its
+// argument rather than consuming it — which is what leaves the old binding
+// still owning a reference at the redefinition, i.e. the case where the drop
+// point is observable at all.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -- plain
+// NEW t1
+// val t1
+// NEW dt1
+// DEINIT t1
+// val dt1
+// scope closed
+// DEINIT dt1
+// -- spawned, no suspension
+// NEW t1
+// val t1
+// NEW dt1
+// DEINIT t1
+// val dt1
+// scope closed
+// DEINIT dt1
+// joined 0
+// -- spawned, suspending
+// NEW t1
+// val t1
+// NEW dt1
+// DEINIT t1
+// val dt1
+// scope closed
+// DEINIT dt1
+// joined 0
+
+import std.task.{yield_now}
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+extension Res {
+    func label(&self) -> String { self.name }
+}
+
+struct Tag { cell: Arc<Res> }
+@synthesize
+extension Tag: Copy {}
+
+func mk_tag(id: Int) -> Tag {
+    print("NEW t{id}")
+    Tag(cell: Arc<Res>(value: Res(name: "t{id}")))
+}
+
+func derive_tag(x: Tag) -> Tag {
+    print("NEW d{x.cell.label()}")
+    Tag(cell: Arc<Res>(value: Res(name: "d{x.cell.label()}")))
+}
+
+// The control: never transformed, so never renamed.
+func plain() {
+    let v1 = mk_tag(1)
+    print("val {v1.cell.label()}")
+    let v1 = derive_tag(v1)
+    print("val {v1.cell.label()}")
+    print("scope closed")
+}
+
+// Transformed (a spawn root gets a frame) but NOT suspending, so its locals
+// stay ordinary codegen locals. This is the cell that regressed.
+func worker_plain() -> Int {
+    let v1 = mk_tag(1)
+    print("val {v1.cell.label()}")
+    let v1 = derive_tag(v1)
+    print("val {v1.cell.label()}")
+    print("scope closed")
+    0
+}
+
+// Transformed and suspending: the locals are frame fields and take the
+// transform's own redefinition edge.
+func worker_driven() -> Int {
+    yield_now()
+    let v1 = mk_tag(1)
+    print("val {v1.cell.label()}")
+    let v1 = derive_tag(v1)
+    print("val {v1.cell.label()}")
+    print("scope closed")
+    0
+}
+
+func main() {
+    print("-- plain")
+    plain()
+    print("-- spawned, no suspension")
+    var g1 = TaskGroup()
+    let h1 = g1.spawn(worker_plain())
+    print("joined {h1.join()}")
+    print("-- spawned, suspending")
+    var g2 = TaskGroup()
+    let h2 = g2.spawn(worker_driven())
+    print("joined {h2.join()}")
+}

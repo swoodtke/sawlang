@@ -2,14 +2,11 @@
 // frame-resident local is released at the end of the scope that owns it, in the
 // same order and at the same point its non-suspending twin releases it.
 //
-// XFAIL: DF-217p a frame-resident local in a driven body is released at FRAME
-// TEARDOWN instead of at the end of the scope that owns it
-//
 // Deterministic destruction is a headline guarantee, and a driven body is where
-// it stopped holding: the coroutine transform lifts an across-suspend local into
-// a frame FIELD, and a field lived until the frame died. So a `File` or a
-// `TcpStream` bound in a driven loop stayed open for the rest of the frame. The
-// counts always balanced, which is why this is an ORDER row and never a leak
+// it stopped holding (DF-217p): the coroutine transform lifts an across-suspend
+// local into a frame FIELD, and a field lived until the frame died. So a `File`
+// or a `TcpStream` bound in a driven loop stayed open for the rest of the frame.
+// The counts always balanced, which is why this is an ORDER row and never a leak
 // row.
 //
 // The matrix is one cell per SCOPE KIND a driven body can have

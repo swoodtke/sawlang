@@ -328,7 +328,16 @@ class StatementsMixin:
         # The initializer above already consumed (`move`) or copied the old
         # value; drop the old binding now if it still owns one (a `.copy()`
         # derivation), retiring its scope-exit cleanup so it never double-frees.
-        self._drop_redefined_same_scope(stmt.name)
+        #
+        # `coro_redefines` is the coroutine transform's answer for a body it
+        # alpha-renamed (DF-151a gives every binding a name unique within the
+        # body, so the two halves of a redefinition no longer share one). This
+        # match is by NAME, so a renamed pair read as two unrelated locals and
+        # the replaced value survived to the scope's end — visible in a
+        # non-suspending SPAWN root, whose body the transform renames and whose
+        # locals codegen still owns.
+        self._drop_redefined_same_scope(
+            getattr(stmt, 'coro_redefines', None) or stmt.name)
 
         # A local at `Void` has no storage to name (design 132 unit C / DF-123b).
         # The typechecker already rejects a CONCRETE `let n = <Void expr>`

@@ -1899,6 +1899,15 @@ class LetStatement(Statement):
     type_annotation: Optional[SawType]
     value: Expression
     mutable: bool = False
+    # design 107, via design 218b's E-REDEF edge: the EFFECTIVE name of the
+    # same-scope binding this `let` REPLACES, when the coroutine transform's
+    # alpha-renaming (`_uniquify_bindings`, DF-151a) gave the two bindings
+    # different names. Codegen's `_drop_redefined_same_scope` matches by name,
+    # so without this a renamed redefinition reads as two unrelated locals and
+    # the replaced value survives to the scope's end instead of dropping at the
+    # redefinition point. `None` on every un-transformed body, where the two
+    # bindings still share their source name.
+    coro_redefines: Optional[str] = annotation(None)
 
 
 @dataclass

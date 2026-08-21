@@ -1,19 +1,21 @@
-// XFAIL: DF-217p a frame-resident local in a driven body is released at FRAME
-// TEARDOWN instead of at the end of the scope that owns it
+// A frame-resident local in a driven body is released at the end of the scope
+// that owns it, not at frame teardown (DF-217p, fixed by design 218 unit 2's
+// scope-end migration — designs/218b-scope-end-spec.md).
 //
-// 61 cells of one mechanism in the corodiff matrix, with two faces, both pinned
+// 66 cells of one mechanism in the corodiff matrix, with two faces, both pinned
 // here against the order their non-suspending twins produce:
-//   - a LOOP-body local survives into the next iteration, and the last
-//     iteration's survives the whole loop (`after loop` prints before the last
-//     `DEINIT`);
-//   - a scope that ends INSIDE the body — here a design-107 same-scope
-//     redefinition, which drops the replaced binding AT the redefinition point —
-//     holds the replaced value to teardown instead.
+//   - the LOOP face: a loop-body local used to survive into the next iteration,
+//     and the last iteration's survived the whole loop (`after loop` printed
+//     before the last `DEINIT`). It now clears on the body's fallthrough edge,
+//     before the backedge;
+//   - the SHADOW face: a scope that ends INSIDE the body — here a design-107
+//     same-scope redefinition, which drops the replaced binding AT the
+//     redefinition point — used to hold the replaced value to teardown.
 //
-// The counts always balance, so this is never a leak; what it costs is
+// The counts always balanced, so this was never a leak; what it cost was
 // deterministic destruction, which is a language guarantee and not a detail. A
-// `File` or a `TcpStream` bound in a driven loop stays open for the rest of the
-// frame, and the shadow-rebind face releases the OLD value after the new one is
+// `File` or a `TcpStream` bound in a driven loop stayed open for the rest of the
+// frame, and the shadow-rebind face released the OLD value after the new one was
 // already in use.
 // EXPECT: success
 // EXPECT-OUTPUT:

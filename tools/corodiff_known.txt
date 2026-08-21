@@ -52,119 +52,37 @@
 
 # DF-217n RETIRED (fixed Aug 18 — `case Has(_)` drops its payload; the ten
 # LEAK/STDOUT-PARITY match_nobinding rows that lived here are gone with the
-# fix). What REMAINS at the in_rhs cells is the DRIVEN twin's half of the old
+# fix). What REMAINED at the in_rhs cells is the DRIVEN twin's half of the old
 # composite: it always released late (frame teardown — DF-217p's mechanism,
 # as the old STDOUT-PARITY comment already recorded), and with the control
-# twin now correct the divergence MORPHED from LEAK into DEINIT-ORDER. The
-# two rows below are that morph, filed under the mechanism that owns them;
-# the after/before/between cells do not force the scrutinee frame-resident,
-# so they reach parity and need no rows. Found by the Aug-18 DF-217o gate's
-# corodiff lane; design 237 unit 5's full cross re-verifies the whole matrix.
+# twin correct the divergence MORPHED from LEAK into DEINIT-ORDER. Those rows
+# were filed under the mechanism that owns them and went with its fix; the
+# after/before/between cells never forced the scrutinee frame-resident, so
+# they reached parity and needed no rows.
+
+# SIXTY-FOUR of DF-217p's sixty-eight rows are GONE, removed by design 218
+# unit 2 (Aug 21) in
+# the landing that fixed them, exactly as an XPASS marker is. A frame-resident
+# local in a driven body is released at the end of the scope that owns it now,
+# not at frame teardown: the transform keeps the scope map `_uniq_walk_block`
+# already built, and ONE funnel (`_scope_release_seq`) emits a release at every
+# edge by which control leaves a scope — fallthrough, `break`, `continue`, the
+# done path, and a design-107 redefinition. Both faces of the matrix are clean
+# on a full `--all` run: the `@ loop` cells (the iteration's locals dying before
+# the backedge) and the `@ linear` cells (a scope that ends inside the body — an
+# `if let` body, a `match` arm, a same-scope rebind).
+#
+# FOUR SIGNATURES SURVIVE, and they are one narrower thing: the SCRUTINEE TEMP
+# a suspending `match` head is hoisted into. It is not a scope's binding — it is
+# a statement's temporary, `FAM_SCRUTINEE_TEMP`, still on design 44's legacy
+# encoding — so the scope walk does not own it and it keeps its teardown-late
+# release. They go with the statement-end edge (218b section 2c: an idempotent
+# tag-drop at the construct's merge point, paired with the DF-210f forget that
+# survives on the consuming arms).
+DF-217p-2026-08-13	DEINIT-ORDER: match_consume/in_rhs @ linear
+DF-217p-2026-08-13	DEINIT-ORDER: match_consume/in_rhs @ loop
 DF-217p-2026-08-13	DEINIT-ORDER: match_nobinding/in_rhs @ linear
 DF-217p-2026-08-13	DEINIT-ORDER: match_nobinding/in_rhs @ loop
-
-# DF-217p (reported 2026-08-13) — NEW, and the widest thing in this file:
-# 61 cells of ONE mechanism. A frame-resident local in a driven body is
-# released at FRAME TEARDOWN rather than at the end of the scope that owns it.
-# Deterministic destruction is a language guarantee, so a resource held past
-# its scope is a real behavioral difference and not a cosmetic one — the counts
-# always balance, which is why this is DEINIT-ORDER and never LEAK.
-#
-# Two faces, both from the same cause:
-#   - @ loop — a loop-body local survives into the NEXT iteration (and the last
-#     iteration's survives the whole loop). Reaches essentially every binding
-#     construct, which is what makes it a mechanism rather than a construct bug.
-#   - @ linear — a scope that ends INSIDE the body: the replaced binding of a
-#     same-scope redefinition (design 107 drops it AT the redefinition point),
-#     an `if let`/`guard let` body's end, a `match` arm's end.
-#
-# Sharpest hand-written repro (.build/scratch/probe_loopdrift.saw): a driven
-#     while i < 2 { yield_now()  let a = Res(name: "a{i}")  print(...) }
-# prints `after loop` BEFORE the last iteration's `DEINIT a1`; the twin with
-# the yield removed prints it after.
-DF-217p-2026-08-13	DEINIT-ORDER: closure_capture_implicit/after @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: closure_capture_implicit/before @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: closure_capture_implicit/between @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: closure_capture_move/after @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: closure_capture_move/before @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: closure_capture_move/between @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: coalesce_rhs/after @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: coalesce_rhs/before @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: coalesce_rhs/in_rhs @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: guard_let/after @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: guard_let/before @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: guard_let/between @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: if_let_move_local/after @ linear
-DF-217p-2026-08-13	DEINIT-ORDER: if_let_move_local/after @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: if_let_move_local/between @ linear
-DF-217p-2026-08-13	DEINIT-ORDER: if_let_move_local/between @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: if_let_payload/after @ linear
-DF-217p-2026-08-13	DEINIT-ORDER: if_let_payload/after @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: if_let_payload/between @ linear
-DF-217p-2026-08-13	DEINIT-ORDER: if_let_payload/between @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: let/after @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: let/before @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: let/between @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: let/in_rhs @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: let_rebind_distinct/after @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: let_rebind_distinct/before @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: let_rebind_distinct/between @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: let_rebind_distinct/in_rhs @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: let_shadow_rebind/after @ linear
-DF-217p-2026-08-13	DEINIT-ORDER: let_shadow_rebind/after @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: let_shadow_rebind/before @ linear
-DF-217p-2026-08-13	DEINIT-ORDER: let_shadow_rebind/before @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: let_shadow_rebind/between @ linear
-DF-217p-2026-08-13	DEINIT-ORDER: let_shadow_rebind/between @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: let_shadow_rebind/in_rhs @ linear
-DF-217p-2026-08-13	DEINIT-ORDER: let_shadow_rebind/in_rhs @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: match_borrow/before @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: match_consume/after @ linear
-DF-217p-2026-08-13	DEINIT-ORDER: match_consume/after @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: match_consume/between @ linear
-DF-217p-2026-08-13	DEINIT-ORDER: match_consume/between @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: nested_tuple_destructure/after @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: nested_tuple_destructure/before @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: nested_tuple_destructure/between @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: optional_take/after @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: optional_take/before @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: optional_take/between @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: place_write_index/after @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: place_write_index/before @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: place_write_index/between @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: place_write_set/after @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: place_write_set/before @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: place_write_set/between @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: place_write_set/in_rhs @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: swap_out/after @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: swap_out/before @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: swap_out/between @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: swap_out/in_rhs @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: tuple_destructure/after @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: tuple_destructure/before @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: tuple_destructure/between @ loop
-# Two more `in_rhs @ loop` cells of the same mechanism, surfaced by the
-# range-`for` contexts added with DF-225m's fix. Ledger gaps, not new bugs:
-# both reproduce on `loop_second_iter` with the pre-DF-225m compiler, which
-# never enters `_split_for` at all.
-DF-217p-2026-08-13	DEINIT-ORDER: match_consume/in_rhs @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: match_nobinding/in_rhs @ loop
-# Three more cells UNMASKED by design 237's full cross (Aug 21) — the DF-217n
-# precedent again, where fixing a refusal or an ICE lets a cell run and shows
-# the mechanism that was underneath it. None of the three is a new bug:
-#   * the two destructuring `in_rhs @ loop` cells did not COMPILE before design
-#     237 unit 2 (DF-217g refused `let (a, b) = (mk_s(1), mk_s(2))`), and what
-#     they now show is the plain loop face — the iteration's locals surviving
-#     into the next one;
-#   * `match_consume/in_rhs @ linear` is the shape DF-217f used to ICE on (an
-#     enum-constructor argument inside a `match` scrutinee). Design 224 made it
-#     compile on Aug 15 and the stale DF-217f row went on masking it until
-#     unit 2 retired that row; the divergence is the arm binding held to frame
-#     teardown, which is the linear face.
-# Both reproduce as the block above describes, and all three go with its fix.
-DF-217p-2026-08-13	DEINIT-ORDER: tuple_destructure/in_rhs @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: nested_tuple_destructure/in_rhs @ loop
-DF-217p-2026-08-13	DEINIT-ORDER: match_consume/in_rhs @ linear
 
 # DF-218e (reported 2026-08-14) — the FIRST finding of the generic-driven
 # axis, and pre-existing: a GENERIC function driven as a root cannot contain a

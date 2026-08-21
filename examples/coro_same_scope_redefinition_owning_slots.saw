@@ -33,26 +33,30 @@
 //
 // The non-suspending twin is the oracle and this matches it COUNT for count:
 // two deinits for r1/r3/r4/r5/r6, three for r2, one per binding, never two of
-// one value. Only the TIMING differs — a frame-resident value is released at
-// frame teardown rather than where its binding is replaced, so the driven
-// deinits land after the print instead of before it (the `release`-only drop
-// model, orthogonal to this fix). `D a1` still prints first in r1 because
-// `derive` CONSUMED the original and dropped it in its own frame.
+// one value. It now matches it ORDER for order too — design 218 unit 2's
+// scope-end migration (DF-217p) drops a replaced binding AT the redefinition
+// and a scope's locals at the scope's end, where this file used to record the
+// `release`-only model's late drops. What changed in the expectations below is
+// exactly that: `D b1`/`D b12` before `r2 b123` rather than after it, the same
+// for r3 and r4, and r10's loop dropping each iteration's pair inside the
+// iteration instead of carrying `h12` across the back edge. `D a1` still prints
+// first in r1 because `derive` CONSUMED the original and dropped it in its own
+// frame.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // D a1
 // r1 a12
 // D a12
+// D b1
+// D b12
 // r2 b123
 // D b123
-// D b12
-// D b1
+// D c1
 // r3 c12
 // D c12
-// D c1
+// D d1
 // r4 d12
 // D d12
-// D d1
 // r5 e1 e12
 // D e12
 // D e1
@@ -68,9 +72,9 @@
 // r10 h1
 // D h1
 // r10 h12
+// D h12
 // r10 h1
 // D h1
-// D h12
 // r10 h12
 // D h12
 

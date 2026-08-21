@@ -1939,6 +1939,13 @@ class _FrameBuilder:
         # under the `__obN` names the split rename gives them. Single-use, so
         # their read consumes — see `_prep_ob_split`.
         self._vc_ob_bindings = set()
+        # design 218b: the scope map + the redefinition record, both written by
+        # `_uniquify_bindings`; the scope STACK the CFG walk keeps while it
+        # lowers. Declared here so a builder whose `prepare` was skipped answers
+        # "no scopes" rather than raising.
+        self._scope_binders = {}
+        self._redefines = {}
+        self._scope_stack = []
         # design 210: record what the DECLARATION typecheck already answered,
         # before this builder rewrites anything. Everything below — the hoists,
         # the state split, the frame-slot rewrites — then produces unmarked
@@ -3258,6 +3265,20 @@ class _FrameBuilder:
         part in this."""
         self._uniq_ctr = 0
         self._uniq_taken = {p.name for p in self.func.parameters}
+        # design 218b: the SCOPE MAP. `_uniq_walk_block` already reifies one
+        # dict per block scope and throws it away; keeping it is what lets the
+        # CFG walk emit a release at every scope EXIT (`_scope_release_seq`).
+        # Keyed by `id(block)` with the block itself pinned in the value, so a
+        # block that dies between `prepare` and lowering can never have its id
+        # reused by a later one and answer for it.
+        self._scope_binders = {}
+        # design 107 same-scope redefinition: `let s = derive(move s)` mints a
+        # SECOND binding, and the REPLACED one dies at the redefinition point
+        # (codegen's `_drop_redefined_same_scope`). This is the one place the
+        # transform knows it happened — the mint-on-collision arm of
+        # `_uniq_bind` — so it records `id(stmt) -> (stmt, [replaced names])`
+        # for the E-REDEF edge to consume.
+        self._redefines = {}
         self._uniq_walk_block(self.func.body, [])
 
     def _uniq_fresh(self, name):
@@ -3301,24 +3322,52 @@ class _FrameBuilder:
     def _uniq_walk_block(self, block, scopes):
         scope = {}
         inner = scopes + [scope]
+        binders = []
         for s in block.statements:
-            self._uniq_walk_stmt(s, inner, scope)
+            self._uniq_walk_stmt(s, inner, scope, binders)
         if block.final_expr is not None:
             self._uniq_walk(block.final_expr, inner)
+        # The scope map's one write. A binder is any node carrying the binding's
+        # EFFECTIVE name in a `.name` attribute — the statement itself for a
+        # `let`/`guard let`, a pattern node per leaf for a destructuring `let`.
+        # Nodes, not strings: `_mark_optional_binding_splits` RENAMES a split
+        # `guard let`'s binding after this pass, and reading `.name` at emission
+        # time follows that rename for free.
+        self._scope_binders[id(block)] = (block, binders)
 
-    def _uniq_walk_stmt(self, s, scopes, scope):
+    def _note_redefinition(self, stmt, scope, name):
+        """Record that `stmt`'s binding of `name` REPLACES a live same-scope
+        binding (design 107), for the E-REDEF edge."""
+        prior = scope.get(name)
+        if prior is None:
+            return
+        entry = self._redefines.get(id(stmt))
+        if entry is None or entry[0] is not stmt:
+            entry = (stmt, [])
+            self._redefines[id(stmt)] = entry
+        entry[1].append(prior[0])
+
+    def _uniq_walk_stmt(self, s, scopes, scope, binders):
         """A statement that BINDS into its enclosing block's scope (its binding
         is visible to every later statement of that block) — everything else
-        goes through the general walk."""
+        goes through the general walk.
+
+        `binders` accumulates this block's own bindings in DECLARATION order;
+        `_scope_release_seq` walks it backwards, which is the LIFO order
+        codegen's `_cleanup_scope` uses for a sync scope."""
         if isinstance(s, LetStatement):
             self._uniq_walk(s.value, scopes)
+            self._note_redefinition(s, scope, s.name)
             s.name = self._uniq_bind(s.name, scope,
                                      callable_=_is_function_valued(s))
+            binders.append(s)
             return
         if isinstance(s, DestructuringLet):
             self._uniq_walk(s.value, scopes)
             for pat in _pattern_binding_nodes(s.pattern):
+                self._note_redefinition(s, scope, pat.name)
                 pat.name = self._uniq_bind(pat.name, scope)
+                binders.append(pat)
             return
         if isinstance(s, GuardLetStatement):
             self._uniq_walk(s.optional_expr, scopes)
@@ -3328,8 +3377,10 @@ class _FrameBuilder:
             if s.pattern is not None:
                 for pat in _pattern_binding_nodes(s.pattern):
                     pat.name = self._uniq_bind(pat.name, scope)
+                    binders.append(pat)
             else:
                 s.name = self._uniq_bind(s.name, scope)
+                binders.append(s)
             return
         self._uniq_walk(s, scopes)
 
@@ -5049,6 +5100,14 @@ class _FrameBuilder:
         self._tcland_ctr = 0
         self.cur = 0
 
+        # design 218b: the FUNCTION-BODY scope. Pushed and never popped — the
+        # body has exactly one fallthrough, the tail below, and that tail ends
+        # in `_done`, whose E-RET walk releases this scope AFTER the result has
+        # been stored. Releasing it here instead would clear the very local a
+        # tail `move r` is handing back.
+        self._scope_stack = []
+        self._push_scope(self._block_scope_names(func.body))
+
         self._lower_stmts(func.body.statements, loop_ctx=None)
         if self.cur not in self._term:
             fe = func.body.final_expr
@@ -5471,6 +5530,120 @@ class _FrameBuilder:
         self._blocks[self.cur].extend(self._done_seq(value, forgets or []))
         self._term.add(self.cur)
 
+    # ------------------------------------------------------------------ #
+    # design 218b: SCOPE-END RELEASE — the funnel and its exit edges
+    # ------------------------------------------------------------------ #
+    #
+    # A driven body's locals live in FRAME FIELDS, which outlived every scope
+    # they were written in and died with the frame (DF-217p, 66 corodiff cells).
+    # Deterministic destruction is unconditional, so a frame-resident local now
+    # releases where its non-suspending twin releases it. "Release at every scope
+    # exit" quantifies over positions, so it is a FUNNEL (obligation 1):
+    # `_scope_release_seq` is the one emitter, and its entry points are exactly
+    # the edges by which control leaves a scope.
+    #
+    #   E-FALL  fallthrough out of a lowered block — `_lower_block`, entered by
+    #           `_split_if`, `_split_if_let`, `_split_guard_let`, `_split_while`,
+    #           `_split_for`, `_split_match` and `_split_try_catch`
+    #   E-BRK   `break`    — `_lower_stmt`, via `_scope_release_to_loop`
+    #   E-CNT   `continue` — `_lower_stmt`, via `_scope_release_to_loop`
+    #   E-RET   the done path — `_done_seq`, via `_scope_release_all`, ahead of
+    #           the `release()` that stays as the backstop for what no scope
+    #           owned (params, and any field on a path the walk cannot prove)
+    #   E-REDEF a design-107 same-scope redefinition — `_lower_inplace`, via
+    #           `_redefinition_release`, right after the replacing store
+    #
+    # A MISSED edge degrades to the old behavior (a late release, loud in the
+    # corodiff lane as DEINIT-ORDER) and never to a double free: every shape
+    # `_release_shape` emits is the idempotent tag-drop, and teardown drops iff
+    # occupied.
+    def _push_scope(self, names, loop_body=False):
+        self._scope_stack.append((list(names), loop_body))
+
+    def _pop_scope(self):
+        self._scope_stack.pop()
+
+    def _block_scope_names(self, block):
+        """The frame-resident bindings `block`'s own statements introduce, in
+        DECLARATION order, read off the scope map `_uniq_walk_block` built."""
+        entry = self._scope_binders.get(id(block))
+        if entry is None or entry[0] is not block:
+            return []
+        out = []
+        for binder in entry[1]:
+            name = getattr(binder, 'name', None)
+            if name and name in self.encmap:
+                out.append(name)
+        return out
+
+    def _scope_release_seq(self, names):
+        """THE scope-end release: drop the scope's own bindings in reverse
+        declaration order (LIFO), each in its encoding's shape.
+
+        Entry points (process rule 1): `_lower_block` (E-FALL),
+        `_scope_release_to_loop` (E-BRK / E-CNT) and `_scope_release_all`
+        (E-RET). `_redefinition_release` is the fifth edge and releases ONE
+        named binding rather than a scope, through the same
+        `_release_shape`."""
+        seq = []
+        for name in reversed(names):
+            seq.extend(self._release_shape(
+                name, self.encmap.get(name), self._frame_slot_type(name)))
+        return seq
+
+    def _scope_release_to_loop(self):
+        """E-BRK / E-CNT: every scope the jump exits, innermost first, out to
+        and INCLUDING the loop body's — the transform's twin of codegen's
+        `_cleanup_to_loop_boundary` (DF-218r)."""
+        seq = []
+        for names, is_loop_body in reversed(self._scope_stack):
+            seq.extend(self._scope_release_seq(names))
+            if is_loop_body:
+                break
+        return seq
+
+    def _scope_release_all(self):
+        """E-RET: every open scope, innermost first. Runs ahead of `release()`,
+        which then finds those slots empty and drops only what no scope owned."""
+        seq = []
+        for names, _ in reversed(self._scope_stack):
+            seq.extend(self._scope_release_seq(names))
+        return seq
+
+    def _redefinition_release(self, s):
+        """E-REDEF: the binding a design-107 same-scope redefinition REPLACED
+        dies at the redefinition point, after the replacing store — which is
+        where codegen's `_drop_redefined_same_scope` drops the sync twin's.
+
+        The two ENCODINGS split here. A frame-resident replaced binding is
+        released by this method. One that stayed an ordinary local is codegen's
+        to drop, and codegen matches it by NAME — which `_uniquify_bindings`
+        has just made different from the replacing binding's, so the pairing is
+        handed over explicitly on `coro_redefines`. Without it the two halves
+        read as unrelated locals in every body the transform renames but does
+        not make frame-resident, the plainest of which is a non-suspending
+        SPAWN root."""
+        entry = self._redefines.get(id(s))
+        if entry is None or entry[0] is not s:
+            return []
+        seq = []
+        line = getattr(s, 'line', 0) or 0
+        col = getattr(s, 'column', 0) or 0
+        local_names = []
+        for name in reversed(entry[1]):
+            if name in self.encmap:
+                seq.extend(self._release_shape(
+                    name, self.encmap.get(name), self._frame_slot_type(name),
+                    line, col))
+            else:
+                local_names.append(name)
+        if local_names and isinstance(s, LetStatement):
+            # One `let` replaces at most one binding of its own name; a
+            # destructuring `let`'s leaves keep their own statement and are not
+            # reachable through this single-name hand-off.
+            s.coro_redefines = local_names[0]
+        return seq
+
     # ----------------------------------------------------- the CFG walk
     def _lower_stmts(self, stmts, loop_ctx):
         for s in stmts:
@@ -5478,13 +5651,30 @@ class _FrameBuilder:
                 break  # unreachable tail after a return/break/continue
             self._lower_stmt(s, loop_ctx)
 
-    def _lower_block(self, block, loop_ctx):
-        self._lower_stmts(block.statements, loop_ctx)
-        if block.final_expr is not None and self.cur not in self._term:
-            # A branch/loop-body tail expression in statement position: run it for
-            # its side effects (its value is discarded here).
-            self._lower_stmt(
-                ExpressionStatement(expression=block.final_expr), loop_ctx)
+    def _lower_block(self, block, loop_ctx, extra=(), loop_body=False):
+        """Lower a block as its own SCOPE (design 218b).
+
+        `extra` is the construct's own binding(s) — an `if let` payload, a
+        `match` arm's payload bindings, a split `try/catch`'s caught error —
+        which are declared BEFORE the block's statements and therefore die
+        LAST, exactly as the sync twin's arm-scope entry does. `loop_body`
+        marks the scope `break`/`continue` unwind to.
+        """
+        names = list(extra) + self._block_scope_names(block)
+        self._push_scope(names, loop_body)
+        try:
+            self._lower_stmts(block.statements, loop_ctx)
+            if block.final_expr is not None and self.cur not in self._term:
+                # A branch/loop-body tail expression in statement position: run it
+                # for its side effects (its value is discarded here).
+                self._lower_stmt(
+                    ExpressionStatement(expression=block.final_expr), loop_ctx)
+            # E-FALL. A terminated block left by `return`/`break`/`continue`
+            # released on its own edge; only the fallthrough is owed here.
+            if self.cur not in self._term:
+                self._emit(self._scope_release_seq(names))
+        finally:
+            self._pop_scope()
 
     def _lower_stmt(self, s, loop_ctx):
         # design 158: track the user line the walk is on, so a suspension the
@@ -5574,6 +5764,7 @@ class _FrameBuilder:
                 raise CoroTransformError(
                     f"coroutine transform: `break` outside a loop in `{self.name}`",
                     s.line, s.column)
+            self._emit(self._scope_release_to_loop())     # E-BRK
             self._goto(loop_ctx[1])
             return
         if isinstance(s, ContinueStatement):
@@ -5581,6 +5772,7 @@ class _FrameBuilder:
                 raise CoroTransformError(
                     f"coroutine transform: `continue` outside a loop in "
                     f"`{self.name}`", s.line, s.column)
+            self._emit(self._scope_release_to_loop())     # E-CNT
             self._goto(loop_ctx[0])
             return
 
@@ -5743,7 +5935,10 @@ class _FrameBuilder:
             e, scrut, then_entry, else_entry if else_entry is not None else merge,
             forgets)
         self.cur = then_entry
-        self._lower_block(e.then_branch, loop_ctx)
+        # SC6: the payload binding belongs to the THEN-branch's scope and dies
+        # at its end, ahead of nothing and after the branch's own locals.
+        self._lower_block(e.then_branch, loop_ctx,
+                          extra=[e.name] if e.name in self.encmap else ())
         if self.cur not in self._term:
             self._goto(merge)
         if else_entry is not None:
@@ -5805,7 +6000,8 @@ class _FrameBuilder:
             self._emit(cap_lets)
             self._branch(cond, body_b, exit_b)
             self.cur = body_b
-            self._lower_block(e.body, loop_ctx=(header, exit_b))
+            self._lower_block(e.body, loop_ctx=(header, exit_b),
+                              loop_body=True)
             if self.cur not in self._term:
                 self._goto(header)
             self.cur = exit_b
@@ -5814,7 +6010,8 @@ class _FrameBuilder:
             exit_b = self._new_block()
             self._goto(body_b)
             self.cur = body_b
-            self._lower_block(e.body, loop_ctx=(body_b, exit_b))
+            self._lower_block(e.body, loop_ctx=(body_b, exit_b),
+                              loop_body=True)
             if self.cur not in self._term:
                 self._goto(body_b)
             self.cur = exit_b
@@ -5870,7 +6067,7 @@ class _FrameBuilder:
                         right=_self_field(end_name))
         self._branch(cond, body_b, exit_b)
         self.cur = body_b
-        self._lower_block(s.body, loop_ctx=(incr, exit_b))
+        self._lower_block(s.body, loop_ctx=(incr, exit_b), loop_body=True)
         if self.cur not in self._term:
             self._goto(incr)
         self.cur = incr
@@ -5902,7 +6099,8 @@ class _FrameBuilder:
         new_arms = []
         for arm in e.arms:
             entry = self._new_block()
-            arm_entries.append((arm, entry))
+            arm_binds = []
+            arm_entries.append((arm, entry, arm_binds))
             dispatch = []
             # Carry every payload binding into its frame field, so the arm's
             # (separately-dispatched) entry block can read it after a suspend.
@@ -5930,6 +6128,7 @@ class _FrameBuilder:
                 if bname == "_" or bname not in self.encmap or bname in _seen_binds:
                     continue
                 _seen_binds.add(bname)
+                arm_binds.append(bname)          # SC7: the arm scope's own
                 dispatch.append(self._store_binding_in_slot(
                     bname, arm.line, arm.column))
                 _consumed = _consumed or self._slot_store_consumes(bname)
@@ -5966,13 +6165,21 @@ class _FrameBuilder:
             matched_expr=scrut, arms=new_arms))])
         self._blocks[self.cur].append(ContinueStatement())
         self._term.add(self.cur)
-        for arm, entry in arm_entries:
+        for arm, entry, arm_binds in arm_entries:
             self.cur = entry
             if isinstance(arm.body, Block):
-                self._lower_block(arm.body, loop_ctx)
+                self._lower_block(arm.body, loop_ctx, extra=arm_binds)
             else:
-                self._lower_stmt(
-                    ExpressionStatement(expression=arm.body), loop_ctx)
+                # A BARE arm expression is not a block, so it has no scope of
+                # its own — but the payload bindings still die at the arm's end.
+                self._push_scope(arm_binds)
+                try:
+                    self._lower_stmt(
+                        ExpressionStatement(expression=arm.body), loop_ctx)
+                    if self.cur not in self._term:
+                        self._emit(self._scope_release_seq(arm_binds))
+                finally:
+                    self._pop_scope()
             if self.cur not in self._term:
                 self._goto(merge)
         self.cur = merge
@@ -6003,7 +6210,11 @@ class _FrameBuilder:
         if self.cur not in self._term:
             self._goto(merge)
         self.cur = catch_entry
-        self._lower_block(e.catch_block, loop_ctx)
+        # SC10: the caught error binding is the catch scope's own, and clears at
+        # the catch's end.
+        err = e.error_binding or "error"
+        self._lower_block(e.catch_block, loop_ctx,
+                          extra=[err] if err in self.encmap else ())
         if self.cur not in self._term:
             self._goto(merge)
         self.cur = merge
@@ -7156,6 +7367,8 @@ class _FrameBuilder:
                 value=MoveExpr(variable=src, line=s.line, column=s.column),
                 mutable=False, line=s.line, column=s.column))
             out.extend(moves)
+            # E-REDEF: a leaf that REPLACED a same-scope binding retires it here.
+            out.extend(self._redefinition_release(s))
             return out + self._forgets(forgets)
 
         if isinstance(s, LetStatement):
@@ -7166,7 +7379,12 @@ class _FrameBuilder:
             else:
                 s.value = value
                 new = s
-            return cap_lets + [new] + self._forgets(forgets)
+            # E-REDEF (design 218b): a design-107 same-scope redefinition retires
+            # the REPLACED binding right here, AFTER the replacing store — the
+            # initializer derives from the old value, so the drop cannot precede
+            # it. Codegen's `_drop_redefined_same_scope` is the sync twin.
+            return (cap_lets + [new] + self._redefinition_release(s)
+                    + self._forgets(forgets))
 
         if isinstance(s, AssignStatement):
             forgets = []
@@ -7438,35 +7656,58 @@ class _FrameBuilder:
                         ]))], final_expr=None),
                 else_branch=None)))
         for name, enc, t in reversed(self._owned_frame_fields()):
-            if _enc_is_slot(enc):
-                # design 218 census D2: the per-field body of `release` is one
-                # safe call. `clear` drops the occupant if there is one and is
-                # idempotent by the type, so the box's later memberwise
-                # teardown stays a no-op by construction rather than by the
-                # tag convention holding.
-                seq.append(ExpressionStatement(expression=_slot_op(
-                    _self_field(name), "clear")))
-            elif _enc_cleanup(enc):
-                # The legacy drop-flag clear, for a field
-                # `self.defer_families[name]` holds back. Design 44's
-                # convention: writing `None` over the tag IS the drop, and the
-                # box's later memberwise teardown finds nothing — which the
-                # `Slot` branch above gets from the type instead of from the
-                # convention holding at every site.
-                seq.append(AssignStatement(target=_self_field(name),
-                                           value=NoneLiteral()))
-            elif enc == "plain" and _is_taskgroup(t):
-                # design 62 G1: a frame-resident TaskGroup is plain-encoded (it must
-                # stay addressable for `group.spawn`'s `&group` receiver), so it has
-                # no drop flag to clear. Overwrite it with the same always-valid
-                # empty placeholder its zero-init uses: the assignment deinits the
-                # old group — structured-joining ITS children first, exactly what
-                # the task's own scope exit would have done — and installs a fresh
-                # empty one that drops for free at box teardown.
-                seq.append(AssignStatement(
-                    target=_self_field(name),
-                    value=FunctionCall(name="TaskGroup", arguments=[])))
+            seq.extend(self._release_shape(name, enc, t))
         return seq
+
+    def _release_shape(self, name, enc, t, line=0, column=0):
+        """WHAT releasing frame field `name` IS, by its encoding — the one
+        decision `_release_seq` (teardown) and `_scope_release_seq` (scope end)
+        share, so the two can never drift apart about what a release means.
+        They differ only in WHEN they run and over WHICH fields.
+
+        Every shape here is IDEMPOTENT, which is what lets a scope-end clear, a
+        `release()` at Done and the box's memberwise teardown all reach the same
+        field and drop its payload exactly once between them (218a section 2's
+        four-exit argument, conformance K28). A field this returns nothing for
+        owns nothing to release."""
+        if _enc_is_slot(enc):
+            # design 218 census D2: the per-field body of `release` is one
+            # safe call. `clear` drops the occupant if there is one and is
+            # idempotent by the type, so the box's later memberwise
+            # teardown stays a no-op by construction rather than by the
+            # tag convention holding.
+            return [ExpressionStatement(expression=_slot_op(
+                _self_field(name, line, column), "clear",
+                line=line, column=column))]
+        if _enc_cleanup(enc):
+            # The legacy drop-flag clear, for a field
+            # `self.defer_families[name]` holds back. Design 44's
+            # convention: writing `None` over the tag IS the drop, and the
+            # box's later memberwise teardown finds nothing — which the
+            # `Slot` branch above gets from the type instead of from the
+            # convention holding at every site.
+            #
+            # Design 218b ruling 6: scope-end covers the deferred families in
+            # exactly this spelling, so deterministic destruction is
+            # unconditional rather than gated on the Slot migration finishing.
+            # A family that later migrates changes the shape here and NOT the
+            # place the release sits.
+            return [AssignStatement(target=_self_field(name, line, column),
+                                    value=NoneLiteral(),
+                                    line=line, column=column)]
+        if enc == "plain" and _is_taskgroup(t):
+            # design 62 G1: a frame-resident TaskGroup is plain-encoded (it must
+            # stay addressable for `group.spawn`'s `&group` receiver), so it has
+            # no drop flag to clear. Overwrite it with the same always-valid
+            # empty placeholder its zero-init uses: the assignment deinits the
+            # old group — structured-joining ITS children first, exactly what
+            # the task's own scope exit would have done — and installs a fresh
+            # empty one that drops for free at box teardown.
+            return [AssignStatement(
+                target=_self_field(name, line, column),
+                value=FunctionCall(name="TaskGroup", arguments=[]),
+                line=line, column=column)]
+        return []
 
 
 def _declare_unsafe(decl, unsafe):
@@ -8737,6 +8978,69 @@ def _find_method(program, struct_name, method_name, method_symbol=None):
                 continue
             return m, ext
     return None, None
+
+
+def _names_a_consumed_call(decl, consumed):
+    """Does `decl`'s body CALL any of `consumed` by name?"""
+    body = getattr(decl, 'body', None)
+    if body is None:
+        return False
+    seen = set()
+    stack = [body]
+    while stack:
+        node = stack.pop()
+        if not isinstance(node, ASTNode) or id(node) in seen:
+            continue
+        seen.add(id(node))
+        if isinstance(node, FunctionCall) and node.name in consumed:
+            return True
+        stack.extend(_all_child_nodes(node))
+    return False
+
+
+def _consume_templates_naming_removed(program, removed, readded):
+    """CONSUMPTION SYMMETRY (design 218b section 4, ruling 5 — DF-218e).
+
+    A suspending callee is CONSUMED by the transform: it becomes a frame plus a
+    driver and its plain body leaves `program.functions`. A NON-generic caller is
+    consumed for the same reason, so nothing is left naming it. A GENERIC caller
+    is not — `_promote_nested_generic_calls` splices the CONCRETE instantiations
+    beside the un-transformed TEMPLATE, and the template's body still calls the
+    consumed callee. The post-transform re-check then typechecks that template
+    and reports ``undefined function `mk` `` at the author's own line, plus an
+    undefined-variable cascade for the binding it feeds.
+
+    So the template is consumed too, and the rule is the non-generic one stated
+    generally: a body the transform replaced with a frame is removed, and so is a
+    template every instantiation of which it would have replaced. Sound because
+    every instantiation of such a template is UNCONDITIONALLY suspending (the
+    callee it names is concrete and suspending, so effect inference suspends
+    every instantiation), every driven use was already promoted to a concrete
+    function before the transform ran, and no sync instantiation can therefore
+    exist for codegen's late monomorphization to ask for. A template that
+    suspends only CONDITIONALLY — through a type-parameter method — names no
+    consumed callee and is untouched, so its sync instantiations stay reachable.
+
+    Runs to a FIXPOINT: consuming one template can leave a second one naming it
+    (a generic root whose nested callee is itself generic).
+
+    `readded` is the set of names the transform puts BACK under their own name —
+    a suspending `main` becomes its own entry executor — which are therefore not
+    consumed at all."""
+    consumed = set(removed) - set(readded)
+    if not consumed:
+        return
+    templates = {f.name: f for f in program.functions
+                 if getattr(f, 'type_params', None) and f.name not in removed}
+    changed = True
+    while changed and templates:
+        changed = False
+        for name, decl in list(templates.items()):
+            if _names_a_consumed_call(decl, consumed):
+                removed.add(name)
+                consumed.add(name)
+                del templates[name]
+                changed = True
 
 
 def _promote_nested_generic_calls(program, funcs_by_name, seed_names, typechecker):
