@@ -1,0 +1,32 @@
+// The second row of DF-218n's refusal: the body holding the drive site is an
+// ordinary suspending FUNCTION rather than `main`, and the site spells
+// `__saw_drive_steps`. Same rule, same place — every body the transform turns
+// into a frame passes through the frame builder's `prepare`, so the refusal is
+// one check rather than one per drive spelling or per root kind.
+//
+// The blessed spelling is in the diagnostic: `runner` suspends, so it may call
+// `s()` directly and the suspending call embeds into its frame.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `__saw_drive_steps` may not appear in `runner`, which itself suspends
+// EXPECT-ERROR-CONTAINS: call it directly and the suspending call embeds here
+
+import std.task
+
+func s() -> Int {
+    task.yield_now()
+    7
+}
+
+func t() -> Int {
+    task.yield_now()
+    8
+}
+
+func runner() -> Int {
+    let a = __saw_drive_steps(s())
+    return a + t()
+}
+
+func main() {
+    print(__saw_drive(runner()))
+}

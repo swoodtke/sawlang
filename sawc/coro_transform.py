@@ -4246,6 +4246,11 @@ class _FrameBuilder:
     def prepare(self, suspends):
         self._suspends = suspends
         func = self.func
+        # DF-218n: `__saw_drive` in a body that itself suspends is refused HERE,
+        # on the untouched body — every lowering below moves the site's argument
+        # out of the shape `_rewrite_drive_sites` reads, and the ruling is a
+        # clean refusal rather than nested-executor semantics.
+        self._reject_drive_site()
         # DF-151a: give every binding in the body a name unique WITHIN it, so
         # each is its own frame field and each identifier read reaches the
         # binding it was written against. MUST run first: everything below keys
@@ -4822,6 +4827,49 @@ class _FrameBuilder:
             f"the binding",
             getattr(head, 'line', 0) or 0, getattr(head, 'column', 0) or 0,
             source_file=self.src_file)
+
+    def _reject_drive_site(self):
+        """A `__saw_drive` / `__saw_drive_steps` site in a body that ITSELF
+        suspends — RULED a clean refusal (user, Aug 15; DF-218n).
+
+        `__saw_drive` is design 44's test-only executor entry: it names a root
+        and runs it to completion. A body holding one may also call a suspending
+        function on its own account, which makes THIS body suspending too, so
+        the transform rewrites it into a frame BEFORE `_rewrite_drive_sites`
+        walks the program — and that rewrite has moved the drive site's argument
+        out of the `FunctionCall` shape the rewrite reads. The compiler died
+        `AttributeError: 'MemberAccess' object has no attribute 'name'`.
+
+        The ruling refuses it instead of making both roots run: a nested drive
+        would need non-ceding nested-executor semantics (fairness, op-budget
+        bypass) designed for a spelling only tests write, and the refusal costs
+        zero real programs because the body already suspends — which is the
+        position where a suspending call embeds and needs no drive at all. That
+        is what the diagnostic teaches.
+
+        Runs at the TOP of `prepare`, on the untouched body: every function this
+        transform turns into a frame passes through there, and the site's own
+        line is still the author's. A body that does NOT suspend never builds a
+        frame, so `__saw_drive` from a sync `main` is untouched.
+        """
+        for fc in _iter_function_calls(self.func.body):
+            if fc.name not in ("__saw_drive", "__saw_drive_steps"):
+                continue
+            inner = fc.arguments[0].value if fc.arguments else None
+            if isinstance(inner, MethodCall):
+                spelling = f"{inner.method_name}(...)"
+            elif isinstance(inner, FunctionCall):
+                spelling = f"{inner.name}(...)"
+            else:
+                spelling = "the root"
+            raise CoroTransformError(
+                f"coroutine transform: `{fc.name}` may not appear in "
+                f"`{self.display_name}`, which itself suspends. This body "
+                f"already runs inside an executor, so `{spelling}` needs no "
+                f"drive site — call it directly and the suspending call embeds "
+                f"here (design 120).",
+                getattr(fc, 'line', 0) or 0, getattr(fc, 'column', 0) or 0,
+                source_file=self.src_file)
 
     def _reject_erased_reference_param(self, p):
         """A `&any Trait` parameter of a suspending function — refused HERE, at

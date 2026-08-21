@@ -1,29 +1,26 @@
-// XFAIL: DF-218n an explicit `__saw_drive(f())` inside a body that ITSELF
-// suspends is an internal compiler error
+// `__saw_drive` in a body that ITSELF suspends is a clean refusal.
 //
 // `__saw_drive` is design 44's test-only executor entry: it names a root and
 // runs it to completion. A body holding one may also call a suspending function
 // on its own account — here `main` drives `s()` and then calls `t()` — and that
 // makes `main` suspending too, so the coroutine transform rewrites its body
-// BEFORE `_rewrite_drive_sites` walks it. The drive site's argument is no longer
-// the `FunctionCall` that rewrite expects; it is whatever the transform left in
-// that position, and the compiler dies reading `.name` off it:
+// before `_rewrite_drive_sites` walks it. The drive site's argument is then no
+// longer the `FunctionCall` that rewrite expects, and the compiler died reading
+// `.name` off whatever the transform left there:
 //
 //   AttributeError: 'MemberAccess' object has no attribute 'name'
 //
-// PRE-EXISTING — reproduced unchanged on the design 218 stage-3 tree, and found
-// by stage 4 while writing coverage for the two `__result` encodings the
-// migration defers (`coro_result_array_and_closure.saw`, whose `main` is sync
-// for exactly this reason).
-//
-// The intended behavior is the one the source reads as: both roots run and the
-// program prints their results. A clean refusal ("`__saw_drive` may not appear
-// in a suspending body") would be a defensible ruling too, and the pin gets
-// rewritten if that is the answer — what is not defensible is the traceback.
-// EXPECT: success
-// EXPECT-OUTPUT:
-// 7
-// 8
+// RULED (user, Aug 15, DF-218n): CLEAN REFUSAL, not both-roots-run. Making both
+// run would mean designing non-ceding nested-executor semantics — fairness, the
+// op budget — for a spelling only tests write, and the refusal costs zero real
+// programs: a body that suspends is exactly the position where a suspending
+// call EMBEDS, so it needs no drive site at all. The diagnostic teaches that.
+// Landed by design 237 unit 4, which refuses at the top of the frame builder's
+// `prepare`, on the untouched body.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `__saw_drive` may not appear in `main`, which itself suspends
+// EXPECT-ERROR-CONTAINS: `s(...)` needs no drive site
+// EXPECT-ERROR-CONTAINS: call it directly and the suspending call embeds here
 
 import std.task
 
