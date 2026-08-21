@@ -1,22 +1,26 @@
-// XFAIL: DF-217g a destructuring `let` whose RHS suspends is refused with the
-// nested/expression-position error, which design 120 says it should not be
+// A destructuring `let` whose RHS spans a suspension, in every spelling the
+// statement class has. Design 120 promises a suspending call embeds in any
+// expression position; `DestructuringLet` was simply absent from the ANF
+// hoist's statement entry set, so both spellings — a tuple LITERAL of
+// suspending calls and a suspending call RETURNING a tuple — were refused with
+// the nested/expression-position error (DF-217g, closed by design 237 unit 2).
 //
-// Sweep S2 rows i4/p2. The finding was first filed against the tuple LITERAL;
-// the sweep rescoped it: a tuple literal of suspending calls is fine in an
-// ordinary `let` (row p3's twin), and it is the DESTRUCTURING form — `let (a,
-// b) = ...` — that the transform refuses, in both its spellings. A suspending
-// call returning a tuple is refused the same way, so the fault is the binding
-// construct, not the literal.
-//
-// Design 120 lists literals among the expression positions a suspending call
-// may occupy, and the non-suspending twin of each shape compiles and runs, so
-// this is a bogus refusal rather than a documented fence. It is the
-// DestructuringLet statement class missing from the child-position funnel's
-// entry list — the same enumeration gap as DF-217f's match scrutinee.
+// The rows below are that statement class's own matrix: the two RHS shapes,
+// `var` beside `let`, a nested tuple pattern, a `_` position, evaluation order
+// against a side-effecting sibling (design 147), and a CONDITIONAL RHS — which
+// has no per-arm sink to lower into and so is lifted whole to a temp by the
+// stage-2 entry the same commit added.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // literal 1 2
 // call 3 4
+// var 5 6
+// nested 7 8 9
+// wildcard 11
+// order noisy
+// order slow
+// 1 2
+// coalesce 12 4
 // done
 
 import std.task.{yield_now}
@@ -31,6 +35,23 @@ func mk_pair() -> (Int, Int) {
     (3, 4)
 }
 
+func noisy(id: Int) -> Int {
+    print("order noisy")
+    id
+}
+
+func loud_s(id: Int) -> Int {
+    yield_now()
+    print("order slow")
+    id
+}
+
+func maybe_pair(want: Bool) -> (Int, Int)? {
+    yield_now()
+    if want { return (12, 4) }
+    return None
+}
+
 func tuple_literal_rhs() {
     let (a, b) = (mk_s(1), mk_s(2))
     print("literal {a} {b}")
@@ -41,8 +62,40 @@ func suspending_call_rhs() {
     print("call {a} {b}")
 }
 
+func var_rhs() {
+    var (a, b) = (mk_s(5), mk_s(6))
+    a += 0
+    b += 0
+    print("var {a} {b}")
+}
+
+func nested_pattern_rhs() {
+    let (a, (b, c)) = (mk_s(7), (mk_s(8), mk_s(9)))
+    print("nested {a} {b} {c}")
+}
+
+func wildcard_position_rhs() {
+    let (a, _) = (mk_s(11), mk_s(99))
+    print("wildcard {a}")
+}
+
+func evaluation_order_rhs() {
+    let (a, b) = (noisy(1), loud_s(2))
+    print("{a} {b}")
+}
+
+func conditional_rhs() {
+    let (a, b) = maybe_pair(true) ?? (0, 0)
+    print("coalesce {a} {b}")
+}
+
 func main() {
     tuple_literal_rhs()
     suspending_call_rhs()
+    var_rhs()
+    nested_pattern_rhs()
+    wildcard_position_rhs()
+    evaluation_order_rhs()
+    conditional_rhs()
     print("done")
 }

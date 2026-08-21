@@ -23,18 +23,19 @@
 #
 # Format: DF <TAB> signature   (the signature corodiff prints for it)
 
-# DF-217f — a suspending call as a labeled enum-constructor argument that is
-# itself a `match` scrutinee reaches codegen unhoisted. One of sweep S2's
-# statement-HEAD entry gaps; the `_uncond_children` funnel does not enter from
-# a match scrutinee. Reaches all five tiers and every context the harness has,
-# MT included.
-DF-217f	ICE: error: internal compiler error at <src>:N:N (FunctionCall): Undefined function: <mk>
-
-# DF-217g — a suspending call inside a destructuring `let`'s tuple literal is
-# refused with the nested/expression-position error, contradicting design 120's
-# documented literals coverage. The control twin compiles and runs. Same
-# diagnostic covers the `??` LHS spelling S2 also filed.
-DF-217g	BOGUS-REFUSAL: error: coroutine transform: suspending call to `X` in `X` appears in a nested/expression position; only a top-level `X` or `X` statement is supported
+# DF-217f's row is GONE, removed by design 237 unit 2 (the ledger sweep that
+# unit's fix owed). The finding — a suspending call as an enum-constructor
+# argument that is itself a `match` scrutinee — was CLOSED by design 224's
+# container-HEAD hoist on Aug 15: a scrutinee is a head, `_hoist_container_heads`
+# lifts it, and the ctor's own arguments then linearize through the funnel. The
+# entry outlived its fix by six days; design 237's census re-probed every cell
+# (`match Sig.One(v: s(7))`, the struct-init sibling, both `&&`/`||` LHS, the
+# `if`/`while` conditions and the `for`-range bounds) and found them all working.
+#
+# DF-217g's row is GONE too, removed by the fix (design 237 unit 2): a
+# destructuring `let` was the one LEAF statement class missing from the ANF
+# hoist's entry set, and it is now a row of `_ANF_STMT_ENTRIES` with
+# `examples/coro_destructuring_let_suspending_rhs.saw` as its matrix.
 
 # DF-217h's seventeen rows are GONE, removed by design 218 stage 2 (Aug 14) in
 # the landing that fixed them, exactly as an XPASS marker is. The ANF hoist's

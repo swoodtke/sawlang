@@ -1,0 +1,93 @@
+// A `Result`-returning function whose returned value SUSPENDS. The auto-wrap
+// (design 30) is a real AST node the typechecker inserts around the value —
+// `ResultOkWrap`, `ResultErrWrap`, and design 56's `ErasedErrWrap` — so
+// `return f()` at `-> Result<Int, E>` is not a call in the return slot at all,
+// it is a wrap NODE over one. The ANF hoist's child-position funnel did not
+// know those three node types, so the call under the wrapper stayed buried and
+// was refused with the nested/expression-position error design 120 says cannot
+// apply (sweep S2's "return f() under Result auto-wrap"; closed by design 237
+// unit 2, which added the family beside the `Optional` wrap already there).
+//
+// The rows: the Ok side, the Err side, the ERASED Err side, the bare TAIL
+// spelling (which design 83 normalizes into a return), the wrap nested one
+// level down inside a larger expression, and the `Result<T?, E>` DOUBLE wrap.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// ok 5
+// err bad 7
+// erased bad 9
+// tail 11
+// nested 26
+// double 13
+
+import std.task.{yield_now}
+
+struct Bad { code: Int }
+extension Bad: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("bad ")
+        into.append(value: self.code)
+    }
+}
+extension Bad: Error {}
+
+func s(n: Int) -> Int {
+    yield_now()
+    n
+}
+
+func s_bad(n: Int) -> Bad {
+    yield_now()
+    Bad(code: n)
+}
+
+func ok_side() -> Result<Int, Bad> {
+    return s(5)
+}
+
+func err_side() -> Result<Int, Bad> {
+    return s_bad(7)
+}
+
+func erased_side() -> Result<Int, Box<any Error>> {
+    return s_bad(9)
+}
+
+func tail_side() -> Result<Int, Bad> {
+    s(11)
+}
+
+func nested_side() -> Result<Int, Bad> {
+    return s(13) + s(13)
+}
+
+func double_side() -> Result<Int?, Bad> {
+    return s(13)
+}
+
+func main() {
+    match ok_side() {
+        case Ok(v) -> print("ok {v}"),
+        case Err(e) -> print("unexpected {e}")
+    }
+    match err_side() {
+        case Ok(v) -> print("unexpected {v}"),
+        case Err(e) -> print("err {e}")
+    }
+    match erased_side() {
+        case Ok(v) -> print("unexpected {v}"),
+        case Err(e) -> print("erased {e}")
+    }
+    match tail_side() {
+        case Ok(v) -> print("tail {v}"),
+        case Err(e) -> print("unexpected {e}")
+    }
+    match nested_side() {
+        case Ok(v) -> print("nested {v}"),
+        case Err(e) -> print("unexpected {e}")
+    }
+    match double_side() {
+        case Ok(v) -> print("double {v ?? -1}"),
+        case Err(e) -> print("unexpected {e}")
+    }
+}

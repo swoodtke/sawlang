@@ -146,7 +146,7 @@ from ast_nodes import (
     StringInterpolation, ArrayLiteral, MapLiteral, SetLiteral, StructInit,
     TupleLiteral, NilCoalesce, OptionalChain, BindOptional,
     OptionalEvalExpr, OptionalChainAssign, OptionalWrap,
-    ResultErrWrap, ErasedErrWrap,
+    ResultOkWrap, ResultErrWrap, ErasedErrWrap,
     structural_fields, expr_diverges,
 )
 from type_identity import type_identity as _type_identity
@@ -2155,6 +2155,41 @@ class _FrameBuilder:
                         BindOptional, OptionalEvalExpr, OptionalChainAssign,
                         ClosureExpr)
 
+    # A statement-position CONTAINER, whose BLOCKS `_anf_recurse` descends into
+    # and whose HEAD `_hoist_container_heads` already lifted (design 224). Never
+    # entered as a value here; listed beside `_ANF_CONDITIONAL` so the one
+    # opaque-value test below covers both reasons a value belongs to another
+    # pass.
+    _ANF_CONTAINER = (WhileExpr, IfLetExpr)
+    _ANF_OPAQUE = _ANF_CONDITIONAL + _ANF_CONTAINER
+
+    # THE STATEMENT ENTRY TABLE (design 237). Every LEAF statement class whose
+    # value expression the ANF hoist enters, as `(class, field, lift_self)`:
+    #
+    #   * `lift_self=False` — a top-level suspending call in this slot is
+    #     ALREADY a shape `_classify_call` embeds and drives (`let x = f()`,
+    #     `return f()`, a bare `f()` statement), so only its CHILDREN linearize.
+    #   * `lift_self=True` — the slot has no supported top-level form, so a
+    #     suspending call there is lifted to its own `let __anfN = f()` first.
+    #     `x = s()`, `n += s()` (design 224 G3) and `let (a, b) = pair()`
+    #     (DF-217g) are the three.
+    #
+    # It is a TABLE rather than an if-chain because the set is the whole claim:
+    # design 120 promises every expression position, and the hand-enumerated
+    # version covered four of these six — `DestructuringLet` was simply absent,
+    # which is the entirety of DF-217g. A statement class NOT here holds no
+    # value the hoist owns: `break`/`continue` carry none, a container's head is
+    # `control_heads`' (design 224), a `lend` place is storage the accessor
+    # names rather than a value, and `guard let`'s subject is a head too.
+    _ANF_STMT_ENTRIES = (
+        (LetStatement, 'value', False),
+        (DestructuringLet, 'value', True),
+        (AssignStatement, 'value', True),
+        (CompoundAssignStatement, 'value', True),
+        (ReturnStatement, 'value', False),
+        (ExpressionStatement, 'expression', False),
+    )
+
     def _anf_hoist(self):
         self._anf_ctr = 0
         self._anf_block(self.func.body)
@@ -2176,38 +2211,23 @@ class _FrameBuilder:
     def _anf_stmt(self, s):
         """Hoist buried suspending calls out of a leaf statement's value
         expression into preceding `let __anfN = ...` temps (evaluation order),
-        returning the replacement statement list. Control-flow statements are
-        left for `_anf_recurse` to descend into (their condition/scrutinee is the
-        narrow hoists' / CFG walk's job)."""
+        returning the replacement statement list.
+
+        ONE entry set, `_ANF_STMT_ENTRIES` — read it for which statement
+        classes reach the hoist and why nothing else does. A value another pass
+        owns is skipped here: a CONDITIONAL construct is stage 2's
+        (`_lower_value_conditionals` lowers it to branches first) and a
+        statement-position CONTAINER is `_anf_recurse`'s blocks plus design
+        224's heads."""
         out = []
-        if isinstance(s, LetStatement):
-            if isinstance(s.value, self._ANF_CONDITIONAL):
-                return [s]
-            s.value = self._anf(s.value, out, lift_self=False)
-        elif isinstance(s, (AssignStatement, CompoundAssignStatement)):
-            if isinstance(s.value, self._ANF_CONDITIONAL):
-                return [s]
-            # An assignment RHS has no top-level supported form (unlike `let x =
-            # call()` / `return call()`), so a suspending-call RHS is lifted too:
-            # `x = s()` becomes `let __anfN = s(); x = __anfN`.
-            #
-            # design 224 (G3): a COMPOUND assignment takes the same arm, and its
-            # absence is why `n += slow()` was refused as a nested position while
-            # its `n = n + slow()` spelling worked. Lifting the RHS keeps the
-            # order that spelling has — the target is read where the operator is
-            # applied, AFTER the suspension the author wrote to its right — and
-            # gives design 227's chained `x?.n += slow()` the same arm, which it
-            # reaches through the read-modify-writeback it lowers to.
-            s.value = self._anf(s.value, out, lift_self=True)
-        elif isinstance(s, ReturnStatement):
-            if s.value is not None and not isinstance(s.value, self._ANF_CONDITIONAL):
-                s.value = self._anf(s.value, out, lift_self=False)
-        elif isinstance(s, ExpressionStatement):
-            e = s.expression
-            # Control-flow expression statements are descended into by
-            # `_anf_recurse`; only a plain value expression is hoisted here.
-            if not isinstance(e, (IfExpr, WhileExpr, MatchExpr, IfLetExpr)):
-                s.expression = self._anf(e, out, lift_self=False)
+        for cls, field, lift_self in self._ANF_STMT_ENTRIES:
+            if not isinstance(s, cls):
+                continue
+            value = getattr(s, field)
+            if value is None or isinstance(value, self._ANF_OPAQUE):
+                break
+            setattr(s, field, self._anf(value, out, lift_self=lift_self))
+            break
         return out + [s]
 
     def _anf(self, expr, out, lift_self):
@@ -2372,11 +2392,36 @@ class _FrameBuilder:
         """Apply `fn` to each UNCONDITIONAL child expression position of `expr`,
         writing the result back, in EVALUATION ORDER.
 
+        THE CHILD-POSITION FUNNEL (design 120, closed by design 237). Design 120
+        promises a suspending call embeds in ANY expression position, which is a
+        position-quantified claim, so this dispatch is the ONE place the set of
+        positions is written down and every entry below reaches the same set.
+
+        ENTRY POINTS (obligation 1 — a funnel names its entries):
+          * `_uncond_children` — the read-only view, built by running this with
+            an identity mapper so the two can never drift
+          * `_anf_children` — stage 1's linearizer (design 120), entered from
+            `_anf` for every statement class in `_ANF_STMT_ENTRIES`
+          * `_vc_lift_nested` — stage 2's buried-conditional lift (design 133
+            unit B), which walks the same positions looking for `??`/`&&`/`||`/
+            value-`if` instead of for calls
+
         The RHS of `&&`/`||` is skipped: it is evaluated conditionally, so nothing
         may be lifted out of it (the stage-2 branch lowering owns that position).
         `receiver_hook`, when given, post-processes a method call's receiver right
         after `fn` and before the arguments, keeping the receiver's own hoists
         ahead of the arguments'.
+
+        A node type absent from this dispatch has NO unconditional children, and
+        the three kinds that qualify are all leaves or somebody else's: a literal
+        and a name hold no expression; `IfExpr`/`MatchExpr`/`NilCoalesce`/the
+        optional-chain family/`TryCatchExpr`/`ClosureExpr` are CONDITIONAL
+        (`_ANF_CONDITIONAL`, stage 2's); `WhileExpr`/`IfLetExpr`/`ForLoop` are
+        statement-position containers whose head is `control_heads`' and whose
+        blocks are the block walks'. `RangeExpr` is the one shape that is a head
+        and never a value — `let r = 0..n` names no type — so `_head_lift` owns
+        its endpoints and it is deliberately not here. `ArrayLiteral.repeat_count`
+        is compile-time-only and must NOT be lifted (see its annotation).
         """
         if isinstance(expr, FunctionCall):
             for a in expr.arguments:
@@ -2414,6 +2459,17 @@ class _FrameBuilder:
         elif isinstance(expr, CastExpr):
             expr.expr = fn(expr.expr)
         elif isinstance(expr, OptionalWrap):
+            expr.value = fn(expr.value)
+        elif isinstance(expr, (ResultOkWrap, ResultErrWrap, ErasedErrWrap)):
+            # design 237: the RESULT WRAP family, the `Optional` wrap's three
+            # siblings. The typechecker INSERTS one of these around the value of
+            # a `return`/tail/arm in a `Result`-returning function (design 30's
+            # auto-wrap), so `return f()` at `-> Result<Int, E>` is not a
+            # `FunctionCall` in the return slot at all — it is a wrap NODE over
+            # one. Without this branch the walk stopped at the wrapper, the call
+            # under it stayed buried, and `_collect_calls` refused a shape design
+            # 120 says works: the bogus refusal S2 filed as "return f() under
+            # Result auto-wrap".
             expr.value = fn(expr.value)
         elif isinstance(expr, TryExpr):
             # Only the stage-2 walk reaches a TryExpr here; `_anf` peels its
@@ -2660,7 +2716,7 @@ class _FrameBuilder:
     # a statement whose value positions belong to another pass (control flow, an
     # optional-chain assignment, a `guard let` subject).
     def _vc_stmt_value(self, s):
-        if isinstance(s, (LetStatement, AssignStatement)):
+        if isinstance(s, (LetStatement, AssignStatement, DestructuringLet)):
             return s.value
         if isinstance(s, ReturnStatement):
             return s.value
@@ -2750,6 +2806,20 @@ class _FrameBuilder:
         # preceding temp and the operator applies to that. `_vc_lift_here` does
         # both cases: the value IS a conditional, or merely contains one.
         if (isinstance(s, CompoundAssignStatement) and s.value is not None
+                and self._spans_suspension(s.value)):
+            pre = []
+            s.value = self._vc_lift_here(s.value, pre)
+            if pre:
+                return pre + [s]
+            return [s]
+        # design 237: a DESTRUCTURING let's RHS, on the compound assignment's
+        # terms and for the same reason — `let (a, b) = <conditional>` has no
+        # branch shape of its own to lower into, because the sink would have to
+        # destructure per arm. Lifting the conditional whole to a preceding temp
+        # leaves `let (a, b) = __vchN`, which is the shape the split already
+        # lowers. `_vc_lift_here` does both cases: the value IS a conditional,
+        # or merely contains one.
+        if (isinstance(s, DestructuringLet) and s.value is not None
                 and self._spans_suspension(s.value)):
             pre = []
             s.value = self._vc_lift_here(s.value, pre)
