@@ -264,6 +264,16 @@ The freestanding suite's cases reach `fscore` through `import fscore.*` rather
 than the qualifier for this reason, stated at the runner's case table. [238,
 185, 235, 150]
 
+ELEVATED at the 205 integration (Aug 21, lead): design 205 closed the DF-195b
+permission that had been silently absorbing this gap, so the un-adopted `Int`
+at a fixed-width qualified call is now a REFUSAL of a perfectly ordinary bare
+literal — `fsrt.stop(0)` broke every freestanding case at the merge (the 205
+sweep could not see code that landed in parallel). Migrated at integration:
+`tests/freestanding/core/src/lib.saw` spells `0u32` with a comment naming this
+finding; the fix un-suffixes it. A bare literal at ANY qualified free-function
+call with a fixed-width parameter now refuses, so this gap is user-visible on
+the ordinary path and should be scheduled accordingly.
+
 ## DF-238b — `print`'s `{}` format argument renders a wider-than-word integer
 ## as its LOW WORD on a 32-bit target (filed Aug 21, design 238 unit 1)
 

@@ -111,7 +111,10 @@ public func report_unsigned_wide(name: String, value: UInt64) {
 public func finish(case_name: String) unsafe -> Never {
     if FAILURES == 0 {
         print("fs done {} ok", case_name)
-        fsrt.stop(0)
+        // `0u32`, not `0`: a module-qualified free-function call puts no
+        // expected type in force (DF-238a), so a bare literal cannot adopt
+        // `stop`'s `UInt32` here. Un-suffix this when DF-238a's fix lands.
+        fsrt.stop(0u32)
     }
     print("fs done {} failed={}", case_name, FAILURES)
     fsrt.stop(EXIT_CHECK_FAILED)
