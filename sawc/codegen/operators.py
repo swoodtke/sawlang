@@ -536,7 +536,23 @@ class OperatorsMixin:
             # String.equals not linked (String stdlib absent): fall back to
             # pointer identity so codegen stays total.
             return self.builder.icmp_signed('==', left, right, name="streq_ptr")
-        return self.builder.call(fn, [left, right], name="streq")
+        return self.builder.call(
+            fn, [left, self._retain_comparison_operand(right)], name="streq")
+
+    def _retain_comparison_operand(self, right):
+        """Retain the RIGHT operand of a synthesized String comparison
+        (DF-217m).
+
+        `String.equals`/`String.compare` take `other` BY VALUE — design 239's
+        one recorded asymmetry, because `String` conforms builtin rather than
+        through a written conformance and `s.equals("literal")` has to work. A
+        by-value owning parameter is the CALLEE's to drop, and every ordinary
+        call site already retains what it hands over (`_gen_transfer_value`);
+        these two synthesized sites handed the operand straight through, which
+        balanced only while an instance method leaked its parameters. Now that
+        it drops them, the retain is what the operand's owner is owed.
+        """
+        return self._emit_copy_value(right, SawType(TypeKind.STRING))
 
     def _emit_tuple_equals(self, left, right, saw_type):
         """Tuple `==`: conjunction of element-wise `==` (design 32 item 8)."""
@@ -858,7 +874,10 @@ class OperatorsMixin:
             # String.compare not linked: fall back to Equal so codegen stays total.
             _, equal, _ = self._ordering_tags()
             return ir.Constant(ir.IntType(32), equal)
-        return self.builder.call(fn, [left, right], name="strcmp")
+        # The retain the by-value `other` is owed — see
+        # `_retain_comparison_operand` (DF-217m).
+        return self.builder.call(
+            fn, [left, self._retain_comparison_operand(right)], name="strcmp")
 
     def _emit_struct_compare(self, left, right, saw_type):
         """Struct ordering: dispatch to the type's `compare` (synthesized or

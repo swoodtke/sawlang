@@ -126,6 +126,20 @@ class MethodsMixin:
         # Determine the Self type for this extension
         self_llvm_type, self_saw_type = self._ext_self_types(struct_name)
 
+        # DF-217m: a param cleanup scope, which an INSTANCE method was the one
+        # callable shape never to push. A free function, a static method and an
+        # `init` all own their by-value params and drop the un-moved ones at the
+        # end (design 42); an instance method did not, so `s.take(mk(2))` on a
+        # `Res` param created a value nothing ever released — an ordinary
+        # sync-path leak, no coroutine involved.
+        #
+        # `self` is NOT registered, whichever way it arrives: a `&self`/`&var
+        # self` receiver BORROWS storage the caller owns, and its
+        # `variable_types` entry is the Self STRUCT type rather than a reference
+        # (that is what makes field access read through it), so registering it
+        # would drop the caller's value from inside the callee.
+        self.cleanup_stack.append([])
+
         # Create allocas for parameters (including self)
         for i, param in enumerate(method.parameters):
             llvm_func.args[i].name = param.name
@@ -141,10 +155,14 @@ class MethodsMixin:
                 self.variables[param.name] = alloca
                 self.variable_types[param.name] = self_saw_type
             else:
+                ptype = self._substitute_saw_type(param.type,
+                                                  self.type_param_context)
                 alloca = self._entry_alloca(self._get_llvm_type(param.type), name=param.name)
                 self.builder.store(llvm_func.args[i], alloca)
                 self.variables[param.name] = alloca
                 self.variable_types[param.name] = param.type
+                if self._needs_cleanup(ptype):
+                    self._register_cleanup(param.name, ptype)
 
         # Set current return type for implicit optional wrapping
         old_return_type = self.current_return_type
@@ -182,12 +200,19 @@ class MethodsMixin:
         if method.name == "deinit" and not self.builder.block.is_terminated:
             self._generate_field_deinit_calls(struct_name)
 
-        # Handle return
+        # Handle return — the param scope is cleaned on the fall-through path
+        # (an explicit `return` inside the body already ran
+        # `_cleanup_all_scopes`), exactly as a static method's is. A DERIVED
+        # body above returned before this and cleans nothing: a synthesized
+        # `copy`/`equals`/`compare`/`hash` takes `&self` and (since design 239)
+        # `other: &Self`, so it owns no parameter there is anything to clean.
         if method.return_type.kind == TypeKind.VOID:
             if not self.builder.block.is_terminated:
+                self._cleanup_all_scopes()
                 self.builder.ret_void()
         else:
             if not self.builder.block.is_terminated:
+                self._cleanup_all_scopes()
                 if result is not None:
                     self.builder.ret(self._coerce_ret_value(result))
                 else:
@@ -415,19 +440,28 @@ class MethodsMixin:
         old_return_type = self.current_return_type
         self.current_return_type = method.return_type
 
+        # DF-217m: the param cleanup scope, on the same terms as a static
+        # method's — an `init`'s by-value owning param that no path moves into
+        # the built struct is the initializer's to release, not a leak.
+        self.cleanup_stack.append([])
+
         # Create allocas for parameters (no self for init methods)
         for i, param in enumerate(method.parameters):
             llvm_func.args[i].name = param.name
+            ptype = self._substitute_saw_type(param.type, self.type_param_context)
             alloca = self._entry_alloca(self._get_llvm_type(param.type), name=param.name)
             self.builder.store(llvm_func.args[i], alloca)
             self.variables[param.name] = alloca
             self.variable_types[param.name] = param.type
+            if self._needs_cleanup(ptype):
+                self._register_cleanup(param.name, ptype)
 
         # Generate method body - must return a struct value
         result = self._generate_block(method.body)
 
         # Handle return - init methods must return the struct
         if not self.builder.block.is_terminated:
+            self._cleanup_all_scopes()
             if result is not None:
                 self.builder.ret(self._coerce_ret_value(result))
             else:

@@ -1,16 +1,18 @@
-// XFAIL: DF-217m two SYNC-path temps are never released — a by-value owning
-// argument to a METHOD, and a call-result temp used as a RECEIVER
+// Every SYNC-path temp is released exactly once — a by-value owning argument
+// to a METHOD, and a call-result temp used as a RECEIVER, beside the
+// free-function control.
 //
-// No coroutine is involved: three values are created here and only the first
-// one's deinit runs. The free-function argument (`takeres(mk(1))`) is correct
-// and is the control — it proves the position is releasable and fixes the
-// expected ORDER, at the end of the statement that built the temp. The method
-// argument (`s.take(mk(2))`) and the temp receiver (`mk(3).n`) both leak.
+// No coroutine is involved. Three values are created here and each one's
+// deinit runs, at the end of the statement that built it. The free-function
+// argument (`takeres(mk(1))`) always worked and is the control — it proves the
+// position is releasable and fixes the expected ORDER; the method argument
+// (`s.take(mk(2))`) and the temp receiver (`mk(3).n`) used to leak (DF-217m).
 //
 // Found by sweep S2 while probing the suspending positions: the suspending
-// twin of each shape releases exactly once, i.e. the coro path is CORRECT here
-// and the plain path is the one that leaks — the reverse of the DF-217h class
-// beside it, and the reason it needs its own pin rather than riding one.
+// twin of each shape already released exactly once, i.e. the coro path was
+// CORRECT and the plain path was the one that leaked — the reverse of the
+// DF-217h class beside it, which is why it needed its own pin rather than
+// riding one, and why the coro path was the oracle for the fix.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // deinit 1

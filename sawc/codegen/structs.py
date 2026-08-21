@@ -280,6 +280,15 @@ class StructsMixin:
 
         obj_val = self._generate_expression(expr.object)
 
+        # DF-217m: a statement-scoped temporary RECEIVER, exactly as a method
+        # call registers one (`makeResource().use()`). `mk(3).n` builds a value
+        # nobody else owns — it is not bound, returned or transferred onward —
+        # and reading a field out of it left the value itself unreleased. An
+        # lvalue object (an identifier, `self`, a field, an element) is owned by
+        # its binding and is NOT registered here, which would double-free it.
+        if self._is_owned_temporary(expr.object):
+            self._register_stmt_temp(obj_val, self._expr_type(expr.object))
+
         # Determine the struct type
         # For now, we need to infer the struct type from the object expression
         # This is a bit hacky, but works for simple cases

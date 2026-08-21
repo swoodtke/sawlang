@@ -41,7 +41,7 @@ is scheduled and in what order is the whole of what they say.
 RESOLVED Aug 20 (user): the 234 carve-out is WITHDRAWN — M3 unit 1.5 waits
 for sawos; "238 before more M3 work" is absolute.
 
-(User-reserved list RELEASED by user, Aug 21: DF-232h rides design 234 unit 1 as an implemented task — the auto-wrap ladder extraction is exactly unit 1's machinery; DF-217m's sync half is design 240's item 9. Neither is a hand fix anymore.)
+(User-reserved list RELEASED by user, Aug 21: DF-232h rides design 234 unit 1 as an implemented task — the auto-wrap ladder extraction is exactly unit 1's machinery; DF-217m's sync half is design 240's item 9, LANDED Aug 21. Neither is a hand fix anymore.)
 
 ## [BACKLOG] — filed, not scheduled
 
@@ -3445,6 +3445,37 @@ exposed, in the brief's unit-1 paragraph.
     suspending twin drops exactly once, i.e. the coro path is CORRECT and
     the plain path leaks.
     PIN: `examples/sync_call_temp_released_once.saw`
+    **SYNC HALF CLOSED Aug 21, design 240 item 9 (branch `design-240`); the
+    CORO FACE stays open under DF-217p's ruling.** Two codegen gaps, both
+    where a shape had no cleanup scope at all:
+      * an INSTANCE method was the one callable shape that never pushed a
+        PARAM cleanup scope — a free function, a static method and an `init`
+        all own their by-value params and drop the un-moved ones (design 42).
+        `init` turned out to be missing it too (probed, fixed with it);
+        `self` is deliberately never registered, whichever way it arrives,
+        since a `&self` receiver BORROWS the caller's storage and its
+        `variable_types` entry is the Self STRUCT type rather than a
+        reference.
+      * a FIELD READ off an owned temporary (`mk(3).n`) never registered the
+        receiver, where a METHOD call on one already did.
+    CONSUMER SWEEP (obligation 2 — the contract flips from "the callee leaks
+    its by-value params" to "the callee owns and drops them", so every caller
+    owes a transfer). Ordinary call sites already retain through
+    `_gen_transfer_value`; the suite found exactly ONE synthesized site that
+    did not, and it is design 239's recorded asymmetry —
+    `String.equals`/`String.compare` take `other` BY VALUE (String conforms
+    builtin, and `s.equals("literal")` must work), and `_emit_string_equals`
+    / `_emit_string_compare` handed the operand straight through, balancing
+    only while the callee leaked it. Both now retain, through one named
+    helper. Caught by `df151i_tuple_copy` as an over-release panic, i.e. by a
+    gmgate oracle rather than by reasoning.
+    CORODIFF: the lane is GREEN (0 new findings, 11 known hits, all
+    DF-217p), and there was NO DF-217m block in `tools/corodiff_known.txt` to
+    remove — the harness's twin-parity axis never generated the two sync
+    shapes, which is why sweep S2 found them by hand and why this pin exists.
+    Recorded rather than left implicit, since the fixing commit was expected
+    to retire ledger rows. Gated: full suite, sos both arches, corodiff and
+    gmgate (51 programs under Guard Malloc, 0 failing).
   - **ICE family = statement-HEAD entry gaps:** if/while conditions,
     `&&`/`||` LHS (RHS works), for-range bounds, and match scrutinees whose
     ctor args suspend (DF-217f + its struct-init sibling) all reach codegen
