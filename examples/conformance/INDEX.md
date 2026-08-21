@@ -6,7 +6,7 @@ either a file in this directory or an existing `examples/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
-**445 rows: 340 carry a file here, 105 are covered elsewhere** (recounted Aug 16
+**450 rows: 345 carry a file here, 105 are covered elsewhere** (recounted Aug 16
 from the table itself — the audit-era "121 here, 198 elsewhere" had gone stale
 across the briefs listed below). (The audit's 247 plus
 the rows later briefs added: W02-W05, design 194 unit 4; W06-W19, design 195
@@ -27,7 +27,8 @@ point at tests written before the brief, which is what makes the fourteen new
 files auditable as the ONLY gap it had to fill; U31-U36, design 226 unit 2's
 closed-construction rows; R43-R44, the two STORE positions DF-216e's fix
 closed; B18-B19, DF-232n's relative-path package identity; B20-B22, the Aug-21
-signature-visibility ruling.)
+signature-visibility ruling; W20-W24, design 205 unit 1's transfer-position
+matrix.)
 
 ## How to read it
 
@@ -515,14 +516,18 @@ Claim source: spec 8 *Visibility* + *The prelude*; designs 80, 82, 142, 188 u7, 
 
 ## Integer width agreement
 
-Claim source: spec 5 *Integer Conversions* + *Arithmetic* ; design 195
+Claim source: spec 5 *Integer Conversions* + *Arithmetic* ; designs 195, 205
 
 Rule 1: all typed operands of an operation have the SAME type — implicit
 promotion happens from bare literals and nowhere else. Rule 2: value-branch
 arms are TRANSFERS, so a lossless widening arm is legal exactly as at a
-`return` and a lossy one is the ordinary transfer error. The rows are design
-195's position matrix, one per line; W11 and W17 are the two CONTROLS that pin
-what the rules do not touch.
+`return` and a lossy one is the ordinary transfer error. Rule 3 (design 205):
+the PLAIN transfer takes the same rule — a narrowing or a same-width sign
+change through the platform `Int`/`UInt` pair is refused wherever a value lands
+in a new home, and design 170's three spellings are how it is said. W06-W19 are
+design 195's operator matrix and W20-W24 design 205's transfer matrix, one per
+line; W11, W17 and W22-W24 are the CONTROLS that pin what the rules do not
+touch.
 
 | Row | Checks | Covered by | Ruling |
 |-----|--------|------------|--------|
@@ -540,6 +545,11 @@ what the rules do not touch.
 | W17 | control: a BARE literal still adopts the other operand's type | `W17_bare_literal_adopts_operand_type.saw` | 195 — the NEGATED spelling `n * -2` was an ICE (matrix row 12) |
 | W18 | compound assignment over different widths | `W18_compound_assign_mixed_width.saw` | 195 — a position the matrix did not carry; was a codegen ICE |
 | W19 | the bitwise `& \| ^` over different widths | `W19_bitwise_mixed_width.saw` | 195 — a position the matrix did not carry; compiled, ZERO-extending a signed operand into a wrong mask |
+| W20 | a NARROWING transfer through the platform pair, at all fifteen transfer positions (`let`/`var`, assignment, argument, return, struct field, enum payload, array/tuple/Vector/Map/Set element, optional slot, value-branch home) | `W20_narrowing_transfer_positions_error.saw`, and the two-line repro at `int_narrowing_transfer_through_platform_int.saw` | 205 — was DF-195b, a SOUNDNESS hole: `let b: Int8 = n` on an `Int` holding 300 printed 44 at every one of those positions. `_types_compatible` admitted a platform `Int`/`UInt` into any integer type, a permission that existed for bare-literal adoption (W23) and covered a runtime value losing its high bits |
+| W21 | a same-width SIGN FLIP through the platform pair, at the same positions | `W21_sign_flip_transfer_positions_error.saw`, and the two-line repro at `int_sign_flip_transfer_through_platform_int.saw` | 205 — was DF-195c, the other axis of the same admission: `let i: Int = u` on `UInt.max` printed -1, the conversion design 170 checks hardest at a written cast |
+| W22 | control: a LOSSLESS widening through the platform pair stays legal at every transfer position, and extends by the SOURCE's signedness | `W22_lossless_widening_transfer_positions.saw`, `int_widening_transfer_preserves_unsigned.saw`, `int_widening_argument_positions.saw` | 205 — the fence on W20/W21, and what makes the admission POSITIONAL rather than a loosening of general assignability. Four positions were wrong when the row was written (DF-205a: the implicit TAIL return, a fixed-array LITERAL element, a tuple element, an optional payload — the array face an outright ICE), which is DF-195a's mechanism at the positions its census did not reach |
+| W23 | control: a BARE literal still adopts a fixed-width slot at every transfer position | `W23_bare_literal_adopts_transfer_positions.saw` | 205 — design 205's W17: the ergonomic the closed admission existed for, done properly by design 87's expected-type propagation |
+| W24 | control: two FIXED widths never convert implicitly at a transfer, either direction, lossless or not | `W24_fixed_width_transfer_never_converts_error.saw` | 205 — the no-code-change row (design 53), and the reference the platform pair was brought into line with: if a later brief loosens one of the two it has to answer for the other |
 
 ## Comparison operators must not consume an operand
 

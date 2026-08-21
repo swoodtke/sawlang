@@ -1,0 +1,79 @@
+// Conformance row W20 — a NARROWING transfer through the platform pair is
+// refused at EVERY transfer position (design 205, closing DF-195b)
+//
+// Design 170 made every narrowing conversion WRITTEN: `x as Int8` panics out of
+// range, `Int8.from(x)` answers `None`, `Int8.from(truncating: x)` keeps the low
+// bits. A transfer through a platform `Int` bypassed all three, at every
+// position a value lands in a new home — so `let b: Int8 = n` on an `Int`
+// holding 300 printed 44 and exited 0.
+//
+// The permission existed so a bare LITERAL could reach a fixed-width slot, a job
+// design 87's expected-type propagation does properly now (row W23 is that
+// control). What it covered in practice was a runtime value losing its high
+// bits. Between two FIXED widths the same transfer was already a clean error
+// (row W24), so the hole was exactly the platform pair.
+//
+// This file is the POSITION MATRIX (obligation 1): one line per position a
+// transfer happens at, so a position that grows a second copy of the rule — or
+// bypasses the funnel — shows up here as a missing diagnostic rather than as a
+// silent truncation somebody finds later.
+// XFAIL: DF-195b a narrowing transfer through a platform `Int` truncates silently instead of being written
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign `Int` to variable of type `Int8`
+// EXPECT-ERROR-CONTAINS: argument `x` expects `Int8` but got `Int`
+// EXPECT-ERROR-CONTAINS: should return `Int8` but returns `Int`
+// EXPECT-ERROR-CONTAINS: field `f` expects type `Int8` but got `Int`
+// EXPECT-ERROR-CONTAINS: expected type `Int8` for parameter `f`, got `Int`
+// EXPECT-ERROR-CONTAINS: array element 0 has type `Int`, expected `Int8`
+// EXPECT-ERROR-CONTAINS: tuple element 0 has type `Int`, expected `Int8`
+// EXPECT-ERROR-CONTAINS: vector literal element 0 has type `Int`, expected `Int8`
+// EXPECT-ERROR-CONTAINS: map value 0 has type `Int`, expected `Int8`
+// EXPECT-ERROR-CONTAINS: cannot assign `Int` to variable of type `Int8?`
+// EXPECT-ERROR-CONTAINS: write the conversion: `as Int8`
+
+struct Rec { f: Int8 }
+
+enum Wrap { case Held(f: Int8) }
+
+func sink(x: Int8) -> Int8 { x }
+
+func produce(n: Int) -> Int8 { n }
+
+func main() {
+    let n: Int = 300
+
+    let a: Int8 = n                       // `let` initializer
+    print(a)
+
+    var b: Int8 = 0                       // `var` initializer (legal: a literal)
+    b = n                                 // assignment RHS
+    print(b)
+
+    print(sink(n))                        // call argument
+    print(produce(n))                     // return
+    print(Rec(f: n).f)                    // struct-field initializer
+
+    let e = Wrap.Held(f: n)               // enum payload
+    match e { case Held(h) -> print(h) }
+
+    let arr: [Int8; 2] = [n, n]           // fixed-array element
+    print(arr[0])
+
+    let tup: (Int8, Int) = (n, 1)         // tuple element
+    print(tup.0)
+
+    let vec: Vector<Int8> = [n]           // Vector-literal element
+    print(vec[0])
+
+    let m: Map<String, Int8> = {"a": n}   // Map value
+    print(m["a"]!)
+
+    let s: Set<Int8> = {n, 1}             // Set element
+    print(s.len())
+
+    let o: Int8? = n                      // optional slot
+    print(o!)
+
+    let branch: Int8 = if n > 0 { n } else { 0 }   // value-branch arm's home
+    print(branch)
+}

@@ -1,0 +1,69 @@
+// Conformance row W21 — a same-width SIGN FLIP through the platform pair is
+// refused at EVERY transfer position (design 205, closing DF-195c)
+//
+// The other axis of W20, out of the same admission. `UInt.max` and `-1` are the
+// same 64 bits and different numbers, which is the whole reason design 170
+// checks a written `-1 as UInt8`. A transfer between the platform pair took no
+// check at all, so `let i: Int = u` on a `UInt` holding `UInt.max` printed -1.
+//
+// Design 195 rule 1 closed the OPERATOR face of this (`i + u` is refused), and
+// rule 2 closed the value-BRANCH face (row W13 — two arms with no lossless
+// direction have no type to merge to). This row is the remaining face: the
+// plain transfer, at every position one happens.
+// XFAIL: DF-195c a same-width sign-flipping transfer through the platform pair reinterprets silently
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign `UInt` to variable of type `Int`
+// EXPECT-ERROR-CONTAINS: argument `x` expects `Int` but got `UInt`
+// EXPECT-ERROR-CONTAINS: should return `Int` but returns `UInt`
+// EXPECT-ERROR-CONTAINS: field `f` expects type `Int` but got `UInt`
+// EXPECT-ERROR-CONTAINS: expected type `Int` for parameter `f`, got `UInt`
+// EXPECT-ERROR-CONTAINS: array element 0 has type `UInt`, expected `Int`
+// EXPECT-ERROR-CONTAINS: tuple element 0 has type `UInt`, expected `Int`
+// EXPECT-ERROR-CONTAINS: vector literal element 0 has type `UInt`, expected `Int`
+// EXPECT-ERROR-CONTAINS: map value 0 has type `UInt`, expected `Int`
+// EXPECT-ERROR-CONTAINS: cannot assign `UInt` to variable of type `Int?`
+// EXPECT-ERROR-CONTAINS: write the conversion: `as Int`
+
+struct Rec { f: Int }
+
+enum Wrap { case Held(f: Int) }
+
+func sink(x: Int) -> Int { x }
+
+func produce(u: UInt) -> Int { u }
+
+func main() {
+    let u: UInt = 18446744073709551615u64 as UInt
+
+    let a: Int = u                        // `let` initializer
+    print(a)
+
+    var b: Int = 0                        // `var` initializer (legal: a literal)
+    b = u                                 // assignment RHS
+    print(b)
+
+    print(sink(u))                        // call argument
+    print(produce(u))                     // return
+    print(Rec(f: u).f)                    // struct-field initializer
+
+    let e = Wrap.Held(f: u)               // enum payload
+    match e { case Held(h) -> print(h) }
+
+    let arr: [Int; 2] = [u, u]            // fixed-array element
+    print(arr[0])
+
+    let tup: (Int, Int) = (u, 1)          // tuple element
+    print(tup.0)
+
+    let vec: Vector<Int> = [u]            // Vector-literal element
+    print(vec[0])
+
+    let m: Map<String, Int> = {"a": u}    // Map value
+    print(m["a"]!)
+
+    let s: Set<Int> = {u, 1}              // Set element
+    print(s.len())
+
+    let o: Int? = u                       // optional slot
+    print(o!)
+}

@@ -1,0 +1,86 @@
+// Conformance row W23 — a BARE literal still adopts a fixed-width slot at EVERY
+// transfer position (design 205, the control that pins what the rule does not
+// touch)
+//
+// This is design 205's W17. The platform-pair admission `_types_compatible`
+// carried existed so a bare literal could reach a fixed-width slot; design 87's
+// expected-type propagation does that job properly now, and closing the
+// admission must not cost the language its most-used ergonomic. Every position
+// below is one the narrowing rule (W20) and the sign-flip rule (W21) tighten,
+// written with a bare literal instead of a runtime value.
+//
+// The rule is the LITERAL's, not the value's: an unsuffixed literal has no width
+// of its own until a slot gives it one, and it is range-checked at the literal
+// (`let b: Int8 = 256` is a clean error, which `errors/int_literal_range.saw`
+// pins). A runtime `Int` in any of these slots is the refusal W20 carries.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// 42
+// 43
+// 42
+// 42
+// 42
+// 42
+// 42
+// 42
+// 42
+// 42
+// 2
+// 42
+// 42
+// 42
+// 42
+
+static SLOT: Int8 = 42
+
+struct Rec { f: Int8 }
+
+enum Wrap { case Held(f: Int8) }
+
+func sink(x: Int8) -> Int8 { x }
+
+func defaulted(x: Int8 = 42) -> Int8 { x }
+
+func produce() -> Int8 { 42 }
+
+func main() {
+    let a: Int8 = 42                      // `let` initializer
+    print(a)
+
+    var b: Int8 = 42                      // `var` initializer
+    print(b)
+    b = 43                                // assignment RHS
+    print(b)
+
+    print(sink(42))                       // call argument
+    print(produce())                      // return
+    print(Rec(f: 42).f)                   // struct-field initializer
+
+    let e = Wrap.Held(f: 42)              // enum payload
+    match e { case Held(n) -> print(n) }
+
+    let arr: [Int8; 2] = [42, 43]         // fixed-array element
+    print(arr[0])
+
+    let tup: (Int8, Int) = (42, 1)        // tuple element
+    print(tup.0)
+
+    let vec: Vector<Int8> = [42]          // Vector-literal element
+    print(vec[0])
+
+    let m: Map<String, Int8> = {"a": 42}  // Map value
+    print(m["a"]!)
+
+    let s: Set<Int8> = {42, 43}           // Set element
+    print(s.len())
+
+    let o: Int8? = 42                     // optional slot
+    print(o!)
+
+    print(defaulted())                    // default parameter value
+    print(SLOT)                           // static initializer
+
+    let branch: Int8 = if a > 0 { 42 } else { 0 }   // value-branch arm
+    print(branch)
+}

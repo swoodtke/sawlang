@@ -1,0 +1,87 @@
+// Conformance row W22 — a LOSSLESS widening through the platform pair stays
+// legal at every transfer position, and preserves the value (design 205, the
+// control W20 and W21 are measured against)
+//
+// Design 170 leaves widening alone: same-sign widening, the identity, and
+// unsigned into strictly wider signed emit one `sext`/`zext` and no check. The
+// value has a representation in the target, so there is nothing for the author
+// to decide and nothing to write. Closing the narrowing and sign-flip axes must
+// not take this with them — which is why 205's admission is POSITIONAL (the
+// transfer sites know which side is the source) rather than a loosening of
+// general assignability, where there is no direction to read.
+//
+// The unsigned source is the case that matters: it must extend by the SOURCE's
+// signedness (`zext`), not the target's. DF-195a fixed that at `let`, an
+// explicit `return` and a struct field; DF-195e at a call argument and a
+// fixed-array element STORE. This row is every remaining position, and it found
+// four more — the implicit TAIL return, the fixed-array element of a LITERAL,
+// the tuple element and the optional payload each sign-extended and printed
+// -294967296 (DF-205a).
+// XFAIL: DF-205a four transfer positions widen by the TARGET's signedness — the implicit tail return, a fixed-array literal element, a tuple element and an optional payload
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 4000000000
+// 4000000000
+// 4000000000
+// 4000000000
+// 4000000000
+// 4000000000
+// 4000000000
+// 4000000000
+// 4000000000
+// 4000000000
+// 4000000000
+// 2
+// 4000000000
+// 4000000000
+
+struct Rec { f: Int }
+
+enum Wrap { case Held(f: Int) }
+
+func sink(x: Int) -> Int { x }
+
+func produce(u: UInt32) -> Int { u }
+
+func main() {
+    let u: UInt32 = 4000000000u32
+
+    let a: Int = u                        // `let` initializer
+    print(a)
+
+    var b: Int = 0
+    b = u                                 // assignment RHS
+    print(b)
+
+    print(sink(u))                        // call argument
+    print(produce(u))                     // return
+    print(Rec(f: u).f)                    // struct-field initializer
+
+    let e = Wrap.Held(f: u)               // enum payload
+    match e { case Held(h) -> print(h) }
+
+    let arr: [Int; 2] = [u, u]            // fixed-array element
+    print(arr[0])
+
+    var store: [Int; 2] = [0, 0]          // fixed-array element STORE
+    store[0] = u
+    print(store[0])
+
+    let tup: (Int, Int) = (u, 1)          // tuple element
+    print(tup.0)
+
+    let vec: Vector<Int> = [u]            // Vector-literal element
+    print(vec[0])
+
+    let m: Map<String, Int> = {"a": u}    // Map value
+    print(m["a"]!)
+
+    let s: Set<Int> = {u, 1}              // Set element
+    print(s.len())
+
+    let o: Int? = u                       // optional slot
+    print(o!)
+
+    let branch: Int = if u > 0 { u } else { 0 }   // value-branch arm
+    print(branch)
+}

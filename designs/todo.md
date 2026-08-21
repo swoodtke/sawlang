@@ -4636,6 +4636,34 @@ DF-192e fixed, DF-192b/c/d/f/g pinned (DF-192d fixed since, by design 198).
   adopt `Float` (Saw has no integer→float conversion anywhere else;
   `1.0` is the spelling). The landed error + hint IS the ruled
   behavior; DF-195d CLOSES with no further work.**
+
+## Design 205 — the platform pair converts by the book at transfers too
+## (IN PROGRESS — designs/205-transfer-conversion-closes.md)
+
+Closes DF-195b and DF-195c (entries above) — the last two SILENT integer
+conversions in the language. Unit 1 landed the transfer-position matrix as
+conformance rows W20-W24 (`examples/conformance/INDEX.md`); its probes found
+one new finding, which unit 2 owns.
+
+- **DF-205a (SOUNDNESS — WRONG ANSWER + an ICE, filed Aug 21 by 205 u1's
+  probes): an implicit LOSSLESS widening extends by the TARGET's signedness
+  at FOUR MORE transfer positions.** DF-195a's mechanism — "a widening site
+  with no source type" — at the positions neither its fix nor DF-195e's
+  census reached: the implicit TAIL return (`func f(u: UInt32) -> Int { u }`
+  prints -294967296 where the explicit `return u` beside it prints
+  4000000000 — the tail path calls `_coerce_ret_value(result)` with no
+  expression, the `return` path passes `stmt.value`), a fixed-array LITERAL
+  element, a tuple element, and an optional payload (`let o: Int? = u`). The
+  array face is worse than a wrong answer: an annotated literal whose FIRST
+  element is narrower than the annotation takes its LLVM element type off
+  that element instead of the annotation, so `let a: [Int; 2] = [u, 0]` is
+  an internal compiler error (`Can only insert i32 at [1] in [2 x i32]: got
+  i64`). Load-bearing for design 205: closing the narrowing and sign-flip
+  axes makes the widening admission POSITIONAL, so every position has to
+  extend correctly before the rule can rest on it. PIN:
+  `examples/conformance/W22_lossless_widening_transfer_positions.saw`
+  (XFAIL, cited).
+
 - **DF-190c (VERIFY / latent must-agree, filed Aug 9, CLOSED Aug 10 by 194 u2):
   `_make_specialization_key` had DIVERGED** — codegen handled design-148
   const-value type args, the typechecker dropped them to an empty key.
