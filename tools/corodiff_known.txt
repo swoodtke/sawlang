@@ -45,12 +45,10 @@
 # every oracle class they reached (linear, loop, cancel, teardown, MT) are
 # clean on a full `--all` run.
 
-# DF-216g — a closure naming `self` inside a SUSPENDING method ICEs: the
-# capture is judged pre-transform, where `self` is the receiver, and the
-# rewrite rebinds `self` to the frame. Pinned as
-# examples/closure_captures_self_suspending.saw and pre-registered on design
-# 218 unit 2's flip list. The sync twin compiles and runs (design 216 unit 1).
-DF-216g	ICE: error: internal compiler error at <src>:N:N (MemberAccess): Cannot find field n in struct with type %"__Frame_Holder_run"
+# DF-216g RETIRED (fixed Aug 14 by design 218 stage 3 — `[&self]` capture +
+# the second minted handle; the ledger row outlived the fix until the 218b
+# spec's probe found it stale, 0 hits on both filters. Same miss shape as
+# DF-217n's.)
 
 # DF-217n RETIRED (fixed Aug 18 — `case Has(_)` drops its payload; the ten
 # LEAK/STDOUT-PARITY match_nobinding rows that lived here are gone with the
