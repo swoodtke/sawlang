@@ -1,0 +1,40 @@
+// A cross-module PLACE whose element type shares its NAME with a type the
+// calling module declares (design 144: two modules, two types).
+//
+// DF-232o face 2 traced the place lowering to a parse-time record: the
+// `__window` parameter's function type carries the type name the ACCESSOR's
+// author wrote, and the use site resolves that name in the CALLING module. The
+// broken case it surfaced through was a type the caller could not name at all,
+// which the Aug-21 signature-visibility ruling refuses at the declaration
+// (`conformance/B22_private_type_escapes_module_error.saw`). This is the LEGAL
+// half of the same question, pinned so the answer stays right: `placecell`'s
+// `Cell` is `public`, this file declares its own unrelated `Cell`, and the
+// window keeps the dependency's identity through a read, a write and a
+// conditional lend.
+// EXPECT: success
+// EXPECT-OUTPUT: mine
+// EXPECT-OUTPUT: 5
+// EXPECT-OUTPUT: 6
+// EXPECT-OUTPUT: 6
+// EXPECT-OUTPUT: 7
+import modules.placecell.{Bag}
+
+struct Cell {
+    label: String
+}
+
+func main() {
+    var bag = Bag()
+    let mine = Cell(label: "mine")
+    print(mine.label)
+
+    print(bag.at(0).n)          // the dependency's `Cell`, read through a window
+    bag.at(0).n += 1            // …written in place through an exclusive one
+    print(bag.at(0).n)
+
+    if let c = bag.maybe(0) {   // the conditional lend, present path
+        print(c.n)
+    }
+    bag.maybe(0)!.n += 1
+    print(bag.at(0).n)
+}
