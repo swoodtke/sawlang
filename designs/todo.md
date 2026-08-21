@@ -31,7 +31,8 @@ is scheduled and in what order is the whole of what they say.
 
 ## [QUEUE] — scheduled, in order (user-approved)
 
-- Design 237 — the ANF-hoist funnel (designs/237-anf-hoist-funnel.md) — before 234
+- Design 237 — the ANF-hoist funnel (designs/237-anf-hoist-funnel.md) — before 234; DISPATCHED Aug 21 (branch design-237); USER INSTRUCTION Aug 21: the session STOPS after integrating this one
+- Design 241 — undefined type names + the DF-240a const-position amendment (designs/241-undefined-type-names.md; ruled Aug 21) — FIRST ON RESUME, before 205
 - Design 205 — platform-pair transfer conversions (designs/205-transfer-conversion-closes.md; worked solution recorded in the brief) — position in queue provisional, before 234 suggested
 - Design 234 — the fallibility flip (designs/234-fallibility-flip.md) — after 235/237 (the M3-1.5 interleave carve-out WITHDRAWN by user, Aug 20 — 1.5 waits for sawos)
 - sos riders batch — REMAINDER ONLY: `clock_get` `kind:`→`type:` (DF-232b landed), abi enums decimals→shifts (DF-232c landed). The kcore re-narrowing LANDED Aug 20; the member audit RAN Aug 20 and its narrowing unit LANDED Aug 20 (84 sites: 78 `public(package)`, 6 private, 2 consumed; the audit's file-local split was inverted — DF-232q); see the re-narrowing rider section
@@ -418,10 +419,16 @@ read (`Perm.Read | Perm.Write`) a constant only IN a const position. So the
 fix is not "call the stamper here": it decides whether an ADOPTION position
 is a const position for naming purposes, which widens 185 unit 4 as a side
 effect or needs a narrower stamper that deliberately excludes enum cases.
-THE RULING OWED: does a fixed-width adoption slot count as a const position
-for NAME resolution — and if so, does the flag-enum reading come with it?
-PIN: `examples/coercion/const_expression_named_static_operand.saw` (XFAIL).
-[240, 235, 185, 172j]
+RULED Aug 21 (user): **FULL CONST POSITION** — a fixed-width adoption slot
+is a const position for name resolution, statics AND raw-backed enum cases
+both fold there. This DELIBERATELY widens design 185 unit 4 (an amendment,
+not an accident): `let mask: UInt8 = Perm.Read | Perm.Write` becomes legal,
+with the result the backing integer exactly as 185 rules in every const
+position; the enum-typed-VALUE operator refusal outside const/adoption
+positions is unchanged. The fix + the 185 spec amendment ride design 241
+unit 2 (first on resume). PIN:
+`examples/coercion/const_expression_named_static_operand.saw` (XFAIL, flips
+with the fix). [240, 235, 185, 172j]
 
 ## Design 238 — the sawos split (AUTHORED Aug 19, FOUR RULINGS same day;
 ## QUEUED after the sos riders batch, BEFORE the M3 ladder)
