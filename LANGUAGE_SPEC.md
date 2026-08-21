@@ -7244,11 +7244,14 @@ Statics obey four rules, ratified in design 19:
   2. **A constant expression, plus memberwise aggregation.** Whatever the
      const evaluator folds — literals, arithmetic and the bitwise operators
      over them, `sizeof`/`alignof`, the integer limits, a raw-backed enum
-     case, an earlier module `static` — and struct literals, fixed-array
-     literals (including a `[v; N]` repeat), `Atomic(<int>)` and
-     `UnsafeMemory(<int>)` built out of those. The initializer and every
-     other const position share ONE evaluator, so an expression that folds in
-     an array length folds here too.
+     case, an earlier module `static`, and an IMPORTED one in either
+     spelling (`A` under `import dep.{A}`, `dep.A` under `import dep`) — and
+     struct literals, fixed-array literals (including a `[v; N]` repeat),
+     `Atomic(<int>)` and `UnsafeMemory(<int>)` built out of those. The
+     initializer and every other const position share ONE evaluator, so an
+     expression that folds in an array length folds here too — which is what
+     lets a derived size be declared APART from the numbers it derives from:
+     `static SLOTS: Int = dep.EVENTS + dep.TIMERS`.
   3. **Runtime-computed state is never a static initializer, in any form.**
      A user `init` BODY does not run at compile time — even one that visibly
      would fold, because folding bodies is const-fn and Saw does not have it

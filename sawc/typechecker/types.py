@@ -1965,12 +1965,23 @@ class TypeUtilsMixin:
     def _fold_static_decl(self, expr, module, raws):
         """Fold a static's initializer against the declarations seen SO FAR.
 
-        A pre-registration evaluation, so it resolves its own two kinds of name
-        off the AST rather than off the symbol table: an earlier static of this
-        module (the declaration-order rule) and a raw-backed enum case. A name
-        it cannot resolve — a forward reference, a self reference, anything
-        else — simply fails to fold, and the caller reports the static as
-        computed.
+        A pre-registration evaluation of THIS module's own declarations, so it
+        resolves two kinds of name off the AST rather than off the symbol table:
+        an earlier static of this module (the declaration-order rule) and a
+        raw-backed enum case.
+
+        A name it finds neither way is looked up as an IMPORT (DF-232g). This
+        pass runs after the import handling — a dependency is checked before its
+        importer, so its statics are already symbols — and an imported const is
+        as fixed as a local one: `static N: Int = A + B` folds exactly as the
+        same arithmetic spelled INLINE at the use site always did. Before this,
+        the same expression was constant or not depending on whether it was
+        given a NAME, and the refusal called a pure alias `the computed static
+        `S`` — a word that is simply wrong for something that computes nothing.
+
+        A name it cannot resolve at all — a forward reference, a self reference,
+        anything else — still fails to fold, and the caller reports the static
+        as computed.
         """
         from const_eval import const_eval, ConstEvalError
         from ast_nodes import Identifier, UnaryOp, BinaryOp, CastExpr, MemberAccess
@@ -1988,11 +1999,28 @@ class TypeUtilsMixin:
                 earlier = table.get((module, node.name))
                 if earlier is not None and earlier[0] is not None:
                     node.const_static_value = earlier[0]
+                    return
+                # DF-232g: an IMPORTED const, bare (`import dep.{A}` /
+                # `import dep.*`). The symbol carries the answer its own module
+                # computed, which is why a const derived in its defining module
+                # and imported whole always folded — this is the same value,
+                # reached one hop earlier.
+                value, reason = self._const_static_lookup(node.name)
+                if value is not None:
+                    node.const_static_value = value
+                elif reason is not None:
+                    node.const_static_reject = reason
             elif isinstance(node, MemberAccess):
                 owner = getattr(node.object, 'name', None)
                 raw = raws.get((owner, node.member))
                 if raw is not None:
                     node.enum_raw_value = raw
+                elif owner is not None:
+                    # …and the QUALIFIED spelling of the same import
+                    # (`dep.REGION_SIZE`), through the same symbol lookup the
+                    # use site uses (DF-172l's half, now reachable from a
+                    # static's own initializer too).
+                    self._stamp_qualified_const(node, owner, node.member)
 
         stamp(expr)
         try:

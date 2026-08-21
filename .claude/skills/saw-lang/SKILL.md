@@ -2984,6 +2984,14 @@ construct in the owner and lend `&driver` down.
   QUALIFIER spelling (`[UInt8; dep.REGION_SIZE]`, design 185 — it was a parse
   error until then, which is what DF-172l filed). A length that folds NEGATIVE
   is a clean error too (it used to reach LLVM as `[-1 x i8]`).
+  **A LOCAL STATIC MAY DERIVE FROM AN IMPORTED ONE (DF-232g, fixed Aug 21):**
+  `static SLOTS: Int = dep.EVENTS + dep.TIMERS` folds, in both the bare and
+  the qualified spelling and mixed with local statics — which is what lets a
+  derived size be declared APART from the numbers it derives from. Until then
+  the same arithmetic was constant INLINE at the use site and not constant
+  once given a NAME, and the refusal called a pure alias ``the computed
+  static `S` ``, so a pre-Aug-21 kernel keeps every derived size in one file
+  with its operands.
   **DF-185b IS CLOSED (design 186)**: `static MASK: Int = (1 << 12) - 1` and
   `static RW: UInt8 = Perm.Read | Perm.Write` both compile — a static
   initializer is a constant EXPRESSION now, and a const position, so the

@@ -47,7 +47,7 @@ for sawos; "238 before more M3 work" is absolute.
 
 - `public(package) import` — should the scoped re-export form exist? Refused today (design 229). Real use case: an INTERNAL PRELUDE, one sibling aggregating names for the others (Rust's `pub(crate) use`). Against: siblings can already import each other directly, so it buys convenience, not capability — and kcore, the biggest multi-file package and the one that motivated the tier, does NOT want it (its `public import` block is the EXTERNAL facade). Wait for a package that feels the pain (entry: the re-narrowing rider section)
 - DF-239b — deep argument typing unchecked on the generic-bound call path (entry below, beside DF-239a)
-- DF-232g — imported-const static folding (entry below) — FOLDED into the small-fix batch (matrix probed; the const-static collector must resolve imported const names)
+- DF-232g RESIDUE — a DECLARED array length that never folds reports with NO FILE from codegen (entry below; the fold half CLOSED Aug 21, this half wants a declared `source_file` annotation on the expression base)
 - DF-240a — a const expression whose LEAF is a module `static` still does not adopt its fixed-width slot (entry below) — WANTS A RULING, filed by design 240 items 1-2's own sweep
 - DF-216c — generic statics never instantiate type params (entry below, under design 216) — ASSESSED in 239 (Aug 20): DIFFERENT mechanism — the static call path has NO monomorphization for the method's own type params (`_check_static_method_call` lacks the instance path's solve block; codegen stops at the struct); sites located in the entry, needs its own fix
 - DF-217d — generic static with default type+value ICE (entry below, under the obligation-4 retro triage) — same missing path as DF-216c (`Undefined static method` is the codegen face); rides its fix
@@ -516,6 +516,8 @@ Recommendations recorded in the brief. [238, 232, 140, 112]
 ## DF-232g — a LOCAL static DERIVED from an imported const stops being a
 ## compile-time constant, though the same expression folds INLINE (filed Aug 17,
 ## the kcore split)
+## — CLOSED Aug 21, design 240 item 8 (branch `design-240`), except the
+## diagnostic-FILE residue recorded at the end
 
 `static N: Int = A + B` with `A`/`B` imported is refused wherever a compile-time
 length is required — `repeat count is not a compile-time constant: the computed
@@ -543,6 +545,40 @@ MAX_TIMERS` cannot be declared apart from ANY of its three operands, so every
 slab size stays in one module (`limits.saw`) — which is how lib.saw already had
 them, one adjacent block, so the constraint cost the cut nothing this time. It
 would cost a differently-shaped kernel a real seam. [232, design 148/185/186]
+
+LANDED Aug 21 (design 240 item 8). `_fold_static_decl`'s leaf stamper gained
+the import fallback: a name the local declaration table does not hold is
+looked up as an IMPORT — `_const_static_lookup` for the bare spelling,
+`_stamp_qualified_const` for `dep.A` — and the symbol carries the answer its
+own module already computed, which is why a const derived in its defining
+module and imported whole always folded. This is that same value, one hop
+earlier. The pass runs after the import handling in `check_module`, so a
+dependency's statics are symbols by then (modules are checked in dependency
+order). MATRIX (probed, the entry's own fold list): the pure alias
+`static S = A`, the mixed `L1 + A`, the all-imported `A + B`, both spellings
+of each, `1 << dep.A`, and a `static_assert` over one — all fold; the
+already-folding rows are unchanged; a static derived from an `unsafe static
+var` is still refused NAMING it (its value is a fact about the running
+program, not about the source).
+PIN: `examples/static_derived_from_imported_const.saw` over the new fixture
+`examples/modules/constdep.saw`; the refusal rows cite
+`array_length_nonconst_error.saw` / `array_length_nonint_static_error.saw`
+rather than duplicating them. Spec's static-initializer tier 2 and the
+skill's size-in-one-place section both name the imported case now.
+
+RESIDUE, STILL OPEN — the entry's OTHER half, the wrong-FILE diagnostic.
+Re-probed Aug 21: the TYPECHECKER path is correct now (a length that fails to
+fold in a dependency's function body reports against that dependency's file
+and line). What remains is the CODEGEN path, which owns the rule for a
+DECLARED length that never folded — a struct FIELD's `[UInt8; MUT]` in a
+dependency reports `--> line 14:46` with NO FILE at all, so the reader gets a
+line number and nothing to open. `codegen/types.py` already passes
+`source_file=getattr(expr, 'source_file', None)`; the expression simply never
+has one, because `Expression` carries no such field (only
+`SourceLocationLiteral` declares one, structurally). The fix is a declared
+annotation stamped where the length-folding pass walks a module's types —
+small, but a new field on the expression base, so it is recorded here rather
+than folded into a batch item whose named fix was the resolution.
 
 ## DF-232f — a package has NO INTERNAL VISIBILITY, so splitting one file into
 ## several PUBLISHES everything they share (filed Aug 17, the kcore split's
