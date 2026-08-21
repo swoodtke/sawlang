@@ -1,0 +1,24 @@
+// DF-225e's other half: a user module named after a std leaf resolves to
+// ITSELF, and std is still reachable beside it under the `std.` spelling.
+// `import data` binds this directory's `data.saw`; `import std.data as sdata`
+// binds the std one under a qualifier the file chose.
+//
+// The two arms of the resolver are now separate lists: a `std.`-prefixed path
+// searches `sawc/std/`, a bare one searches the importing file's directory,
+// its package root and the configured search paths — and never std.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// user 42
+// std 2
+
+import data
+import std.data as sdata
+
+func main() {
+    print("user {data.tripled(14)}")
+    var d = sdata.Data()
+    d.push(1)
+    d.push(2)
+    print("std {d.len()}")
+}

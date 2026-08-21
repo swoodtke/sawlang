@@ -60,11 +60,19 @@ class ModuleResolver:
     """
     Resolves module imports to source files and builds dependency graphs.
 
-    Search order for `import foo.bar`:
+    Search order for a BARE `import foo.bar`:
     1. Current file's directory (for sibling modules)
     2. Package root (directory containing Saw.toml, if any)
-    3. Standard library (sawc/std/)
-    4. Additional configured search paths
+    3. Additional configured search paths
+
+    `sawc/std/` is NOT on that list (DF-225e, ruled Aug 20): only a
+    `std.`-prefixed import reaches std sources, which is design 150's uniform
+    model — `import std.data` names the std module, `import data` names yours.
+    While std/ was on the bare path, a user module whose name happened to
+    collide with a std leaf DOUBLE-COMPILED the std file beside any real
+    `import std.data`, and what the reader got was a pile of "defined multiple
+    times" errors instead of the "two imports bind the qualifier `data`"
+    diagnostic the spec documents for exactly that case.
 
     File lookup for `import foo.bar`:
     - Try `foo/bar.saw`
@@ -89,11 +97,14 @@ class ModuleResolver:
         self.search_paths: List[str] = []
         self.module_paths: Dict[str, str] = dict(module_paths) if module_paths else {}
 
-        # Add standard library path (sawc/std/)
+        # The standard library, kept in its OWN list (DF-225e): a `std.`-prefixed
+        # import resolves here and a bare one never does, which is why the two
+        # are not one list any more.
+        self.std_paths: List[str] = []
         sawc_dir = os.path.dirname(os.path.abspath(__file__))
         std_path = os.path.join(sawc_dir, "std")
         if os.path.isdir(std_path):
-            self.search_paths.append(std_path)
+            self.std_paths.append(std_path)
 
         # Add user-provided search paths
         if search_paths:
@@ -129,8 +140,10 @@ class ModuleResolver:
         source_path = None
 
         if path and path[0] == 'std':
-            # 1. Standard library (highest precedence).
-            source_path = self._find_module_file(path, list(self.search_paths))
+            # 1. Standard library (highest precedence), and the ONLY arm that
+            #    reaches it — a bare import never looks in std/ (DF-225e).
+            source_path = self._find_module_file(
+                path, self.std_paths + list(self.search_paths))
         elif path and path[0] in self.module_paths:
             # 2. Explicitly mapped package. A local module file for the same
             #    name is a shadowing error, not a silent pick.
@@ -142,7 +155,9 @@ class ModuleResolver:
                     f"`{local}`; rename the local module or the dependency")
             source_path = mapped
         else:
-            # 3. File-relative, then any configured search paths (incl. std).
+            # 3. File-relative, then any configured search paths. NOT std/
+            #    (DF-225e): `import data` names YOUR module, and a user module
+            #    that happens to share a std leaf's name resolves to itself.
             search_dirs = rel_dirs + list(self.search_paths)
             source_path = self._find_module_file(path, search_dirs)
 

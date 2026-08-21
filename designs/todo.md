@@ -65,7 +65,7 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-223b — existential dispatch of a suspending trait method, owed a DESIGN (entry below, under design 223)
 - DF-219c — the spawn capture audit is not bound-aware (soundness-adjacent; entry below, under design 219)
 - DF-224c — `Channel<T?>` call-site auto-wrap ICEs inside a driven body (entry below, under DF-224a/b) — FOLD CANDIDATE for design 237's dispatch (the ANF-hoist funnel is the machinery it lives in; fold at 237's dispatch time)
-- DF-225c / DF-225e — RULED Aug 20 (user), compiler halves pending as a small-fix batch: Float-only (drop the `Float64` name), `std/` off bare-import search paths (entries below). DF-225h fully CLOSED same day: `()` stays a distinct tuple, design 122/132's visible-Void rejection stays ABSOLUTE (a proposed `case _ -> Void` spelling was considered and REJECTED for the exception it would carve), `{}` is the do-nothing arm spelling — spec's three arms fixed
+- DF-225b — an UNDEFINED TYPE NAME is not diagnosed as one: silent opaque type, or an ICE at codegen (entry below; swept and widened by design 240 item 4, pinned, wants its own brief). DF-225c/DF-225e CLOSED Aug 21 by that batch — 225e's search-path split landed, 225c's compiler half was a NO-OP (no `Float64` registration exists; the residue is 225b). DF-225h fully CLOSED Aug 20: `()` stays a distinct tuple, design 122/132's visible-Void rejection stays ABSOLUTE (a proposed `case _ -> Void` spelling was considered and REJECTED for the exception it would carve), `{}` is the do-nothing arm spelling — spec's three arms fixed
 
 ## DF-239b — a fully CONCRETE parameter type is unchecked on the
 ## generic-bound call path (filed Aug 20, DF-239a's sweep)
@@ -2097,7 +2097,22 @@ sub-agents, one lead), not one lucky repro.
   design 150's uniform model, and the spec's documented collision
   diagnostic becomes reachable. Compiler fix PENDING, small-fix batch:
   module_resolver.py search-path split + a pin for the user-module-named-
-  `data` case.) — original filing:** a bare `import <name>`
+  `data` case.
+  **CLOSED Aug 21, design 240 item 5 (branch `design-240`).** The split is
+  literal: `ModuleResolver` keeps `std_paths` beside `search_paths`, the
+  `std.`-prefixed arm searches `std_paths + search_paths` and the bare arm
+  searches `rel_dirs + search_paths` — one list became two, and the class
+  docstring now states the order. Nothing else reads `search_paths`.
+  PINS: `examples/import225e_bare_std_leaf_not_found.saw` (the bare `import
+  data` with no user module of that name is one "module `data` not found",
+  with an `EXPECT-ERROR-ABSENT: defined multiple times` — the cascade is what
+  had to go: four errors about std's own `DataBuf` internals, pointing INTO
+  std, about a collision the program never wrote) and
+  `examples/module_tests/test_bare_import_user_module_named_after_std.saw`
+  plus its sibling `data.saw` (a user module named after a std leaf resolves
+  to itself, with `import std.data as sdata` reaching std beside it). Spec's
+  Qualifier-collisions section says the second import names YOUR module.)
+  — original filing:** a bare `import <name>`
   with no `std.` prefix silently resolves into `sawc/std/<name>.saw`
   when the name happens to collide with a real std leaf module.**
   `sawc/module_resolver.py`'s search-path list always includes `std/`,

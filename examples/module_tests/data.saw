@@ -1,0 +1,7 @@
+// A USER module that happens to be named after a std leaf (DF-225e). Nothing
+// about `std.data` reserves the name `data` for a bare import.
+// EXPECT: skip
+
+public func tripled(n: Int) -> Int {
+    n * 3
+}

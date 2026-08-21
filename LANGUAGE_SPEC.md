@@ -8701,6 +8701,13 @@ import data              // error: two imports bind the qualifier `data`:
                          // hint: rename one with `as`, e.g. `import data as <name>`
 ```
 
+The second import there names YOUR module, not std's. `sawc/std/` is reachable
+only through a `std.`-prefixed path: a bare `import data` searches the importing
+file's own directory, its package root and the configured search paths, and
+stops. So a user module named after a std leaf is an ordinary module — the
+collision above is a collision of QUALIFIERS, which `as` fixes, and never a
+second compilation of a std file.
+
 #### Import form and extension visibility
 
 Extension methods and conformances are import-scoped (see
