@@ -31,7 +31,7 @@ is scheduled and in what order is the whole of what they say.
 
 ## [QUEUE] — scheduled, in order (user-approved)
 
-- Design 218 unit 2 — the scope-end migration (SCHEDULED Aug 21, user): DF-217p (RULED Aug 20, scope-end required; the corodiff ledger's 61+2+3 cells are the acceptance matrix) + DF-217m coro face (rides) + DF-218e (same transform; mechanism confirmed by 237's census) — entries below, under design 218 / NEXT-WAVE SWEEPS; retires the bulk of corodiff_known.txt. BEFORE 234's corpus churn
+- Design 218 unit 2 — the scope-end migration (SCHEDULED Aug 21, user): DF-217p (RULED Aug 20, scope-end required; the corodiff ledger's 61+2+3 cells are the acceptance matrix) + DF-217m coro face (rides) + DF-218e (same transform; mechanism confirmed by 237's census) — entries below, under design 218 / NEXT-WAVE SWEEPS; retires the bulk of corodiff_known.txt. BEFORE 234's corpus churn. SPEC AUTHORED Aug 21 (designs/218b-scope-end-spec.md — scope model, census, flip list, staging, 6 open questions), awaits user ruling
 - Small-fix batch — DF-216c generic-static monomorphization (+DF-217d rides, same missing path) + DF-216h renamed extension param plumbing + DF-219c bound-aware spawn capture audit (SCHEDULED Aug 21, user; entries below — all three mechanisms assessed, sites located; DF-239b joins only if its resolution strategy is settled at briefing)
 - Design 234 — the fallibility flip (designs/234-fallibility-flip.md) — after 235/237 (the M3-1.5 interleave carve-out WITHDRAWN by user, Aug 20 — 1.5 waits for sawos)
 - sos riders batch — REMAINDER ONLY: `clock_get` `kind:`→`type:` (DF-232b landed), abi enums decimals→shifts (DF-232c landed). The kcore re-narrowing LANDED Aug 20; the member audit RAN Aug 20 and its narrowing unit LANDED Aug 20 (84 sites: 78 `public(package)`, 6 private, 2 consumed; the audit's file-local split was inverted — DF-232q); see the re-narrowing rider section
@@ -58,6 +58,8 @@ for sawos; "238 before more M3 work" is absolute.
 - M4 seeds — IPC/pipes (renamed from channels Aug 20 — ratified record in spec §2.1 + the done file), dynamic loading, IOMMU, SMP (references in designs/232-sos-m3-sketch.md)
 - ESP32 path — P4 + TCP/IP stack ultimate goal; S3 via FreeRTOS-fakery stage 2 (HARDWARE PATH entry below)
 - DF-223b — existential dispatch of a suspending trait method, owed a DESIGN (entry below, under design 223)
+- DF-218r — the SYNC twin leaks a loop-body local on `break`/`continue` (entry below, under the DF-218 findings; staged as 218b's stage 0)
+- DF-218s — the driven done path releases frame fields ahead of inner real locals, inverting sync LIFO (entry below; 218b's stage C)
 
 - DF-225a — a user `extern "C"` function under a codegen-internal name (`printf`, `abort`, …) ICEs with no location (entry below, under DF-225a-f)
 - DF-225d — a primitive extension method returning bare `self` refuses its own declared return type, both sides printed identical (entry below, under DF-225a-f)
@@ -2328,6 +2330,22 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   PIN: `examples/coro_generic_spawn_root_nested_suspending_call.saw`
   (XFAIL, rewritten with both cells and the mechanism) +
   `tools/corodiff_known.txt`
+
+- **DF-218r (SYNC LEAK, PRE-EXISTING; filed Aug 21 by the 218b spec probes)** —
+  a sync loop-body local is never released on the `break` or `continue` edge
+  (`return` inside the loop releases correctly). Mechanism, probes and the
+  class statement: designs/218b-scope-end-spec.md (codegen/loops.py:460-505
+  emit no scope cleanup; return runs `_cleanup_all_scopes`). Staged as 218b
+  stage 0 — the sync twin is the scope-end migration's oracle.
+  PIN (to create): `examples/loop_exit_releases_body_local.saw` (XFAIL)
+
+- **DF-218s (DEINIT-ORDER, PRE-EXISTING; filed Aug 21 by the 218b spec
+  probes)** — a driven body's done path runs `release()` (reverse
+  declaration order over frame fields) BEFORE the lowered return's cleanup
+  of surviving real locals, inverting the sync twin's scope-LIFO order.
+  Evidence + fix shape (scope clears ahead of `release()`):
+  designs/218b-scope-end-spec.md, stage C.
+  PIN (to create): `examples/coro_done_path_releases_in_scope_order.saw` (XFAIL)
 
 - **DF-218i (BOGUS-REFUSAL, PRE-EXISTING) — rendering a PLACE is judged a
   value read, so a move-only element cannot be printed.** `print("{v[0]}")`
