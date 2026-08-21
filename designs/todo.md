@@ -172,7 +172,8 @@ Terminal gate (compiler branch): the FULL battery, 20 of 20 stages GREEN in
 ircontract, preludegate, stdtypes, abidoc, bttable, fuzz, corodiff, bench,
 selfhostlex, reemit, irdet (`--all`), gmgate, bootstrap, sos.
 
-- **DF-236a (FILED, not fixed — found by 236's migration) — a static method
+- **DF-236a (CLOSED Aug 20, `df-batch-232n` unit 2; filed by 236's migration,
+  the filing text kept below as the record) — a static method
   reached through a FIELD-ACCESS receiver is not refused; DF-217q's
   call-site check has a position gap.** MECHANISM (obligation 4):
   `_check_method_call`'s `isinstance(expr.object, MemberAccess)` branch
@@ -637,7 +638,7 @@ green. The lead corrects designs/renarrow-audit-aug20.md at integration.
 
 ## DF-232n — `public(package)` is NOT enforced across a RELATIVE-PATH import:
 ## the empty-root fail-open arm survives where no mapped identity exists
-## (filed Aug 20, the re-narrowing audit's oracle check)
+## (filed Aug 20, the re-narrowing audit's oracle check) — CLOSED Aug 20
 
 `libs/toml/tests/*.saw` reach the package via `import src.lib.*` — no
 `--module-path`, so the modules carry no mapped-package identity and
@@ -698,7 +699,8 @@ and unaffected, and `libs/toml/src`), and kcore's siblings import each other as
 ## DF-232o — a visibility-refused TYPE re-resolves as a distinct same-named
 ## type: "expects `SosStatus` but got `SosStatus`" cascades, and a private
 ## type surfaces as place/optional errors with NO visibility line (filed
-## Aug 20, the re-narrowing audit)
+## Aug 20, the re-narrowing audit) — FACE 1 CLOSED Aug 20, FACE 2 OPEN
+## (a ruling on private-in-public is owed)
 
 One mechanism, two faces. When a type name is refused by tier, the checker
 does not stop at the refusal — the name re-resolves to a
@@ -769,7 +771,7 @@ blade both return module-private types today). Deliberately not decided here.
 
 ## DF-232p — a refused CALL swallows a refusal in its own ARGUMENT (filed
 ## Aug 20, the re-narrowing audit; diagnostic completeness — filed "minor",
-## ELEVATED Aug 20 by DF-232q to a real census hazard)
+## ELEVATED Aug 20 by DF-232q to a real census hazard) — CLOSED Aug 20
 
 `uart.write_str(hal.arch_name())` with BOTH refused reports only
 `write_str`; isolating `arch_name` produces its refusal cleanly. An error
