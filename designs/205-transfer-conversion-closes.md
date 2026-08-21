@@ -253,3 +253,28 @@ adoption-entry gap in the table above, closed at the path.
 the six paths. `sawc/std/`: 1 migration (`net.saw`). `sos/`: 2 declaration
 corrections, 4 class-2 sites (one file). `blade/`, `libs/`, `devtools/`: zero —
 the `bootstrap` and `gmgate` lanes compile and run all three and are green.
+
+### DF-238a: what this fix does to it, and what it leaves
+
+DF-238a was filed on main (design 238 unit 1) after this branch was cut, and its
+entry records the composition deliberately: 238a is why a literal is still an
+`Int` at a module-qualified call, DF-195b is why an `Int` could then land in a
+`UInt8` with nothing said. Probed against this branch's compiler, with main's own
+fixture:
+
+```
+qualcall.take_byte(300)      // was: compiles, callee receives 44
+error: argument `b` expects `UInt8` but got `Int`
+hint: write the conversion: `as UInt8` panics out of range, …
+```
+
+So the SILENCE is gone — which is the half design 205 owed — and the diagnostic
+is still the wrong one: it names the argument, where the literal's own range
+check would name the value and the type. DF-238a therefore STAYS OPEN and its
+pin (`examples/qualified_call_literal_adopts_parameter_width.saw`) stays a
+legitimate XFAIL: it asserts `integer literal 300 does not fit in \`UInt8\``,
+which this branch does not produce. Its two CONTROLS (the qualified static
+method and the qualified constructor) still compile — one error, not three.
+Nothing to do here; recorded so the integrator does not read the surviving
+XFAIL as a regression, and so whoever takes 238a knows the shape it now
+presents in.
