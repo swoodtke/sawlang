@@ -52,7 +52,7 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-216c — generic statics never instantiate type params (entry below, under design 216) — ASSESSED in 239 (Aug 20): DIFFERENT mechanism — the static call path has NO monomorphization for the method's own type params (`_check_static_method_call` lacks the instance path's solve block; codegen stops at the struct); sites located in the entry, needs its own fix
 - DF-217d — generic static with default type+value ICE (entry below, under the obligation-4 retro triage) — same missing path as DF-216c (`Undefined static method` is the codegen face); rides its fix
 - DF-216h — renamed extension param substitution (entry below, under design 216) — ASSESSED in 239: NOT a substitution walk; `type_subst` is keyed by the STRUCT's declared param names, so a renamed extension param is a key nobody inserted — fix plumbs the extension's names onto the method symbol in agreement with codegen mangling
-- DF-217p — driven-frame deinit timing, 61+2 cells (RULED Aug 20, user: SCOPE-END REQUIRED — driven and sync twins must agree, deterministic destruction holds everywhere; implemented as part of design 218 unit 2's safe-Saw transform migration, the corodiff ledger's 61+2 cells as the acceptance matrix; entry below, under design 218 unit 0)
+- DF-217p — driven-frame deinit timing, 61+2+3 cells (RULED Aug 20, user: SCOPE-END REQUIRED — driven and sync twins must agree, deterministic destruction holds everywhere; implemented as part of design 218 unit 2's safe-Saw transform migration, the corodiff ledger's 61+2 cells as the acceptance matrix; entry below, under design 218 unit 0)
 - DF-217m coro face — receiver temp to frame teardown (rides 217p's ruling; entry below, under NEXT-WAVE SWEEPS)
 - DF-226b/c — FuncPointer v1 gaps (entries below, under design 226)
 - DF-225o — reemit divergence under load (entry below)
@@ -3402,12 +3402,16 @@ Three NEW findings, all lead-verified from standalone repros:
   flipped: `examples/spawn_body_destructuring_let.saw`. Ledger retired:
   `tools/corodiff_known.txt`'s DF-217o block removed with the fix (the
   three-artifacts-together policy). Gated suite + sos + corodiff.
-- **DF-217p (DEINIT-ORDER, 61 cells + 2 — the widest) — a driven frame local
-  is released at FRAME TEARDOWN, not at its scope's end.** (+2, Aug 18: the
-  DF-217n fix unmasked the match_nobinding/in_rhs cells — the driven twin
+- **DF-217p (DEINIT-ORDER, 61 cells + 2 + 3 — the widest) — a driven frame
+  local is released at FRAME TEARDOWN, not at its scope's end.** (+2, Aug 18:
+  the DF-217n fix unmasked the match_nobinding/in_rhs cells — the driven twin
   always released the `_` payload late, invisible while the control twin
   leaked it entirely; morphed rows filed under this block in
-  corodiff_known.txt.) A loop-body local
+  corodiff_known.txt. +3, Aug 21: design 237's full cross unmasked three more
+  the same way — the two destructuring `in_rhs @ loop` cells, which did not
+  COMPILE before its unit 2, and `match_consume/in_rhs @ linear`, whose ICE
+  design 224 fixed and whose stale DF-217f row went on masking until unit 2
+  retired it. Rows added under this block; none is a new bug.) A loop-body local
   outlives the loop; a design-107 shadow rebind holds the replaced binding
   to teardown where the sync twin drops it at the redefinition. Counts
   always balance (never a leak), but deterministic destruction is a

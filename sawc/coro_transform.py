@@ -1133,12 +1133,10 @@ def _answered(node, saw_type):
 # `enum_variant_literal`, `resolved_type_identity`, and the transform's own
 # `frame_place_read`/`frame_move_read`/`embed_preserved`/`frame_slot_op`.
 #
-# Each row is `(name, empty)` — the annotation and the value that means "no mark
-# here", which is what the source is reset to. Both are falsy, so the carry test
-# is a plain truth test and never asks a `SawType` for equality.
-_POSITION_MARKS = (("autowrap_to_optional", None),
-                   ("autowrap_to_result", None),
-                   ("autowrap_result_err", False))
+# The three are written out one by one rather than looped over a name table: a
+# computed `setattr` is invisible to the astgraft gate, and a rule about which
+# annotations move is exactly the kind of thing that gate exists to keep
+# auditable.
 
 
 def _substitute(old, new):
@@ -1166,13 +1164,18 @@ def _substitute(old, new):
         becomes `self.__recv.deref()`, and the closure call that becomes an
         indirect field call
     """
-    if new is old or not isinstance(old, ASTNode) or not isinstance(new, ASTNode):
+    if new is old or not isinstance(old, Expression) or not isinstance(
+            new, Expression):
         return new
-    for mark, empty in _POSITION_MARKS:
-        carried = getattr(old, mark, empty)
-        if carried:
-            setattr(new, mark, carried)
-            setattr(old, mark, empty)
+    if old.autowrap_to_optional is not None:
+        new.autowrap_to_optional = old.autowrap_to_optional
+        old.autowrap_to_optional = None
+    if old.autowrap_to_result is not None:
+        new.autowrap_to_result = old.autowrap_to_result
+        old.autowrap_to_result = None
+    if old.autowrap_result_err:
+        new.autowrap_result_err = True
+        old.autowrap_result_err = False
     return new
 
 

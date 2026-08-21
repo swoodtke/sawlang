@@ -63,9 +63,9 @@ func suspending_call_rhs() {
 }
 
 func var_rhs() {
-    var (a, b) = (mk_s(5), mk_s(6))
-    a += 0
-    b += 0
+    var (a, b) = (mk_s(4), mk_s(7))
+    a += 1
+    b -= 1
     print("var {a} {b}")
 }
 

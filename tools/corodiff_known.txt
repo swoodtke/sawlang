@@ -151,15 +151,34 @@ DF-217p-2026-08-13	DEINIT-ORDER: tuple_destructure/between @ loop
 # never enters `_split_for` at all.
 DF-217p-2026-08-13	DEINIT-ORDER: match_consume/in_rhs @ loop
 DF-217p-2026-08-13	DEINIT-ORDER: match_nobinding/in_rhs @ loop
+# Three more cells UNMASKED by design 237's full cross (Aug 21) — the DF-217n
+# precedent again, where fixing a refusal or an ICE lets a cell run and shows
+# the mechanism that was underneath it. None of the three is a new bug:
+#   * the two destructuring `in_rhs @ loop` cells did not COMPILE before design
+#     237 unit 2 (DF-217g refused `let (a, b) = (mk_s(1), mk_s(2))`), and what
+#     they now show is the plain loop face — the iteration's locals surviving
+#     into the next one;
+#   * `match_consume/in_rhs @ linear` is the shape DF-217f used to ICE on (an
+#     enum-constructor argument inside a `match` scrutinee). Design 224 made it
+#     compile on Aug 15 and the stale DF-217f row went on masking it until
+#     unit 2 retired that row; the divergence is the arm binding held to frame
+#     teardown, which is the linear face.
+# Both reproduce as the block above describes, and all three go with its fix.
+DF-217p-2026-08-13	DEINIT-ORDER: tuple_destructure/in_rhs @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: nested_tuple_destructure/in_rhs @ loop
+DF-217p-2026-08-13	DEINIT-ORDER: match_consume/in_rhs @ linear
 
 # DF-218e (reported 2026-08-14) — the FIRST finding of the generic-driven
-# axis, and pre-existing: a GENERIC function used as a SPAWN root cannot
-# contain a nested suspending call. The callee is consumed by the transform
-# (frame + driver, plain function removed) while the generic template's body
-# still names it, so the re-check reports `undefined function <callee>` at the
-# author's own line plus an undefined-variable cascade for the binding it
-# feeds. Only the spawn cell fails: non-generic spawn + nested call, generic
-# spawn suspending only by `yield_now()`, and the same generic body driven
-# through the AMBIENT entry all compile and run.
+# axis, and pre-existing: a GENERIC function driven as a root cannot contain a
+# nested suspending call. The callee is consumed by the transform (frame +
+# driver, plain function removed) while the generic template's body still names
+# it, so the POST-TRANSFORM RE-CHECK reports `undefined function <callee>` at
+# the author's own line plus an undefined-variable cascade for the binding it
+# feeds. It is the TEMPLATE and not the instantiations: driving one generic at
+# two type arguments produces exactly one error.
+# BOUNDARY WIDENED (design 237's census, Aug 21): the AMBIENT-entry cell fails
+# identically, so this is not the spawn path's handling of a generic root.
+# Still working: a generic body whose only suspension is `yield_now()`, and the
+# non-generic twin (its own body becomes a frame, so nothing names the callee).
 # PIN: examples/coro_generic_spawn_root_nested_suspending_call.saw
 DF-218e-2026-08-14	BOGUS-REFUSAL: error: undefined function `X`
