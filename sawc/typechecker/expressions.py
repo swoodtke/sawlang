@@ -6474,8 +6474,27 @@ class ExpressionsMixin:
         A Bool result is not adopted either: `(a < b)` is a comparison, not an
         integer, and it has no business in an integer slot — the ordinary type
         mismatch reports it, in its own words.
+
+        DF-240a (design 241 unit 2, ruled Aug 21): the NAMES a constant reads
+        are supplied here, by the same `_stamp_const_names` walk every other
+        const position uses — so an ADOPTION SLOT IS A FULL CONST POSITION. A
+        module `static` leaf folds (`let e: UInt16 = 1 << PAGE_SHIFT` is the
+        same "does not fit" error `1 << 20` is, which is what the
+        size-in-one-place idiom needs), and so does a raw-backed enum CASE
+        (`let mask: UInt8 = Perm.Read | Perm.Write` is 3, the BACKING integer —
+        design 185 unit 4's own reading in every const position). That is a
+        deliberate AMENDMENT to 185 unit 4, not a side effect: what stays
+        refused is an operator over enum-typed VALUES anywhere that is NOT a
+        const or adoption position, which is where the operands carry no tag.
+
+        Stamping is safe on an expression that turns out NOT to be constant:
+        the walk writes `const_static_value` / `enum_raw_value` onto its own
+        nodes, `const_eval` is the only reader of either, and a run-time
+        operand beside a named one (`LIMIT + n`) still raises and leaves the
+        expression exactly as it was.
         """
         from const_eval import const_eval, ConstEvalError
+        self._stamp_const_names(expr)
         try:
             value = const_eval(expr, env=self._const_param_env(),
                                width=self.platform_int_width)

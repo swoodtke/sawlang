@@ -102,13 +102,16 @@ the same funnel's coverage:
   domain is the SIGNED platform `Int`, so an unmasked `1 << 63` at a `UInt64`
   slot is a refusal, not a bit-pattern reinterpretation:
   `const_expression_signed_domain_error.saw`.
-- **RED (DF-240a)**: an S3 source whose LEAF is a module `static`
-  (`1 << PAGE_SHIFT`) is the one const-expression shape that still does not
-  adopt, so it is not range-checked either — pin
-  `const_expression_named_static_operand.saw` (XFAIL). It wants a ruling, not a
-  patch: supplying the name's value at this point also supplies a raw-backed
-  enum case's, and design 185 unit 4 says a flag-enum read is a constant only IN
-  a const position.
+- The NAMED-LEAF shapes of an S3 source, green since design 241 unit 2 (DF-240a,
+  ruled Aug 21: a fixed-width adoption slot is a FULL const position for name
+  resolution). A module `static` leaf (`1 << PAGE_SHIFT`) adopts and is
+  range-checked — `const_expression_named_static_operand.saw` — and so does a
+  raw-backed enum CASE, whose value is the BACKING integer:
+  `const_expression_named_enum_case_operand.saw`. The second is a deliberate
+  AMENDMENT to design 185 unit 4, which widens WHICH positions are const rather
+  than what a constant means; 185's refusal of an operator over enum-typed
+  VALUES outside one is unchanged and still pinned by
+  `../enum_bitwise_value_error.saw`.
 
 **Cell counts, grid 1** (22 positions × 8 sources = 176 nominal cells): 44
 green (own file or a same-shape existing-file cite: 22 on S1 + 22 on S3 —
@@ -194,9 +197,13 @@ inside one is reached.
   `qualname_mod_static_refarg.saw`, `qualname_mod_static_elem_write.saw`,
   `qualname_mod_static_immutable_error.saw`.
 
-- **DF-240a** (OPEN, filed by design 240's own sweep) — a const expression whose
-  leaf is a module `static` does not adopt, so it is not range-checked. Pin:
-  `const_expression_named_static_operand.saw`.
+- **DF-240a** (FIXED, design 241 unit 2) — a const expression whose leaf is a
+  module `static` did not adopt, so it was not range-checked. RULED Aug 21: a
+  fixed-width adoption slot is a full const position for name resolution, so
+  `_stamp_const_names` runs over the expression before design 240's fold and
+  statics AND raw-backed enum cases both fold there. Regression tests:
+  `const_expression_named_static_operand.saw`,
+  `const_expression_named_enum_case_operand.saw`.
 
 No OPEN cells in either grid — every cell this brief's grids name was
 determined by direct compile/run evidence.

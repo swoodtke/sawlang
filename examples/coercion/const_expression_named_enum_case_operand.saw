@@ -1,0 +1,59 @@
+// DF-240a's other name kind (design 241 unit 2, ruled Aug 21). An adoption slot
+// is a full const position, so a raw-BACKED enum CASE folds there beside a
+// module `static` — `let mask: UInt8 = Perm.Read | Perm.Write` is legal, and
+// its value is 3, the BACKING INTEGER.
+//
+// This is a deliberate AMENDMENT to design 185 unit 4, not a side effect. 185
+// rules that a bit set over enum tags is the integer they are tags for IN A
+// CONST POSITION, and that outside one the operands are enum-typed VALUES
+// carrying no number, so the operator is refused with the `as` fixit. The
+// ruling widens WHICH positions are const, not what a constant means: a
+// fixed-width slot joins the list, and 185's refusal is unchanged everywhere
+// else (pinned, still, by enum_bitwise_value_error.saw — `let a = Perm.Read`
+// then `a | b` has no expected type in sight and stays the same error).
+//
+// The range check comes with it, which is the point: an out-of-range
+// combination at a narrower slot is refused rather than truncated.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: 3
+// EXPECT-OUTPUT: 7
+// EXPECT-OUTPUT: 4096
+// EXPECT-OUTPUT: 2
+// EXPECT-OUTPUT: 6
+
+enum Perm: UInt8 {
+    case Read = 0x01,
+    case Write = 0x02,
+    case Exec = 0x04
+}
+
+enum Cfg: UInt16 {
+    case Mask = 0x000F,
+    case Wide = 0x1000
+}
+
+func takes(flags: UInt8) -> UInt8 { flags }
+
+func main() {
+    // The annotated `let` — the shape the ruling names.
+    let mask: UInt8 = Perm.Read | Perm.Write
+    print("{mask}")
+
+    // Three cases, still inside the byte.
+    let all: UInt8 = Perm.Read | Perm.Write | Perm.Exec
+    print("{all}")
+
+    // A wider backing at a wider slot.
+    let wide: UInt16 = Cfg.Wide & 0xF000
+    print("{wide}")
+
+    // An ARGUMENT is an adoption slot too, and so is a `return`.
+    print("{takes(flags: Perm.Write | 0)}")
+
+    // The 185-unit-4 spelling still means the same number, so the amendment
+    // adds a reading rather than replacing one.
+    let held = Perm.Write
+    let combined: UInt8 = (held as UInt8) | (Perm.Exec as UInt8)
+    print("{combined}")
+}

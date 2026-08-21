@@ -31,7 +31,6 @@ is scheduled and in what order is the whole of what they say.
 
 ## [QUEUE] — scheduled, in order (user-approved)
 
-- Design 241 — undefined type names + the DF-240a const-position amendment (designs/241-undefined-type-names.md; ruled Aug 21) — FIRST ON RESUME, before 205
 - Design 205 — platform-pair transfer conversions (designs/205-transfer-conversion-closes.md; worked solution recorded in the brief) — position in queue provisional, before 234 suggested
 - Design 218 unit 2 — the scope-end migration (SCHEDULED Aug 21, user): DF-217p (RULED Aug 20, scope-end required; the corodiff ledger's 61+2+3 cells are the acceptance matrix) + DF-217m coro face (rides) + DF-218e (same transform; mechanism confirmed by 237's census) — entries below, under design 218 / NEXT-WAVE SWEEPS; retires the bulk of corodiff_known.txt. BEFORE 234's corpus churn
 - Small-fix batch — DF-216c generic-static monomorphization (+DF-217d rides, same missing path) + DF-216h renamed extension param plumbing + DF-219c bound-aware spawn capture audit (SCHEDULED Aug 21, user; entries below — all three mechanisms assessed, sites located; DF-239b joins only if its resolution strategy is settled at briefing)
@@ -50,7 +49,6 @@ for sawos; "238 before more M3 work" is absolute.
 - `public(package) import` — should the scoped re-export form exist? Refused today (design 229). Real use case: an INTERNAL PRELUDE, one sibling aggregating names for the others (Rust's `pub(crate) use`). Against: siblings can already import each other directly, so it buys convenience, not capability — and kcore, the biggest multi-file package and the one that motivated the tier, does NOT want it (its `public import` block is the EXTERNAL facade). Wait for a package that feels the pain (entry: the re-narrowing rider section)
 - DF-239b — deep argument typing unchecked on the generic-bound call path (entry below, beside DF-239a)
 - DF-232g RESIDUE — a DECLARED array length that never folds reports with NO FILE from codegen (entry below; the fold half CLOSED Aug 21, this half wants a declared `source_file` annotation on the expression base)
-- DF-240a — a const expression whose LEAF is a module `static` still does not adopt its fixed-width slot (entry below) — WANTS A RULING, filed by design 240 items 1-2's own sweep
 - DF-226b/c — FuncPointer v1 gaps (entries below, under design 226)
 - DF-225o — reemit divergence under load (entry below)
 - Design 231 — native-compiler readiness ledger (designs/231-native-compiler.md)
@@ -58,7 +56,10 @@ for sawos; "238 before more M3 work" is absolute.
 - M4 seeds — IPC/pipes (renamed from channels Aug 20 — ratified record in spec §2.1 + the done file), dynamic loading, IOMMU, SMP (references in designs/232-sos-m3-sketch.md)
 - ESP32 path — P4 + TCP/IP stack ultimate goal; S3 via FreeRTOS-fakery stage 2 (HARDWARE PATH entry below)
 - DF-223b — existential dispatch of a suspending trait method, owed a DESIGN (entry below, under design 223)
-- DF-225b — an UNDEFINED TYPE NAME is not diagnosed as one: silent opaque type, or an ICE at codegen (entry below; swept and widened by design 240 item 4, pinned, wants its own brief). DF-225c/DF-225e CLOSED Aug 21 by that batch — 225e's search-path split landed, 225c's compiler half was a NO-OP (no `Float64` registration exists; the residue is 225b). DF-225h fully CLOSED Aug 20: `()` stays a distinct tuple, design 122/132's visible-Void rejection stays ABSOLUTE (a proposed `case _ -> Void` spelling was considered and REJECTED for the exception it would carve), `{}` is the do-nothing arm spelling — spec's three arms fixed
+
+(The DF-225 family left this list Aug 21: 225b closed by design 241 unit 1,
+225c/225e by design 240's batch, 225h Aug 20 — every entry below carries its
+own closure note and is ready to move.)
 
 ## DF-239b — a fully CONCRETE parameter type is unchecked on the
 ## generic-bound call path (filed Aug 20, DF-239a's sweep)
@@ -119,6 +120,17 @@ positions is unchanged. The fix + the 185 spec amendment ride design 241
 unit 2 (first on resume). PIN:
 `examples/coercion/const_expression_named_static_operand.saw` (XFAIL, flips
 with the fix). [240, 235, 185, 172j]
+
+**CLOSED Aug 21, design 241 unit 2** (branch `design-241`). One line at design
+240's own funnel arm: `_fold_const_expression_into` runs `_stamp_const_names`
+over the expression before `const_eval`, so an adoption slot has the names
+every other const position has. 185 unit 4's refusal is untouched —
+`_check_binary_op` answers from the `const_folded_value`/`expected_type` stamp
+pair and never descends into the operands once the funnel folded, and outside
+an adoption or const position the arm never runs. Pin un-XFAIL'd; the
+enum-case row is `examples/coercion/const_expression_named_enum_case_operand.saw`;
+`examples/coercion/INDEX.md` rows flipped. Spec + saw-lang skill carry the
+dated amendment. Boundary and evidence: designs/241-undefined-type-names.md.
 
 ## Design 238 — the sawos split (AUTHORED Aug 19, FOUR RULINGS same day;
 ## QUEUED after the sos riders batch, BEFORE the M3 ladder)
@@ -1399,6 +1411,20 @@ sub-agents, one lead), not one lucky repro.
   PIN: `examples/unknown_type_name_diagnostic.saw` (XFAIL; asserts a located
   diagnostic naming the type and NO internal compiler error, rather than a
   wording nobody has ruled on).
+  **CLOSED Aug 21, design 241 unit 1** (branch `design-241`). One rule at the
+  design-194 written-type funnel: `error: undefined type `X``, located at the
+  name. `_gate_resolved_type` asks the hidden-std question, then design 229's,
+  then this one as the residue, so the specific answer wins wherever there is
+  one. The scope question is answered by the type parameters in force (the
+  declaration's own at the registration entries), the names the unit declares
+  (registration is ordered and Saw is not), the namespace, and three fences —
+  a const generic ARGUMENT written as a bare name, `Optional`, and the file
+  being checked (a foreign generic's `R` resolves in the CALLER's body).
+  `_register_trait` became the funnel's fifth entry, `_register_extension` now
+  states its type parameters while it resolves signatures, and DF-174d's
+  duplicate `_check_type_name_resolves` retired. Pin un-XFAIL'd and grown into
+  the nine-row position matrix. Cascade suppression was NOT attempted — see
+  the boundary in designs/241-undefined-type-names.md.
 - **DF-225c (RULED Aug 20, user: FLOAT ONLY — reading 2, sharpened: `Float`
   is THE float type, the `Float64` name is dropped/removed rather than
   wired; `Float32` stays a planned future narrower type; there is no
@@ -1417,7 +1443,11 @@ sub-agents, one lead), not one lucky repro.
   is filed there with the sweep, the third ICE position and the pin. Probe of
   record: `Float64` and a nonsense `Nonesuch` produce byte-identical
   diagnostics in every position tried. No compiler change landed here, and
-  none is owed under this number.) — original filing:** `Float64` cannot be produced
+  none is owed under this number. DOC RESIDUE swept Aug 21 by design 241:
+  the Aug-20 doc half missed ELEVEN worked-example occurrences of `Float64`
+  in LANGUAGE_SPEC — unit 1's new diagnostic turns each into a hard error
+  rather than a cascade, so they now read `Float`; the two occurrences left
+  are prose about the name and are correct.) — original filing:** `Float64` cannot be produced
   by any literal, cast, or arithmetic, contradicting LANGUAGE_SPEC.md's own
   "`Float` // Alias for `Float64`" claim (lines 669-670, 690-692, stated as
   `implemented`).** `let x: Float64 = 1.0` fails with `cannot assign

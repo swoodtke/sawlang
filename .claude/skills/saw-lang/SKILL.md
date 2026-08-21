@@ -138,6 +138,14 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   value at platform width past the declared one, `acc += (1 << 2) + 4` was
   refused outright, and a mixed array literal or a Result payload was a
   codegen ICE.
+  **AND THE NAMES A CONSTANT MAY READ COME WITH IT (DF-240a, ruled + fixed
+  Aug 21):** a fixed-width slot is a FULL const position, so the expression's
+  leaves may be a module `static` or a raw-backed enum CASE, exactly as in a
+  `static_assert` or an array length. `let e: UInt16 = 1 << PAGE_SHIFT` is the
+  clean "does not fit" error (the size-in-one-place idiom stops losing the
+  check), and `let mask: UInt8 = Perm.Read | Perm.Write` is legal with the
+  value 3 — see FLAG ENUMS below for what that amends. Both were wrong before
+  Aug 21: the first compiled and printed `0`, the second was refused.
   **IDIOM (user ruling, Aug 16): no suffix where an expected type is in
   force.** `static CR: UInt32 = 0x301u32` says the width twice — write
   `0x301`; same in a param (`reg.write(0)`), a comparison against a typed
@@ -2681,14 +2689,22 @@ construct in the owner and lend `&driver` down.
   folds — and its type is the BACKING INTEGER, never the enum, because 3 need
   not be a declared case (typing it `Perm` would break `from(raw:)` and
   exhaustiveness). An enum is a set of tags; a bit set over them is the integer
-  they are tags for, and Saw ships no OptionSet type. Outside a constant the
-  operands are enum-typed VALUES and the operator is REFUSED — write
-  `(a as UInt8) | (b as UInt8)`, the same total projection design 145 gives.
+  they are tags for, and Saw ships no OptionSet type. A FIXED-WIDTH SLOT IS A
+  CONST POSITION (DF-240a, ruled Aug 21 — an amendment to 185 unit 4, which
+  widens WHICH positions are const, not what a constant means), so an annotated
+  `let`, a field, an argument, a `return` and an arm all fold a combination and
+  range-check it against the declared type. Outside a const or adoption
+  position the operands are enum-typed VALUES carrying no number and the
+  operator is REFUSED — write `(a as UInt8) | (b as UInt8)`, the same total
+  projection design 145 gives.
   ```saw
   enum Perm: UInt8 { case Read = 0x01, case Write = 0x02, case Exec = 0x04 }
   static_assert((Perm.Read | Perm.Write) == 3, "rw")   // UInt8, folds
+  let mask: UInt8 = Perm.Read | Perm.Write             // 3 — the slot is const
   let flags = (held as UInt8) | (Perm.Exec as UInt8)   // runtime: say `as`
   ```
+  The `let mask` line was refused before Aug 21, so a build that rejects it
+  predates the amendment.
   The generic-ARGUMENT position keeps the smaller design-148 grammar (`>` is the
   shift token, so `FixedBuf<1 << 8>` cannot parse) — write `FixedBuf<2 * 128>`
   or a `static`.

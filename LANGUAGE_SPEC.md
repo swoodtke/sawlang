@@ -143,7 +143,7 @@ var count = 0
 count += 1
 
 // Type annotations (optional with inference)
-let pi: Float64 = 3.14159
+let pi: Float = 3.14159
 var items: Vector<Int> = []
 ```
 
@@ -1373,24 +1373,24 @@ an error the definition did not.
 ```saw
 // Value type (copied by default)
 struct Point {
-    x: Float64,
-    y: Float64,
+    x: Float,
+    y: Float,
 }
 
 // Methods via extensions
 extension Point {
     // Custom initializer (beyond default field init)
-    init(magnitude: Float64) -> Point {
+    init(magnitude: Float) -> Point {
         Point(x: magnitude, y: magnitude)
     }
 
     // Instance method (shared reference to self)
-    func magnitude(&self) -> Float64 {
+    func magnitude(&self) -> Float {
         (self.x * self.x + self.y * self.y).sqrt()
     }
 
     // Mutating method (exclusive reference to self)
-    func translate(&var self, dx: Float64, dy: Float64) {
+    func translate(&var self, dx: Float, dy: Float) {
         self.x += dx
         self.y += dy
     }
@@ -2431,23 +2431,23 @@ bodies below use stdlib methods (`.sqrt()`, `.cos()`) that are *(illustrative)*.
 // Add methods to struct types
 extension Point {
     // Read-only method (shared reference to self)
-    func distance_from_origin(&self) -> Float64 {
+    func distance_from_origin(&self) -> Float {
         (self.x * self.x + self.y * self.y).sqrt()
     }
 
     // Mutating method (exclusive reference to self)
-    func scale(&var self, factor: Float64) {
+    func scale(&var self, factor: Float) {
         self.x *= factor
         self.y *= factor
     }
 
     // Custom initializer (overloaded by parameter names)
-    init(magnitude: Float64) -> Point {
+    init(magnitude: Float) -> Point {
         Point(x: magnitude, y: magnitude)
     }
 
     // Another custom initializer
-    init(polar: Float64, angle: Float64) -> Point {
+    init(polar: Float, angle: Float) -> Point {
         Point(
             x: polar * angle.cos(),
             y: polar * angle.sin()
@@ -3318,8 +3318,8 @@ the task's life, so a forwarded reference never outlives the storage it names.
 Methods use reference syntax for self:
 ```saw
 extension Point {
-    func magnitude(&self) -> Float64 { ... }      // Shared reference
-    func translate(&var self, dx: Float64) { ... } // Exclusive reference
+    func magnitude(&self) -> Float { ... }      // Shared reference
+    func translate(&var self, dx: Float) { ... } // Exclusive reference
 }
 ```
 
@@ -4896,6 +4896,25 @@ hand `Perm.from(raw:)` and an exhaustive `match` a value outside the closed set
 the enum is. An enum is a set of tags; a bit set over those tags is the integer
 they are tags for. Swift draws this line with `OptionSet` and Rust with
 `bitflags`; Saw states it and does not ship a bit-set type.
+
+**A fixed-width slot is a constant position too** (amended Aug 21 2026). Where a
+declared narrower type is in force — an annotated `let`, a field, an argument, a
+`return`, a `static`, an arm — the combination folds and is range-checked
+against that type, so `let mask: UInt8 = Perm.Read | Perm.Write` is a `UInt8`
+holding 3, and a combination too wide for the slot is a compile error rather
+than a truncation:
+
+```saw
+let mask: UInt8 = Perm.Read | Perm.Write     // 3
+
+enum Cfg: UInt16 { case Mask = 0x000F, case Wide = 0x1000 }
+let narrow: UInt8 = Cfg.Wide | Cfg.Mask
+// error: constant expression 4111 does not fit in `UInt8` (range 0..=255)
+```
+
+The same rule covers a module `static` named in such a slot
+(`let e: UInt16 = 1 << PAGE_SHIFT`), which is what the size-in-one-place idiom
+writes. See "Compile-Time Evaluation".
 
 Outside a constant, a bit operator applied to an enum-typed **value** is a
 compile error. The projection is explicit:
@@ -8009,8 +8028,12 @@ carrying the message**, a true result emits **zero code**.
 
 One evaluator answers everywhere a constant is required — a `static_assert`
 condition, an array length `[T; N]`, a repeat-literal count `[v; N]`, a const
-generic argument — so the same expression cannot mean different things in two
-positions. It accepts:
+generic argument, a `static` initializer — so the same expression cannot mean
+different things in two positions. A **fixed-width slot** is on that list too
+(amended Aug 21 2026): where a declared `Int8`…`UInt64` type is in force, an
+operator expression over constants folds and is range-checked against the
+declared type, with the same names in scope every other constant position has.
+It accepts:
 
 - integer and `Bool` literals, in every notation (`0xFF`, `0b1010`, `0o755`,
   `1_000_000`);
@@ -8020,8 +8043,8 @@ positions. It accepts:
 - `sizeof<T>()` / `alignof<T>()`;
 - the `Int.max` / `Int.min` limits, on every integer type;
 - a const generic parameter in scope;
-- a module `static` of type `Int`/`UInt` initialized by a plain integer literal,
-  bare or module-qualified;
+- a module `static` of type `Int`/`UInt` whose own initializer folds, bare or
+  module-qualified;
 - a case of a raw-backed enum, and an `as` between integer types.
 
 Anything else — a runtime function call, a `let` local, a case of an enum with
