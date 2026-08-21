@@ -31,7 +31,7 @@ is scheduled and in what order is the whole of what they say.
 
 ## [QUEUE] — scheduled, in order (user-approved)
 
-- Design 218 unit 2 — the scope-end migration (SCHEDULED Aug 21, user): DF-217p (RULED Aug 20, scope-end required; the corodiff ledger's 61+2+3 cells are the acceptance matrix) + DF-217m coro face (rides) + DF-218e (same transform; mechanism confirmed by 237's census) — entries below, under design 218 / NEXT-WAVE SWEEPS; retires the bulk of corodiff_known.txt. BEFORE 234's corpus churn. SPEC RULED Aug 21 (designs/218b-scope-end-spec.md — all six questions RATIFIED as recommended, rulings in its header), implementer DISPATCHED same day (branch `design-218-u2`)
+- Design 218 unit 2 — the scope-end migration: IMPLEMENTED Aug 21 on branch `design-218-u2` (stages 0/A+B/C/D/E). DF-217p, DF-217m's coro face, DF-218e and DF-218r CLOSED; DF-218s HALF closed and its remainder needs a ruling (entries below). Two new findings filed on the way (DF-218t, DF-218v) and one closed on discovery (DF-218u). Spec + landing note: designs/218b-scope-end-spec.md. AWAITING lead validation + integration
 - Small-fix batch — DF-216c generic-static monomorphization (+DF-217d rides, same missing path) + DF-216h renamed extension param plumbing + DF-219c bound-aware spawn capture audit (SCHEDULED Aug 21, user; entries below — all three mechanisms assessed, sites located; DF-239b joins only if its resolution strategy is settled at briefing)
 - Design 234 — the fallibility flip (designs/234-fallibility-flip.md) — after 235/237 (the M3-1.5 interleave carve-out WITHDRAWN by user, Aug 20 — 1.5 waits for sawos)
 - sos riders batch — REMAINDER ONLY: `clock_get` `kind:`→`type:` (DF-232b landed), abi enums decimals→shifts (DF-232c landed). The kcore re-narrowing LANDED Aug 20; the member audit RAN Aug 20 and its narrowing unit LANDED Aug 20 (84 sites: 78 `public(package)`, 6 private, 2 consumed; the audit's file-local split was inverted — DF-232q); see the re-narrowing rider section
@@ -58,8 +58,10 @@ for sawos; "238 before more M3 work" is absolute.
 - M4 seeds — IPC/pipes (renamed from channels Aug 20 — ratified record in spec §2.1 + the done file), dynamic loading, IOMMU, SMP (references in designs/232-sos-m3-sketch.md)
 - ESP32 path — P4 + TCP/IP stack ultimate goal; S3 via FreeRTOS-fakery stage 2 (HARDWARE PATH entry below)
 - DF-223b — existential dispatch of a suspending trait method, owed a DESIGN (entry below, under design 223)
-- DF-218r — the SYNC twin leaks a loop-body local on `break`/`continue` (entry below, under the DF-218 findings; staged as 218b's stage 0)
-- DF-218s — the driven done path releases frame fields ahead of inner real locals, inverting sync LIFO (entry below; 218b's stage C)
+- DF-218s — the driven done path releases frame fields ahead of inner real locals, inverting sync LIFO. 218b stage C landed the half in reach (frame fields release in scope order); the INTERLEAVING with codegen's real locals is NOT reachable from the transform and needs a ruling — entry below
+- DF-218t — a value-position loop at a non-integer result type is a codegen ICE (the `None` sentinel is built for an integer); entry below, found by 218b stage 0's probes
+- DF-218v — a `try { } catch { }` block LEAKS the try body's locals on its error edge (sync); entry below, found by 218b's SC10 probe, and it corrects DF-218r's class statement
+- DF-218w — DF-217p's narrowed residue: a driven `case Has(_)` drops the discarded payload at the statement's end, not at extraction (entry below, pinned XFAIL, two corodiff rows)
 
 - DF-225a — a user `extern "C"` function under a codegen-internal name (`printf`, `abort`, …) ICEs with no location (entry below, under DF-225a-f)
 - DF-225d — a primitive extension method returning bare `self` refuses its own declared return type, both sides printed identical (entry below, under DF-225a-f)
@@ -2327,25 +2329,134 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   Obligation 4 sweep owed at fix time: generic roots that are METHODS, MT
   spawn, a generic root whose nested callee is itself generic, and any other
   way a surviving template can name a declaration the transform consumed.
-  PIN: `examples/coro_generic_spawn_root_nested_suspending_call.saw`
-  (XFAIL, rewritten with both cells and the mechanism) +
-  `tools/corodiff_known.txt`
+  **CLOSED Aug 21 (design 218 unit 2 stage E, branch `design-218-u2`) —
+  CONSUMPTION SYMMETRY, per 218b ruling 5.** A generic TEMPLATE whose body
+  names a consumed callee is itself consumed at the splice, to a fixpoint.
+  Sound because every instantiation of such a template is unconditionally
+  suspending and every driven use was promoted to a concrete function before
+  the transform ran, so no sync instantiation survives for codegen's late
+  monomorphization to ask for; a template that suspends only CONDITIONALLY
+  (through a type-parameter method) names no consumed callee and is
+  untouched. Obligation-4 sweep RAN, all cells compiled and run: spawn root,
+  ambient entry, nested callee itself generic, two type arguments, a generic
+  METHOD root, MT `threads: 2`, plus the two controls (a `yield_now()`-only
+  template and one with a purely sync instantiation).
+  PIN FLIPPED: `examples/coro_generic_spawn_root_nested_suspending_call.saw`;
+  the `DF-218e-2026-08-14` row retired from `tools/corodiff_known.txt`
 
-- **DF-218r (SYNC LEAK, PRE-EXISTING; filed Aug 21 by the 218b spec probes)** —
-  a sync loop-body local is never released on the `break` or `continue` edge
-  (`return` inside the loop releases correctly). Mechanism, probes and the
-  class statement: designs/218b-scope-end-spec.md (codegen/loops.py:460-505
-  emit no scope cleanup; return runs `_cleanup_all_scopes`). Staged as 218b
-  stage 0 — the sync twin is the scope-end migration's oracle.
-  PIN (to create): `examples/loop_exit_releases_body_local.saw` (XFAIL)
+- **DF-218r — CLOSED (Aug 21, design 218 unit 2 stage 0).** A sync loop-body
+  local was never released on the `break` or `continue` edge (`return` inside
+  the loop released correctly). Mechanism, probes and the class statement:
+  designs/218b-scope-end-spec.md. FIX: `_cleanup_to_loop_boundary`
+  (codegen/loops.py), a funnel naming its two entry points, over a fourth
+  `loop_stack` element — the cleanup-stack depth recorded at loop entry,
+  BEFORE the loop's own bindings register, so a `for`'s design-65 owning loop
+  variable is inside the unwind. `break` also drains its own statement
+  temporaries, as `return` does. PIN FLIPPED:
+  `examples/loop_exit_releases_body_local.saw` (five cells) + conformance row
+  K71. Gated suite + freestanding both arches + corodiff --quick.
+  CLASS STATEMENT CORRECTED (Aug 21, by 218b's own SC10 probe): the entry
+  claimed `break` and `continue` were the only nonlocal exits that are not
+  returns. They are not — a `try { } catch { }` BLOCK's error edge is a
+  THIRD, and it leaks the try body's locals. Filed separately as DF-218v,
+  since the fix is in codegen's try lowering rather than in the loop stack.
 
 - **DF-218s (DEINIT-ORDER, PRE-EXISTING; filed Aug 21 by the 218b spec
-  probes)** — a driven body's done path runs `release()` (reverse
-  declaration order over frame fields) BEFORE the lowered return's cleanup
-  of surviving real locals, inverting the sync twin's scope-LIFO order.
-  Evidence + fix shape (scope clears ahead of `release()`):
-  designs/218b-scope-end-spec.md, stage C.
-  PIN (to create): `examples/coro_done_path_releases_in_scope_order.saw` (XFAIL)
+  probes) — HALF CLOSED Aug 21 (218b stage C), the rest NEEDS A RULING.** A
+  driven body's done path runs `release()` (reverse declaration order over
+  frame fields) BEFORE the lowered return's cleanup of surviving real locals,
+  inverting the sync twin's scope-LIFO order. Stage C landed E-RET — the open
+  scopes' frame fields clear innermost-first ahead of `release()` — which is
+  the ordering fix AMONG FRAME FIELDS. The INTERLEAVING the pin measures is
+  not reachable from the transform: codegen's `_cleanup_all_scopes` runs at
+  the lowered `return Poll.Done`, after every statement the transform can
+  emit, so no emission of its can land after a real local's drop. Three
+  candidate fixes, each a ruling (release from the DRIVER on Done; route
+  nested returns through a shared done STATE; force frame residency on the
+  real locals of a block containing a `return`) — written up in
+  designs/218b-scope-end-spec.md's landing note.
+  PIN: `examples/coro_done_path_releases_in_scope_order.saw` (XFAIL, carries
+  the mechanism and the containment fact that bounds it)
+
+- **DF-218t (ICE, PRE-EXISTING; found Aug 21 while probing DF-218r's
+  break-with-a-value edge)** — a VALUE-position loop whose result type is not
+  an integer dies in codegen. `let out = while true { let s = "made-{i}"; …
+  break s }` reports `internal compiler error: LLVM IR parsing error …
+  integer constant must have integer type`, and the same shape at a NoCopy
+  struct reports `internal compiler error: 'int' object is not iterable`.
+  MECHANISM (one, two symptoms): `_generate_while_expr_value` /
+  `_generate_for_loop_value` build the `None` sentinel for the loop's
+  `Optional<T>` result storage as `ir.Constant(inner_type, 0)`, which is
+  well-formed only for an integer `inner_type` — a pointer gets an
+  ill-typed constant and a struct makes llvmlite iterate the `0`. The
+  positions it reaches are the four value-loop forms (conditional and
+  infinite × `while` and `for`) at any non-integer result type; an `Int`
+  result is unaffected, which is why nothing caught it.
+  NOT FIXED HERE, deliberately: the shape is currently unreachable, and
+  making it compile would open a path where a `break <owned local>` hands the
+  loop's result out while the DF-218r scope unwind also drops it — so the fix
+  owes a transfer/retain decision at the break value, not just a constant.
+  No pin (an ICE pin would have to be XFAIL against an ICE, which the runner
+  reports as a crash); repro in this entry.
+
+- **DF-218u — CLOSED on discovery (Aug 21, design 218 unit 2 stage A/B).** A
+  design-107 same-scope redefinition in a body the coro transform TOUCHES but
+  does not make frame-resident lost its drop-at-redefinition point: the
+  replaced value survived to the scope's end. MECHANISM:
+  `_uniquify_bindings` (DF-151a) renames the second binding, and codegen's
+  `_drop_redefined_same_scope` matches by NAME, so the pair read as two
+  unrelated locals. Positions: a SPAWN root with no suspension (the plainest
+  face — its locals stay codegen's), and a driven body whose locals are not
+  frame-resident; a frame-resident pair takes the transform's own E-REDEF edge
+  and was never affected, and an un-transformed body never renames. FOUND by
+  the stage-A/B corodiff `--all` run, which reported it as a new
+  DEINIT-ORDER cell (`let_shadow_rebind/before @ generic`) once the DRIVEN
+  twin started dropping at the redefinition — the DF-217n unmasking pattern.
+  FIX: the transform hands the pairing over on a declared
+  `LetStatement.coro_redefines` annotation. RESIDUE: a DESTRUCTURING `let`'s
+  leaf redefinition on the same non-frame-resident path is not covered (it has
+  no single-name hand-off); exotic, not probed further.
+  PIN: `examples/spawn_body_same_scope_redefinition.saw` (three cells:
+  un-transformed, spawned non-suspending, spawned suspending)
+
+- **DF-218v (SYNC LEAK, PRE-EXISTING; found Aug 21 by 218b's SC10 probe)** —
+  a `try { … } catch { … }` BLOCK does not release the TRY BODY's locals when
+  the body's error edge leaves for the catch. Probe
+  (`.build/scratch/p_sc10.saw`, sync twin): `try { let t = Res("try-local")
+  … let v = try fail_now(1) … } catch { … }` prints `in try try-local / in
+  catch catch-local bad / DEINIT catch-local / after try` — no `DEINIT
+  try-local` anywhere. The counts do not balance, so this is a LEAK. The OK
+  path releases correctly, and so does the common propagating shape (a bare
+  `try` in a Result-returning function with no catch — probed, `DEINIT held`
+  fires on the error path, because that edge runs `_cleanup_all_scopes` at
+  results.py:197). MECHANISM: the same one DF-218r named, at a position that
+  entry's class statement got WRONG — it said `break` and `continue` were the
+  only nonlocal exits that are not returns, and the try/catch BLOCK's error
+  edge is a THIRD. The DRIVEN twin does not leak it; it releases at frame
+  teardown, i.e. late, which is DF-217p's residue on a path the scope walk
+  cannot see (the error edge is codegen's, inside the synthesized landing).
+  NOT FIXED HERE: the fix is in codegen's try/catch lowering (design 196's
+  territory) and has to decide what the in-flight Result owns at the jump,
+  which is more than a cleanup call. Owed a pin at the next batch.
+
+- **DF-218w (DEINIT-ORDER; filed Aug 21 — the NARROWED RESIDUE of DF-217p)** —
+  a driven `case Has(_)` releases the discarded payload at the END of the
+  match statement, where the sync twin releases it at EXTRACTION. Design 218
+  unit 2 moved this cell from frame teardown to statement end and could not
+  move it further: a `_` binding names no value to own, so it is in no cleanup
+  scope, and sync answers that with an INLINE drop at extraction
+  (codegen/match.py's consume branch, the DF-217n fix) — which the driven twin
+  cannot be in, because its scrutinee is the frame TEMP the container-head
+  hoist made rather than an owned local (`scrut_is_local` is false). What
+  remains is intra-statement timing, one position late, never a leak or a
+  double free. An arm with a NAMED binding is clean on both twins, which is
+  why `match_consume` retired with the rest of DF-217p and `match_nobinding`
+  did not. The fix is per-ARM emission (release the scrutinee temp at the
+  START of an arm whose only payload binding is `_`), which owes a rule for
+  the mixed `case Two(v, _)` shape where sync drops one field inline and the
+  other at arm end while the frame temp holds the whole enum.
+  PIN: `examples/coro_discarded_match_payload_released_at_extraction.saw`
+  (XFAIL) + two `tools/corodiff_known.txt` rows re-filed from DF-217p's block
 
 - **DF-218i (BOGUS-REFUSAL, PRE-EXISTING) — rendering a PLACE is judged a
   value read, so a move-only element cannot be printed.** `print("{v[0]}")`
@@ -2841,6 +2952,16 @@ Three NEW findings, all lead-verified from standalone repros:
   are the acceptance matrix, and the fix removes those ledger blocks in its
   landing commit per the harness-ledger rule. DF-217m's coro face follows
   this ruling.
+  **CLOSED Aug 21 (design 218 unit 2, branch `design-218-u2`).** The funnel is
+  `_FrameBuilder._scope_release_seq` over a scope map `_uniq_walk_block`
+  already built and discarded; its entry points are the exit edges (E-FALL,
+  E-BRK, E-CNT, E-RET, E-REDEF, E-STMT) and the docstring names them. WHAT a
+  release is stays one decision, `_release_shape`, shared with teardown — so
+  the deferred families are covered in the legacy spelling and deterministic
+  destruction is unconditional (ruling 6). Details and the two deviations:
+  designs/218b-scope-end-spec.md's landing note. PINS FLIPPED:
+  `examples/coro_frame_local_released_at_scope_end.saw` + conformance row K70
+  (seven scope kinds as twin pairs). Ledger: the whole DF-217p block retired.
 - **DF-217h extended:** the `??` RHS is a tenth consuming position (husk
   release with an empty name), and `Vector.swap_out(i, f())` a second
   consuming-argument accessor; fires across linear/loop/cancel/teardown/MT,
@@ -2907,8 +3028,16 @@ exposed, in the brief's unit-1 paragraph.
     suspending twin drops exactly once, i.e. the coro path is CORRECT and
     the plain path leaks.
     PIN: `examples/sync_call_temp_released_once.saw`
-    **SYNC HALF CLOSED Aug 21, design 240 item 9 (branch `design-240`); the
-    CORO FACE stays open under DF-217p's ruling.** Two codegen gaps, both
+    **CLOSED Aug 21. SYNC HALF by design 240 item 9 (branch `design-240`);
+    CORO FACE by design 218 unit 2 stage D (branch `design-218-u2`) — E-STMT,
+    the statement-end edge of the scope-end funnel. The UNWRAPPED
+    call-result receiver's husk (`mk_opt(44)!.describe()`) and the `__rcvN`
+    discard holder clear at the end of the statement the hoist lifted them
+    from; the borrow READ is unchanged, only the husk's lifetime moved. Rows
+    M1 (a driven by-value param — a frame's Done IS its return) and M2 (the
+    plain receiver temp, already `take()`n since stage 2) owed nothing. PIN
+    FLIPPED: `examples/coro_hoisted_receiver_temp_released_once.saw`.**
+    The sync half's two codegen gaps, both
     where a shape had no cleanup scope at all:
       * an INSTANCE method was the one callable shape that never pushed a
         PARAM cleanup scope — a free function, a static method and an `init`

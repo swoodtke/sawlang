@@ -1635,7 +1635,27 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   gone) and an unjoined result drops once at group teardown. Cancelled-then-
   completed follows the same path. So a long-lived group accumulates nothing, and
   a task-local resource is NOT a way to extend a lifetime — hold it in the
-  spawner if you need it to outlast the task. **The SLOT goes too (design 134):**
+  spawner if you need it to outlast the task.
+  **AND A SCOPE INSIDE A SUSPENDING BODY IS A SCOPE TOO (design 218 unit 2).**
+  A local that lives across a suspension is held in a frame field, and its
+  lifetime is still its scope's: it deinits at the end of the block that owns
+  it, in reverse declaration order, on every edge out of that scope —
+  fallthrough, `break`, `continue`, `return` — and at the redefinition point of
+  a design-107 same-scope rebind. So a driven loop body releases per ITERATION:
+  ```saw
+  while going {
+      var conn = try! listener.accept()   // suspends
+      serve(&var conn)
+  }                                       // conn's fd closes HERE, each pass
+  ```
+  Treat that as working now and SUSPECT in older builds, where a frame field
+  lived until the frame died: the loop above held every connection open until
+  the task completed, and a shadow rebind released the OLD value after the new
+  one was already in use. The counts always balanced, so nothing leaked — what
+  was wrong was WHEN. The sync half of the same rule had two broken edges of its
+  own until Aug 21 (`break`/`continue` ran no scope cleanup at all, which DID
+  leak), so distrust a pre-Aug-21 build on both sides.
+  **The SLOT goes too (design 134):**
   the frame allocation is released at completion and its run-queue slot returns to
   a free list, so a group costs O(live + unjoined-result tasks) rather than
   O(tasks ever spawned) — an accept loop that serves 200k connections holds as

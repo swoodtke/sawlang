@@ -592,3 +592,70 @@ rule that answers correctly.
 
 One finding, pre-existing and filed rather than worked around: DF-218n, an
 explicit `__saw_drive(f())` inside a body that itself suspends is an ICE.
+
+## UNIT 2's REMAINDER LANDED (Aug 21) — scope-end release
+
+Spec: `designs/218b-scope-end-spec.md` (RULED, all six questions). What stages
+1-4 migrated was WHAT a frame field is and how it is written; this is WHEN it is
+released. A frame field used to live until the frame died, so a driven body's
+locals outlived their scopes — DF-217p, 66 corodiff cells of one mechanism.
+
+**The funnel** is `_FrameBuilder._scope_release_seq`, over a SCOPE MAP that
+`_uniq_walk_block` was already building and throwing away (one dict per block
+scope, now kept as the ordered binding NODES so a later rename follows for
+free). Its entry points are the edges by which control leaves a scope, and the
+docstring names them: E-FALL (`_lower_block`, entered by all seven split
+constructs), E-BRK / E-CNT (`_lower_stmt`, unwinding to the loop-body marker),
+E-RET (`_done_seq`, ahead of the surviving `release()`), E-REDEF
+(`_lower_inplace`, after a design-107 replacing store) and E-STMT (the
+statement-end release of a hoisted temp, plus the scrutinee temp's merge-point
+release). WHAT a release is stays one decision: `_release_shape` is shared with
+`_release_seq`, so the scope-end path and the teardown path cannot drift.
+
+Four things worth carrying forward.
+
+(a) **The sync twin had to be fixed first.** Twin parity is the acceptance
+instrument, and on two edges the oracle was wrong: `break` and `continue` ran no
+scope cleanup at all, so a sync loop-body local LEAKED (DF-218r). Codegen's
+`_cleanup_to_loop_boundary` is the funnel that closes it, over a cleanup-stack
+depth recorded on `loop_stack` at loop entry.
+
+(b) **Deferred families are covered, not deferred (ruling 6).** Scope-end
+releases a field by its ENCODING's shape, so a field a deferred family holds
+back gets its scope-end release in the legacy `= None` spelling and migrates to
+`clear()` whenever its family lands, with no change to WHERE the release sits.
+Deterministic destruction is therefore unconditional rather than gated on the
+Slot migration finishing, and `forgetgate` sees no new emissions and no
+deletions.
+
+(c) **DF-218e is CONSUMPTION SYMMETRY** (ruling 5). A suspending callee is
+consumed at the splice; a generic caller left its un-transformed TEMPLATE behind
+naming it, and the post-transform re-check reported `undefined function` at the
+author's own line. The template is consumed with it, to a fixpoint, on the
+free-function side and — through design 223's one strip funnel — on the method
+side. Sound because every instantiation of such a template is unconditionally
+suspending and every driven use was already promoted to a concrete function, so
+no sync instantiation can exist for codegen's late monomorphization to ask for.
+That premise has ONE hole, which a probe found rather than the spec: promotion
+DECLINES for a template that suspends unconditionally without calling a
+type-parameter method (no instantiation effect node), and there codegen's late
+monomorphization is exactly what serves the call. So the rule consumes only a
+template nothing surviving the splice still calls.
+
+(d) **One promised flip did not happen, and it is a ruling rather than a miss.**
+DF-218s asks for sync-LIFO between a frame field and a REAL local of an inner
+scope at a nested `return`. Row E-RET landed and fixes the order among frame
+fields; the INTERLEAVING is not reachable from the transform, because codegen's
+`_cleanup_all_scopes` runs at the lowered `return Poll.Done` — after every
+statement the transform is able to emit. The three candidate fixes and the
+containment fact that bounds the problem are in 218b's landing note; the pin
+stays XFAIL and cites the mechanism.
+
+The corodiff ledger's DF-217p block reached zero and its DF-218e row went with
+stage E. Two rows survive under a NEW number, DF-218w: a driven `case Has(_)`
+drops the discarded payload at the statement's end where sync drops it at
+extraction — DF-217p's mechanism narrowed from "frame teardown" to "one
+position late". Three further pre-existing findings were filed rather than
+worked around (DF-218t, DF-218v, and DF-218w), and one was fixed on discovery
+(DF-218u, a design-107 redefinition losing its drop point in any body the
+transform renames but does not make frame-resident).

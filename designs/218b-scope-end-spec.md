@@ -1,7 +1,75 @@
 # Design 218b — unit 2 remainder: the scope-end release migration spec
 
 **Status: RULED (user, Aug 21 2026) — ALL SIX open questions RATIFIED as
-recommended; implementation dispatched same day.**
+recommended; implementation dispatched same day. IMPLEMENTED Aug 21 on branch
+`design-218-u2`, stages 0/A+B/C/D/E — with ONE stage that did not deliver its
+promised flip: see "STAGE C: the DF-218s flip is NOT reachable as specified"
+below.**
+
+## Landing note (Aug 21)
+
+Stages 0, A+B, D and E landed. Four deviations, recorded here rather than in
+the report alone:
+
+- **Stages A and B landed as ONE commit.** The spec staged the linear face
+  ahead of the loop face, but both are the same funnel entered from the same
+  chokepoint (`_lower_block`), and the split would have required an intermediate
+  commit in which `break`/`continue` unwound PAST the loop boundary — a
+  deliberately wrong compiler — because E-BRK/E-CNT need the loop marker the
+  loop face installs. The linear and loop cells of the ledger retire together
+  for the same reason.
+- **STAGE C: the DF-218s flip is NOT reachable as specified, and the pin stays
+  XFAIL.** Row E-RET landed (scope clears innermost-first ahead of `release()`),
+  which is what restores scope order AMONG FRAME FIELDS. It cannot reorder a
+  frame field against a REAL local, which is what DF-218s measures: codegen's
+  `_cleanup_all_scopes` — the thing that drops `inner` — runs at the lowered
+  `return Poll.Done`, i.e. after EVERY statement the transform can put in front
+  of it, so no emission the transform is able to make lands after that drop.
+  Moving the frame's release later means one of three things, each a ruling:
+  call `release()` from the DRIVER after `resume` reports Done (correct order by
+  construction, but the scheduler is the third driver and design 124's eager
+  timing lives there); route every nested `return` through a shared DONE STATE
+  reached by a state assignment plus a dispatch `continue` (correct where no
+  enclosing non-spanning loop swallows the `continue`, wrong where one does);
+  or force frame residency on the real locals of any block containing a
+  `return`, via the `force` mechanism split try/catch already uses (correct,
+  and it changes frame layout for every driven body with a nested return).
+  Reported to the lead for the user; the pin carries the mechanism and the
+  containment fact that bounds it (a frame-resident scope is always an ANCESTOR
+  of a real-local scope, so "all real locals, then all frame fields" would be
+  exactly sync-LIFO if the two could be ordered that way).
+- **Section 2c retires three of its four cells, not four.** The merge-point
+  release cleared `match_consume/in_rhs` at both context classes. The
+  `match_nobinding` cells — an arm binding a payload to `_` — did not: sync
+  drops a discarded payload INLINE at extraction, because a `_` binding is
+  registered in no cleanup scope and no scope exit could reach it, and the
+  driven twin has no consume mode to be in (its scrutinee is the frame temp
+  the head hoist made, not an owned local). What is left is intra-statement
+  timing, one position late, never a leak. Re-filed as DF-218w with its own
+  pin and its own two ledger rows; the fix is per-ARM emission and owes a rule
+  for the mixed `case Two(v, _)` shape.
+- **Section 4's soundness argument needed one guard.** It reasons that every
+  driven use of such a template was promoted to a concrete function first, so
+  nothing can still name it. That premise fails where
+  `_promote_nested_generic_calls` DECLINES — a template suspending
+  unconditionally without calling a type-parameter method has no instantiation
+  effect node — and there the call site still names the template while codegen
+  serves it by late monomorphization. A probe caught it as a codegen ICE where
+  the old behavior was a clean diagnostic. So a template is consumed only when
+  nothing surviving the splice still calls it. Section 4 also under-specified
+  the METHOD half: a generic method TEMPLATE in an extension errors the same
+  way and needs the same removal, through design 223's strip funnel so a
+  conformance-required method is refused.
+
+Three findings the work surfaced, all pre-existing, filed rather than worked
+around: DF-218t (a value-position loop at a non-integer result type is a
+codegen ICE — the `None` sentinel is built for an integer), DF-218v (a
+`try { } catch { }` BLOCK leaks the try body's locals on its error edge, which
+CORRECTS DF-218r's class statement — that error edge is a third nonlocal exit
+that is not a return), and DF-218w above. One was fixed on discovery: DF-218u,
+a design-107 redefinition losing its drop point in any body the transform
+RENAMES but does not make frame-resident, which the stage-A/B `--all` run
+reported as a new cell the moment the driven twin started dropping on time.
 
 ## RULINGS (user, Aug 21 — section 7's questions, ratified wholesale)
 

@@ -4057,7 +4057,10 @@ trait Deinit {
 }
 ```
 
-The compiler inserts `deinit()` calls at all scope exit points—including normal exits, early returns, breaks, and error propagation.
+The compiler inserts `deinit()` calls at every scope exit: falling off the end
+of a block, `return`, `break`, `continue`, and error propagation. Each scope
+releases its own bindings in reverse declaration order, and a jump out of
+several scopes releases them innermost first.
 
 You rarely write the body. Any struct or enum that owns something gets a
 memberwise `deinit` synthesized from its fields, so a hand-written one is for
@@ -5679,6 +5682,17 @@ Observable rules:
   exit are destroyed in LIFO order through ordinary control flow; the one
   special case is a completed frame whose result was never consumed — that
   result is dropped exactly once when the frame dies.
+- **Scope-end release: a driven body destroys where its sync twin destroys.**
+  A local that lives across a suspension is held in a frame field, but its
+  lifetime is still its SCOPE's. It is released at the end of the scope that
+  owns it, in reverse declaration order, on every edge by which control leaves
+  that scope — falling off the end of the block, `break`, `continue`, and
+  `return`, plus the redefinition point of a same-scope redefinition. A loop
+  body releases per iteration, before the backedge, so a `File` or a
+  `TcpStream` bound inside a driven loop closes at the end of the iteration
+  that opened it rather than when the task completes. The frame's own release
+  at completion stays, covering the parameters and anything still live at the
+  exit.
 - **Conditional move across a suspension** (design 45 Part 0a). A cleanup-needing
   local moved on some paths but not others is dropped exactly once: its frame
   field carries a drop flag (the optional's `is_some` discriminant) that the move
@@ -6047,8 +6061,10 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   after the task is gone. Dropping an unjoined handle is fine — the result stays
   in the cell and is dropped once at group teardown, exactly-once either way.
 - **Eager per-task destruction (design 124).** A task's owned values are released
-  when THE TASK completes, not when its group is torn down. Params and
-  across-suspend locals are frame fields, so the transform emits a `release` at
+  when THE TASK completes, not when its group is torn down — and an owned value
+  whose SCOPE ends earlier is released there, exactly as in a sync body (see
+  "Scope-end release" above). Params and the locals still live at the exit are
+  frame fields, so the transform emits a `release` at
   every `return Done` site: it drops them in the same LIFO order an ordinary
   function's scope exit uses, including a frame-resident nested `TaskGroup` (whose
   own children are structured-joined first). The single exception is the result

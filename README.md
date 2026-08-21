@@ -37,6 +37,10 @@ see [TESTING.md](TESTING.md).
   allocating on its own authority is a compile error.
 - **Destruction is deterministic.** Values are destroyed last-in-first-out as
   they leave scope, and the `deinit` is written for you from the type's fields.
+  A suspending function is no exception: a local that lives across a suspension
+  is held in a heap frame, but it still dies at the end of its own scope, so a
+  connection opened inside a task's loop closes at the end of the iteration
+  that opened it.
 - **A binary carries the program, not the standard library.** An import makes a
   module available to type-check against. It does not put the module in your
   output. Code generation walks out from `main` and the `@export`s and emits
