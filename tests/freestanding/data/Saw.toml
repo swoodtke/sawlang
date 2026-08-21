@@ -1,0 +1,7 @@
+[package]
+name = "fsdata"
+version = "0.1.0"
+
+# The record layout the freestanding suite shares (design 238 unit 1) — the
+# miniature's `imgformat`, with two consumers that must not drift. It depends
+# on nothing, which is what lets both of them reach it.

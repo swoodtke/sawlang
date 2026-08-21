@@ -36,7 +36,7 @@ is scheduled and in what order is the whole of what they say.
 - Small-fix batch — DF-216c generic-static monomorphization (+DF-217d rides, same missing path) + DF-216h renamed extension param plumbing + DF-219c bound-aware spawn capture audit (SCHEDULED Aug 21, user; entries below — all three mechanisms assessed, sites located; DF-239b joins only if its resolution strategy is settled at briefing)
 - Design 234 — the fallibility flip (designs/234-fallibility-flip.md) — after 235/237 (the M3-1.5 interleave carve-out WITHDRAWN by user, Aug 20 — 1.5 waits for sawos)
 - sos riders batch — REMAINDER ONLY: `clock_get` `kind:`→`type:` (DF-232b landed), abi enums decimals→shifts (DF-232c landed). The kcore re-narrowing LANDED Aug 20; the member audit RAN Aug 20 and its narrowing unit LANDED Aug 20 (84 sites: 78 `public(package)`, 6 private, 2 consumed; the audit's file-local split was inverted — DF-232q); see the re-narrowing rider section
-- Design 238 — the sawos split (designs/238-sawos-split.md; four rulings Aug 19, D-b1/b2/b3 open) — BEFORE the M3 ladder; its units 0-1 (the oracle + the freestanding suite) DISPATCHED Aug 21 (branch `design-238-u1`, in parallel with design 205 per user); units 2-7 stay reserved
+- Design 238 — the sawos split (designs/238-sawos-split.md; four rulings Aug 19, D-b1/b2/b3 open) — BEFORE the M3 ladder; UNITS 0-1 LANDED Aug 21 (the oracle + the freestanding suite), units 2-7 open and user-reserved
 - M3 ladder — designs/232-sos-m3-sketch.md: unit 1.5 interruptibility, 2 CreateProcess, 2.75 handle lifecycle, 3 give, 4 Memory/IoMemory, 5 quotas, 5.5 death notifications, 6 money shot — runs IN sawos, after design 238
 
 RESOLVED Aug 20 (user): the 234 carve-out is WITHDRAWN — M3 unit 1.5 waits
@@ -47,6 +47,9 @@ for sawos; "238 before more M3 work" is absolute.
 ## [BACKLOG] — filed, not scheduled
 
 - `public(package) import` — should the scoped re-export form exist? Refused today (design 229). Real use case: an INTERNAL PRELUDE, one sibling aggregating names for the others (Rust's `pub(crate) use`). Against: siblings can already import each other directly, so it buys convenience, not capability — and kcore, the biggest multi-file package and the one that motivated the tier, does NOT want it (its `public import` block is the EXTERNAL facade). Wait for a package that feels the pain (entry: the re-narrowing rider section)
+- DF-238a — a module-qualified free-function call truncates a literal argument silently (32-bit targets: an ICE); entry below, pinned XFAIL. Adjacent to DF-239b — both are argument typing that one call path never performs
+- DF-238b — `print`'s `{}` renders a 64-bit value as its low word on a 32-bit target; entry below, pinned in the freestanding suite (it is not reproducible on the 64-bit host, so `examples/` cannot hold it). DF-158c's class
+- DF-238c — a trait's-module conformance for a foreign type is lost by a GLOB import and carried by a selective one (entry below, pinned XFAIL with its control)
 - DF-239b — deep argument typing unchecked on the generic-bound call path (entry below, beside DF-239a)
 - DF-232g RESIDUE — a DECLARED array length that never folds reports with NO FILE from codegen (entry below; the fold half CLOSED Aug 21, this half wants a declared `source_file` annotation on the expression base)
 - DF-226b/c — FuncPointer v1 gaps (entries below, under design 226)
@@ -186,6 +189,143 @@ Four more decisions open: D-c the sos briefs' disposition, D-d filter-repo vs
 squash (history does NOT split cleanly — sos commits also touch blade/,
 designs/, examples/, CLAUDE.md), D-e sawos layout, D-f the saw-lang skill.
 Recommendations recorded in the brief. [238, 232, 140, 112]
+
+UNITS 0-1 LANDED Aug 21 (branch `design-238-u1`). Unit 0:
+`designs/238-sos-oracle-2026-08-21.txt`, the both-arch `sos_runner` transcript
+at 47c9c7f8 — 40 cases per architecture, 80 passed — which every later unit is
+diffed against. Unit 1: `tools/freestanding_runner.py` + `make
+freestanding-test` + a `freestanding` battery stage ALONGSIDE `sos` + a
+`freestanding` CI job cloning the sos job's toolchain install, over
+`tests/freestanding/` — three arch-free Saw modules (`fsrt` the runtime
+provider, `fscore` the vocabulary, `fsdata` the shared record), two forked
+per-arch stubs (`boot.S` + `link.ld`), a Blade package, and a case table of
+tiny QEMU-EXECUTED programs, one or more per row of the brief's inventory.
+`tools/sos_runner.py` is UNTOUCHED — the generic half was COPIED, per the
+brief's fork ruling. Units 2-7 remain open and are user-reserved.
+
+## DF-238a — a module-QUALIFIED free-function call does not carry its
+## parameter's fixed-width type into a literal argument (filed Aug 21, design
+## 238 unit 1; found writing the freestanding suite's cross-target rows)
+
+`m.f(300)` at a `func f(b: UInt8)` COMPILES and the callee receives 44. The
+bare twin `f(300)` under `import m.{f}` is the clean ``integer literal 300 does
+not fit in `UInt8` `` it should be, so the literal is not adopting the
+parameter's width through the qualifier — it stays at platform `Int` and is
+truncated at the call with nothing said. Hosted, running evidence: a program
+printing `qualified: 44`.
+
+SECOND FACE, 32-bit targets only: a literal WIDER than the platform word has no
+platform-`Int` reading at all, so instead of truncating it falls out as an
+INTERNAL COMPILER ERROR — ``internal compiler error … (IntLiteral): integer
+literal 40029095242992 does not fit in the 32-bit platform Int of target
+'riscv32-unknown-none-elf'`` for `m.take_wide(0x2468_0000_ACF0)` at an `Int64`
+parameter. Same missing expectation, different fallout per target, which is why
+this surfaced in the freestanding suite and not in the compiler suite.
+
+MECHANISM (obligation 4): the qualified free-function call path resolves the
+callee but does not thread its signature into argument checking, so the
+expected-type propagation every other call shape performs simply does not run.
+POSITION MATRIX, probed with compile/run evidence on both targets:
+
+| spelling | literal adopts + range-checks? |
+|---|---|
+| `import m` + `m.f(lit)` | **NO — silent truncation / ICE** |
+| `import m as mm` + `mm.f(lit)` | **NO — silent truncation** |
+| `import m.{f}` + `f(lit)` | yes |
+| `import m.*` + `f(lit)` | yes |
+| `m.T.s(lit)` qualified STATIC method | yes |
+| `m.T(field: lit)` qualified CONSTRUCTOR | yes |
+| same-module call, annotation, return, field, `static`, suffixed literal | yes |
+
+THIRD FACE, same path, found in the same session: GENERIC TYPE-ARGUMENT
+INFERENCE does not run there either. `m.over<T: Named>(&r)` at a conforming
+`Rec` is ``argument `value` expects `&T` but got `&Rec` `` — `T` was never
+solved — where the bare twin infers it and the same call with an EXPLICIT
+`<Rec>` fails identically. Inference reads the callee's signature, so this is
+one more thing the qualified path does not thread rather than a second
+mechanism, and it is why the freestanding suite's `module_compose` case reaches
+its generic bare and its non-generic calls through the qualifier.
+
+So the hole is the qualified FREE-FUNCTION path alone; the two qualified MEMBER
+paths beside it are correct, which is where a fix should look for the
+propagation it is missing. Pinned XFAIL:
+`examples/qualified_call_literal_adopts_parameter_width.saw` (+
+`examples/modules/qualcall238a/`), whose two controls are the qualified static
+method and the qualified constructor — so a fix cannot pass by breaking them.
+The freestanding suite's cases reach `fscore` through `import fscore.*` rather
+than the qualifier for this reason, stated at the runner's case table. [238,
+185, 235, 150]
+
+## DF-238b — `print`'s `{}` format argument renders a wider-than-word integer
+## as its LOW WORD on a 32-bit target (filed Aug 21, design 238 unit 1)
+
+`print("{}", v)` at `v: Int64 = 0x1234_0000_5678` writes `22136` — 0x5678 — on
+`riscv32-unknown-none-elf`, and `20014547621496` on
+`aarch64-unknown-none-elf`. `UInt64` renders the same way. A value NARROWER
+than the platform word (`Int32`, a small `Int64`) is correct on both, so the
+argument is being narrowed to the platform word on its way into the renderer
+rather than being rendered wrong.
+
+Minimal repro: ONE module, no imports, no cross-module call — so DF-238a is not
+in play — four `print` lines and an exit. Reproduced on both targets from the
+same source, which is what makes it a target property rather than a value one.
+
+MECHANISM (obligation 4): the alloc-free `{}` path renders an integer through
+the compiler's `__saw_print_int` / `__saw_print_uint` helpers, which take a
+PLATFORM `Int`; a `T` wider than that word is truncated at the call. Same class
+as DF-158c (an `@export`ed `Int64`-returning seam came out `i32` on a 32-bit
+target): a fixed-width-versus-platform-word confusion that is invisible on a
+64-bit host, where the two coincide. The sibling positions to sweep when this
+is fixed are every other integer rendering — `"{x}"` interpolation,
+`Int64.to_string()`, `StringBuilder.append`, a `panic`/`assert` format
+argument. THE FIRST TWO ARE NOT REACHABLE from a freestanding build to confirm:
+both pull `snprintf`/`strlen`/`strcat` into the link, which is a second finding
+in waiting rather than evidence about this one, and it is why `--no-hidden-alloc`
+exists. `panic`/`assert` share `print`'s lowering and are presumed to share the
+defect.
+
+PINNED as `tests/freestanding/cases/wide_value_rendering.saw`, marked xfail
+against this DF and scoped `arches: ["riscv32"]` — the expectation states the
+INTENDED rendering (the whole number), so the fix XPASSes it. It cannot be
+pinned in `examples/`: `test_runner.py` builds for the 64-bit host, where the
+platform word already is 64 bits and the defect does not exist. That is the
+first thing the freestanding suite has caught that no other lane could. [238,
+158, 137, 47]
+
+## DF-238c — a conformance declared in the TRAIT's module for a foreign type is
+## carried by the SELECTIVE import form and lost by the GLOB one (filed Aug 21,
+## design 238 unit 1)
+
+`extension Rec: Summary` declared in `Summary`'s module, `Rec` declared in
+another — the orphan rule's second half, legal in exactly that one place. A
+third module that reaches the trait with `import m.{Summary, outside}` can
+instantiate a generic bound on it at `Rec`; the same file with `import m.*`
+cannot, and reports ``type `Rec` does not implement trait `Summary` `` with a
+hint to add the extension that is already there. Design 142's rule is that a
+conformance declared under the orphan rule is coherent PROGRAM-WIDE and needs
+no import at all, so neither form should be able to lose it — and a glob is
+documented as every public name of the module, which the trait plainly is.
+
+MECHANISM (obligation 4): the conformance IS registered — the same
+instantiation made INSIDE the declaring module compiles and answers — so what
+is missing is the publication across one import FORM, not the conformance. The
+selective arm and the glob arm of import binding are two code paths, and only
+one of them carries whatever the bound check consults. POSITION MATRIX, probed
+hosted:
+
+| the entry's import of the TRAIT's module | the bound at the foreign type |
+|---|---|
+| `import m.{Summary, outside}` selective | resolves |
+| `import m.*` glob | **NOT FOUND** |
+| `import m` qualified, `m.outside(&r)` | never reached — inference fails first, DF-238a's third face |
+| conformance beside the TYPE, `import t.*` glob | resolves (control) |
+
+The control is what says the glob machinery is not simply blind to
+conformances: the orphan rule's OTHER half survives a glob, so the asymmetry is
+between the two halves of the rule and not between the two import forms alone.
+Pinned XFAIL: `examples/conformance_in_the_traits_module_is_program_wide.saw`
+(+ `examples/modules/orphan238c_type/`, `examples/modules/orphan238c_trait/`),
+which carries the control beside the finding. [238, 142, 150]
 
 ## DF-232g — a LOCAL static DERIVED from an imported const stops being a
 ## compile-time constant, though the same expression folds INLINE (filed Aug 17,

@@ -1,0 +1,78 @@
+// Cross-target codegen hazard, row 1 (design 238 unit 1): PLATFORM-WIDTH `Int`
+// and POINTER SIZE, from a 64-bit host.
+//
+// The suite's two targets disagree about the width of `Int`, `UInt` and a
+// pointer, and agree about every fixed-width type — so this case asserts both
+// halves, and the split is the point. What is true on EVERY target is a
+// `check` here; what differs is a `report` the runner matches per architecture.
+// A build that quietly took the host's word size would fail the reports; a
+// build that got `Int` right and `Int64` wrong would fail the checks.
+//
+// The `Int64` arithmetic at the bottom is DF-158c's class: on a 32-bit target a
+// 64-bit value is a register pair, and the shifts, the widening and the compare
+// are all code the 64-bit host never emits for itself. 64-bit DIVISION is here
+// too, because the libcalls it reaches on a 32-bit target are exactly what
+// `tests/freestanding/hal/support.c` exists to supply. What is deliberately NOT
+// exercised is 64-bit CHECKED MULTIPLICATION, whose overflow intrinsic can
+// reach a compiler-rt entry that file does not carry — a row for whoever wants
+// it, with the libcall to write first.
+
+import fscore.*
+
+@export("fs_main")
+func fs_main() {
+    // --- what differs per target ------------------------------------------
+    report("sizeof_int", sizeof<Int>())
+    report("sizeof_uint", sizeof<UInt>())
+    report("alignof_int", alignof<Int>())
+    report("int_max", Int.max)
+
+    // --- what is true on every target -------------------------------------
+    check_value("int_matches_uint", sizeof<Int>(), sizeof<UInt>())
+    check_value("int_is_pointer_width", sizeof<Int>(),
+                sizeof<UnsafePointer<Int8>>())
+    check_value("sizeof_int8", sizeof<Int8>(), 1)
+    check_value("sizeof_int16", sizeof<Int16>(), 2)
+    check_value("sizeof_int32", sizeof<Int32>(), 4)
+    check_value("sizeof_int64", sizeof<Int64>(), 8)
+    check_value("sizeof_uint64", sizeof<UInt64>(), 8)
+    check_value("alignof_int64", alignof<Int64>(), 8)
+
+    // --- 64-bit values, on a target whose registers may be 32 bits ---------
+    // Built by shifting rather than written as one literal: a constant folds in
+    // the SIGNED platform-`Int` domain (design 185), which is 32 bits wide on
+    // one of these targets, so a 48-bit literal is not a portable way to spell
+    // a 64-bit value.
+    let high: Int64 = 0x1234
+    let value = (high << 32) | 0x5678
+    let doubled_want = (high << 33) | 0xACF0
+    check_wide("wide_high_half", value >> 32, high)
+    check_wide("wide_low_half", value & 0xFFFF, 0x5678)
+    check_wide("wide_sum", value &+ value, doubled_want)
+    check("wide_compare", value > (high << 16))
+    // `value` is deliberately NOT reported here: `print`'s `{}` renders a
+    // wider-than-word integer as its low word on a 32-bit target (DF-238b), so
+    // a report line would bake that defect into this case's expectation.
+    // `cases/wide_value_rendering.saw` pins it instead.
+
+    // A 64-bit value THROUGH a call boundary, which is where DF-158c bit: the
+    // callee's declared width and the caller's belief about it must agree.
+    check_wide("wide_roundtrip", doubled(value), doubled_want)
+
+    // 64-bit DIVISION: a single instruction on one target and a
+    // BACKEND-EMITTED LIBCALL (`__udivdi3`, `__umoddi3`) on the other, which no
+    // source names and `tests/freestanding/hal/support.c` supplies. The
+    // asymmetry is the hazard — a missing libcall is an undefined symbol at
+    // link rather than a wrong answer at run time, which is the failure mode
+    // this row keeps honest.
+    let numerator: UInt64 = 1_000_000_007
+    let denominator: UInt64 = 1_000
+    check_wide("wide_divide", (numerator / denominator) as Int64, 1_000_000)
+    check_wide("wide_modulo", (numerator % denominator) as Int64, 7)
+
+    finish("int_widths")
+}
+
+func doubled(n: Int64) -> Int64 {
+    n &+ n
+}

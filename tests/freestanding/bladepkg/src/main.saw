@@ -1,0 +1,21 @@
+// The Blade case's program (design 238 unit 1). Deliberately close to
+// `cases/hello.saw`: what is under test is the BUILD PATH, not the program, and
+// a program with anything else going on would make a red row ambiguous.
+//
+// What reaching this transcript proves, which no other case does: Blade
+// resolved a path-dependency GRAPH for a non-host triple, drove `sawc
+// --freestanding --target <triple>` with `--runtime-provider` out of the
+// manifest's `runtime = true`, drove the cross clang over an assembly stub and
+// a C floor named by `[sos.<triple>] native`, drove `ld.lld` with the linker
+// script that section names, and emitted a `.sosimg` from the ELF the runner
+// then boots.
+
+import fscore.*
+
+@export("fs_main")
+func fs_main() unsafe {
+    print("fs: hello from a Blade-built image")
+    check("blade_built_image_ran", true)
+    check_value("blade_arithmetic", 6 * 7, 42)
+    finish("blade_target")
+}

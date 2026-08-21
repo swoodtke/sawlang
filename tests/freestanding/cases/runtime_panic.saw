@@ -1,0 +1,23 @@
+// `--runtime-provider`, the PANIC seam (design 238 unit 1). Split from
+// `cases/runtime_seams.saw` because reaching this seam ends the machine, and a
+// case that stops cannot go on to assert anything else.
+//
+// Three claims, and the transcript carries them in order: the compiler's panic
+// lowering reaches `__saw_rt_panic` in a freestanding image; the message
+// arrives through `fs_console_write` with design 122's `panic at FILE:LINE:`
+// prefix intact; and the machine stops through the exit device carrying
+// `fsrt`'s own `ExitCode.Panic` (64) rather than the boot stub's
+// fell-off-the-end 70 or a passing 0.
+//
+// That the STATUS is asserted and not just the message is the point: on the
+// riscv32 board a failing exit that reached the finisher with a zero code would
+// exit 0, which is what `fs_platform_exit`'s promotion exists to stop.
+
+import fscore.*
+
+@export("fs_main")
+func fs_main() unsafe {
+    check("reached_panic_case", true)
+    print("fs: about to panic")
+    panic("fs: deliberate panic")
+}

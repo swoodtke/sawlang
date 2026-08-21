@@ -1,0 +1,17 @@
+// `--no-hidden-alloc` REFUSAL, row 1 of 3 (design 238 unit 1): STRING
+// INTERPOLATION, which builds a heap `String` before it writes a byte.
+//
+// This case is never run — the compile is the assertion. `{}` format arguments
+// write the same bytes and allocate nothing, which is what
+// `cases/format_no_alloc.saw` proves from the other side; interpolation has no
+// carve-out, `panic`/`assert` messages included, because an exhausted allocator
+// is exactly when a panic has to work.
+
+import fscore.*
+
+@export("fs_main")
+func fs_main() unsafe {
+    let n = 7
+    print("fs: n = {n}")
+    finish("hidden_alloc_interpolation")
+}

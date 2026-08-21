@@ -1,0 +1,89 @@
+//! `fsdata` — the record layout the freestanding suite shares (design 238 unit 1).
+//!
+//! The miniature's `imgformat`: a package with TWO consumers that must not
+//! drift. `fscore` FORMATS a descriptor, a case BUILDS one, and both reach the
+//! same declaration through `--module-path` — which is the module-composition
+//! shape the suite is a gate for, in the smallest form that still has a diamond
+//! in it.
+//!
+//! It is also where the cross-target layout claim lives. The field widths are
+//! fixed, so the record is sixteen bytes on a 32-bit target and sixteen on a
+//! 64-bit one, and `static_assert` says so at compile time for whichever target
+//! is being built. `cases/struct_layout.saw` then reads the same bytes back
+//! through a typed view at run time, so a layout that agreed with the assert
+//! and disagreed with the machine is caught too.
+//!
+//! Arch-free by construction: no target name appears here, which the suite's
+//! own scan enforces.
+
+/// The record's size on the wire, written once.
+public static DESCRIPTOR_BYTES: Int = 16
+
+/// A descriptor, laid out for a reader that will overlay it on raw bytes.
+///
+/// Declaration-order natural ABI (design 58), designed alignment-friendly: each
+/// field sits at a multiple of its own width, so the overlay is exact and the
+/// record needs no padding on either profile. Little-endian is assumed, which
+/// both of the suite's targets are.
+public struct Descriptor {
+    /// `"SAWD"` little-endian — see `magic_value()`.
+    public magic: UInt32,
+    public version: UInt16,
+    public flags: UInt16,
+    public length: UInt32,
+    public origin: UInt32
+}
+
+static_assert(sizeof<Descriptor>() == DESCRIPTOR_BYTES,
+              "the descriptor is a wire record and must be 16 bytes on every target")
+static_assert(alignof<Descriptor>() == 4,
+              "the descriptor's widest field is 4 bytes, on every target")
+
+/// What a descriptor's `flags` word carries.
+///
+/// A closed named set of values is a raw-backed enum rather than a family of
+/// statics, and a bit-flag value is spelled as a shift.
+public enum Flag: UInt16 {
+    case Readable = 1 << 0,
+    case Writable = 1 << 1,
+    case Executable = 1 << 2
+}
+
+extension Descriptor {
+    /// The four bytes `'S' 'A' 'W' 'D'` read back as a little-endian word — so
+    /// byte 0 of the record is `0x53`, which is what `cases/struct_layout.saw`
+    /// writes when it builds one out of raw bytes.
+    ///
+    /// A `static func` (design 236): there is no receiver, and the call is on
+    /// the type.
+    public static func magic_value() -> UInt32 {
+        0x4457_4153
+    }
+
+    /// The descriptor's current version.
+    public static func current_version() -> UInt16 {
+        2
+    }
+
+    /// A wrapping sum over every field — the cheapest thing that changes when
+    /// any byte of the record does, which is all the suite asks of it.
+    public func checksum(&self) -> UInt32 {
+        var sum = self.magic
+        sum = sum &+ (self.version as UInt32)
+        sum = sum &+ (self.flags as UInt32)
+        sum = sum &+ self.length
+        sum = sum &+ self.origin
+        sum
+    }
+
+    /// Does this record claim to be one of ours, at a version we read?
+    public func is_current(&self) -> Bool {
+        (self.magic == Descriptor.magic_value()
+            && self.version == Descriptor.current_version())
+    }
+
+    /// Is `flag` set?
+    public func has(&self, flag: Flag) -> Bool {
+        (self.flags & (flag as UInt16)) != 0
+    }
+}

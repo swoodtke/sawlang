@@ -1,0 +1,48 @@
+// `--no-hidden-alloc`, the GREEN CONTROL (design 238 unit 1).
+//
+// The three refusal rows beside it (`cases/hidden_alloc_*.saw`) prove the flag
+// says no. This one proves it says YES to the things design 135 promises are
+// allocation-free — without which the refusals could be satisfied by a flag
+// that rejected everything.
+//
+// One row per construct the flag rules ON:
+//
+//   `{}` format arguments        render through stack scratch (design 137)
+//   a directly-passed closure    keeps a STACK environment
+//   an escaping closure with NO captures   has no environment to heap
+//   a source-named allocation    is untouched by the flag — `Vector.push` in
+//                                `cases/runtime_seams.saw` builds under it
+//
+// The whole suite compiles with the flag, so every other case is a further
+// control; this is the one that reaches for the constructs deliberately.
+
+import fscore.*
+
+@export("fs_main")
+func fs_main() unsafe {
+    let n = 42
+
+    // Format arguments, one slot and several, at several widths. The bytes are
+    // identical to what interpolation would produce; the allocation is not.
+    print("fs: n = {}", n)
+    print("fs: {} and {}", n, n + 1)
+    print("fs: {} {} {}", "text", 7, true)
+
+    // A closure passed STRAIGHT to the call that runs it: its environment is
+    // the caller's frame, so there is nothing to allocate even though it
+    // captures `n`.
+    check_value("closure_captures_on_the_stack", applied(21, { v in v + n }), 63)
+
+    // An ESCAPING closure — bound to a `let` — with nothing captured. The type
+    // is written out because a closure bound to a `let` infers a NON-`sync`
+    // function type, and calling one from an `@export`ed entry is the
+    // "cannot suspend in an `@export` function" error.
+    let doubler: () sync -> Int = { 7 * 2 }
+    check_value("escaping_closure_without_captures", doubler(), 14)
+
+    finish("format_no_alloc")
+}
+
+func applied(value: Int, transform: (Int) sync -> Int) -> Int {
+    transform(value)
+}

@@ -1,0 +1,94 @@
+// Cross-target codegen hazard, row 3 (design 238 unit 1): the CALLING
+// CONVENTION, which is the one a clean link says nothing about.
+//
+// Twelve parameters is past the register budget on both targets, so the tail of
+// the list travels on the stack — and the tail is where a convention bug lands.
+// The widths are deliberately mixed and deliberately NARROW: an `Int8` and a
+// `UInt16` are passed in a whole register with the top bits either extended or
+// undefined, and which of those a target expects is exactly the sort of thing a
+// caller and a callee can silently disagree about. Each argument carries a
+// DISTINCT power of two, so the sum names precisely which ones arrived.
+//
+// The second call is an aggregate in the middle of the list plus an aggregate
+// RETURN, and the third is the same value forwarded three frames deep — a
+// by-value struct is passed in registers on one of these targets and through
+// memory on the other.
+
+import fscore.*
+import fsdata.*
+
+@export("fs_main")
+func fs_main() unsafe {
+    let record = Descriptor(magic: Descriptor.magic_value(),
+                            version: Descriptor.current_version(),
+                            flags: Flag.Readable as UInt16,
+                            length: 2048,
+                            origin: 0x0BAD_F00D)
+
+    // 1 + 2 + 4 + 8 + 16 + 32 + 64 + 128 + 256 + 512 = 1023, plus the Bool's
+    // 1024, plus the record's length.
+    let total = mix(1, 2, 4, 8, 16, 32, 64, 128, 256, 512, true, record)
+    check_wide("twelve_arguments", total, 1023 &+ 1024 &+ 2048)
+
+    // The same call with the Bool false and the flags cleared: a different
+    // answer proves the arguments are read rather than a constant folded.
+    let cleared = mix(1, 2, 4, 8, 16, 32, 64, 128, 256, 512, false, record)
+    check_wide("bool_argument", total &- cleared, 1024)
+
+    // NEGATIVE narrow arguments: sign extension into the register, which is
+    // where a caller and callee disagree silently if they disagree at all.
+    check_wide("signed_narrow_arguments",
+               mix(-1, 0, -2, 0, -4, 0, 0, 0, 0, 0, false, record),
+               2048 &- 7)
+
+    let built = rebuilt(record, 7)
+    check("aggregate_return_length", built.length == record.length &+ 7)
+    check("aggregate_return_magic", built.magic == record.magic)
+
+    check("aggregate_three_frames", forwarded(record).checksum() == record.checksum())
+
+    finish("call_convention")
+}
+
+/// Twelve parameters, ten widths, one aggregate — past the register budget on
+/// both targets.
+func mix(a: Int8, b: UInt8, c: Int16, d: UInt16, e: Int32, f: UInt32,
+         g: Int64, h: UInt64, i: Int, j: UInt, k: Bool,
+         l: Descriptor) -> Int64 {
+    var sum: Int64 = 0
+    sum = sum &+ (a as Int64)
+    sum = sum &+ (b as Int64)
+    sum = sum &+ (c as Int64)
+    sum = sum &+ (d as Int64)
+    sum = sum &+ (e as Int64)
+    sum = sum &+ (f as Int64)
+    sum = sum &+ g
+    sum = sum &+ (h as Int64)
+    sum = sum &+ (i as Int64)
+    sum = sum &+ (j as Int64)
+    if k {
+        sum = sum &+ 1024
+    }
+    sum = sum &+ (l.length as Int64)
+    sum
+}
+
+/// An aggregate in and an aggregate out, with a scalar between them.
+func rebuilt(record: Descriptor, by: UInt32) -> Descriptor {
+    Descriptor(magic: record.magic, version: record.version,
+               flags: record.flags, length: record.length &+ by,
+               origin: record.origin)
+}
+
+/// Three frames deep, by value at every hop.
+func forwarded(record: Descriptor) -> Descriptor {
+    forwarded_once(record)
+}
+
+func forwarded_once(record: Descriptor) -> Descriptor {
+    forwarded_twice(record)
+}
+
+func forwarded_twice(record: Descriptor) -> Descriptor {
+    record
+}

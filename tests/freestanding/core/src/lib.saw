@@ -1,0 +1,146 @@
+//! `fscore` — the freestanding suite's arch-free vocabulary (design 238 unit 1).
+//!
+//! The miniature's `kcore`: the module EVERY case shares, reached through
+//! `--module-path`, naming no architecture. It answers two questions a case has
+//! and the transcript matcher reads back:
+//!
+//!   - `check*` — did this claim hold? Every check PRINTS its verdict AND
+//!     counts a failure, so a case that reports `=0` also EXITS non-zero. A
+//!     suite whose only evidence is a substring can be defeated by a case that
+//!     prints the right thing and computes the wrong one; two independent
+//!     signals cannot.
+//!   - `report*` — what was the value? A case source is shared by every
+//!     target, so a TARGET-DEPENDENT number cannot be asserted here: it is
+//!     printed, and `tools/freestanding_runner.py` matches the line against a
+//!     per-architecture expectation. The split is the rule — a `check` carries
+//!     what is true on every target, a `report` carries what the runner knows
+//!     and the program cannot.
+//!
+//! `finish` is the only clean way out of a case. Falling off the end of
+//! `fs_main` exits 70 from the boot stub, so a case that forgets to report is a
+//! failure rather than a quiet pass.
+//!
+//! It also holds the suite's ONE cross-module conformance (`Summary`), which is
+//! what makes the module graph a diamond rather than a chain: `fscore` and each
+//! case both reach `fsdata`, and the conformance lives with the TRAIT under the
+//! orphan rule.
+
+import fsrt
+import fsdata.{Descriptor}
+
+/// The status a case exits with when some check failed.
+///
+/// Distinct from the boot stub's 70 ("fell off the end") and from `fsrt`'s 64
+/// and 65, so a transcript can tell the three apart.
+static EXIT_CHECK_FAILED: UInt32 = 71
+
+/// How many checks have failed so far.
+///
+/// Compound global state mutated throughout a case, which is what design 149's
+/// `unsafe static var` is for. Every case is single-threaded with no interrupt
+/// source enabled, so nothing can observe the read-modify-write. Naming it is
+/// what makes the functions below `unsafe`; their callers need no ceremony.
+unsafe static var FAILURES: Int = 0
+
+/// Record that `claim` held (or did not).
+public func check(claim: String, ok: Bool) unsafe {
+    if ok {
+        print("fs check {}=1", claim)
+    } else {
+        FAILURES = FAILURES + 1
+        print("fs check {}=0", claim)
+    }
+}
+
+/// Record that `claim` produced `want`, reporting both numbers when it did not.
+public func check_value(claim: String, got: Int, want: Int) unsafe {
+    if got == want {
+        print("fs check {}=1", claim)
+    } else {
+        FAILURES = FAILURES + 1
+        print("fs check {}=0 got={} want={}", claim, got, want)
+    }
+}
+
+/// `check_value` for the unsigned side — an address, a size, a mask.
+public func check_unsigned(claim: String, got: UInt, want: UInt) unsafe {
+    if got == want {
+        print("fs check {}=1", claim)
+    } else {
+        FAILURES = FAILURES + 1
+        print("fs check {}=0 got={} want={}", claim, got, want)
+    }
+}
+
+/// `check_value` at `Int64`, which is a DIFFERENT width from `Int` on one of
+/// the suite's two targets — the whole reason this twin exists rather than a
+/// narrowing at the call.
+public func check_wide(claim: String, got: Int64, want: Int64) unsafe {
+    if got == want {
+        print("fs check {}=1", claim)
+    } else {
+        FAILURES = FAILURES + 1
+        print("fs check {}=0 got={} want={}", claim, got, want)
+    }
+}
+
+/// Print a value the runner matches per architecture — see the module note.
+public func report(name: String, value: Int) {
+    print("fs value {}={}", name, value)
+}
+
+/// `report` for the unsigned side.
+public func report_unsigned(name: String, value: UInt) {
+    print("fs value {}={}", name, value)
+}
+
+/// `report` at `Int64`.
+public func report_wide(name: String, value: Int64) {
+    print("fs value {}={}", name, value)
+}
+
+/// `report` at `UInt64`.
+public func report_unsigned_wide(name: String, value: UInt64) {
+    print("fs value {}={}", name, value)
+}
+
+/// End the case: print its verdict and stop the machine.
+///
+/// Clean exit only when every check held. The status is the second, independent
+/// signal the module note describes.
+public func finish(case_name: String) unsafe -> Never {
+    if FAILURES == 0 {
+        print("fs done {} ok", case_name)
+        fsrt.stop(0)
+    }
+    print("fs done {} failed={}", case_name, FAILURES)
+    fsrt.stop(EXIT_CHECK_FAILED)
+}
+
+// =============================================================================
+// The cross-module conformance
+// =============================================================================
+//
+// `Summary` is declared here and `Descriptor` is declared in `fsdata`, so this
+// conformance is legal in exactly one place under the orphan rule — the trait's
+// module — and it is coherent program-wide once declared. A case reaching
+// `report_summary` therefore instantiates a generic defined HERE at a type
+// defined THERE, through a conformance declared in a third position, which is
+// the module-composition claim spelled as code that has to run.
+
+/// A value that can answer for itself in one word.
+public trait Summary {
+    func summary_word(&self) -> UInt32
+}
+
+extension Descriptor: Summary {
+    func summary_word(&self) -> UInt32 {
+        self.checksum()
+    }
+}
+
+/// Print `value`'s one-word summary. Monomorphized per conforming type — no
+/// vtable, no existential, which is what a freestanding target wants.
+public func report_summary<T: Summary>(name: String, value: &T) {
+    print("fs summary {}={}", name, value.summary_word())
+}

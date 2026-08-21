@@ -1,0 +1,22 @@
+// The floor of the whole suite (design 238 unit 1): `--freestanding` codegen
+// with no host runtime, no libc and nothing linked but the case, three Saw
+// modules and one assembly stub.
+//
+// If this case is red nothing else in the suite means anything — so it asserts
+// the smallest possible thing and asserts it three ways: the banner reaches the
+// console (the `__saw_rt_write` seam), `fs_main` was entered from `_start` (the
+// banner exists at all), and the machine stopped through the exit device with
+// the status `finish` chose (rather than the stub's fell-off-the-end 70).
+//
+// `import fscore.*` rather than `import fscore` throughout the suite: the glob
+// is the idiom for a vocabulary module a file leans on, and it is also the
+// spelling DF-238a does not break.
+
+import fscore.*
+
+@export("fs_main")
+func fs_main() {
+    print("fs: hello from freestanding Saw")
+    check("entered", true)
+    finish("hello")
+}

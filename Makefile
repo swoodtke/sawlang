@@ -1,6 +1,6 @@
 # Saw Language Makefile
 
-.PHONY: test test-verbose test-sequential clean help blade-bootstrap sos-test lexdiff astdiff astgraft irdet irdet-all gmgate abidoc bttable bttable-sizes lldbtest ircontract preludegate icebreadcrumb
+.PHONY: test test-verbose test-sequential clean help blade-bootstrap sos-test freestanding-test lexdiff astdiff astgraft irdet irdet-all gmgate abidoc bttable bttable-sizes lldbtest ircontract preludegate icebreadcrumb
 
 # Default target
 all: test
@@ -31,6 +31,19 @@ blade-bootstrap:
 # for development.
 sos-test:
 	@python3 tools/sos_runner.py
+
+# The freestanding QEMU suite (design 238 unit 1): tiny programs that name the
+# compiler's freestanding features DIRECTLY — `--freestanding`,
+# `--no-hidden-alloc`, `--runtime-provider` + the rt/ABI.md check, cross-target
+# codegen (a 32-bit target from a 64-bit host), fixed-address linking,
+# `--module-path` composition, and `blade build --target <triple>` — built,
+# LINKED AND RUN under QEMU `virt` on riscv32 AND arm64. Same host tools as
+# sos-test; `--arch <name>` runs one, for development.
+#
+# It stands BESIDE sos-test rather than replacing it: design 238 unit 5 removes
+# `sos/` from this repository, and this is what keeps the coverage.
+freestanding-test:
+	@python3 tools/freestanding_runner.py
 
 # Differential lexer harness (design 116): build the Saw lexer, then diff its
 # canonical token dump against sawc's Python lexer over every tracked .saw file.
@@ -169,6 +182,7 @@ help:
 	@echo "  make test-filter     - Run tests matching FILTER pattern"
 	@echo "                         Example: make test-filter FILTER=enum"
 	@echo "  make sos-test        - Build + boot the SOS kernel + root server under QEMU (riscv32 AND arm64)"
+	@echo "  make freestanding-test - Build + run the freestanding feature suite under QEMU (riscv32 AND arm64)"
 	@echo "  make lexdiff         - Diff the Saw lexer against sawc's over the corpus"
 	@echo "  make astdiff         - Dump every tracked .saw file and require stability"
 	@echo "  make astgraft        - No pass stamps an AST attribute no class declares"

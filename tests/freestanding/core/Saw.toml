@@ -1,0 +1,12 @@
+[package]
+name = "fscore"
+version = "0.1.0"
+
+# The freestanding suite's arch-free vocabulary (design 238 unit 1) — the
+# miniature's `kcore`. Its two dependencies are what make the module graph a
+# DIAMOND rather than a chain: a case reaches `fsdata` directly AND through
+# here, and `fsrt` answers the seams under both.
+
+[dependencies]
+fsrt = { path = "../rt" }
+fsdata = { path = "../data" }

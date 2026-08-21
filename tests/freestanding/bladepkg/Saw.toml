@@ -1,0 +1,50 @@
+[package]
+name = "fsblade"
+version = "0.1.0"
+
+# BLADE'S NON-HOST TARGET PATH (design 238 unit 1). Everything the other cases
+# reach through a command line in `tools/freestanding_runner.py`, this package
+# reaches through a MANIFEST — which is the only way that path is exercised at
+# all, and it is what `blade build --target <triple>` means.
+#
+# design 149 + 172 part 2: this image CARRIES ITS OWN RUNTIME. The four frozen
+# `__saw_rt_*` seams come from the `fscore -> fsrt` dependency chain, and a
+# package build compiles its whole module graph into one unit — so this compile
+# is where those definitions land, and it is the compile that has to say so.
+# Blade passes `--runtime-provider`, which permits the exports and checks each
+# signature against sawc/rt/ABI.md. This is the SECOND door that flag has; the
+# runner's command line is the first, and the suite covers both because a
+# regression could close either one alone.
+runtime = true
+
+[dependencies]
+# One entry, not three: `fsrt` and `fsdata` arrive transitively through
+# `fscore`, so this manifest also asserts that Blade resolves a path dependency
+# GRAPH rather than a list.
+fscore = { path = "../core" }
+
+# What is true of the PROGRAM, whichever machine it is built for.
+[sos]
+emit = "sosimg"
+
+# Blade's sosimg emitter needs a priority map to write. This image is never
+# LOADED by a kernel — the runner boots the ELF Blade produced on the way to it
+# — so the numbers are the ordinary ones and nothing reads them. The `.sosimg`
+# is still emitted and still has to succeed, which is what keeps this row a
+# test of the whole target path rather than of its first half.
+priorities = { background = 0, low = 1, normal = 1, high = 1 }
+
+# What is true of the MACHINE. The package's own `src/` names no architecture —
+# everything that does is the boot stub, which is why both sections point into
+# `tests/freestanding/hal/<arch>/` and `src/main.saw` is identical for both.
+# `-march`/`-mabi`/`--target-features` are NOT written here: Blade's
+# per-triple toolchain defaults already carry the riscv32 profile
+# (`rv32imac_zicsr` / `ilp32` / `+m,+a,+c`), and restating them would be a
+# second copy of a fact that lives in `blade/src/sosimg.saw`.
+[sos.riscv32-unknown-none-elf]
+linker-script = "../hal/riscv32/link.ld"
+native = "../hal/riscv32/boot.S ../hal/support.c"
+
+[sos.aarch64-unknown-none-elf]
+linker-script = "../hal/arm64/link.ld"
+native = "../hal/arm64/boot.S ../hal/support.c"

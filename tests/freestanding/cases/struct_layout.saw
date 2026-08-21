@@ -1,0 +1,86 @@
+// Cross-target codegen hazard, row 2 (design 238 unit 1): STRUCT LAYOUT, and
+// the typed-view idiom that rests on it.
+//
+// `sizeof`/`alignof` are compile-time claims and `static_assert` in `fsdata`
+// already makes them — so what this case adds is the RUN-TIME half: sixteen
+// bytes are written by hand, overlaid with `UnsafeMemory<Descriptor, Normal>`,
+// and read back BY FIELD NAME. A layout that satisfied the assert and put the
+// fields somewhere else would pass the compile and fail here.
+//
+// The overlay is on RAM rather than on a device (the design-112 MMIO idiom's
+// other half is a board's register block, which lives in the boot stub for the
+// reason stated there). The claim is the same one a driver rests on: a Saw
+// struct's declaration-order natural ABI is what the bytes actually are.
+//
+// The by-value round trip at the bottom is the neighbouring hazard: a
+// sixteen-byte aggregate is passed in registers on one of these targets and
+// through memory on the other, and both directions have to agree.
+
+import fscore.*
+import fsdata.*
+
+@export("fs_main")
+func fs_main() unsafe {
+    check_value("descriptor_size", sizeof<Descriptor>(), DESCRIPTOR_BYTES)
+    check_value("descriptor_align", alignof<Descriptor>(), 4)
+
+    // `[UInt32; 4]` rather than `[UInt8; 16]`: the storage under a typed view
+    // must be at least as aligned as the view's type, and a byte array is
+    // aligned to one.
+    var raw: [UInt32; 4] = [0; 4]
+    let address = ((&var raw) as UnsafePointer<UInt32>) as UInt
+    let bytes = address as UnsafePointer<UInt8>
+
+    // magic: 'S' 'A' 'W' 'D' at offsets 0..3
+    bytes[0] = 0x53
+    bytes[1] = 0x41
+    bytes[2] = 0x57
+    bytes[3] = 0x44
+    // version: 2, little-endian, at 4..5
+    bytes[4] = 2
+    bytes[5] = 0
+    // flags: Readable | Writable at 6..7
+    bytes[6] = 3
+    bytes[7] = 0
+    // length: 256 at 8..11
+    bytes[8] = 0
+    bytes[9] = 1
+    bytes[10] = 0
+    bytes[11] = 0
+    // origin: 0x0BAD_F00D at 12..15
+    bytes[12] = 0x0D
+    bytes[13] = 0xF0
+    bytes[14] = 0xAD
+    bytes[15] = 0x0B
+
+    let view = UnsafeMemory<Descriptor, Normal>(address)
+    let record = view.read()
+
+    check("field_magic", record.magic == Descriptor.magic_value())
+    check("field_version", record.version == Descriptor.current_version())
+    check("field_flags", record.flags == 3)
+    check("field_length", record.length == 256)
+    check("field_origin", record.origin == 0x0BAD_F00D)
+
+    check("record_is_current", record.is_current())
+    check("flag_readable", record.has(Flag.Readable))
+    check("flag_writable", record.has(Flag.Writable))
+    check("flag_executable_clear", not record.has(Flag.Executable))
+
+    // BY VALUE, out and back. `Descriptor` is all-trivial, so it is on the
+    // automatic Copy tier and needs no ceremony at either boundary.
+    let bumped = lengthened(record)
+    check("by_value_length", bumped.length == record.length &+ 1)
+    check("by_value_magic", bumped.magic == record.magic)
+    check("by_value_origin", bumped.origin == record.origin)
+    check("by_value_checksum", bumped.checksum() == record.checksum() &+ 1)
+
+    finish("struct_layout")
+}
+
+/// One aggregate in, one aggregate out — the ABI question, spelled as a call.
+func lengthened(record: Descriptor) -> Descriptor {
+    Descriptor(magic: record.magic, version: record.version,
+               flags: record.flags, length: record.length &+ 1,
+               origin: record.origin)
+}

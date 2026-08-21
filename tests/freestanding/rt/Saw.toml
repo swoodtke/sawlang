@@ -1,0 +1,15 @@
+[package]
+name = "fsrt"
+version = "0.1.0"
+
+# The freestanding suite's runtime provider (design 238 unit 1). Arch-free and
+# role-free: reached by every case through `--module-path fsrt=…` and by
+# `tests/freestanding/bladepkg` as a transitive path dependency.
+#
+# It holds the four frozen `__saw_rt_*` seams but does NOT carry
+# `runtime = true` itself — deliberately, and for the reason `sos/rt/common`
+# gives: that key makes Blade pass `--runtime-provider` to a COMPILE, and this
+# package is never compiled on its own. The declaration belongs to the thing
+# being built — `bladepkg/Saw.toml` for the Blade case, the runner's command
+# line for every other — and putting it here too would read like the source of
+# truth while changing nothing.

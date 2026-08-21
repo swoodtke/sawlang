@@ -1,0 +1,30 @@
+// `--runtime-provider` REFUSAL, row 2 of 2 (design 238 unit 1): the SIGNATURE
+// CHECK against `sawc/rt/ABI.md`.
+//
+// The flag does two things — it permits the `__saw_rt_*` exports, and it checks
+// each one against the frozen contract. `cases/runtime_export_ungated.saw`
+// covers the first; this covers the second, so a change that kept the
+// permission and dropped the check would be caught.
+//
+// The mismatch is ARITY rather than width, deliberately. Width is checked too
+// (`Int64` and `i32` are their own classes precisely because they differ from
+// `word` on a 32-bit target), but a width mismatch that is wrong on one of this
+// suite's targets can be RIGHT on the other — `Int32` IS the word on riscv32 —
+// so an arity mismatch is the one that must be refused identically on both, and
+// a row that means the same thing on every target is the row worth having.
+//
+// SELF-CONTAINED, for the reason the row beside it is: no import, so no second
+// definition of the seam is in the compile.
+
+extern "C" {
+    func fs_console_write(ptr: UnsafePointer<Int8>, len: UInt)
+}
+
+@export("__saw_rt_write")
+func rt_write(ptr: UnsafePointer<Int8>) unsafe {
+    fs_console_write(ptr, 1)
+}
+
+@export("fs_main")
+func fs_main() {
+}

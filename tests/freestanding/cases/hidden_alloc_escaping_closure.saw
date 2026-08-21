@@ -1,0 +1,23 @@
+// `--no-hidden-alloc` REFUSAL, row 2 of 3 (design 238 unit 1): an ESCAPING
+// closure that CAPTURES — its environment is a refcounted heap block no source
+// construct names.
+//
+// This case is never run — the compile is the assertion. The two shapes that
+// are FINE are in `cases/format_no_alloc.saw`: a closure passed straight to the
+// call that runs it (stack environment), and an escaping closure with no
+// captures (no environment at all). What makes this one allocate is the
+// combination, so the case has to have both halves.
+
+import fscore.*
+
+@export("fs_main")
+func fs_main() unsafe {
+    let n = 7
+    // The parameter type is written out so the ONLY diagnostic this case
+    // produces is the one it is about: a `let`-bound closure has no expected
+    // type to infer from, and an inference complaint beside the refusal would
+    // make a passing row ambiguous.
+    let add_n = { v: Int in v + n }
+    check_value("escaping_capture", add_n(35), 42)
+    finish("hidden_alloc_escaping_closure")
+}

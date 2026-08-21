@@ -1,0 +1,27 @@
+// `--no-hidden-alloc` REFUSAL, row 3 of 3 (design 238 unit 1): single-argument
+// `print` of a user `Printable`, which renders through a synthesized
+// `to_string()` and therefore through a heap `String`.
+//
+// This case is never run — the compile is the assertion. The working spelling
+// is `print("{}", value)`, which streams the same bytes into stack scratch, and
+// it is the reason this refusal is a diagnostic rather than a wall: the type is
+// printable either way, and only one of the two spellings allocates.
+
+import fscore.*
+
+struct Tag {
+    id: Int
+}
+
+extension Tag: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("tag ")
+        into.append(self.id)
+    }
+}
+
+@export("fs_main")
+func fs_main() unsafe {
+    print(Tag(id: 3))
+    finish("hidden_alloc_print_printable")
+}

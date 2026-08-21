@@ -1,0 +1,57 @@
+// `--module-path` COMPOSITION (design 238 unit 1) — the kcore/imgformat/sosrt
+// shape in miniature, and the only case that asserts the shape rather than
+// merely using it.
+//
+// Three modules reach this compile through `--module-path`, and they form a
+// DIAMOND rather than a chain: `fsdata` declares the record, `fscore` formats
+// it AND declares the `Summary` trait, `fsrt` answers the runtime seams under
+// both, and this case reaches all three. So what runs here is a generic defined
+// in one module, instantiated at a type defined in another, through a
+// conformance the orphan rule permits in exactly one place — plus a `static`
+// and a raw-backed enum crossing module lines.
+//
+// The IMPORT FORMS are chosen rather than habitual, and two open findings say
+// why. `import fscore.{…}` selects two names BARE and binds the `fscore.`
+// qualifier for everything it did not name, so this one case exercises both
+// spellings — and each is used where it works. `Summary` and `report_summary`
+// are selected because a glob does not carry the conformance a generic bound
+// needs (DF-238c); the qualifier serves the non-generic calls, because the
+// qualified path solves no type arguments (DF-238a's third face). Neither is
+// worked around silently: both are pinned, and this comment is the map.
+
+import fscore.{Summary, report_summary}
+import fsdata.{Descriptor, Flag, DESCRIPTOR_BYTES}
+
+@export("fs_main")
+func fs_main() unsafe {
+    // A `public static` reached across a module boundary, folded at compile
+    // time into an array length — the size-in-one-place idiom, cross-module.
+    var mirror: [UInt8; DESCRIPTOR_BYTES] = [0; DESCRIPTOR_BYTES]
+    mirror[0] = 1
+    fscore.check("static_crossed_modules", sizeof<Descriptor>() == DESCRIPTOR_BYTES)
+    fscore.check("mirror_is_writable", mirror[0] == 1)
+
+    let record = Descriptor(magic: Descriptor.magic_value(),
+                            version: Descriptor.current_version(),
+                            flags: Flag.Executable as UInt16,
+                            length: 64,
+                            origin: 128)
+
+    // A method declared in `fsdata`, called from here.
+    fscore.check("method_crossed_modules", record.is_current())
+    fscore.check("enum_crossed_modules", record.has(Flag.Executable))
+
+    // The DIAMOND: `report_summary` is generic in `fscore`, `Summary` is
+    // declared there, `Descriptor` is declared in `fsdata`, and the conformance
+    // sits with the trait. Monomorphized here — no vtable reaches a
+    // freestanding image.
+    report_summary("descriptor", &record)
+
+    // The same word, computed the long way, so the summary line above is a
+    // value this case agrees with rather than one it merely printed.
+    let expected = record.magic &+ (record.version as UInt32)
+    fscore.check("summary_matches_checksum",
+                 record.checksum() == expected &+ 4 &+ 64 &+ 128)
+
+    fscore.finish("module_compose")
+}

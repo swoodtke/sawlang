@@ -1,0 +1,52 @@
+// `--runtime-provider`, the POSITIVE row (design 238 unit 1): a package
+// supplying the four frozen `__saw_rt_*` seams, with every one of them
+// REACHED by a running program.
+//
+//   __saw_rt_write    every line this case prints
+//   __saw_rt_alloc    the Vector below, which the SOURCE names — nothing the
+//                     compiler inserts allocates, since the whole suite builds
+//                     under `--no-hidden-alloc`
+//   __saw_rt_dealloc  the Vector's drop at the end of the scope
+//   __saw_rt_panic    `cases/runtime_panic.saw`, which is a separate case
+//                     because it ends the machine
+//
+// The arena cursor is what turns "the program did not crash" into "the seam
+// answered": `fsrt.arena_used()` reads the same word `__saw_rt_alloc` advances,
+// so a Vector that grew without going through the seam would leave it at zero.
+//
+// The negative rows are `cases/runtime_export_ungated.saw` (the flag withheld)
+// and `cases/runtime_seam_signature.saw` (the signature disagreeing with
+// `sawc/rt/ABI.md`).
+
+import fscore.*
+import fsrt
+
+@export("fs_main")
+func fs_main() unsafe {
+    check_unsigned("arena_starts_empty", fsrt.arena_used(), 0)
+
+    var values = Vector<Int>()
+    values.push(11)
+    values.push(31)
+    check_value("vector_length", values.len(), 2)
+    check_value("vector_sum", values[0] + values[1], 42)
+
+    let after_push = fsrt.arena_used()
+    check("alloc_seam_answered", after_push > 0)
+    // Diagnosis only: the exact figure is the allocator's business and differs
+    // by target, so the runner does not match this line.
+    report_unsigned("arena_used", after_push)
+
+    // A second, larger allocation must come from the same cursor rather than
+    // from anywhere the compiler decided on its own.
+    var more = Vector<Int>()
+    var i = 0
+    while i < 64 {
+        more.push(i)
+        i = i + 1
+    }
+    check_value("second_vector_length", more.len(), 64)
+    check("alloc_seam_advanced", fsrt.arena_used() > after_push)
+
+    finish("runtime_seams")
+}

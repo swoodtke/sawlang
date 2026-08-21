@@ -174,3 +174,45 @@ jobs:
 
       - name: SOS M0 QEMU smoke test (make sos-test)
         run: make sos-test
+
+  # The freestanding feature suite (design 238 unit 1): tiny QEMU-executed
+  # programs naming the compiler's freestanding features directly —
+  # `--freestanding`, `--no-hidden-alloc`, `--runtime-provider` + the rt/ABI.md
+  # check, cross-target codegen from a 64-bit host, fixed-address linking,
+  # `--module-path` composition, and `blade build --target <triple>`.
+  #
+  # IT IS ITS OWN JOB, not a step of the one above and not a battery stage that
+  # CI happens to reach. The `sos` job runs `make sos-test` directly, so nothing
+  # about `tools/battery.sh` touches CI — and design 238 unit 5 DELETES the sos
+  # job when `sos/` leaves this repository. Without this job the net after that
+  # unit would be no freestanding coverage in CI at all, which is the whole
+  # reason unit 1 lands before the split rather than after it.
+  #
+  # Ubuntu only, for the reason the sos job gives: brew qemu on the macOS runner
+  # is slow/flaky and Linux coverage suffices.
+  freestanding:
+    name: freestanding-test (ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      # The same host toolchain the sos job installs, and the same reasons: the
+      # harness assembles boot.S and support.c with clang, links with ld.lld,
+      # and runs the ELF under qemu-system-riscv32 and qemu-system-aarch64.
+      # qemu-system-misc provides riscv32; qemu-system-arm provides aarch64
+      # (split out on Ubuntu 24.04, which ubuntu-latest now uses).
+      - name: Install host toolchain (clang, lld, qemu)
+        run: sudo apt-get update && sudo apt-get install -y clang lld qemu-system-misc qemu-system-arm
+
+      - name: Install llvmlite
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r sawc/requirements.txt
+
+      - name: Freestanding QEMU suite (make freestanding-test)
+        run: make freestanding-test

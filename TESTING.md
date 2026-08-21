@@ -273,7 +273,7 @@ adds or updates its conformance rows as its FIRST unit.
 
 ```bash
 tools/battery.sh                     # everything
-tools/battery.sh --quick             # skip the slow lanes (irdet, gmgate, bootstrap, sos)
+tools/battery.sh --quick             # skip the slow lanes (irdet, gmgate, bootstrap, sos, freestanding)
 tools/battery.sh suite fuzz          # named stages only
 tools/battery.sh --list              # what the stages are
 ```
@@ -296,6 +296,42 @@ being tracked: it used to be an untracked scratch file each session rewrote
 from prose, and a gate list nobody can diff is a gate list that quietly loses
 an entry.
 
+### The freestanding stage
+
+```bash
+./.venv/bin/python tools/freestanding_runner.py            # both architectures — the GATE
+./.venv/bin/python tools/freestanding_runner.py --arch riscv32
+make freestanding-test
+```
+
+Tiny QEMU-EXECUTED programs that name the compiler's freestanding features
+DIRECTLY, one or more case each: `--freestanding`, `--no-hidden-alloc` (three
+refusals and a green control), `--runtime-provider` including the signature
+check against `sawc/rt/ABI.md` (two refusals beside the positive rows),
+cross-target codegen from a 64-bit host (platform-width `Int`, pointer size,
+struct layout, calling convention, 64-bit values on a 32-bit target), linking
+at a fixed load address with a custom linker script, `--module-path`
+composition, and `blade build --target <triple>`. Sources live in
+`tests/freestanding/`; the case table is in the runner.
+
+It exists because `sos` is a SYSTEM test doing a UNIT gate's job — red says
+"the OS did not boot", not which feature regressed — and because design 238
+moves `sos/` to its own repository, which would take the whole freestanding
+gate with it. The two stages run SIDE BY SIDE until that split lands.
+
+Compile-only would not do. A clean link proves the compiler emitted something,
+not that the something is correct: calling-convention, struct-layout and
+address-placement bugs all survive one. So every non-refusal case boots, prints
+a transcript the runner matches IN ORDER, and stops through the board's exit
+device with an asserted status — and each `fs check` line is backed by a
+non-zero exit as well as by its text, so a case that printed the right thing
+and computed the wrong one still fails.
+
+A case may be marked `xfail` in the table on `examples/`' terms: the reason
+cites a DF, the expectations state the INTENDED behavior, and an xfail case
+that PASSES fails the run. It is where a finding that only exists on a 32-bit
+target is pinned, since `test_runner.py` builds for the 64-bit host.
+
 ### The selfhostlex stage
 
 The Aug-10 coverage sweep mapped which battery stage semantically checks
@@ -304,6 +340,8 @@ each test tree: `blade/tests` and `libs/*/tests` run inside `bootstrap`
 `selfhost/lexer/tests` ran NOWHERE — nine passing tests no stage
 compiled. `selfhostlex` closes that: each `selfhost/lexer/tests/*.saw`
 is compiled and run, exit 0 = pass, same contract as `blade test`.
+(`tests/freestanding` joined that map with the `freestanding` stage above,
+and runs there only.)
 
 ### The forgetgate stage
 

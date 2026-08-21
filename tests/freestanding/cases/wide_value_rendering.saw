@@ -1,0 +1,29 @@
+// XFAIL PIN for DF-238b — `print`'s `{}` format argument renders a
+// wider-than-platform-word integer as its LOW WORD on a 32-bit target.
+//
+// The value below is 0x1234_0000_5678. This case prints it signed and
+// unsigned, and the runner's expectation states the INTENDED rendering — the
+// whole number — so the pin XPASSes when the fix lands and the marker comes
+// off with it.
+//
+// riscv32 ONLY, by the `arches` key: the same source renders correctly on
+// arm64, where the platform word already is 64 bits wide, and a case marked
+// xfail on a target it passes on is a stale marker.
+//
+// Nothing else in this case is under test — the arithmetic itself is
+// `cases/int_widths.saw`'s, and it passes on both targets. What is wrong here
+// is only the rendering.
+
+import fscore.*
+
+@export("fs_main")
+func fs_main() {
+    let high: Int64 = 0x1234
+    let value = (high << 32) | 0x5678
+    report_wide("signed", value)
+
+    let unsigned: UInt64 = 0x1234_0000_5678u64
+    report_unsigned_wide("unsigned", unsigned)
+
+    finish("wide_value_rendering")
+}
