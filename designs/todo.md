@@ -36,7 +36,7 @@ is scheduled and in what order is the whole of what they say.
 - Small-fix batch — DF-216c generic-static monomorphization (+DF-217d rides, same missing path) + DF-216h renamed extension param plumbing + DF-219c bound-aware spawn capture audit (SCHEDULED Aug 21, user; entries below — all three mechanisms assessed, sites located; DF-239b joins only if its resolution strategy is settled at briefing)
 - Design 234 — the fallibility flip (designs/234-fallibility-flip.md) — after 235/237 (the M3-1.5 interleave carve-out WITHDRAWN by user, Aug 20 — 1.5 waits for sawos)
 - sos riders batch — REMAINDER ONLY: `clock_get` `kind:`→`type:` (DF-232b landed), abi enums decimals→shifts (DF-232c landed). The kcore re-narrowing LANDED Aug 20; the member audit RAN Aug 20 and its narrowing unit LANDED Aug 20 (84 sites: 78 `public(package)`, 6 private, 2 consumed; the audit's file-local split was inverted — DF-232q); see the re-narrowing rider section
-- Design 238 — the sawos split (designs/238-sawos-split.md; four rulings Aug 19, D-b1/b2/b3 open) — BEFORE the M3 ladder; its unit 1 (the freestanding suite) may start any time and is worth pulling forward
+- Design 238 — the sawos split (designs/238-sawos-split.md; four rulings Aug 19, D-b1/b2/b3 open) — BEFORE the M3 ladder; its units 0-1 (the oracle + the freestanding suite) DISPATCHED Aug 21 (branch `design-238-u1`, in parallel with design 205 per user); units 2-7 stay reserved
 - M3 ladder — designs/232-sos-m3-sketch.md: unit 1.5 interruptibility, 2 CreateProcess, 2.75 handle lifecycle, 3 give, 4 Memory/IoMemory, 5 quotas, 5.5 death notifications, 6 money shot — runs IN sawos, after design 238
 
 RESOLVED Aug 20 (user): the 234 carve-out is WITHDRAWN — M3 unit 1.5 waits
