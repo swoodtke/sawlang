@@ -47,7 +47,6 @@ for sawos; "238 before more M3 work" is absolute.
 
 - `public(package) import` — should the scoped re-export form exist? Refused today (design 229). Real use case: an INTERNAL PRELUDE, one sibling aggregating names for the others (Rust's `pub(crate) use`). Against: siblings can already import each other directly, so it buys convenience, not capability — and kcore, the biggest multi-file package and the one that motivated the tier, does NOT want it (its `public import` block is the EXTERNAL facade). Wait for a package that feels the pain (entry: the re-narrowing rider section)
 - DF-239b — deep argument typing unchecked on the generic-bound call path (entry below, beside DF-239a)
-- DF-232e — import-cycle diagnostic (entry below) — FOLDED into the small-fix batch (mechanism read, fix is the diagnostic)
 - DF-232g — imported-const static folding (entry below) — FOLDED into the small-fix batch (matrix probed; the const-static collector must resolve imported const names)
 - DF-240a — a const expression whose LEAF is a module `static` still does not adopt its fixed-width slot (entry below) — WANTS A RULING, filed by design 240 items 1-2's own sweep
 - DF-216c — generic statics never instantiate type params (entry below, under design 216) — ASSESSED in 239 (Aug 20): DIFFERENT mechanism — the static call path has NO monomorphization for the method's own type params (`_check_static_method_call` lacks the instance path's solve block; codegen stops at the struct); sites located in the entry, needs its own fix
@@ -1005,6 +1004,7 @@ suite plus sos on both arches confirm it.
 ## DF-232e — an IMPORT CYCLE is not diagnosed: the symbols silently vanish and
 ## the error lands on an innocent third module (filed Aug 17, the kcore split's
 ## unit-0 probe)
+## — CLOSED Aug 21, design 240 item 7 (branch `design-240`)
 
 Two modules of one package importing each other (`a` imports `b.{beta}`, `b`
 imports `a.{alpha}`) compiles to `error: undefined function `alpha`` — reported
@@ -1023,6 +1023,27 @@ silently degrading is not an answer to either.
 Pinned by nothing yet: a cycle needs two module files, which `examples/` has no
 harness shape for (a `// COMPILE-FLAGS: --module-path` test dir would be the
 first). [232, design 82/150]
+
+LANDED Aug 21 (design 240 item 7) — the DIAGNOSTIC, as ruled; whether Saw
+should SUPPORT cycles stays un-asked. `module_dependency_graph` is the shared
+half (the edge set PLUS the `import` node behind each edge, so a message can
+point at a LINE), read by both `topological_sort_modules` and the new
+`find_import_cycle`; `report_import_cycle` prints the loop as the headline
+(`import cycle: a -> b -> a`) and every edge's import line in the hint, with
+the caret on the first participating import in ITS OWN file. New
+`ErrorKind.IMPORT_CYCLE`. The check runs at the call site, before the sort,
+because that is where the reporter and every module's source are in hand.
+ONE BOUNDARY, kept green rather than tightened: a module importing ITSELF is
+not a cycle — it asks for names it already has and has always compiled — so a
+module is never its own dependency, dropped where the graph is built rather
+than left for two consumers each to recognize as not-a-cycle. Design 235's
+own `graph_self_import.saw` row is the pin, and its comment now records why.
+PINS flipped and renamed: `examples/module_matrix/graph_2cycle_error.saw`,
+`graph_3cycle_error.saw`. Both carry an `EXPECT-ERROR-ABSENT: undefined
+function` — the innocent third module the error used to land on is exactly
+what has to be GONE, and no CONTAINS line can say that. Grid 3 of
+`examples/module_matrix/INDEX.md` is green. Spec gained an "Import cycles"
+section; the skill a bullet.
 
 ## DF-232d — ASSIGNMENT THROUGH A MODULE QUALIFIER is the one member-access
 ## position that does not resolve (filed Aug 17, the kcore split's unit-0 probe)

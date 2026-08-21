@@ -1,9 +1,11 @@
 // Position matrix (design 235), grid 3 "Graph shapes" — row: self-import.
-// A module importing itself compiles and runs clean: the degenerate
-// length-one cycle has no name it does not already have, so there is
-// nothing for `_topological_sort` to get wrong (unlike the 2/3-cycle rows,
-// DF-232e, which involve genuinely distinct modules needing each other's
-// names before either is checked).
+// A module importing itself compiles and runs clean, and STILL does now that
+// a real cycle is a refusal (graph_2cycle_error.saw): the degenerate
+// length-one loop asks for names the module already has, so a module is
+// simply never its own dependency — the edge is dropped where the dependency
+// graph is built, rather than left for two consumers to each recognize as
+// not-a-cycle. The 2/3-cycle rows are the genuine shape: distinct modules
+// needing each other's names before either is checked.
 //
 // EXPECT: success
 // EXPECT-OUTPUT: 1

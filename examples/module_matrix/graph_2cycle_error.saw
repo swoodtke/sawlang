@@ -1,0 +1,26 @@
+// Position matrix (design 235), grid 3 "Graph shapes" — row: 2-cycle.
+// `a` imports `b.{beta}` and `b` imports `a.{alpha}`. There is no order in
+// which to check them, so the compiler NAMES THE LOOP: `import cycle: a -> b
+// -> a`, anchored on the first participating import line and listing each
+// edge's line in the hint.
+//
+// DF-232e: `topological_sort_modules` used to detect the cycle and hand back
+// an arbitrary order with the comment "the type checker will handle any
+// errors". It did not — a participant was checked before the dependency that
+// defines its names, its own check failed, and its export table came out EMPTY
+// for everybody downstream, so the error landed on `lib`, a THIRD module that
+// merely imports `a` and did nothing wrong, naming a symbol that exists. The
+// ERROR-ABSENT line pins that away: the innocent module is never mentioned.
+//
+// Whether Saw should SUPPORT cycles is a separate, un-asked question. This
+// pins that it does not degrade silently.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: import cycle: modules.graphcyc2.a -> modules.graphcyc2.b -> modules.graphcyc2.a
+// EXPECT-ERROR-ABSENT: undefined function
+
+import modules.graphcyc2.lib
+
+func main() {
+    print("{lib.run()}")
+}

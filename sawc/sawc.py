@@ -275,28 +275,7 @@ def topological_sort_modules(module_map):
     Returns:
         List of module_path_tuple in dependency order
     """
-    # Build dependency graph
-    # For each module, find what it imports and declares
-    dependencies = {}  # module_path -> set of module_paths it depends on
-    for mod_path, mod_ast in module_map.items():
-        deps = set()
-        for imp in getattr(mod_ast, 'imports', []):
-            imp_path = tuple(imp.path)
-            # Handle package/parent prefixes
-            if imp_path and imp_path[0] == 'package':
-                imp_path = imp_path[1:]
-            elif imp_path and imp_path[0] == 'parent':
-                imp_path = imp_path[1:]
-            if imp_path in module_map:
-                deps.add(imp_path)
-        # Also add external module declarations as dependencies
-        # e.g., `public module lib` means this module depends on lib
-        for mod_decl in getattr(mod_ast, 'module_decls', []):
-            if not mod_decl.is_inline:
-                decl_path = (mod_decl.name,)
-                if decl_path in module_map:
-                    deps.add(decl_path)
-        dependencies[mod_path] = deps
+    dependencies, _ = module_dependency_graph(module_map)
 
     # Kahn's algorithm for topological sort
     # Count incoming edges for each node
@@ -321,13 +300,129 @@ def topological_sort_modules(module_map):
                 if in_degree[other_mod] == 0:
                     queue.append(other_mod)
 
-    # Check for cycles
+    # A cycle leaves modules unqueued. `find_import_cycle` is what the caller
+    # asks FIRST, so reaching here with an incomplete result means the caller
+    # skipped that question; hand back a deterministic order rather than a
+    # partial one, and let the check report whatever it finds.
     if len(result) != len(module_map):
-        # There's a cycle - just return in arbitrary order
-        # The type checker will handle any errors
         return list(module_map.keys())
 
     return result
+
+
+def module_dependency_graph(module_map):
+    """`(dependencies, edge_import)` over the modules this compile loaded.
+
+    `dependencies[mod]` is the set of loaded modules `mod` depends on;
+    `edge_import[(mod, dep)]` is the `import` node that created the edge, so a
+    diagnostic can point at the LINE rather than name two modules and leave the
+    reader to find where they meet. Both the topological sort and the cycle
+    check read this, so they can never disagree about what an edge is.
+
+    A module is never its OWN dependency. A self-import is degenerate — it asks
+    for names the module already has, and it has always compiled and run — so
+    the edge is dropped here rather than treated as a length-one cycle by two
+    consumers that would each have to know it is not one.
+    """
+    dependencies = {}
+    edge_import = {}
+    for mod_path, mod_ast in module_map.items():
+        deps = set()
+        for imp in getattr(mod_ast, 'imports', []):
+            imp_path = tuple(imp.path)
+            # Handle package/parent prefixes
+            if imp_path and imp_path[0] == 'package':
+                imp_path = imp_path[1:]
+            elif imp_path and imp_path[0] == 'parent':
+                imp_path = imp_path[1:]
+            if imp_path in module_map and imp_path != mod_path:
+                deps.add(imp_path)
+                edge_import.setdefault((mod_path, imp_path), imp)
+        # Also add external module declarations as dependencies
+        # e.g., `public module lib` means this module depends on lib
+        for mod_decl in getattr(mod_ast, 'module_decls', []):
+            if not mod_decl.is_inline:
+                decl_path = (mod_decl.name,)
+                if decl_path in module_map and decl_path != mod_path:
+                    deps.add(decl_path)
+                    edge_import.setdefault((mod_path, decl_path), mod_decl)
+        dependencies[mod_path] = deps
+    return dependencies, edge_import
+
+
+def find_import_cycle(module_map):
+    """A cycle in the import graph as `[a, b, ..., a]`, or None (DF-232e).
+
+    `topological_sort_modules` used to DETECT a cycle and hand back an arbitrary
+    order with the comment "the type checker will handle any errors". It did
+    not: a participant was checked before the dependency that defines its names,
+    its own check failed, and its export table came out EMPTY for everybody
+    downstream — so the error landed on an innocent third module that merely
+    imported a participant, naming a symbol that exists, and the cycle itself
+    was never mentioned.
+
+    Whether Saw should SUPPORT cycles is a separate question this does not
+    answer. Degrading silently is not an answer to either.
+
+    The walk is a depth-first search over SORTED keys and sorted successors, so
+    a given program always names the same cycle — a diagnostic that varied with
+    dict order would be worse than none.
+    """
+    dependencies, _ = module_dependency_graph(module_map)
+    WHITE, GREY, BLACK = 0, 1, 2
+    color = {mod: WHITE for mod in dependencies}
+    stack = []
+
+    def visit(mod):
+        color[mod] = GREY
+        stack.append(mod)
+        for dep in sorted(dependencies.get(mod, ())):
+            if color.get(dep, BLACK) == GREY:
+                # `dep` is on the current path: the loop is the stack from it.
+                return stack[stack.index(dep):] + [dep]
+            if color.get(dep, BLACK) == WHITE:
+                found = visit(dep)
+                if found is not None:
+                    return found
+        stack.pop()
+        color[mod] = BLACK
+        return None
+
+    for mod in sorted(dependencies):
+        if color[mod] == WHITE:
+            found = visit(mod)
+            if found is not None:
+                return found
+    return None
+
+
+def report_import_cycle(reporter, cycle, module_map):
+    """Report a `find_import_cycle` result: the loop, then the import LINE of
+    every edge in it.
+
+    The loop is the headline because it is the thing to break; the per-edge
+    notes are where to break it. Anchored on the FIRST edge's import so the
+    caret lands on a line a reader can delete, in the file that wrote it.
+    """
+    _, edge_import = module_dependency_graph(module_map)
+    names = [('.'.join(m) if m else "<entry>") for m in cycle]
+    first_ast = module_map.get(cycle[0])
+    first_edge = edge_import.get((cycle[0], cycle[1])) if len(cycle) > 1 else None
+    line = getattr(first_edge, 'line', 1) or 1
+    column = getattr(first_edge, 'column', 1) or 1
+    where = " -> ".join(names)
+    steps = []
+    for i in range(len(cycle) - 1):
+        edge = edge_import.get((cycle[i], cycle[i + 1]))
+        at = f" (line {edge.line})" if getattr(edge, 'line', None) else ""
+        steps.append(f"`{names[i]}` imports `{names[i + 1]}`{at}")
+    reporter.error(
+        ErrorKind.IMPORT_CYCLE,
+        f"import cycle: {where}",
+        line, column,
+        hint="; ".join(steps) + " — break the loop by moving the shared "
+             "declarations into a module both sides import",
+        source_file=getattr(first_ast, 'source_path', None))
 
 
 def build_builtin_namespace(verbose: bool = False, freestanding: bool = False,
@@ -1271,6 +1366,15 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
 
     # The builtin namespace was built once by build_builtin_namespace(); all its
     # symbols are already type-checked and marked directly accessible.
+
+    # DF-232e: a cycle FIRST, because there is no order to check one in. Asked
+    # here rather than inside the sort so the diagnostic has the reporter (and
+    # every module's source) in hand.
+    cycle = find_import_cycle(module_map)
+    if cycle is not None:
+        report_import_cycle(reporter, cycle, module_map)
+        reporter.print_all()
+        sys.exit(1)
 
     # Topologically sort modules by dependencies
     ordered_modules = topological_sort_modules(module_map)

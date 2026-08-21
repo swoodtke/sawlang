@@ -1,0 +1,19 @@
+// Position matrix (design 235), grid 3 "Graph shapes" — row: 3-cycle.
+// `a` -> `b` -> `c` -> `a` is named the same way the 2-cycle is
+// (graph_2cycle_error.saw), whole loop in the message and every edge's line in
+// the hint. Kept as its own row so the grid does not assume a longer cycle
+// behaves like the short one without evidence.
+//
+// The walk is depth-first over SORTED keys and sorted successors, so a given
+// program always names the same cycle — a diagnostic that varied with dict
+// order would be worse than none.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: import cycle: modules.graphcyc3.a -> modules.graphcyc3.b -> modules.graphcyc3.c -> modules.graphcyc3.a
+// EXPECT-ERROR-ABSENT: undefined function
+
+import modules.graphcyc3.a
+
+func main() {
+    print("{a.alpha()}")
+}

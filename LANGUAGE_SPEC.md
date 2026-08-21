@@ -8708,6 +8708,25 @@ stops. So a user module named after a std leaf is an ordinary module — the
 collision above is a collision of QUALIFIERS, which `as` fixes, and never a
 second compilation of a std file.
 
+#### Import cycles
+
+Two modules that import each other, directly or around a longer loop, are a
+compile error naming the loop. There is no order in which to check them — each
+needs the other's names first — so the compiler says which modules are in the
+cycle and where each edge is written, rather than picking an order and letting
+the failure land on whichever module lost:
+
+```
+error: import cycle: pkg.a -> pkg.b -> pkg.a
+  --> pkg/a.saw:5:1
+hint: `pkg.a` imports `pkg.b` (line 5); `pkg.b` imports `pkg.a` (line 4)
+      — break the loop by moving the shared declarations into a module both
+      sides import
+```
+
+A module importing ITSELF is not a cycle: it asks for names it already has, and
+it compiles.
+
 #### Import form and extension visibility
 
 Extension methods and conformances are import-scoped (see

@@ -24,6 +24,11 @@ class ErrorKind(Enum):
     DUPLICATE_FUNCTION = auto()
     # Design 150: two imports in one file claiming the same module qualifier.
     DUPLICATE_IMPORT = auto()
+    # DF-232e: modules that import each other, directly or around a longer
+    # loop. There is no order in which to check them, so the compiler names the
+    # loop instead of picking one arbitrarily and letting the failure land on
+    # whichever module happened to lose.
+    IMPORT_CYCLE = auto()
     # Design 198: two arms of one `match` with the same pattern.
     DUPLICATE_MATCH_ARM = auto()
     WRONG_ARGUMENT_COUNT = auto()

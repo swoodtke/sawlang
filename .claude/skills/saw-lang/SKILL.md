@@ -2000,6 +2000,17 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
 - Two imports binding ONE qualifier is an error AT THE IMPORT naming both
   paths; `as` fixes it. Any import form makes the module a DIRECT import, so
   choosing qualified access never loses its design-142 extensions.
+  `sawc/std/` is reachable ONLY through a `std.`-prefixed path (DF-225e,
+  Aug 21), so a bare `import data` names YOUR module — the collision above
+  is a collision of qualifiers, never a second compilation of a std file.
+- **AN IMPORT CYCLE IS A COMPILE ERROR NAMING THE LOOP** (DF-232e, Aug 21):
+  `import cycle: a -> b -> a`, anchored on the first participating import
+  with every edge's line in the hint. Break it by moving what both sides
+  need into a module they both import. A module importing ITSELF is not a
+  cycle and compiles. Treat this as working now and SUSPECT in older
+  builds, where the modules were checked in an ARBITRARY order and the
+  failure surfaced as an ordinary `undefined function` — inside an INNOCENT
+  third module that merely imported a participant.
 - **AN IMPORT IS PRIVATE (design 229).** What you import is YOURS, not your
   callers'. An importer of your module reaches what you declare `public` and
   what you `public import`, and NOTHING you merely imported — the bare name

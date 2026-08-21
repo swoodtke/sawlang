@@ -168,23 +168,25 @@ facade.
 
 | Shape | Cell |
 |---|---|
-| 2-cycle (`a` <-> `b`, error lands on an innocent third module) | RED (DF-232e): `graph_2cycle_undiagnosed.saw` |
-| 3-cycle (`a` -> `b` -> `c` -> `a`) | RED (DF-232e): `graph_3cycle_undiagnosed.saw` — same mechanism, confirmed rather than assumed at a longer cycle length; here the error lands on a cycle PARTICIPANT (`a`) rather than an innocent third module, since the entry imports `a` directly |
-| self-import (`a` imports `a`) | `graph_self_import.saw` — a degenerate length-one cycle has no name it does not already have, so there is nothing for the arbitrary check order to get wrong |
+| 2-cycle (`a` <-> `b`) | `graph_2cycle_error.saw` — the loop is NAMED (`import cycle: a -> b -> a`), anchored on the first participating import line, with each edge's line in the hint; the innocent third module the error used to land on is asserted away by `EXPECT-ERROR-ABSENT` |
+| 3-cycle (`a` -> `b` -> `c` -> `a`) | `graph_3cycle_error.saw` — same diagnostic, confirmed rather than assumed at a longer cycle length |
+| self-import (`a` imports `a`) | `graph_self_import.saw` — STILL legal: a degenerate length-one loop asks for names the module already has, so a module is simply never its own dependency (the edge is dropped where the graph is built) |
 | diamond (`main` -> `b`,`c`; `b`,`c` -> `d`) | `graph_diamond.saw` |
 | re-export chain (`public import` facade) | `existing: export229_whole_chain_call.saw` (also cited at grid 2's `public(package)` cross-module row for its visibility angle; this row is its GRAPH-SHAPE angle — a two-hop facade chain reaching a value) |
 | `@export` symbol reachability through a facade | `graph_export_through_facade.saw` — an `@export`ed C-ABI symbol is a link-time fact independent of Saw-level import visibility, confirmed to survive being reached ONLY through a `public import` facade, both via the Saw-level call and the raw `extern "C"` symbol |
 
-**Cell counts, grid 3**: 4 green (2 own file + 2 cited), 2 red (both
-DF-232e, both new pins), 0 N/A, 0 OPEN.
+**Cell counts, grid 3**: 6 green (4 own file + 2 cited), 0 red, 0 N/A, 0 OPEN.
+The two cycle rows went green with design 240 item 7, which replaced the
+arbitrary check order's silence with the diagnostic.
 
 ## Findings filed by this unit
 
-- **DF-232e** (already filed, design 232's kcore-split probe) — import
-  cycles are undiagnosed; this unit's pins are its first `examples/`
-  fixtures (the finding was previously pinned by nothing — no harness
-  shape existed for a two-module cycle before this ledger). Confirmed the
-  same mechanism at 3-cycle length, not assumed.
+- **DF-232e** (filed by design 232's kcore-split probe; FIXED, design 240
+  item 7) — import cycles were undiagnosed; this unit's pins were its first
+  `examples/` fixtures (the finding was previously pinned by nothing — no
+  harness shape existed for a two-module cycle before this ledger), and they
+  are now its regression tests. Confirmed the same mechanism at 3-cycle
+  length, not assumed.
 - **DF-232n** (already filed, the re-narrowing audit) — `public(package)`
   fails open across a relative-path import; this unit's file is its first
   minimal two-file pin (the finding's own evidence was `libs/toml/tests/`,
@@ -192,6 +194,7 @@ DF-232e, both new pins), 0 N/A, 0 OPEN.
 
 No new DF numbers filed by unit 2 — both red cells were already-filed,
 not-yet-fixed findings this unit's grids happened to reach and pin for the
-first time.
+first time. DF-232e's two cells are green as of Aug 21; DF-232n's remains
+red.
 
 No OPEN cells in any of the three grids.
