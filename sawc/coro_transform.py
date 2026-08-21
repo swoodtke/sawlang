@@ -9077,11 +9077,11 @@ def _find_method(program, struct_name, method_name, method_symbol=None):
     return None, None
 
 
-def _names_a_consumed_call(decl, consumed):
-    """Does `decl`'s body CALL any of `consumed` by name?"""
+def _called_function_names(decl, out):
+    """Every free-function name `decl`'s body CALLS, added to `out`."""
     body = getattr(decl, 'body', None)
     if body is None:
-        return False
+        return out
     seen = set()
     stack = [body]
     while stack:
@@ -9089,13 +9089,50 @@ def _names_a_consumed_call(decl, consumed):
         if not isinstance(node, ASTNode) or id(node) in seen:
             continue
         seen.add(id(node))
-        if isinstance(node, FunctionCall) and node.name in consumed:
-            return True
+        if isinstance(node, FunctionCall):
+            out.add(node.name)
         stack.extend(_all_child_nodes(node))
-    return False
+    return out
 
 
-def _consume_templates_naming_removed(program, removed, readded):
+def _names_a_consumed_call(decl, consumed):
+    """Does `decl`'s body CALL any of `consumed` by name?"""
+    return bool(_called_function_names(decl, set()) & consumed)
+
+
+def _consume_method_templates_naming(program, consumed, required_by_conformance):
+    """The METHOD half of consumption symmetry (DF-218e's sweep row).
+
+    A GENERIC method template survives its extension for the same reason a
+    generic free-function template survives `program.functions` — the transform
+    works on the concrete instantiations — and its body names the consumed
+    callee just as loudly. The post-transform re-check walks extensions too, so
+    the error is identical and arrives even when the method is never driven.
+
+    It leaves through the ONE strip funnel, so a method an extension's own
+    conformance requires is REFUSED here exactly as design 223 unit 2 refuses
+    it (removing it would make the extension stop implementing its trait —
+    DF-218k). Such a method keeps the old diagnostic; it is the residue this
+    cannot reach.
+
+    Returns the names consumed, so the caller's fixpoint can keep going."""
+    gone = []
+    for ext in getattr(program, 'extensions', []) or []:
+        for m in list(getattr(ext, 'methods', []) or []):
+            if not getattr(m, 'type_params', None):
+                continue
+            if not _names_a_consumed_call(m, consumed):
+                continue
+            if _strip_driven_method(ext, m, required_by_conformance):
+                name = getattr(m, 'name', None)
+                if name:
+                    gone.append(name)
+    return gone
+
+
+def _consume_templates_naming_removed(program, removed, readded,
+                                      required_by_conformance=frozenset(),
+                                      extra_decls=()):
     """CONSUMPTION SYMMETRY (design 218b section 4, ruling 5 — DF-218e).
 
     A suspending callee is CONSUMED by the transform: it becomes a frame plus a
@@ -9130,14 +9167,50 @@ def _consume_templates_naming_removed(program, removed, readded):
     templates = {f.name: f for f in program.functions
                  if getattr(f, 'type_params', None) and f.name not in removed}
     changed = True
-    while changed and templates:
+    while changed:
         changed = False
+        live = _names_the_survivors_call(program, removed, extra_decls)
         for name, decl in list(templates.items()):
+            if name in live:
+                # SOMETHING STILL CALLS IT, so consuming it would trade a
+                # re-check error for a codegen one. The shape that reaches
+                # here is a nested generic call the promotion DECLINED — a
+                # template that suspends unconditionally without calling a
+                # type-parameter method has no instantiation effect node, so
+                # `_promote_nested_generic_calls` leaves the call naming the
+                # template and codegen's late monomorphization is what serves
+                # it. That is a known limit (drive such a generic directly),
+                # and this rule does not get to make it worse.
+                continue
             if _names_a_consumed_call(decl, consumed):
                 removed.add(name)
                 consumed.add(name)
                 del templates[name]
                 changed = True
+        for name in _consume_method_templates_naming(
+                program, consumed, required_by_conformance):
+            if name not in consumed:
+                consumed.add(name)
+                changed = True
+
+
+def _names_the_survivors_call(program, removed, extra_decls):
+    """Every function name the program will still CALL after the splice — the
+    surviving free functions, every extension method, and the declarations the
+    transform is about to add (the frames and drivers, which is where a
+    promoted call site ends up)."""
+    live = set()
+    for f in program.functions:
+        if f.name not in removed:
+            _called_function_names(f, live)
+    for decl in extra_decls:
+        _called_function_names(decl, live)
+        for m in getattr(decl, 'methods', []) or []:
+            _called_function_names(m, live)
+    for ext in getattr(program, 'extensions', []) or []:
+        for m in getattr(ext, 'methods', []) or []:
+            _called_function_names(m, live)
+    return live
 
 
 def _promote_nested_generic_calls(program, funcs_by_name, seed_names, typechecker):
@@ -10213,6 +10286,13 @@ def transform_program(program, typechecker, imported_ast=None):
     # design 158: every frame exists now, so the table order — and each frame's
     # `bt_desc` answer — can be fixed.
     _assign_bt_indices(new_structs, all_builders)
+
+    # DF-218e: consumption symmetry — a generic TEMPLATE naming a consumed
+    # callee is consumed with it.
+    _consume_templates_naming_removed(
+        program, removed, {f.name for f in new_functions},
+        _required_by_conformance,
+        extra_decls=list(new_functions) + list(new_extensions))
 
     # Splice: remove driven roots, add synthesized declarations.
     program.functions = [f for f in program.functions if f.name not in removed]

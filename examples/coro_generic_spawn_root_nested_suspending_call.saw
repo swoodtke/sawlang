@@ -1,5 +1,6 @@
-// XFAIL: DF-218e a GENERIC function driven as a root cannot contain a nested
-// suspending call — the callee is reported undefined at the user's own line
+// A GENERIC function driven as a root may contain a nested suspending call
+// (DF-218e, fixed by design 218 unit 2 stage E — consumption symmetry: a
+// template naming a consumed callee is consumed with it at the splice).
 //
 // `g.spawn(gworker(7))` where `gworker<T>` suspends only by `yield_now()`
 // compiles and runs (sweep S1 row p08c). Give the same generic body a nested
@@ -32,10 +33,26 @@
 // still work are the ones with no consumed callee to lose (a generic body whose
 // only suspension is `yield_now()`) and the non-generic twin.
 //
-// The fix owes the sweep obligation 4 asks for: generic roots that are METHODS,
-// MT spawn, a generic root whose nested callee is itself generic, and a generic
-// template that survives a transform which consumed a callee it names for any
-// other reason.
+// THE FIX (218b section 4, ruling 5): the template is consumed with the callee,
+// to a fixpoint, on the free-function side and — through design 223's one strip
+// funnel, so a conformance-required method is refused — on the METHOD side too.
+// A template that suspends only CONDITIONALLY names no consumed callee and is
+// untouched, which keeps its sync instantiations reachable.
+//
+// ONE GUARD, earned by a probe: a template is consumed only when nothing that
+// survives the splice still CALLS it. The soundness argument says every driven
+// use was promoted to a concrete function first, and that premise fails where
+// `_promote_nested_generic_calls` DECLINES — a template suspending
+// unconditionally without calling a type-parameter method has no instantiation
+// effect node, so the call site still names it and codegen's late
+// monomorphization serves it. Consuming it there would trade this diagnostic
+// for a codegen one.
+//
+// Obligation-4 sweep, all probed: the two cells below, a generic root at TWO
+// type arguments, an MT `threads: 2` spawn, and an undriven generic METHOD
+// template naming a consumed callee. A generic METHOD ROOT is blocked by the
+// pre-existing DF-223a ICE, and a nested callee that is itself generic composes
+// with the promotion limit above.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // v 1
