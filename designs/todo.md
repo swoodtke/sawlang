@@ -48,7 +48,7 @@ for sawos; "238 before more M3 work" is absolute.
 
 - `public(package) import` — should the scoped re-export form exist? Refused today (design 229). Real use case: an INTERNAL PRELUDE, one sibling aggregating names for the others (Rust's `pub(crate) use`). Against: siblings can already import each other directly, so it buys convenience, not capability — and kcore, the biggest multi-file package and the one that motivated the tier, does NOT want it (its `public import` block is the EXTERNAL facade). Wait for a package that feels the pain (entry: the re-narrowing rider section)
 - ~~DF-243a~~ — CLOSED Aug 22 (branch `diag-batch`, commit 4): the adoption ladder covers the mixed binop now, at all four operator families the sweep found (not just the comparison the filing named), so the Aug-17 bit-flag ruling costs no suffix anywhere. The sos rider un-suffixed 40 assert operands, proved byte-identical. Entry below
-- DF-243b — an error inside a `--module-path` DEPENDENCY is reported under the ENTRY file's path with the dependency's line numbers; entry below. Same family as the DF-232g residue above (a dependency location the reader cannot open)
+- ~~DF-243b~~ — CLOSED Aug 22 (branch `diag-batch`, commit 5), with the DF-232g residue in the same commit: one family, two layers. A module-level diagnostic falls back to the MODULE's source now, and a declared array length carries its own file into codegen. Entry below
 - DF-243c — RULED Aug 22 (user): the DOC was wrong ("bit 8" is unrepresentable in a `UInt8`); doc-fix landed same day, lead-direct — the sentence now states the value AND the masking invariant it rests on (`PMP_PERM_MASK = 0x7` before staging). Wire format unchanged. CLOSED; entry below is the record
 - (DF-238a CLOSED Aug 21 by the small-fix batch — entry below; DF-239b, its adjacent, is still open at the line above)
 - DF-242b — a cross-module OVERLOAD SET is bound BARE as a single overload, so a call only another member matches is refused; the QUALIFIED spelling of the same call sees all of them (entry below, found probing DF-238a's fix)
@@ -56,7 +56,7 @@ for sawos; "238 before more M3 work" is absolute.
 - ~~DF-238b~~ — CLOSED Aug 22 (branch `diag-batch`, commit 2): an integer renders at its own width now, through the new `_fmt_int_fn` funnel; the freestanding pin lost its XFAIL and grew to four rows. The sweep also fixed the checked-CAST panic, which truncated the same way. Entry below
 - ~~DF-238c~~ — CLOSED Aug 22 (branch `diag-batch`, commit 3): a conformance query now walks the GLOB sources beside the qualifier bindings, through the new `coherence_search_namespaces` funnel. The sweep found a SECOND FACE at the same funnel — a declared `UnsafeSend`/`UnsafeSync` was lost the same way. Both pins flipped; conformance row B23. Entry below
 - DF-239b — deep argument typing unchecked on the generic-bound call path (entry below, beside DF-239a)
-- DF-232g RESIDUE — a DECLARED array length that never folds reports with NO FILE from codegen (entry below; the fold half CLOSED Aug 21, this half wants a declared `source_file` annotation on the expression base)
+- ~~DF-232g RESIDUE~~ — CLOSED Aug 22 (branch `diag-batch`, commit 5): `Expression` declares a `source_file` annotation, stamped by a walk beside the length fold's, so a codegen-raised length refusal names its file. Entry below
 - DF-226b/c — FuncPointer v1 gaps (entries below, under design 226)
 - DF-225o — reemit divergence under load (entry below)
 - Design 231 — native-compiler readiness ledger (designs/231-native-compiler.md)
@@ -724,6 +724,7 @@ carry the rule.
 ## DF-243b — an error inside a `--module-path` DEPENDENCY is reported under the
 ## ENTRY file's path, carrying the DEPENDENCY's line numbers (filed Aug 21,
 ## same session; the DF-243a failure is the repro)
+## — CLOSED Aug 22 (branch `diag-batch`, commit 5)
 
 Every one of the 39 errors above printed
 `--> .build/scratch/abi_values.saw:230:48` … `:500:45` for an entry file that
@@ -737,6 +738,28 @@ at all), and worse in one way: a missing file is visibly missing, while a wrong
 one looks authoritative. Repro is cheap and stands on its own — any type error
 in a `--module-path` module, reached from an entry file shorter than the
 dependency. [232g, 140]
+
+LANDED Aug 22, WITH the DF-232g residue — one family, one commit, two layers.
+MECHANISM: the reporter's file came from `_get_current_source_file`, which reads
+the current FUNCTION or METHOD, and a module-level declaration is inside
+neither — so it answered None and the reporter fell back to the entry. The
+typechecker now carries `current_module_source` (set and restored beside
+`current_module_path` in `check_module`, at both restore points), and
+`_diagnostic_source_file` is the reporting fallback: the declaration first, the
+module second. It is deliberately a SECOND method rather than a widening of
+`_get_current_source_file`, because that one also answers the member-VISIBILITY
+gate (`_accessor_vis_module`), where the module path is already right at module
+level and a std file's source would re-key the accessor — reporting and access
+control ask the same-sounding question for different reasons.
+MATRIX (probed, `.build/scratch/df243b_entry.saw` + `m243b/dep/`): a
+module-level `static_assert` in a dependency (the finding) now names the
+dependency; a FUNCTION-BODY error in the same dependency was already right and
+is unchanged; the single-file entry path is unchanged (the entry IS the module).
+PIN: `examples/dependency_error_names_its_own_file_error.saw` over
+`examples/modules/depdiag/`, whose padding puts the refusal at a line the
+six-line entry cannot have — with an `EXPECT-ERROR-ABSENT` on the entry's own
+path at that line, so a regression to the old fallback fails the test rather
+than merely looking odd.
 
 ## DF-242b — a cross-module OVERLOAD SET is bound BARE as ONE overload (filed
 ## Aug 21, probing DF-238a's fix)
@@ -924,8 +947,8 @@ SPEC needed no change, since it already stated the rule the compiler now keeps.
 ## DF-232g — a LOCAL static DERIVED from an imported const stops being a
 ## compile-time constant, though the same expression folds INLINE (filed Aug 17,
 ## the kcore split)
-## — CLOSED Aug 21, design 240 item 8 (branch `design-240`), except the
-## diagnostic-FILE residue recorded at the end
+## — CLOSED Aug 21, design 240 item 8 (branch `design-240`); the
+## diagnostic-FILE residue at the end CLOSED Aug 22 (branch `diag-batch`)
 
 `static N: Int = A + B` with `A`/`B` imported is refused wherever a compile-time
 length is required — `repeat count is not a compile-time constant: the computed
@@ -974,7 +997,17 @@ PIN: `examples/static_derived_from_imported_const.saw` over the new fixture
 rather than duplicating them. Spec's static-initializer tier 2 and the
 skill's size-in-one-place section both name the imported case now.
 
-RESIDUE, STILL OPEN — the entry's OTHER half, the wrong-FILE diagnostic.
+RESIDUE — CLOSED Aug 22 (branch `diag-batch`, commit 5), beside DF-243b, which
+is the same question asked one layer up. `Expression` declares a `source_file`
+annotation now (design 126's contract — a graft would have been invisible to
+`dataclasses.fields()`), stamped by `_stamp_declared_type_sources`: one walk
+beside the fold's, over the same `_walk_declared_types`, so the stamp cannot
+drift from the fold's coverage. `codegen/types.py` already asked the expression
+for a file and now gets one, so the dependency's `[UInt8; MUT]` reports
+`--> <dep>/lib.saw:9:27` instead of `--> line 9:27`.
+PIN: `examples/declared_length_error_names_its_file_error.saw` over
+`examples/modules/lengthdep/`, with an `EXPECT-ERROR-ABSENT: --> line` that is
+what pins the fileless shape as gone. — the entry's OTHER half, as filed:
 Re-probed Aug 21: the TYPECHECKER path is correct now (a length that fails to
 fold in a dependency's function body reports against that dependency's file
 and line). What remains is the CODEGEN path, which owns the rule for a

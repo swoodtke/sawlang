@@ -935,6 +935,22 @@ class Expression(ASTNode):
     #                           the checker has stamped `place_struct` on it.
     embed_preserved: bool = annotation(False)
     frame_slot_op: bool = annotation(False)
+    #   source_file          -- DF-232g's residue: the file this expression was
+    #                           WRITTEN in. Every declaration node carries one
+    #                           (a `Function`, a `StructDecl`, a `StaticDecl`),
+    #                           and a diagnostic raised while checking a BODY
+    #                           reads it off the enclosing declaration — but a
+    #                           refusal raised in CODEGEN, over an expression
+    #                           that is not inside any body, has no enclosing
+    #                           declaration to ask. A DECLARED array length is
+    #                           exactly that: `[UInt8; MUT]` in a dependency's
+    #                           struct field reported `--> line 14:46` with no
+    #                           file at all, so the reader got a line number and
+    #                           nothing to open. Stamped by the pass that walks a
+    #                           module's declared types (`_stamp_declared_type_
+    #                           sources`), which is the one place that knows both
+    #                           the expression and the module it came from.
+    source_file: Optional[str] = annotation(None)
 
 
 @dataclass

@@ -438,6 +438,15 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # Current module path during multi-module type checking
         self.current_module_path: Tuple[str, ...] = ()
 
+        # DF-243b: the SOURCE FILE of the module being checked, for a diagnostic
+        # raised where no function or method is in scope — a `static`, a
+        # `static_assert`, a struct field, an import. Without it the reporter
+        # falls back to the ENTRY file and prints the dependency's line numbers
+        # under the entry's path, so a reader follows the diagnostic to the wrong
+        # file at a line it does not have. `None` on the single-file path, where
+        # the entry IS the module and the fallback is already right.
+        self.current_module_source: Optional[str] = None
+
         # Design 142: the modules the file being checked DIRECTLY imports, as
         # defining-module tuples (a user `import a.b` -> ("a", "b"); a
         # `import std.data` -> ("<std>", "data"), matching `_vis_module_for_source`).
@@ -569,6 +578,26 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         if self.current_function and hasattr(self.current_function, 'source_file'):
             return self.current_function.source_file or None
         return None
+
+    def _diagnostic_source_file(self) -> Optional[str]:
+        """The file a diagnostic raised right now belongs to (DF-243b).
+
+        The current method or function when there is one, and otherwise the
+        MODULE being checked. That second fallback is what makes a module-level
+        refusal — a `static`, a `static_assert`, a struct field, an import —
+        name the file it is in. Without it the reporter fell back to the ENTRY
+        file and printed the DEPENDENCY's line numbers under the entry's path,
+        so a reader following the diagnostic opened the wrong file at a line it
+        does not have; a missing file is at least visibly missing, where a wrong
+        one looks authoritative.
+
+        Deliberately NOT `_get_current_source_file` itself: that one also
+        answers the member-VISIBILITY gate (`_accessor_vis_module`), where the
+        module path is already the right answer at module level and a std file's
+        source would re-key the accessor. Reporting and access control ask the
+        same-sounding question for different reasons.
+        """
+        return self._get_current_source_file() or self.current_module_source
 
     # ------------------------------------------------------------------ #
     # Member visibility (design 80/82) — module identity for the field/method
@@ -2359,10 +2388,11 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         """Report an error with automatic source file detection.
 
         If source_file is not provided, attempts to determine it from the
-        current method or function context.
+        current method or function context, then from the module being checked
+        (DF-243b — see `_diagnostic_source_file`).
         """
         if source_file is None:
-            source_file = self._get_current_source_file()
+            source_file = self._diagnostic_source_file()
         self.reporter.error(kind, message, line, column, hint, source_file)
 
     def _warning(self, kind: ErrorKind, message: str, line: int, column: int,
@@ -2372,7 +2402,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         names a `-W` opt-in (design 150); without one the warning is
         unconditional."""
         if source_file is None:
-            source_file = self._get_current_source_file()
+            source_file = self._diagnostic_source_file()
         self.reporter.warning(kind, message, line, column, hint, source_file,
                               category=category)
 
@@ -3262,9 +3292,13 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         old_namespace = self.namespace
         old_module_path = self.current_module_path
         old_direct_imports = self.current_direct_imports
+        old_module_source = self.current_module_source
         self.namespace = ns
         self.current_module_path = module_path
         self.current_direct_imports = direct_imports
+        # DF-243b: what a module-level diagnostic names when no function or
+        # method is in scope. Saved and restored beside the path it travels with.
+        self.current_module_source = getattr(module_ast, 'source_path', None)
 
         # Validate: exports are only allowed in init.saw files (same rule as the
         # single-file path; enforced here so the unified pipeline still catches
@@ -3277,6 +3311,9 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # DF-172j: this module's const-foldable statics, before the struct pass
         # resolves a field whose length names one.
         self._collect_const_statics(module_ast)
+        # DF-232g residue: which file each declared length was written in, for
+        # the codegen-raised refusal that has no enclosing declaration to ask.
+        self._stamp_declared_type_sources(module_ast, self.current_module_source)
         self._fold_const_lengths_in_program(module_ast)
 
         # THE NAMES THIS MODULE DECLARES ITSELF, collected before any of them is
@@ -3418,6 +3455,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                     self.namespace = old_namespace
                     self.current_module_path = old_module_path
                     self.current_direct_imports = old_direct_imports
+                    self.current_module_source = old_module_source
                     return None
 
                 # Register the inline module in this module's namespace
@@ -3557,6 +3595,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         self.namespace = old_namespace
         self.current_module_path = old_module_path
         self.current_direct_imports = old_direct_imports
+        self.current_module_source = old_module_source
 
         # Whole-program `sync` effect analysis (design 22). The entry module is
         # checked last, after every other module's bodies have contributed their

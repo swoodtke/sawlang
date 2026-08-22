@@ -2278,6 +2278,32 @@ class TypeUtilsMixin:
                     t.array_size = value
         self._walk_declared_types(program, fold)
 
+    def _stamp_declared_type_sources(self, program, source_file) -> None:
+        """Record which FILE each declared array length was written in.
+
+        DF-232g's residue. The rule for a DECLARED length that never folds is
+        codegen's — the length is part of a struct's LAYOUT, so the refusal
+        happens where the layout is built, with no function or method in scope
+        and nothing to read a file off. `codegen/types.py` already asks the
+        expression (`getattr(expr, 'source_file', None)`); the expression simply
+        never had one, so a dependency's `[UInt8; MUT]` reported `--> line 14:46`
+        and left the reader with a line number and no file to open.
+
+        Runs beside the fold, over the same `_walk_declared_types` walk, so
+        every declared type of this module is reached exactly once and the stamp
+        cannot drift from the fold's own coverage. Stamping is unconditional:
+        a length that folds carries the file harmlessly, and only one that does
+        NOT fold ever reads it back.
+        """
+        if not source_file:
+            return
+
+        def stamp(t):
+            if t.kind == TypeKind.ARRAY and t.array_size_expr is not None:
+                if getattr(t.array_size_expr, 'source_file', None) is None:
+                    t.array_size_expr.source_file = source_file
+        self._walk_declared_types(program, stamp)
+
     def _fold_const_type_args_in_program(self, program) -> None:
         """Fold a bare-NAME const generic ARGUMENT that is a `static` (DF-172j).
 

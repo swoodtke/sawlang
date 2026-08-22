@@ -1,0 +1,12 @@
+// DF-232g residue's fixture: a DECLARED array length that never folds, in a
+// dependency. The rule for one is CODEGEN's — the length is part of the
+// struct's layout — so there is no enclosing declaration for the diagnostic to
+// read a file off, which is why the expression had to start carrying one.
+
+unsafe static var MUT: Int = 16
+
+public struct Frame {
+    public bytes: [UInt8; MUT]
+}
+
+public func size() -> Int { 1 }

@@ -1,0 +1,19 @@
+// A DECLARED array length that never folds names the file it was written in
+// (DF-232g's residue). The fold half of DF-232g closed Aug 21; this half is the
+// diagnostic, and it reported `--> line 9:24` with NO FILE at all — a line
+// number and nothing to open.
+//
+// The rule for a declared length is CODEGEN's, because the length is part of a
+// struct's LAYOUT, so the refusal happens with no function or method in scope
+// and nothing to read a file off. The expression carries its own source file
+// now, stamped by the pass that walks a module's declared types.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: array length is not a compile-time constant
+// EXPECT-ERROR-CONTAINS: modules/lengthdep/lib.saw:9:
+// EXPECT-ERROR-ABSENT: --> line
+// COMPILE-FLAGS: --module-path lengthdep={TESTDIR}/modules/lengthdep
+import lengthdep.{size}
+
+func main() {
+    print(size())
+}
