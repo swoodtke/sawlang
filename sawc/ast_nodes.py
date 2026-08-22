@@ -2599,6 +2599,12 @@ class ExternFunction(ASTNode):
     # prototype it is simply a suspension source; the pool-offload machinery
     # (hosted) / freestanding-hazard handling is future work.
     is_blocking: bool = False
+    # The file this declaration was written in, stamped by the parser like every
+    # other declaration's. Two diagnostics anchor on it and both read it
+    # defensively today: DF-181f's `blocking` disagreement and DF-225a's
+    # compiler-symbol collision, each of which can be raised while checking a
+    # DEPENDENCY and would otherwise name the entry file or no file at all.
+    source_file: str = ""
 
 
 @dataclass

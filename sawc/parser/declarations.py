@@ -769,7 +769,8 @@ class DeclarationsMixin:
             is_variadic=is_variadic,
             is_blocking=is_blocking,
             line=start.line,
-            column=start.column
+            column=start.column,
+            source_file=self.source_file
         )
 
     def _parse_static_modifier(self) -> bool:

@@ -1,0 +1,21 @@
+// The refusal arm of DF-225a. `printf` is declared by the compiler as
+// `i32 (i8*, ...)`; this declaration says the return is a platform `Int`, so
+// the two are two signatures for one symbol and unifying them would compile a
+// call that reads a register the callee never set.
+//
+// It is a REFUSAL rather than an internal compiler error, which is what the
+// finding was: the declaration alone, never called, crashed codegen with no
+// location at all. The hint prints the compiler's own signature, so the fix is
+// readable off the diagnostic.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `printf` is declared `extern "C"` here with a signature the compiler's own declaration of that symbol does not have
+// EXPECT-ERROR-CONTAINS: extern_c_compiler_symbol_mismatch_error.saw:16:
+// EXPECT-ERROR-ABSENT: internal compiler error
+
+extern "C" {
+    func printf(format: UnsafeConstPointer<Int8>, ...) -> Int
+}
+
+func main() {
+    print("never gets here")
+}

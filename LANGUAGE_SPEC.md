@@ -9483,6 +9483,30 @@ struct CStruct {
 }
 ```
 
+A handful of C symbols the compiler declares for its own lowering — `printf`,
+`snprintf`, `strcpy`, `strcat`, `abort` — may be declared here too, and the two
+declarations share one symbol when they agree:
+
+```saw
+extern "C" {
+    func printf(format: UnsafeConstPointer<Int8>, ...) -> Int32
+}
+```
+
+A declaration that disagrees is refused at the declaration, naming the signature
+the compiler used:
+
+```saw
+extern "C" {
+    func printf(format: UnsafeConstPointer<Int8>, ...) -> Int
+}
+// error: `printf` is declared `extern "C"` here with a signature the compiler's
+//        own declaration of that symbol does not have
+// hint: the compiler declares `printf` for its own string, format and panic
+//       lowering, as `i32 (i8*, ...)` — declare it the same way to share the
+//       symbol, or give your declaration a different name
+```
+
 ### Function pointers (`FuncPointer<F>`)
 
 **Status: implemented.** `FuncPointer<F>` is the address of compiled code whose

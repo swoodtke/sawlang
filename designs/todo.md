@@ -81,7 +81,7 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-248b RESIDUE — a HAND-WRITTEN closure nested inside another still captures the outer one's `&var` PARAMETER by value, so a write through it is silently lost; the place-window half closed Aug 22. Entry below, pinned XFAIL; wants a borrow marker on `VariableInfo`
 - DF-248c — an XFAIL whose cited DF has CLOSED is invisible to every gate (the policy's teeth are the XPASS direction only); the one found instance is fixed, the LANE is not built. Entry below, with the fix direction
 
-- DF-225a — a user `extern "C"` function under a codegen-internal name (`printf`, `abort`, …) ICEs with no location (entry below, under DF-225a-f)
+- ~~DF-225a~~ — CLOSED Aug 22 (branch `diag-batch`, commit 6): the five join the ordinary duplicate-declaration rule — same LLVM signature unifies (so `printf` is callable), a different one is a clean refusal. The sweep probed every compiler-declared symbol and found the five are exactly the ones std does not also declare. Entry below, under DF-225a-f
 - DF-225d — a primitive extension method returning bare `self` refuses its own declared return type, both sides printed identical (entry below, under DF-225a-f)
 - DF-225f — `@section` with a mach-O-invalid specifier is a raw LLVM process abort, not a diagnostic (minor; entry below, under DF-225a-f)
 
@@ -2109,6 +2109,37 @@ sub-agents, one lead), not one lucky repro.
   `malloc(size: UInt)` signature bug beside it — the doc-sync fix
   swapped the example to `puts`, sidestepping the collision rather than
   masking it.
+  **CLOSED Aug 22 (branch `diag-batch`, commit 6).** SWEPT FIRST (obligation 4),
+  and the sweep is what sized the fix: EVERY LLVM symbol codegen declares was
+  probed with a user `extern "C"` of the same name — the five above, the two
+  `_libc_func` declares lazily (`memcpy`, `strlen`), a runtime seam
+  (`__saw_rt_write`), a String helper (`__saw_string_len`) and a
+  non-colliding control. Only the five ICE, and the reason is exact: every
+  other compiler-declared symbol is ALSO declared as an `extern` in a std
+  source, so the typechecker knows it and the ordinary multi-declaration check
+  answers; the five exist only as LLVM declarations, so there was nothing to
+  compare against and the second `ir.Function` reached llvmlite unguarded.
+  FIX at the mechanism: `_declare_external_functions` registers the five in
+  `self.functions` like every other compiler-declared symbol (so the extern
+  pass's existing skip covers them) and records the TYPE each was declared with
+  in `compiler_declared_c_symbols`; `_declare_extern_function` then applies the
+  ordinary rule in the terms that decide correctness — the same LLVM signature
+  UNIFIES, a different one is a clean, located refusal whose hint prints the
+  compiler's own signature. LLVM types rather than Saw ones on purpose: an
+  `UnsafePointer<Int8>` and an `UnsafeConstPointer<Int8>` are two Saw types and
+  one C parameter, and refusing an author for choosing the other spelling would
+  be arbitrary. `_extern_llvm_type` is the one construction both readers use.
+  RIDER: `ExternFunction` gained the `source_file` every other declaration node
+  carries (stamped by the parser), because two diagnostics anchor on it — this
+  one and DF-181f's `blocking` disagreement — and both read it defensively, so
+  a refusal raised while checking a DEPENDENCY named no file at all. Same family
+  as DF-243b, one commit later.
+  PINS: `examples/extern_c_compiler_declared_symbol.saw` (all five declared,
+  `printf` actually CALLED through the shared symbol — LANGUAGE_SPEC's C-FFI
+  example is writable again) and
+  `examples/errors/extern_c_compiler_symbol_mismatch_error.saw`, whose
+  `EXPECT-ERROR-ABSENT: internal compiler error` is what pins the ICE as gone.
+  Spec's C FFI section documents both arms.
 - **DF-225b — referencing an undefined struct name ICEs
   (`internal compiler error: Undefined struct: <Name>`, no location)
   in at least two independent positions, never a clean "undefined type"

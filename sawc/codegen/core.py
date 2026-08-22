@@ -268,6 +268,15 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # Function table
         self.functions: dict = {}
 
+        # DF-225a: the C symbols codegen DECLARES for its own lowering, mapped
+        # to the LLVM function type it declared each with. A user `extern "C"`
+        # of one of these names is a second declaration of one symbol, so it is
+        # answered by the ordinary rule — the same signature unifies, a
+        # different one is a clean refusal — rather than reaching llvmlite's
+        # redeclaration path as an internal compiler error. Filled by
+        # `_declare_external_functions`; read by `_declare_extern_function`.
+        self.compiler_declared_c_symbols: dict = {}
+
         # Module-level static globals (design 41): simple name -> LLVM
         # GlobalVariable. Reads of a static load through the matching global.
         self.static_globals: dict = {}
@@ -450,12 +459,29 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         return tuple(padded)
 
     def _declare_external_functions(self):
+        """Declare the C symbols codegen calls for its own lowering.
+
+        DF-225a: these five were the ONLY compiler-declared symbols with no
+        typechecker-visible declaration mirroring them. Every other one — the
+        `__saw_rt_*` seams, the `__saw_string_*` helpers, `memcpy`, `strlen` —
+        is declared as an `extern` in std too, so a user redeclaration met the
+        ordinary multi-declaration check and got a clean answer (probed: nine
+        names, one control). These five met llvmlite's redeclaration path
+        unguarded, and `extern "C" { func printf(...) }` alone, never called,
+        was `internal compiler error: printf`.
+
+        They are registered in `self.functions` now, exactly as every other
+        compiler-declared symbol is, so the extern pass's "already declared"
+        skip covers them — and `compiler_declared_c_symbols` records the TYPE
+        each was declared with, so a user declaration that DISAGREES is a clean,
+        located refusal instead of a silently-unified call through the wrong
+        signature. See `_declare_extern_function`.
+        """
+        i8ptr = ir.PointerType(ir.IntType(8))
+        i32 = ir.IntType(32)
+
         # Declare printf
-        printf_type = ir.FunctionType(
-            ir.IntType(32),
-            [ir.PointerType(ir.IntType(8))],
-            var_arg=True
-        )
+        printf_type = ir.FunctionType(i32, [i8ptr], var_arg=True)
         self.printf = ir.Function(self.module, printf_type, name="printf")
 
         # Declare abort for runtime panics
@@ -464,25 +490,21 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         # Declare snprintf for string formatting
         snprintf_type = ir.FunctionType(
-            ir.IntType(32),
-            [ir.PointerType(ir.IntType(8)), ir.IntType(64), ir.PointerType(ir.IntType(8))],
-            var_arg=True
-        )
+            i32, [i8ptr, ir.IntType(64), i8ptr], var_arg=True)
         self.snprintf = ir.Function(self.module, snprintf_type, name="snprintf")
 
         # Declare strcpy for string copying
-        strcpy_type = ir.FunctionType(
-            ir.PointerType(ir.IntType(8)),
-            [ir.PointerType(ir.IntType(8)), ir.PointerType(ir.IntType(8))]
-        )
+        strcpy_type = ir.FunctionType(i8ptr, [i8ptr, i8ptr])
         self.strcpy = ir.Function(self.module, strcpy_type, name="strcpy")
 
         # Declare strcat for string concatenation
-        strcat_type = ir.FunctionType(
-            ir.PointerType(ir.IntType(8)),
-            [ir.PointerType(ir.IntType(8)), ir.PointerType(ir.IntType(8))]
-        )
+        strcat_type = ir.FunctionType(i8ptr, [i8ptr, i8ptr])
         self.strcat = ir.Function(self.module, strcat_type, name="strcat")
+
+        for fn in (self.printf, self.abort, self.snprintf, self.strcpy,
+                   self.strcat):
+            self.functions[fn.name] = fn
+            self.compiler_declared_c_symbols[fn.name] = fn.function_type
 
     # _get_llvm_type is now in codegen_types.py (TypesMixin)
 
@@ -2628,39 +2650,83 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         if saw_return_type.kind == TypeKind.OPTIONAL and saw_return_type.inner_type:
             self.extern_optional_returns[extern_func.name] = saw_return_type.inner_type
 
+        # DF-225a: a name CODEGEN declares for its own lowering. The typechecker
+        # cannot see these — they exist only as LLVM declarations — so its
+        # multi-declaration check has nothing to compare against and the second
+        # `ir.Function` of one name reached llvmlite unguarded:
+        # `extern "C" { func printf(...) }` alone, never called, was
+        # `internal compiler error: printf`. The rule here is the ordinary one,
+        # asked in the terms that decide correctness: the same LLVM signature
+        # UNIFIES (so the author's declaration names the compiler's symbol and
+        # calls through it), and a different one is a clean refusal, because a
+        # unified call through the wrong signature is a miscompile.
+        #
+        # Comparing LLVM types rather than Saw ones is deliberate: an
+        # `UnsafePointer<Int8>` and an `UnsafeConstPointer<Int8>` are two Saw
+        # types and one C parameter, and refusing an author for choosing the
+        # other spelling would be arbitrary.
+        internal_type = self.compiler_declared_c_symbols.get(extern_func.name)
+        if internal_type is not None:
+            declared_type = self._extern_llvm_type(extern_func, saw_return_type)
+            if declared_type != internal_type:
+                raise CodegenUserError(
+                    f"`{extern_func.name}` is declared `extern \"C\"` here with "
+                    f"a signature the compiler's own declaration of that symbol "
+                    f"does not have",
+                    getattr(extern_func, 'line', 0) or 0,
+                    getattr(extern_func, 'column', 0) or 0,
+                    hint=f"the compiler declares `{extern_func.name}` for its "
+                         f"own string, format and panic lowering, as "
+                         f"`{internal_type}` — declare it the same way to share "
+                         f"the symbol, or give your declaration a different name",
+                    source_file=getattr(extern_func, 'source_file', None))
+            return
+
         # Skip if already declared (std library and user code both declaring, or
         # a compiler-provided definition already emitted).
         if extern_func.name in self.functions:
             return
 
-        param_types = [self._get_llvm_type(p.type) for p in extern_func.parameters]
-
-        # `extern "C" { func abort_now() -> Never }` is the C `noreturn`
-        # declaration, and design 58 says a `-> Never` signature lowers to
-        # `void` + `noreturn`. `_declare_function` does exactly this for a
-        # DEFINITION; without the same answer here the DECLARATION took
-        # `_get_llvm_type`'s i8 placeholder, and the two disagreed about one
-        # symbol's C ABI.
-        #
-        # It reached further than a declaration, because an `@export`ed
-        # definition UNIFIES with a pre-existing bodyless declaration of the
-        # same symbol (just below in `_declare_function`) and inherits its
-        # type. So a `-> Never` seam DEFINED in a module the entry file also
-        # `extern`s — the SOS `sos_rt_abort` shape, design 172 part 2 —
-        # emitted `define noundef i8 @sos_rt_abort(...)` while the ABI
-        # document and every other spelling said `void` (DF-172h).
-        return_type, is_never = self._lower_declared_return(saw_return_type)
-        if saw_return_type.kind == TypeKind.OPTIONAL and saw_return_type.inner_type:
-            # For extern functions, unwrap optionals from the return type for the
-            # C ABI: C functions return raw pointers, which can be NULL.
-            return_type = self._get_llvm_type(saw_return_type.inner_type)
-
-        func_type = ir.FunctionType(return_type, param_types, var_arg=extern_func.is_variadic)
+        func_type = self._extern_llvm_type(extern_func, saw_return_type)
+        _, is_never = self._lower_declared_return(saw_return_type)
         llvm_func = ir.Function(self.module, func_type, name=extern_func.name)
         # Set external linkage (default for declarations)
         llvm_func.linkage = 'external'
         self._mark_noreturn(llvm_func, is_never)
         self.functions[extern_func.name] = llvm_func
+
+    def _extern_llvm_type(self, extern_func: ExternFunction, saw_return_type):
+        """The LLVM function type an `extern "C"` declaration denotes.
+
+        ONE construction, two readers (DF-225a): the DECLARATION below it, and
+        the collision check above it, which compares an author's declaration
+        against the compiler's own for a symbol codegen already declared. Split
+        out so the two cannot answer differently about one signature.
+
+        `extern "C" { func abort_now() -> Never }` is the C `noreturn`
+        declaration, and design 58 says a `-> Never` signature lowers to
+        `void` + `noreturn`. `_declare_function` does exactly this for a
+        DEFINITION; without the same answer here the DECLARATION took
+        `_get_llvm_type`'s i8 placeholder, and the two disagreed about one
+        symbol's C ABI.
+
+        It reached further than a declaration, because an `@export`ed
+        definition UNIFIES with a pre-existing bodyless declaration of the
+        same symbol (in `_declare_function`) and inherits its type. So a
+        `-> Never` seam DEFINED in a module the entry file also `extern`s —
+        the SOS `sos_rt_abort` shape, design 172 part 2 — emitted
+        `define noundef i8 @sos_rt_abort(...)` while the ABI document and every
+        other spelling said `void` (DF-172h).
+        """
+        param_types = [self._get_llvm_type(p.type)
+                       for p in extern_func.parameters]
+        return_type, _is_never = self._lower_declared_return(saw_return_type)
+        if saw_return_type.kind == TypeKind.OPTIONAL and saw_return_type.inner_type:
+            # For extern functions, unwrap optionals from the return type for the
+            # C ABI: C functions return raw pointers, which can be NULL.
+            return_type = self._get_llvm_type(saw_return_type.inner_type)
+        return ir.FunctionType(return_type, param_types,
+                               var_arg=extern_func.is_variadic)
 
     # Generic methods moved to codegen_generics.py (GenericsMixin)
 
