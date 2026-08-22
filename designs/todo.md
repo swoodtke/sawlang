@@ -3170,8 +3170,11 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
 - **DF-248a (BOGUS-REFUSAL, BOUNDED; filed Aug 22 by DF-169h's fix) — a window
   body may not name the window's own ROOT, even for a read that invalidates
   nothing.** `v[0].n = v.len()` is ``cannot copy value of type `Vector<Cell>`
-  which implements ExplicitCopy``, anchored at the subscript, and so is
-  `print("{v.len()} {v[0]}")` on a move-only element. MECHANISM: DF-169h made a
+  which implements ExplicitCopy``, anchored at the subscript, and so are the
+  three shapes the borrow-classified positions add: `print("{v.len()} {v[0]}")`
+  on a move-only element, `assert(v[0].n == 1, "{}", v[0])` (the condition is
+  inside the message's window), and `v[0] == v[1]` (the second operand's window
+  names the first's root). MECHANISM: DF-169h made a
   window closure borrow-capture every enclosing binding its body names EXCEPT
   the receiver's root, which stays a by-value capture — so the copy tier still
   answers for it. HELD DELIBERATELY, and this is the reason a sweep did not
