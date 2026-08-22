@@ -193,6 +193,24 @@ Optionals and every other type stay freely discardable. The rule is about
 failures, and a `Result` a caller may always ignore should not have been a
 `Result`.
 
+The standard library always names its error type. An operation with one failure
+mode returns that failure — `push` reports the allocator and nothing else — and
+an operation whose sources genuinely mix returns an enum with a case per source,
+each carrying the underlying error rather than restating it:
+
+```saw
+public enum ChannelError {
+    case Closed,
+    case Cancelled,
+    case Alloc(e: AllocError)
+}
+```
+
+There is no library-wide error enum, because a signature listing failures the
+operation cannot produce is a signature that lies. `Result<T, Box<any Error>>`
+exists for application code that does not care which error arrived; std never
+produces one, so a caller that does care can always match.
+
 See [Error Handling](LANGUAGE_SPEC.md#5-error-handling) in the spec.
 
 ### main returns the exit status

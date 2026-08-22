@@ -942,6 +942,28 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   value and exit 0 whatever it returned, `-> Result` emitted a struct-returning
   `@main` against a C ABI expecting `int` (a stable, meaningless 138), and
   `-> String` exited with the low byte of a heap POINTER.
+- **THREE TIERS, and your signature picks one (design 234 §1).** (1) A LEAF op
+  returns the NARROWEST concrete type it can fail with — one failure mode, no
+  compound (`push -> Result<Void, AllocError>`, and `AllocError` keeps the
+  `size`/`align` so the site stays loggable). (2) A COMPOUND domain enum, with
+  PAYLOAD-CARRYING cases, only where the sources genuinely mix — and it CARRIES
+  the leaf rather than restating it (`case Alloc(e: AllocError)`, never a
+  re-enumeration of its fields). A domain that cannot time out has no `TimedOut`
+  case. Share case NAMES and payload TYPES across domains; never share a WRAPPER
+  enum (a `ChannelError.Sys` would claim an in-process channel can fail because
+  the OS said no, and every match would go two levels deep). (3) `Box<any
+  Error>` is the APPLICATION aggregation tier and std never produces one — it is
+  for a caller that does not care which error arrived. There is NO stdlib-wide
+  errno-style enum, ever: its defining property is that every signature lies.
+  Crossing between tiers is WRITTEN — `try(as LocalError.Alloc) f()`.
+- **TWO PANICS ARE DOCUMENTED BOUNDARIES, not tiers to migrate** (user ruling,
+  Aug 22). The ERASED-ERROR box: returning a concrete error at
+  `-> Result<T, Box<any Error>>` allocates, and an error path cannot report an
+  allocation failure without allocating, so the erasure panics — name your error
+  type if you must not meet it. And `Data.[]`'s copy-on-write SEPARATION: the
+  accessor rule governs a direct indexed accessor, so `d[i]` panics; the
+  Result-returning preflight is `try_detached()`, which separates the buffer
+  where a failure has somewhere to go.
 - `trait Error: Printable {}` — conform via `extension E: Error {
   func format(&self, into: &var StringBuilder) {...} }`.
 - **An error type may be an ENUM, and usually should be** (design 145). A closed

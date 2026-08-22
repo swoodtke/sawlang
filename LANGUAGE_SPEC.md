@@ -3644,6 +3644,17 @@ extension Data {
 }
 ```
 
+**That `Data.[]: allocation failed` is a documented boundary, and it stays a
+panic.** A subscript is an expression a `try` could in principle attach to, but
+the accessor rule governs here: a direct indexed accessor on a safe type
+signals out-of-range by panicking, and the copy-on-write separation is part of
+the same unconditional lend. Splitting one of its two failures out as a value
+and leaving the other a panic would make `d[i]` mean two different things by
+which failure it met. A caller that must not meet it preflights instead:
+`try_detached()` performs the separation and returns `Result<Data, AllocError>`,
+so the allocation is attempted where a failure has somewhere to go, and the
+writes that follow find the buffer already unique.
+
 An accessor that names the constant compiles as **two specializations**. The
 authored declaration keeps its `&self` receiver and folds the constant false;
 what the constant gated is *removed from the body*, not skipped, so that copy is
@@ -4460,6 +4471,82 @@ run({ x in ParseError(line: x) })      // Err
 The ambiguity rejection, the erased `Box<any Error>` target and the
 optional-Ok-payload wrap all reach a closure tail exactly as they reach a named
 one.
+
+### Error-type doctrine
+
+Three tiers, and a signature says which one it is on.
+
+**A leaf operation returns the narrowest concrete type it can fail with.** Most
+std operations have exactly one failure mode and need no compound: a refused
+allocation is `Result<Void, AllocError>`, and `AllocError` carries the `size` and
+`align` of the request, so an out-of-memory site stays loggable with context.
+
+**A compound domain enum carries payloads, and exists only where the sources
+genuinely mix.** `ChannelError` is the worked example. A channel operation can
+fail because the channel is closed, because the waiting task was cancelled, or
+because the allocator refused a queue node, and those are three unrelated
+sources. The generic one CARRIES the leaf rather than restating its vocabulary:
+
+```saw
+public enum ChannelError {
+    case Closed,
+    case Cancelled,
+    case Alloc(e: AllocError)      // the leaf itself, not a copy of its fields
+}
+```
+
+A domain that cannot time out has no `TimedOut` case; a domain that allocates
+nothing has no `Alloc` case. Signatures stay exact. Case NAMES and payload TYPES
+are shared across domains — every `Alloc` case carries an `AllocError` and is
+spelled `Alloc` — but the wrapper enums are not. A `ChannelError.Sys` carrying
+an OS refusal would claim that a purely in-process channel can fail because the
+operating system said no, and every match on it would go two levels deep.
+
+**`Box<any Error>` is the application aggregation tier, and std never produces
+one.** The erased `Result<T, Box<any Error>>` is for a caller that does not care
+which error arrived. std always names its error type, so a program that does
+care can match on it, and one that does not can let the boxing happen at its own
+boundary.
+
+**There is no stdlib-wide error enum.** Its defining property is that every
+signature lies: a `push -> Result<_, StdError>` claims failure modes `push`
+cannot produce, and every exhaustive match over it grows arms no input can ever
+reach. errno's flatness was C's lack of sum types, not a design to copy.
+
+Crossing between tiers is written, never inferred — see
+[Error routing at `try`](#error-routing-at-try).
+
+### `try_` means non-blocking
+
+The prefix is reserved for the non-blocking variant of an operation that could
+otherwise block, and it means nothing else. The standard shape is the blocking
+operation's error type with the payload optionalized:
+
+```saw
+func receive(&self) -> Result<T, ChannelError>       // parks until a message arrives
+func try_receive(&self) -> Result<T?, ChannelError>  // answers at once
+```
+
+`Ok(None)` is "nothing yet". Would-block is not an error — it is the normal
+answer to a poll — while `Err(Closed)` still surfaces, because a closed channel
+must not look like an empty one. Where the non-blocking variant has no error
+path at all, a plain `T?` says everything: `SpinLock.try_lock` answers `None`
+when another thread holds the lock, and `Once.try_get` answers `None` before the
+value has been set.
+
+The two peel apart cleanly at a call site, the `try` taking the error channel
+and the `while let` taking the optional:
+
+```saw
+func drain(ch: Channel<Job>) -> Result<Int, ChannelError> {
+    var n = 0
+    while let job = try ch.try_receive() {   // ends on empty, propagates on closed
+        run(job)
+        n = n + 1
+    }
+    return n
+}
+```
 
 ### Try Variants
 
@@ -10211,6 +10298,18 @@ Inside a generic, `print(v)` on a `T: Printable` is judged at the template,
 where `T` could be anything, so it is rejected there too. The
 format-argument spelling covers every instantiation, which is why the check does
 not wait for one.
+
+**The erased-error box is the one allocation on an error path, and its own
+failure is a documented boundary: it panics.** Returning a concrete error from a
+`-> Result<T, Box<any Error>>` function boxes it, and if the allocator refuses
+that box there is nowhere to put the news — reporting an allocation failure
+would take an allocation, which is the failure being reported. So the erasure
+panics rather than inventing a second, un-erasable error channel. This is the
+same rule the hidden-allocation sites above follow, arrived at from the other
+direction: those cannot report because no expression can carry the report, and
+this one cannot report because the report is what ran out. A program that must
+not meet it does not erase — it names its error type, which is the tier the
+standard library stays on ([Error-type doctrine](#error-type-doctrine)).
 
 The flag is **orthogonal to `--freestanding`**. A kernel with a slab allocator
 may want allocator-backed `String`s, so the freestanding profile does not imply

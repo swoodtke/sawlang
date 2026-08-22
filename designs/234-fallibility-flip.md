@@ -653,3 +653,34 @@ other way). `selfhost`'s `try_read_int_suffix` is the third in-tree meaning
   entry. Pin: `examples/suspending_binding_scrutinee_propagates_a_try.saw`
   (XFAIL, `while let` and `if let` rows).
 
+
+## Unit 5 — docs closeout, PARTIAL (Aug 22)
+
+What is TRUE after units 1, 2 and 4 landed, and nothing beyond it.
+
+LANGUAGE_SPEC §5 gained two subsections ahead of "Try Variants":
+**Error-type doctrine** (the three tiers, with `ChannelError` as the worked
+compound; the share-case-names-never-wrapper-enums rule; `Box<any Error>` as the
+application tier std never produces; and why there is no stdlib-wide errno enum)
+and **`try_` means non-blocking** (§4's `Result<T?, E>` shape, the `T?` short
+form where there is no error path, and the `try` + `while let` drain that peels
+the two channels apart). The saw-lang skill and README carry the user-facing
+subset of the same.
+
+THE TWO RULED BOUNDARY SENTENCES (user, Aug 22) landed here. Neither site
+changes behavior; both are now stated where a reader meets them:
+
+- the ERASED-ERROR box joins the hidden-allocation family, from the other
+  direction — those sites cannot report because no expression can carry the
+  report, and this one cannot report because the report is what ran out. A
+  program that must not meet it names its error type, which is the tier std
+  stays on.
+- `Data.[]`'s copy-on-write separation stays under the ACCESSOR RULE, beside
+  the bounds panic it shares a body with. Splitting one of the two failures out
+  as a value would make `d[i]` mean two different things by which failure it
+  met; `try_detached()` is the preflight that attempts the allocation where a
+  failure has somewhere to go.
+
+NOT landable, because each describes unit 3's end state: marking design 123's
+sections superseded, and removing the `try_` twin table (18 of the 20 twins are
+still there).

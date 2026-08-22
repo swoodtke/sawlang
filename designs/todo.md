@@ -358,6 +358,18 @@ IN FLIGHT on branch `design-234`. Landed so far:
   no-error-path short form §4 blesses. `selfhost`'s `try_read_int_suffix` is the
   third in-tree meaning and stays out of scope (not std), as unit 0 recorded.
 
+- **unit 5 — docs closeout, PARTIAL** (the half that is true after units 1/2/4).
+  LANGUAGE_SPEC §5 gained "Error-type doctrine" (the three tiers, the
+  no-stdlib-wide-enum rule, a pointer to the routing clause) and "`try_` means
+  non-blocking" (§4's shape + the `T?` short form + the `try`/`while let` drain);
+  the saw-lang skill and README carry the user-facing subset. THE TWO RULED
+  BOUNDARY SENTENCES landed with it — the erased-error box panics because an
+  error path cannot report an allocation failure without allocating, and
+  `Data.[]`'s copy-on-write separation stays under the accessor rule with
+  `try_detached()` named as the fallible spelling. NOT landable yet, because
+  they describe unit 3's end state: marking design 123's sections superseded,
+  and removing the `try_` twin table (18 of the 20 twins still exist).
+
 **CENSUS CORRECTIONS to unit 0's own numbers**, both found by re-counting
 against the tree, both recorded in the brief's landing section:
 - the alloc twin family is **20**, not 19 — unit 0's own table lists 20 rows
