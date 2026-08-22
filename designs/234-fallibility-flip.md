@@ -360,6 +360,19 @@ author meant to send, so the caller does not then check the SOURCE type
 against the signature and complain a second time about a type they never
 intended.
 
+TWO MORE POSITIONS are probe-verified and NOT yet pinned — free rows for
+whichever unit next touches this file:
+
+- **a routed `try` inside a CLOSURE body**, which propagates out of the
+  closure (design 213), so the routing target is checked against the
+  CLOSURE's declared error type. `run({ x in try(as LocalError.Alloc)
+  grab(x) })` prints `err A30` on the failing path and `ok 6` on the other.
+- **route THEN erase**: a routed `try` in a function returning
+  `Result<T, Box<any Error>>` boxes the ROUTED enum at the propagation edge,
+  so `"{e}"` renders through the domain enum's own vtable (`L/A30`, not the
+  leaf's `A30`). This is the one ordering the two mechanisms could have got
+  wrong, and codegen has it right because routing runs first by construction.
+
 DF-232h landed as the extraction it asked for: `_autowrap_into_result` in
 `sawc/typechecker/statements.py` is now the ONE Result auto-wrap ladder, over
 four entry points (function tail, method tail, `return`, closure tail). It
