@@ -1,0 +1,94 @@
+// A place window's body runs against the ENCLOSING bindings, not copies of them.
+//
+// `place_uses` lowers a place use into a closure the author never wrote, and
+// every enclosing name that closure's body mentions used to be a plain BY-VALUE
+// capture. That put the copy tier in front of code that copies nothing: an
+// encoder built locally could not be handed to `v[i].serialize(to: &var enc)`
+// (DF-169h), and `v[0] = w[1]` — two containers, no aliasing anywhere — was the
+// ExplicitCopy twin of the same refusal.
+//
+// The sweep matrix of that mechanism, one row per way a window body can name an
+// enclosing binding. The last two rows are the deliberate boundary: the
+// receiver's own ROOT stays a value capture, because borrowing it would put a
+// second access to the root inside the open window (design 188).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// var arg: 1
+// shared arg: 1
+// value arg: 6
+// mutating call: 2
+// cross-root read: 4
+// forwarded param: 4
+// deep chain: 4
+// element write: 9
+
+struct Sink { n: Int }
+
+extension Sink: NoCopy {}
+
+extension Sink {
+    func bump(&var self) { self.n = self.n + 1 }
+    func read(&self) -> Int { self.n }
+}
+
+struct Item { code: String, weight: Int }
+
+extension Item {
+    // A `&var` argument naming an enclosing local.
+    func feed(&self, into: &var Sink) { into.n = into.n + 1 }
+    // A `&` argument naming an enclosing local.
+    func peek(&self, at: &Sink) -> Int { at.n }
+    // A by-value argument: an ordinary transfer, checked as one.
+    func plus(&self, n: Int) -> Int { self.weight + n }
+}
+
+// The `&var` PARAMETER forwarded into the window: a reference binding's plain
+// capture already copies the POINTER, so this row is untouched by the rule.
+func feed_all(items: &Vector<Item>, into: &var Sink) {
+    var i = 0
+    while i < items.len() {
+        items[i].feed(into: &var into)
+        i = i + 1
+    }
+}
+
+func main() {
+    var items = Vector<Item>()
+    items.push(Item(code: "a", weight: 3))
+    var sink = Sink(n: 0)
+
+    items[0].feed(into: &var sink)
+    print("var arg: {sink.read()}")
+
+    print("shared arg: {items[0].peek(at: &sink)}")
+    print("value arg: {items[0].plus(3)}")
+
+    // A `&var self` method call on an enclosing NoCopy local, inside a window.
+    let seen = items[0].plus(sink.read())
+    sink.bump()
+    print("mutating call: {sink.read()}")
+
+    // A nested window whose receiver is a DIFFERENT root: the outer window's
+    // body borrows `weights` shared, which is a window beside a shared read of
+    // a disjoint path (design 188's accept side).
+    var weights: Vector<Int> = [4, 5]
+    var slots: Vector<Int> = [0, 0]
+    slots[0] = weights[0]
+    print("cross-root read: {slots[0]}")
+
+    feed_all(&items, &var sink)
+    print("forwarded param: {sink.read() + seen - 3}")
+
+    // NESTED windows on two roots: the outer one's body opens the inner one and
+    // names the enclosing `sink` inside it.
+    var rows: Vector<Vector<Item>> = []
+    var inner = Vector<Item>()
+    inner.push(Item(code: "b", weight: 1))
+    rows.push(move inner)
+    print("deep chain: {rows[0][0].plus(sink.read())}")
+
+    // A whole-element write whose RHS names an enclosing local.
+    let fresh = 9
+    slots[1] = fresh
+    print("element write: {slots[1]}")
+}

@@ -11454,6 +11454,61 @@ class ExpressionsMixin:
             self._frame_pointer_escape_error(
                 expr, 'self', info.type if info is not None else None, True)
 
+    def _synthesize_place_window_captures(self, expr, outer_scope) -> None:
+        """Give a PLACE WINDOW body the borrow captures it always meant (DF-169h).
+
+        `place_uses` lowers `v[i].feed(into: &var enc)` into
+        `v.[](i, { __p0 in __p0.feed(into: &var enc) })`. The closure is a
+        lowering device, not a value the author wrote: the body is code from the
+        ENCLOSING scope and has to run against the live bindings there. Left as
+        plain captures it ran against COPIES, so a move-only local was ``cannot
+        copy value of type `CborEncoder` `` anchored at a subscript that copies
+        nothing, and `v[0] = w[1]` — two containers, no aliasing anywhere — was
+        the ExplicitCopy twin of the same refusal.
+
+        A window closure is always a direct argument of the accessor call, whose
+        `__window` parameter is an ordinary `sync` non-escaping function type, so
+        the borrow capture is legal by the same rule that admits a hand-written
+        `[&var x]`. Writing SPECS rather than patching `capture_modes` after the
+        fact is what makes it exactly that rule: the name is rebound in the
+        closure scope, so the body's move state, its mutability and design 132's
+        capture-write question are answered where `[&var x]` answers them.
+
+        Two names are deliberately left as plain captures:
+
+        * the receiver's own ROOT (`place_window_root`). Borrowing it would put
+          a second access to the root INSIDE the open window, which is what
+          design 188 refuses in one call — and `v[0].n = v.pop()!` is exactly
+          the invalidation that rule exists for. Its refusal stays where it is
+          (DF-248a records the bogus half).
+        * a REFERENCE-typed binding (a `&var T` parameter forwarded into the
+          window). Its plain capture already copies the POINTER, so it is a
+          borrow already; re-borrowing it would take the address of the
+          parameter slot instead.
+
+        `self` is never listed: design 216 already captures a receiver by
+        borrow, at the mode the receiver itself carries.
+        """
+        if not getattr(expr, 'is_place_window', False):
+            return
+        if expr.capture_specs:
+            return          # already synthesized (the second check re-sees them)
+        from ast_nodes import CaptureSpec
+        root = getattr(expr, 'place_window_root', None)
+        specs = []
+        for name in self._analyze_closure_captures(expr.body, outer_scope):
+            if name == 'self' or name == root:
+                continue
+            info = outer_scope.lookup(name)
+            if info is None or info.type is None:
+                continue
+            if info.type.kind == TypeKind.REFERENCE:
+                continue
+            specs.append(CaptureSpec(
+                name=name, mode='ref_var' if info.mutable else 'ref',
+                line=expr.line, column=expr.column))
+        expr.capture_specs = specs
+
     def _check_closure(self, expr: ClosureExpr, expected_type: Optional[SawType] = None,
                         as_call_argument: bool = False,
                         force_escape: bool = False) -> Optional[SawType]:
@@ -11523,6 +11578,7 @@ class ExpressionsMixin:
             self_capture_mode = ('ref_var' if getattr(cm, 'self_mutable', False)
                                  else 'ref')
         shared_self_capture = False
+        self._synthesize_place_window_captures(expr, outer_scope)
         for spec in (expr.capture_specs or []):
             if spec.name in spec_by_name:
                 self._error(

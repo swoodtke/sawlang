@@ -3708,6 +3708,26 @@ windows, the outer opening first and closing last. Two place arguments in one
 call run their prologues in argument order and their epilogues LIFO, because
 that is what nesting means.
 
+**Everything inside the extent runs against the enclosing scope's own
+bindings.** The code in a window is code you wrote where you wrote it, so a
+local it names is *borrowed*, never copied — which is what lets a move-only
+value be handed to something reached through a place:
+
+```saw
+var enc = CborEncoder()             // NoCopy, built right here
+var i = 0
+while i < entries.len() {
+    try entries[i].serialize(to: &var enc)     // borrowed, not copied
+    i = i + 1
+}
+```
+
+The one name that is not borrowed is the **root of the place itself**. A window
+already holds that root — exclusively, if the use site writes — so reaching it a
+second time from inside the extent is the aliasing the Law of Exclusivity
+refuses, and `v[0].n = v.pop()!` is precisely the invalidation that rule exists
+for. Bind what you need from the root before the window opens.
+
 #### Conditional lends (`borrows -> T?`)
 
 `borrows -> T?` is the optional place. Each path through the body either `lend`s

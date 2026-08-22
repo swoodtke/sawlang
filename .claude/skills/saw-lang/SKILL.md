@@ -1386,10 +1386,12 @@ v.map<String>({ $0.to_string() })   // the closure's return; explicit still wins
   `encode<T: Serialize>(value:)` is the one-call write; there is NO `decode<T>`
   twin — name the type (`LockEntry.deserialize(from:)`), because a static
   requirement is not callable on a type parameter yet (DF-169e).
-  GOTCHA: `v[i].serialize(to: &var enc)` over a LOCAL encoder does not compile
-  (DF-169h — the place window will not capture a NoCopy local); read the element
-  out first (`let e = v[i]`) or take the encoder as a `&var` PARAMETER, which is
-  why the derived `Vector` walk is unaffected.
+  `v[i].serialize(to: &var enc)` over a LOCAL encoder works — the element is
+  reached through a place window and the encoder is borrowed where it stands.
+  It was refused until Aug 22 (DF-169h: the window's body captured the local by
+  VALUE, so a NoCopy encoder was ``cannot copy value of type `CborEncoder` ``
+  anchored at the subscript), with "read the element out first" as the
+  workaround, so distrust the shape in an older build.
 - Overloads resolve by EXACT types (no conversions), labels
   disambiguate same-type sets (`f(0, value: 4)`). Between platform `Int` and
   `UInt` the EXACT one wins (design 137), so `f(Int)`/`f(UInt)` twins are

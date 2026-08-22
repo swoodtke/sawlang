@@ -286,6 +286,8 @@ Claim source: spec 4 *Places (`borrows` and `lend`)*; designs 141, 146, 179, 188
 | P14 | writing through a window over a value the accessor built locally | `lend_accessor_local.saw` | 188 u3 — was a DEVIATION (`c.slot() = 99` was a silent no-op); refused now |
 | P15 | reading through a window over an accessor-local (the frame is alive) | `lend_accessor_local.saw` | 188 u3 — the audit expected the READ to keep working; the NARROW rule refuses the lend either way, so this row is a rejection |
 | P16 | lending the accessor's own parameter | `errors/lend_accessor_param.saw` | 188 u3 — was a DEVIATION (accepted); refused now |
+| P17 | a window body reaches the ENCLOSING scope by borrow, not by copy — six spellings, plus the two names deliberately left as value captures | `place_window_borrows_enclosing_locals.saw` | DF-169h — the window closure is a lowering device, so its body is code from the enclosing scope and must run against the live bindings there. It captured by VALUE, which put the copy tier in front of code that copies nothing (`v[i].serialize(to: &var enc)` over a local encoder; `v[0] = w[1]` over two disjoint containers). The row also pins the exclusions: a REFERENCE-typed binding stays a plain capture (its pointer copy is already a borrow), and so does the receiver's own ROOT |
+| P18 | the window's own ROOT is not borrowed from inside the extent, so `v.push`/`v.pop` there stays refused | `errors/place_window_beside_var_root.saw` (X15) | DF-169h's exclusion half, and why it is an exclusion: borrowing the root would put a second access to it inside the open window. The bogus half — a root read that invalidates nothing, `v[0].n = v.len()` — is DF-248a, held for a design |
 
 ## The unsafe surface
 

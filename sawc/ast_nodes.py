@@ -1930,6 +1930,17 @@ class ClosureExpr(Expression):
     # code address alone. Holds the full `FuncPointer<F>` type; None for every
     # ordinary closure. Codegen reads it to pick the emission.
     funcpointer_target: Optional['SawType'] = annotation(None)
+    # DF-169h: this literal is a PLACE WINDOW body, synthesized by
+    # `place_uses._window_call`. No source spells it, and it is not a closure in
+    # the language's sense at all — it is how design 141's "run this while the
+    # window is open" is written down. So every enclosing binding its body names
+    # is captured BY BORROW rather than by value: the author wrote that code in
+    # the enclosing scope, and it must run against the live bindings there.
+    # `place_window_root` is the receiver's own root NAME, which is the one
+    # binding NOT borrowed — a second access to the window's own root, from
+    # inside the open window, is what design 188 refuses.
+    is_place_window: bool = annotation(False)
+    place_window_root: Optional[str] = annotation(None)
 
 
 # Statements

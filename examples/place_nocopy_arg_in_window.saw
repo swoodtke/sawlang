@@ -1,15 +1,16 @@
-// Calling a method on a PLACE and handing it `&var` to a NoCopy LOCAL is
-// refused: ``cannot copy value of type `Sink` which implements NoCopy``,
-// anchored at the subscript, though the program copies no `Sink` anywhere. The
-// place window lowers to a closure and the local is captured by value.
+// Calling a method on a PLACE and handing it `&var` to a NoCopy LOCAL works:
+// the window's body is code the author wrote in the enclosing scope, so it
+// captures that scope's bindings BY BORROW (DF-169h).
 //
-// A `&var` PARAMETER forwarded into the same window is fine, which is why the
-// design-169 derived `Vector` walk is unaffected: its encoder arrives as a
-// parameter. It is a local that fails, so `v[i].serialize(to: &var enc)` over
-// an encoder you just built does not compile.
+// It used to be ``cannot copy value of type `Sink` which implements NoCopy``,
+// anchored at the subscript, though the program copies no `Sink` anywhere —
+// the window lowers to a closure and the local was captured by value. A `&var`
+// PARAMETER forwarded into the same window was always fine (its plain capture
+// copies the POINTER), which is why the design-169 derived `Vector` walk never
+// hit it and why `v[i].serialize(to: &var enc)` over a locally-built encoder
+// was the shape that did.
 //
-// Intended behavior is below: both spellings feed the same sink.
-// XFAIL: DF-169h a place window refuses a `&var` argument naming a NoCopy local
+// Both spellings feed the same sink.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // forwarded param: 1

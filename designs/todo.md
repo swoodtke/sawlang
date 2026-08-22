@@ -71,6 +71,7 @@ for sawos; "238 before more M3 work" is absolute.
 - ~~DF-218y~~ — CLOSED Aug 22 (branch `df-218xy`, commit 2) on the SYNC side, as the Aug-22 ruling directs: discard order is REVERSE-DECLARATION everywhere. The sweep found a SECOND forward loop — the destructuring `let`'s wildcard leaves — which was forward on both twins and moved with it. Pin flipped and extended to 11 rows; entry below; conformance K77
 - DF-244b — a bare `None` TAIL at a `Result<T?, E>` cannot type itself, in a NAMED body as much as a closure; entry below, DF-232h's residue. `return None` is the one-keyword workaround
 - DF-246a — `examples/task_backtrace_mt.saw` flakes under machine LOAD (a fixed `sleep` standing in for a happens-before between two MT tasks), which reads as a suite regression and costs a battery re-run; `channel_receive_cancel_mt.saw` is the second member of the class. Entry below, found by `df-218xy`'s terminal battery
+- DF-248a — a window body may not name the window's own ROOT, even for a read that invalidates nothing (`v[0].n = v.len()`); held deliberately, and what it wants is a designed "shared second access to the root" rule. Entry below, filed by DF-169h's fix
 
 - DF-225a — a user `extern "C"` function under a codegen-internal name (`printf`, `abort`, …) ICEs with no location (entry below, under DF-225a-f)
 - DF-225d — a primitive extension method returning bare `self` refuses its own declared return type, both sides printed identical (entry below, under DF-225a-f)
@@ -3073,6 +3074,27 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   snapshot, so what a test may legitimately wait on wants a ruling. Note for
   whoever picks it up: a `task_backtrace_mt` failure reading `1 live` is this,
   not a regression; re-run it alone before chasing it.
+
+- **DF-248a (BOGUS-REFUSAL, BOUNDED; filed Aug 22 by DF-169h's fix) — a window
+  body may not name the window's own ROOT, even for a read that invalidates
+  nothing.** `v[0].n = v.len()` is ``cannot copy value of type `Vector<Cell>`
+  which implements ExplicitCopy``, anchored at the subscript, and so is
+  `print("{v.len()} {v[0]}")` on a move-only element. MECHANISM: DF-169h made a
+  window closure borrow-capture every enclosing binding its body names EXCEPT
+  the receiver's root, which stays a by-value capture — so the copy tier still
+  answers for it. HELD DELIBERATELY, and this is the reason a sweep did not
+  widen the fix: borrowing the root would put a SECOND access to it inside the
+  open window, which is what design 188 refuses in one call, and
+  `v[0].n = v.pop()!` is exactly the invalidation that rule exists for. Nothing
+  today separates the safe second access (`len()`, a `&self` read) from the
+  invalidating one (`pop()`, `push()`) at the window's own root, and inventing
+  one is a design: the honest rule is probably "the root may be reached SHARED
+  from inside the extent, never exclusively", which needs the window's borrow to
+  join the access set (closures are their own access domain today —
+  `_check_write_rhs_exclusivity` skips them). Until then the workaround is one
+  line: bind what the body needs off the root ahead of the window
+  (`let n = v.len()`). The two-windows-on-one-root half of this is DF-218j,
+  which the assignment RHS-hoist closes without touching the rule.
 
 - **DF-218i (BOGUS-REFUSAL, PRE-EXISTING) — rendering a PLACE is judged a
   value read, so a move-only element cannot be printed.** `print("{v[0]}")`
@@ -6150,7 +6172,24 @@ Closed items: see todo_aug1-aug9.md.
   harness reaches each entry as a PLACE instead (`entries[i].ext()`, a borrow, so
   the tier never comes up). The two halves of one tier should agree. Repro:
   `.build/scratch/probe_auto_tier_bound.saw`.
-- **DF-169h — a place window refuses a `&var` argument naming a NoCopy LOCAL.**
+- **DF-169h — CLOSED (Aug 22, `place-window-fixes`): a place window's body
+  captures the enclosing scope BY BORROW.** The synthesized window closure now
+  carries `[&x]`/`[&var x]` specs for every enclosing binding its body names —
+  it is a lowering device, not a value, so the code inside it must run against
+  the live bindings — and the borrow rides the very rule that admits a
+  hand-written `[&var x]` (a direct argument to a non-escaping parameter). Two
+  names stay value captures on purpose: a REFERENCE-typed binding (whose plain
+  capture already copies the pointer — the `&var` PARAMETER row that always
+  worked) and the receiver's own ROOT (borrowing that would put a second access
+  to the root inside the open window — design 188; the bogus half of that
+  boundary is DF-248a). The sweep found a much wider face than the pin: `v[0] =
+  w[1]` over two disjoint containers was the ExplicitCopy twin of the same
+  refusal. Pin flipped (`examples/place_nocopy_arg_in_window.saw`) + the sweep
+  matrix `examples/place_window_borrows_enclosing_locals.saw`; LANGUAGE_SPEC's
+  "Window extent and nesting" and the skill's CBOR gotcha say so. Original
+  finding follows.
+  **(BOGUS REFUSAL) — a place window refuses a `&var` argument naming a NoCopy
+  LOCAL.**
   `v[i].serialize(to: &var enc)` over an encoder you just built is ``cannot copy
   value of type `CborEncoder` which implements NoCopy``, anchored at the
   SUBSCRIPT, with a `move` hint that would be wrong — the program copies no

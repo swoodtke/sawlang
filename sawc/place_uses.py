@@ -670,6 +670,12 @@ class _PlaceUses:
                                      column=place.column,
                                      place_shared_window=not exclusive)],
             body=body, line=place.line, column=place.column)
+        # DF-169h: the body is code the AUTHOR wrote in the enclosing scope, so
+        # it captures by BORROW. The receiver's own root is the exception — see
+        # `ClosureExpr.is_place_window`.
+        closure.is_place_window = True
+        closure.place_window_root = self._access_root(
+            self._place_receiver(place))
         args = [Argument(value=self._value(a)) for a in self._place_args(place)]
         args.append(Argument(value=closure))
         if getattr(place, 'place_optional', False):
@@ -1141,6 +1147,23 @@ class _PlaceUses:
             return node.tuple_expr
         if isinstance(node, ForceUnwrap):
             return node.expr
+        return None
+
+    def _access_root(self, expr):
+        """The NAME a postfix chain is rooted at (`self` for a receiver), or
+        None when the chain bottoms out in something with no name — a call
+        result, a literal.
+
+        `_chain_down` already describes what a chain is made of; this is the
+        one question that walk answers for the capture rule (DF-169h).
+        """
+        node = expr
+        while node is not None:
+            if isinstance(node, Identifier):
+                return node.name
+            if isinstance(node, SelfExpr):
+                return "self"
+            node = self._chain_down(node)
         return None
 
     def _place_spelling(self, place) -> str:
