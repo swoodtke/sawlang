@@ -2358,12 +2358,18 @@ class CallsMixin:
 
         # Build the handle value { handle: Some(raw), joined: false } — a
         # `VoidThread` for a `Void` body, a `Thread<T>` otherwise (design 242).
+        # The design-144 IDENTITIES, not the spellings: a user `struct Thread`
+        # binds `Thread` to its own type, and this reference must still reach
+        # std's (design 242, on `SLOT_STRUCT_NAME`'s model).
+        from type_identity import type_identity as _tid
         if result_is_void:
-            task_saw = SawType(TypeKind.STRUCT, struct_name="VoidThread")
+            task_saw = SawType(TypeKind.STRUCT,
+                               struct_name=_tid("VoidThread", ("<std>", "task")))
         else:
-            task_saw = SawType(TypeKind.STRUCT, struct_name="Thread",
+            thread_name = _tid("Thread", ("<std>", "task"))
+            task_saw = SawType(TypeKind.STRUCT, struct_name=thread_name,
                                type_args=[result_saw])
-            self._ensure_monomorphized_struct("Thread", [result_saw])
+            self._ensure_monomorphized_struct(thread_name, [result_saw])
         task_llvm = self._get_llvm_type(task_saw)
         # handle field is `UnsafePointer<Int8>?` => { i1 is_some, i8* value }.
         handle_opt_ty = task_llvm.elements[0]

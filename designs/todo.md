@@ -71,6 +71,7 @@ for sawos; "238 before more M3 work" is absolute.
 - ~~DF-218y~~ — CLOSED Aug 22 (branch `df-218xy`, commit 2) on the SYNC side, as the Aug-22 ruling directs: discard order is REVERSE-DECLARATION everywhere. The sweep found a SECOND forward loop — the destructuring `let`'s wildcard leaves — which was forward on both twins and moved with it. Pin flipped and extended to 11 rows; entry below; conformance K77
 - DF-244b — a bare `None` TAIL at a `Result<T?, E>` cannot type itself, in a NAMED body as much as a closure; entry below, DF-232h's residue. `return None` is the one-keyword workaround
 - DF-247a — a function that is a `group.spawn` ROOT is `undefined function` at every other call of it in the same module (entry below, filed by design 242 unit 0's census; PRE-EXISTING, stash-verified). The fix owes the ROOT MATRIX its mechanism reaches, not the one probed cell
+- DF-247b — under a GLOB import the QUALIFIED spelling of a type is a DIFFERENT type from the bare one (entry below, filed by design 242 unit 1; PRE-EXISTING and general, three types probed with two green controls). Wants a RULING first: make it work, or make the glob refuse a qualifier
 - DF-246a — `examples/task_backtrace_mt.saw` flakes under machine LOAD (a fixed `sleep` standing in for a happens-before between two MT tasks), which reads as a suite regression and costs a battery re-run; `channel_receive_cancel_mt.saw` is the second member of the class. Entry below, found by `df-218xy`'s terminal battery
 - DF-248a — a window body may not name the window's own ROOT, even for a read that invalidates nothing (`v[0].n = v.len()`); held deliberately, and what it wants is a designed "shared second access to the root" rule. Entry below, filed by DF-169h's fix
 - DF-248b RESIDUE — a HAND-WRITTEN closure nested inside another still captures the outer one's `&var` PARAMETER by value, so a write through it is silently lost; the place-window half closed Aug 22. Entry below, pinned XFAIL; wants a borrow marker on `VariableInfo`
@@ -138,6 +139,46 @@ above); the rest are unprobed and presumed to be the same cell.
 
 Not pinned yet — a pin belongs with the sweep, and design 242 stopped at
 recording the shape rather than growing an unrelated fix. [52b, 242]
+
+## DF-247b — under a GLOB import the QUALIFIED spelling of a type is a
+## DIFFERENT type from the bare one (filed Aug 22 by design 242 unit 1's
+## identity probes; PRE-EXISTING and general — not a std-carve-out corner)
+
+```saw
+import std.data.*
+
+func main() {
+    var a: Data = Data()          // fine
+    var b: data.Data = Data()     // error: cannot assign `Data` to variable
+    print(a.len() + b.len())      //        of type `data.Data`
+}
+```
+
+Neither answer is the right one. Design 150 says a qualifier works "in EVERY
+position a name appears", so `data.Data` should BE `Data`; and if a glob
+import is not meant to bind the qualifier at all, the line should be a clean
+"undefined type", not a type mismatch against a phantom. Today it resolves to
+something that is not std's type and nothing says so.
+
+Reproduced at three types on two axes, which is what makes it general rather
+than a corner of design 242's new carve-out: `std.data.*` + `data.Data` (an
+ordinary gated std type), `std.compiler.frame.*` + `frame.Slot<Int>` (a
+compiler-emitted one), and `std.task.*` + `task.Thread<Int>`. CONTROLS, both
+green: the plain `import std.data` + `data.Data`, and the selective `import
+std.compiler.frame.{Slot}` + `frame.Slot<Int>` — so it is the GLOB form
+specifically.
+
+MECHANISM (obligation 4, unswept): the glob path binds the qualifier without
+mapping it to the module's real type identities, so `data.Data` resolves to a
+name-only type that compares unequal to `Data`. The mechanism reaches every
+position a qualified type name may be WRITTEN under a glob — design 194's
+annotation matrix is the ready-made grid (parameter, return, `let`, field,
+enum payload, alias RHS, `static`, generic argument, tuple/array element,
+function-type part, `any Trait`) — and only the `let` cell is probed. Whether
+the fix is "make it work" or "make the glob refuse a qualifier" is a RULING,
+not an implementation choice.
+
+Not pinned: the pin belongs with the ruling. [150, 194, 242]
 
 ## DF-244b — a bare `None` TAIL at a `Result<T?, E>` cannot type itself, in a
 ## NAMED body as much as a closure (filed Aug 22, DF-232h's residue)
@@ -336,6 +377,11 @@ are law. Status by unit:
   type names are ERRORS carrying the new spelling (pins
   `examples/errors/spawn_names_its_engine.saw`,
   `examples/errors/retired_task_handle_names.saw`), no deprecation alias.
+  `Thread`/`VoidThread` joined `COMPILER_EMITTED_STD_TYPES` (`Slot`'s
+  carve-out, DF-218g), so the SPELLING stays the user's — which is what keeps
+  SOS's own `struct Thread` compiling; pin
+  `examples/thread_name_belongs_to_the_user.saw`. Two findings: DF-247a,
+  DF-247b.
 - **Units 2-5 — OPEN.** Unit 2 (must-consume) has an OPEN QUESTION the brief
   does not answer; see the ruling needed below.
 

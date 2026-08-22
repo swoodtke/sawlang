@@ -1,0 +1,45 @@
+// design 242 unit 1: `Thread<T>`/`VoidThread` are what `Thread.spawn { }`
+// evaluates to, and that form names no type at the source level — so the
+// reference the compiler mints carries std's IDENTITY, not the spelling. The
+// spelling stays the user's: a program may declare its own `Thread` (SOS's
+// public `sos` module has one, for a kernel thread object) and spawn in the
+// same file, and the two never meet. `Slot`/`UnsafeRef`/`Poll` are the
+// precedent (DF-218g).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 36
+// bumped
+// 43
+
+struct Thread {
+    handle: Int
+}
+
+extension Thread {
+    func handle_value(&self) -> Int {
+        self.handle
+    }
+}
+
+func work(n: Int) -> Int {
+    n * n
+}
+
+func bump() {
+    print("bumped")
+}
+
+func main() {
+    let mine = Thread(handle: 7)
+    print(mine.handle_value())
+
+    var spawned = Thread.spawn { work(6) }
+    let squared = spawned.join()
+    print(squared)
+
+    var voided = Thread.spawn { bump() }
+    voided.join()
+
+    print(mine.handle_value() + squared)
+}

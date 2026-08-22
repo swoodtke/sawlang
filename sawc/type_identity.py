@@ -166,7 +166,18 @@ def is_std_module(module: Optional[Tuple[str, ...]]) -> bool:
 # is: std's `Slot` is `Slot$m$std_compiler_frame` from its declaration all the
 # way to its LLVM symbols, and the bare name stays the user's to spend on a
 # struct or an enum of their own.
-COMPILER_EMITTED_STD_TYPES = {"Poll", "Slot", "UnsafeRef"}
+#
+# `Thread` and `VoidThread` joined at design 242 unit 1, on both counts at once.
+# They are what `Thread.spawn { … }` evaluates to, and that form names no type
+# at the source level — the typechecker and spawn codegen mint the reference —
+# so the synthesized reference must reach std's declaration whatever the module
+# it lands in declares. And they are COMPILED IN whether or not a program
+# imports `std.task`: the prelude `std.taskgroup` spawns its own worker pool,
+# which drags the leaf in through design 82's transitive closure, so exclusion
+# cannot be the answer here either. `Thread` is a name real programs use — SOS's
+# public `sos` module has a `struct Thread` for a kernel thread object, which is
+# how this was found.
+COMPILER_EMITTED_STD_TYPES = {"Poll", "Slot", "UnsafeRef", "Thread", "VoidThread"}
 
 
 def qualifies(module: Optional[Tuple[str, ...]], private: bool = False,

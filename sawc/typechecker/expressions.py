@@ -35,6 +35,16 @@ from noescape import first_reference_in
 from errors import ErrorKind
 from const_eval import const_eval, ConstEvalError, CONST_LENGTH_HINT
 from namespace import Visibility, EnumSymbol
+from type_identity import type_identity as _type_identity
+
+# design 242: the IDENTITIES of `std.task`'s two thread handles, not their
+# spellings. `Thread.spawn { … }` names no type at the source level — this pass
+# mints the reference — so it must reach std's declaration whatever the module
+# it lands in declares (a user `struct Thread` binds the spelling to its own
+# identity, exactly as a user `struct Slot` does). Same rule and same mangling
+# helper as the coroutine transform's `SLOT_STRUCT_NAME`.
+THREAD_STRUCT_NAME = _type_identity("Thread", ("<std>", "task"))
+VOID_THREAD_STRUCT_NAME = _type_identity("VoidThread", ("<std>", "task"))
 
 # Sentinel: a length that IS a compile-time constant but whose value belongs to
 # an instantiation rather than to this (abstract) pass — `[v; N]` inside a
@@ -2183,8 +2193,8 @@ class ExpressionsMixin:
         # — `Thread<Void>` cannot be written as an annotation (the visible-`Void`
         # rule, designs 122/132), and joining one has no value to hand back.
         if result_type.kind == TypeKind.VOID:
-            return SawType(TypeKind.STRUCT, struct_name="VoidThread")
-        return SawType(TypeKind.STRUCT, struct_name="Thread",
+            return SawType(TypeKind.STRUCT, struct_name=VOID_THREAD_STRUCT_NAME)
+        return SawType(TypeKind.STRUCT, struct_name=THREAD_STRUCT_NAME,
                        type_args=[result_type])
 
     def _reject_never_task_body(self, subject: str, consequence: str, result_type,
