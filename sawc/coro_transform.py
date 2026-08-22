@@ -4233,7 +4233,14 @@ class _FrameBuilder:
         fe = block.final_expr
         if fe is None:
             return
-        spanning = self._spans_suspension(fe)
+        # DF-244a: a tail carrying a PROPAGATING `try` is normalized into a
+        # statement even when it holds no suspension of its own. The lowering
+        # keys on statements, and `try`'s error edge needs the landing dispatch
+        # in `_lower_stmt` — a tail left in `final_expr` is lowered by `_done`
+        # with the `try` still inside the state machine, which is the same
+        # in-place lowering the `return` branch used to do (see `_lower_stmt`).
+        spanning = (self._spans_suspension(fe)
+                    or self._has_propagating_try(fe))
         # DF-158b: a `Void` body has NO RESULT, so nothing in it is ever in tail
         # position in the sense this branch means — there is no value to carry
         # out. `func f() { yield_now() }` is the whole bug: the parser makes a
@@ -5953,7 +5960,23 @@ class _FrameBuilder:
         if info is not None:
             self._emit_nested_call(info, loop_ctx)
             return
-        if isinstance(s, ReturnStatement):
+        # DF-244a: a `return` carrying a PROPAGATING `try` falls through to the
+        # try-landing dispatch at the bottom of this ladder, instead of lowering
+        # in place here. It used to be taken by this branch first — so `return
+        # try f()`, every expression shape nested in one (`return g(try f())`,
+        # `return 1 + (try f())`, `return match try f() { … }`, `return a ?? try
+        # f()`, `return (try f()).len()`) and a block TAIL, which lowers as a
+        # return, all kept the `try` inside the state machine. The exact failure
+        # the landing exists to prevent then came back: the typechecker's second
+        # pass read the propagation target off `resume() -> Poll` and named a
+        # type the author never wrote, or codegen reached
+        # `_create_result_err_for_return` inside `resume` and ICEd. Binding the
+        # same expression to a `let` first always worked, which is what made the
+        # shape look like an expression-position rule rather than the one
+        # statement kind it is. The dispatch has to stay BELOW the control-flow
+        # ladder — a `while` whose body holds a propagating `try` is a loop to
+        # split, not a statement to wrap — so the deferral is spelled here.
+        if isinstance(s, ReturnStatement) and not self._has_propagating_try(s):
             forgets = []
             cap_lets = []
             value = None
@@ -6021,7 +6044,10 @@ class _FrameBuilder:
         # design 196 unit 3: a propagating `try` in a state-machine body. Its
         # error edge leaves this state — for the enclosing split try/catch's
         # catch state, or, with no enclosing catch, out of the coroutine
-        # altogether through the frame's own done sequence.
+        # altogether through the frame's own done sequence. THE ONE DISPATCH for
+        # a propagating `try`, reached by every statement kind that can carry
+        # one: a bare expression statement, a `let`, an assignment — and, since
+        # DF-244a, a `return` (which defers to it from its own branch above).
         if self._has_propagating_try(s):
             if self._try_ctx is not None:
                 self._emit_try_landing(s)

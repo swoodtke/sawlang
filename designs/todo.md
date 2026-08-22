@@ -95,6 +95,35 @@ the design-194 prelude gate against the wrong module. Wants a resolution
 strategy, hence its own entry. PIN:
 `examples/generic_bound_call_concrete_param_type.saw` (XFAIL). [239]
 
+## ~~DF-244a — a propagating `try` inside a `return` (or a block TAIL) in a
+## SUSPENDING body never reaches the frame's error edge~~ — **FIXED Aug 22**
+## on branch `design-234`, found while probing design 234 unit 1's position
+## matrix
+
+MECHANISM (obligation 4, and it is one site, not a family of positions):
+`_lower_stmt` dispatches a propagating `try` to design 196 unit 3's error
+landing BELOW the control-flow ladder — and the `ReturnStatement` branch sits
+ABOVE it. So a `return` carrying a propagating `try` was lowered IN PLACE with
+the `try` still inside `resume() -> Poll`, and the exact failure the landing
+exists to prevent came back: the typechecker's second pass read the propagation
+target off `Poll` (``cannot propagate errors from a function returning `Poll` ``)
+or codegen reached `_create_result_err_for_return` inside `resume`
+(``Cannot create Result.Err outside Result-returning function``, an ICE).
+SWEEP: 26 rows × {sync, suspending}, compiled AND run. Five expression shapes
+failed under `return` — bare, argument, receiver, binary operand, `match`
+scrutinee, `??` RHS (two of them the ICE) — and every one of them PASSED when
+bound to a `let` first, which is what made it look like a rule about expression
+positions rather than the one statement kind it is. A block TAIL is the same
+site (tail normalization turns it into a return), and it needed the second half
+of the fix: `_norm_block` left a NON-spanning tail in `final_expr`, where
+`_done` lowers it with the `try` inside. The landing dispatch stays BELOW the
+ladder — a `while` whose body holds a propagating `try` is a loop to split, not
+a statement to wrap — so the `return` branch DEFERS to it rather than the
+dispatch moving up. Regression test
+`examples/suspending_return_propagates_a_try.saw` (9 rows, Ok and Err path
+each). Matters to design 234 because the flip multiplies `return try f()`.
+[196, 234]
+
 ## Design 234 — the fallibility flip (RATIFIED Aug 17; QUEUED behind the
 ## three in-flight Aug-17 branches)
 

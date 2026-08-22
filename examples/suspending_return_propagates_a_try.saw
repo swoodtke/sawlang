@@ -1,0 +1,165 @@
+// A propagating `try` inside a `return` — or inside a block TAIL, which lowers
+// as one — reaches the coroutine frame's error edge (DF-244a, FIXED).
+//
+// Design 196 unit 3 built the landing that carries a propagating `try`'s error
+// out of a state machine, and `_lower_stmt` dispatched to it BELOW the
+// control-flow ladder — which the `return` branch sits above. So a `return`
+// carrying a propagating `try` was taken by that branch first and lowered IN
+// PLACE, with the `try` still inside `resume() -> Poll`. The exact failure the
+// landing exists to prevent came back: the typechecker's second pass read the
+// propagation target off `Poll` and named a type the author never wrote
+// (``cannot propagate errors from a function returning `Poll` ``), or codegen
+// reached `_create_result_err_for_return` inside `resume` and died with
+// ``Cannot create Result.Err outside Result-returning function``.
+//
+// Binding the same expression to a `let` first always worked, which is what
+// made this look like a rule about EXPRESSION POSITIONS rather than the one
+// statement kind it is: every failing shape below is `return <e>` for an `e`
+// that is fine on the right of a `let`.
+//
+// Rows — each is a distinct expression shape under one `return`, plus the two
+// tail spellings that normalize into a return:
+//   plain       — `return try f()`, the bare shape
+//   argument    — the tried value is an ARGUMENT of the returned call
+//   receiver    — the tried value is the RECEIVER of the returned call
+//   binary      — an operand of the returned expression
+//   subject     — the SCRUTINEE of a returned `match`
+//   coalesce    — the `??` right operand, whose short-circuit must survive
+//   tail        — a bare tail expression (no `return` written)
+//   tail_arm    — a tail `match` arm, pushed into result position by the
+//                 transform's tail normalization
+//   in_loop     — the control: a `while` body holding a propagating `try` is a
+//                 LOOP to split, not a statement to wrap, so the landing
+//                 dispatch must stay below the control-flow ladder
+// Each row runs twice, once on the Ok path and once on the Err path.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// plain ok 6
+// plain err A30
+// argument ok 12
+// argument err A30
+// receiver ok 1
+// receiver err A30
+// binary ok 7
+// binary err A30
+// subject ok 600
+// subject err A30
+// coalesce ok 6
+// coalesce err A30
+// tail ok 6
+// tail err A30
+// tail_arm ok 6
+// tail_arm err A30
+// in_loop ok 6
+// in_loop err A30
+
+import std.task.*
+
+struct AllocFail { size: Int }
+extension AllocFail: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("A")
+        into.append(self.size)
+    }
+}
+extension AllocFail: Error {}
+
+func grab(n: Int) -> Result<Int, AllocFail> {
+    if n > 10 { return AllocFail(size: n) }
+    return n * 2
+}
+
+func grab_text(n: Int) -> Result<String, AllocFail> {
+    if n > 10 { return AllocFail(size: n) }
+    return "x"
+}
+
+func twice(a: Int) -> Int { a * 2 }
+func maybe_none(n: Int) -> Int? { if n == 0 { None } else { n } }
+
+func row_plain(n: Int) -> Result<Int, AllocFail> {
+    yield_now()
+    return try grab(n)
+}
+
+func row_argument(n: Int) -> Result<Int, AllocFail> {
+    yield_now()
+    return twice(try grab(n))
+}
+
+func row_receiver(n: Int) -> Result<Int, AllocFail> {
+    yield_now()
+    return (try grab_text(n)).len()
+}
+
+func row_binary(n: Int) -> Result<Int, AllocFail> {
+    yield_now()
+    return 1 + (try grab(n))
+}
+
+func row_subject(n: Int) -> Result<Int, AllocFail> {
+    yield_now()
+    return match try grab(n) {
+        case 6 -> 600,
+        case _ -> 0
+    }
+}
+
+func row_coalesce(n: Int) -> Result<Int, AllocFail> {
+    yield_now()
+    return maybe_none(0) ?? try grab(n)
+}
+
+func row_tail(n: Int) -> Result<Int, AllocFail> {
+    yield_now()
+    try grab(n)
+}
+
+func row_tail_arm(n: Int) -> Result<Int, AllocFail> {
+    yield_now()
+    match n {
+        case 0 -> { 0 },
+        case _ -> { try grab(n) }
+    }
+}
+
+func row_in_loop(n: Int) -> Result<Int, AllocFail> {
+    var out = 0
+    var i = 0
+    while i < 2 {
+        yield_now()
+        out = try grab(n)
+        i += 1
+    }
+    return out
+}
+
+func show(label: String, r: Result<Int, AllocFail>) {
+    match r {
+        case Ok(v) -> print("{label} ok {v}"),
+        case Err(e) -> print("{label} err {e}")
+    }
+}
+
+func main() {
+    var group = TaskGroup()
+
+    show("plain", group.spawn(row_plain(3)).join())
+    show("plain", group.spawn(row_plain(30)).join())
+    show("argument", group.spawn(row_argument(3)).join())
+    show("argument", group.spawn(row_argument(30)).join())
+    show("receiver", group.spawn(row_receiver(3)).join())
+    show("receiver", group.spawn(row_receiver(30)).join())
+    show("binary", group.spawn(row_binary(3)).join())
+    show("binary", group.spawn(row_binary(30)).join())
+    show("subject", group.spawn(row_subject(3)).join())
+    show("subject", group.spawn(row_subject(30)).join())
+    show("coalesce", group.spawn(row_coalesce(3)).join())
+    show("coalesce", group.spawn(row_coalesce(30)).join())
+    show("tail", group.spawn(row_tail(3)).join())
+    show("tail", group.spawn(row_tail(30)).join())
+    show("tail_arm", group.spawn(row_tail_arm(3)).join())
+    show("tail_arm", group.spawn(row_tail_arm(30)).join())
+    show("in_loop", group.spawn(row_in_loop(3)).join())
+    show("in_loop", group.spawn(row_in_loop(30)).join())
+}
