@@ -2421,7 +2421,7 @@ class Namespace:
         "task frame parameter", "task frame local", "task frame result",
     )
 
-    def send_check(self, saw_type: SawType, position: str):
+    def send_check(self, saw_type: SawType, position: str, assume=None):
         """None when `saw_type` may cross a thread boundary at `position`;
         otherwise the explanatory note to append to the caller's message.
 
@@ -2430,11 +2430,21 @@ class Namespace:
         reports, the coroutine transform raises. What this owns is the QUESTION,
         the thread-safety note that must ride with every refusal, and the list
         of positions above.
+
+        DF-219c: `assume` is the enclosing generic's DECLARED bounds, as the
+        `(send_names, sync_names)` pair `_assumed` reads. An abstract `T` has no
+        thread-safety of its own — the structural walk answers False for every
+        one, which is right at a CONCRETE boundary and wrong inside a generic
+        body, where `<T: Send>` is exactly the promise the caller was made to
+        keep (and `_check_type_param_bounds` is where it is collected). Passing
+        it makes the question "is this Send GIVEN what the signature declares",
+        which is the question a generic body's boundary is really asking.
         """
         assert position in self.SEND_POSITIONS, position
-        if self.is_send(saw_type):
+        if self._send_sync(saw_type, want_sync=False, visiting=set(),
+                           assume=assume):
             return None
-        return self.thread_safety_note(saw_type, False)
+        return self.thread_safety_note(saw_type, False, assume)
 
     # ------------------------------------------------------------- design 186
     # The declared assertions, and the derivation they stand in for.
@@ -2521,15 +2531,63 @@ class Namespace:
             return False
         return name in assume[1 if want_sync else 0]
 
-    def thread_safety_note(self, saw_type: SawType, want_sync: bool) -> str:
+    def unmet_conditional_bound(self, saw_type: SawType, want_sync: bool,
+                                assume=None):
+        """The first `(argument, bound)` of a DECLARED CONDITIONAL assertion
+        that this instantiation fails, or None.
+
+        `extension Arc<T: Send + Sync>: UnsafeSend {}` is the shape: an `Arc`
+        shares its payload by construction, so its Send-ness is conditioned on
+        BOTH bounds together. When the payload is Send and not Sync the type is
+        correctly refused as not `Send`, and the actionable fact — the one the
+        author can do something about — is the SYNC bound the payload misses.
+        This is what lets a caller say which (DF-219c's adjacent finding,
+        recorded at conformance row K31).
+
+        Answers only for a type whose refusal really is a conditional
+        assertion's; a structural refusal (a raw pointer, a plain non-Send
+        field) has no single bound to name and gets None.
+        """
+        if saw_type is None or saw_type.kind != TypeKind.STRUCT:
+            return None
+        name = saw_type.struct_name
+        if not name:
+            return None
+        bounds = self._lookup_thread_assertion(declaration_base(name),
+                                               self.ASSERTION_FOR[want_sync])
+        if not bounds:
+            return None
+        args = list(saw_type.type_args or [])
+        for index, param_bounds in enumerate(bounds):
+            if not param_bounds or index >= len(args) or args[index] is None:
+                continue
+            for bound in param_bounds:
+                if not self._satisfies_thread_bound(args[index], bound, assume):
+                    return (args[index], bound)
+        return None
+
+    def thread_safety_note(self, saw_type: SawType, want_sync: bool,
+                           assume=None) -> str:
         """Why this type is not Send/Sync, in one sentence, or "".
 
         Appended to every diagnostic that refuses a type at a thread boundary.
-        A cell-carrying type is the case worth explaining: the derivation is
-        blocked ON PURPOSE and there IS a way to say otherwise, so the message
-        names the declaration to write AND the field that made it necessary —
-        without the field, "declare `UnsafeSync`" reads as a magic word.
+        Two cases are worth explaining. A CONDITIONAL assertion's unmet bound
+        (`Arc<T: Send + Sync>` at a Send-but-not-Sync payload) is refused as
+        "not `Send`" and the author's lever is the SYNC bound, so the note
+        names it. A cell-carrying type has its derivation blocked ON PURPOSE
+        and there IS a way to say otherwise, so the message names the
+        declaration to write AND the field that made it necessary — without the
+        field, "declare `UnsafeSync`" reads as a magic word.
         """
+        unmet = self.unmet_conditional_bound(saw_type, want_sync, assume)
+        if unmet is not None:
+            arg, bound = unmet
+            base = declaration_base(saw_type.struct_name or "")
+            derived = "Sync" if want_sync else "Send"
+            note = (f" `{base}` is `{derived}` only when its payload is "
+                    f"`{bound}`, and `{arg}` is not — that is the bound to "
+                    f"satisfy.")
+            return note + self.thread_safety_note(arg, bound == "Sync", assume)
         if saw_type is None or not self.is_cell_carrying(saw_type):
             return ""
         name = (saw_type.struct_name if saw_type.kind == TypeKind.STRUCT

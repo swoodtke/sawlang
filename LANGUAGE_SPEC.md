@@ -5634,7 +5634,13 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   The Send capture-audit walks the closure's captures and rejects the first
   whose type is not `Send`, naming the capture. The RESULT type is checked the
   same way: it is computed on the task's thread and handed back by `join()`, so
-  a non-`Send` result is refused at the `spawn`. `Task<T>` is `NoCopy + Deinit`:
+  a non-`Send` result is refused at the `spawn`. Inside a GENERIC body the audit
+  reads the enclosing signature's DECLARED bounds — a `<T: Send>` bound licenses
+  capturing a `T`, `<T: Send + Sync>` licenses an `Arc<T>` — because a generic
+  body is checked once, abstractly, and a declared bound is a promise the caller
+  is separately made to keep (it is checked at the call, against the concrete
+  type argument). An unbounded `T` is refused, as it always was.
+  `Task<T>` is `NoCopy + Deinit`:
   `join` blocks for the result; dropping an unjoined `Task` **joins** it
   (structured concurrency — a task's lifetime is a value's lifetime).
 - **`Channel<T: Send>`** — a `Copy` handle onto a shared, internally

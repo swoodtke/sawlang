@@ -1,0 +1,30 @@
+// Row K74's second refusal, and the one the relaxation RESTS on — the bound a
+// generic body's capture audit trusts is enforced at the CALL, where the
+// concrete type is known. `Cell` carries an interior cell: `Send` (a cell moves
+// fine), not `Sync`, so `Arc<Cell>` cannot cross and `<T: Send + Sync>` is what
+// says so.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: type `Cell` does not satisfy the `Sync` bound
+
+struct Cell {
+    cell: UnsafeMutableInterior<Int>
+}
+
+extension Cell {
+    public init(start: Int) unsafe -> Cell {
+        Cell(cell: UnsafeMutableInterior(start))
+    }
+    func _at(&self) unsafe -> UnsafePointer<Int> { self.cell.ptr() }
+    public func value(&self) unsafe -> Int { self._at()[0] }
+}
+
+func fan_arc<T: Send + Sync>(a: Arc<T>) -> Int {
+    let a1 = a.copy()
+    var t = spawn { a1.strong_count() }
+    return t.join()
+}
+
+func main() unsafe {
+    let c = Arc<Cell>(value: Cell(start: 0))
+    print("count {fan_arc(move c)}")
+}

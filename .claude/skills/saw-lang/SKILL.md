@@ -1484,6 +1484,17 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   and `join()` hands it over. A borrow capture (`[&var n]`) is refused before
   either question — an escaping closure cannot hold a pointer into the frame
   that spawned it.
+  **INSIDE A GENERIC BODY, THE DECLARED BOUND IS THE ANSWER** (DF-219c, fixed
+  Aug 21): a `<T: Send>` bound licenses capturing a `T`, and `<T: Send + Sync>`
+  licenses an `Arc<T>` (an Arc shares its payload by construction, so it needs
+  both). An UNBOUNDED `T` is still refused — nothing was promised — and the
+  bound is checked at the CALL, against the concrete type argument, so the
+  trust is never misplaced. Treat this as working now and SUSPECT in older
+  builds, where the audit answered False for every abstract `T` and
+  `Send`-bounded fan-out was simply unwritable, bound or no bound. GOTCHA when
+  you get it wrong: a non-Sync payload makes the WHOLE `Arc` non-Send, so the
+  message says "not `Send`" — read past it to the sentence naming the unmet
+  bound (`` `Arc` is `Send` only when its payload is `Sync` ``).
 - Thread engine (`spawn`/`Task`/`Channel.recv`) is separate from the
   cooperative TaskGroup engine — don't mix per task. `Channel.recv` from a task is
   the worst version of mixing them: the block is unbounded and the thread it stops

@@ -2349,6 +2349,33 @@ between two positions of one rule is the obligation-1 shape. Evidence:
 the diagnostic for a non-Sync `Arc` payload says "not `Send`" (true, via
 `Arc<T: Send + Sync>`) where the actionable fact is "not `Sync`" — recorded in
 conformance row K31.
+**STATUS: CLOSED Aug 21 (small-fix batch), adjacent diagnostic included.**
+`namespace.send_check` takes the enclosing generic's DECLARED bounds as the
+`assume` pair `_send_sync` already consulted for design 186's conditional
+headers — no new mechanism, the existing one reached from a second caller. The
+typechecker builds it in `_bounds_assumption` (None outside a generic, so every
+non-generic query stays byte-identical) and the spawn capture audit passes it.
+An UNBOUNDED `T` still refuses, and the bound is enforced at the CALL by
+`_check_type_param_bounds` — probed on BOTH soundness axes: `<T: Send + Sync>`
+at a Send-but-not-Sync `Cell` and `<T: Send>` at a pointer-carrying `Raw` are
+each refused at the call site, naming the bound. POSITION MATRIX, compiled and
+run: closure-capture spelling at a bare `T`, `Arc<T>`, `Vector<T>` (`[move v1]`)
+and `T?`; the ARGUMENT spelling is UNREACHABLE from a generic body by an
+earlier gate (``group.spawn(...)` of a generic function requires concrete type
+arguments``), which is the same fact K31 already records, so it is a row with
+an answer rather than a gap. ADJACENT DIAGNOSTIC FIXED at the funnel, so all
+five SEND_POSITIONS get it: `namespace.unmet_conditional_bound` names the first
+CONDITIONAL-assertion bound an instantiation fails and `thread_safety_note`
+appends it, then recurses into the payload — K31's message now reads
+``... `Arc` is `Send` only when its payload is `Sync`, and `Cell` is not — that
+is the bound to satisfy. `Cell` carries an interior cell ...`` and the row
+asserts the new sentence. CONFORMANCE (obligation 3): row K74 owed and added
+(authored as K72; renumbered at integration — the parallel 218s/218w branch
+claimed K72/K73 first) —
+the accept file plus TWO refusal files, since a refusal is a whole compilation
+and the soundness of the relaxation lives in them. Docs: LANGUAGE_SPEC's spawn
+entry + the saw-lang skill's spawn bullet. Gated suite (2135 pass / 11 xfail) +
+freestanding both arches.
 
 **WAVE B LANDED (Aug 13) — the tier collapse and the vocabulary, ahead of
 wave C's inference/discharge.** B1: design 216's closure rework (`&T`

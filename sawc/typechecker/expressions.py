@@ -2110,11 +2110,20 @@ class ExpressionsMixin:
         # Send capture-audit: every captured value must be safe to transfer to
         # the task thread. Resolve each capture's type and reject the first that
         # is not Send, naming the capture and its type.
+        # DF-219c: asked against the enclosing generic's DECLARED bounds. An
+        # abstract `T` has no thread-safety of its own, so the structural walk
+        # answers False for every one — which made `<T: Send>` buy nothing and
+        # `Send`-bounded generic fan-out unwritable. A declared bound IS the
+        # answer here (the caller's own type argument is checked against it at
+        # the call, by `_check_type_param_bounds`), and an UNBOUNDED `T` still
+        # refuses, so nothing is laundered.
+        assume = self._bounds_assumption()
         for cap_name in closure.captures:
             cap_info = self.current_scope.lookup(cap_name)
             if cap_info is None:
                 continue
-            note = self.namespace.send_check(cap_info.type, "spawn capture")
+            note = self.namespace.send_check(cap_info.type, "spawn capture",
+                                             assume=assume)
             if note is not None:
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
@@ -2187,6 +2196,30 @@ class ExpressionsMixin:
                  "cancelling the task or breaking the loop"
         )
         return True
+
+    def _bounds_assumption(self):
+        """The enclosing generic's DECLARED thread-safety bounds, as the
+        `(send_names, sync_names)` pair `namespace._send_sync` consults
+        (DF-219c).
+
+        A generic body is checked ONCE, abstractly, so a boundary inside it
+        cannot ask a `T` what it structurally is — the only truth available is
+        what the signature declares, and a declared bound is exactly a promise
+        the caller is separately made to keep. Returns None when nothing in
+        scope declares either bound, which is every non-generic body and keeps
+        those queries byte-identical.
+        """
+        send, sync = set(), set()
+        for name, bounds in (getattr(self, 'current_type_params', {}) or {}).items():
+            for bound in (bounds or ()):
+                simple = bound.rsplit('.', 1)[-1]
+                if simple == "Send":
+                    send.add(name)
+                elif simple == "Sync":
+                    sync.add(name)
+        if not send and not sync:
+            return None
+        return (send, sync)
 
     def _names_type_param(self, t: Optional[SawType]) -> bool:
         """Does `t` mention a type PARAMETER of the body being checked?

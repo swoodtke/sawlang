@@ -1,0 +1,18 @@
+// Row K74's first refusal — an UNBOUNDED `T` captured into a `spawn` is still
+// refused. DF-219c's fix trusts a DECLARED bound and nothing else, so a body
+// that promises nothing about its `T` gets exactly the answer it got before.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot `spawn`: captured `v` of type `T` is not `Send`
+
+trait Sized {
+    func size(&self) -> Int
+}
+
+func fan_unbounded<T: Sized>(v: T) -> Int {
+    var t = spawn { v.size() }
+    return t.join()
+}
+
+func main() {
+    print("unreachable")
+}

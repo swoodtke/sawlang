@@ -1,0 +1,71 @@
+// Conformance row K74 — a DECLARED `Send` bound is what licenses a generic
+// body's spawn capture, and an undeclared one still refuses
+//
+// The guarantee is "only Send values cross to another task". A generic body is
+// checked ONCE, abstractly, so it cannot ask a `T` what it structurally is;
+// the only truth available there is what the signature DECLARES. Before
+// DF-219c the audit fell through `is_send`'s opaque-type-parameter path, which
+// answers False for every unresolved `T`, so `<T: Send>` bought nothing and
+// `Send`-bounded generic fan-out was unwritable — an OVER-rejection, and the
+// asymmetry with the spawn RESULT position (which has its own `T` bypass) is
+// what made it a rule with two answers.
+//
+// What makes the relaxation sound is the OTHER end: a declared bound is a
+// promise the CALLER is separately made to keep, and the negative half of this
+// row is where it is kept. `k74_refused_*.saw` beside this file carry the two
+// refusals, since a refusal is a whole compilation:
+//   - an UNBOUNDED `T` captured into a spawn is still refused (no promise was
+//     made, so there is nothing to trust) — `k74_refused_unbounded.saw`
+//   - `<T: Send>` instantiated at a non-Send type is refused AT THE CALL, so
+//     the body's trust is never misplaced — `k74_refused_at_the_call.saw`
+//
+// Positive cells here: a bare `T`, an `Arc<T>` under `Send + Sync` (Arc shares
+// its payload by construction, so it needs both — row K31 is the same rule
+// seen from the refusing side), a `Vector<T>` moved in, and a `T?`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// bare 1
+// arc 3
+// vector 3
+// optional 4
+
+trait Sized {
+    func size(&self) -> Int
+}
+
+struct Payload { n: Int }
+
+extension Payload: Sized {
+    func size(&self) -> Int { self.n }
+}
+
+func cap_bare<T: Send + Sized>(v: T) -> Int {
+    var t = spawn { v.size() }
+    return t.join()
+}
+
+func cap_arc<T: Send + Sync>(a: Arc<T>) -> Int {
+    let a1 = a.copy()
+    var t = spawn { a1.strong_count() }
+    return t.join()
+}
+
+func cap_vector<T: Send + Copy>(v: Vector<T>) -> Int {
+    var v1 = move v
+    var t = spawn { [move v1] in v1.len() }
+    return t.join()
+}
+
+func cap_optional<T: Send + Sized>(o: T?) -> Int {
+    var t = spawn { if let x = o { x.size() } else { 0 } }
+    return t.join()
+}
+
+func main() {
+    print("bare {cap_bare(Payload(n: 1))}")
+    let p = Arc<Payload>(value: Payload(n: 2))
+    print("arc {cap_arc(move p)}")
+    let v: Vector<Int> = [1, 2, 3]
+    print("vector {cap_vector(move v)}")
+    print("optional {cap_optional(Payload(n: 4))}")
+}
