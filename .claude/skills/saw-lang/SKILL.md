@@ -1134,6 +1134,13 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   force (below). `print`
   has no line-length limit (each piece goes to the seam at its own length); only
   a single user-`Printable` rendering is bounded (512 bytes, marked).
+  **AN INTEGER RENDERS AT ITS OWN WIDTH** (DF-238b, fixed Aug 22): an `Int64` /
+  `UInt64` prints all 64 bits on a 32-bit target, and `print(v)`, `print("{}", v)`
+  and a panic message naming `v` agree byte for byte at every width. Before that
+  date the value was TRUNCATED to the platform word on its way into the renderer
+  — `print("{}", 0x1234_0000_5678)` on riscv32 wrote 22136, its low word, with
+  nothing said — so distrust a wide value printed by an older freestanding build.
+  Invisible on a 64-bit host, where the two widths coincide.
 - **`--no-hidden-alloc` (design 135) — the guarantee, as a flag.** Per
   invocation; rejects allocations the COMPILER inserts that no source construct
   names. THREE sites error: (1) string interpolation `"{x}"` ANYWHERE, with NO

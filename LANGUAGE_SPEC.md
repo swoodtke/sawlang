@@ -2238,6 +2238,12 @@ is a single user `Printable` rendering (512 bytes), which truncates with the
 marker below. `panic` and `assert` assemble one message and are bounded as a
 whole (508 bytes of message); see [Panic](#panic-for-unrecoverable-errors).
 
+An integer argument renders at its own width, not the platform's. `Int64` and
+`UInt64` print all 64 bits on a 32-bit target, where the digit loop lowers to
+the 64-bit division libcalls; every narrower type extends to the platform word
+as before. `print(v)`, `print("{}", v)` and a panic message that names `v`
+produce the same bytes at every width.
+
 #### `StringBuilder` fixed mode
 
 **Status: implemented.** `StringBuilder(bytes:capacity:)` builds over

@@ -53,7 +53,7 @@ for sawos; "238 before more M3 work" is absolute.
 - (DF-238a CLOSED Aug 21 by the small-fix batch — entry below; DF-239b, its adjacent, is still open at the line above)
 - DF-242b — a cross-module OVERLOAD SET is bound BARE as a single overload, so a call only another member matches is refused; the QUALIFIED spelling of the same call sees all of them (entry below, found probing DF-238a's fix)
 - DF-242c — a SUFFIXED (exact-typed) literal argument does not disambiguate an `Int`-vs-narrow overload set; same-module and cross-module alike (entry below, found probing DF-238a's fix)
-- DF-238b — `print`'s `{}` renders a 64-bit value as its low word on a 32-bit target; entry below, pinned in the freestanding suite (it is not reproducible on the 64-bit host, so `examples/` cannot hold it). DF-158c's class
+- ~~DF-238b~~ — CLOSED Aug 22 (branch `diag-batch`, commit 2): an integer renders at its own width now, through the new `_fmt_int_fn` funnel; the freestanding pin lost its XFAIL and grew to four rows. The sweep also fixed the checked-CAST panic, which truncated the same way. Entry below
 - DF-238c — a trait's-module conformance for a foreign type is lost by a GLOB import and carried by a selective one (entry below, pinned XFAIL with its control)
 - DF-239b — deep argument typing unchecked on the generic-bound call path (entry below, beside DF-239a)
 - DF-232g RESIDUE — a DECLARED array length that never folds reports with NO FILE from codegen (entry below; the fold half CLOSED Aug 21, this half wants a declared `source_file` annotation on the expression base)
@@ -738,6 +738,7 @@ should not. One line, no pin — the shape is a two-overload file.
 
 ## DF-238b — `print`'s `{}` format argument renders a wider-than-word integer
 ## as its LOW WORD on a 32-bit target (filed Aug 21, design 238 unit 1)
+## — CLOSED Aug 22 (branch `diag-batch`, commit 2)
 
 `print("{}", v)` at `v: Int64 = 0x1234_0000_5678` writes `22136` — 0x5678 — on
 `riscv32-unknown-none-elf`, and `20014547621496` on
@@ -771,6 +772,40 @@ pinned in `examples/`: `test_runner.py` builds for the 64-bit host, where the
 platform word already is 64 bits and the defect does not exist. That is the
 first thing the freestanding suite has caught that no other lane could. [238,
 158, 137, 47]
+
+LANDED Aug 22. The rendering width is now `max(platform word, value width)`
+rather than the platform word: `_render_int_value` extends a narrower value as
+it always did and stops TRUNCATING a wider one, and `_fmt_int_fn` is the new
+one-line funnel that answers "which itoa renders this width" — up to the word,
+the pair `_declare_print_runtime` always emits; above it, a second pair at the
+value's own width, emitted LAZILY on first use. Lazy because the wide digit loop
+lowers to `__udivdi3`/`__umoddi3` on a 32-bit target: a program that never
+renders a wide value should not acquire that link dependency (both in-tree
+freestanding floors already carry the two — `tests/freestanding/hal/support.c`
+and `sos/rt/common_c/support.c`). `_emit_fmt_int_fn` grew a `value_width`
+parameter, which forced the VALUE's width apart from the LENGTH's — the returned
+length stays platform-width (design 47), and the two were one variable only
+because they coincide on a 64-bit target.
+FUNNEL + MATRIX (obligations 1 and 4): the mechanism is "an integer rendering
+narrows to the platform word on its way into the formatter". Census of the
+positions — `_render_int_value`'s three callers (`_render_argument`, i.e. every
+`{}` argument on `print`/`panic`/`assert`; the CHECKED-CAST panic
+`_emit_cast_range_check`, which had the same truncation and is fixed by the same
+funnel; and `print`'s wide arm) plus `_generate_print`'s integer arm, which
+called `__saw_print_int` at platform width and now routes through the funnel so
+`print(v)` and `print("{}", v)` stay byte-identical. The two positions the entry
+listed as UNCHECKABLE are checked and CLEAN: `"{x}"` interpolation and
+`to_string()` both go through `_value_to_string`, which extends to i64 and never
+narrowed. `StringBuilder.append` takes a platform `Int` in Saw, so a wide value
+there needs a written conversion (design 205) rather than truncating silently.
+PIN: `tests/freestanding/cases/wide_value_rendering.saw`, XFAIL removed and
+grown from two rows to four — a positive `Int64`, the same bits as `UInt64`, a
+NEGATIVE `Int64` (the wide itoa's sign path) and `UInt64.max` (above
+`Int64.max`, so a signed formatter would print -1 — DF-119b at 64 bits). All
+four pass on riscv32; arm64 is unaffected and untouched (`arches: ["riscv32"]`).
+CONFORMANCE: no row owed — `examples/conformance/` covers safety guarantees, and
+this is output correctness on a target the host suite cannot reach; the
+freestanding suite IS its ledger.
 
 ## DF-238c — a conformance declared in the TRAIT's module for a foreign type is
 ## carried by the SELECTIVE import form and lost by the GLOB one (filed Aug 21,

@@ -487,14 +487,15 @@ TEST_CASES = [
     {
         # riscv32 ONLY: the same source renders correctly on arm64, where the
         # platform word already is 64 bits, and a case marked xfail on a target
-        # it passes on is a stale marker.
+        # it passes on is a stale marker. DF-238b's XFAIL came off Aug 22 when
+        # the wide formatter landed; the case stays as the regression test.
         "name": "wide_value_rendering",
         "src": "wide_value_rendering.saw",
         "arches": ["riscv32"],
-        "xfail": "DF-238b `print`'s `{}` renders a wider-than-word integer as "
-                 "its low word on a 32-bit target",
         "expect_out": ["fs value signed=20014547621496",
                        "fs value unsigned=20014547621496",
+                       "fs value negative=-20014547621496",
+                       "fs value max=18446744073709551615",
                        "fs done wide_value_rendering ok"],
         "expect_clean_exit": True,
     },

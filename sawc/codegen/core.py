@@ -737,19 +737,55 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     # magnitude plus a sign. Callers size their scratch with this.
     INT_FMT_MAX = 21
 
-    def _emit_fmt_int_fn(self, name: str, signed: bool):
-        """Emit one width-parametric itoa: `word f(word n, i8* dst)` -> length.
+    def _fmt_int_fn(self, signed: bool, value_width: int):
+        """The itoa that renders a `value_width`-bit integer, emitting it once.
+
+        THE ONE PLACE a rendering picks its formatter (obligation 1). ENTRY
+        POINTS: `_render_int_value` (every `{}` format argument, every panic
+        message that names a number) and `_generate_print`'s integer arm.
+
+        Up to the platform word the answer is the pair `_declare_print_runtime`
+        always emits. WIDER than the word it is a second pair at the value's own
+        width, emitted lazily on first use — DF-238b: `print("{}", v)` at an
+        `Int64` on riscv32 used to TRUNCATE the value into `__saw_fmt_int`'s
+        platform-`Int` parameter and print its low word, silently, because on a
+        64-bit host the two widths coincide and the narrowing is invisible.
+        Lazy because the wide pair's digit loop lowers to `__udivdi3`/`__umoddi3`
+        on a 32-bit target: a program that never renders a wide value should not
+        acquire that link dependency, and one that does is asking for arithmetic
+        the target has no instruction for.
+        """
+        if value_width <= self.int_width:
+            return self.functions["__saw_fmt_int" if signed else "__saw_fmt_uint"]
+        name = f"__saw_fmt_{'int' if signed else 'uint'}{value_width}"
+        fn = self.functions.get(name)
+        if fn is None:
+            self._emit_fmt_int_fn(name, signed=signed, value_width=value_width)
+            fn = self.functions[name]
+        return fn
+
+    def _emit_fmt_int_fn(self, name: str, signed: bool, value_width: int = None):
+        """Emit one width-parametric itoa: `word f(vw n, i8* dst)` -> length.
 
         Renders the decimal digits of `n` into `dst` (which must have room for
         `INT_FMT_MAX` bytes) and returns how many were written. No newline, no
         NUL, no output seam — the caller decides where the bytes go.
+
+        `value_width` is the width of the VALUE being formatted, defaulting to
+        the platform word. The returned LENGTH is platform-width whatever the
+        value's width is (design 47: a length is a `word` quantity, and it feeds
+        the write seam and the panic buffer's offsets). The two are the same
+        number on a 64-bit target, which is why they were one variable until
+        DF-238b needed them apart.
         """
         i8 = ir.IntType(8)
         i8ptr = i8.as_pointer()
         i64 = ir.IntType(64)        # pointer arithmetic offsets (structural)
-        iw = self.int_type          # platform Int width (the value being formatted)
+        word = self.int_type        # platform Int width (the LENGTH)
+        iw = (self.int_type if value_width is None       # the VALUE's width
+              else ir.IntType(value_width))
 
-        fn = ir.Function(self.module, ir.FunctionType(iw, [iw, i8ptr]), name=name)
+        fn = ir.Function(self.module, ir.FunctionType(word, [iw, i8ptr]), name=name)
         self.functions[name] = fn
         n = fn.args[0]; n.name = "n"
         dst = fn.args[1]; dst.name = "dst"
@@ -800,7 +836,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         else:
             startp = newwritep
         # Lengths are platform-width (design 47), matching the write seam.
-        length = b.sub(b.ptrtoint(endp, iw), b.ptrtoint(startp, iw), name="len")
+        length = b.sub(b.ptrtoint(endp, word), b.ptrtoint(startp, word), name="len")
         # Copy the run forward into the caller's buffer with an explicit loop.
         # A `memcpy` call here would have to be declared before the stdlib's own
         # `extern memcpy`, and the freestanding profile should not gain a libc
@@ -808,12 +844,12 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         b.branch(copy)
 
         b = ir.IRBuilder(copy)
-        i = b.phi(iw, name="i")
-        i.add_incoming(ir.Constant(iw, 0), after)
+        i = b.phi(word, name="i")
+        i.add_incoming(ir.Constant(word, 0), after)
         srcp = b.gep(startp, [i], inbounds=True, name="srcp")
         dstp = b.gep(dst, [i], inbounds=True, name="dstp")
         b.store(b.load(srcp, name="byte"), dstp)
-        i_next = b.add(i, ir.Constant(iw, 1), name="i_next")
+        i_next = b.add(i, ir.Constant(word, 1), name="i_next")
         i.add_incoming(i_next, copy)
         b.cbranch(b.icmp_unsigned('<', i_next, length, name="more"), copy, done_bb)
 

@@ -1077,10 +1077,20 @@ class CallsMixin:
     def _render_int_value(self, value, is_unsigned: bool, in_entry: bool = True):
         """Render an integer LLVM value to a `(i8* ptr, word len)` byte range.
 
-        Brings the value to the platform width with the same extension `print`
+        Brings the value to the RENDERING width with the same extension `print`
         uses and renders it with the same itoa, so `print(n)`, `print("{}", n)`
         and a checked cast's panic message all agree byte for byte — including
         across the whole unsigned range, which is what `__saw_fmt_uint` is for.
+
+        The rendering width is the platform word, or the VALUE's own width where
+        that is wider (DF-238b). A narrower value extends to the word as it
+        always did; an `Int64`/`UInt64` on a 32-bit target keeps all 64 bits and
+        goes to the wide formatter `_fmt_int_fn` emits for it. It used to be
+        TRUNCATED into the platform-width parameter here, so
+        `print("{}", 0x1234_0000_5678)` on riscv32 wrote 22136 — the low word —
+        with nothing said. On a 64-bit host the two widths coincide and this
+        whole branch is dead, which is why `examples/` could not hold the pin
+        and `tests/freestanding/cases/wide_value_rendering.saw` does.
 
         `in_entry` places the digit scratch in the entry block, which is right
         for a format argument on the normal path (the buffer is live while the
@@ -1089,24 +1099,22 @@ class CallsMixin:
         merely CONTAINS a checked cast should not pay frame bytes for it —
         the same reasoning `_emit_runtime_panic` applies to its own buffer.
         """
-        word = self.int_type
         i8 = ir.IntType(8)
         i32 = ir.IntType(32)
-        if value.type.width < self.int_width:
+        render_width = max(self.int_width, value.type.width)
+        if value.type.width < render_width:
+            render_type = ir.IntType(render_width)
             if is_unsigned:
-                value = self.builder.zext(value, word, name="fmt_ext")
+                value = self.builder.zext(value, render_type, name="fmt_ext")
             else:
-                value = self.builder.sext(value, word, name="fmt_ext")
-        elif value.type.width > self.int_width:
-            value = self.builder.trunc(value, word, name="fmt_trunc")
+                value = self.builder.sext(value, render_type, name="fmt_ext")
         buf_type = ir.ArrayType(i8, self.INT_FMT_MAX)
         buf = (self._entry_alloca(buf_type, name="fmt_int_buf") if in_entry
                else self.builder.alloca(buf_type, name="fmt_int_buf"))
         bufp = self.builder.gep(buf, [ir.Constant(i32, 0), ir.Constant(i32, 0)],
                                 inbounds=True)
-        fmt_fn = "__saw_fmt_uint" if is_unsigned else "__saw_fmt_int"
-        length = self.builder.call(self.functions[fmt_fn], [value, bufp],
-                                   name="fmt_int_len")
+        fmt_fn = self._fmt_int_fn(not is_unsigned, render_width)
+        length = self.builder.call(fmt_fn, [value, bufp], name="fmt_int_len")
         return (bufp, length)
 
     def _render_via_format(self, arg_expr, saw_type, in_entry: bool = True):
@@ -1260,15 +1268,26 @@ class CallsMixin:
                 unsigned_kinds = {TypeKind.UINT, TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64}
                 is_unsigned = bool(saw_type is not None
                                    and saw_type.kind in unsigned_kinds)
-                if value.type.width < iw:
-                    if is_unsigned:
-                        value = self.builder.zext(value, self.int_type, name="print_ext")
-                    else:
-                        value = self.builder.sext(value, self.int_type, name="print_ext")
-                elif value.type.width > iw:
-                    value = self.builder.trunc(value, self.int_type, name="print_trunc")
-                fmt_fn = "__saw_print_uint" if is_unsigned else "__saw_print_int"
-                self.builder.call(self.functions[fmt_fn], [value])
+                if value.type.width > iw:
+                    # DF-238b: a value WIDER than the platform word keeps all of
+                    # its bits. `__saw_print_*` takes a platform `Int`, so this
+                    # arm used to truncate into it and print the low word. Route
+                    # through the same rendering `print("{}", v)` uses — the
+                    # wide formatter plus a write — so the two spellings stay
+                    # byte-identical at every width, which is the property the
+                    # narrow path was built for. Dead on a 64-bit target.
+                    seg_ptr, seg_len = self._render_int_value(value, is_unsigned)
+                    self.builder.call(saw_write, [seg_ptr, seg_len])
+                    nl_ptr, nl_len = self._raw_bytes_ptr("\n")
+                    self.builder.call(saw_write, [nl_ptr, nl_len])
+                else:
+                    if value.type.width < iw:
+                        if is_unsigned:
+                            value = self.builder.zext(value, self.int_type, name="print_ext")
+                        else:
+                            value = self.builder.sext(value, self.int_type, name="print_ext")
+                    fmt_fn = "__saw_print_uint" if is_unsigned else "__saw_print_int"
+                    self.builder.call(self.functions[fmt_fn], [value])
 
         elif isinstance(value.type, ir.DoubleType):
             # Float stays printf-based (identical %f formatting; shares stdio with

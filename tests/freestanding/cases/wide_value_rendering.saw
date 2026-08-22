@@ -1,18 +1,21 @@
-// XFAIL PIN for DF-238b — `print`'s `{}` format argument renders a
-// wider-than-platform-word integer as its LOW WORD on a 32-bit target.
+// `print`'s `{}` renders a wider-than-platform-word integer WHOLE on a 32-bit
+// target (DF-238b, fixed Aug 22). It used to be truncated into the platform-Int
+// parameter of `__saw_fmt_int`/`__saw_fmt_uint` and printed as its low word:
+// 0x1234_0000_5678 came out 22136.
 //
-// The value below is 0x1234_0000_5678. This case prints it signed and
-// unsigned, and the runner's expectation states the INTENDED rendering — the
-// whole number — so the pin XPASSes when the fix lands and the marker comes
-// off with it.
+// riscv32 ONLY, by the `arches` key: on arm64 the platform word already is 64
+// bits, so the same source has always rendered correctly there and a marker on
+// it would be stale. That split is the reason this pin cannot live in
+// `examples/` — `test_runner.py` builds for the 64-bit host, where the two
+// widths coincide and the defect does not exist.
 //
-// riscv32 ONLY, by the `arches` key: the same source renders correctly on
-// arm64, where the platform word already is 64 bits wide, and a case marked
-// xfail on a target it passes on is a stale marker.
+// Four rows, because the fix picks a formatter by width AND signedness: a
+// positive `Int64`, the same bits as `UInt64`, a NEGATIVE `Int64` (the sign
+// path of the wide itoa), and `UInt64.max` (above `Int64.max`, so a signed
+// formatter would print -1 — the 64-bit restatement of DF-119b).
 //
-// Nothing else in this case is under test — the arithmetic itself is
-// `cases/int_widths.saw`'s, and it passes on both targets. What is wrong here
-// is only the rendering.
+// Nothing else here is under test — the arithmetic itself is
+// `cases/int_widths.saw`'s, and it passes on both targets.
 
 import fscore.*
 
@@ -24,6 +27,9 @@ func fs_main() {
 
     let unsigned: UInt64 = 0x1234_0000_5678u64
     report_unsigned_wide("unsigned", unsigned)
+
+    report_wide("negative", 0 - value)
+    report_unsigned_wide("max", 0xFFFF_FFFF_FFFF_FFFFu64)
 
     finish("wide_value_rendering")
 }
