@@ -1,27 +1,39 @@
-// DF-218j: an assignment whose TARGET and whose RHS each open a place window on
-// the same move-only root is refused with a copy error naming a copy nobody
-// wrote. `h.at().n = h.at().n + 10` is the shape; the two controls beside it
-// compile and run, which is what says the refusal is about the pair of windows
-// and not about either one:
+// Two place windows on ONE root, in one assignment, are SEQUENCED — the
+// right-hand side's window closes before the target's opens.
 //
-//   * `h.at().n += 10` — ONE window, same move-only root: fine.
-//   * `p.at().n = p.at().n + 10` — TWO windows, Copy-tier root: fine.
+// `h.at().n = h.at().n + 10` used to be ``cannot copy value of type `Holder``` ,
+// a copy nobody wrote (DF-218j). The two controls beside it compiled, which is
+// what said the refusal was about the PAIR of windows rather than either one:
 //
-// Windows nest LIFO and a place borrow charges its root (design 141/146), so
-// two windows on one root in one statement is at worst an exclusivity question.
-// Answering it with `cannot copy value of type `Holder`` is the wrong noun for
-// the wrong rule.
+//   * `h.at().n += 10` — ONE window, same move-only root.
+//   * `p.at().n = p.at().n + 10` — TWO windows, Copy-tier root (the receiver's
+//     by-value capture was legal there, so the read came off a copy).
+//
+// An assignment already says in which order its two sides run: design 193 fixed
+// the right-hand side as the first thing it evaluates. So the lowering hoists
+// that side into its own statement, which is the "two windows in SEPARATE
+// statements" shape design 188 has always accepted — rather than nesting the
+// read's window inside the write's, where the second reach for the root was a
+// by-value capture of it.
+//
+// Design 188's own refusal is untouched and is the last row here: two
+// by-reference accesses to one root in ONE CALL are still an exclusivity error,
+// because there the two really are open at once.
 //
 // Found by design 218 stage 3: the `[&self]` capture reaches the receiver
-// through a window in a driven body, so `self.n = self.n + 10` inside the
-// closure becomes exactly this shape — while the SYNC twin of the same source
-// compiles, because the sync capture lowering uses no window at all.
-// XFAIL: DF-218j two place windows on one move-only root in one assignment are refused as a copy
+// through a window in a driven body, so `self.n = self.n + 10` inside such a
+// closure IS this shape, while its SYNC twin compiles.
 // EXPECT: success
 // EXPECT-OUTPUT:
-// 11
-// 11
-// 11
+// named accessor: 11
+// one window: 11
+// copy root: 11
+// subscript: 2
+// compound: 3
+// forced lend: 12
+// chain assign: 12
+// disjoint roots: 4
+// two roots one call: 50 60
 
 struct Cell { n: Int }
 
@@ -38,16 +50,53 @@ extension Plain {
     func at(&self) borrows -> Cell { lend self.c }
 }
 
+func setboth(x: &var Int, y: &var Int) { x = 50  y = 60 }
+
 func main() {
     var h = Holder(c: Cell(n: 1))
     h.at().n = h.at().n + 10
-    print("{}", h.at().n)
+    print("named accessor: {h.at().n}")
 
     var g = Holder(c: Cell(n: 1))
     g.at().n += 10
-    print("{}", g.at().n)
+    print("one window: {g.at().n}")
 
     var p = Plain(c: Cell(n: 1))
     p.at().n = p.at().n + 10
-    print("{}", p.at().n)
+    print("copy root: {p.at().n}")
+
+    // The subscript spelling, on an ExplicitCopy root.
+    var v: Vector<Int> = [1, 2]
+    v[0] = v[1]
+    print("subscript: {v[0]}")
+
+    // A COMPOUND assignment whose right-hand side re-enters the same root.
+    v[0] += v[1] - 1
+    print("compound: {v[0]}")
+
+    // A forced conditional lend on both sides, and the optional-chain spelling
+    // of the same write.
+    var m: Map<String, Int> = {"a": 1, "b": 2}
+    m["a"]! = m["b"]! + 10
+    let forced = m["a"]!
+    print("forced lend: {forced}")
+
+    var cells: Map<String, Cell> = {"a": Cell(n: 1), "b": Cell(n: 2)}
+    cells["a"]?.n = cells["b"]!.n + 10
+    let chained = cells["a"]!.n
+    print("chain assign: {chained}")
+
+    // Two windows on DIFFERENT roots need no sequencing: a window beside a
+    // shared read of a disjoint path is design 188's own accept side.
+    var w: Vector<Int> = [3, 4]
+    v[0] = w[1]
+    print("disjoint roots: {v[0]}")
+
+    // Two `&var` windows in ONE call, on two DIFFERENT roots: 188 refuses the
+    // one-root version (`place_window_exclusivity.saw` expects that error) and
+    // this one nests, which is what makes the rule about aliasing rather than
+    // about counting windows.
+    var pair = Plain(c: Cell(n: 0))
+    setboth(&var pair.at().n, &var p.at().n)
+    print("two roots one call: {pair.at().n} {p.at().n}")
 }

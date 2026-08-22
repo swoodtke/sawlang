@@ -76,6 +76,9 @@ from errors import ErrorKind
 from place_transform import var_twin_name
 
 WINDOW_LOCAL = "__p"
+# The binding an assignment's right-hand side is hoisted into when it opens a
+# window on the target's own root (DF-218j).
+HOIST_LOCAL = "__pw"
 
 # "Inside the receiver, at a type this walk cannot name" — an enum payload,
 # whose case decides its type but not where it lives. Storage, so the rule
@@ -220,19 +223,37 @@ class _PlaceUses:
         return bounds
 
     def _block(self, block) -> None:
-        block.statements = [self._stmt(s) for s in block.statements]
+        lowered = []
+        for s in block.statements:
+            lowered.extend(self._stmts(s))
+        block.statements = lowered
         if block.final_expr is not None:
             block.final_expr = self._value(block.final_expr)
+
+    def _stmts(self, stmt):
+        """`_stmt` as a LIST. One statement in may become two out — an
+        assignment whose right-hand side has to close its own window before the
+        target's opens (DF-218j) hoists that side into a `let` ahead of it."""
+        out = self._stmt(stmt)
+        return out if isinstance(out, list) else [out]
 
     # -- statements --------------------------------------------------------
 
     def _stmt(self, stmt):
         if isinstance(stmt, ExpressionStatement) and isinstance(
                 stmt.expression, OptionalChainAssign):
+            # `m[k]?.f = m[k2]!.g` is the chain spelling of DF-218j's shape, and
+            # takes the same answer: two windows on one root are sequenced, not
+            # nested. Hoisting HERE rather than inside `_chain_assign_window` is
+            # what makes it possible at all — a statement is the only position
+            # with somewhere to put the `let`, and the value-position spelling
+            # (`guard let _ = m[k]?.f = …`) has none.
+            hoist = self._hoist_chain_assign_rhs(stmt.expression)
             lowered = self._chain_assign_window(stmt.expression, want='void')
             if lowered is not None:
-                return ExpressionStatement(expression=lowered,
-                                           line=stmt.line, column=stmt.column)
+                written = ExpressionStatement(expression=lowered,
+                                              line=stmt.line, column=stmt.column)
+                return [hoist, written] if hoist is not None else written
         if isinstance(stmt, (AssignStatement, CompoundAssignStatement)):
             return self._assignment(stmt)
         if isinstance(stmt, LetStatement):
@@ -275,22 +296,87 @@ class _PlaceUses:
         A write is the one shape whose extent is not an expression — there is no
         value to hand back, so `__R` is Void and the assignment itself becomes
         the window body.
+
+        UNLESS the right-hand side opens a window on the SAME ROOT (DF-218j).
+        `h.at().n = h.at().n + 10` is two windows on one `h`, and the assignment
+        already says in which order they run: design 193 fixed the RHS as the
+        first thing an assignment evaluates. So the honest lowering is two
+        STATEMENTS, not two nested windows — the read's window closes before the
+        write's opens, which is the "two windows in separate statements" shape
+        design 188 has always accepted. Nesting them instead put the second
+        access to `h` inside the first's closure, where it was a by-value
+        capture and answered with ``cannot copy value of type `Holder` `` — the
+        wrong noun for the wrong rule, and the ONE window control
+        (`h.at().n += 10`) compiled beside it.
         """
-        stmt.value = self._value(stmt.value)
         place = self._chain_head(stmt.target)
+        hoist = None
+        if place is not None and self._rhs_reenters_root(stmt.value, place):
+            hoist_name = self._fresh_hoist()
+            hoist = LetStatement(
+                name=hoist_name, type_annotation=None,
+                value=self._value(stmt.value), mutable=False,
+                line=stmt.value.line, column=stmt.value.column)
+            stmt.value = Identifier(name=hoist_name, line=stmt.value.line,
+                                    column=stmt.value.column)
+        else:
+            stmt.value = self._value(stmt.value)
         if place is None:
             self._recurse(stmt.target)
             return stmt
         name = self._fresh()
         stmt.target = self._replace_head(stmt.target, place, name)
-        stmt = self._stmt(stmt)          # a nested place inside the same target
-        body = Block(statements=[stmt], final_expr=None,
+        inner = self._stmts(stmt)        # a nested place inside the same target
+        body = Block(statements=inner, final_expr=None,
                      line=stmt.line, column=stmt.column)
         call = self._window_call(place, name, body,
                                  SawType(TypeKind.VOID),
                                  exclusive=True, absent='panic')
-        return ExpressionStatement(expression=call, line=stmt.line,
-                                   column=stmt.column)
+        written = ExpressionStatement(expression=call, line=stmt.line,
+                                      column=stmt.column)
+        return [hoist, written] if hoist is not None else written
+
+    def _hoist_chain_assign_rhs(self, node):
+        """The `let` a chain assignment's right-hand side is hoisted into when it
+        opens a window on the head's own root, or None. `node.value` is swapped
+        for the binding in place."""
+        head = self._chain_assign_head(node)
+        if head is None or not self._rhs_reenters_root(node.value, head[0]):
+            return None
+        hoist_name = self._fresh_hoist()
+        hoist = LetStatement(
+            name=hoist_name, type_annotation=None,
+            value=self._value(node.value), mutable=False,
+            line=node.value.line, column=node.value.column)
+        node.value = Identifier(name=hoist_name, line=node.value.line,
+                                column=node.value.column)
+        return hoist
+
+    def _rhs_reenters_root(self, value, place) -> bool:
+        """Does `value` open a window on the ROOT the target's place is rooted
+        at? (DF-218j — the one condition the hoist above turns on.)
+
+        Narrow on purpose. Two windows on two DIFFERENT roots nest happily —
+        that is a window beside a shared read of a disjoint path, which design
+        188's accept side already names — and hoisting those too would move a
+        temporary's death from the window's close to the block's end for every
+        `v[0] = w[1]` in the corpus, to fix nothing.
+        """
+        root = self._access_root(self._place_receiver(place))
+        if root is None or value is None:
+            return False
+        stack = [value]
+        seen = set()
+        while stack:
+            node = stack.pop()
+            if node is None or id(node) in seen:
+                continue
+            seen.add(id(node))
+            if is_place(node) and self._access_root(
+                    self._place_receiver(node)) == root:
+                return True
+            stack.extend(child_nodes(node))
+        return False
 
     # -- expressions -------------------------------------------------------
 
@@ -1464,6 +1550,14 @@ class _PlaceUses:
 
     def _fresh(self) -> str:
         name = f"{WINDOW_LOCAL}{self._counter}"
+        self._counter += 1
+        return name
+
+    def _fresh_hoist(self) -> str:
+        """A name for the value an assignment's right-hand side is hoisted
+        into (DF-218j). Off the same counter as the window parameters, so the
+        two can never collide."""
+        name = f"{HOIST_LOCAL}{self._counter}"
         self._counter += 1
         return name
 
