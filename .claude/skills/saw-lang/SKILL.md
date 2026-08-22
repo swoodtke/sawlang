@@ -1562,6 +1562,23 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   check is at the loop top, ahead of the queue read, so a cancelled consumer stops
   instead of taking one more message. Hand-rolling the loop with `try_receive` +
   `cancelled()` still works and is no longer the only way to be cancellable.
+  **`try_receive` is `-> Result<T?, ChannelError>` since design 234 §4**, not the
+  bare `T?` it used to be: `Ok(Some(v))` a message, `Ok(None)` nothing yet,
+  `Err(Closed)` closed AND drained. Would-block is not an error; a closed channel
+  is, because a poll loop that cannot tell the two apart waits forever. The
+  drain idiom composes a `try` with a `while let` — the `try` peels the error
+  channel, the `while let` peels the optional:
+  ```saw
+  func drain(ch: Channel<Job>) -> Result<Int, ChannelError> {
+      var n = 0
+      while let job = try ch.try_receive() { run(job)  n = n + 1 }
+      return n
+  }
+  ```
+  GOTCHA: that spelling does not compile in a SUSPENDING body yet (DF-245d — a
+  propagating `try` in a binding scrutinee inside one is refused); write
+  `try! ch.try_receive()` there. A pre-234 build has the bare `T?`, so
+  `if let v = ch.try_receive()` without a `try!` means the code predates Aug 22.
   `close()` is the part you have to WRITE. A handle carries no sender/receiver
   role — every handle is the same handle, and a waiting receiver holds one too —
   so nothing can work out that the producers are gone. Say so:
@@ -2418,7 +2435,10 @@ and the PRIMARY surface for allocator-parameterized types (`Vector<T, A>`,
 `try_reserve`, `try_copy`, `try_make`, `try_append`, `try_append_char`,
 `try_append_bytes`, `try_insert`. `try_` is the ONE spelling (design
 123 renamed `Box.make_or` -> `try_make`; `Channel.try_receive` is unrelated — a
-non-blocking poll). **`Channel.send` LEFT this policy with design 234** and is
+non-blocking poll, and since design 234 §4 the prefix means THAT and nothing
+else: the non-blocking variant of an operation that could otherwise block,
+shaped `Result<T?, E>` where `Ok(None)` is "nothing yet", or a plain `T?` where
+there is no error path at all (`SpinLock.try_lock`, `Once.try_get`)). **`Channel.send` LEFT this policy with design 234** and is
 where the whole tier is going: it reports BOTH failures as values in one error
 type — `Err(Closed)` and `Err(Alloc(e))`, the second carrying the `AllocError`
 — and `try_send` RETIRED with the split (it existed because `send`'s one error

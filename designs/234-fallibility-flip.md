@@ -544,3 +544,112 @@ the existing `Unknown` analogue), and `ChannelError` gaining
 so unit 2 lands as one piece once the ruling arrives — a `kind`-only reshape
 would implement the half that changes nothing observable and skip the half
 that motivated it.
+
+## Unit 3 — the CHANNEL sub-unit only; the rest is BLOCKED (Aug 22)
+
+### What landed
+
+`Channel.send`'s allocator arm is `Err(Alloc(e))` and `try_send` is gone. This
+was the one sub-unit the flip could execute without the two defects below: `send`
+already returned a `Result`, so only its `case NoMemory` changes and no caller's
+SHAPE moves. `try_send` had exactly ONE real call site in the whole tree, which
+is why the corpus half is three files rather than three hundred.
+
+**DQ-230b is EXECUTED.** Its entry (in `done_aug18-aug25.md`, resolved on paper
+Aug 17) says "Executes with 234's Channel sub-unit"; this is that. The asymmetry
+it recorded — `send` reporting a closed channel and panicking on the allocator,
+`try_send` doing exactly the reverse, neither able to carry the other's failure —
+was a consequence of one error slot, and §1's compound-enum rule removes the
+constraint rather than choosing between the two halves.
+
+`examples/alloc_channel_send_oom_panic.saw` INVERTS and is renamed
+`alloc_channel_send_reports_oom.saw` (the Aug-9 naming ruling). It asserts more
+than the panic could: the rendered error, that NOTHING was queued, and that the
+channel still works after the refusal — the all-or-nothing half, which a panic
+could never check because it never returned.
+
+**Conformance row A01 opens a new section.** The allocation tier had ZERO rows —
+design 123 landed ahead of the conformance suite and design 191's audit predates
+the flip — so obligation 3's rows for it are all new. They land WITH the
+sub-unit that flips their type rather than as one opening batch: a row can only
+assert one of the two behaviors, and the corpus has to agree with it. The INDEX
+section says so, so the partial coverage is auditable rather than looking like a
+gap.
+
+### Why the rest is blocked, and by what
+
+Two compiler defects and one uncounted census row, all found by probing rather
+than by reading:
+
+- **DF-245a** — an `init`'s declared return type is never checked against the
+  receiver. The declaration is accepted, the call site types the result as the
+  receiver anyway, and codegen emits IR that does not verify. So a fallible
+  CONSTRUCTOR is not expressible, and `Vector(capacity:)`, `Data(capacity:)`,
+  `Arc(value:)` and `Channel()` cannot simply start returning `Result` — they
+  have to become static factories, which is a public-API deletion at 194 call
+  sites rather than a signature change. (`Mutex(value:)` is exempt: design 186
+  made it inline, so it allocates nothing.)
+- **DF-245b** — `try!` panics without the error it was handed
+  (`panic at F:L: try! failed`). `try!` is the behavior-PRESERVING migration for
+  a call site that does not want to handle OOM, so the flip would replace
+  `Vector.push: allocation failed` with `try! failed` at every site that takes
+  it. Fixing that is a diagnostic-wording ruling plus a pin change
+  (`examples/try_force_panic.saw` expects the current text verbatim).
+- **The count unit 0's matrix never took.** It counts the 56 twin call sites and
+  the 24 std alloc-panic sites, but not the CALLERS of the infallible ops those
+  panics belong to — and design 151 turns every one of them into a compile error
+  the moment `push`/`append`/`insert` return a `Result`. Counted Aug 22: **1434**
+  such sites (examples 902, sawc/std 115, the other trees 417) plus the 194
+  constructor sites above. Each needs a spelled disposition, and WHICH one is a
+  decision the brief does not make: `try!` reproduces today's behavior visibly,
+  `try` cascades `Result` through the callers' signatures, and `let _ =` hides
+  the failure the flip exists to surface.
+
+Two census corrections while counting, both against unit 0's own text: the twin
+family is **20**, not 19 (its table lists 20 rows under a heading saying 19), and
+**FIVE** twins have no infallible partner method, not four (its paragraph names
+five under a heading saying four).
+
+## Unit 4 — the non-blocking family (Aug 22)
+
+`try_receive` is `-> Result<T?, ChannelError>` per §4: `Ok(Some(v))` a message,
+`Ok(None)` nothing yet, `Err(Closed)` closed AND drained. The dequeue itself
+became a private `_take_one` and the closed test sits in the two public callers,
+so the coroutine transform's seam (`__try_receive_result`) is untouched BY
+CONSTRUCTION rather than by care — it keeps calling `_take_one` and never names
+`try_receive` at all.
+
+16 call sites, three shapes. Most take `try!` (the channel is never closed in
+those tests, so behavior is identical and the diff is one word). Conformance K66
+takes a real `match`, and is BETTER for it: the poll after the drain now
+distinguishes "closed, nothing will ever come" from "empty right now", which is
+exactly the distinction §4 exists to restore, and that file could previously only
+say the queue was empty.
+
+**§4's discipline audit.** The other two `try_` keepers already conform:
+`SpinLock.try_lock -> R?` and `Once.try_get -> T?` are the no-error-path short
+form §4 blesses (each polls something that may not be ready and cannot fail any
+other way). `selfhost`'s `try_read_int_suffix` is the third in-tree meaning
+("may not match") and stays out of scope, as unit 0 recorded — not std.
+
+### TWO FINDINGS, both pre-existing, both hit by §4's shape
+
+- **DF-245c** — one spawned task ANYWHERE stops every `return None` at a
+  `-> Result<T?, E>` from typing, in functions that task never calls. The second
+  typecheck pass, over the post-transform AST, does not push the peeled `Ok`
+  payload onto the `None`. Probed four ways to isolate the trigger as "the
+  transform ran", not "the call graph reaches it". std.channel writes the
+  annotated-local form (`let absent: T? = None`) instead, which is the same
+  shape `_delivered`/`_closed` already used beside it for the neighbouring
+  two-layer reason. Pin:
+  `examples/result_optional_none_survives_the_transform.saw` (XFAIL).
+- **DF-245d** — a propagating `try` in an optional-binding SCRUTINEE inside a
+  suspending body is refused. DF-244a fixed the same shape under `return` and a
+  block tail; `while let` / `if let` / `guard let` are the sibling positions its
+  sweep did not reach. This is the one that costs something: §4's drain idiom is
+  `while let v = try ch.try_receive()`, where the `try` peels the error channel
+  and the `while let` peels the optional, and a spawned consumer cannot write it
+  today. `examples/while_let_channel_drain.saw` spells `try!` and cites the
+  entry. Pin: `examples/suspending_binding_scrutinee_propagates_a_try.saw`
+  (XFAIL, `while let` and `if let` rows).
+

@@ -1,8 +1,26 @@
-// Design 233 unit 2, the drain family's concurrency member: `Channel.try_receive`
-// yields `T?` and is the non-blocking half of the channel, so a `while let` over
-// it is the natural "take everything that is there right now" loop. The inner
-// drain does not itself suspend, so it stays an ordinary loop nested inside the
-// spanning one — its `break` targets itself, never the outer loop.
+// Design 233 unit 2, the drain family's concurrency member, re-authored for
+// design 234 §4: `Channel.try_receive` is the non-blocking half of the channel
+// and now answers `Result<T?, ChannelError>`, so the natural "take everything
+// that is there right now" loop is a `while let` over a `try`. The `try` peels
+// the error channel and the `while let` peels the optional, which is what makes
+// the two compose:
+//
+//     while let v = try ch.try_receive() { ... }
+//
+// It ends on `Ok(None)` (nothing queued right now) and PROPAGATES on
+// `Err(Closed)` — a distinction the pre-234 `T?` shape could not make, where a
+// closed channel and an empty one were the same answer.
+//
+// The consumer here is a SPAWNED task, and a propagating `try` in a binding
+// SCRUTINEE inside a suspending body is refused today (DF-245d, pinned by
+// `examples/suspending_binding_scrutinee_propagates_a_try.saw`), so this file
+// spells `try!` and the `try` form is the one that pin will unlock. The channel
+// is never closed here, so the two behave identically: the loop is bounded by
+// the message count, and `try!` would only differ on a close that cannot
+// happen.
+//
+// The inner drain does not itself suspend, so it stays an ordinary loop nested
+// inside the spanning one — its `break` targets itself, never the outer loop.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 3
@@ -26,7 +44,7 @@ func consumer(ch: Channel<Int>) -> Int {
     var got = 0
     while got < 3 {
         var drained = 0
-        while let v = ch.try_receive() {
+        while let v = try! ch.try_receive() {
             sum = sum + v
             got = got + 1
             drained = drained + 1

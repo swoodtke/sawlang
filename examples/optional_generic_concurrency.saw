@@ -52,9 +52,9 @@ func main() {
     try! ch.send(n)
     try! ch.send(a)
 
-    if let got = ch.try_receive() { print("t1 present {got ?? -1}") } else { print("t1 EMPTY") }
-    if let got = ch.try_receive() { print("t2 present {got ?? -1}") } else { print("t2 EMPTY") }
-    if let got = ch.try_receive() { print("t3 present {got ?? -1}") } else { print("t3 EMPTY") }
+    if let got = try! ch.try_receive() { print("t1 present {got ?? -1}") } else { print("t1 EMPTY") }
+    if let got = try! ch.try_receive() { print("t2 present {got ?? -1}") } else { print("t2 EMPTY") }
+    if let got = try! ch.try_receive() { print("t3 present {got ?? -1}") } else { print("t3 EMPTY") }
 
     var group = TaskGroup()
     let h = group.spawn(across_suspend())

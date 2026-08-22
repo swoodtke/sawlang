@@ -1,0 +1,54 @@
+// XFAIL: DF-245c — a bare `return None` at a `-> Result<T?, E>` stops typing as
+// soon as ANY spawned task exists in the program, even in a function that task
+// never calls. The second typecheck pass, over the post-transform AST, does not
+// push the peeled `Ok` payload onto the `None`, so it reports ``cannot tell what
+// this `None` is a `None` OF`` at a line the transform never touched. Design 234
+// §4 makes `Result<T?, E>` the shape of every non-blocking poll, so the flip
+// meets this on its first sub-unit.
+//
+// The body is the minimal repro: `poll` is SYNC, `worker` is spawned and does
+// not call it, and removing the spawn makes `poll` compile unchanged. The
+// annotated-local spelling (`let absent: T? = None  return absent`) is what
+// std.channel uses instead, which is the workaround this pin exists to retire.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// worker 7
+// poll -1
+
+import std.task.*
+
+enum Stop { case Done }
+
+extension Stop {
+    func describe(&self) -> String {
+        match self { case Done -> "done" }
+    }
+}
+
+extension Stop: Printable {
+    func format(&self, into: &var StringBuilder) { into.append(self.describe()) }
+}
+
+extension Stop: Error {}
+
+func poll(n: Int) -> Result<Int?, Stop> {
+    if n == 0 {
+        return None
+    }
+    return n
+}
+
+func worker() -> Int {
+    yield_now()
+    return 7
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(worker())
+    print("worker {h.join()}")
+    match poll(0) {
+        case Ok(o) -> print("poll {o ?? -1}"),
+        case Err(e) -> print("poll err {e}")
+    }
+}

@@ -25,7 +25,7 @@ func feed(inbox: Channel<Int>, v: Int) {
 func consume(inbox: Channel<Int>) unsafe -> Int {
     let start = Instant.now()
     while start.elapsed().as_millis() < WAIT_MS {
-        if let v = inbox.try_receive() {
+        if let v = try! inbox.try_receive() {
             return v
         }
         yield_now()

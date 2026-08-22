@@ -28,7 +28,7 @@ extern "C" {
 func main() {
     let ch = Channel<Int>()
     try! ch.send(1)
-    print(ch.try_receive()!)        // 1 — an ordinary round trip
+    print((try! ch.try_receive())!) // 1 — an ordinary round trip
 
     // Refuse everything from here, the queue node this send needs included.
     // Denial is a MODE, so it is turned back off before anything that renders
@@ -42,9 +42,9 @@ func main() {
     }
 
     // All-or-nothing: the refused message left the queue exactly as it was.
-    print("nothing was queued: {ch.try_receive().is_none()}")
+    print("nothing was queued: {(try! ch.try_receive()).is_none()}")
 
     // And the channel is still a working channel.
     try! ch.send(3)
-    print("after: {ch.try_receive()!}")
+    print("after: {(try! ch.try_receive())!}")
 }

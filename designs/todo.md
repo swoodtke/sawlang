@@ -191,6 +191,114 @@ shape their `try_` twins already have and turns "retire the prefix" into
 "delete the `init`, rename the twin". That is a public-API change at 194 call
 sites (counted below), not a signature tweak. [234]
 
+## DF-245b — `try!` PANICS WITHOUT THE ERROR IT WAS HANDED, and design 234
+## makes it the corpus's mass-migration spelling
+
+```saw
+func fails() -> Result<Void, AllocError> { return AllocError(size: 64, align: 8) }
+func main() { try! fails() }
+// panic at trybang.saw:8: try! failed
+```
+
+`AllocError` is `Printable` (every `Error` is), the value is right there, and
+none of it reaches the message: `sawc/codegen/results.py:102` emits the fixed
+string `"try! failed"` and drops the payload.
+
+WHY IT MATTERS NOW rather than as a papercut. Design 234 retires the panic tier
+by making the infallible ops return `Result`, and the behavior-PRESERVING
+migration for a call site that does not want to handle OOM is `try!`. Today
+`v.push(x)` panics `Vector.push: allocation failed`; after the flip
+`try! v.push(x)` panics `try! failed`. That is the same failure reported worse,
+at every one of the 1434 sites counted below — the flip would trade a precise
+cause for none, which is the opposite of what it is for.
+
+MECHANISM (obligation 4): `_emit_panic` is called with a literal, so nothing
+about the error VALUE is consulted — it is one site, and the sibling forms are
+already better. `main`'s `Err` exit prints the error through its vtable (design
+221) and `try? `/`try`/`catch` all hand the value on; `try!` is the only
+consumer of a `Result` that throws the payload away. So this is a single
+missing rendering, not a family.
+
+FIX SHAPE: render the error after the fixed prefix when `E` is `Printable`
+(`panic at F:L: try! failed: allocation of 64 bytes (align 8) failed`), through
+the stack-scratch builder design 137 already uses for panic assembly, so the
+alloc-free and denied-allocator paths keep working. `E` is not bounded
+`Printable` at the `try!` site, so a non-Printable `E` keeps today's text.
+NEEDS A RULING on the exact wording, and it CHANGES A PIN
+(`examples/try_force_panic.saw` expects `try! failed` verbatim). [234, 19]
+
+## DF-245c — ONE SPAWNED TASK ANYWHERE stops every `return None` at a
+## `-> Result<T?, E>` from typing, in functions that task never calls
+
+```saw
+func poll(n: Int) -> Result<Int?, Stop> {
+    if n == 0 { return None }        // fine on its own
+    return n
+}
+func worker() -> Int { yield_now()  return 7 }   // never calls `poll`
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(worker())                // <- adding this breaks `poll`
+    print("worker {h.join()}")
+    match poll(0) { case Ok(o) -> print("{o ?? -1}"), case Err(e) -> print("{e}") }
+}
+// error: cannot tell what this `None` is a `None` OF — no annotation, parameter,
+//        field, return type or element type in scope fixes its payload type
+//   --> line 2, a line the transform never touched
+```
+
+MECHANISM (obligation 4): sawc typechecks TWICE, and the SECOND pass — over the
+post-transform AST — does not push the peeled `Ok` payload onto a `return`'s
+`None` the way the first does. Anything that makes the coroutine transform RUN
+turns the second pass on for the whole module, so the trigger is global while
+the symptom is local. Probed four ways: `poll` alone compiles; `poll` plus a
+suspending function that is never spawned compiles; `poll` plus a spawned task
+that CALLS it fails; `poll` plus a spawned task that does NOT call it fails. So
+it is the transform running, not the call graph.
+
+SIBLINGS the mechanism reaches: every position where the first pass pushes an
+expected type that the second does not re-derive. `return None` at
+`Result<T?, E>` is the one design 234 hits; the family to sweep is the rest of
+`_stamp_return_literal_types`'s work (bare literals at fixed widths, optional
+payload adoption) under a spawned task. NOT probed here — that sweep belongs to
+the fix brief.
+
+RELATED, and NOT the same: DF-244b is the sync-only residue (a bare `None` TAIL
+that cannot type itself where `return None` works). This one breaks `return
+None` too, and only with a spawn present.
+
+Pin: `examples/result_optional_none_survives_the_transform.saw` (XFAIL).
+Workaround, which std.channel now uses: an annotated local
+(`let absent: T? = None  return absent`). Design 234 §4 makes `Result<T?, E>`
+the shape of every non-blocking poll, so the flip meets this immediately.
+[234, 244]
+
+## DF-245d — a PROPAGATING `try` in an optional-binding SCRUTINEE inside a
+## SUSPENDING body is refused
+
+```saw
+while let v = try step(i) { ... }    // inside a spawned/driven body
+// error: `try` cannot propagate errors from a function returning `Poll`
+//        (must return Result)
+```
+
+MECHANISM (obligation 4): the same one DF-244a named, at the positions its
+sweep did not reach. `_lower_stmt` dispatches a propagating `try` to design
+196's error landing BELOW the control-flow ladder; DF-244a moved the `return`
+branch (and block tails) to defer to it, and the optional-BINDING branches —
+`while let`, `if let`, `guard let` — still lower in place with the `try` inside
+`resume() -> Poll`, where the propagation target is read off `Poll`. Probed:
+all three are fine in a SYNC body and all three are refused in a suspending
+one; a plain `let v = try f()` in a suspending body is fine, which is what
+makes it a rule about the binding forms rather than about expressions.
+
+Design 234 §4 makes this the natural drain loop — `try` peels the error
+channel and `while let` peels the optional — so the flip meets it on its first
+consumer. Pin: `examples/suspending_binding_scrutinee_propagates_a_try.saw`
+(XFAIL, both the `while let` and `if let` rows).
+`examples/while_let_channel_drain.saw` spells `try!` and cites this entry.
+[196, 234, 244]
+
 ## Design 234 — the fallibility flip (RATIFIED Aug 17; QUEUED behind the
 ## three in-flight Aug-17 branches)
 
@@ -234,6 +342,21 @@ IN FLIGHT on branch `design-234`. Landed so far:
   form whose code is 0), and only `kind()` reaches the rendered text so `"{e}"`
   stays platform-identical. `ChannelError` gained `Alloc(e: AllocError)`,
   rendering through the leaf. Pin `examples/io_error_kind_and_raw_code.saw`.
+
+- **unit 3, CHANNEL sub-unit only** (the rest is blocked — see the two DF
+  entries above this section): `send`'s allocator arm is `Err(Alloc(e))` and
+  `try_send` retired. **DQ-230b is now EXECUTED**, not just resolved on paper —
+  its entry sits in `done_aug18-aug25.md` saying "Executes with 234's Channel
+  sub-unit", and this is that. Conformance row **A01** opens the alloc-tier
+  section, which had zero rows.
+- **unit 4 — the non-blocking family**: `try_receive` is
+  `Result<T?, ChannelError>` (`Ok(None)` nothing yet, `Err(Closed)` closed and
+  drained), over a new private `_take_one`; the transform's
+  `__try_receive_result` seam is untouched by construction. 16 call sites
+  migrated. §4's discipline audit finds the other two `try_` keepers already
+  conforming — `SpinLock.try_lock -> R?` and `Once.try_get -> T?` are the
+  no-error-path short form §4 blesses. `selfhost`'s `try_read_int_suffix` is the
+  third in-tree meaning and stays out of scope (not std), as unit 0 recorded.
 
 **CENSUS CORRECTIONS to unit 0's own numbers**, both found by re-counting
 against the tree, both recorded in the brief's landing section:

@@ -8,12 +8,17 @@
 // and the value it gets back is how it finds out; what it must never be is a
 // message accepted into a queue that has said it is finished, which the last two
 // lines check by counting what is actually there.
+//
+// Design 234 §4 sharpened the last check. `try_receive` answers
+// `Result<T?, ChannelError>` now, so the poll after the drain distinguishes
+// "closed, nothing will ever come" from "empty right now" — this file used to
+// read both as a bare `None` and could only say the queue was empty.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // second close: channel is closed
 // send after close: channel is closed
 // queued 1
-// nothing more queued
+// drained, then: channel is closed
 
 import std.channel.{Channel}
 
@@ -34,14 +39,15 @@ func main() {
 
     // The queue holds exactly what it held before the close: the one message
     // sent while it was open, and nothing the refused send left behind.
-    print("queued {}", ch.try_receive()!)
-    var extra = -1
-    if let e = ch.try_receive() {
-        extra = e
-    }
-    if extra == -1 {
-        print("nothing more queued")
-    } else {
-        print("unexpected {extra}")
+    print("queued {}", (try! ch.try_receive())!)
+    match ch.try_receive() {
+        case Ok(more) -> {
+            if let extra = more {
+                print("unexpected {extra}")
+            } else {
+                print("unexpected: empty rather than closed")
+            }
+        },
+        case Err(e) -> print("drained, then: {e}")
     }
 }

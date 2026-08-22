@@ -24,7 +24,7 @@ func consumer(ch: Channel<Int>) -> Int {
     var got = 0
     while got < 3 {
         var empty = true
-        if let v = ch.try_receive() {
+        if let v = try! ch.try_receive() {
             sum = sum + v
             got = got + 1
             empty = false

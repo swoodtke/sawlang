@@ -1,0 +1,70 @@
+// XFAIL: DF-245d — a PROPAGATING `try` in an optional-binding SCRUTINEE inside a
+// SUSPENDING body is refused with ``try` cannot propagate errors from a function
+// returning `Poll``. DF-244a fixed the same shape under `return` and a block
+// TAIL; the binding scrutinees are the sibling positions its sweep did not
+// cover. Design 234 §4 makes this the natural drain loop — `try` peels the error
+// channel, `while let` peels the optional — so the flip meets it immediately.
+//
+// The body below is the minimal repro and states the INTENDED behavior: both
+// rows drain 1 + 2 + 3 and stop on `Ok(None)`, and the `Err` path propagates out
+// of the task to its `join`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// while: 6
+// if: 1
+
+import std.task.*
+
+enum Stop { case Done }
+
+extension Stop {
+    func describe(&self) -> String {
+        match self { case Done -> "done" }
+    }
+}
+
+extension Stop: Printable {
+    func format(&self, into: &var StringBuilder) { into.append(self.describe()) }
+}
+
+extension Stop: Error {}
+
+// `Ok(Some(n))` up to 3, then `Ok(None)`; `Err(Done)` is the never-reached arm
+// that makes the propagation real rather than decorative.
+func step(i: Int) -> Result<Int?, Stop> {
+    if i > 2 {
+        let absent: Int? = None
+        return absent
+    }
+    if i == 9 {
+        return Stop.Done
+    }
+    return i + 1
+}
+
+func drain_while() -> Result<Int, Stop> {
+    var sum = 0
+    var i = 0
+    while let v = try step(i) {
+        yield_now()
+        sum = sum + v
+        i = i + 1
+    }
+    return sum
+}
+
+func drain_if() -> Result<Int, Stop> {
+    yield_now()
+    if let v = try step(0) {
+        return v
+    }
+    return 0
+}
+
+func main() {
+    var group = TaskGroup()
+    let a = group.spawn(drain_while())
+    print("while: {try! a.join()}")
+    let b = group.spawn(drain_if())
+    print("if: {try! b.join()}")
+}

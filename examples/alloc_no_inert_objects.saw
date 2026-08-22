@@ -81,5 +81,5 @@ func main() {
         case Ok(_) -> print("sent"),
         case Err(_) -> { try! ch.send(42) }
     }
-    print(ch.try_receive()!)            // 42 — the retry landed
+    print((try! ch.try_receive())!)     // 42 — the retry landed
 }

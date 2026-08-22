@@ -6265,7 +6265,7 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   the thread) until a send or a `close()` on that channel wakes it. The coro
   transform lowers each `let v = ch.receive()` / `ch.receive()` call site INLINE
   into a non-blocking-attempt + park loop against the caller's own frame (no
-  callee frame — so no generic-method-frame gap); `try_receive() -> T?` remains
+  callee frame — so no generic-method-frame gap); `try_receive()` remains
   available for a hand-rolled loop.
   **A parked receive observes cancellation.** `receive` checks at its loop top,
   ahead of the queue read, and answers `Err(Cancelled)` — so `h.cancel()` on a
@@ -6550,9 +6550,10 @@ func producer(ch: Channel<Int>) {
     }
     try! ch.close()                           // without this the consumer would
 }                                             // wait forever — see close(), above
-// (`try_receive() -> T?` is still available for a hand-rolled loop, e.g. a
-//  cancellation-aware `if cancelled() { ... }` on the empty branch. It is the
-//  only way to observe cancellation while waiting: `receive` does not check.)
+// (`try_receive() -> Result<T?, ChannelError>` is still available for a
+//  hand-rolled loop, e.g. one with its own `if cancelled() { ... }` on the empty
+//  branch. `receive` observes cancellation itself and answers `Err(Cancelled)`,
+//  so a hand-rolled loop is a choice now rather than the only way.)
 
 // A TaskGroup may live in a SUSPENDING function's own frame (design 62 G1):
 func orchestrate(base: Int) -> Int {

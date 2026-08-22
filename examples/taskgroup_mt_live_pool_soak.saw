@@ -71,7 +71,7 @@ func drain(out: Channel<Int>) unsafe -> Int {
     var got = 0
     let start = Instant.now()
     while got < TOTAL && start.elapsed().as_millis() < WAIT_MS {
-        if let v = out.try_receive() {
+        if let v = try! out.try_receive() {
             sum = sum + v
             got = got + 1
         } else {

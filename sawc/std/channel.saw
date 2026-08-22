@@ -359,17 +359,77 @@ extension Channel<T: Send> {
         __EnqueueOutcome.NoMemory
     }
 
-    // Non-blocking dequeue (design 52b): the head value if the queue is
+    /// Takes the next message if one is already queued, and answers at once
+    /// either way.
+    ///
+    /// - `Ok(Some(v))` — a message, dequeued.
+    /// - `Ok(None)` — nothing yet. Would-block is not an error; it is the
+    ///   normal answer to a poll.
+    /// - `Err(Closed)` — the channel is closed AND drained, so no message will
+    ///   ever arrive. A closed channel must not look like an empty one, which
+    ///   is the whole reason this is a `Result` and not a bare `T?`.
+    ///
+    /// Never blocks the thread and never suspends the task. `receive()` is the
+    /// spelling that parks until a message arrives.
+    ///
+    /// The `try` a caller writes to reach the payload is what makes the drain
+    /// loop read well — the error channel peels off, the optional stays:
+    ///
+    /// ```saw
+    /// func drain(ch: Channel<Job>) -> Result<Int, ChannelError> {
+    ///     var n = 0
+    ///     while let job = try ch.try_receive() {   // ends on empty, propagates on closed
+    ///         run(job)
+    ///         n = n + 1
+    ///     }
+    ///     return n
+    /// }
+    /// ```
+    ///
+    /// It answered a bare `T?` until design 234 §4, where a closed channel and
+    /// an empty one were the same answer and a poll loop could not tell that it
+    /// would be waiting forever.
+    public func try_receive(&self) unsafe -> Result<T?, ChannelError> {
+        if let v = self._take_one() {
+            return move v
+        }
+        if let block = self.block {
+            pthread_mutex_lock(block)
+            let drained = self._closed_and_drained(block)
+            pthread_mutex_unlock(block)
+            if drained {
+                return ChannelError.Closed
+            }
+        }
+        return self._nothing_yet()
+    }
+
+    // `Ok(None)`, written out. A bare `return None` here cannot type itself:
+    // the payload is `T?` for a type PARAMETER, so nothing in scope fixes what
+    // the `None` is a `None` of (``cannot tell what this `None` is a `None`
+    // OF``) — DF-245c, the generic facet of DF-244b. The annotated local is
+    // what fixes it, and it is the same shape `_delivered`/`_closed` below use
+    // for the neighbouring two-layer reason.
+    func _nothing_yet(&self) unsafe sync -> Result<T?, ChannelError> {
+        let absent: T? = None
+        return absent
+    }
+
+    // The dequeue itself (design 52b): the head value if the queue is
     // non-empty, else `None` IMMEDIATELY — it NEVER blocks the thread. This is
-    // the primitive the cooperative task engine builds its suspending receive on:
-    // a task loops
-    //     while true { if let v = ch.try_receive() { ...; break } else { yield_now() } }
+    // the primitive the cooperative task engine builds its suspending receive
+    // on: a task loops
+    //     while true { if let v = ch._take_one() { ...; break } else { yield_now() } }
     // so an empty channel suspends the TASK (not the thread) and the executor
     // reschedules it — wake-on-send folded into yield-requeue (Part 0 loop
     // suspension). The cancellation-aware form adds `if cancelled() { ... }` to the
     // loop, returning through normal control flow (NO forced destroy). The 21b
     // thread engine's blocking `recv` (below) is untouched and coexists.
-    public func try_receive(&self) unsafe -> T? {
+    //
+    // PRIVATE since design 234 §4 gave the public `try_receive` its Result
+    // shape: this half answers "is one queued", and the closed test that turns
+    // that into a public answer lives in the two callers above and below.
+    func _take_one(&self) unsafe -> T? {
         if let block = self.block {
             pthread_mutex_lock(block)
             let count = (block + 136) as UnsafePointer<Int>
@@ -411,7 +471,7 @@ extension Channel<T: Send> {
     // the transform emits this call, so its identity must stay the plain
     // spelling `sawc/coro_transform.py` writes.
     public func __try_receive_result(&self) unsafe -> Result<T, ChannelError>? {
-        if let v = self.try_receive() {
+        if let v = self._take_one() {
             return self._delivered(move v)
         }
         if let block = self.block {
