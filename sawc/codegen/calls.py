@@ -2576,6 +2576,7 @@ class CallsMixin:
         # instantiation (`Vector_Int_try_with_capacity`) rather than the generic
         # placeholder. Non-generic calls fall through unchanged.
         type_args = getattr(expr.object, 'type_args', None)
+        base_struct_name = struct_name
         if type_args and struct_name in self.generic_structs:
             # Substitute against the active monomorphization context FIRST, the
             # way the constructor path (`_generate_struct_init`) always has.
@@ -2591,13 +2592,48 @@ class CallsMixin:
                          for a in type_args]
             struct_name = self._ensure_monomorphized_struct(struct_name, type_args)
 
+        # DF-216c / DF-217d: a method-level GENERIC static (`Plain.probe<U>(v)`)
+        # is specialized per call site, exactly as the instance path does it —
+        # the type args the typechecker resolved (explicit or inferred) are
+        # substituted against the active monomorphization context, the
+        # specialization is requested, and the symbol composes those args.
+        # Without it the static was never declared at all: the eager
+        # `_declare_extension_methods` pass skips any generic method and indexes
+        # it in `plain_generic_methods` for the call site to specialize, and
+        # this call site was the one that never asked — so every generic static
+        # died `Undefined static method`. The receiver type is rebuilt from the
+        # PRE-monomorphization struct name plus its (substituted) type args,
+        # which is the pair `_ensure_monomorphized_generic_method` binds the
+        # struct's own parameters from.
+        method_type_args = None
+        if expr.type_args:
+            method_type_args = [self._substitute_saw_type(a, self.type_param_context)
+                                for a in expr.type_args]
+            recv_type = SawType(TypeKind.STRUCT, struct_name=base_struct_name,
+                                type_args=list(type_args) if type_args else None)
+            self._ensure_monomorphized_generic_method(
+                struct_name, recv_type, expr.method_name, method_type_args)
+
         # Overloading (design 55): the typechecker resolved the static overload
         # and stamped its exact codegen symbol.
         resolved_symbol = expr.resolved_symbol
         if resolved_symbol is not None:
             mangled_name = resolved_symbol
         else:
-            mangled_name = self._mangle_method_name(struct_name, expr.method_name)
+            mangled_name = self._mangle_method_name(
+                struct_name, expr.method_name,
+                method_type_args=method_type_args)
+
+        if mangled_name not in self.functions and resolved_symbol is not None:
+            # The stamped symbol names the overload against the GENERIC base;
+            # this call is a specialization, so recompose it the same way the
+            # instance path does (see `_generate_method_call`).
+            specialized = self._compose_overload_suffix(
+                self._mangle_method_name(struct_name, expr.method_name,
+                                         method_type_args=method_type_args),
+                _StampedSymbol(resolved_symbol))
+            if specialized in self.functions:
+                mangled_name = specialized
 
         if mangled_name not in self.functions:
             raise ValueError(f"Undefined static method: {struct_name}.{expr.method_name}")

@@ -3248,6 +3248,77 @@ class ExpressionsMixin:
                     f"type `{resolved_arg}` does not satisfy the `{bound}` bound",
                     line, column, hint=hint)
 
+    def _fold_method_type_args(self, expr, method_info, type_subst,
+                               self_offset: int) -> bool:
+        """Bind the CALLEE's OWN generic type parameters at a method call site.
+
+        THE FUNNEL for "what does this call bind the method's `<U>` to" on the
+        singleton (non-overloaded) method paths. Explicit `<...>` wins; an
+        omitted or partial list is INFERRED from the arguments (design 93 +
+        105); the solution folds into `type_subst` — which arrives carrying the
+        receiver's struct substitution — is bound-checked (design 219 wave C's
+        discharge entry point 2 rides that check), and is stamped back onto
+        `expr.type_args` so codegen and the coroutine transform monomorphize an
+        inferred call byte-identically to an explicit one.
+
+        Entry points: `_check_method_call` (instance receiver, `self_offset=1`
+        — logical parameter 0 is `self`) and `_check_static_method_call` (no
+        receiver, `self_offset=0`). DF-216c: the static path had no counterpart
+        to this block at all, so a generic static's `U` reached the argument
+        check unsubstituted on every spelling — inference and an explicit
+        `<Int64>` alike. The OVERLOADED twins bind their type args inside
+        `_resolve_overload` instead: there the question is which candidate wins,
+        and the winner's arguments come back stamped on the node.
+
+        Returns False when the solve failed — a diagnostic was emitted and the
+        caller should abandon the call — and True otherwise.
+        """
+        method_type_params = method_info.type_params or []
+        provided_type_args = expr.type_args or []
+        if not method_type_params:
+            if provided_type_args:
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"method `{expr.method_name}` is not generic but was called "
+                    f"with type arguments",
+                    expr.line, expr.column
+                )
+            return True
+        if len(provided_type_args) > len(method_type_params):
+            self._error(
+                ErrorKind.WRONG_ARGUMENT_COUNT,
+                f"method `{expr.method_name}` expects {len(method_type_params)} "
+                f"type argument(s), got {len(provided_type_args)}",
+                expr.line, expr.column
+            )
+            return True
+        if len(provided_type_args) < len(method_type_params):
+            off = self_offset
+            defaults = (method_info.default_values[off:]
+                        if method_info.default_values else None)
+            # Design 105: label-map before unification (logical param names
+            # exclude the receiver `self`).
+            infer_mapping = self._infer_label_mapping(
+                expr, method_info.param_names[off:], defaults)
+            full = self._solve_call_type_args(
+                method_type_params, method_info.param_types[off:], expr,
+                infer_mapping, type_subst, provided_type_args,
+                f"method `{expr.method_name}`", expr.line, expr.column,
+                default_values=defaults)
+            if full is None:
+                return False
+            expr.type_args = [full[tp.name] for tp in method_type_params]
+            for tp in method_type_params:
+                type_subst[tp.name] = full[tp.name]
+        else:
+            for tp, ta in zip(method_type_params, provided_type_args):
+                type_subst[tp.name] = self._resolve_type(ta)
+        self._check_type_param_bounds(
+            method_type_params, type_subst, expr.line, expr.column,
+            callee_decl=method_info.ast_node,
+            display=f"`{expr.method_name}`")
+        return True
+
     def _check_overloaded_function_call(self, expr, candidates):
         """Resolve and check a call to an overloaded free function (design 55).
         Design 105: a generic overload may be selected by type-argument
@@ -9689,53 +9760,10 @@ class ExpressionsMixin:
         # omitted (or partially-omitted) argument list is INFERRED from the
         # argument types — a bare `v.map({ $0.to_string() })` solves `U` from the
         # closure's inferred return. Explicit-and-complete wins unchanged.
-        method_type_params = method_info.type_params or []
-        provided_type_args = expr.type_args or []
-        if method_type_params:
-            if len(provided_type_args) > len(method_type_params):
-                self._error(
-                    ErrorKind.WRONG_ARGUMENT_COUNT,
-                    f"method `{expr.method_name}` expects {len(method_type_params)} "
-                    f"type argument(s), got {len(provided_type_args)}",
-                    expr.line, expr.column
-                )
-            elif len(provided_type_args) < len(method_type_params):
-                off = 1 if not method_info.is_init else 0
-                # Design 105: label-map before unification (logical param names
-                # exclude the receiver `self`).
-                infer_mapping = self._infer_label_mapping(
-                    expr, method_info.param_names[off:],
-                    (method_info.default_values[off:]
-                     if method_info.default_values else None))
-                full = self._solve_call_type_args(
-                    method_type_params, method_info.param_types[off:], expr,
-                    infer_mapping, type_subst, provided_type_args,
-                    f"method `{expr.method_name}`", expr.line, expr.column,
-                    default_values=(method_info.default_values[off:]
-                                    if method_info.default_values else None))
-                if full is None:
-                    return None
-                expr.type_args = [full[tp.name] for tp in method_type_params]
-                for tp in method_type_params:
-                    type_subst[tp.name] = full[tp.name]
-                self._check_type_param_bounds(
-                    method_type_params, type_subst, expr.line, expr.column,
-                    callee_decl=method_info.ast_node,
-                    display=f"`{expr.method_name}`")
-            else:
-                for tp, ta in zip(method_type_params, provided_type_args):
-                    type_subst[tp.name] = self._resolve_type(ta)
-                self._check_type_param_bounds(
-                    method_type_params, type_subst, expr.line, expr.column,
-                    callee_decl=method_info.ast_node,
-                    display=f"`{expr.method_name}`")
-        elif provided_type_args:
-            self._error(
-                ErrorKind.TYPE_MISMATCH,
-                f"method `{expr.method_name}` is not generic but was called with "
-                f"type arguments",
-                expr.line, expr.column
-            )
+        if not self._fold_method_type_args(
+                expr, method_info, type_subst,
+                1 if not method_info.is_init else 0):
+            return None
         # design 22: record the call edge to the resolved method's suspend node.
         self._effect_call_method(
             method_info, f"`{struct_name}.{expr.method_name}`", expr.line)
@@ -10191,6 +10219,13 @@ class ExpressionsMixin:
             resolved_args = self._append_default_type_args(struct_name, resolved_args)
             for tp, ta in zip(struct_type_params, resolved_args):
                 type_map[tp.name] = ta
+        # DF-216c: fold the STATIC's own generic type params in on top — a
+        # static has no `self` slot, so the logical parameter list starts at 0.
+        # Without this the method's `U` reached the argument check below
+        # unsubstituted, and neither `Plain.probe(99i64)` nor the explicit
+        # `Plain.probe<Int64>(99i64)` could ever type-check.
+        if not self._fold_method_type_args(expr, method_info, type_map, 0):
+            return method_info.return_type
         for i, arg in enumerate(expr.arguments):
             p = mapping[i] if mapping is not None else i
             declared_type = method_info.param_types[p]

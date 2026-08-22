@@ -32,7 +32,7 @@ is scheduled and in what order is the whole of what they say.
 ## [QUEUE] — scheduled, in order (user-approved)
 
 - ~~DF-218s remainder + DF-218w~~ — LANDED Aug 21 on branch `df-218s-218w`, two commits. DF-218s CLOSED (forced frame residency, pin flipped with its block-kind matrix); DF-218w NARROWED to the mixed `case Both(v, _)` shape, both ledger rows retired, three pins now (one flipped, two XFAIL). Two findings filed: DF-218x (sync `if let` leak on a `return`/`break` out of the then-branch) and DF-218y (a multi-field all-`_` payload's field order, and sync is the suspect half). Entries below
-- Small-fix batch — DF-216c generic-static monomorphization (+DF-217d rides, same missing path) + DF-216h renamed extension param plumbing + DF-219c bound-aware spawn capture audit + DF-218v sync try/catch error-edge leak (ADDED by user, Aug 21; entry below) (SCHEDULED Aug 21, user; entries below — mechanisms assessed, sites located; DF-239b joins only if its resolution strategy is settled at briefing, DF-238a a candidate too after its Aug-21 elevation)
+- Small-fix batch — IN FLIGHT (branch `small-fix-batch`): DF-216c generic-static monomorphization (+DF-217d rides) LANDED; DF-216h renamed extension param plumbing + DF-219c bound-aware spawn capture audit + DF-238a qualified-call signature threading + DF-218v sync try/catch error-edge leak still to land (SCHEDULED Aug 21, user; entries below — mechanisms assessed, sites located; DF-239b explicitly NOT in scope)
 - Design 234 — the fallibility flip (designs/234-fallibility-flip.md) — after 235/237 (the M3-1.5 interleave carve-out WITHDRAWN by user, Aug 20 — 1.5 waits for sawos)
 - sos riders batch — LANDED Aug 21 (branch sos-riders): the remainder both flipped — `clock_get` takes `type:` at its two declarations, the kernel decode and the three labeled call sites, and all 46 rights-enum cases in `sos/kernel/abi/` read as shifts with the values probe-verified byte-identical before and after (ordinals left decimal; the `>= 256` static_assert threshold is not a case and stayed, reported). The kcore re-narrowing LANDED Aug 20; the member audit RAN Aug 20 and its narrowing unit LANDED Aug 20 (84 sites: 78 `public(package)`, 6 private, 2 consumed; the audit's file-local split was inverted — DF-232q); see the re-narrowing rider section
 - Design 238 — the sawos split (designs/238-sawos-split.md; four rulings Aug 19, D-b1/b2/b3 open) — BEFORE the M3 ladder; UNITS 0-1 LANDED Aug 21 (the oracle + the freestanding suite), units 2-7 open and user-reserved
@@ -2242,6 +2242,30 @@ spellings that reach it. The sweep also found:
   which is the `Undefined static method` DF-217d reports. So the fix is a
   monomorphization path that does not exist rather than a check that was
   skipped, and it wants its own dispatch. DF-217d rides it unchanged.
+  **STATUS: CLOSED Aug 21 (small-fix batch), and DF-217d closed with it.**
+  Both halves landed as the assessment named. TYPECHECKER: the instance
+  path's method-type-param block became a FUNNEL,
+  `_fold_method_type_args(expr, method_info, type_subst, self_offset)`
+  (expressions.py), whose docstring names its two entry points —
+  `_check_method_call` at `self_offset=1` and `_check_static_method_call` at
+  `self_offset=0` (a static has no `self` slot) — and says why the overloaded
+  twins are not among them (they bind theirs inside `_resolve_overload`). The
+  instance path is now a three-line call to it, so the two arms cannot drift.
+  CODEGEN: `_generate_static_method_call` (calls.py) requests
+  `_ensure_monomorphized_generic_method` for `expr.type_args`, rebuilding the
+  receiver SawType from the PRE-monomorphization struct name plus its
+  substituted type args, and mangles with `method_type_args`; the instance
+  path's `_compose_overload_suffix` fallback came along so a generic
+  overloaded static resolves to its specialized symbol. SWEEP (obligation 4),
+  all compiled + run: a bounded `<U: Named>` static, a two-param static
+  (inferred and explicit), a `-> U` static, a generic static on a GENERIC
+  struct (`Holder<Int>.mix<U>`), a non-generic static on a generic struct
+  (control), and an ENUM static. Negatives are clean at the call: bound
+  violation, `is not generic but was called with type arguments`, and
+  too-many-type-arguments. PINS FLIPPED:
+  `examples/generic_static_type_arg_inference.saw` (all four call shapes) and
+  `examples/generic_method_default_type_and_value_param.saw` (DF-217d).
+  Gated suite (2131 pass / 11 xfail) + freestanding both arches.
 
 ## Design 219 — generic tier requirements (LANDED Aug 14; the DF-217i fix)
 

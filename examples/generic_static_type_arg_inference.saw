@@ -1,23 +1,24 @@
-// XFAIL: DF-216c a generic STATIC method never instantiates its type
-// parameter — `U` reaches the argument check unsubstituted on every
-// type-spelled call
+// A generic STATIC method instantiates its own type parameter, on every
+// type-spelled call shape (DF-216c, FIXED).
 //
 // `Plain.probe(other: 99i64)`, the positional twin, the explicit
-// `Plain.probe<Int64>(99i64)` and the two-param form all refuse with
-// ``argument `other` expects `U` but got `Int64`` — the static call path
-// never runs inference OR explicit-argument substitution. The free function
-// with the identical signature works, and so does the `&self` instance
-// method (`generic_method_type_arg_inference.saw`, this finding's other
-// half, now a passing regression test). The defaulted zero-arg face ICEs
-// and is pinned separately (DF-217d,
+// `Plain.probe<Int64>(99i64)` and the two-param form used to refuse with
+// ``argument `other` expects `U` but got `Int64`` — the static call path ran
+// neither inference nor explicit-argument substitution, because it had no
+// counterpart to the instance path's method-type-param block, and codegen
+// stopped at the struct. Both halves now route through the same funnel
+// (`_fold_method_type_args`) and the same per-call-site specializer the
+// instance path uses. The free function with the identical signature works,
+// and so does the `&self` instance method
+// (`generic_method_type_arg_inference.saw`, this finding's other half). The
+// defaulted zero-arg face rode the same fix (DF-217d,
 // `generic_method_default_type_and_value_param.saw`).
 //
-// Aug-18 reframe of the original DF-216c filing: the fault axis is
+// Aug-18 reframe of the original DF-216c filing: the fault axis was
 // STATIC-vs-free, not method-vs-free — the original pin's self-less methods
 // were statics called through an instance, a spelling DF-217q has since
 // ruled a refusal. Design 236 made `static` a required KEYWORD, so the two
-// declarations below now say which path they are on; that is naming, not a
-// fix, and this stays XFAIL until the static generic path instantiates.
+// declarations below say which path they are on.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // labeled 5

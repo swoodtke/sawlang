@@ -1,19 +1,19 @@
-// XFAIL: DF-217d a generic STATIC with BOTH a default type argument and a
-// default value, called with no arguments, is an internal compiler error
+// A generic STATIC with BOTH a default type argument and a default value,
+// called with no arguments, compiles and runs (DF-217d, FIXED).
 //
 // `func probe<U = Int>(other: U = 7)` on an extension is a STATIC (no
-// receiver), and the type-spelled zero-arg call dies
-// `internal compiler error: Undefined static method: Plain.probe` — the
-// generic static with a default type argument never registers where the
-// type-spelled lookup searches. The free-function twin on the line above
-// takes the identical signature and is clean, so nothing about
-// defaults-driving-inference (design 108) is at fault.
+// receiver), and the type-spelled zero-arg call used to die
+// `internal compiler error: Undefined static method: Plain.probe` — a generic
+// method is skipped by the eager declare pass and indexed for the call site to
+// specialize, and the static call site was the one that never asked. The
+// free-function twin on the line above takes the identical signature and was
+// always clean, so nothing about defaults-driving-inference (design 108) was
+// at fault. Rode DF-216c's fix unchanged.
 //
 // RE-SPELLED Aug 18: the original pin called `h.probe()` through an
 // INSTANCE, which DF-217q has since ruled a clean refusal — that spelling
 // could never XPASS again, so the pin moved to the one legal call shape.
-// Member of the DF-216c family (generic method calls are broken on every
-// spelling).
+// Member of the DF-216c family.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // free 5
