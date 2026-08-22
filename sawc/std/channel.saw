@@ -120,8 +120,9 @@ extension ChannelError: Printable {
 
 extension ChannelError: Error {}
 
-// The three ways an enqueue can end. Internal: `send` and `try_send` each map it
-// onto the error type they can carry, and neither exposes this name.
+// The three ways an enqueue can end. Internal: `send` maps it onto
+// `ChannelError`, which since design 234 has a case for each, and does not
+// expose this name.
 enum __EnqueueOutcome {
     case Sent
     case Closed
@@ -215,36 +216,27 @@ extension Channel<T: Send> {
 
     /// Enqueues a value, waking the receivers waiting on this channel.
     ///
-    /// Ownership of `v` transfers to the channel. Returns `Err(Closed)` if the
-    /// channel has been closed, in which case the queue is unchanged and `v` is
-    /// dropped here — a closed channel takes no more messages, and the caller
-    /// finding out is the point.
+    /// Ownership of `v` transfers to the channel, and `v` is consumed whatever
+    /// the answer. Both ways a send can fail come back as values:
     ///
-    /// Panics if the queue node cannot be allocated (design 123, infallible
-    /// tier). That is a separate failure from `Closed` and stays a panic:
-    /// `try_send` is the spelling that reports it.
+    /// - `Err(Closed)` — the channel has been closed. The queue is unchanged
+    ///   and `v` is dropped here; a closed channel takes no more messages, and
+    ///   the caller finding out is the point.
+    /// - `Err(Alloc(e))` — the allocator refused the queue node, with the size
+    ///   and alignment it was asked for. The queue is unchanged.
+    ///
+    /// The second one used to PANIC, with `try_send` as the twin that reported
+    /// it and panicked on a closed channel instead — one error slot each, and
+    /// neither could carry the other's failure (DQ-230b). Design 234 retires
+    /// that split: one `send`, one error type, both sources in it.
     public func send(&self, v: T) -> Result<Void, ChannelError> {
         match self._enqueue(move v) {
             case Sent -> { return },
             case Closed -> { return ChannelError.Closed },
-            case NoMemory -> { panic("Channel.send: allocation failed") }
-        }
-    }
-
-    /// Enqueues a value, reporting allocator exhaustion as `Err(AllocError)`.
-    ///
-    /// The queue is unchanged on `Err`; `v` is consumed either way. Panics on a
-    /// CLOSED channel: this call exists to report one specific failure, the
-    /// allocator's, and it has nowhere to put a second — `send` is the spelling
-    /// that reports a closed channel as a value (DQ-230b asks whether the two
-    /// should be one error type).
-    public func try_send(&self, v: T) -> Result<Void, AllocError> {
-        match self._enqueue(move v) {
-            case Sent -> { return },
-            case Closed -> {
-                panic("Channel.try_send: channel is closed (use `send` to handle a closed channel)")
-            },
-            case NoMemory -> { return AllocError(size: 8 + sizeof<T>(), align: 16) }
+            case NoMemory -> {
+                return ChannelError.Alloc(e: AllocError(size: 8 + sizeof<T>(),
+                                                        align: 16))
+            }
         }
     }
 
@@ -314,10 +306,11 @@ extension Channel<T: Send> {
 
     // Internal: the enqueue itself, and its three outcomes. Anything other than
     // `Sent` leaves the queue untouched — and `v`, unmoved, deinits at this
-    // scope's exit rather than vanishing into a half-built node. The two callers
-    // (`send`, `try_send`) each report the pair they have somewhere to put, so
-    // the decision of what is an error lives at the API and the mechanism lives
-    // here.
+    // scope's exit rather than vanishing into a half-built node. Its one caller
+    // (`send`) maps each outcome onto a `ChannelError` case, so the decision of
+    // what is an error lives at the API and the mechanism lives here. There
+    // were two callers until design 234, each reporting the one pair it had
+    // somewhere to put and panicking on the other.
     func _enqueue(&self, v: T) unsafe -> __EnqueueOutcome {
         if let block = self.block {
             pthread_mutex_lock(block)

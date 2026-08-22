@@ -10099,13 +10099,16 @@ Every such operation has a **`try_`-prefixed twin** returning
 | `Data` | `init(capacity:)`, `push`, `append`, `append_bytes`, `set`, `detached` | `try_with_capacity`, `try_push`, `try_append`, `try_append_bytes`, `try_reserve`, `try_set`, `try_detached` |
 | `Map` / `Set` | `insert` | `try_insert` |
 | `Arc` / `Mutex` | `init(value:)` | `try_make` |
-| `Channel` | `init()`, `send` | `try_make`, `try_send` |
+| `Channel` | `init()` | `try_make` |
 
-`Channel.send` sits in the infallible tier for the ALLOCATOR question only. Its
-`Result<Void, ChannelError>` (design 230) reports a second, independent failure —
-the channel has been closed — and the two never meet: a refused queue node
-panics, a closed channel is a value. `try_send` reports the allocator's refusal
-and panics on a closed channel, having one error slot and no way to carry both.
+**`Channel.send` has left this table** (design 234). It reports BOTH of its
+failures as values in one error type — `Err(Closed)` for a closed channel and
+`Err(Alloc(e))` for a refused queue node, the second carrying the `AllocError`
+itself. `try_send` retired with the split: it existed because `send` had one
+error slot already spent on `Closed`, so the allocator's refusal had nowhere to
+go but a panic, and `try_send` was the mirror image (allocator as a value, a
+closed channel as a panic). Neither could carry the other's failure, which is
+what DQ-230b asked about. One send, one error type, both sources in it.
 
 A `try_` operation is **all-or-nothing**: on `Err` the container is exactly as it
 was, with every element still in it. The `AllocError` carries the byte `size` and

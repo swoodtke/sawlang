@@ -1587,10 +1587,14 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   after close is `Err(Closed)` and does not enqueue; a SECOND close is
   `Err(Closed)`, not a panic, so a lost race is `let _ =`-able without being
   silent; there is NO automatic close at last-handle drop (that is the same
-  uncountability restated). Two more, easy to trip on: `try_send` PANICS on a
-  closed channel (one error slot, and the allocator owns it — DQ-230b), and
-  `receive` does NOT observe cancellation (DF-230a) — a cancellable wait is still
-  the hand-rolled `try_receive()` + `if cancelled()` loop.
+  uncountability restated). And the allocator: a `send` whose queue node is
+  refused is `Err(Alloc(e))`, in the same error type, so nothing about a send
+  panics any more. (Both of those were different before design 234 landed on
+  Aug 22: the refused node PANICKED, `try_send` was the twin that reported it
+  and panicked on a CLOSED channel instead, and neither could carry the other's
+  failure — DQ-230b. The two stale sentences that used to sit here said `send`
+  panicked on the allocator and that `receive` does not observe cancellation;
+  the second was DF-230a, fixed with the `Cancelled` case above.)
   FORGETTING `close()` IS A DEADLOCK, and the executor reports it instead of
   hanging: every live task parked on a channel, nothing runnable, no io, no timer
   and no unjoined `spawn {}` task means nothing can ever run, so the program
@@ -2412,13 +2416,17 @@ Each has a **`try_` twin returning `Result<_, AllocError>`** — the fallible ti
 and the PRIMARY surface for allocator-parameterized types (`Vector<T, A>`,
 `Box<T, A>`, `Map<K, V, A>`, `Set<T, A>`): `try_with_capacity`, `try_push`,
 `try_reserve`, `try_copy`, `try_make`, `try_append`, `try_append_char`,
-`try_append_bytes`, `try_insert`, `try_send`. `try_` is the ONE spelling (design
+`try_append_bytes`, `try_insert`. `try_` is the ONE spelling (design
 123 renamed `Box.make_or` -> `try_make`; `Channel.try_receive` is unrelated — a
-non-blocking poll). `Channel.send` is in the infallible tier for the ALLOCATOR
-question ONLY: its `Result<Void, ChannelError>` (design 230) reports a second,
-independent failure and the two never meet — a refused queue node panics, a
-closed channel is a value. `try_send` reports the allocator and PANICS on a
-closed channel (DQ-230b). A `try_` op is ALL-OR-NOTHING: on `Err`
+non-blocking poll). **`Channel.send` LEFT this policy with design 234** and is
+where the whole tier is going: it reports BOTH failures as values in one error
+type — `Err(Closed)` and `Err(Alloc(e))`, the second carrying the `AllocError`
+— and `try_send` RETIRED with the split (it existed because `send`'s one error
+slot was already spent on `Closed`, so the allocator had nowhere to go but a
+panic, and `try_send` was the mirror image; neither could carry the other's
+failure, which is what DQ-230b asked). `try! ch.send(v)` is a
+pre-234 `send` and `ch.send(v)` handled is the new shape; a call to `try_send`
+means the code predates Aug 22. A `try_` op is ALL-OR-NOTHING: on `Err`
 the container is untouched, every element still in it. Its argument is consumed
 either way — `try_reserve` FIRST when the value must survive a refusal.
 `AllocError` carries the refused `size`/`align` and is `Error + Printable`

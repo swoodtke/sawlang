@@ -1,0 +1,50 @@
+// Conformance row A01 — a `Channel.send` the allocator refuses reports the
+// refusal as a VALUE: the message is not delivered, the queue is not changed,
+// and nothing panics.
+//
+// This file has had three lives, and the sequence is the point. Originally
+// `send` returned `Void` and wrapped the whole enqueue in an unguarded
+// `if let node = alloc(...)`: on exhaustion the message was consumed, destroyed
+// and never delivered, with no signal to the sender and a receiver that simply
+// waited — the exact shape the never-hide-errors rule forbids. Design 123 made
+// that a PANIC and added `try_send` as the twin that reported it, which fixed
+// the silence and bought it with two error slots that could not carry each
+// other's failure: `send` reported a closed channel and panicked on the
+// allocator, `try_send` did the reverse (DQ-230b). Design 234 retires the
+// split — one `send`, one `ChannelError`, and both sources are cases in it.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// refused: the channel could not allocate a queue node: allocation of 16 bytes (align 16) failed
+// nothing was queued: true
+// after: 3
+
+import std.channel.*
+
+extern "C" {
+    func __saw_rt_alloc_deny_after(allow: Int)
+}
+
+func main() {
+    let ch = Channel<Int>()
+    try! ch.send(1)
+    print(ch.try_receive()!)        // 1 — an ordinary round trip
+
+    // Refuse everything from here, the queue node this send needs included.
+    // Denial is a MODE, so it is turned back off before anything that renders
+    // (an interpolation allocates — design 135).
+    __saw_rt_alloc_deny_after(0)
+    let refused = ch.send(2)
+    __saw_rt_alloc_deny_after(-1)
+    match refused {
+        case Ok(_) -> print("unexpected: the send was accepted"),
+        case Err(e) -> print("refused: {e}")
+    }
+
+    // All-or-nothing: the refused message left the queue exactly as it was.
+    print("nothing was queued: {ch.try_receive().is_none()}")
+
+    // And the channel is still a working channel.
+    try! ch.send(3)
+    print("after: {ch.try_receive()!}")
+}

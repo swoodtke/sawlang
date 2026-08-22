@@ -9,6 +9,11 @@
 // All three constructors panic now, and each has a `try_make` twin that reports
 // the refusal instead. There is no inert state left to construct.
 //
+// The SEND half moved on again in design 234: `try_send` retired, and `send`
+// reports a refused queue node as `Err(Alloc(e))` in its own error type. The
+// constructors are still design 123's shape — a fallible constructor needs a
+// static factory (DF-245a), which is the rest of design 234 unit 3.
+//
 // `Mutex` LEFT THIS SET in design 186: it is one inline word beside an inline
 // payload now, so its constructor allocates nothing, cannot be refused, and has
 // no `try_make` twin to report a refusal with. The design-123 rule is intact —
@@ -63,11 +68,14 @@ func main() {
         case Err(_) -> print("channel denied")
     }
 
-    // try_send reports a refused queue node rather than eating the message.
+    // `send` reports a refused queue node rather than eating the message, and
+    // since design 234 it is the ONLY spelling that does: the `try_send` twin
+    // this used to call retired with the panic tier, and its allocator refusal
+    // is now `Err(Alloc(e))` in `send`'s own error type.
     // Denial is a mode, so the retry below needs it explicitly turned back off.
     let ch = Channel<Int>()
     __saw_rt_alloc_deny_after(0)
-    let sent = ch.try_send(99)
+    let sent = ch.send(99)
     __saw_rt_alloc_deny_after(-1)
     match sent {
         case Ok(_) -> print("sent"),

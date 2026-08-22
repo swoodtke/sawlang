@@ -677,6 +677,19 @@ Claim source: spec 3 *Never — the type of an expression that does not return*;
 | D19 | an `@export`ed `-> Never` function is emitted `noreturn` | `export_never_noreturn.saw` |  |
 | D20 | a diverging result expression in a SUSPENDING body stores nothing | `coro_panic_value_position.saw` |  |
 
+## Allocator failure — the fallibility tier (design 234)
+
+Claim source: design 234 §1/§5 (the flip), superseding design 123's two-tier
+policy. The tier had ZERO conformance rows before this brief: design 123 landed
+ahead of the suite, and design 191's audit predates the flip. Rows land WITH the
+sub-unit that flips their type, because a row can only assert one of the two
+behaviors and the corpus has to agree with it — so this section grows through
+unit 3 rather than arriving whole.
+
+| Row | Checks | Covered by | Ruling |
+|-----|--------|------------|--------|
+| A01 | a refused `Channel.send` reports the allocator as a VALUE — nothing panicked, nothing queued, nothing swallowed | `alloc_channel_send_reports_oom.saw` | 234 — supersedes design 123's panic, and DQ-230b's `try_send` twin with it |
+
 ## Cross-cutting soundness smoke
 
 Claim source: behavioral, not error-message — no single claim section
