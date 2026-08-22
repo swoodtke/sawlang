@@ -1,6 +1,6 @@
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: cannot `spawn`: the closure's result type `Raw` is not `Send`
-// EXPECT-ERROR-CONTAINS: cannot travel back from the task's thread to `join()`
+// EXPECT-ERROR-CONTAINS: cannot `Thread.spawn`: the closure's result type `Raw` is not `Send`
+// EXPECT-ERROR-CONTAINS: cannot travel back from the spawned thread to `join()`
 //
 // A spawned task's RESULT crosses a thread boundary — the task computes it on
 // its own thread and `join()` hands it back — so it owes the same `Send` the
@@ -22,7 +22,7 @@ func make_raw(n: &var Int) unsafe -> Raw {
 
 func main() {
     var n = 7
-    var t = spawn { make_raw(&var n) }
+    var t = Thread.spawn { make_raw(&var n) }
     let r = t.join()
     print("unreachable")
 }

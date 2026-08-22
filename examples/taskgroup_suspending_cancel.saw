@@ -1,6 +1,6 @@
 // design 62 G1: cancellation through a frame-resident group. The suspending
 // `orchestrate` spawns a child, cancels it (the `__cancel` word lives in the
-// child's frame, reachable through the TaskHandle's raw pointer), and the child
+// child's frame, reachable through the Task's raw pointer), and the child
 // observes it cooperatively at its `cancelled()` check — returning through normal
 // control flow (NO forced destroy). A parent suspension sits between spawn and join.
 // EXPECT: success

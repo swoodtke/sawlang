@@ -8,7 +8,7 @@
 
 func main() {
     var sum = 0
-    let task = spawn { [&var sum] in
+    let task = Thread.spawn { [&var sum] in
         sum = sum + 1
         sum
     }

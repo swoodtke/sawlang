@@ -838,7 +838,7 @@ Emitted as Saw AST by `coro_transform.py` or as IR by `codegen/`:
 - **Drivers** `__saw_drive_<f>` / `__saw_drive_steps_<f>` (design 44/45,
   test-only) — an INLINE resume loop over a stack frame, same park inline as
   the single-frame entry executor, then reads `__f.__result`.
-- **Spawn helper** `__spawn_<f>(&group, args) -> TaskHandle<T>|VoidTaskHandle`
+- **Spawn helper** `__spawn_<f>(&group, args) -> Task<T>|VoidTask`
   — builds the frame, `Box<any Resumable>.make`, captures `__result`/`__cancel`
   slot pointers, calls `group.__enqueue(move box)`, returns the handle.
 - **io park lowering** (inside `resume`, both the `io_wait` primitive and the
@@ -850,12 +850,12 @@ Emitted as Saw AST by `coro_transform.py` or as IR by `codegen/`:
   emits `__saw_blk_thunk$<extern>` (internal, one per offloaded extern, design
   183): `word(word)`, reads the argument slots back at their declared types and
   makes the real C call.
-- **`spawn { } -> Task<T>` thread engine** (`codegen/calls.py::_generate_spawn`)
+- **`Thread.spawn { } -> Thread<T>` thread engine** (`codegen/calls.py::_generate_spawn`)
   — control block `{tid, env, result}`, a per-site `i8*(i8*)` trampoline, and a
   `__saw_rt_thread_spawn(tramp, cb)` launch (the SPAWN half stays codegen — the raw
-  C trampoline pointer is DF-113b). Task join/deinit (`std/task.saw`, Saw) join
-  through the design-118 stage-4 `Thread` trait / `PosixThread` over
-  `__saw_rt_thread_join`.
+  C trampoline pointer is DF-113b). `Thread<T>`/`VoidThread` join/deinit
+  (`std/task.saw`, Saw) join through the design-118 stage-4 `NativeThread` trait /
+  `PosixThread` over `__saw_rt_thread_join`.
 - ~~**`__saw_reactor()`** reactor-instance getter + injection~~ — RETIRED (design
   118 stage 3). The process-global reactor singleton is now the Saw
   `__saw_host_reactor()` (lazy CAS over an `Atomic<Int>` static in
@@ -875,8 +875,8 @@ Emitted as Saw AST by `coro_transform.py` or as IR by `codegen/`:
 list, design 134), the ambient scheduler
 `__saw_exec_run(term_group, term_slot, term_gen)` + its sweep helpers, `__enqueue`,
 `__saw_exec_run_root`, the MT fork-join drain `__drain_mt`/`__saw_exec_worker`,
-`TaskHandle`/`VoidTaskHandle` `join`/`cancel`/`cancel_addr`, `yield_now`, and
-the `Task<T>` join/deinit. These call the reactor externs
+`Task`/`VoidTask` `join`/`cancel`/`cancel_addr`, `yield_now`, and
+the `Thread<T>`/`VoidThread` join/deinit. These call the reactor externs
 (`__saw_rt_reactor_poll`, `__saw_rt_reactor_wake`) and `__saw_exec_sleep_ns`
 DIRECTLY today — those direct calls are exactly what stage 3 routes through the
 `Reactor` trait.
@@ -895,14 +895,14 @@ frame code + these calls.
 | join     | `__saw_exec_run(term_group: Int, term_slot: Int, term_gen: Int)` | exists (Saw) |
 | drive/park (single-frame) | `__saw_exec_park(wake: Int)`             | stage 2 ✓ — carved the `_make_entry_executor` `Pending` body into this one Saw call (wake>0 → sleep; wake<0 → reactor poll -1; 0 → return). The trivial resume-until-done loop STAYS synthesized (lead pin: the design-45 allocation-free fast path is contract, and post-carve the loop carries zero policy). |
 | park (io) | `__saw_exec_io_register(fd: Int, dir: Int, token: Int)`  | stage 2 ✓ — Saw wrapper the `io_wait`/offload park lowerings + the outside-frame `io_wait` codegen path call instead of the raw `__saw_rt_reactor_register` extern |
-| wake     | `__saw_exec_reactor_wake()`                                | stage 2 ✓ — Saw wrapper over `__saw_rt_reactor_wake` (`TaskHandle`/`VoidTaskHandle.cancel` call it) |
+| wake     | `__saw_exec_reactor_wake()`                                | stage 2 ✓ — Saw wrapper over `__saw_rt_reactor_wake` (`Task`/`VoidTask.cancel` call it) |
 | sleep    | `__saw_exec_sleep_ns(ns: Int)`                             | stage 2 ✓ — promoted from a codegen intrinsic to a real Saw fn over `__saw_rt_sleep_ns`. Design 180 moved the unit to nanoseconds (the executor's whole deadline bookkeeping follows `Duration`) and moved every ABANDONABLE park off it onto the reactor poll. |
 
 `spawn` itself stays the synthesized `__spawn_<f>` helper (frame-shaped, cannot
 be generic-erased) whose executor touches are `__enqueue` and the `__gen_at`
-read that completes the handle's `(slot, generation)` identity. The `Task<T>`
+read that completes the handle's `(slot, generation)` identity. The `Thread<T>`
 thread engine's only executor touch is `__saw_rt_thread_spawn`/`_join`
-(stage 4 routes these through a `Thread` surface).
+(stage 4 routes these through a `NativeThread` surface).
 
 **Why these:** every reactor/timer touch by synthesized IR OR by the existing
 Saw executor is funnelled through `__saw_exec_park` / `__saw_exec_io_register` /
@@ -954,11 +954,11 @@ instance), without touching a single synthesized call site.
   now exercise exactly the `(fd, direction, token)` semantics `SystemReactor` wraps,
   so they ARE the `Reactor`-contract unit tests. No harder gating was added (that
   would need a new visibility mechanism — out of scope; a follow-up if wanted).
-- **Stage 4 (threads/MT/offload) — LANDED:** the `Thread` trait (`join`) +
+- **Stage 4 (threads/MT/offload) — LANDED:** the `NativeThread` trait (`join`) +
   `struct PosixThread { handle: Int }` conforming over `__saw_rt_thread_join` are
-  defined in std/task.saw; `Task<T>.join`/`deinit` join through the trait, and the
-  MT `TaskGroup` drain (`__drain_mt`) joins its workers as `Task`s, so both the
-  `spawn{}`/`Task` engine and the MT engine go through the Thread surface. The SPAWN
+  defined in std/task.saw; `Thread<T>.join`/`deinit` join through the trait, and the
+  MT `TaskGroup` drain joins its workers as `VoidThread`s, so both the
+  `Thread.spawn{}` engine and the MT engine go through that surface. The SPAWN
   half stays the compiler-emitted `__saw_rt_thread_spawn` primitive — spawn codegen
   (`_generate_spawn`) builds the task control block + a raw C-ABI trampoline pointer
   (DF-113b, a value Saw cannot express), the thread analog of the coroutine frame

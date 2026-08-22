@@ -7,7 +7,7 @@
 // with it — so a write there is refused. Storage reached through an
 // INDIRECTION is not the receiver's: a `Vector`'s heap buffer is shared by the
 // copy, which is why `self.cells[i] = v` still writes the caller's element.
-// std's `TaskHandle.cancel` is the same shape one level lower (it writes a
+// std's `Task.cancel` is the same shape one level lower (it writes a
 // pointee in a group-owned cell through an `UnsafePointer` field).
 //
 // An accessor whose epilogue mutates the receiver declares `&var self`. That is

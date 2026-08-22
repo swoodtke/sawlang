@@ -1,8 +1,8 @@
-// Conformance row K56 — control: the 21b `spawn {}` thread engine feeds main's
+// Conformance row K56 — control: the 21b `Thread.spawn {}` thread engine feeds main's
 // cooperative receive
 //
 // The LIVE-POOL PRECEDENT, and the evidence line the direction was ruled on. A
-// `spawn {}` task is an OS thread that starts running at the spawn, so main's
+// `Thread.spawn {}` task is an OS thread that starts running at the spawn, so main's
 // cooperative `receive()` spins for microseconds and gets its value — the
 // behavior a reader expects from `TaskGroup(threads: N)` too, and did not get.
 // The row belongs to the wake matrix because it is the same program with one
@@ -17,7 +17,7 @@ import std.channel.{Channel}
 func main() {
     let inbox = Channel<Int>()
     let box = inbox.copy()
-    var t = spawn { try! box.send(4) }
+    var t = Thread.spawn { try! box.send(4) }
     let got = try! inbox.receive()
     let _ = t.join()
     print("main got {}", got)

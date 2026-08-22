@@ -2091,19 +2091,24 @@ class ExpressionsMixin:
         inner.type_args = None
 
     def _check_spawn(self, expr: FunctionCall) -> Optional[SawType]:
-        """Type-check the `spawn { ... }` intrinsic (design 21 item 5).
+        """Type-check the `Thread.spawn { ... }` intrinsic (design 21 item 5,
+        renamed from the bare `spawn { ... }` by design 242).
 
-        `spawn` takes exactly one no-parameter closure and returns `Task<T>`,
-        where `T` is the closure's result type. The closure escapes (it runs on
-        another thread that outlives the call), so it is lowered with a heap env
-        (E1). Every captured value's type must be `Send`: the capture audit walks
+        `Thread.spawn` takes exactly one no-parameter closure and returns
+        `Thread<T>` — `VoidThread` when the body's value is `Void` (ruling 2:
+        the visible-`Void` rule makes `Thread<Void>` unwritable, so the void
+        handle is its own named type, exactly as `VoidTask` is on the
+        cooperative side). The closure escapes (it runs on another thread that
+        outlives the call), so it is lowered with a heap env (E1). Every
+        captured value's type must be `Send`: the capture audit walks
         `closure.captures`, resolves each name's type in the enclosing scope, and
         rejects the first non-`Send` capture, naming the capture and its type.
         """
         if len(expr.arguments) != 1 or not isinstance(expr.arguments[0].value, ClosureExpr):
             self._error(
                 ErrorKind.WRONG_ARGUMENT_COUNT,
-                "`spawn` takes exactly one closure argument: `spawn { ... }`",
+                "`Thread.spawn` takes exactly one closure argument: "
+                "`Thread.spawn { ... }`",
                 expr.line, expr.column
             )
             return None
@@ -2111,7 +2116,7 @@ class ExpressionsMixin:
         if closure.parameters or closure.shorthand_param_count:
             self._error(
                 ErrorKind.WRONG_ARGUMENT_COUNT,
-                "`spawn`'s closure takes no parameters",
+                "`Thread.spawn`'s closure takes no parameters",
                 closure.line, closure.column
             )
         # Check the body as an escaping closure (heap env, move-only-capture
@@ -2147,7 +2152,7 @@ class ExpressionsMixin:
             if note is not None:
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
-                    f"cannot `spawn`: captured `{cap_name}` of type "
+                    f"cannot `Thread.spawn`: captured `{cap_name}` of type "
                     f"`{cap_info.type}` is not `Send`",
                     closure.line, closure.column,
                     hint="only Send values may cross to another task; share via "
@@ -2156,25 +2161,31 @@ class ExpressionsMixin:
                 break
         # The RESULT crosses too, in the other direction: the task computes it
         # on its own thread and `join()` hands it back to this one. The captures
-        # were audited from the start and the result never was — `Task<T: Send>`
+        # were audited from the start and the result never was — `Thread<T: Send>`
         # made the HANDLE non-Send for a non-Send `T`, which stops the handle
         # from crossing a second boundary but says nothing about the crossing
-        # every task makes. `spawn { make_raw(&var n) }` returning a struct with
-        # an `UnsafePointer` field compiled (design 193 unit 6).
+        # every task makes. `Thread.spawn { make_raw(&var n) }` returning a struct
+        # with an `UnsafePointer` field compiled (design 193 unit 6).
         result_note = self.namespace.send_check(result_type, "spawn result")
         if result_note is not None and not self._names_type_param(result_type):
             self._error(
                 ErrorKind.TYPE_MISMATCH,
-                f"cannot `spawn`: the closure's result type `{result_type}` is "
-                f"not `Send`, so it cannot travel back from the task's thread "
-                f"to `join()`",
+                f"cannot `Thread.spawn`: the closure's result type "
+                f"`{result_type}` is not `Send`, so it cannot travel back from "
+                f"the spawned thread to `join()`",
                 closure.line, closure.column,
                 hint="return a Send value; share thread-unsafe state through "
                      "`Arc` (and `Mutex` for mutation) or a `Channel` instead of "
                      "handing it back." + result_note
             )
         expr.spawn_result_type = result_type
-        return SawType(TypeKind.STRUCT, struct_name="Task", type_args=[result_type])
+        # design 242 ruling 2: a `Void` body's handle is the distinct `VoidThread`
+        # — `Thread<Void>` cannot be written as an annotation (the visible-`Void`
+        # rule, designs 122/132), and joining one has no value to hand back.
+        if result_type.kind == TypeKind.VOID:
+            return SawType(TypeKind.STRUCT, struct_name="VoidThread")
+        return SawType(TypeKind.STRUCT, struct_name="Thread",
+                       type_args=[result_type])
 
     def _reject_never_task_body(self, subject: str, consequence: str, result_type,
                                 line: int, column: int) -> bool:
@@ -2184,7 +2195,7 @@ class ExpressionsMixin:
         never completes, so the handle it mints has a result cell for a value
         that cannot exist and `join` on it could not return — a hang the type
         system can see coming, and one the compiler was quietly building: the
-        handle came out `TaskHandle<Never>`, mangled through the escape hatch
+        handle came out `Task<Never>`, mangled through the escape hatch
         as `$Unknown$NEVER` (`mangle.py` has no `NEVER` case, and reaching that
         hatch is documented as a compiler bug).
 
@@ -2197,7 +2208,7 @@ class ExpressionsMixin:
         THE FUNNEL (obligation 1). Every position that starts a task from a
         named body asks this, and these are all of them:
           - `_check_taskgroup_spawn` — `group.spawn(f(args))`.
-          - `_check_spawn` — the design-21b `spawn { ... }` closure form.
+          - `_check_spawn` — the design-21b `Thread.spawn { ... }` closure form.
           - the `__saw_drive` / `__saw_drive_steps` intrinsic arm of
             `_check_function_call`.
 
@@ -3953,7 +3964,7 @@ class ExpressionsMixin:
         if expr.name == "__saw_box_data":
             # design 52b item 2: extract the data word (i8*) of a `Box<any T>` fat
             # pointer — the address of the erased heap payload. The synthesized
-            # `__spawn_<f>` uses it to point a `TaskHandle` at the boxed frame's
+            # `__spawn_<f>` uses it to point a `Task` at the boxed frame's
             # `__result` / `__cancel` slots. Compiler-generated only; the argument
             # is a reference to the box. NOT a suspension source.
             if len(expr.arguments) == 1:
@@ -4088,6 +4099,19 @@ class ExpressionsMixin:
                 return SawType(TypeKind.INT)
             return inner_type if inner_type is not None else SawType(TypeKind.VOID)
         if expr.name == "spawn":
+            # design 242 unit 1: the bare form is RETIRED. No deprecation alias —
+            # the namespace is what says which engine a call site is on, and the
+            # old spelling said neither.
+            self._error(
+                ErrorKind.UNDEFINED_FUNCTION,
+                "`spawn { ... }` no longer names an engine",
+                expr.line, expr.column,
+                hint="write `Thread.spawn { ... }` for an OS thread (blocking, "
+                     "`join()` waits), or spawn into a `TaskGroup` with "
+                     "`group.spawn(work(...))` for a cooperative task"
+            )
+            return None
+        if expr.name == "Thread.spawn":
             return self._check_spawn(expr)
         if expr.name == "sizeof":
             if len(expr.arguments) != 0:
@@ -8722,7 +8746,7 @@ class ExpressionsMixin:
         """`group.spawn(f(args))` (design 52b item 2). Validate the argument is a
         direct call to a free function, record `f` a spawn root (so the coro
         transform builds its frame + `Resumable` conformance + a `__spawn_<f>`
-        helper), and yield `TaskHandle<T>` with `T` = f's return type. Absorbs the
+        helper), and yield `Task<T>` with `T` = f's return type. Absorbs the
         callee's suspension — spawning enqueues; it does not itself suspend — so
         the enclosing function does not become suspending merely by spawning."""
         if len(expr.arguments) != 1 or expr.arguments[0].name is not None:
@@ -8800,12 +8824,12 @@ class ExpressionsMixin:
                 self._mt_spawn_roots.add(spawn_name)
         expr.spawn_root = spawn_name
         # design 102 item 1: a `Void` spawn body carries no result slot, so it
-        # yields a `VoidTaskHandle` (no `result_ptr`) rather than `TaskHandle<Void>`
-        # — join drives to completion and returns, with nothing to take.
+        # yields a `VoidTask` (no `result_ptr`) rather than `Task<Void>` — join
+        # drives to completion and returns, with nothing to take.
         if result_type.kind == TypeKind.VOID:
-            handle_type = SawType(TypeKind.STRUCT, struct_name="VoidTaskHandle")
+            handle_type = SawType(TypeKind.STRUCT, struct_name="VoidTask")
         else:
-            handle_type = SawType(TypeKind.STRUCT, struct_name="TaskHandle",
+            handle_type = SawType(TypeKind.STRUCT, struct_name="Task",
                                   type_args=[result_type])
         # Stamp the handle type so the transform's `__spawn_<f>` rewrite can carry
         # it onto the replacement call (needed when a suspending spawner makes the
@@ -9253,7 +9277,7 @@ class ExpressionsMixin:
         # design 52b item 2: `group.spawn(f(args))` on a TaskGroup receiver. Peek
         # the receiver type (a bare identifier / member — the group local) and
         # route to the spawn handler, which records the spawn root and yields
-        # `TaskHandle<T>`. Distinct from the 21b `spawn { closure }` FunctionCall.
+        # `Task<T>`. Distinct from the 21b `Thread.spawn { closure }` FunctionCall.
         if expr.method_name == "spawn" and isinstance(
                 expr.object, (Identifier, MemberAccess)):
             recv_t = self._check_expression(expr.object)

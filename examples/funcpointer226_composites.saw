@@ -57,6 +57,6 @@ func main() {
     let second = v[1]
     print("out of a vector {first(1)} {second(1)}")
 
-    var t = spawn { worker() }
+    var t = Thread.spawn { worker() }
     print("across a suspend {t.join()}")
 }

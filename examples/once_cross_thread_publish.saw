@@ -45,10 +45,10 @@ func consume() -> Bool {
 }
 
 func main() {
-    var r0 = spawn { consume() }
-    var r1 = spawn { consume() }
-    var r2 = spawn { consume() }
-    var w = spawn { publish() }
+    var r0 = Thread.spawn { consume() }
+    var r1 = Thread.spawn { consume() }
+    var r2 = Thread.spawn { consume() }
+    var w = Thread.spawn { publish() }
 
     let _a = r0.join()
     let _b = r1.join()

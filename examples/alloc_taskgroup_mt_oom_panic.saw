@@ -2,7 +2,7 @@
 // and used to leave the field None when the allocator refused. That group was
 // inert in the worst way available: `__run_all` guards on the lock and does
 // NOTHING, so not one spawned task ran, `Deinit` dropped every frame unrun, and
-// `TaskHandle.join` then force-unwrapped a result nobody had written — while
+// `Task.join` then force-unwrapped a result nobody had written — while
 // the group reported `workers >= 2` the whole time.
 // EXPECT: panic
 // EXPECT-PANIC-CONTAINS: TaskGroup(threads:): allocation failed

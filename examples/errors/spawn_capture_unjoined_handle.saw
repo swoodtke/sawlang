@@ -1,7 +1,7 @@
 // Design 189's two conservative edges: where the borrow is NOT released.
 //
 // `discarded` — the handle is thrown away, so nothing ever joins the task.
-// `TaskHandle`'s Deinit owns nothing and does not join (design 134 leaves the
+// `Task`'s Deinit owns nothing and does not join (design 134 leaves the
 // result in the group's cell), so the task runs until the GROUP's Deinit
 // drains it at scope exit. The borrow lasts exactly that long, and the
 // diagnostic says so instead of naming a handle that does not exist. Same

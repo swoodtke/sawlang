@@ -1,0 +1,26 @@
+// design 242 unit 1: `TaskHandle<T>` is `Task<T>` and `VoidTaskHandle` is
+// `VoidTask`. A name the language used to define and no longer does gets the
+// word back, not a bare "undefined type" — the same teaching table the retired
+// TRAIT names got in design 219.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: undefined type `TaskHandle`
+// EXPECT-ERROR-CONTAINS: `TaskHandle<T>` is `Task<T>` (design 242)
+// EXPECT-ERROR-CONTAINS: undefined type `VoidTaskHandle`
+// EXPECT-ERROR-CONTAINS: `VoidTaskHandle` is `VoidTask` (design 242)
+
+func work(n: Int) -> Int {
+    n * n
+}
+
+func tick() {
+    print("tick")
+}
+
+func main() {
+    var group = TaskGroup()
+    var valued: Vector<TaskHandle<Int>> = []
+    valued.push(group.spawn(work(3)))
+    var voided: Vector<VoidTaskHandle> = []
+    voided.push(group.spawn(tick()))
+    print(valued.len() + voided.len())
+}

@@ -582,7 +582,7 @@ def _enc_of(saw_type):
         return "self_opt"
     # design 62 G1: a frame-resident `TaskGroup` is "plain"-encoded so `&group`
     # (needed by `group.spawn(...)`'s synthesized `&group` receiver, and by
-    # `TaskHandle`'s raw pointer into the group) resolves to an ADDRESSABLE frame
+    # `Task`'s raw pointer into the group) resolves to an ADDRESSABLE frame
     # field `self.group` — an opt-encoded `self.group!` is not addressable. Its
     # placeholder is a real empty `TaskGroup()` (always-valid: its Deinit drains 0
     # children), so a teardown before the user's `let group = TaskGroup()` runs is
@@ -1931,7 +1931,7 @@ class _FrameBuilder:
         self.exit_status_root = exit_status_root
         is_spawn_root = is_spawn_root or exit_status_root
         # design 52b item 2: a spawn-root frame forces its result opt-encoded
-        # even for a POD return, so `TaskHandle<T>` uniformly holds a
+        # even for a POD return, so `Task<T>` uniformly holds a
         # `UnsafePointer<T?>` and `join` takes the value with the same
         # force-unwrap + `__saw_forget` handoff regardless of T.
         #
@@ -4562,7 +4562,7 @@ class _FrameBuilder:
         if self.is_void:
             self.result_enc = "plain"
         elif self.force_opt_result:
-            # A spawn root forces its result opt-encoded so the `TaskHandle<T>`
+            # A spawn root forces its result opt-encoded so the `Task<T>`
             # uniformly holds `UnsafePointer<T?>`, regardless of T. That slot
             # lives in the group-owned CELL, not in the frame, and the cell is
             # on design 218's trusted list — so it keeps the legacy encoding.
@@ -4632,7 +4632,7 @@ class _FrameBuilder:
         if self.is_spawn_root:
             # design 134: a spawned frame carries a POINTER to its group-owned
             # cell instead of a cancel word and a result slot of its own. The
-            # cell holds both, outlives the frame, and is what every `TaskHandle`
+            # cell holds both, outlives the frame, and is what every `Task`
             # addresses — so a completed task's box can be released at once.
             fields.append(StructField(name="__cellp", type=_cell_ref_type(self)))
         else:
@@ -8769,13 +8769,13 @@ def _check_spawn_frame_send(fb: _FrameBuilder, fbs, typechecker):
 
 
 def _make_spawn_helper(fb: _FrameBuilder, fbs, helper_name=None):
-    """Synthesize `__spawn_<f>(__group, <params>) -> TaskHandle<T>`.
+    """Synthesize `__spawn_<f>(__group, <params>) -> Task<T>`.
 
     Allocate the task's CELL first (design 134), take the raw pointers to its
     result and cancel slots, build f's frame around the cell address, erase both
     into boxes, and hand them to the group together:
 
-        func __spawn_f(__group: &TaskGroup, <params>) unsafe -> TaskHandle<T> {
+        func __spawn_f(__group: &TaskGroup, <params>) unsafe -> Task<T> {
             let __gp    = (&__group) as UnsafePointer<TaskGroup>
             var __cbox  = Box<any __TaskCell>.make(__ResultCell<T>(__result: None,
                                                                    __cancel: false))
@@ -8786,7 +8786,7 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs, helper_name=None):
             var __box   = Box<any Resumable>.make(__Frame_f(<params>..., __cellp: __cellp))
             let __slot  = __gp[0].__enqueue(move __box, move __cbox)
             let __gen   = __gp[0].__gen_at(__slot)
-            TaskHandle<T>(result_ptr: __rp, cancel_ptr: __cp, group_ptr: __gp,
+            Task<T>(result_ptr: __rp, cancel_ptr: __cp, group_ptr: __gp,
                           slot: __slot, generation: __gen)
         }
 
@@ -8899,12 +8899,12 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs, helper_name=None):
     ])
     if fb.is_void:
         handle = StructInit(
-            struct_name="VoidTaskHandle", type_args=None,
+            struct_name="VoidTask", type_args=None,
             field_inits=[("cancel_ptr", Identifier(name="__cp")),
                          ("group_ptr", Identifier(name="__gp")),
                          ("slot", Identifier(name="__slot")),
                          ("generation", Identifier(name="__gen"))])
-        ret_type = SawType(TypeKind.STRUCT, struct_name="VoidTaskHandle")
+        ret_type = SawType(TypeKind.STRUCT, struct_name="VoidTask")
         helper_params = [Parameter(name="__group", type=tg_ref,
                                    is_reference=True,
                                    reference_mutable=False)] + \
@@ -8919,13 +8919,13 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs, helper_name=None):
                      is_synthesized=True,
                      source_file=getattr(fb.func, 'source_file', "")), True)
     handle = StructInit(
-        struct_name="TaskHandle", type_args=[T],
+        struct_name="Task", type_args=[T],
         field_inits=[("result_ptr", Identifier(name="__rp")),
                      ("cancel_ptr", Identifier(name="__cp")),
                      ("group_ptr", Identifier(name="__gp")),
                      ("slot", Identifier(name="__slot")),
                      ("generation", Identifier(name="__gen"))])
-    ret_type = SawType(TypeKind.STRUCT, struct_name="TaskHandle", type_args=[T])
+    ret_type = SawType(TypeKind.STRUCT, struct_name="Task", type_args=[T])
     helper_params = [Parameter(name="__group", type=tg_ref,
                                is_reference=True, reference_mutable=False)] + \
                     [_helper_param(fb, p) for p in params]

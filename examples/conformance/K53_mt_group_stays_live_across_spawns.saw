@@ -31,7 +31,7 @@ func bump(counter: Arc<Mutex<Int>>) {
 func main() {
     let counter = Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
     var workers = TaskGroup(threads: 2)
-    var handles = Vector<VoidTaskHandle>()
+    var handles = Vector<VoidTask>()
     for _ in 0..4 {
         handles.push(workers.spawn(bump(counter.copy())))
     }

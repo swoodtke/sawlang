@@ -2396,7 +2396,7 @@ class Namespace:
     #       Arc<T>:     Send + Sync  iff  T: Send + Sync
     #       Mutex<T>:   Send iff T: Send;   Sync iff T: Send
     #       Channel<T>: Send + Sync  iff  T: Send   (an Arc-like shared handle)
-    #       Task<T>:    Send + Sync  iff  T: Send
+    #       Thread<T>:  Send + Sync  iff  T: Send
     # =========================================================================
 
     def is_send(self, saw_type: SawType) -> bool:
@@ -2411,8 +2411,8 @@ class Namespace:
     # `thread_safety_note` of its own — which is how the last row on this list
     # came to be missing one.
     #
-    #   spawn capture          `spawn { … }`'s captured values     [typechecker]
-    #   spawn result           `spawn { … }`'s result, via join    [typechecker]
+    #   spawn capture   `Thread.spawn { … }`'s captured values     [typechecker]
+    #   spawn result    `Thread.spawn { … }`'s result, via join    [typechecker]
     #   task frame parameter   a `TaskGroup(threads:)` root's params  [transform]
     #   task frame local       … its across-suspension locals         [transform]
     #   task frame result      … its result, via join                 [transform]

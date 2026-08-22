@@ -4430,7 +4430,7 @@ class TypeUtilsMixin:
     # a spawn and its join hands the task freed memory, silently, exit 0.
     # ------------------------------------------------------------------
 
-    _TASK_HANDLE_TYPES = ("TaskHandle", "VoidTaskHandle")
+    _TASK_HANDLE_TYPES = ("Task", "VoidTask")
 
     def _task_borrow_for(self, var_info, writes: bool):
         """The first live task borrow an access to `var_info` collides with.

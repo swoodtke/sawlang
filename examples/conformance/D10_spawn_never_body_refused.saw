@@ -3,7 +3,7 @@
 // Design 228 unit 5's v1 ruling. A task is a computation something later waits
 // for; a `-> Never` body never completes, so the handle it mints has a result
 // cell for a value that cannot exist and `join` on it could not return. The
-// compiler was quietly building exactly that: `TaskHandle<Never>`, whose type
+// compiler was quietly building exactly that: `Task<Never>`, whose type
 // argument reached the mangler's escape hatch as `$Unknown$NEVER` — and
 // reaching that hatch is documented as a compiler bug.
 //

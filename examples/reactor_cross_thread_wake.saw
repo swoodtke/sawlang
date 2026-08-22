@@ -9,7 +9,7 @@
 //
 // This is a WHITE-BOX test of the `__saw_rt_reactor_*` seam (the executor's own
 // wrapper is `__saw_exec_reactor_wake`), because the property is about the
-// reactor and nothing above it. Three `spawn {}` threads park; main — which
+// reactor and nothing above it. Three `Thread.spawn {}` threads park; main — which
 // never suspends, so it never touches the reactor itself — fires exactly ONE
 // wake and counts how many polls returned.
 //
@@ -70,9 +70,9 @@ func main() {
     let entered = Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
     let left = Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
 
-    var a = spawn { parker(r, entered.copy(), left.copy()) }
-    var b = spawn { parker(r, entered.copy(), left.copy()) }
-    var c = spawn { parker(r, entered.copy(), left.copy()) }
+    var a = Thread.spawn { parker(r, entered.copy(), left.copy()) }
+    var b = Thread.spawn { parker(r, entered.copy(), left.copy()) }
+    var c = Thread.spawn { parker(r, entered.copy(), left.copy()) }
 
     print("parked {}", await_count(entered.copy(), 3))
     // Let the three actually reach `kevent`. Landing the wake early would still

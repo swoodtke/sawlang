@@ -89,7 +89,7 @@ func main() {
     let out = Channel<Int>()
     var pool = TaskGroup(threads: 4)
 
-    var producers = Vector<VoidTaskHandle>()
+    var producers = Vector<VoidTask>()
     for _ in 0..PRODUCERS {
         producers.push(pool.spawn(produce(work.copy())))
     }

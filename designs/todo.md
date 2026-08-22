@@ -32,7 +32,7 @@ is scheduled and in what order is the whole of what they say.
 ## [QUEUE] — scheduled, in order (user-approved)
 
 - Design 234 — the fallibility flip (designs/234-fallibility-flip.md; unit-2 rulings Aug 22 in the brief + entry below) — units 0-2, 4, 5 and the channel sub-unit LANDED Aug 22 (`design-234`, `design-234-b`); DQ-230b executed. UNIT 3's MAIN FLIP is the REMAINDER, stopped on three pending rulings: DF-245a sequencing (lead recommends fix-fallible-init-first, dissolving the 194-site factory migration), DF-245b (owed regardless), and the 1434-site consumer-migration protocol (proposed: `try!` wholesale in examples/tests, judgment in std/tools). Re-queues behind those rulings
-- Design 242 — the Thread/Task split (designs/242-thread-task-split.md; AUTHORED + fully RULED Aug 22, nine rulings in the header, none open) — DISPATCHED Aug 22 (branch `design-242`). BEFORE 238
+- Design 242 — the Thread/Task split (designs/242-thread-task-split.md) — UNITS 0-1 LANDED Aug 22 (branch `design-242`: the renames, the docs, the compiler-emitted `Thread` identity carve-out; old spellings error with fixits; xfails unchanged). UNITS 2-5 HELD on a ruling: std's own `TaskGroup.crew: Vector<VoidThread>` is the in-tree counterexample to ruling 5's function-local escape refusal — three candidate shapes in the entry below. Two findings filed: DF-247a (a spawn root is undefined at its other same-module call sites), DF-247b (glob import splits the qualified and bare spellings into two types — wants a ruling)
 - Place-window xfail family — DISPATCHED Aug 22 (branch `place-window-fixes`, parallel with 242): DF-169h + DF-218h + DF-218i + DF-218j (four bogus refusals, pins state intended behavior) + the stale-looking DF-232n pin audited. Entries below
 - Diagnostics/codegen small batch — DISPATCHED Aug 22 (branch `diag-batch`, parallel with 242): DF-245b (try! carries its error), DF-238b (32-bit {} low-word), DF-238c (glob loses trait-module conformance), DF-243a (+ un-suffixing the abi asserts), DF-243b+DF-232g residue (diagnostic file threading), DF-225a, DF-225d (DF-225f rides only if trivial). Entries below
 - Transform typing batch — QUEUED after 242 integrates (deliberately held: collides with 242's transform work): DF-245c (spawned-task None typing), DF-245d (try in binding scrutinee), DF-244b (bare None tail). Entries below
@@ -70,6 +70,7 @@ for sawos; "238 before more M3 work" is absolute.
 - ~~DF-218x~~ — CLOSED Aug 22 (branch `df-218xy`, commit 1): the branch got a cleanup scope of its own, so `_cleanup_to_depth` reaches the binding with no fourth entry point. The sweep found FIVE leaking spellings, not two, and corrected two entry claims (the driven twin was already right; the tuple pattern was mis-scoped rather than leaked). Entry below; conformance K76
 - ~~DF-218y~~ — CLOSED Aug 22 (branch `df-218xy`, commit 2) on the SYNC side, as the Aug-22 ruling directs: discard order is REVERSE-DECLARATION everywhere. The sweep found a SECOND forward loop — the destructuring `let`'s wildcard leaves — which was forward on both twins and moved with it. Pin flipped and extended to 11 rows; entry below; conformance K77
 - DF-244b — a bare `None` TAIL at a `Result<T?, E>` cannot type itself, in a NAMED body as much as a closure; entry below, DF-232h's residue. `return None` is the one-keyword workaround
+- DF-247a — a function that is a `group.spawn` ROOT is `undefined function` at every other call of it in the same module (entry below, filed by design 242 unit 0's census; PRE-EXISTING, stash-verified). The fix owes the ROOT MATRIX its mechanism reaches, not the one probed cell
 - DF-246a — `examples/task_backtrace_mt.saw` flakes under machine LOAD (a fixed `sleep` standing in for a happens-before between two MT tasks), which reads as a suite regression and costs a battery re-run; `channel_receive_cancel_mt.saw` is the second member of the class. Entry below, found by `df-218xy`'s terminal battery
 - DF-248a — a window body may not name the window's own ROOT, even for a read that invalidates nothing (`v[0].n = v.len()`); held deliberately, and what it wants is a designed "shared second access to the root" rule. Entry below, filed by DF-169h's fix
 - DF-248b RESIDUE — a HAND-WRITTEN closure nested inside another still captures the outer one's `&var` PARAMETER by value, so a write through it is silently lost; the place-window half closed Aug 22. Entry below, pinned XFAIL; wants a borrow marker on `VariableInfo`
@@ -100,6 +101,43 @@ parameter types are stored raw, and resolving one at a foreign call site runs
 the design-194 prelude gate against the wrong module. Wants a resolution
 strategy, hence its own entry. PIN:
 `examples/generic_bound_call_concrete_param_type.saw` (XFAIL). [239]
+
+## DF-247a — a function that is a `group.spawn` ROOT is `undefined function`
+## at every OTHER call of it in the same module (filed Aug 22 by design 242
+## unit 0's census probes; PRE-EXISTING, verified by stash against the branch
+## point 361ea0bf)
+
+```saw
+func work(n: Int) -> Int { n * n }
+
+func main() {
+    print(work(2))                    // error: undefined function `work`
+    var group = TaskGroup()
+    let h = group.spawn(work(5))
+    print(h.join())
+}
+```
+
+Reordering the two does not help, and the error anchors on the ORDINARY call,
+which is the one line that has nothing wrong with it. `examples/` has no
+program that spawns a function and also calls it, which is why the shape has
+sat unnoticed; it is easy to reach the moment a body is worth both running
+inline and running as a task.
+
+MECHANISM (obligation 4): the coroutine transform's spawn-root rewrite. A
+`group.spawn(f(...))` records `f` a spawn root, and the transform replaces the
+authored `f` with the frame machinery (`__Frame_f`, `f$spawnroot`,
+`__spawn_f`) before the entry module is re-typechecked — so the ordinary call,
+which was never rewritten, resolves against a function table the original name
+has left. The mechanism reaches every ROOT KIND the transform substitutes, so
+the sweep the fix owes is the root matrix: `group.spawn`, `__saw_drive` /
+`__saw_drive_steps`, a `Thread.spawn { }` closure body naming a spawned
+function, and a spawn root that is also called from a THIRD function rather
+than from the spawner. Only the first cell is probed so far (the two spellings
+above); the rest are unprobed and presumed to be the same cell.
+
+Not pinned yet — a pin belongs with the sweep, and design 242 stopped at
+recording the shape rather than growing an unrelated fix. [52b, 242]
 
 ## DF-244b — a bare `None` TAIL at a `Result<T?, E>` cannot type itself, in a
 ## NAMED body as much as a closure (filed Aug 22, DF-232h's residue)
@@ -272,6 +310,48 @@ consumer. Pin: `examples/suspending_binding_scrutinee_propagates_a_try.saw`
 (XFAIL, both the `while let` and `if let` rows).
 `examples/while_let_channel_drain.saw` spells `try!` and cites this entry.
 [196, 234, 244]
+
+## Design 242 — the Thread/Task split (AUTHORED + fully RULED Aug 22; IN
+## FLIGHT on branch `design-242`)
+
+designs/242-thread-task-split.md is the plan of record and its nine rulings
+are law. Status by unit:
+
+- **Unit 0 (census) — DONE.** 43 real `Thread.spawn`-form sites (42 in
+  `examples/` across 22 files, 1 in `sawc/std/taskgroup.saw`); zero in
+  `blade/`, `libs/`, `sos/`, `devtools/`. 14 `TaskHandle` + 5 `VoidTaskHandle`
+  mentions in `.saw` (8 of them real annotations, all `Vector<...>` element
+  types). `Channel.recv` has ONE call site in the whole tree
+  (`examples/channel_pipeline.saw`) against 82 `receive()`s. PROBE ON RECORD
+  for unit 4: a suspending body handed to today's spawn form is neither
+  refused nor driven — it compiles as ORDINARY SYNC CODE (no frame in the
+  emitted IR), so a `yield_now()` inside it is a silent no-op; and a
+  `blocking` extern called there already emits a DIRECT call inside the
+  trampoline (no offload thunk), which is ruling 9's behaviour arrived at by
+  accident rather than by a rule. One finding: DF-247a.
+- **Unit 1 (the renames) — LANDED.** `spawn {}` -> `Thread.spawn {}`,
+  `Task<T>` -> `Thread<T>` (+ the new `VoidThread`), `TaskHandle<T>` ->
+  `Task<T>`, `VoidTaskHandle` -> `VoidTask`; std's internal `trait Thread` is
+  `NativeThread`. Compiler-driven per 236: the bare `spawn { }` and both old
+  type names are ERRORS carrying the new spelling (pins
+  `examples/errors/spawn_names_its_engine.saw`,
+  `examples/errors/retired_task_handle_names.saw`), no deprecation alias.
+- **Units 2-5 — OPEN.** Unit 2 (must-consume) has an OPEN QUESTION the brief
+  does not answer; see the ruling needed below.
+
+**RULING NEEDED before unit 2 (raised Aug 22 by the implementing agent).**
+Ruling 5's function-local escape refusal — "storing or returning an
+unconsumed must-consume handle is refused" — has exactly one in-tree
+counterexample, and it is std's own: `TaskGroup.crew: Vector<VoidThread>`,
+pushed in `__start_crew` and joined in `__shutdown_crew_inner`, which is how
+an MT group's worker pool is owned. The pool must outlive the function that
+starts it, so the handle must escape, and `detach()` is not the answer (the
+group's `Deinit` genuinely joins its workers — that is the structured
+teardown). Three shapes the ruling could take: (a) the obligation is
+discharged by a move into storage whose owner joins in its own `Deinit`,
+which is ruling 6's group reasoning generalized; (b) a std/runtime carve-out;
+(c) rework the crew to hold something that is not a handle. The agent did not
+pick — the rule is the brief's, and (a) widens what "consumed" means.
 
 ## Design 234 — the fallibility flip (RATIFIED Aug 17; QUEUED behind the
 ## three in-flight Aug-17 branches)

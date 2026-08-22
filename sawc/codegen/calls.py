@@ -518,8 +518,8 @@ class CallsMixin:
         if expr.name == "assert":
             return self._generate_assert(expr)
 
-        # Handle the spawn intrinsic: spawn { ... } -> Task<T>
-        if expr.name == "spawn":
+        # Handle the spawn intrinsic: Thread.spawn { ... } -> Thread<T>
+        if expr.name == "Thread.spawn":
             return self._generate_spawn(expr)
 
         # Handle built-in sizeof<T>() function
@@ -2285,13 +2285,16 @@ class CallsMixin:
         raise ValueError(f"unknown UnsafeMemory method: {method}")
 
     def _generate_spawn(self, expr: FunctionCall):
-        """Lower `spawn { ... }` to a pthread launch (design 21 item 5, 21b).
+        """Lower `Thread.spawn { ... }` to a pthread launch (design 21 item 5,
+        21b; the form was the bare `spawn { ... }` until design 242).
 
-        Builds the escaping closure (heap env via E1), allocates a task control
+        Builds the escaping closure (heap env via E1), allocates a thread control
         block `{ pthread_t tid, i8* env, T result }`, and starts a per-spawn
         trampoline on a fresh pthread. The trampoline runs the body, stores the
-        result into the block, and tears down the env on the task thread. Returns
-        a `Task<T>` value wrapping the control block.
+        result into the block, and tears down the env on the spawned thread.
+        Returns a `Thread<T>` value wrapping the control block — a `VoidThread`
+        when the body's value is `Void` (design 242 ruling 2), which is the same
+        two-field layout with no result to take.
         """
         i8ptr = ir.IntType(8).as_pointer()
         i64 = ir.IntType(64)
@@ -2301,7 +2304,7 @@ class CallsMixin:
         result_llvm = self._get_llvm_type(result_saw)
         # A Void spawn body has no value to carry back: LLVM forbids a `void`
         # field in the control-block struct, so the result slot becomes a 1-byte
-        # placeholder (never stored, never read — Task<Void>.join yields Void).
+        # placeholder (never stored, never read — `VoidThread` has no result).
         result_is_void = isinstance(result_llvm, ir.VoidType)
         slot_llvm = ir.IntType(8) if result_is_void else result_llvm
 
@@ -2336,14 +2339,15 @@ class CallsMixin:
             name="task_tid_slot")
         # design 117: __saw_rt_thread_spawn(entry, env) RETURNS the OS thread
         # handle (pthread_t word); store it into the control block's first slot
-        # (byte 0), where Task.join/Task.deinit read it back. Byte-identical
+        # (byte 0), where Thread.join/Thread.deinit read it back. Byte-identical
         # control-block layout to the pre-117 pthread_create-writes-the-slot form.
         handle = self.builder.call(self.functions["__saw_rt_thread_spawn"],
                                    [tramp, raw], name="task_handle")
-        # design 230 unit B: a `spawn {}` body is code this process can still run
-        # and no run queue knows about it, so the quiescent deadlock report has
-        # to count it. Bumped HERE (the launch) and dropped in `Task.join` /
-        # `Task.deinit`, which are the two points that prove a body is finished.
+        # design 230 unit B: a `Thread.spawn {}` body is code this process can
+        # still run and no run queue knows about it, so the quiescent deadlock
+        # report has to count it. Bumped HERE (the launch) and dropped in
+        # `Thread.join` / `Thread.deinit`, the two points that prove a body is
+        # finished.
         # Guarded on the symbol because the executor module is a hosted-only
         # dependency, exactly as the `io_wait` fallback below is.
         if "__saw_exec_thread_task_started" in self.functions:
@@ -2352,9 +2356,14 @@ class CallsMixin:
             tid_slot, self.int_type.as_pointer(), name="task_tid_word")
         self.builder.store(handle, tid_word_slot)
 
-        # Build the Task<T> value { handle: Some(raw), joined: false }.
-        task_saw = SawType(TypeKind.STRUCT, struct_name="Task", type_args=[result_saw])
-        self._ensure_monomorphized_struct("Task", [result_saw])
+        # Build the handle value { handle: Some(raw), joined: false } — a
+        # `VoidThread` for a `Void` body, a `Thread<T>` otherwise (design 242).
+        if result_is_void:
+            task_saw = SawType(TypeKind.STRUCT, struct_name="VoidThread")
+        else:
+            task_saw = SawType(TypeKind.STRUCT, struct_name="Thread",
+                               type_args=[result_saw])
+            self._ensure_monomorphized_struct("Thread", [result_saw])
         task_llvm = self._get_llvm_type(task_saw)
         # handle field is `UnsafePointer<Int8>?` => { i1 is_some, i8* value }.
         handle_opt_ty = task_llvm.elements[0]

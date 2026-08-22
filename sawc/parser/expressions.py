@@ -38,6 +38,14 @@ from ast_nodes import (
 )
 from .types import CommittedGenericError
 
+# design 242: THE SPAWN FORMS. `Thread.spawn { ... }` (and, from unit 3,
+# `Task.spawn { ... }`) read as member accesses but are compiler-lowered
+# intrinsics — the namespace IS the engine, and neither type declares a `spawn`
+# static. The parser rewrites both to a `FunctionCall` named `<Namespace>.spawn`
+# so that everything downstream reads ONE node kind, exactly as the retired bare
+# `spawn { ... }` did. Adding an engine means adding a name here.
+SPAWN_FORM_NAMESPACES = ("Thread",)
+
 
 class ExpressionsMixin:
     """Mixin providing expression parsing methods for Parser."""
@@ -448,6 +456,22 @@ class ExpressionsMixin:
         shares this between plain `.` and the `?.` optional hop). `member_name` is
         already consumed; this handles explicit `<...>` type args, a `(args)` call,
         a trailing-closure call, or a bare field access."""
+        # design 242: `Thread.spawn { ... }` is the thread engine's spawn FORM,
+        # not a static method — it takes a closure the compiler lowers, exactly
+        # as the retired bare `spawn { ... }` did. Rewriting it to the same
+        # `FunctionCall` shape here means every downstream consumer (the
+        # typechecker's `_check_spawn`, the coroutine transform, spawn codegen)
+        # keeps reading ONE node kind. The call is caught in the `(` spelling
+        # too so the arity diagnostic comes from `_check_spawn` rather than from
+        # `Thread` failing to resolve as a value.
+        if (member_name == "spawn"
+                and isinstance(base_expr, Identifier)
+                and base_expr.name in SPAWN_FORM_NAMESPACES
+                and not base_expr.type_args
+                and (self.match(TokenType.LPAREN)
+                     or (self.allow_trailing_closure and self.match(TokenType.LBRACE)))):
+            return self._parse_spawn_form(base_expr.name, dot_token)
+
         # Explicit method-level type arguments (brief 36):
         # `v.map<Int>(...)` or the trailing-closure form
         # `v.map<Int> { ... }`. Same backtracking ambiguity as a free
@@ -516,6 +540,34 @@ class ExpressionsMixin:
                 line=dot_token.line,
                 column=dot_token.column
             )
+
+    def _parse_spawn_form(self, namespace: str, dot_token) -> Expression:
+        """One of design 242's engine spawn forms, as a `FunctionCall`.
+
+        `namespace` is the engine that spelled it (`Thread`, and `Task` from
+        unit 3); the node's name is `<namespace>.spawn`, which is both what the
+        typechecker dispatches on and what its diagnostics print. Both
+        spellings are accepted here — the closure form `Thread.spawn { … }`,
+        which is the one that exists, and the parenthesized `Thread.spawn(…)`,
+        which does not, so that the arity diagnostic comes from the spawn
+        checker instead of from `Thread` failing to resolve as a value.
+        """
+        if self.match(TokenType.LPAREN):
+            self.advance()
+            arguments = self.parse_arguments()
+            if self.allow_trailing_closure and self.match(TokenType.LBRACE):
+                arguments.append(
+                    Argument(value=self._parse_closure_expression(), name=None))
+        else:
+            arguments = [
+                Argument(value=self._parse_closure_expression(), name=None)]
+        return FunctionCall(
+            name=f"{namespace}.spawn",
+            arguments=arguments,
+            type_args=None,
+            line=dot_token.line,
+            column=dot_token.column,
+        )
 
     def parse_postfix(self) -> Expression:
         expr = self.parse_primary()
@@ -699,8 +751,10 @@ class ExpressionsMixin:
                     return self.parse_struct_init(token, type_args)
                 else:
                     return self.parse_function_call(token, type_args)
-            # `spawn { ... }` — the spawn intrinsic (design 21 item 5) is a call
-            # with only a trailing closure and no parentheses. Restricted to the
+            # The RETIRED bare `spawn { ... }` (design 21 item 5, replaced by
+            # `Thread.spawn { ... }` in design 242). Still PARSED, so the
+            # typechecker can answer it with the fixit naming the new spelling
+            # rather than with a bare-identifier syntax error. Restricted to the
             # `spawn` name so a bare `ident {` in other positions is never
             # mis-parsed as a call (it may open a block or struct-literal context).
             if (token.value == "spawn" and self.allow_trailing_closure

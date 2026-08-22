@@ -8,7 +8,7 @@
 // rather than as a deadlock:
 //
 //   * a SLEEPING sibling that will wake and send (a timer deadline);
-//   * a `spawn {}` THREAD-ENGINE task that will send (no run queue knows about
+//   * a `Thread.spawn {}` THREAD-ENGINE task that will send (no run queue knows about
 //     one at all, which is why the walk counts them separately — K56 is this
 //     shape and was the case that would have broken first);
 //   * an MT-GROUP task that will send (a worker is off running it);
@@ -39,7 +39,7 @@ func late_sender(ch: Channel<Int>, v: Int) -> Int {
     0
 }
 
-// The thread-engine sender's delay, because a `spawn {}` closure body is not
+// The thread-engine sender's delay, because a `Thread.spawn {}` closure body is not
 // driven and so may not suspend (LANGUAGE_SPEC's closure-body limit) — a `sleep`
 // inside one is a clean compile error. This is ordinary sync work on the task's
 // own OS thread, which is all the delay has to be.
@@ -65,7 +65,7 @@ func main() {
     // 2 — the sender is a thread-engine task, invisible to every run queue.
     let ch2 = Channel<Int>()
     let feeder = ch2.copy()
-    var t = spawn {
+    var t = Thread.spawn {
         let _ = spin(3000000)
         try! feeder.send(2)
     }

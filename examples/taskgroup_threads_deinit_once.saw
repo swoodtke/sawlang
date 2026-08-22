@@ -30,7 +30,7 @@ func run() {
     var group = TaskGroup(threads: 3)
     var i = 0
     var joined = 0
-    var handles = Vector<TaskHandle<Res>>()
+    var handles = Vector<Task<Res>>()
     while i < 6 {
         let h = group.spawn(makeRes(i))
         handles.push(move h)

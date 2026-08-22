@@ -9,7 +9,7 @@
 // property worth pinning. Publishing a channel's readiness word takes running
 // code, so the only question is whether any code in this process can run; the
 // walk answers it by elimination — no ready or active frame, no io registration,
-// no timer deadline, no readiness word already set, no unjoined `spawn {}` task.
+// no timer deadline, no readiness word already set, no unjoined `Thread.spawn {}` task.
 // Nothing here is a guess about the future and nothing counts resumes, which is
 // what design 225 ruled out: design 127's op budget force-yields a long
 // computation exactly the way a permanent wait presents, so a "resumed N times

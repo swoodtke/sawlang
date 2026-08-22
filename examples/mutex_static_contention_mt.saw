@@ -30,10 +30,10 @@ func bump_many(times: Int) -> Bool {
 }
 
 func main() {
-    var t0 = spawn { bump_many(250) }
-    var t1 = spawn { bump_many(250) }
-    var t2 = spawn { bump_many(250) }
-    var t3 = spawn { bump_many(250) }
+    var t0 = Thread.spawn { bump_many(250) }
+    var t1 = Thread.spawn { bump_many(250) }
+    var t2 = Thread.spawn { bump_many(250) }
+    var t3 = Thread.spawn { bump_many(250) }
 
     let _a = t0.join()
     let _b = t1.join()

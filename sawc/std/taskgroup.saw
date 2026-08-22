@@ -11,7 +11,7 @@
 // `__saw_drive`): the coro transform turns `f` into a frame + `Resumable`
 // conformance, and the synthesized `__spawn_f` helper builds the frame, boxes it
 // erased (`Box<any Resumable>`, design 51), enqueues it here, and hands back a
-// typed `TaskHandle<T>`. The group's `Deinit` DRAINS every child to completion
+// typed `Task<T>`. The group's `Deinit` DRAINS every child to completion
 // (structured join = LIFO destruction): no global queue, no static, no forced
 // destroy — the only frame drop is a Box teardown after the child is Done.
 //
@@ -20,7 +20,7 @@
 //                   `None` once the task completes: design 134 releases the frame
 //                   box AT completion, so a Done slot holds no frame at all.
 //   * `cells`     — the per-task result/cancel cell (design 134), which OUTLIVES
-//                   the frame: `TaskHandle` points here, never into the frame.
+//                   the frame: `Task` points here, never into the frame.
 //   * `done`      — per-task completion; a Done frame is never resumed again (its
 //                   dispatch loop is guarded but re-resuming would busy-spin).
 //   * `remaining` — NANOSECONDS until this task should next resume: 0 = ready now
@@ -32,10 +32,11 @@
 //
 // COEXISTENCE (design 21b): the DEFAULT `TaskGroup()` is the COOPERATIVE
 // single-threaded engine — tasks are stackless coroutine frames driven on the
-// current thread. The 21b `spawn { ... } -> Task<T>` engine (one OS thread per
-// task) is untouched and orthogonal; the two do not share a scheduler. Cross-task
-// sharing in both is `Arc`/`Mutex`/`Channel` only (references never cross a spawn —
-// paper 18).
+// current thread. The 21b `Thread.spawn { ... } -> Thread<T>` engine (one OS
+// thread per task) is untouched and orthogonal; the two do not share a
+// scheduler — which is exactly what design 242 put in the vocabulary, giving
+// each engine its own namespace. Cross-task sharing in both is
+// `Arc`/`Mutex`/`Channel` only (references never cross a spawn — paper 18).
 //
 // MULTI-THREADED MODE (design 75 A2, rebuilt as a LIVE POOL by design 225):
 // `TaskGroup(threads: N)` (N>=2) runs a mutex-protected SHARED run queue (the
@@ -43,7 +44,7 @@
 // deques v1) served by N OS worker threads. The pool starts at the group's
 // FIRST spawn and lives until the group's `Deinit`, so an MT group's tasks run
 // concurrently with the thread that owns the group — the same thing every other
-// member of the family already did (`spawn {}` is live by construction, and a
+// member of the family already did (`Thread.spawn {}` is live by construction, and a
 // cooperative group's tasks progress whenever its owner suspends).
 //
 // THE LOCKING DISCIPLINE, which is the whole of what makes that safe:
@@ -54,7 +55,7 @@
 //     second class of field and no lock-free corner. The three entry points
 //     that take it on a caller's behalf are `__enqueue` (the spawning thread),
 //     the handle surface (`__stale_sync`/`__recycle_sync`/`__pin_sync`/
-//     `__await_slot`, the funnel `TaskHandle`/`VoidTaskHandle` reach it
+//     `__await_slot`, the funnel `Task`/`VoidTask` reach it
 //     through) and `__saw_exec_worker` itself.
 //   * A CLAIM MOVES THE FRAME OUT OF ITS SLOT. Under the lock a worker sets
 //     `active` and `swap_out`s the frame box into a local, resumes it with the
@@ -298,13 +299,13 @@ func __saw_exec_flag_bound(deadline: Int, flag: Bool) sync -> Int {
     deadline
 }
 
-// design 230 unit B: how many `spawn {}` THREAD-ENGINE tasks might still be
-// running. The quiescent report needs it, because a thread-engine body is code
+// design 230 unit B: how many `Thread.spawn {}` THREAD-ENGINE bodies might still
+// be running. The quiescent report needs it, because a thread-engine body is code
 // this process can still run and no group's run queue knows about one — K56 is
-// exactly that program (main parks on a channel a `spawn {}` task will feed).
+// exactly that program (main parks on a channel a `Thread.spawn {}` body will feed).
 //
-// Bumped by spawn codegen at the launch and dropped by `Task.join` /
-// `Task.deinit` (std/task.saw), the two points that PROVE a body is finished.
+// Bumped by spawn codegen at the launch and dropped by `Thread.join` /
+// `Thread.deinit` (std/task.saw), the two points that PROVE a body is finished.
 // Conservative on purpose: a finished-but-unjoined task keeps the count up,
 // which can only SUPPRESS a report, never raise a false one.
 static __saw_exec_thread_live: Atomic<Int> = Atomic(0)
@@ -420,7 +421,7 @@ func __saw_exec_park(wake: Int) {
 // REACTOR poll rather than a timer nap, so a `__saw_exec_chan_wake` poke from
 // whichever thread publishes the word ends it at once; it is BOUNDED, so a poke
 // that lands before the poll begins cannot be lost. The writer here is always
-// another thread — an MT worker or a `spawn {}` task — because a cooperative
+// another thread — an MT worker or a `Thread.spawn {}` body — because a cooperative
 // sender would be a second frame and this drive has one.
 func __saw_exec_park_flag(wake: Int) unsafe {
     // design 230 unit B: this thread is handing itself to the executor for the
@@ -471,7 +472,7 @@ func __saw_exec_reactor_wake() {
 // design 89: the per-thread AMBIENT cooperative scheduler. A single intrusive
 // list of every live single-threaded TaskGroup, threaded through each group's
 // `next` field; `__saw_exec_head` holds the head group's address (0 = empty).
-// Every drive point — the entry executor (a suspending `main`), `TaskHandle.join`,
+// Every drive point — the entry executor (a suspending `main`), `Task.join`,
 // and a group's `Deinit` — sweeps this ONE list (`__saw_exec_run`), so a task that
 // parks (sleep / io / channel-yield) cedes to EVERY sibling across ALL groups, not
 // just its own. `spawn` therefore runs eagerly whenever the scheduler runs, not
@@ -503,7 +504,7 @@ static __saw_bt_dumping: Atomic<Int> = Atomic(0)
 // A spawned task's RESULT and CANCEL word live HERE — beside the slot, owned by
 // the group — not inside the coroutine frame. That is what lets the frame box
 // die the moment the task completes (design 124 item 3, blocked until now as
-// DF-124c): a `TaskHandle` addresses the cell and never the frame, and
+// DF-124c): a `Task` addresses the cell and never the frame, and
 // `cancel_addr()` hands a peer an address that outlives the task it cancels.
 //
 // The cell is TYPED (it holds a `T?`), so the group holds it ERASED and lets the
@@ -520,7 +521,7 @@ public trait __TaskCell {
 }
 
 // The cell for a task whose body returns a value. `__result` is the slot
-// `TaskHandle<T>.result_ptr` addresses and `join` empties with `Optional.take`.
+// `Task<T>.result_ptr` addresses and `join` empties with `Optional.take`.
 public struct __ResultCell<T> {
     __result: T?
     __cancel: Bool
@@ -604,7 +605,7 @@ public struct TaskGroup {
     stopping: Bool
     // design 225: the worker pool's 21b thread handles, joined at `Deinit`.
     // Touched by the OWNING thread only (start and teardown), so no lock.
-    crew: Vector<Task<Void>>
+    crew: Vector<VoidThread>
     // design 89: intrusive ambient-scheduler list link. `next` = address of the
     // next registered single-threaded group (0 = end); `registered` = whether this
     // group is currently in the `__saw_exec_head` list. Set/cleared by
@@ -644,7 +645,7 @@ extension TaskGroup {
         let pn = Vector<Bool>()
         let fd = Vector<Int>()
         let fa = Vector<Int>()
-        let cw = Vector<Task<Void>>()
+        let cw = Vector<VoidThread>()
         TaskGroup(tasks: move t, cells: move c, done: move d, remaining: move r, active: move a, gen: move gn, free: move fr, pin: move pn, frame_desc: move fd, frame_addr: move fa, workers: 1, lock: None, cond: None, started: false, stopping: false, crew: move cw, next: 0, registered: false, bt_next: 0, bt_linked: false)
     }
 
@@ -673,7 +674,7 @@ extension TaskGroup {
         }
         let fd = Vector<Int>()
         let fa = Vector<Int>()
-        let cw = Vector<Task<Void>>()
+        let cw = Vector<VoidThread>()
         var lk: UnsafePointer<Int8>? = None
         var cv: UnsafePointer<Int8>? = None
         if w >= 2 {
@@ -681,7 +682,7 @@ extension TaskGroup {
             // and a multi-threaded group with no run-queue lock is INERT in the
             // worst way — every MT path guards on the lock and does nothing, so
             // not one spawned task runs, `Deinit` drops every frame unrun, and
-            // `TaskHandle.join` then force-unwraps a result that was never
+            // `Task.join` then force-unwraps a result that was never
             // written. The group still reported `workers >= 2` throughout.
             //
             // Design 225: ONE 128-byte block holds both — the mutex at +0 and
@@ -746,7 +747,7 @@ extension TaskGroup {
     // Enqueue an erased frame together with its result/cancel cell (compiler-
     // generated `__spawn_*` calls this). Both boxes are MOVED in: the group owns
     // the frame until the task completes and the cell until its result is joined
-    // or the group tears down. Returns the slot index (the `TaskHandle` records it
+    // or the group tears down. Returns the slot index (the `Task` records it
     // for slot-precise `join`). A single-threaded group registers itself in the
     // ambient scheduler list on first enqueue (design 89) so the shared sweep can
     // reach its frames; an MT group runs its own worker pool instead, and starts
@@ -826,7 +827,7 @@ extension TaskGroup {
         let addr = (&self) as UnsafePointer<TaskGroup> as Int
         var i = 0
         while i < self.workers {
-            var t = spawn { __saw_exec_worker(addr) }
+            var t = Thread.spawn { __saw_exec_worker(addr) }
             // design 230 unit B: an executor WORKER is not a user task, so it is
             // taken back out of the thread-engine live count spawn codegen just
             // added it to. The count answers "could a `spawn {}` BODY still run
@@ -848,7 +849,7 @@ extension TaskGroup {
     // These four — `__gen_at`, `__stale`, `__recycle`, `__pin` — read and write
     // `gen`/`free`/`pin`, and they used to do it with no lock at all. The
     // argument for that was: only a HANDLE reaches them, a handle cannot leave
-    // the thread that made it (`TaskHandle`/`VoidTaskHandle` hold
+    // the thread that made it (`Task`/`VoidTask` hold
     // `UnsafePointer` fields, which are not `Send`), and whenever an MT drain
     // was in flight the handle's thread was blocked inside it — so no worker
     // was alive at any point these ran.
@@ -866,8 +867,8 @@ extension TaskGroup {
     //
     // So they take the lock, and the four bodies below stay exactly as they
     // were, callable with it HELD. The `_sync` wrappers beside them are the
-    // funnel that takes it, and its entry points are: `TaskHandle.join`,
-    // `.cancel`, `.cancel_addr` and the three `VoidTaskHandle` twins. The two
+    // funnel that takes it, and its entry points are: `Task.join`,
+    // `.cancel`, `.cancel_addr` and the three `VoidTask` twins. The two
     // callers that must NOT take it are `__complete` (a worker calls it holding
     // the lock already) and `__saw_exec_should_stop`, whose group is always a
     // single-threaded one — the ambient sweep never walks an MT group.
@@ -980,7 +981,7 @@ extension TaskGroup {
     // design 134: a task reached Done. Mark the slot and RELEASE ITS FRAME BOX
     // right here — the whole allocation, not just the values inside it. That is
     // the reclamation design 124 wanted (its item 3) and could not have: the box
-    // used to hold the result and the cancel word a `TaskHandle` addressed, so
+    // used to hold the result and the cancel word a `Task` addressed, so
     // dropping it would have invalidated the handle. Both live in the cell now,
     // which stays, so the frame — params, across-suspend locals, embedded callee
     // sub-frames, scheduler words and all — dies with the task that owned it.
@@ -1523,7 +1524,7 @@ extension TaskGroup: NoCopy {
 // properties and a group states both.
 extension TaskGroup: NoMove {}
 
-// TaskHandle<T> — the typed result access for one spawned child (design 52b
+// Task<T> — the typed result access for one spawned child (design 52b
 // item 2). It owns NOTHING: three raw pointers into the group and into that
 // task's group-owned CELL. `result_ptr` addresses the cell's `T?` slot and
 // `cancel_ptr` its cancel word; the cell is a stable heap allocation that
@@ -1535,7 +1536,7 @@ extension TaskGroup: NoMove {}
 /// pointers to group-owned storage that remains valid after the task completes.
 /// Dropping the handle does nothing; the result is released when the group is
 /// torn down.
-public struct TaskHandle<T> {
+public struct Task<T> {
     result_ptr: UnsafePointer<T?>
     cancel_ptr: UnsafePointer<Bool>
     group_ptr: UnsafePointer<TaskGroup>
@@ -1548,7 +1549,7 @@ public struct TaskHandle<T> {
     generation: Int
 }
 
-extension TaskHandle<T> {
+extension Task<T> {
     // Drive the group until this task is Done, then TAKE its result. The take is
     // exactly-once: `take()` moves the payload out of the CELL and leaves `None`
     // behind, so the cell's later teardown drops nothing. Taking the result is
@@ -1563,7 +1564,7 @@ extension TaskHandle<T> {
     /// `join` more than once causes a panic.
     public func join(&self) unsafe -> T {
         if self.group_ptr[0].__stale_sync(self.slot, self.generation) {
-            panic("TaskHandle.join: this task's result was already joined")
+            panic("Task.join: this task's result was already joined")
         }
         if self.group_ptr[0].workers >= 2 {
             // MT (design 225): the pool is already running this task, so a join
@@ -1604,7 +1605,7 @@ extension TaskHandle<T> {
         __saw_exec_reactor_wake()
     }
 
-    // design 75 (A2): the cancel word's ADDRESS as a Send `Int`. A `TaskHandle` is
+    // design 75 (A2): the cancel word's ADDRESS as a Send `Int`. A `Task` is
     // NoCopy and holds raw pointers (not Send), so it cannot be moved into another
     // task — but its cancel-word address can. A canceller task receives this Int and
     // sets the flag (`(addr as UnsafePointer<Bool>)[0] = true`) to cancel the target
@@ -1616,7 +1617,7 @@ extension TaskHandle<T> {
     // the address PINS the slot: it keeps its cell and gives up reuse, because a
     // bare `Int` carries no generation for the peer to check against.
     /// Returns the address of this task's cancel flag as a `Send` integer, which
-    /// is how a peer task cancels this one: a `TaskHandle` itself cannot cross a
+    /// is how a peer task cancels this one: a `Task` itself cannot cross a
     /// spawn, but the address can. The receiver cancels by writing through it,
     /// `(addr as UnsafePointer<Bool>)[0] = true`. Taking the address pins the
     /// task's slot and gives up its reuse. A write that lands after the task has
@@ -1629,29 +1630,29 @@ extension TaskHandle<T> {
 
 // Owns nothing (the frame + result live in the group); dropping an unjoined
 // handle must not touch the group-owned result. Declared before NoCopy.
-extension TaskHandle<T>: NoCopy {
+extension Task<T>: NoCopy {
     public func deinit(&var self) {
     }
 }
 
-// VoidTaskHandle — the handle for a spawned task whose body returns `Void`
+// VoidTask — the handle for a spawned task whose body returns `Void`
 // (design 102 item 1). A `Void` task carries NO result slot (a `{..., void}`
 // struct field is illegal LLVM), so its cell is a `__VoidCell`: there is no
 // `result_ptr` to hold and no value to take, and `join` just drives the task to
 // completion and returns. Cancellation and drop-if-unjoined behave exactly like
-// `TaskHandle<T>`. Distinct type (not `TaskHandle<Void>`) so the generic handle
+// `Task<T>`. Distinct type (not `Task<Void>`) so the generic handle
 // never has to encode a zero-size `T?` result pointer.
 /// A handle for a spawned task that returns `Void`. Calling join drives the
 /// task to completion and returns. Cancellation and drop-if-unjoined behavior
-/// matches `TaskHandle<T>`.
-public struct VoidTaskHandle {
+/// matches `Task<T>`.
+public struct VoidTask {
     cancel_ptr: UnsafePointer<Bool>
     group_ptr: UnsafePointer<TaskGroup>
     slot: Int
     generation: Int
 }
 
-extension VoidTaskHandle {
+extension VoidTask {
     // Drive the group until this task is Done. No result to take — the void body
     // ran purely for its effects. A `Void` task's slot is reclaimed AT completion
     // (nothing outlives it), so joining one that already finished is a defined
@@ -1671,26 +1672,26 @@ extension VoidTaskHandle {
     }
 
     /// Cancels the task. If the task has already finished and its slot was
-    /// reclaimed, this function performs no operation. See `TaskHandle.cancel` for
+    /// reclaimed, this function performs no operation. See `Task.cancel` for
     /// more information.
     public func cancel(&self) unsafe {
         if self.group_ptr[0].__stale_sync(self.slot, self.generation) {
             return
         }
         self.cancel_ptr[0] = true
-        // design 102 item 2: rouse a blocked reactor poll (see TaskHandle.cancel).
+        // design 102 item 2: rouse a blocked reactor poll (see Task.cancel).
         __saw_exec_reactor_wake()
     }
 
     /// Returns the cancel-flag address and pins the slot, exactly as
-    /// `TaskHandle.cancel_addr` does.
+    /// `Task.cancel_addr` does.
     public func cancel_addr(&self) unsafe -> Int {
         self.group_ptr[0].__pin_sync(self.slot, self.generation)
         self.cancel_ptr as Int
     }
 }
 
-extension VoidTaskHandle: NoCopy {
+extension VoidTask: NoCopy {
     public func deinit(&var self) {
     }
 }
@@ -1986,7 +1987,7 @@ func __saw_exec_wake_flags() unsafe -> Bool {
 //   * a frame parked on a readiness word that is ALREADY SET — resumable now;
 //   * a frame parked on a readiness word that has been CANCELLED (DF-230a) —
 //     resumable now, and it resumes into the receive loop's cancellation check;
-//   * a `spawn {}` thread-engine task that has not been joined.
+//   * a `Thread.spawn {}` thread-engine body that has not been joined.
 // With none of those and at least one frame parked on a CLEAR readiness word,
 // nothing will ever run again and the wait can only end when the process does.
 //

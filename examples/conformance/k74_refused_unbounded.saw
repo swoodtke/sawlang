@@ -2,14 +2,14 @@
 // refused. DF-219c's fix trusts a DECLARED bound and nothing else, so a body
 // that promises nothing about its `T` gets exactly the answer it got before.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: cannot `spawn`: captured `v` of type `T` is not `Send`
+// EXPECT-ERROR-CONTAINS: cannot `Thread.spawn`: captured `v` of type `T` is not `Send`
 
 trait Sized {
     func size(&self) -> Int
 }
 
 func fan_unbounded<T: Sized>(v: T) -> Int {
-    var t = spawn { v.size() }
+    var t = Thread.spawn { v.size() }
     return t.join()
 }
 

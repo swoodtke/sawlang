@@ -1,8 +1,8 @@
 // A cooperative `group.spawn(void_body)` (design 102 item 1). A spawned frame
 // whose body returns `Void` carries NO `__result` slot — building `{..., void}`
 // as a frame field is illegal LLVM (the ICE this fixes). The void spawn yields a
-// `VoidTaskHandle` (not `TaskHandle<Void>`): `join()` drives the task to
-// completion and returns, with no result to take. Exercised under BOTH a
+// `VoidTask` (not `Task<Void>`): `join()` drives the task to completion and
+// returns, with no result to take. Exercised under BOTH a
 // single-threaded `TaskGroup()` and a multi-threaded `TaskGroup(threads: 2)`,
 // with an explicit-join path AND a drop-joins-it (group Deinit drains) path.
 // EXPECT: success
@@ -23,7 +23,7 @@ func single_threaded() {
     var group = TaskGroup()
     let h = group.spawn(bump(4))
     let _ = group.spawn(bump(6))   // never explicitly joined: group Deinit drains it
-    h.join()                       // VoidTaskHandle.join yields Void
+    h.join()                       // VoidTask.join yields Void
 }
 
 func multi_threaded() {

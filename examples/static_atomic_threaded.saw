@@ -17,8 +17,8 @@ func bump(times: Int) -> Int {
 }
 
 func main() {
-    var t0 = spawn { bump(50000) }
-    var t1 = spawn { bump(50000) }
+    var t0 = Thread.spawn { bump(50000) }
+    var t1 = Thread.spawn { bump(50000) }
     t0.join()
     t1.join()
     print(COUNTER.load())   // 100000

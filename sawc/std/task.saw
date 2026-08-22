@@ -1,8 +1,9 @@
-//! Task handles and the cooperative yield.
+//! Thread handles and the cooperative yield.
 //!
-//! `spawn { ... }` hands back a `Task<T>`. A task's lifetime is its handle's:
-//! dropping an unjoined handle joins the task, so a task cannot outlive the
-//! scope that spawned it. Nothing exposes the underlying thread.
+//! `Thread.spawn { ... }` hands back a `Thread<T>` — a `VoidThread` when the
+//! body returns nothing. A thread's lifetime is its handle's: dropping an
+//! unjoined handle joins the thread, so it cannot outlive the scope that
+//! spawned it. Nothing exposes the underlying OS thread.
 //!
 //! `yield_now` is the explicit cede. A task that only computes never parks on
 //! I/O, so it never gives another task a turn on its own; one call per pass
@@ -10,11 +11,14 @@
 //!
 //! Requires `import std.task`.
 
-// Task<T> - the handle to a spawned task (design 21 item 5, design 21b).
+// Thread<T> - the handle to a spawned OS thread (design 21 item 5, design 21b;
+// renamed from `Task<T>` by design 242, which gave the cooperative engine the
+// `Task` vocabulary and left this one the `Thread` namespace it always meant).
 //
-// `spawn { ... } -> Task<T>` launches the closure on a fresh pthread (hosted
-// engine) and hands back this NoCopy handle. The task-launch machinery lives in
-// spawn codegen; this file provides the value-level API over the control block.
+// `Thread.spawn { ... } -> Thread<T>` launches the closure on a fresh pthread
+// (hosted engine) and hands back this NoCopy handle. The thread-launch machinery
+// lives in spawn codegen; this file provides the value-level API over the
+// control block.
 //
 // Control block (allocated by spawn codegen), laid out as:
 //     { pthread_t tid (8 bytes), i8* env, T result }
@@ -23,9 +27,9 @@
 // __saw_rt_thread_join), the closure's heap environment pointer at byte 8, and
 // the task's result at byte 16 (written by the trampoline after the body returns).
 //
-// Structured by default: a task's lifetime is a value's lifetime. Dropping an
-// unjoined Task JOINS it (deinit below), so a task cannot outlive its handle.
-// The engine never exposes a thread id/handle to Saw code.
+// Structured by default: a thread's lifetime is a value's lifetime. Dropping an
+// unjoined Thread JOINS it (deinit below), so a thread cannot outlive its
+// handle. The engine never exposes a thread id/handle to Saw code.
 //
 // NOTE (deviation from the item-5 sketch): the original brief wrote
 // `join(move self)`. Saw has no `move self` receiver form, so `join` takes
@@ -39,7 +43,7 @@ extern "C" {
 }
 
 // =============================================================================
-// The Thread trait (design 118 stage 4)
+// The NativeThread trait (design 118 stage 4)
 // =============================================================================
 // The minimal OS-thread surface the executor's Saw side consumes: JOIN by handle.
 // The SPAWN half stays the compiler-emitted `__saw_rt_thread_spawn` primitive (spawn
@@ -47,13 +51,16 @@ extern "C" {
 // Saw cannot express — the thread analog of the coroutine frame layout the compiler
 // keeps). `PosixThread` wraps `__saw_rt_thread_join`; a future SOS-hosted runtime
 // implements the SAME trait over kernel threads (its thread handle == the word). Both
-// the `spawn`/`Task` engine (here) and the MT `TaskGroup` drain (which joins its
-// workers as `Task`s) join through this surface. Consumed by static dispatch through
-// the conformance — no per-join boxing; the impl is link/compile-time selected, so an
-// `any Thread` existential would add an allocation with no runtime-swap benefit (same
-// rationale as the design-118 stage-3 `Reactor`/`SystemReactor`). Internal to the
-// thread engine (not `public`) — no user-facing `Thread`/`PosixThread` collision.
-trait Thread {
+// the `Thread.spawn` engine (here) and the MT `TaskGroup` drain (which joins its
+// workers as `VoidThread`s) join through this surface. Consumed by static dispatch
+// through the conformance — no per-join boxing; the impl is link/compile-time
+// selected, so an `any NativeThread` existential would add an allocation with no
+// runtime-swap benefit (same rationale as the design-118 stage-3
+// `Reactor`/`SystemReactor`). Internal to the thread engine (not `public`).
+//
+// Design 242 renamed it from `Thread`: that name is the user-facing handle now,
+// and this trait is the OS thread the handle is a handle TO.
+trait NativeThread {
     func join(&self)
 }
 
@@ -61,21 +68,21 @@ struct PosixThread {
     handle: Int
 }
 
-extension PosixThread: Thread {
+extension PosixThread: NativeThread {
     func join(&self) {
         __saw_rt_thread_join(self.handle)
     }
 }
 
-/// The handle to a spawned task, carrying the result type `T`.
+/// The handle to a spawned thread, carrying the result type `T`.
 ///
-/// `spawn { ... }` returns one. Take the result with `join`; a handle that goes
-/// out of scope unjoined joins the task itself and drops the result. The handle
-/// cannot be copied, so exactly one place owns the task.
-public struct Task<T> {
-    // Points at the task control block (`None` only on the inert OOM path).
+/// `Thread.spawn { ... }` returns one. Take the result with `join`; a handle
+/// that goes out of scope unjoined joins the thread itself and drops the
+/// result. The handle cannot be copied, so exactly one place owns the thread.
+public struct Thread<T> {
+    // Points at the thread control block (`None` only on the inert OOM path).
     handle: UnsafePointer<Int8>?
-    // Set once the task has been joined, so `deinit` does not double-join/free.
+    // Set once the thread has been joined, so `deinit` does not double-join/free.
     joined: Bool
 }
 
@@ -83,21 +90,21 @@ public struct Task<T> {
 // one owner of a block the thread engine already synchronizes, and the only
 // value that crosses is the RESULT — so both directions hold exactly when `T`
 // may travel.
-extension Task<T: Send>: UnsafeSend {}
-extension Task<T: Send>: UnsafeSync {}
+extension Thread<T: Send>: UnsafeSend {}
+extension Thread<T: Send>: UnsafeSync {}
 
-/// Taking a task's result.
-extension Task<T> {
-    /// Waits for the task to finish and returns its result.
+/// Taking a thread's result.
+extension Thread<T> {
+    /// Waits for the thread to finish and returns its result.
     ///
-    /// Blocks the calling thread. A task yields its result once: joining a
-    /// second time, or joining a handle whose task was already joined at scope
+    /// Blocks the calling thread. A thread yields its result once: joining a
+    /// second time, or joining a handle whose thread was already joined at scope
     /// exit, panics.
     public func join(&var self) unsafe -> T {
         if self.joined {
             // Already joined (or inert): no result to hand back. Misuse —
             // panic deterministically (design 49).
-            panic("Task.join: task already joined")
+            panic("Thread.join: thread already joined")
         } else {
             if let h = self.handle {
                 PosixThread(handle: (h as UnsafePointer<Int>)[0]).join()
@@ -113,20 +120,20 @@ extension Task<T> {
                 self.joined = true
                 result
             } else {
-                panic("Task.join: task has no result handle")
+                panic("Thread.join: thread has no result handle")
             }
         }
     }
 }
 
-/// A task handle is not copyable — one owner, one join — and joins its task
+/// A thread handle is not copyable — one owner, one join — and joins its thread
 /// when it goes out of scope.
-extension Task<T>: NoCopy {
-    /// Joins the task unless `join` already did, drops the unclaimed result, and
-    /// frees the control block.
+extension Thread<T>: NoCopy {
+    /// Joins the thread unless `join` already did, drops the unclaimed result,
+    /// and frees the control block.
     public func deinit(&var self) unsafe {
-        // An unjoined task is joined at scope exit (structured concurrency), its
-        // unclaimed result dropped, and the control block freed.
+        // An unjoined thread is joined at scope exit (structured concurrency),
+        // its unclaimed result dropped, and the control block freed.
         if not self.joined {
             if let h = self.handle {
                 PosixThread(handle: (h as UnsafePointer<Int>)[0]).join()
@@ -134,6 +141,68 @@ extension Task<T>: NoCopy {
                 let result_ptr = (h + 16) as UnsafePointer<T>
                 __saw_deinit_in_place(result_ptr)
                 GlobalAllocator().dealloc(h, 16 + sizeof<T>(), 16)
+            }
+        }
+    }
+}
+
+// VoidThread — the handle for a spawned thread whose body returns `Void`
+// (design 242 ruling 2, the thread-engine twin of `VoidTask`). A distinct named
+// type rather than `Thread<Void>` for two reasons: the visible-`Void` rule
+// (designs 122/132) makes `Thread<Void>` unwritable as an annotation, so a
+// handle you cannot name is a handle you cannot store; and joining one has
+// nothing to hand back, so its `join` is `-> Void` where the generic one is
+// `-> T`.
+//
+// Layout is `Thread<T>`'s: the control block's result slot is a one-byte
+// placeholder that is never stored and never read, so this handle simply has
+// no result to take. The `16` in the deallocations below is that same
+// `16 + sizeof<T>()` at `T = Void`.
+/// The handle to a spawned thread that returns nothing.
+///
+/// `Thread.spawn { ... }` returns one when the body's value is `Void`. `join`
+/// waits for the thread and returns; a handle that goes out of scope unjoined
+/// joins the thread itself.
+public struct VoidThread {
+    handle: UnsafePointer<Int8>?
+    joined: Bool
+}
+
+extension VoidThread: UnsafeSend {}
+extension VoidThread: UnsafeSync {}
+
+/// Waiting for a thread that returns nothing.
+extension VoidThread {
+    /// Waits for the thread to finish.
+    ///
+    /// Blocks the calling thread. Joining a second time, or joining a handle
+    /// whose thread was already joined at scope exit, panics.
+    public func join(&var self) unsafe {
+        if self.joined {
+            panic("VoidThread.join: thread already joined")
+        } else {
+            if let h = self.handle {
+                PosixThread(handle: (h as UnsafePointer<Int>)[0]).join()
+                __saw_exec_thread_task_ended()
+                GlobalAllocator().dealloc(h, 16, 16)
+                self.joined = true
+            } else {
+                panic("VoidThread.join: thread has no control block")
+            }
+        }
+    }
+}
+
+/// A thread handle is not copyable — one owner, one join — and joins its thread
+/// when it goes out of scope.
+extension VoidThread: NoCopy {
+    /// Joins the thread unless `join` already did and frees the control block.
+    public func deinit(&var self) unsafe {
+        if not self.joined {
+            if let h = self.handle {
+                PosixThread(handle: (h as UnsafePointer<Int>)[0]).join()
+                __saw_exec_thread_task_ended()
+                GlobalAllocator().dealloc(h, 16, 16)
             }
         }
     }

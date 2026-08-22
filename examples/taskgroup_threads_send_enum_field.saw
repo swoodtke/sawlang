@@ -32,7 +32,7 @@ func judge(n: Int) -> Outcome {
 
 func main() {
     var group = TaskGroup(threads: 2)
-    var handles = Vector<TaskHandle<Outcome>>()
+    var handles = Vector<Task<Outcome>>()
     var i = 0
     while i < 4 {
         let h = group.spawn(judge(i))

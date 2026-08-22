@@ -38,7 +38,7 @@ func main() {
     let g = h
     print("held")
 
-    var t = spawn {                 // `Send` derives -- a task may hold one
+    var t = Thread.spawn {                 // `Send` derives -- a task may hold one
         let inner = g.p
         1
     }

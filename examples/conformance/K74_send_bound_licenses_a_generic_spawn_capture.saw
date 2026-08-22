@@ -40,24 +40,24 @@ extension Payload: Sized {
 }
 
 func cap_bare<T: Send + Sized>(v: T) -> Int {
-    var t = spawn { v.size() }
+    var t = Thread.spawn { v.size() }
     return t.join()
 }
 
 func cap_arc<T: Send + Sync>(a: Arc<T>) -> Int {
     let a1 = a.copy()
-    var t = spawn { a1.strong_count() }
+    var t = Thread.spawn { a1.strong_count() }
     return t.join()
 }
 
 func cap_vector<T: Send + Copy>(v: Vector<T>) -> Int {
     var v1 = move v
-    var t = spawn { [move v1] in v1.len() }
+    var t = Thread.spawn { [move v1] in v1.len() }
     return t.join()
 }
 
 func cap_optional<T: Send + Sized>(o: T?) -> Int {
-    var t = spawn { if let x = o { x.size() } else { 0 } }
+    var t = Thread.spawn { if let x = o { x.size() } else { 0 } }
     return t.join()
 }
 

@@ -33,7 +33,7 @@ func main() {
     var peak = 0
     var wave = 0
     while wave < 8 {
-        var pending = Vector<VoidTaskHandle>()
+        var pending = Vector<VoidTask>()
         var i = 0
         while i < 4 {
             pending.push(group.spawn(worker(1)))

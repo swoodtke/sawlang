@@ -9,7 +9,7 @@
 
 import std.mutex.{Mutex}
 func fireAndForget(shared: Arc<Mutex<Int>>) {
-    var t = spawn {
+    var t = Thread.spawn {
         shared.lock { &var c in
             c = c + 42
             true

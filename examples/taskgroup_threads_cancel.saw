@@ -1,5 +1,5 @@
 // design 75 (A2): cancellation from ANOTHER task, on a multi-threaded group. A
-// `TaskHandle` is NoCopy + holds raw pointers (not Send), so it cannot be moved
+// `Task` is NoCopy + holds raw pointers (not Send), so it cannot be moved
 // into a task — but its cancel-word ADDRESS (a Send `Int`, via `cancel_addr()`)
 // can. The canceller task sets the victim's `__cancel` word from a worker thread;
 // the victim observes it via `cancelled()` and returns a sentinel through normal

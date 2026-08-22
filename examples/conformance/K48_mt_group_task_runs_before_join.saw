@@ -5,7 +5,7 @@
 // fresh writers reached for within hours: spawn a producer into a
 // multi-threaded group, then read what it produced. Every other member of the
 // family already behaves this way — a cooperative group's tasks progress
-// whenever main suspends, and the 21b `spawn {}` engine is live by
+// whenever main suspends, and the 21b `Thread.spawn {}` engine is live by
 // construction — so `threads: N` was the ONLY fork-join member, and its
 // workers existed nowhere outside a `join()`/`Deinit` drain.
 //

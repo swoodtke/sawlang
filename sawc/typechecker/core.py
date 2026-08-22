@@ -110,7 +110,7 @@ class TaskCaptureBorrow:
     kind: str = 'capture'              # 'capture' | 'argument' — wording only
     group_id: Optional[int] = None     # the group binding the task was spawned into
     group_name: Optional[str] = None
-    handle_id: Optional[int] = None    # the binding the `TaskHandle` landed in
+    handle_id: Optional[int] = None    # the binding the `Task` handle landed in
     handle_name: Optional[str] = None
     # Lines this borrow has already been reported against, so one statement
     # that both reads and writes a root yields one diagnostic rather than a
@@ -2069,7 +2069,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                 f"suspend",
                 hint="a suspending body runs out of a frame and a bare code "
                      "address has nowhere to keep one — write `sync` in the "
-                     "effect slot (`(Int) sync -> Int`), or pass a `TaskHandle` "
+                     "effect slot (`(Int) sync -> Int`), or pass a `Task` handle "
                      "if the work really does suspend")
 
     def _funcpointer_signature(self, t):
@@ -2270,10 +2270,28 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             ErrorKind.UNKNOWN_TYPE,
             f"undefined type `{name}`",
             saw_type.written_line, saw_type.written_column,
-            hint="check the spelling, and that the module defining it is "
-                 "imported",
+            hint=self._retired_type_hint(name)
+                 or "check the spelling, and that the module defining it is "
+                    "imported",
             source_file=(saw_type.written_file or None),
         )
+
+    # THE RETIRED TYPE NAMES — one table, one helper, on the model of
+    # `_RETIRED_TRAIT_HINTS` (design 219 unit B4). A name the language used to
+    # define and no longer does deserves better than "undefined type": the
+    # author wrote something that WAS correct, and the fix is a word. Every
+    # written type position routes through the ONE funnel above, so the hint
+    # cannot appear at some positions and not others.
+    _RETIRED_TYPE_HINTS = {
+        "TaskHandle": "`TaskHandle<T>` is `Task<T>` (design 242) — the "
+                      "cooperative engine owns the `Task` vocabulary now, and "
+                      "`Thread<T>` is what `Thread.spawn` hands back",
+        "VoidTaskHandle": "`VoidTaskHandle` is `VoidTask` (design 242)",
+    }
+
+    def _retired_type_hint(self, name):
+        """The teaching hint for a type name the language retired, or None."""
+        return self._RETIRED_TYPE_HINTS.get((name or "").rsplit('.', 1)[-1])
 
     def _type_name_is_defined(self, name: str, type_params=None) -> bool:
         """THE DECISION PROCEDURE behind the diagnostic above."""

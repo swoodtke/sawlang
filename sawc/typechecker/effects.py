@@ -202,7 +202,7 @@ class EffectsMixin:
         # (`group.spawn(f(args))`), name -> f's return SawType. A spawn root gets a
         # frame + `Resumable` conformance like a driven root, plus a synthesized
         # `__spawn_<f>` helper (boxes the frame, enqueues it, returns
-        # `TaskHandle<T>`) — but no `__saw_drive_*` driver.
+        # `Task<T>`) — but no `__saw_drive_*` driver.
         self._spawn_roots: Dict[str, Any] = {}
         # design 75 (A2): spawn roots spawned into a MULTI-THREADED group
         # (`TaskGroup(threads: N)`). Their frames cross OS-thread boundaries, so the

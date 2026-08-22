@@ -1,4 +1,4 @@
-// Conformance row D11 — `spawn { ... }` with a diverging closure body is
+// Conformance row D11 — `Thread.spawn { ... }` with a diverging closure body is
 // REFUSED, at the same rule as D10
 //
 // The design-21b closure form starts a task the same way `group.spawn` does,
@@ -11,7 +11,7 @@
 // EXPECT-ERROR-CONTAINS: this closure's body never returns
 
 func main() {
-    let t = spawn {
+    let t = Thread.spawn {
         while { }
     }
     print("spawned")

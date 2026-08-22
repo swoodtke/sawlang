@@ -81,7 +81,7 @@ HOSTED_STD_MODULES = {"file", "process", "env", "directory", "time", "net"}
 # import-required symbols carved out of an otherwise-prelude file. Everything
 # else — core containers/wrappers/traits, the systems primitives, and the
 # structural types the compiler references implicitly (Range, Ordering, Hasher,
-# TaskHandle, AllocError, the iterator/slot structs) — stays prelude. This
+# Task/VoidTask, AllocError, the iterator/slot structs) — stays prelude. This
 # realizes design 82's allowlist: the curated core is auto-visible; File,
 # Data, Channel, Mutex, Instant, IoError/Utf8Error, and the whole net
 # surface are import-required, so a user type named `IoError`/`File` no longer

@@ -18,13 +18,13 @@ func bump(times: Int) {
 
 func drop_path() {
     // Task dropped unjoined: its Deinit joins it before the block frees.
-    var t = spawn { bump(5) }
+    var t = Thread.spawn { bump(5) }
 }
 
 func main() {
-    var t0 = spawn { bump(4) }
-    var t1 = spawn { bump(6) }
-    t0.join()   // Task<Void>.join yields Void
+    var t0 = Thread.spawn { bump(4) }
+    var t1 = Thread.spawn { bump(6) }
+    t0.join()   // VoidThread.join yields Void
     t1.join()
     drop_path()
     print(COUNTER.load())   // 4 + 6 + 5 = 15
