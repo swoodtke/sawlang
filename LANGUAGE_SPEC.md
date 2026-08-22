@@ -4077,6 +4077,14 @@ of a block, `return`, `break`, `continue`, and error propagation. Each scope
 releases its own bindings in reverse declaration order, and a jump out of
 several scopes releases them innermost first.
 
+An optional binding is scoped to the branch that introduced it. An `if let`,
+`if var`, `while let` or `while var` binding — a tuple pattern's leaves
+included — is released at the end of the then-branch, on that same list of
+edges, so a `return` out of the branch releases it exactly as falling off the
+end of the branch does. A `guard let` binding is the deliberate exception: it
+outlives the guard by design, so it belongs to the enclosing scope and is
+released with it.
+
 You rarely write the body. Any struct or enum that owns something gets a
 memberwise `deinit` synthesized from its fields, so a hand-written one is for
 raw resources only; see [Synthesized destruction](#synthesized-destruction).

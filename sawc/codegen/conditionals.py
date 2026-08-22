@@ -263,9 +263,31 @@ class ConditionalsMixin:
              self.drop_flags.get(nm, _SHADOW_MISSING))
             for nm in _shadow_names]
 
+        # THE BINDING'S OWN CLEANUP SCOPE (DF-218x). An `if let` / `if var` /
+        # `while let` / `while var` binding lives for the THEN-BRANCH and no
+        # longer, so the branch gets a cleanup scope of its own — exactly the
+        # treatment a `match` arm's payload bindings get (match.py's per-arm
+        # scope). Every binding below registers into it through
+        # `_register_cleanup`, the one funnel for "this binding owns a value",
+        # and it is released at whichever edge the branch leaves through: the
+        # fall-through pops and cleans it, while `return` (`_cleanup_all_scopes`),
+        # `break` and `continue` (`_cleanup_to_depth` at the loop's depth) reach
+        # it on their own edges because it is now ON the stack they walk.
+        #
+        # Before this the binding was in NO scope at all — an ad-hoc alloca plus
+        # a drop flag, dropped inline at the end of the branch behind an
+        # `is_terminated` test whose comment claimed "return/break cleaned all
+        # scopes". That was false for precisely this binding, so every terminated
+        # exit skipped the drop and LEAKED it, at all five spellings above; the
+        # `guard let` twin (whose binding belongs to the enclosing scope) and the
+        # match-arm payloads were the working controls. Pushed BEFORE the binding
+        # is created so the design-63 tuple pattern's leaves land here too, rather
+        # than in the ENCLOSING scope, where they outlived the branch that owned
+        # them.
+        self.cleanup_stack.append([])
+
         # Tuple pattern (design 63): destructure the unwrapped tuple into its
-        # bindings. Ownership of the components stays with the source optional, so
-        # the drop-flag machinery below is skipped (bind by value, no release).
+        # bindings, which register into the branch scope pushed above.
         pattern_names = []
         if expr.pattern is not None:
             self._destructure_bind(expr.pattern, inner_val, inner_saw, expr.mutable, False)
@@ -303,36 +325,29 @@ class ConditionalsMixin:
         # 23 item 2), but ONLY when the optional source is a fresh owned temporary:
         # then the unwrapped value is solely owned by this binding. A named/field
         # optional is owned elsewhere (its own cleanup runs), so releasing here
-        # would double-free it. When the binding IS owned here, register a runtime
-        # drop flag (design 42) BEFORE the branch body so a `move` of the binding
-        # inside the branch clears it — otherwise the scope-exit drop would
-        # double-free a moved-out value (notably an erased `Box<any T>`, whose
-        # second teardown aborts). The flag mirrors regular-local cleanup.
+        # would double-free it. When the binding IS owned here, register it in the
+        # branch scope — `_register_cleanup` gives it the runtime drop flag
+        # (design 42) BEFORE the branch body, so a `move` of the binding inside the
+        # branch clears it and the scope-exit drop does not double-free a moved-out
+        # value (notably an erased `Box<any T>`, whose second teardown aborts).
         inner_type = self.variable_types.get(expr.name) if expr.pattern is None else None
         owns_binding = (inner_type is not None
                         and self._optional_binding_owns(expr)
                         and self._needs_cleanup(inner_type))
-        drop_flag = None
         if owns_binding:
-            drop_flag = self._entry_alloca(ir.IntType(1), name=f"{expr.name}.dropflag")
-            self.builder.store(ir.Constant(ir.IntType(1), 1), drop_flag)
-            self.drop_flags[expr.name] = drop_flag
+            self._register_cleanup(expr.name, inner_type)
 
         then_val = self._generate_block(expr.then_branch)
 
-        # Skip if the branch already terminated (return/break cleaned all scopes).
-        if owns_binding and not self.builder.block.is_terminated:
-            needs = self.builder.load(drop_flag, name=f"{expr.name}.needsdrop")
-            drop_bb = self.builder.function.append_basic_block(
-                name=f"iflet.drop.{expr.name}")
-            cont_bb = self.builder.function.append_basic_block(
-                name=f"iflet.drop.{expr.name}.cont")
-            self.builder.cbranch(needs, drop_bb, cont_bb)
-            self.builder.position_at_start(drop_bb)
-            self._emit_drop_at(alloca, inner_type)
-            if not self.builder.block.is_terminated:
-                self.builder.branch(cont_bb)
-            self.builder.position_at_start(cont_bb)
+        # Release the branch scope. A TERMINATED branch already ran this scope
+        # through `_cleanup_all_scopes` / `_cleanup_to_depth` on its own edge, so
+        # there is only the stack to balance — the two are different CFG paths and
+        # each drops at most once (DF-218x). Popped before the else branch is
+        # generated, which sees no binding at all.
+        if not self.builder.block.is_terminated:
+            self._cleanup_scope(self.cleanup_stack.pop())
+        else:
+            self.cleanup_stack.pop()
 
         # Restore the shadowed enclosing binding(s), or remove the if-let binding
         # if it shadowed nothing (design 100). This replaces the old unconditional

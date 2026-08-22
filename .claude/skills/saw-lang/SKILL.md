@@ -1726,6 +1726,26 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   of that block has always followed. In a DRIVEN body the same release still
   happens at frame teardown rather than at the edge: once, never a leak, but
   later than the sync twin (DF-242a).
+  **AN OPTIONAL-BINDING BRANCH IS A SCOPE TOO, and on the sync side it was not
+  one until Aug 22** (DF-218x) — the fourth sync leak, and the last. The three
+  above were broken EDGES; this one was a broken BINDING, held in no scope at
+  all, so widening the walk could never have reached it:
+  ```saw
+  if let conn = pending.take() {
+      serve(&var conn)
+      return                  // `conn`'s fd used to leak, silently
+  }
+  ```
+  A binding lives for the branch that introduced it and dies on whichever edge
+  the branch leaves through — fall-through, `return`, `break`, `continue` —
+  which is the rule every other binding already followed. It covers all five
+  spellings of the one lowering (`if let`, `if var`, and design 233's
+  `while let` / `while var`), and it moves the design-63 TUPLE pattern's leaves
+  in with them: those were released, but at the end of the ENCLOSING block, so
+  two successive `if let (a, b) = …` branches held both pairs at once. `guard
+  let` is untouched and always was right — its binding belongs to the enclosing
+  scope on purpose, which is the whole difference between the two forms. The
+  DRIVEN twin was right too, so this is the sync half catching up.
   **The SLOT goes too (design 134):**
   the frame allocation is released at completion and its run-queue slot returns to
   a free list, so a group costs O(live + unjoined-result tasks) rather than

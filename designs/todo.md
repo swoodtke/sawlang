@@ -67,7 +67,7 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-218t — a value-position loop at a non-integer result type is a codegen ICE (the `None` sentinel is built for an integer); entry below, found by 218b stage 0's probes
 - DF-242a — a DRIVEN `try { } catch { }` releases the try body's frame fields at frame teardown, where the sync twin releases them at the error edge (entry below, filed by DF-218v's fix; DF-218w/DF-218s's family — the transform cannot see a codegen-owned edge)
 - DF-218w RESIDUE — the MIXED `case Both(v, _)` shape keeps statement-end timing (entry below, pinned XFAIL; the rest of DF-218w closed Aug 21)
-- DF-218x — a sync `if let` binding LEAKS when the then-branch exits by `return`/`break`; entry below, found by DF-218s's sweep. Same mechanism family as the now-closed DF-218v (codegen cleanup gaps at a nonlocal exit) — its fix extends DF-218v's `_cleanup_to_depth` walk. DISPATCHED Aug 22 with DF-218y (branch `df-218xy`)
+- ~~DF-218x~~ — CLOSED Aug 22 (branch `df-218xy`, commit 1): the branch got a cleanup scope of its own, so `_cleanup_to_depth` reaches the binding with no fourth entry point. The sweep found FIVE leaking spellings, not two, and corrected two entry claims (the driven twin was already right; the tuple pattern was mis-scoped rather than leaked). Entry below; conformance K76
 - DF-218y — RULED Aug 22 (user): discard order is REVERSE-DECLARATION everywhere — the match lowering's inline loop conforms to design 128, forward was an artifact, never a contract. Fix on the SYNC side, sweep the sibling inline-discard positions (mixed arms with 2+ discarded fields, destructuring-let wildcards). DISPATCHED Aug 22 with DF-218x (branch `df-218xy`); pin flips to LIFO parity
 - DF-244b — a bare `None` TAIL at a `Result<T?, E>` cannot type itself, in a NAMED body as much as a closure; entry below, DF-232h's residue. `return None` is the one-keyword workaround
 
@@ -2926,6 +2926,38 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   corodiff sees no divergence and the leak is invisible to that lane.
   NOT FIXED HERE: it is codegen's if-let lowering, the same batch as DF-218v
   (both are cleanup gaps at a nonlocal exit). Owed a pin with the fix.
+  **STATUS: CLOSED Aug 22 (branch `df-218xy`, commit 1).** FIX: the branch gets
+  a cleanup scope of its OWN — pushed before the binding is created, released at
+  the fall-through and popped-only on a terminated edge — and the binding
+  registers into it through `_register_cleanup`, the same funnel every other
+  owning binding uses. So `_cleanup_to_depth` gained NO fourth entry point: the
+  three edges DF-218r and DF-218v widened were already sufficient, and what they
+  could not reach was a binding on no stack at all. The inline drop is gone with
+  the ad-hoc flag it guarded (`_register_cleanup` mints the same flag), so a
+  `move` inside the branch still suppresses the drop.
+  SWEEP, wider than the entry predicted — the one lowering serves FIVE
+  spellings and all five leaked (probed before and after,
+  `.build/scratch/p218x_sweep.saw`): `if let` + `return`, + `break`,
+  + `continue`; `if var` + `return`; `while let` + `break` and + `return`
+  (design 233 desugars both `while let`/`while var` to this lowering). Two
+  entry claims are CORRECTED. (a) The DRIVEN twin does NOT behave identically —
+  it was already right (design 218 unit 2's scope walk releases the frame
+  field), so the divergence was real and corodiff missed it because no
+  generator row builds an `if let` with a terminated branch; the pin's driven
+  twins are now that instrument. (b) A design-63 TUPLE pattern was not a leak
+  but was not right either: `_destructure_bind` registered its leaves into the
+  ENCLOSING scope, so two successive `if let (a, b) = …` branches held both
+  pairs at once. Pushing the scope ahead of the binding moves them in with the
+  named case. Unaffected and re-probed: `if let _ = <owned temp>` (dropped
+  inline at extraction, before any branch), `guard let` and match-arm payloads
+  (the two controls).
+  PIN: `examples/if_let_binding_released_on_early_exit.saw` (18 cells: the
+  three edges, the fall-through, `if var`, `while let`, the tuple pattern, a
+  `move`-out where the flag must suppress, both controls, and four driven
+  twins) + conformance row K76. Docs: the saw-lang skill's scope-end bullet
+  (a fourth sync leak, and the first that was a broken BINDING rather than a
+  broken EDGE), LANGUAGE_SPEC's `Deinit` scope-exit paragraph, and
+  `sawc/codegen/README.md`'s loop-stack note.
 
 - **DF-218i (BOGUS-REFUSAL, PRE-EXISTING) — rendering a PLACE is judged a
   value read, so a move-only element cannot be printed.** `print("{v[0]}")`

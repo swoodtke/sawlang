@@ -1,0 +1,231 @@
+// An `if let` binding is released when its branch leaves by `return`, `break`
+// or `continue` (DF-218x, FIXED).
+//
+// The binding used to be in NO cleanup scope at all: codegen gave it an ad-hoc
+// alloca plus a drop flag and dropped it INLINE at the end of the then-branch,
+// behind an `is_terminated` test whose comment claimed "return/break cleaned
+// all scopes". That was false for precisely this binding — nothing had
+// registered it anywhere — so every terminated exit skipped the drop and LEAKED
+// the payload. The fix registers it through `_register_cleanup` into a cleanup
+// scope of the branch's own, which is the treatment a `match` arm's payload
+// bindings already got, so `_cleanup_all_scopes` (return) and
+// `_cleanup_to_depth` (break/continue) reach it on their own edges.
+//
+// The leak was at FIVE spellings, all one lowering: `if let`, `if var`, and
+// design 233's `while let` / `while var`, which the parser desugars to a
+// conditionless loop over an `if let`. The tuple pattern is the sixth row and
+// was never a leak — its leaves registered into the ENCLOSING scope, so they
+// outlived the branch that owned them; they land in the branch scope now.
+//
+// The two CONTROLS were always right, and say why: a `guard let` binding
+// deliberately belongs to the enclosing scope, and a match arm's payload
+// bindings have had a per-arm scope since DF-218r.
+//
+// The DRIVEN twin was always right too — a frame-resident binding is released
+// by design 218 unit 2's scope walk — so these rows pin the parity the sync
+// half now meets rather than a change to that half.
+//
+// Never a double release: every row mints one value and prints exactly one
+// DEINIT for it, and `move_out` hands the binding away before returning, where
+// the drop flag has to suppress the scope's drop.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -- sync
+// in branch
+// DEINIT s-return
+// DEINIT s-break
+// after break loop
+// DEINIT s-continue1
+// DEINIT s-continue2
+// after continue loop
+// in branch
+// DEINIT s-fall
+// after fall
+// DEINIT s-ifvar
+// DEINIT s-whilelet
+// after while let 1
+// DEINIT s-tuple
+// sank
+// DEINIT s-move
+// -- controls
+// after guard
+// DEINIT c-guard
+// DEINIT c-match
+// -- driven
+// DEINIT d-return
+// DEINIT d-break
+// after driven break
+// DEINIT d-continue1
+// DEINIT d-continue2
+// after driven continue
+// DEINIT d-fall
+// after driven fall
+
+import std.task.{yield_now}
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+
+struct Holder { cell: Box<Res> }
+extension Holder: NoCopy {}
+
+func mk(tag: String) -> Holder? {
+    Holder(cell: Box<Res>.make(Res(name: tag)))
+}
+
+func mk_pair(tag: String) -> (Holder, Int)? {
+    (Holder(cell: Box<Res>.make(Res(name: tag))), 1)
+}
+
+func sink(h: Holder) { print("sank") }
+
+// ---- sync: the three terminated edges ------------------------------------
+
+func sync_return() {
+    if let p = mk("s-return") {
+        print("in branch")
+        return
+    }
+    print("not reached")
+}
+
+func sync_break() {
+    var i = 0
+    while i < 3 {
+        i = i + 1
+        if let p = mk("s-break") {
+            break
+        }
+    }
+    print("after break loop")
+}
+
+func sync_continue() {
+    var i = 0
+    while i < 2 {
+        i = i + 1
+        if let p = mk("s-continue{i}") {
+            continue
+        }
+        print("not reached")
+    }
+    print("after continue loop")
+}
+
+// ---- sync: the fall-through control, and the other spellings -------------
+
+func sync_fallthrough() {
+    if let p = mk("s-fall") {
+        print("in branch")
+    }
+    print("after fall")
+}
+
+func sync_if_var() {
+    if var p = mk("s-ifvar") {
+        return
+    }
+}
+
+func sync_while_let() {
+    var n = 0
+    while let p = mk("s-whilelet") {
+        n = n + 1
+        break
+    }
+    print("after while let {n}")
+}
+
+func sync_tuple() {
+    if let (h, n) = mk_pair("s-tuple") {
+        return
+    }
+}
+
+func sync_move_out() {
+    if let p = mk("s-move") {
+        sink(move p)
+        return
+    }
+}
+
+// ---- the two controls ----------------------------------------------------
+
+func control_guard_let() {
+    guard let p = mk("c-guard") else { return }
+    print("after guard")
+    return
+}
+
+enum Slot { case Full(h: Holder), case Empty }
+extension Slot: NoCopy {}
+
+func control_match_arm() {
+    match Slot.Full(h: mk("c-match")!) {
+        case Full(h) -> { return },
+        case Empty -> { print("empty") }
+    }
+}
+
+// ---- the driven twins ----------------------------------------------------
+
+func driven_return() {
+    if let p = mk("d-return") {
+        yield_now()
+        return
+    }
+}
+
+func driven_break() {
+    var i = 0
+    while i < 3 {
+        i = i + 1
+        if let p = mk("d-break") {
+            yield_now()
+            break
+        }
+    }
+    print("after driven break")
+}
+
+func driven_continue() {
+    var i = 0
+    while i < 2 {
+        i = i + 1
+        if let p = mk("d-continue{i}") {
+            yield_now()
+            continue
+        }
+        print("not reached")
+    }
+    print("after driven continue")
+}
+
+func driven_fallthrough() {
+    if let p = mk("d-fall") {
+        yield_now()
+    }
+    print("after driven fall")
+}
+
+func main() {
+    print("-- sync")
+    sync_return()
+    sync_break()
+    sync_continue()
+    sync_fallthrough()
+    sync_if_var()
+    sync_while_let()
+    sync_tuple()
+    sync_move_out()
+    print("-- controls")
+    control_guard_let()
+    control_match_arm()
+    print("-- driven")
+    __saw_drive(driven_return())
+    __saw_drive(driven_break())
+    __saw_drive(driven_continue())
+    __saw_drive(driven_fallthrough())
+}

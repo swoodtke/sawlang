@@ -182,7 +182,11 @@ While loops, for loops, break, and continue.
   `break`/`continue` unwind to (`_cleanup_to_depth` in `resources.py`, DF-218r).
   That walk is shared: the `try`/`catch` error edge unwinds to the TRY BLOCK's
   entry depth through the same function, bounded by `_catch_context`'s fifth
-  element (DF-218v)
+  element (DF-218v). The walk only reaches what is ON the stack, so a binding
+  held OUTSIDE every scope is invisible to all three edges however wide the
+  bound: `_generate_if_let_expression` pushes a scope of its own for the
+  then-branch's binding for exactly that reason (DF-218x), which is why closing
+  that leak added no fourth entry point
 
 ### `methods.py` (362 lines)
 Method and function body generation.
