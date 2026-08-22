@@ -215,9 +215,13 @@ extension SosimgArch {
 /// what that replaces — a boot-time, image-declared, permanent grant of one
 /// window to the one process the kernel loads.
 ///
-/// Bit 8 rather than 3, because 1/2/4 are a RISC-V PMP config's low three bits
-/// and the kernel installs those untranslated (see below); a fourth bit in that
-/// field would be the PMP `A` field's low bit.
+/// `Device` is bit 3 — which IS the RISC-V PMP `A` field's low bit
+/// (`PMP_A_TOR = 0x8`), and that is safe because it never reaches a PMP cfg
+/// byte: the riscv32 kernel masks permissions with `PMP_PERM_MASK = 0x7`
+/// before staging, arm64 reads the named cases, and Blade emits through them.
+/// That masking is the invariant this value rests on. (DF-243c ruled Aug 22:
+/// this sentence used to claim "bit 8 rather than 3" — impossible in a
+/// `UInt8` and not what the value is; the wire format is unchanged.)
 public enum SegFlag: UInt8 {
     case Read = 1 << 0,
     case Write = 1 << 1,
