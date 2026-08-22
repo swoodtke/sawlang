@@ -98,8 +98,14 @@
 # untouched. What DF-218w still names is the MIXED `case Both(v, _)` shape,
 # which corodiff does not generate (`st_match_nobinding` builds the single-field
 # `case Has(_)`) and which is pinned in examples/ instead:
-# examples/coro_mixed_match_payload_released_at_extraction.saw, plus
-# examples/coro_discarded_match_payload_field_drop_order.saw for DF-218y.
+# examples/coro_mixed_match_payload_released_at_extraction.saw.
+#
+# DF-218y — the multi-field discard's ORDER, filed off the same shape — is
+# CLOSED (Aug 22, ruled reverse-declaration everywhere), and its pin
+# examples/coro_discarded_match_payload_field_drop_order.saw is no longer XFAIL.
+# It stays in examples/ for the same reason the mixed shape does: corodiff's
+# generator builds a SINGLE-field discard, so no row it emits can carry an
+# order at all.
 
 # DF-218e's row is GONE, removed by design 218 unit 2 stage E (Aug 21) in the
 # landing that fixed it. CONSUMPTION SYMMETRY: a suspending callee is consumed

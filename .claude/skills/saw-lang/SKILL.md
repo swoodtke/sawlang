@@ -697,6 +697,16 @@ var u = w.copy()       // explicit duplicate
   a raw resource (an fd, a mapping); your body runs FIRST and the field drops
   are appended, and there is only ever one deinit per type. Corollary: an empty
   `func deinit(&var self) {}` is dead code — delete it.
+  **REVERSE-DECLARATION IS THE RULE FOR EVERY TEARDOWN, DISCARDS INCLUDED**
+  (DF-218y, ruled Aug 22). The fields a pattern throws away with `_` come apart
+  in the same order the ones it names do: `case Trip(v, _, _)` releases `c` then
+  `b`, and so do `let (_, _, _) = triple` and its `if let` / `guard let` twins.
+  So which fields a pattern happens to NAME never changes the order the rest
+  come apart in. Two inline discard loops walked FORWARD until the ruling — the
+  match lowering's (sync only, which is what made it disagree with its own
+  driven twin, whose whole-value release goes through the synthesized deinit)
+  and the destructuring `let`'s (both twins) — so distrust a multi-field discard's
+  order in an older build. Only the ORDER moved; nothing leaked either way.
 - `let _ = expr` = true discard (consumes + drops immediately). It is also the
   REQUIRED spelling for dropping a `Result` (design 151, Errors below).
 

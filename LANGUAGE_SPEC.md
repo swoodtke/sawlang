@@ -4315,6 +4315,14 @@ compiler. Fields are dropped in reverse declaration order, matching the order
 locals drop in; an enum switches on its tag and drops the active variant's
 owning payload. A field that owns nothing costs nothing.
 
+Reverse declaration order is the rule for *every* structural teardown, and a
+DISCARD is one. The fields a `match` arm throws away with `_`
+(`case Trip(v, _, _)`) and the components a destructuring `let` throws away
+(`let (_, _) = pair`, and the same pattern under `if let` / `guard let`) are
+released in reverse declaration order too, exactly as the named bindings beside
+them are — so which fields a pattern happens to name never changes the order the
+rest come apart in.
+
 ```saw
 struct Session {
     log: Vector<String>,

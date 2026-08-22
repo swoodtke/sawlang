@@ -316,6 +316,11 @@ class MatchMixin:
                     self.cleanup_stack.append([])
                     arm_scope_pushed = True
 
+                # The arm's `_`-DISCARDED owning payload fields, collected as
+                # (alloca, SawType) in binding order and dropped after the loop
+                # in REVERSE (DF-218y — see the flush below).
+                discarded_fields = []
+
                 # Create variables for bindings
                 for i, binding_name in enumerate(arm.bindings):
                     # Extract field from struct
@@ -362,7 +367,7 @@ class MatchMixin:
                         # design 65 (L17): an owning payload field discarded with
                         # `_` under the consume model is UNCLAIMED — the scrutinee's
                         # own drop is suppressed, so nothing else drops it. DROP it
-                        # now inline: it is registered in NO cleanup scope (a `_`
+                        # inline: it is registered in NO cleanup scope (a `_`
                         # names no binding to register), so no scope exit — not the
                         # arm's own, not the `return`/`break`/`continue` unwinds —
                         # would ever reach it. Named bindings ARE registered and are
@@ -376,7 +381,23 @@ class MatchMixin:
                         # OWNED, not retained, and its deinit must fire. For Copy
                         # types (String, Arc) `_emit_drop_at` and
                         # `_emit_release_at` converge to the same refcount decrement.
-                        self._emit_drop_at(var_alloca, variant_params[i][1])
+                        discarded_fields.append((var_alloca, variant_params[i][1]))
+
+                # Drop the discarded fields, in REVERSE binding order (DF-218y,
+                # ruled Aug 22: discard order is reverse-declaration everywhere).
+                # Collected above rather than dropped in the loop, because a
+                # forward emission cannot spell a reverse order. This walked
+                # forward until the ruling, which made it the ONE drop path in
+                # the language that was not reverse-declaration: the enum's own
+                # synthesized deinit is reverse (design 128), so the driven twin
+                # — which releases the frame temp as a whole value through that
+                # deinit — disagreed with this loop about a `case Pair(_, _)`.
+                # The named bindings beside it were never in question; they are
+                # registered above in declaration order and the scope releases
+                # them in reverse, which is what `case Trip(x, y, z)` has always
+                # done and is the oracle this now matches.
+                for slot, field_type in reversed(discarded_fields):
+                    self._emit_drop_at(slot, field_type)
 
             # Generate arm body
             if isinstance(arm.body, Block):

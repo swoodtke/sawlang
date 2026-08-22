@@ -119,14 +119,43 @@ class StatementsMixin:
         return pattern_binding_names(pattern)
 
     def _destructure_bind(self, pattern, value, saw_type, mutable, copy):
-        """Recursively bind an irrefutable tuple pattern's leaves."""
+        """Bind an irrefutable tuple pattern's leaves (design 63 T1d).
+
+        TWO PASSES, because the leaves answer to two different orders. Named
+        leaves are BOUND in declaration order, which is what makes the cleanup
+        scope release them in REVERSE — design 128's rule for every structural
+        teardown, and the oracle `let (x, y, z) = …` has always met. A `_` leaf
+        names no binding to register, so its component is dropped inline here
+        instead, and those drops run in reverse declaration order TOO (DF-218y,
+        ruled Aug 22: discard order is reverse-declaration everywhere).
+
+        The discards are therefore COLLECTED by the walk and flushed by this
+        entry point, since a forward emission cannot spell a reverse order. So a
+        destructure binds what is named, then releases what is discarded — the
+        second half innermost-last, exactly as a scope exit does. It walked
+        forward until the ruling, alongside the match lowering's own inline
+        discard loop; unlike that one it was forward on BOTH twins (the
+        transform does not rewrite a destructure's leaves), so this position
+        changed the sync and driven halves together and introduced no
+        divergence.
+        """
+        discards = []
+        self._destructure_walk(pattern, value, saw_type, mutable, copy, discards)
+        for comp, comp_type in reversed(discards):
+            slot = self._entry_alloca(comp.type, name="discard")
+            self.builder.store(comp, slot)
+            self._emit_drop_at(slot, comp_type)
+
+    def _destructure_walk(self, pattern, value, saw_type, mutable, copy, discards):
+        """The recursive half of `_destructure_bind`: binds every NAMED leaf and
+        appends every owning `_` leaf's `(value, SawType)` to `discards`, in
+        declaration order, for the caller to drop in reverse."""
         if isinstance(pattern, WildcardPattern):
-            # Per-position `_`: drop the component here (owning components are
-            # released so the discard consumes exactly once).
+            # Per-position `_`: the component is dropped by the caller's flush
+            # (owning components are released so the discard consumes exactly
+            # once).
             if saw_type is not None and self._needs_cleanup(saw_type):
-                slot = self._entry_alloca(value.type, name="discard")
-                self.builder.store(value, slot)
-                self._emit_drop_at(slot, saw_type)
+                discards.append((value, saw_type))
             return
         if isinstance(pattern, BindingPattern):
             comp = value
@@ -145,7 +174,8 @@ class StatementsMixin:
             elem_types = rt.element_types if (rt is not None and rt.element_types) else [None] * len(pattern.elements)
             for idx, sub in enumerate(pattern.elements):
                 comp = self.builder.extract_value(value, idx, name=f"destr_{idx}")
-                self._destructure_bind(sub, comp, elem_types[idx], mutable, copy)
+                self._destructure_walk(sub, comp, elem_types[idx], mutable, copy,
+                                       discards)
 
     def _generate_discard_let(self, stmt: LetStatement):
         """Design 53 / DF1: `let _ = expr` evaluates the RHS, takes ownership,

@@ -7,13 +7,22 @@
 // A `_` payload drops INLINE at extraction (before the arm body) — a deferred
 // drop would be skipped by break/return/continue inside the arm; a named
 // binding drops at arm end. The oracle is a NoCopy deinit that prints.
+//
+// Row 2's ORDER is reverse-declaration — `B` then `A` — since DF-218y (ruled
+// Aug 22: discard order is reverse-declaration everywhere). It read forward
+// here until then, which was an artifact of dropping each field where it was
+// extracted rather than a contract: the enum's own synthesized deinit is
+// reverse (design 128), so the forward loop was the one drop path in the
+// language that disagreed with the rest of it — and with its own driven twin,
+// which releases the payload as a whole value through that deinit.
+// Row 3 is unaffected: it discards a single field, so it has no order.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // before let _
 // DEINIT L1
 // after let _
-// DEINIT A
 // DEINIT B
+// DEINIT A
 // two discarded
 // DEINIT D
 // kept C

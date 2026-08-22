@@ -68,8 +68,9 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-242a — a DRIVEN `try { } catch { }` releases the try body's frame fields at frame teardown, where the sync twin releases them at the error edge (entry below, filed by DF-218v's fix; DF-218w/DF-218s's family — the transform cannot see a codegen-owned edge)
 - DF-218w RESIDUE — the MIXED `case Both(v, _)` shape keeps statement-end timing (entry below, pinned XFAIL; the rest of DF-218w closed Aug 21)
 - ~~DF-218x~~ — CLOSED Aug 22 (branch `df-218xy`, commit 1): the branch got a cleanup scope of its own, so `_cleanup_to_depth` reaches the binding with no fourth entry point. The sweep found FIVE leaking spellings, not two, and corrected two entry claims (the driven twin was already right; the tuple pattern was mis-scoped rather than leaked). Entry below; conformance K76
-- DF-218y — RULED Aug 22 (user): discard order is REVERSE-DECLARATION everywhere — the match lowering's inline loop conforms to design 128, forward was an artifact, never a contract. Fix on the SYNC side, sweep the sibling inline-discard positions (mixed arms with 2+ discarded fields, destructuring-let wildcards). DISPATCHED Aug 22 with DF-218x (branch `df-218xy`); pin flips to LIFO parity
+- ~~DF-218y~~ — CLOSED Aug 22 (branch `df-218xy`, commit 2) on the SYNC side, as the Aug-22 ruling directs: discard order is REVERSE-DECLARATION everywhere. The sweep found a SECOND forward loop — the destructuring `let`'s wildcard leaves — which was forward on both twins and moved with it. Pin flipped and extended to 11 rows; entry below; conformance K77
 - DF-244b — a bare `None` TAIL at a `Result<T?, E>` cannot type itself, in a NAMED body as much as a closure; entry below, DF-232h's residue. `return None` is the one-keyword workaround
+- DF-246a — `examples/task_backtrace_mt.saw` flakes under machine LOAD (a fixed `sleep` standing in for a happens-before between two MT tasks), which reads as a suite regression and costs a battery re-run; `channel_receive_cancel_mt.saw` is the second member of the class. Entry below, found by `df-218xy`'s terminal battery
 
 - DF-225a — a user `extern "C"` function under a codegen-internal name (`printf`, `abort`, …) ICEs with no location (entry below, under DF-225a-f)
 - DF-225d — a primitive extension method returning bare `self` refuses its own declared return type, both sides printed identical (entry below, under DF-225a-f)
@@ -2905,6 +2906,40 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   at sync's order (the standing contract) and flips whichever way the ruling
   goes.
   PIN: `examples/coro_discarded_match_payload_field_drop_order.saw` (XFAIL)
+  **RULED Aug 22 (user): reverse-declaration everywhere.** Forward was an
+  artifact of emitting the drop where the field was EXTRACTED, never a contract;
+  the match lowering conforms to design 128 like every other teardown.
+  **STATUS: CLOSED Aug 22 (branch `df-218xy`, commit 2), on the SYNC side as the
+  ruling directs.** FIX: the consume branch COLLECTS its `_`-discarded fields in
+  binding order and drops them after the binding loop in reverse — a forward
+  emission cannot spell a reverse order, so the collect-then-flush is the whole
+  change. The oracle was already in the file: a NAMED binding registers into the
+  arm scope in declaration order and the scope releases it in reverse, which is
+  what `case Trip(x, y, z)` has always done.
+  OBLIGATION-4 SWEEP (probed before and after, `.build/scratch/p218y_sweep.saw`
+  + `p218y_driven.saw`; the matrix is 15 cells). A SECOND position had the same
+  forward loop: `_destructure_bind`'s TuplePattern walk, which serves
+  `let (_, _)`, `if let (v, _, _)` and the `guard let` twin. Unlike the match
+  one it was forward on BOTH twins — the transform does not rewrite a
+  destructure's leaves — so it never DIVERGED and simply disagreed with the
+  language; it is fixed by the same collect-then-flush (`_destructure_bind` is
+  now an entry point over a `_destructure_walk` recursion) and moved both twins
+  together, introducing no new divergence. Sibling positions probed and found
+  NOT to be instances: `_match_pattern`'s general design-63 wildcard emits no
+  drop at all (it returns no binding, and the scrutinee is released whole), and
+  the single-value discards (`let _ = e`, `if let _ = opt`, `guard let _ = opt`)
+  have no order to get wrong. AFTER, every cell is reverse and the two twins
+  agree: 2-field and 3-field all-`_` arms, mixed arms with the discards leading
+  and trailing, and all four destructuring spellings.
+  RESIDUE, unchanged and still open: the MIXED shape's driven TIMING is
+  DF-218w's (the driven twin releases at statement end where sync releases at
+  extraction). Only the ORDER was DF-218y's, and the mixed rows now agree on it.
+  PIN FLIPPED and extended to 11 rows (the two twins that diverged, three-field
+  twins, both mixed arms, all four destructuring spellings, and the
+  named-binding oracle) + conformance row K77. Docs: LANGUAGE_SPEC's
+  synthesized-destruction section, the saw-lang skill's Deinit bullet, and
+  `tools/corodiff_known.txt`'s DF-218w comment block (which named this pin as
+  XFAIL).
 
 - **DF-218x (SYNC LEAK, PRE-EXISTING; found Aug 21 by DF-218s's
   obligation-4 sweep)** — an `if let` binding is NOT released when the
@@ -2958,6 +2993,38 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   (a fourth sync leak, and the first that was a broken BINDING rather than a
   broken EDGE), LANGUAGE_SPEC's `Deinit` scope-exit paragraph, and
   `sawc/codegen/README.md`'s loop-stack note.
+
+- **DF-246a (FLAKY GATE LANE, PRE-EXISTING; found Aug 22 by `df-218xy`'s
+  terminal battery)** — `examples/task_backtrace_mt.saw` fails under machine
+  LOAD, which costs an agent a full battery re-run to tell from a real
+  regression. Observed once in a battery that ran beside a second agent
+  (`saw tasks: 1 live` where the row expects `2 live`; only the watcher's slot
+  in the dump, the worker's absent). Re-run 5/5 green in isolation immediately
+  afterwards, and the full suite green on the same tree, so the tree was never
+  at fault. MECHANISM: the test sequences two MT tasks with a FIXED WALL-CLOCK
+  margin — the watcher `sleep(Duration.ms(150))`s and then dumps, on the
+  assumption that the pool has by then CLAIMED and parked the worker it was
+  handed first. That is a race the margin only hides: under load the pool has
+  not claimed slot 0 yet, so the dump honestly reports one live task. The
+  test's own header calls the margin "wide on purpose", which is the tell —
+  wide is not the same as synchronized.
+  SWEEP (obligation 4) — a CLASS, not a one-off: the mechanism is "a fixed
+  sleep standing in for a happens-before between two MT tasks", and a second
+  member is `examples/channel_receive_cancel_mt.saw`, whose margin is NARROWER
+  (`sleep(Duration.ms(50))` before `h.cancel()`, its comment reading "give the
+  worker time to drain both messages and park"). It did not flake in these
+  runs; nothing about it is more synchronized, only luckier. The three
+  single-threaded `dump_tasks` tests (`task_backtrace_nest`,
+  `task_backtrace_churn`) are NOT members — a cooperative group's interleaving
+  is deterministic, which is the whole reason they are the exact-output rows.
+  NOT FIXED HERE (a test-harness change, out of this branch's scope, and the
+  right fix is a design question): the honest repair is to make the observation
+  wait for the STATE rather than for the clock — the watcher polling
+  `g.count()` (or a readiness `Atomic`) until the worker is parked, with the
+  sleep only as a backstop — but `dump_tasks` is deliberately an unsynchronized
+  snapshot, so what a test may legitimately wait on wants a ruling. Note for
+  whoever picks it up: a `task_backtrace_mt` failure reading `1 live` is this,
+  not a regression; re-run it alone before chasing it.
 
 - **DF-218i (BOGUS-REFUSAL, PRE-EXISTING) — rendering a PLACE is judged a
   value read, so a move-only element cannot be printed.** `print("{v[0]}")`

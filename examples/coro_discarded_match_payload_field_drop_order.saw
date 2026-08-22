@@ -1,45 +1,146 @@
-// XFAIL: DF-218y a multi-field all-`_` payload drops its fields in DECLARATION
-// order on the sync twin and in reverse on the driven one
+// A `_`-DISCARDED payload's fields drop in REVERSE declaration order, on both
+// twins (DF-218y, RULED and FIXED Aug 22).
 //
 // DF-218w's per-arm edge put both twins at the same POINT — an arm that claims
-// nothing of the scrutinee releases at its START, so `DEINIT` precedes `arm` on
-// both sides now. What it cannot reconcile is the order WITHIN the payload:
+// nothing of the scrutinee releases at its START. What it could not reconcile
+// was the order WITHIN the payload, because each side reached the fields
+// through a different destructor. Sync dropped a `_`-discarded field inline as
+// it EXTRACTED it, so its loop ran in binding-index order, FORWARD. The driven
+// twin releases the frame temp as ONE value, and the enum's synthesized
+// memberwise deinit is reverse-declaration, which is what design 128 states for
+// every structural teardown in the language.
 //
-//   sync    DEINIT t1, DEINIT t2   (field `a`, then field `b`)
-//   driven  DEINIT t2, DEINIT t1   (field `b`, then field `a`)
+// The RULING: reverse-declaration everywhere. Sync's forward inline loop was
+// the only drop path in Saw that was not, and forward was an artifact of
+// emitting the drop where the field was extracted — never a contract anything
+// relied on. So the fix landed on the SYNC side and this pin flipped with it,
+// and the oracle was already in the file: `named_control` below binds all three
+// fields, and a named binding has always been released in reverse, by the arm
+// scope that registers it.
 //
-// MECHANISM, and why this is a RULING rather than a fix. Each side reaches the
-// fields through a different destructor. Sync drops a `_`-discarded field
-// inline as it extracts it, so its loop runs in binding index order — FORWARD.
-// The driven twin releases the frame temp as ONE value, and the enum's
-// synthesized memberwise deinit drops the active variant's payload in REVERSE
-// declaration order, which is what design 128 states for every structural
-// teardown in the language. So the two disagree, and the twin that disagrees
-// with the rest of the language is the SYNC one: its forward inline loop is the
-// only drop path in Saw that is not reverse-declaration.
+// The obligation-4 sweep found the same forward loop at a SECOND position — the
+// destructuring `let`'s wildcard leaves, which codegen walks for `let (_, _)`,
+// `if let (v, _, _)` and the `guard let` twin. That one was forward on BOTH
+// twins (the transform does not rewrite a destructure's leaves), so it never
+// diverged and simply disagreed with the language; it moves with the match
+// lowering here.
 //
-// The standing contract is sync parity, so this pin states parity — with sync's
-// order, which is what parity means today. If the resolution is instead that
-// codegen's inline loop should run reverse like everything else, the fix lands
-// on the sync side and this pin's EXPECT flips with it. Either way both twins
-// end up saying one thing.
+// Rows:
+//   all_discarded        — `case Pair(_, _)`: the shape that diverged. Twins.
+//   three_discarded      — `case Trip(_, _, _)`: three, so a reversed order is
+//                          distinguishable from a swapped pair. Twins.
+//   mixed_head           — `case Trip(v, _, _)`: TWO discarded fields beside a
+//                          named one, which is what makes the discard loop's
+//                          own order visible in a mixed arm. Sync only: the
+//                          mixed shape's driven TIMING is DF-218w's standing
+//                          residue, pinned XFAIL in
+//                          coro_mixed_match_payload_released_at_extraction.saw,
+//                          and the order is what this row is for.
+//   mixed_tail           — `case Trip(_, _, v)`: the discarded fields lead, so
+//                          the reversal is not an artifact of their position.
+//   destructure          — `let (_, _, _)`: the swept sibling. Twins.
+//   destructure_mixed    — `let (v, _, _)`: a binding beside the discards, so
+//                          the two orders are visible in one statement.
+//   iflet_tuple          — `if let (v, _, _)`: the same walk, reached through
+//                          an optional binding.
+//   named_control        — `case Trip(x, y, z)`: the ORACLE. Never in question,
+//                          and the order every row above now matches.
 //
-// Never a leak: the counts balance on both sides, at the same point.
+// Never a leak: the counts balance on every row.
 // EXPECT: success
 // EXPECT-OUTPUT:
-// -- sync
+// -- all_discarded sync
 // NEW t1
 // NEW t2
-// DEINIT t1
 // DEINIT t2
+// DEINIT t1
 // arm
 // scope closed
-// -- driven
+// -- all_discarded driven
 // NEW t1
 // NEW t2
+// DEINIT t2
 // DEINIT t1
+// arm
+// scope closed
+// -- three_discarded sync
+// NEW t1
+// NEW t2
+// NEW t3
+// DEINIT t3
+// DEINIT t2
+// DEINIT t1
+// arm
+// scope closed
+// -- three_discarded driven
+// NEW t1
+// NEW t2
+// NEW t3
+// DEINIT t3
+// DEINIT t2
+// DEINIT t1
+// arm
+// scope closed
+// -- mixed_head sync
+// NEW t1
+// NEW t2
+// NEW t3
+// DEINIT t3
 // DEINIT t2
 // arm
+// DEINIT t1
+// scope closed
+// -- mixed_tail sync
+// NEW t1
+// NEW t2
+// NEW t3
+// DEINIT t2
+// DEINIT t1
+// arm
+// DEINIT t3
+// scope closed
+// -- destructure sync
+// NEW t1
+// NEW t2
+// NEW t3
+// DEINIT t3
+// DEINIT t2
+// DEINIT t1
+// scope closed
+// -- destructure driven
+// NEW t1
+// NEW t2
+// NEW t3
+// DEINIT t3
+// DEINIT t2
+// DEINIT t1
+// scope closed
+// -- destructure_mixed sync
+// NEW t1
+// NEW t2
+// NEW t3
+// DEINIT t3
+// DEINIT t2
+// bound
+// scope closed
+// DEINIT t1
+// -- iflet_tuple sync
+// NEW t1
+// NEW t2
+// NEW t3
+// DEINIT t3
+// DEINIT t2
+// bound
+// DEINIT t1
+// scope closed
+// -- named_control sync
+// NEW t1
+// NEW t2
+// NEW t3
+// arm
+// DEINIT t3
+// DEINIT t2
+// DEINIT t1
 // scope closed
 
 import std.task.{yield_now}
@@ -54,6 +155,7 @@ struct Tag { cell: Arc<Res> }
 extension Tag: Copy {}
 
 enum Both { case Pair(a: Tag, b: Tag) }
+enum Triple { case Trip(a: Tag, b: Tag, c: Tag) }
 
 func mk_tag(id: Int) -> Tag {
     print("NEW t{id}")
@@ -65,6 +167,8 @@ func mk_tag_s(id: Int) -> Tag {
     print("NEW t{id}")
     Tag(cell: Arc<Res>(value: Res(name: "t{id}")))
 }
+
+// ---- all_discarded: the shape that diverged ------------------------------
 
 func sync_all_discarded() {
     match Both.Pair(a: mk_tag(1), b: mk_tag(2)) {
@@ -80,9 +184,97 @@ func driven_all_discarded() {
     print("scope closed")
 }
 
+// ---- three_discarded: three fields, so reverse is unambiguous -------------
+
+func sync_three_discarded() {
+    match Triple.Trip(a: mk_tag(1), b: mk_tag(2), c: mk_tag(3)) {
+        case Trip(_, _, _) -> { print("arm") }
+    }
+    print("scope closed")
+}
+
+func driven_three_discarded() {
+    match Triple.Trip(a: mk_tag_s(1), b: mk_tag(2), c: mk_tag(3)) {
+        case Trip(_, _, _) -> { print("arm") }
+    }
+    print("scope closed")
+}
+
+// ---- mixed arms: the discard loop's order beside a named binding ----------
+
+func sync_mixed_head() {
+    match Triple.Trip(a: mk_tag(1), b: mk_tag(2), c: mk_tag(3)) {
+        case Trip(v, _, _) -> { print("arm") }
+    }
+    print("scope closed")
+}
+
+func sync_mixed_tail() {
+    match Triple.Trip(a: mk_tag(1), b: mk_tag(2), c: mk_tag(3)) {
+        case Trip(_, _, v) -> { print("arm") }
+    }
+    print("scope closed")
+}
+
+// ---- the swept sibling: a destructuring `let`'s wildcard leaves -----------
+
+func sync_destructure() {
+    let (_, _, _) = (mk_tag(1), mk_tag(2), mk_tag(3))
+    print("scope closed")
+}
+
+func driven_destructure() {
+    let (_, _, _) = (mk_tag_s(1), mk_tag(2), mk_tag(3))
+    print("scope closed")
+}
+
+func sync_destructure_mixed() {
+    let (v, _, _) = (mk_tag(1), mk_tag(2), mk_tag(3))
+    print("bound")
+    print("scope closed")
+}
+
+func mk_triple() -> (Tag, Tag, Tag)? {
+    (mk_tag(1), mk_tag(2), mk_tag(3))
+}
+
+func sync_iflet_tuple() {
+    if let (v, _, _) = mk_triple() {
+        print("bound")
+    }
+    print("scope closed")
+}
+
+// ---- the oracle ----------------------------------------------------------
+
+func sync_named_control() {
+    match Triple.Trip(a: mk_tag(1), b: mk_tag(2), c: mk_tag(3)) {
+        case Trip(x, y, z) -> { print("arm") }
+    }
+    print("scope closed")
+}
+
 func main() {
-    print("-- sync")
+    print("-- all_discarded sync")
     sync_all_discarded()
-    print("-- driven")
+    print("-- all_discarded driven")
     __saw_drive(driven_all_discarded())
+    print("-- three_discarded sync")
+    sync_three_discarded()
+    print("-- three_discarded driven")
+    __saw_drive(driven_three_discarded())
+    print("-- mixed_head sync")
+    sync_mixed_head()
+    print("-- mixed_tail sync")
+    sync_mixed_tail()
+    print("-- destructure sync")
+    sync_destructure()
+    print("-- destructure driven")
+    __saw_drive(driven_destructure())
+    print("-- destructure_mixed sync")
+    sync_destructure_mixed()
+    print("-- iflet_tuple sync")
+    sync_iflet_tuple()
+    print("-- named_control sync")
+    sync_named_control()
 }
