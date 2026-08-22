@@ -1,0 +1,25 @@
+// A mach-O-invalid `@section` specifier is a DIAGNOSTIC, not a process abort
+// (DF-225f). Mach-O names a section by SEGMENT and section; LLVM does not
+// report a bad one as an error a front end can catch — it calls
+// `report_fatal_error`, so the compiler died with `LLVM ERROR: ... invalid
+// section specifier ...` and exit -6, naming no declaration and no file.
+//
+// The ELF-shaped `.vector_table` here is exactly what a reader copies from the
+// freestanding examples, which is what made this reachable by accident.
+//
+// The target is PINNED rather than inherited, so the test asserts the same
+// thing on a Linux host as on a macOS one: the rule is a property of the object
+// format, and an inherited triple would make this pass by not applying.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: is not a valid section on this target
+// EXPECT-ERROR-CONTAINS: __TEXT,vector_table
+// EXPECT-ERROR-ABSENT: LLVM ERROR
+// COMPILE-FLAGS: --target arm64-apple-darwin
+
+@export
+@section(".vector_table")
+func kernel_entry() -> Int32 { 0 }
+
+func main() {
+    print("unreached")
+}

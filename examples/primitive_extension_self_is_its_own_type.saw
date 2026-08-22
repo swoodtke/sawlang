@@ -1,0 +1,157 @@
+// Inside `extension <primitive>`, `self` IS that primitive (DF-225d) — usable
+// as a value of its own type in every position, at every primitive design 176
+// admits.
+//
+// It was not. The typechecker held its own copy of "which names are
+// primitives", design 176 widened the OTHER two copies from {Int, Float,
+// String} to all thirteen, and this one stayed at three. So inside
+// `extension UInt8` the receiver was a STRUCT named "UInt8" while `-> UInt8`
+// was the integer type, and each failure printed the two identically:
+//
+//   method `encoded` should return `UInt8` but returns `UInt8`
+//   operator `*` cannot be applied to `UInt8` and `Int`
+//   cannot compare `UInt8` with `UInt8`
+//
+// Four positions per row, which is what the three messages above name: `self`
+// returned bare, `self` in arithmetic, `self` compared, and `self` reached
+// through a generic bound (a conformance on a primitive, design 176's own
+// worked example). The three names the stale table did carry — Int, Float,
+// String — are the controls, and they passed throughout.
+// EXPECT: success
+// EXPECT-OUTPUT: 7 14 true
+// EXPECT-OUTPUT: 1 2 true
+// EXPECT-OUTPUT: 2 4 true
+// EXPECT-OUTPUT: 3 6 true
+// EXPECT-OUTPUT: 4 8 true
+// EXPECT-OUTPUT: 5 10 true
+// EXPECT-OUTPUT: 6 12 true
+// EXPECT-OUTPUT: 7 14 true
+// EXPECT-OUTPUT: 8 16 true
+// EXPECT-OUTPUT: 9 18 true
+// EXPECT-OUTPUT: false
+// EXPECT-OUTPUT: 1.500000
+// EXPECT-OUTPUT: saw
+// EXPECT-OUTPUT: 42
+
+/// Answers with the receiver's own value, widened — a requirement a primitive
+/// can only satisfy if `self` is the primitive.
+trait Word {
+    func word(&self) -> UInt64
+}
+
+extension UInt8: Word {
+    func encoded(&self) -> UInt8 { self }
+    func doubled(&self) -> UInt8 { self * 2 }
+    func same(&self, other: UInt8) -> Bool { self == other }
+    func word(&self) -> UInt64 { self as UInt64 }
+}
+
+extension Int8: Word {
+    func encoded(&self) -> Int8 { self }
+    func doubled(&self) -> Int8 { self * 2 }
+    func same(&self, other: Int8) -> Bool { self == other }
+    func word(&self) -> UInt64 { self as UInt64 }
+}
+
+extension Int16: Word {
+    func encoded(&self) -> Int16 { self }
+    func doubled(&self) -> Int16 { self * 2 }
+    func same(&self, other: Int16) -> Bool { self == other }
+    func word(&self) -> UInt64 { self as UInt64 }
+}
+
+extension Int32: Word {
+    func encoded(&self) -> Int32 { self }
+    func doubled(&self) -> Int32 { self * 2 }
+    func same(&self, other: Int32) -> Bool { self == other }
+    func word(&self) -> UInt64 { self as UInt64 }
+}
+
+extension Int64: Word {
+    func encoded(&self) -> Int64 { self }
+    func doubled(&self) -> Int64 { self * 2 }
+    func same(&self, other: Int64) -> Bool { self == other }
+    func word(&self) -> UInt64 { self as UInt64 }
+}
+
+extension UInt16: Word {
+    func encoded(&self) -> UInt16 { self }
+    func doubled(&self) -> UInt16 { self * 2 }
+    func same(&self, other: UInt16) -> Bool { self == other }
+    func word(&self) -> UInt64 { self as UInt64 }
+}
+
+extension UInt32: Word {
+    func encoded(&self) -> UInt32 { self }
+    func doubled(&self) -> UInt32 { self * 2 }
+    func same(&self, other: UInt32) -> Bool { self == other }
+    func word(&self) -> UInt64 { self as UInt64 }
+}
+
+extension UInt64: Word {
+    func encoded(&self) -> UInt64 { self }
+    func doubled(&self) -> UInt64 { self * 2 }
+    func same(&self, other: UInt64) -> Bool { self == other }
+    func word(&self) -> UInt64 { self }
+}
+
+extension UInt: Word {
+    func encoded(&self) -> UInt { self }
+    func doubled(&self) -> UInt { self * 2 }
+    func same(&self, other: UInt) -> Bool { self == other }
+    func word(&self) -> UInt64 { self as UInt64 }
+}
+
+extension Bool {
+    func flipped(&self) -> Bool { not self }
+}
+
+// The three the stale table carried — the controls.
+extension Int {
+    func encoded(&self) -> Int { self }
+}
+
+extension Float {
+    func encoded(&self) -> Float { self }
+}
+
+extension String {
+    func encoded(&self) -> String { self }
+}
+
+/// Reached through a BOUND, so the conformance has to hold at the primitive.
+func over_word<T: Word>(value: &T) -> UInt64 {
+    value.word()
+}
+
+func main() {
+    let b: UInt8 = 7
+    print("{b.encoded()} {b.doubled()} {b.same(7)}")
+
+    let i8v: Int8 = 1
+    print("{i8v.encoded()} {i8v.doubled()} {i8v.same(1)}")
+    let i16v: Int16 = 2
+    print("{i16v.encoded()} {i16v.doubled()} {i16v.same(2)}")
+    let i32v: Int32 = 3
+    print("{i32v.encoded()} {i32v.doubled()} {i32v.same(3)}")
+    let i64v: Int64 = 4
+    print("{i64v.encoded()} {i64v.doubled()} {i64v.same(4)}")
+    let u16v: UInt16 = 5
+    print("{u16v.encoded()} {u16v.doubled()} {u16v.same(5)}")
+    let u32v: UInt32 = 6
+    print("{u32v.encoded()} {u32v.doubled()} {u32v.same(6)}")
+    let u64v: UInt64 = 7
+    print("{u64v.encoded()} {u64v.doubled()} {u64v.same(7)}")
+    let uv: UInt = 8
+    print("{uv.encoded()} {uv.doubled()} {uv.same(8)}")
+    let iv: Int = 9
+    print("{iv.encoded()} {iv * 2} {iv == 9}")
+
+    print(true.flipped())
+    print(1.5.encoded())
+    print("saw".encoded())
+
+    // The bound, at a primitive: monomorphized, no vtable.
+    let wide: UInt32 = 42
+    print(over_word(&wide))
+}

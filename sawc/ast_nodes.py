@@ -99,6 +99,44 @@ class TypeKind(Enum):
     UINT64 = auto()
 
 
+# THE PRIMITIVE-EXTENSION TABLE — which written names an `extension <name>` may
+# put a primitive receiver behind, and which `TypeKind` each one IS.
+#
+# ONE map, three readers (obligation 1), because it had been three maps and one
+# of them went stale. ENTRY POINTS: the typechecker's
+# `_primitive_ext_self_type` (the `self` SawType inside such a body), codegen's
+# `_primitive_self_llvm_type` / `_primitive_ext_name` (the receiver's LLVM type
+# and the pseudo-struct a primitive receiver dispatches under), and
+# `Namespace._PRIMITIVE_CONFORMANCE_KEYS` (the key an `extension Int: Fooable`
+# conformance is registered under), which is this map inverted.
+#
+# DF-225d: design 176 widened primitive extensions from {Int, Float, String} to
+# EVERY primitive, and widened the codegen and conformance copies — the
+# typechecker's stayed at three. So inside `extension UInt8` the receiver was a
+# STRUCT named "UInt8" while `-> UInt8` was `TypeKind.UINT8`, and `self` was
+# unusable as a value of its own type: `func encoded(&self) -> UInt8 { self }`
+# was ``method `encoded` should return `UInt8` but returns `UInt8` ``, `self * 2`
+# was ``operator `*` cannot be applied to `UInt8` and `Int` ``, and
+# `self == other` was ``cannot compare `UInt8` with `UInt8` ``. Every position
+# printed the two types identically, because they ARE the same type spelled two
+# ways.
+PRIMITIVE_EXT_KINDS = {
+    "Int": TypeKind.INT,
+    "UInt": TypeKind.UINT,
+    "Int8": TypeKind.INT8,
+    "Int16": TypeKind.INT16,
+    "Int32": TypeKind.INT32,
+    "Int64": TypeKind.INT64,
+    "UInt8": TypeKind.UINT8,
+    "UInt16": TypeKind.UINT16,
+    "UInt32": TypeKind.UINT32,
+    "UInt64": TypeKind.UINT64,
+    "Float": TypeKind.FLOAT,
+    "Bool": TypeKind.BOOL,
+    "String": TypeKind.STRING,
+}
+
+
 def const_expr_str(expr) -> str:
     """Render a constant expression the way its author wrote it (design 148).
 

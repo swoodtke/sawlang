@@ -82,12 +82,13 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-248c — an XFAIL whose cited DF has CLOSED is invisible to every gate (the policy's teeth are the XPASS direction only); the one found instance is fixed, the LANE is not built. Entry below, with the fix direction
 
 - ~~DF-225a~~ — CLOSED Aug 22 (branch `diag-batch`, commit 6): the five join the ordinary duplicate-declaration rule — same LLVM signature unifies (so `printf` is callable), a different one is a clean refusal. The sweep probed every compiler-declared symbol and found the five are exactly the ones std does not also declare. Entry below, under DF-225a-f
-- DF-225d — a primitive extension method returning bare `self` refuses its own declared return type, both sides printed identical (entry below, under DF-225a-f)
-- DF-225f — `@section` with a mach-O-invalid specifier is a raw LLVM process abort, not a diagnostic (minor; entry below, under DF-225a-f)
+- ~~DF-225d~~ — CLOSED Aug 22 (branch `diag-batch`, commit 7): the three copies of "which names are primitives" became ONE table, so `self` inside a primitive extension is that primitive again. The sweep found the class is wider than the filing — arithmetic, comparison and `Bool`/`UInt` too, all ten design 176 added. Entry below, under DF-225a-f
+- ~~DF-225f~~ — CLOSED Aug 22 (branch `diag-batch`, commit 7, ridden with DF-225d): a mach-O specifier with no comma is refused before LLVM sees it, at one funnel with both `@section` positions as its entries. Entry below, under DF-225a-f
 
 (DF-225b closed Aug 21 by design 241 unit 1, 225c/225e by design 240's
-batch, 225h Aug 20 — their closure notes live in the DF-225a-f entry below,
-which stays whole until its three open siblings above close.)
+batch, 225h Aug 20; 225a, 225d and 225f closed Aug 22 by `diag-batch` — their
+closure notes live in the DF-225a-f entry below, which has nothing open left
+inside it now and travels whole.)
 
 ## DF-239b — a fully CONCRETE parameter type is unchecked on the
 ## generic-bound call path (filed Aug 20, DF-239a's sweep)
@@ -2241,6 +2242,34 @@ sub-agents, one lead), not one lucky repro.
   to `self`'s inferred type inside a primitive extension not unifying
   with the primitive type it visibly is. Falsifies LANGUAGE_SPEC.md's
   "Conformances on primitives" worked example (block 153, L5051).
+  **CLOSED Aug 22 (branch `diag-batch`, commit 7).** MECHANISM: three maps held
+  one fact — "which written names are primitives, and which `TypeKind` each IS"
+  — and design 176 (DF-169d) widened TWO of them from {Int, Float, String} to
+  all thirteen. The typechecker's `PRIMITIVE_EXT_SELF_KINDS` stayed at three, so
+  inside `extension UInt8` the receiver was a STRUCT named "UInt8" while the
+  return annotation was `TypeKind.UINT8` — the same type spelled two ways, which
+  is why both sides printed identically.
+  THE CLASS IS WIDER THAN THE FILING, probed
+  (`.build/scratch/df225d_matrix.saw`): `self` was unusable as a value of its
+  own type AT ALL on those ten. Beside the return, `self * 2` was ``operator `*`
+  cannot be applied to `UInt8` and `Int` `` and `self == other` was ``cannot
+  compare `UInt8` with `UInt8` ``; `not self` on a `Bool` and `self as UInt64`
+  on a `UInt` failed too, so `Bool` and `UInt` — both in the OTHER two maps —
+  were affected as much as the fixed-width integers. Int, Float and String were
+  clean throughout, which is what made it look like a `UInt8` problem.
+  FIX at the mechanism (obligation 1): ONE table,
+  `ast_nodes.PRIMITIVE_EXT_KINDS`, whose docstring names its three readers —
+  the typechecker's `_primitive_ext_self_type`, codegen's
+  `_primitive_self_llvm_type`/`_primitive_ext_name`, and
+  `Namespace._PRIMITIVE_CONFORMANCE_KEYS`, which is it inverted. The other two
+  copies are now assignments to it, so a fourth primitive cannot be added to one
+  and missed by another.
+  PIN: `examples/primitive_extension_self_is_its_own_type.saw` — thirteen rows,
+  four positions each (bare return, arithmetic, comparison, a bound reached
+  through a conformance on the primitive), with Int/Float/String as the
+  controls. The SPEC needed no change: its worked example is the repro, and it
+  was right — the compiler was wrong. The skill's primitive-conformance bullet
+  carries the note.
 - **DF-225e (RULED Aug 20, user: reading 1 — `std/` comes OFF the bare
   import's search path; only `std.`-prefixed imports reach std sources, per
   design 150's uniform model, and the spec's documented collision
@@ -2284,6 +2313,20 @@ sub-agents, one lead), not one lucky repro.
   name but doesn't claim what happens if you get it wrong; a reader on
   macOS who copies the ELF-shaped form as written hits an LLVM crash
   instead of a compiler error naming the fix.
+  **CLOSED Aug 22 (branch `diag-batch`, commit 7), ridden with DF-225d because
+  the interception is twelve lines.** `_checked_section` is the one place a
+  section name is validated, with its two entry points named in its docstring —
+  the `@section` stamp on a `static` and on a function, which are the only two
+  positions the attribute is legal in. On a mach-O triple a specifier with no
+  comma is a clean `CodegenUserError` naming the declaration and BOTH two-part
+  spellings; ELF is untouched, where a bare `.name` is right and a comma'd one
+  is legal too. Checking before LLVM is the whole point: `report_fatal_error`
+  kills the process, so there is no error for a front end to catch afterwards.
+  PIN: `examples/errors/section_macho_specifier_error.saw`, which PINS the
+  triple (`--target arm64-apple-darwin`) rather than inheriting the host's — the
+  rule is a property of the object format, and an inherited triple would make
+  the test pass on Linux by not applying. `EXPECT-ERROR-ABSENT: LLVM ERROR` is
+  what pins the abort as gone. Spec's `@section` paragraph states the refusal.
 - **DF-225h (RULED Aug 20, user, and CLOSED — no compiler work): `()` and
   `Void` stay DISTINCT; design 122/132's visible-Void rejection is
   ABSOLUTE (a `case _ -> Void` spelling was proposed and REJECTED — it

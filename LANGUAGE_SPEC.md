@@ -9690,7 +9690,17 @@ still governs Saw-side callers.
 object-file section (the LLVM section attribute). It composes with `@export` and
 does not require it; the name is passed through verbatim (the linker's problem)
 beyond a non-empty check. Section-name *syntax* is target-specific — ELF accepts
-`.vector_table`, mach-o requires the `SEG,sect` form.
+`.vector_table`, mach-o requires the `SEG,sect` form. Getting it wrong on a
+mach-O target is a compile error naming the declaration and the two-part form:
+
+```saw
+@section(".vector_table")
+func kernel_entry() -> Int32 { 0 }
+// error: `@section(".vector_table")` is not a valid section on this target:
+//        mach-O names a section by SEGMENT and section, separated by a comma
+// hint: write the two-part form — `@section("__TEXT,vector_table")` for code,
+//       `@section("__DATA,vector_table")` for data. ...
+```
 
 ```saw
 // The freestanding vector-table idiom (design 58 Part 3):

@@ -1254,6 +1254,16 @@ v.map<String>({ $0.to_string() })   // the closure's return; explicit still wins
   existential carries a vtable beside the value and a primitive has no boxed
   form — and that is one clean error naming the two outs: the generic bound, or
   a wrapper struct you own.
+  **INSIDE THE BODY, `self` IS THE PRIMITIVE** (DF-225d, fixed Aug 22) — return
+  it bare, do arithmetic on it, compare it, satisfy a bound with it. On the ten
+  primitives design 176 added it was none of those until that date: the
+  typechecker kept its own {Int, Float, String} copy of "which names are
+  primitives" and 176 widened only the other two, so `self` was a STRUCT of the
+  same name and every failure printed the two types identically — ``method
+  `encoded` should return `UInt8` but returns `UInt8` ``, ``operator `*` cannot
+  be applied to `UInt8` and `Int` ``, ``cannot compare `UInt8` with `UInt8` ``.
+  Int, Float and String worked throughout, which is what made it look like a
+  `UInt8` problem.
 - **Generic type-arg inference (design 93 + 105) covers FUNCTIONS and METHODS
   only — CONSTRUCTORS do not infer yet.** `Arc(value: r)` / `Mutex(value: 0)`
   are errors demanding `Arc<Res>(value: r)` / `Mutex<Int>(value: 0)`; spell

@@ -717,6 +717,40 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         t = (self.triple or "").lower()
         return "apple" in t or "darwin" in t or "macos" in t or "ios" in t
 
+    def _checked_section(self, sec, node):
+        """The `@section` specifier to stamp, or a clean refusal (DF-225f).
+
+        THE ONE PLACE a section name is validated (obligation 1). ENTRY POINTS:
+        the `@section` stamp on a `static` (`_declare_static_global`) and on a
+        function (`_declare_function`) — the only two positions the attribute is
+        legal in.
+
+        A mach-O target takes `SEGMENT,section` and NOTHING else. LLVM does not
+        report a bad one as an error a front end can catch: it calls
+        `report_fatal_error` and the PROCESS dies (`LLVM ERROR: ... invalid
+        section specifier ...`, exit -6), with no location and no way to tell
+        which declaration did it. So the ELF-shaped `@section(".vector_table")`
+        a reader copies from the spec's freestanding examples killed the
+        compiler on macOS instead of being refused. Checking here is what keeps
+        it a diagnostic.
+
+        ELF targets are untouched — a bare `.name` is exactly right there, and a
+        comma'd one is legal too, so there is nothing to check on that side.
+        """
+        if not sec or not self._is_apple_triple() or "," in sec:
+            return sec
+        raise CodegenUserError(
+            f"`@section(\"{sec}\")` is not a valid section on this target: "
+            f"mach-O names a section by SEGMENT and section, separated by a "
+            f"comma",
+            getattr(node, 'line', 0) or 0,
+            getattr(node, 'column', 0) or 0,
+            hint=f"write the two-part form — `@section(\"__TEXT,{sec.lstrip('.')}\")` "
+                 f"for code, `@section(\"__DATA,{sec.lstrip('.')}\")` for data. "
+                 f"The bare `{sec}` spelling is the ELF one, which the "
+                 f"freestanding targets take.",
+            source_file=getattr(node, 'source_file', None))
+
     def _declare_print_runtime(self):
         """Emit the two integer `print` formatters, `__saw_print_int` (signed)
         and `__saw_print_uint` (unsigned).
@@ -1562,7 +1596,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         # design 58: an @export static gets a named object-file section (if any)
         # and is anchored against DCE via @llvm.used.
-        sec = section_name(static)
+        sec = self._checked_section(section_name(static), static)
         if sec:
             gv.section = sec
         if exported and gv not in self._exported_llvm_globals:
@@ -2626,7 +2660,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             # `@llvm.used`. Setting linkage="external" on a DEFINITION is invalid.
             if llvm_func not in self._exported_llvm_globals:
                 self._exported_llvm_globals.append(llvm_func)
-        sec = section_name(func)
+        sec = self._checked_section(section_name(func), func)
         if sec:
             llvm_func.section = sec
 

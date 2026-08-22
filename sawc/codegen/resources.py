@@ -17,7 +17,8 @@ from llvmlite import ir
 from ast_nodes import (SawType, TypeKind, MoveExpr, Identifier, MemberAccess,
                        ArrayIndex, TupleIndex, SelfExpr,
                        FunctionCall, MethodCall, StructInit, EnumInit,
-                       TupleLiteral, ArrayLiteral, MapLiteral, SetLiteral)
+                       TupleLiteral, ArrayLiteral, MapLiteral, SetLiteral,
+                       PRIMITIVE_EXT_KINDS)
 from .mangle import mangle_type
 
 
@@ -58,21 +59,8 @@ class ResourcesMixin:
     # Every primitive pseudo-struct an extension may be written on (design 57,
     # widened to the whole set by design 176 / DF-169d), and the `SawType` kind
     # its `self` carries.
-    _PRIMITIVE_EXT_KINDS = {
-        "String": TypeKind.STRING,
-        "Int": TypeKind.INT,
-        "UInt": TypeKind.UINT,
-        "Float": TypeKind.FLOAT,
-        "Bool": TypeKind.BOOL,
-        "Int8": TypeKind.INT8,
-        "Int16": TypeKind.INT16,
-        "Int32": TypeKind.INT32,
-        "Int64": TypeKind.INT64,
-        "UInt8": TypeKind.UINT8,
-        "UInt16": TypeKind.UINT16,
-        "UInt32": TypeKind.UINT32,
-        "UInt64": TypeKind.UINT64,
-    }
+    # DF-225d: THE table, not a copy of it — see `ast_nodes.PRIMITIVE_EXT_KINDS`.
+    _PRIMITIVE_EXT_KINDS = PRIMITIVE_EXT_KINDS
 
     def _primitive_ext_name(self, saw_type):
         """The pseudo-struct name a primitive receiver dispatches under, or None.

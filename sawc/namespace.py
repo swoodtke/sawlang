@@ -6,7 +6,9 @@ Unified symbol table for all declarations.
 from dataclasses import dataclass, field
 from typing import Dict, FrozenSet, List, Optional, Any, Tuple, Set, Union
 from enum import Enum, auto
-from ast_nodes import SawType, TypeKind, Function, Struct, Enum as SawEnum, Extension, TypeParameter, Visibility
+from ast_nodes import (SawType, TypeKind, Function, Struct, Enum as SawEnum,
+                       Extension, TypeParameter, Visibility,
+                       PRIMITIVE_EXT_KINDS)
 from type_identity import declaration_base
 
 
@@ -1386,20 +1388,11 @@ class Namespace:
     # all or declared and then failed a `<T: MyProto>` bound at `T = UInt8` —
     # the wire-vocabulary case, and the whole point of conforming a fixed-width
     # integer.
+    # DF-225d: derived from `ast_nodes.PRIMITIVE_EXT_KINDS` rather than written
+    # out again — this is that map inverted, and it went out of step with the
+    # typechecker's copy of the same fact once already.
     _PRIMITIVE_CONFORMANCE_KEYS = {
-        TypeKind.INT: "Int",
-        TypeKind.UINT: "UInt",
-        TypeKind.INT8: "Int8",
-        TypeKind.INT16: "Int16",
-        TypeKind.INT32: "Int32",
-        TypeKind.INT64: "Int64",
-        TypeKind.UINT8: "UInt8",
-        TypeKind.UINT16: "UInt16",
-        TypeKind.UINT32: "UInt32",
-        TypeKind.UINT64: "UInt64",
-        TypeKind.FLOAT: "Float",
-        TypeKind.BOOL: "Bool",
-        TypeKind.STRING: "String",
+        kind: name for name, kind in PRIMITIVE_EXT_KINDS.items()
     }
 
     def primitive_conformance_key(self, saw_type) -> Optional[str]:

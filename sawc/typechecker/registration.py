@@ -17,7 +17,7 @@ from ast_nodes import (
     Block, ReturnStatement, BreakStatement, ContinueStatement, IfExpr, WhileExpr,
     IntLiteral, FloatLiteral, BoolLiteral, UnaryOp, ArrayLiteral, StructInit,
     FunctionCall, ExpressionStatement, SourceLocationLiteral, expr_diverges,
-    ext_param_aliases
+    ext_param_aliases, PRIMITIVE_EXT_KINDS
 )
 from errors import ErrorKind
 from namespace import (
@@ -1797,15 +1797,20 @@ class RegistrationMixin:
 
     # Primitive types that carry method extensions (design 57): the pseudo-struct
     # name maps to the primitive SawType used for `self`.
-    PRIMITIVE_EXT_SELF_KINDS = {
-        'String': TypeKind.STRING,
-        'Int': TypeKind.INT,
-        'Float': TypeKind.FLOAT,
-    }
+    # DF-225d: THE table, not a copy of it — see `ast_nodes.PRIMITIVE_EXT_KINDS`.
+    # This one WAS a copy, and it was the copy design 176 did not widen: it held
+    # {String, Int, Float} while the conformance and codegen maps held all
+    # thirteen, so `self` inside `extension UInt8` was a STRUCT named "UInt8"
+    # and every use of it as a value of its own type failed against a type
+    # printed identically.
+    PRIMITIVE_EXT_SELF_KINDS = PRIMITIVE_EXT_KINDS
 
     def _primitive_ext_self_type(self, name):
         """The `self` SawType for a method in an extension on a primitive
-        pseudo-struct (String/Int/Float), or None for an ordinary struct."""
+        pseudo-struct, or None for an ordinary struct.
+
+        Every primitive is one since design 176 — the whole set an
+        `extension <primitive>: Trait` may name."""
         kind = self.PRIMITIVE_EXT_SELF_KINDS.get(name)
         return SawType(kind) if kind is not None else None
 
