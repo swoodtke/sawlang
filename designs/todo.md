@@ -46,6 +46,9 @@ for sawos; "238 before more M3 work" is absolute.
 ## [BACKLOG] — filed, not scheduled
 
 - `public(package) import` — should the scoped re-export form exist? Refused today (design 229). Real use case: an INTERNAL PRELUDE, one sibling aggregating names for the others (Rust's `pub(crate) use`). Against: siblings can already import each other directly, so it buys convenience, not capability — and kcore, the biggest multi-file package and the one that motivated the tier, does NOT want it (its `public import` block is the EXTERNAL facade). Wait for a package that feels the pain (entry: the re-narrowing rider section)
+- DF-243a — a const EXPRESSION does not adopt the other operand's width in a mixed comparison, where a BARE literal does; entry below. DF-235a/b's family, at the one position that ladder did not reach — and it is what makes the Aug-17 bit-flag ruling need a suffix in an assert and none in a case value
+- DF-243b — an error inside a `--module-path` DEPENDENCY is reported under the ENTRY file's path with the dependency's line numbers; entry below. Same family as the DF-232g residue above (a dependency location the reader cannot open)
+- DF-243c — `SegFlag.Device`'s docstring says "Bit 8 rather than 3" and the value IS bit 3; entry below. Not live (riscv32 masks it off), and the fix needs a ruling on which half was meant
 - DF-238a — a module-qualified free-function call truncates a literal argument silently (32-bit targets: an ICE); entry below, pinned XFAIL. Adjacent to DF-239b — both are argument typing that one call path never performs
 - DF-238b — `print`'s `{}` renders a 64-bit value as its low word on a 32-bit target; entry below, pinned in the freestanding suite (it is not reproducible on the 64-bit host, so `examples/` cannot hold it). DF-158c's class
 - DF-238c — a trait's-module conformance for a foreign type is lost by a GLOB import and carried by a selective one (entry below, pinned XFAIL with its control)
@@ -205,6 +208,80 @@ per-arch stubs (`boot.S` + `link.ld`), a Blade package, and a case table of
 tiny QEMU-EXECUTED programs, one or more per row of the brief's inventory.
 `tools/sos_runner.py` is UNTOUCHED — the generic half was COPIED, per the
 brief's fork ruling. Units 2-7 remain open and are user-reserved.
+
+## DF-243a — a const EXPRESSION does not adopt the other operand's width in a
+## mixed COMPARISON, where a bare literal does (filed Aug 21, the sos riders
+## remainder; found respelling the abi rights asserts)
+
+`static_assert((SystemRight.Debug as UInt32) >= 256, …)` compiles — a bare
+literal adopts the other operand's type in a mixed binop (design 195). Respell
+the same bit as the ruled shift and it is refused:
+
+```saw
+static_assert((SystemRight.Debug as UInt32) >= (1 << 8), …)
+// error: operator `>=` requires both operands to have the same type, but the
+//        left is `UInt32` and the right is `Int`
+```
+
+WHAT THE MECHANISM IS. DF-235a/b made a CONST EXPRESSION adopt a slot's width
+wherever a bare literal does — annotation, field, argument, return, arm, the
+assignment targets, a raw-backed case value (DF-232c). A mixed-binop OPERAND is
+a position where a bare literal adopts and that ladder did NOT reach, so the
+two literal forms disagree at exactly one place. Probed (`.build/scratch/
+probe_const_operand.saw`): bare `== 1` and `>= 256` compile; `== (1u32 << 0)`
+and `>= ((1 as UInt32) << 8)` compile; only the unsuffixed const expression is
+refused. So the suffix is the documented out (the skill's "a SUBEXPRESSION no
+expected type reaches" rule) and nothing is blocked — what is wrong is that one
+file now spells one bit two ways, `case Debug = 1 << 8` in the slot and
+`(1u32 << 8)` in the assert that checks it, for no reason a reader can see.
+CONSEQUENCE FOR THE Aug-17 BIT-FLAG RULING: it reads as "spell a bit as a
+shift", and today that costs a width suffix in every operand position. Worth
+deciding whether the adoption ladder should cover the mixed binop, which would
+retire the suffix here. [235, 232c, 195, 185]
+
+## DF-243b — an error inside a `--module-path` DEPENDENCY is reported under the
+## ENTRY file's path, carrying the DEPENDENCY's line numbers (filed Aug 21,
+## same session; the DF-243a failure is the repro)
+
+Every one of the 39 errors above printed
+`--> .build/scratch/abi_values.saw:230:48` … `:500:45` for an entry file that
+is 202 LINES LONG. The line numbers are `sos/kernel/abi/src/lib.saw`'s — the
+dependency's — and the path is the entry's, so a reader following the
+diagnostic opens the wrong file at a line that does not exist. Nothing in the
+message names the module the error is really in.
+
+Same family as the DF-232g residue (a dependency location reported with NO file
+at all), and worse in one way: a missing file is visibly missing, while a wrong
+one looks authoritative. Repro is cheap and stands on its own — any type error
+in a `--module-path` module, reached from an entry file shorter than the
+dependency. [232g, 140]
+
+## DF-243c — `SegFlag.Device`'s docstring says "Bit 8 rather than 3" and the
+## value IS bit 3 (filed Aug 21, same session; surfaced by the shift
+## respelling — NOT introduced by it)
+
+`sos/imgformat/src/lib.saw`'s `SegFlag` docstring closes with: "Bit 8 rather
+than 3, because 1/2/4 are a RISC-V PMP config's low three bits … a fourth bit
+in that field would be the PMP `A` field's low bit." The case is `Device = 8`,
+which IS the fourth bit — bit index 3 — and riscv32's `PMP_A_TOR` is `0x8`, the
+very value the sentence warns about. The prose describes a collision it says
+was avoided and the value walks straight into it. The decimal `8` hid this;
+`1 << 3` puts the bit index in the reader's eye, which is the respelling
+earning its keep.
+
+NOT LIVE, and that is why it is a finding rather than a fix: riscv32's
+`prot_region` masks with `PMP_PERM_MASK = 0x7` before staging a cfg byte, so
+the Device bit never reaches the A field; arm64 names `SegFlag.Write`/`Execute`
+explicitly and never installs the mask raw; Blade emits through named cases on
+the other side. Every consumer is correct today.
+
+WHAT IT NEEDS IS A RULING, not an edit — which half was meant. Either the value
+should move (a WIRE-FORMAT change: `SosimgSeg.flags` is `UInt8`, so "bit 8" is
+not even representable, and any move is a version bump touching both emitters
+and both loaders), or the sentence should say what the code actually does and
+why it is safe (the mask is the real reason, and it is not mentioned where the
+flag is declared). Left exactly as found; the value is unchanged and
+probe-verified. [140, 178]
 
 ## DF-238a — a module-QUALIFIED free-function call does not carry its
 ## parameter's fixed-width type into a literal argument (filed Aug 21, design

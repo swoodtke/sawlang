@@ -219,10 +219,10 @@ extension SosimgArch {
 /// and the kernel installs those untranslated (see below); a fourth bit in that
 /// field would be the PMP `A` field's low bit.
 public enum SegFlag: UInt8 {
-    case Read = 1,
-    case Write = 2,
-    case Execute = 4,
-    case Device = 8,
+    case Read = 1 << 0,
+    case Write = 1 << 1,
+    case Execute = 1 << 2,
+    case Device = 1 << 3,
 }
 
 extension SosimgHeader {
