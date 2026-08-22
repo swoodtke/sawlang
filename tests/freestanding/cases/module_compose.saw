@@ -10,14 +10,15 @@
 // conformance the orphan rule permits in exactly one place — plus a `static`
 // and a raw-backed enum crossing module lines.
 //
-// The IMPORT FORMS are chosen rather than habitual, and two open findings say
-// why. `import fscore.{…}` selects two names BARE and binds the `fscore.`
-// qualifier for everything it did not name, so this one case exercises both
-// spellings — and each is used where it works. `Summary` and `report_summary`
-// are selected because a glob does not carry the conformance a generic bound
-// needs (DF-238c); the qualifier serves the non-generic calls, because the
-// qualified path solves no type arguments (DF-238a's third face). Neither is
-// worked around silently: both are pinned, and this comment is the map.
+// The IMPORT FORMS are chosen rather than habitual. `import fscore.{…}`
+// selects two names BARE and binds the `fscore.` qualifier for everything it
+// did not name, so this one case exercises both spellings. `Summary` and
+// `report_summary` are selected because a glob does not carry the conformance a
+// generic bound needs (DF-238c, open and pinned); the qualifier serves the
+// non-generic calls, which is now a free choice rather than a forced one —
+// DF-238a's third face (the qualified path solving no type arguments) closed
+// Aug 21. Nothing here is worked around silently: the one live finding is
+// pinned, and this comment is the map.
 
 import fscore.{Summary, report_summary}
 import fsdata.{Descriptor, Flag, DESCRIPTOR_BYTES}
@@ -52,6 +53,20 @@ func fs_main() unsafe {
     let expected = record.magic &+ (record.version as UInt32)
     fscore.check("summary_matches_checksum",
                  record.checksum() == expected &+ 4 &+ 64 &+ 128)
+
+    // DF-238a's SECOND face, which only a 32-bit target can hold: a literal
+    // WIDER than the platform word, passed through the QUALIFIER at an `Int64`
+    // parameter. Before the fix the literal never adopted `Int64`, so on
+    // riscv32 it had no platform-`Int` reading at all and the compile died an
+    // internal compiler error. It reads as an ordinary line now, which is the
+    // point — and it is asserted rather than merely compiled, so a regression
+    // that adopts the WRONG width fails here too.
+    var wide: Int64 = 0x2468_0000_ACF0
+    fscore.check_wide("wide_literal_through_qualifier", wide, 0x2468_0000_ACF0)
+    // …and the narrow half of the same rule: a bare literal adopting a
+    // fixed-width parameter through the qualifier.
+    fscore.check_unsigned("narrow_literal_through_qualifier",
+                          fscore.widen_byte(255), 255)
 
     fscore.finish("module_compose")
 }

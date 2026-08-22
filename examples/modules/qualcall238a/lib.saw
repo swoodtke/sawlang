@@ -1,18 +1,51 @@
-// The callee side of DF-238a's pin: one public free function with a NARROW
-// fixed-width parameter, so a literal argument has a width to adopt and a
-// range to be checked against.
+// The callee side of DF-238a's pins: free functions whose signatures a
+// qualified call has to THREAD — a narrow fixed-width parameter (so a literal
+// argument has a width to adopt and a range to be checked against), a
+// defaulted parameter, and three generic shapes.
 //
 // The static method and the constructor are the CONTROLS — the same literal
 // through the same qualifier, on the two qualified member paths that carry the
-// expected type correctly. They are here so the pin's fix cannot be a change
+// expected type correctly. They are here so the pins' fix cannot be a change
 // that breaks them.
 
 public struct Byte238a {
     public value: UInt8
 }
 
+public trait Named238a {
+    func name(&self) -> String
+}
+
+public struct Rec238a {
+    public id: Int
+}
+
+extension Rec238a: Named238a {
+    public func name(&self) -> String { "rec-{self.id}" }
+}
+
 public func take_byte(b: UInt8) -> Int {
     b as Int
+}
+
+public func with_default(a: Int, b: Int = 7) -> Int {
+    a + b
+}
+
+public func over<T: Named238a>(value: &T) -> String {
+    value.name()
+}
+
+public func ident<T>(v: T) -> T {
+    v
+}
+
+public func pair<A, B>(a: A, b: B) -> Int {
+    5
+}
+
+public func opt(v: Int?) -> Int {
+    v ?? 0
 }
 
 extension Byte238a {

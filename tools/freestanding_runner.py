@@ -259,12 +259,13 @@ XMARK = f"{YELLOW}x{RESET}"
 # reason MUST cite a DF number, the expectations state the INTENDED behavior,
 # and an xfail case that PASSES fails the run so the marker cannot go stale.
 #
-# TWO NOTES ON WHAT THE CASES DELIBERATELY DO NOT DO. They reach `fscore`
-# through `import fscore.*` or `import fscore.{…}` rather than the qualifier,
-# because a module-qualified call carries neither its parameter's width nor its
-# type arguments (DF-238a); and none of them divides or checked-multiplies a
-# 64-bit value beyond what `hal/support.c` supplies libcalls for, because the
-# rest reach compiler-rt entries a freestanding link does not carry.
+# ONE NOTE ON WHAT THE CASES DELIBERATELY DO NOT DO: none of them divides or
+# checked-multiplies a 64-bit value beyond what `hal/support.c` supplies
+# libcalls for, because the rest reach compiler-rt entries a freestanding link
+# does not carry. (The cases used to prefer `import fscore.*` / `import
+# fscore.{…}` over the qualifier for a second reason — a module-qualified call
+# carried neither its parameter's width nor its type arguments — which DF-238a
+# closed on Aug 21. The mixed spellings stay: they exercise both.)
 
 TEST_CASES = [
     {
@@ -359,6 +360,8 @@ TEST_CASES = [
                        "fs check enum_crossed_modules=1",
                        "fs summary descriptor=1146569241",
                        "fs check summary_matches_checksum=1",
+                       "fs check wide_literal_through_qualifier=1",
+                       "fs check narrow_literal_through_qualifier=1",
                        "fs done module_compose ok"],
         "expect_clean_exit": True,
     },

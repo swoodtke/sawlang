@@ -2691,6 +2691,25 @@ class CallsMixin:
         # and stamped its exact (merged-module) codegen symbol.
         func_name = expr.resolved_symbol or expr.method_name
 
+        # DF-238a: a GENERIC callee reached through a qualifier is instantiated
+        # here, exactly as the bare spelling instantiates it in
+        # `_generate_function_call` — the typechecker stamps the solved type
+        # args on the node either way, and the template is registered under the
+        # same key. Without this the qualified path looked up the abstract
+        # template's plain name and found nothing.
+        if func_name in self.generic_functions:
+            if not expr.type_args:
+                raise ValueError(
+                    f"Generic function {expr.method_name} requires type "
+                    f"arguments. Use {expr.method_name}<Type>(...)"
+                )
+            call_type_args = [
+                self._substitute_saw_type(ta, self.type_param_context)
+                for ta in expr.type_args
+            ]
+            func_name = self._instantiate_generic_function(func_name,
+                                                           call_type_args)
+
         if func_name not in self.functions:
             raise ValueError(f"Undefined function in module: {expr.object.name}.{expr.method_name}")
 
@@ -2698,14 +2717,17 @@ class CallsMixin:
 
         # Generate arguments
         if expr.arg_plan is not None:
-            # Design 66: labeled module call. Module functions carry no separate
-            # default table here; the plan's slots are all argument-bound.
+            # Design 66: labeled module call.
             args = self._planned_arg_values(
                 expr, self.func_defaults.get(func_name) or [])
         else:
             args = []
             for arg in expr.arguments:
                 args.append(self._gen_transfer_value(arg.value))
+            # DF-238a: fill omitted trailing arguments from their default
+            # expressions (design 53). The qualified path never did, so a call
+            # that legitimately omitted one was emitted with too few arguments.
+            self._fill_func_defaults(args, func_name)
 
         return self._emit_call(
             func, args, "module_call",

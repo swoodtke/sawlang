@@ -49,7 +49,9 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-243a — a const EXPRESSION does not adopt the other operand's width in a mixed comparison, where a BARE literal does; entry below. DF-235a/b's family, at the one position that ladder did not reach — and it is what makes the Aug-17 bit-flag ruling need a suffix in an assert and none in a case value
 - DF-243b — an error inside a `--module-path` DEPENDENCY is reported under the ENTRY file's path with the dependency's line numbers; entry below. Same family as the DF-232g residue above (a dependency location the reader cannot open)
 - DF-243c — `SegFlag.Device`'s docstring says "Bit 8 rather than 3" and the value IS bit 3; entry below. Not live (riscv32 masks it off), and the fix needs a ruling on which half was meant
-- DF-238a — a module-qualified free-function call truncates a literal argument silently (32-bit targets: an ICE); entry below, pinned XFAIL. Adjacent to DF-239b — both are argument typing that one call path never performs
+- (DF-238a CLOSED Aug 21 by the small-fix batch — entry below; DF-239b, its adjacent, is still open at the line above)
+- DF-242b — a cross-module OVERLOAD SET is bound BARE as a single overload, so a call only another member matches is refused; the QUALIFIED spelling of the same call sees all of them (entry below, found probing DF-238a's fix)
+- DF-242c — a SUFFIXED (exact-typed) literal argument does not disambiguate an `Int`-vs-narrow overload set; same-module and cross-module alike (entry below, found probing DF-238a's fix)
 - DF-238b — `print`'s `{}` renders a 64-bit value as its low word on a 32-bit target; entry below, pinned in the freestanding suite (it is not reproducible on the 64-bit host, so `examples/` cannot hold it). DF-158c's class
 - DF-238c — a trait's-module conformance for a foreign type is lost by a GLOB import and carried by a selective one (entry below, pinned XFAIL with its control)
 - DF-239b — deep argument typing unchecked on the generic-bound call path (entry below, beside DF-239a)
@@ -355,6 +357,77 @@ sweep could not see code that landed in parallel). Migrated at integration:
 finding; the fix un-suffixes it. A bare literal at ANY qualified free-function
 call with a fixed-width parameter now refuses, so this gap is user-visible on
 the ordinary path and should be scheduled accordingly.
+
+**STATUS: CLOSED Aug 21 (small-fix batch).** `_check_module_function_call` now
+threads the RESOLVED callee's signature exactly as the bare path does, in the
+bare path's own order: solve/verify the type arguments (design 93/105
+inference, `_check_type_param_bounds` for the bounds and design 219's
+discharge, `_effect_record_poly_call` for the deferred effect edge), substitute
+into the parameter and return types, admit the design-53 arity RANGE, check
+design 108's omitted generic defaults, then per argument
+`_apply_literal_expected_type` before `_check_expression`, plus the existential
+coercion arm. Codegen's `_generate_module_function_call` gained the two things
+that follow: `_instantiate_generic_function` for a generic callee (the template
+is registered under the same key the bare path uses) and `_fill_func_defaults`
+for an omitted trailing default.
+A FOURTH FACE, found by this fix's own probe and the same mechanism rather than
+a new one: a DEFAULTED parameter could not be omitted at all through a
+qualifier (``function `with_default` takes 2 argument(s), but 1 were given``) —
+the arity test compared against the full parameter list and codegen filled no
+default. Recorded here rather than filed separately, per the entry's own
+mechanism statement.
+PIN FLIPPED: `examples/qualified_call_literal_adopts_parameter_width.saw`, with
+its two controls intact. COMPANION:
+`examples/qualified_call_threads_the_callee_signature.saw` (eight rows — width
+adoption, a defaulted parameter omitted and supplied, inference at a bounded
+parameter, at a plain one and across two, an explicit type-argument list, and
+optional auto-wrap), over an extended `examples/modules/qualcall238a/`.
+The SECOND face is 32-bit-only and cannot live in `examples/`, so it is
+asserted in the freestanding suite: `module_compose` passes a wide literal
+through the qualifier at `check_wide`'s `Int64` (the exact ICE shape) and a
+bare literal through it at a new `fscore.widen_byte`'s `UInt8`. MIGRATION
+REVERSED: `tests/freestanding/core/src/lib.saw` spells `fsrt.stop(0)` again and
+the runner's case-table note now records the qualifier as a free choice.
+DF-239b was explicitly out of scope and is untouched. Gated suite + freestanding
+both arches.
+
+## DF-242b — a cross-module OVERLOAD SET is bound BARE as ONE overload (filed
+## Aug 21, probing DF-238a's fix)
+
+A module declaring three `public func pick` overloads (`Int`, `String`,
+`UInt8`) is reached two ways from one file, and the two ways see different
+sets. Through the QUALIFIER, `m.pick(...)` resolves against all three —
+`m.pick("s")` compiles. Bare, under EITHER `import m.*` or
+`import m.{pick}`, only the FIRST-registered overload is in scope, so
+`pick("s")` is ``argument `n` expects `Int` but got `String` `` — a diagnostic
+about a candidate the author did not mean, with the one they did mean
+unmentioned. Evidence: `.build/scratch/p238b.saw` (qualified),
+`p238b_bare.saw` (glob) and `p238b_sel.saw` (selective), one module
+(`.build/scratch/mods238b/`), all three compiled.
+
+MECHANISM (obligation 4, named not swept): import binding registers ONE symbol
+per name, and `StructSymbol`/module namespaces keep the overload list beside
+the representative (`method_overloads`, and its free-function twin) — the
+qualified path reads the list because it resolves through the module's
+namespace, and the bare binding copies the representative alone. So the sibling
+positions to probe are every bare-binding form for every overloadable kind: a
+free function (found), a static method, an `init`, and a re-export
+(`public import m.{pick}`). NOT probed further here — this is DF-238a's
+neighbour rather than its mechanism, and it wants its own dispatch.
+
+## DF-242c — a SUFFIXED literal does not disambiguate an `Int`-vs-narrow
+## overload set (filed Aug 21, probing DF-238a's fix)
+
+`pick(200u8)` against `pick(n: Int)` + `pick(b: UInt8)` is ``ambiguous call to
+`pick`: multiple overloads match the argument types (UInt8)``, naming both. A
+suffixed literal is EXACT-TYPED (design 47), so `UInt8` should win outright;
+design 137's documented ambiguity is for a BARE literal, whose width is
+deliberately still flexible (`h(5)` between `h(Int)` and `h(Int8)`), and the
+workaround it names is the suffix — which does not work. SAME-MODULE and
+cross-module alike (`.build/scratch/p238c.saw` is the same-module control), so
+this is the overload matcher's own question and not an import or qualifier one:
+the candidate filter is admitting `Int` for a `UInt8` argument somewhere it
+should not. One line, no pin — the shape is a two-overload file.
 
 ## DF-238b — `print`'s `{}` format argument renders a wider-than-word integer
 ## as its LOW WORD on a 32-bit target (filed Aug 21, design 238 unit 1)

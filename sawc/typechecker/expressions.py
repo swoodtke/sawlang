@@ -10099,6 +10099,80 @@ class ExpressionsMixin:
         # into a separately-checked module resolves to no node and is a
         # non-suspending leaf (design 22 §5), which is safe today.
         self._effect_call_function(func_info, expr.method_name, expr.line)
+        # DF-238a: THREAD THE RESOLVED CALLEE'S SIGNATURE, exactly as the bare
+        # spelling of this same call does. This path resolved the callee and
+        # then checked the arguments against its RAW declared types — so the
+        # expected type never reached the argument, and every consequence of
+        # that followed: a bare literal stayed at platform `Int` and was
+        # silently truncated into a fixed-width parameter (or, on a 32-bit
+        # target, fell out of the fold domain as an ICE), generic type
+        # arguments were never solved, and a defaulted parameter could not be
+        # omitted because the arity test compared against the full list.
+        # The two qualified MEMBER paths beside this one (a static method, a
+        # constructor) were always correct, which is where the shape below
+        # comes from.
+        param_types = list(func_info.param_types)
+        return_type = func_info.return_type
+        if func_info.type_params:
+            # design 93 + 105: infer omitted type arguments from the arguments
+            # (a partial explicit prefix pins its parameters, the rest infer).
+            if len(expr.type_args or []) < len(func_info.type_params):
+                infer_mapping = self._infer_label_mapping(
+                    expr, list(func_info.param_names), func_info.default_values)
+                full = self._solve_call_type_args(
+                    func_info.type_params, func_info.param_types, expr,
+                    infer_mapping, {}, expr.type_args,
+                    f"function `{expr.method_name}`", expr.line, expr.column,
+                    default_values=func_info.default_values)
+                if full is None:
+                    return None
+                expr.type_args = [full[tp.name] for tp in func_info.type_params]
+            if len(expr.type_args) != len(func_info.type_params):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"function `{expr.method_name}` expects "
+                    f"{len(func_info.type_params)} type argument(s), "
+                    f"but {len(expr.type_args)} were given",
+                    expr.line, expr.column
+                )
+                return None
+            type_map: Dict[str, SawType] = {}
+            for tp, ta in zip(func_info.type_params, expr.type_args):
+                type_map[tp.name] = self._resolve_type(ta)
+            # design 105 + 219 wave C: inferred (or explicit) type args are
+            # bound-checked, and the callee's inferred tier requirement is
+            # discharged, at the shared entry point.
+            self._check_type_param_bounds(
+                func_info.type_params, type_map, expr.line, expr.column,
+                callee_decl=func_info.ast_node,
+                display=f"`{expr.method_name}`")
+            # design 70 (A5): the deferred poly-call edge, as the bare path
+            # records it, so a suspending instantiation taints this caller.
+            resolved_args = [type_map.get(tp.name)
+                             for tp in func_info.type_params]
+            if all(a is not None and self._is_concrete_type(a)
+                   for a in resolved_args):
+                self._effect_record_poly_call(
+                    expr.method_name, resolved_args, f"`{expr.method_name}`",
+                    expr.line)
+            param_types = [t.substitute(type_map) if t is not None else t
+                           for t in param_types]
+            if return_type is not None:
+                return_type = return_type.substitute(type_map)
+        elif expr.type_args:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"function `{expr.method_name}` is not generic but was called "
+                f"with type arguments",
+                expr.line, expr.column
+            )
+        # Default parameter values (design 53): an omitted trailing argument is
+        # filled at the call site, so a call may provide between `required` and
+        # all of the parameters.
+        dvals = func_info.default_values or []
+        has_defaults = any(dv is not None for dv in dvals)
+        required = (sum(1 for dv in dvals if dv is None) if has_defaults
+                    else len(param_types))
         # Design 66: labeled arguments bind by the binding rule; positional-only
         # calls keep the exact legacy arity check and identity binding.
         has_labels = self._call_has_labels(expr)
@@ -10106,24 +10180,45 @@ class ExpressionsMixin:
             mapping = self._bind_args(expr, list(func_info.param_names),
                                       func_info.default_values, expr.method_name)
             if mapping is None:
-                return func_info.return_type
+                return return_type
         else:
             mapping = None
-            if len(expr.arguments) != len(func_info.param_types):
+            if (len(expr.arguments) < required
+                    or len(expr.arguments) > len(param_types)):
                 self._error(
                     ErrorKind.WRONG_ARGUMENT_COUNT,
-                    f"function `{expr.method_name}` takes {len(func_info.param_types)} argument(s), "
-                    f"but {len(expr.arguments)} were given",
+                    (f"function `{expr.method_name}` takes between {required} "
+                     f"and {len(param_types)} argument(s), but "
+                     f"{len(expr.arguments)} were given") if has_defaults else
+                    (f"function `{expr.method_name}` takes {len(param_types)} "
+                     f"argument(s), but {len(expr.arguments)} were given"),
                     expr.line, expr.column
                 )
-                return func_info.return_type
+                return return_type
+        # Design 108: an omitted default on a GENERIC callee is checked against
+        # its INSTANTIATED parameter type, per call.
+        if func_info.type_params:
+            self._check_generic_call_defaults(expr, func_info, param_types,
+                                              mapping)
         for i, arg in enumerate(expr.arguments):
             p = mapping[i] if mapping is not None else i
-            expected_type = func_info.param_types[p] if p < len(func_info.param_types) else None
-            arg_type = self._check_expression(arg.value)
+            expected_type = param_types[p] if p < len(param_types) else None
+            if isinstance(arg.value, ClosureExpr):
+                arg_type = self._check_closure(arg.value, expected_type,
+                                               as_call_argument=True)
+            else:
+                # Design 87/205: the literal adopts the parameter's fixed width
+                # and is range-checked AT THE LITERAL — the whole point of
+                # threading the signature here.
+                self._apply_literal_expected_type(arg.value, expected_type)
+                arg_type = self._check_expression(arg.value)
+            declared = (func_info.param_types[p]
+                        if p < len(func_info.param_types) else None)
             allow_wrap = self._df3_allow_wrap(
-                expected_type, {tp.name for tp in (func_info.type_params or [])})
-            if arg_type and expected_type is not None and not self._arg_type_ok(arg.value, arg_type, expected_type, allow_wrap):
+                declared, {tp.name for tp in (func_info.type_params or [])})
+            if self._try_existential_arg_coercion(arg, arg_type, expected_type):
+                pass  # `&concrete -> &any Trait` erasure (or its error) handled
+            elif arg_type and expected_type is not None and not self._arg_type_ok(arg.value, arg_type, expected_type, allow_wrap):
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"argument `{func_info.param_names[p]}` expects `{expected_type}` but got `{arg_type}`",
@@ -10133,10 +10228,10 @@ class ExpressionsMixin:
             self._check_value_transfer(arg.value, expected_type, "call argument",
                                        arg.value.line, arg.value.column)
         aligned_types, aligned_names = self._aligned_call_meta(
-            expr, mapping, func_info.param_types, func_info.param_names)
+            expr, mapping, param_types, func_info.param_names)
         self._check_call_exclusivity([a.value for a in expr.arguments],
                                      aligned_types, param_names=aligned_names)
-        return func_info.return_type
+        return return_type
 
     def _check_module_struct_init(self, expr: MethodCall, struct_sym) -> Optional[SawType]:
         """Check a module-qualified struct initialization: ModuleName.StructName(args)
