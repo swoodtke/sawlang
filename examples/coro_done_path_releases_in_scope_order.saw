@@ -1,33 +1,37 @@
-// XFAIL: DF-218s a driven body's done path releases its FRAME FIELDS ahead of
-// the surviving REAL locals of inner scopes, inverting the sync twin's LIFO order
+// A driven body's done path releases in SCOPE order, interleaving the frame's
+// own fields with the locals of nested scopes exactly as the sync twin does
+// (DF-218s, ruled Aug 21: FORCED FRAME RESIDENCY).
 //
-// The two twins below differ only by a `yield_now()`. `outer` is declared in the
-// function body and `inner` in a nested `if` that spans no suspension, so in the
-// driven twin `outer` is a frame FIELD and `inner` stays an ordinary codegen
-// local — and the `return` inside the `if` exits both scopes at once.
+// The first pair below differ only by a `yield_now()`. `outer` is declared in
+// the function body and `inner` in a nested `if` that spans no suspension, and
+// the `return` inside the `if` exits both scopes at once.
 //
-// Sync drops `inner` then `outer` (LIFO by scope depth). Driven drops `outer`
-// first: `_done_seq` emits `self.release()` as a STATEMENT ahead of the lowered
-// `return Poll.Done`, and codegen's `_cleanup_all_scopes` — which is what drops
-// `inner` — runs at that return, i.e. after every statement the transform put in
-// front of it.
+// Two release systems used to meet at that one exit and the frame's ran first:
+// `_done_seq` emits `self.release()` as a STATEMENT ahead of the lowered
+// `return Poll.Done`, while codegen's `_cleanup_all_scopes` — which is what
+// dropped `inner` — runs AT that return, i.e. after every statement the
+// transform is able to put in front of it. So the driven twin printed
+// `DEINIT outer` first, inverting sync's scope-LIFO.
 //
-// MECHANISM (obligation 4): two release systems meet at one exit and the frame's
-// runs first. The positions it reaches are every `return` (and every diverging
-// tail) lowered IN PLACE inside a non-spanning nested block that owns real
-// locals — an `if`/`else` branch, a `match` arm, a nested `while`/`for` body, a
-// `try`/`catch` arm. It does NOT reach a body whose locals are all
-// frame-resident: there the frame's own reverse-declaration order already agrees
-// with scope-LIFO, because a block is frame-resident only if it transitively
-// contains a suspension, which makes every frame scope an ANCESTOR of every
-// real-local scope.
+// THE FIX is to leave ONE system in charge: an owning local of a block that
+// (transitively) contains a `return` is frame-resident whether or not its scope
+// spans a suspension, so `inner` is a frame field and E-RET's scope walk emits
+// both releases, innermost scope first. Sync-LIFO then holds by the containment
+// argument — a frame-resident scope is an ANCESTOR of any real-local scope that
+// is still live at a return, because the only locals that stay real are the ones
+// no `return` can be reached from.
 //
-// That same containment fact is why the fix is not a reordering inside the
-// transform: the frame's release can only be emitted BEFORE the return statement
-// that carries codegen's scope cleanup, so no statement the transform can write
-// lands after `inner`'s drop. See designs/218b-scope-end-spec.md (stage C) — the
-// scope-end migration made the frame's own clears scope-ordered, which is the
-// half that was in reach.
+// MATRIX (obligation 4). The mechanism is "a `return` lowered IN PLACE inside a
+// non-spanning nested block that owns real locals", so the rows are the block
+// kinds such a `return` can sit in, plus the two edges the fix must not disturb:
+//
+//   two_levels  — two nested non-spanning `if`s, three scopes at one return
+//   sibling     — a scope that ends BEFORE the returning one still drops first
+//                 (the forced field takes the in-place E-FALL edge, not the
+//                 frame's teardown)
+//   match_arm   — the block is a non-spanning `match` arm
+//   loop_return — the block is a non-spanning `while` body, and the iteration
+//                 that returns drops its own local before the outer one
 // EXPECT: success
 // EXPECT-OUTPUT:
 // -- sync
@@ -40,6 +44,38 @@
 // have inner
 // DEINIT inner
 // DEINIT outer
+// -- sync two_levels
+// DEINIT c
+// DEINIT b
+// DEINIT a
+// -- driven two_levels
+// DEINIT c
+// DEINIT b
+// DEINIT a
+// -- sync sibling
+// in first
+// DEINIT b
+// DEINIT c
+// DEINIT a
+// -- driven sibling
+// in first
+// DEINIT b
+// DEINIT c
+// DEINIT a
+// -- sync match_arm
+// DEINIT b
+// DEINIT a
+// -- driven match_arm
+// DEINIT b
+// DEINIT a
+// -- sync loop_return
+// DEINIT b0
+// DEINIT b1
+// DEINIT a
+// -- driven loop_return
+// DEINIT b0
+// DEINIT b1
+// DEINIT a
 
 import std.task.{yield_now}
 
@@ -47,6 +83,8 @@ struct Res { name: String }
 extension Res: NoCopy {
     func deinit(&var self) { print("DEINIT {self.name}") }
 }
+
+enum Pick { case One, case Two }
 
 func sync_early_return(n: Int) {
     let outer = Res(name: "outer")
@@ -71,9 +109,121 @@ func driven_early_return(n: Int) {
     print("no return")
 }
 
+func sync_two_levels(n: Int) {
+    let a = Res(name: "a")
+    if n > 0 {
+        let b = Res(name: "b")
+        if n > 1 {
+            let c = Res(name: "c")
+            return
+        }
+    }
+}
+
+func driven_two_levels(n: Int) {
+    let a = Res(name: "a")
+    yield_now()
+    if n > 0 {
+        let b = Res(name: "b")
+        if n > 1 {
+            let c = Res(name: "c")
+            return
+        }
+    }
+}
+
+func sync_sibling(n: Int) {
+    let a = Res(name: "a")
+    if n > 0 {
+        let b = Res(name: "b")
+        print("in first")
+    }
+    if n > 0 {
+        let c = Res(name: "c")
+        return
+    }
+}
+
+func driven_sibling(n: Int) {
+    let a = Res(name: "a")
+    yield_now()
+    if n > 0 {
+        let b = Res(name: "b")
+        print("in first")
+    }
+    if n > 0 {
+        let c = Res(name: "c")
+        return
+    }
+}
+
+func sync_match_arm(p: Pick) {
+    let a = Res(name: "a")
+    match p {
+        case One -> {
+            let b = Res(name: "b")
+            return
+        },
+        case Two -> { print("two") }
+    }
+}
+
+func driven_match_arm(p: Pick) {
+    let a = Res(name: "a")
+    yield_now()
+    match p {
+        case One -> {
+            let b = Res(name: "b")
+            return
+        },
+        case Two -> { print("two") }
+    }
+}
+
+func sync_loop_return(n: Int) {
+    let a = Res(name: "a")
+    var i = 0
+    while i < 3 {
+        let b = Res(name: "b{i}")
+        if i == 1 { return }
+        i = i + 1
+    }
+}
+
+func driven_loop_return(n: Int) {
+    let a = Res(name: "a")
+    yield_now()
+    var i = 0
+    while i < 3 {
+        let b = Res(name: "b{i}")
+        if i == 1 { return }
+        i = i + 1
+    }
+}
+
 func main() {
     print("-- sync")
     sync_early_return(1)
     print("-- driven")
     driven_early_return(1)
+
+    print("-- sync two_levels")
+    sync_two_levels(2)
+    print("-- driven two_levels")
+    driven_two_levels(2)
+
+    print("-- sync sibling")
+    sync_sibling(1)
+    print("-- driven sibling")
+    driven_sibling(1)
+
+    print("-- sync match_arm")
+    sync_match_arm(Pick.One)
+    print("-- driven match_arm")
+    driven_match_arm(Pick.One)
+
+    print("-- sync loop_return")
+    sync_loop_return(1)
+    print("-- driven loop_return")
+    driven_loop_return(1)
 }

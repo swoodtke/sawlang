@@ -61,10 +61,9 @@ for sawos; "238 before more M3 work" is absolute.
 - M4 seeds — IPC/pipes (renamed from channels Aug 20 — ratified record in spec §2.1 + the done file), dynamic loading, IOMMU, SMP (references in designs/232-sos-m3-sketch.md)
 - ESP32 path — P4 + TCP/IP stack ultimate goal; S3 via FreeRTOS-fakery stage 2 (HARDWARE PATH entry below)
 - DF-223b — existential dispatch of a suspending trait method, owed a DESIGN (entry below, under design 223)
-- DF-218s — RULED Aug 21 (user): OPTION 3, forced frame residency — and SCHEDULED with DF-218w (see [QUEUE]); entry below carries the mechanism
 - DF-218t — a value-position loop at a non-integer result type is a codegen ICE (the `None` sentinel is built for an integer); entry below, found by 218b stage 0's probes
 - DF-218v — a `try { } catch { }` block LEAKS the try body's locals on its error edge (sync); entry below, found by 218b's SC10 probe, and it corrects DF-218r's class statement
-- DF-218w — DF-217p's narrowed residue: a driven `case Has(_)` drops the discarded payload at the statement's end, not at extraction (entry below, pinned XFAIL, two corodiff rows)
+- DF-218x — a sync `if let` binding LEAKS when the then-branch exits by `return`/`break`; entry below, found by DF-218s's sweep. Same batch as DF-218v (both are codegen cleanup gaps at a nonlocal exit)
 
 - DF-225a — a user `extern "C"` function under a codegen-internal name (`printf`, `abort`, …) ICEs with no location (entry below, under DF-225a-f)
 - DF-225d — a primitive extension method returning bare `self` refuses its own declared return type, both sides printed identical (entry below, under DF-225a-f)
@@ -2439,7 +2438,7 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   since the fix is in codegen's try lowering rather than in the loop stack.
 
 - **DF-218s (DEINIT-ORDER, PRE-EXISTING; filed Aug 21 by the 218b spec
-  probes) — HALF CLOSED Aug 21 (218b stage C), the rest NEEDS A RULING.** A
+  probes) — CLOSED Aug 21 (branch `df-218s-218w`, stage 1).** A
   driven body's done path runs `release()` (reverse declaration order over
   frame fields) BEFORE the lowered return's cleanup of surviving real locals,
   inverting the sync twin's scope-LIFO order. Stage C landed E-RET — the open
@@ -2464,6 +2463,25 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   for being wrong under an enclosing non-spanning loop. Frame-size cost
   accepted on the tag-cost precedent; bench timing is the watch item.
   SCHEDULED with DF-218w (one dispatch — see [QUEUE]).
+  **LANDED as ruled.** `_collect_frame_locals` gained the second residency
+  reason, scoped three ways: OWNING only (`_type_owns`, which reads the KIND —
+  `_enc_owns`'s encoding answer calls an `UnsafePointer` owning, and forcing
+  one resident made `net_cancel_parked_mt`'s spawned frame non-`Send`),
+  RETURN-CONTAINING blocks only, and bodies that SUSPEND only (a spawn root
+  with no suspension has no frame-resident scope for the inversion to need).
+  `_lower_block_in_place` became a SCOPE with it — a forced field can sit in a
+  block the CFG walk never splits, so the scope stack follows the in-place
+  descent and E-RET sees the same stack a split block gives it; E-FALL closes
+  it on the ordinary path. PIN FLIPPED, extended with the obligation-4 matrix
+  (nested `if`s, a `match` arm, a `while` body, a sibling scope).
+  RESIDUES, both bounded and both intra-statement timing rather than a leak:
+  (a) a PATTERN binding live at a `return` — a non-spanning `match` arm
+  payload, a non-split `if let`/`guard let`, a non-spanning `for`'s variable —
+  is not forced, because nothing in the in-place lowering stores one into a
+  field, so a field for it would never be written; (b) a block with a VALUE
+  (`final_expr`) takes no in-place E-FALL, since a clear appended to its
+  statement list would run ahead of the expression that reads the binding.
+  Bench timing at the terminal battery: no regression outside noise.
 
 - **DF-218t (ICE, PRE-EXISTING; found Aug 21 while probing DF-218r's
   break-with-a-value edge)** — a VALUE-position loop whose result type is not
@@ -2544,6 +2562,27 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   other at arm end while the frame temp holds the whole enum.
   PIN: `examples/coro_discarded_match_payload_released_at_extraction.saw`
   (XFAIL) + two `tools/corodiff_known.txt` rows re-filed from DF-217p's block
+
+- **DF-218x (SYNC LEAK, PRE-EXISTING; found Aug 21 by DF-218s's
+  obligation-4 sweep)** — an `if let` binding is NOT released when the
+  then-branch leaves by `return`, `break` or `continue`. Probe
+  (`.build/scratch/p218s_iflet.saw`): `if let p = mk_opt(n) { print(...)
+  return }` prints `have p` and no `DEINIT p`; the fallthrough control and the
+  `guard let` twin both release correctly. MECHANISM: the binding is not on the
+  cleanup stack at all. `_generate_if_let_expr` gives it an ad-hoc alloca plus
+  a drop flag and drops it INLINE at the end of the then-branch, behind
+  `if owns_binding and not self.builder.block.is_terminated`
+  (codegen/conditionals.py:324) — whose comment reads "return/break cleaned all
+  scopes", which is FALSE for this binding precisely because it is registered
+  in no scope. So every terminated exit skips it and no unwind can reach it.
+  The positions the mechanism reaches were probed and it is NARROW: a `match`
+  arm's payload bindings ARE registered (`_register_cleanup`, match.py:356) and
+  release correctly on `return` and on `break`, and `guard let`'s binding
+  belongs to the enclosing scope, so the `if let` then-branch is the only
+  binding held this way. The DRIVEN twin behaves identically (probed), so
+  corodiff sees no divergence and the leak is invisible to that lane.
+  NOT FIXED HERE: it is codegen's if-let lowering, the same batch as DF-218v
+  (both are cleanup gaps at a nonlocal exit). Owed a pin with the fix.
 
 - **DF-218i (BOGUS-REFUSAL, PRE-EXISTING) — rendering a PLACE is judged a
   value read, so a move-only element cannot be printed.** `print("{v[0]}")`

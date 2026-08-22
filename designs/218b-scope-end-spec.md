@@ -3,8 +3,12 @@
 **Status: RULED (user, Aug 21 2026) — ALL SIX open questions RATIFIED as
 recommended; implementation dispatched same day. IMPLEMENTED Aug 21 on branch
 `design-218-u2`, stages 0/A+B/C/D/E — with ONE stage that did not deliver its
-promised flip: see "STAGE C: the DF-218s flip is NOT reachable as specified"
-below.**
+promised flip at the time: see "STAGE C: the DF-218s flip is NOT reachable as
+specified" below. That stage's residue was RULED the same evening (OPTION 3,
+forced frame residency) and LANDED on branch `df-218s-218w`, which flipped the
+pin; stage D's `match_nobinding` residue (DF-218w) landed with it, narrowed to
+the mixed `case Two(v, _)` shape. The contract this spec states is unchanged —
+both were emission gaps under it, not amendments to it.**
 
 ## Landing note (Aug 21)
 
@@ -38,6 +42,16 @@ the report alone:
   containment fact that bounds it (a frame-resident scope is always an ANCESTOR
   of a real-local scope, so "all real locals, then all frame fields" would be
   exactly sync-LIFO if the two could be ordered that way).
+  **RESOLVED the same evening — the user ruled OPTION 3 and it landed on branch
+  `df-218s-218w`.** `_collect_frame_locals` gained a second residency reason:
+  the OWNING locals of a block that (transitively) contains a `return` are
+  frame fields, so E-RET's scope walk is the total authority and the two
+  systems no longer meet. Scoped to owning locals (by KIND, not by encoding —
+  the encoding calls an `UnsafePointer` owning, and forcing one resident made a
+  spawned frame non-`Send`), to return-containing blocks, and to bodies that
+  suspend. `_lower_block_in_place` became a scope with it, so the stack E-RET
+  walks follows the in-place descent too. Pin flipped, with the block-kind
+  matrix added.
 - **Section 2c retires three of its four cells, not four.** The merge-point
   release cleared `match_consume/in_rhs` at both context classes. The
   `match_nobinding` cells — an arm binding a payload to `_` — did not: sync

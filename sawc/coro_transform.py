@@ -592,6 +592,78 @@ def _enc_of(saw_type):
     return "opt"
 
 
+# The type kinds that carry NOTHING to release, beyond the POD set `_is_pod`
+# already names. `_enc_of` routes every one of them to the owning `opt`
+# encoding, which is the right answer for STORAGE (a drop flag costs a word and
+# the release is a no-op) and the wrong one for a residency DECISION — see
+# `_type_owns`.
+#
+#   FLOAT     — a value, like the integers `_is_pod` lists; it is out of that
+#               set only because the frame's zero-init has no float spelling.
+#   POINTER   — an `UnsafePointer<T>` is a raw address. Non-owning BY DESIGN
+#               (130): the frame never releases one, and the validity argument
+#               is the marking rule's, not a destructor's.
+#   REFERENCE — the `ref` encoding, a non-owning `UnsafeRef` handle (design 88).
+#   VOID/NEVER/MODULE/CONST_VALUE — no runtime value at all.
+_NON_OWNING_KINDS = (
+    TypeKind.FLOAT, TypeKind.POINTER, TypeKind.REFERENCE,
+    TypeKind.VOID, TypeKind.NEVER, TypeKind.MODULE, TypeKind.CONST_VALUE,
+)
+
+
+def _type_owns(saw_type):
+    """Whether a value of `saw_type` OWNS something whose RELEASE ORDER a reader
+    can observe. The residency question DF-218s asks, and deliberately NOT the
+    same question as "does its frame field get a release shape".
+
+    `_enc_owns` answers the second one, off the encoding, and is conservative on
+    purpose: everything outside `_is_pod` gets the owning `opt` encoding, so a
+    `Float` or an `UnsafePointer` field carries a drop flag whose release is a
+    no-op. Conservatism is free there and is NOT free here — forcing residency
+    on a local that owns nothing enlarges the frame for no ordering gain, and
+    (measured: `examples/net_cancel_parked_mt.saw`) can make a frame that used
+    to cross to an MT worker stop being `Send`, turning a working program into a
+    diagnostic. So this reads the KIND, refusing exactly what cannot own.
+
+    Conservative in the other direction still: a struct of two `Int`s owns
+    nothing either, but answering that needs codegen's `_needs_cleanup` and its
+    struct registry, and over-forcing a trivial struct costs frame bytes rather
+    than correctness (a trivial struct is `Send` for the same reason it is
+    trivial). A `TaskGroup` — `plain`-encoded for addressability, design 62 G1 —
+    owns through its placeholder overwrite and is on the owning side."""
+    if saw_type is None or saw_type.kind in _NON_OWNING_KINDS:
+        return False
+    return not _is_pod(saw_type)
+
+
+def _stmts_terminate(stmts):
+    """Whether a LOWERED statement list ends in a terminator — the shape
+    `_lower_block_in_place` reads to decide whether a scope-end release is
+    reachable. The transform's own done sequence ends in a `ReturnStatement`;
+    a `break`/`continue` that survived in-place lowering is codegen's."""
+    return bool(stmts) and isinstance(
+        stmts[-1], (ReturnStatement, BreakStatement, ContinueStatement))
+
+
+def _contains_return(node):
+    """Whether `node`'s subtree contains a `return` OF THIS FUNCTION.
+
+    A `ClosureExpr` body is cut off: a `return` there returns from the
+    CLOSURE, and the enclosing block's locals are not on that edge at all.
+    Every other nesting counts — a `return` inside an `if` inside a `match`
+    arm inside a loop still leaves every scope between it and the body."""
+    if node is None:
+        return False
+    if isinstance(node, ReturnStatement):
+        return True
+    if isinstance(node, ClosureExpr):
+        return False
+    for c in child_nodes(node):
+        if _contains_return(c):
+            return True
+    return False
+
+
 def _ref_ptr_type(ref_type):
     """The `UnsafePointer<T>` frame-field type for a reference `&T` / `&var T`
     (design 88). Pointer mutability mirrors the reference: a `&var T` frame field
@@ -3689,9 +3761,26 @@ class _FrameBuilder:
         suspending `match`, live across a state boundary and so become frame
         fields. Locals in scopes that do NOT span a suspension keep ordinary
         real-local codegen (they never cross a state boundary). Larger frames than
-        a true live-range analysis, correct and simple."""
+        a true live-range analysis, correct and simple.
+
+        ONE residency rule is not about crossing a state boundary at all
+        (DF-218s, ruled Aug 21): the OWNING locals of a block that
+        (transitively) contains a `return` are frame-resident too, whether or
+        not that block spans a suspension. Two release systems meet at a done
+        exit — the frame's, emitted as statements, and codegen's
+        `_cleanup_all_scopes`, which runs AT the lowered `return Poll.Done`,
+        i.e. after every statement the transform can put in front of it — so a
+        surviving real local can only be dropped AFTER the frame's fields, which
+        inverts the sync twin's scope-LIFO order. Making those locals fields
+        hands the whole ordering to ONE system, the scope walk
+        (`_scope_release_seq` at E-RET), where LIFO is what it emits. OWNING
+        only, because a trivial local's release is a no-op and its order is
+        unobservable; RETURN-CONTAINING blocks only, because a local whose scope
+        closes before every `return` is dropped by codegen at that scope's end,
+        which is already the sync point."""
         locals_ = []  # (name, SawType)
         seen = set()
+        body_spans = self._spans_suspension(self.func.body)
 
         def add(name, t, line=0, column=0):
             if t is None:
@@ -3712,13 +3801,30 @@ class _FrameBuilder:
             # its blocks spanned a suspension (which, taken together, they do:
             # the error edge is a state transition).
             scope_spans = force or self._spans_suspension(block)
+            # DF-218s: the second residency reason (see the docstring). A block
+            # that returns owes its OWNING `let`s a field so the ONE scope walk
+            # orders them. Only a `let`/destructuring `let` is reachable this
+            # way: a pattern binding (a `match` arm payload, a non-split `if
+            # let`/`guard let`, a non-spanning `for`'s variable) has no store
+            # into a field anywhere in the in-place lowering, so a field for one
+            # would never be written.
+            #
+            # `body_spans` is the gate that keeps this to the bodies where the
+            # problem EXISTS. The inversion needs two release systems at one
+            # exit, so it needs at least one frame-resident scope — and a body
+            # that suspends nowhere has none: every local is codegen's, and
+            # `release()` has only params to drop. A SPAWN ROOT with no
+            # suspension is exactly that body, and forcing residency there was
+            # measured to break one (`net_cancel_parked_mt`: an
+            # `UnsafePointer<Bool>` local made the frame non-`Send`).
+            ret_scope = body_spans and _contains_return(block)
             # The TRAILING expression is a statement position too — and since
             # DF-233a the marking above can split an `if let` that sits in one,
             # which then owes a frame field exactly as a split statement one does.
             for s in _stmt_positions(block):
-                walk_stmt(s, scope_spans, force)
+                walk_stmt(s, scope_spans, force, ret_scope)
 
-        def walk_stmt(s, scope_spans, force=False):
+        def walk_stmt(s, scope_spans, force=False, ret_scope=False):
             if isinstance(s, LetStatement):
                 # DF-206a: `let _ = expr` is a DISCARD — it consumes the value and
                 # drops it at the statement, so nothing about it crosses a state
@@ -3729,18 +3835,32 @@ class _FrameBuilder:
                 # `let _ = try! s.read()` / `let _ = h.join()` pair), and one of
                 # the same type held its value alive until the frame died instead
                 # of dropping it where it was written.
-                if scope_spans and s.name != "_":
+                if s.name != "_":
                     t = s.type_annotation or getattr(s.value, 'resolved_type', None)
-                    add(s.name, t, s.line, s.column)
+                    if scope_spans or (ret_scope and _type_owns(t)):
+                        add(s.name, t, s.line, s.column)
                 return
             if isinstance(s, DestructuringLet):
                 # `let (a, b) = expr` across a suspension (design 77 item 10):
                 # each destructured binding is frame-resident. Its type comes from
                 # the matching position of the source tuple's resolved type.
-                if scope_spans:
+                if scope_spans or ret_scope:
                     src_t = getattr(s.value, 'resolved_type', None)
-                    for name, bt in self._destructure_leaf_types(s.pattern, src_t):
-                        add(name, bt, s.line, s.column)
+                    try:
+                        leaves = self._destructure_leaf_types(s.pattern, src_t)
+                    except CoroTransformError:
+                        # A leaf with no resolved type is an error for a SPANNING
+                        # scope — the field is owed there and a silent skip would
+                        # miscompile. On the DF-218s path it is only an ordering
+                        # refinement, so a shape whose leaf types are not known
+                        # keeps ordinary real-local codegen rather than turning a
+                        # working program into a diagnostic.
+                        if scope_spans:
+                            raise
+                        leaves = []
+                    for name, bt in leaves:
+                        if scope_spans or _type_owns(bt):
+                            add(name, bt, s.line, s.column)
                 return
             ctrl = s.expression if isinstance(s, ExpressionStatement) else s
             if isinstance(ctrl, IfExpr):
@@ -7612,6 +7732,38 @@ class _FrameBuilder:
                             line=value.line, column=value.column)
 
     def _lower_block_in_place(self, block):
+        """Lower a NON-spanning block in place — and as its own SCOPE.
+
+        The scope half is DF-218s's: once a block that returns owes its owning
+        locals frame fields, those fields sit in blocks the CFG walk never
+        splits, so the scope stack has to follow the in-place descent too.
+        E-RET (`_scope_release_all`) then sees the same stack a split block
+        would have given it, and E-FALL below closes the scope on the ordinary
+        path — the sync twin's `_cleanup_scope`.
+
+        Termination is syntactic here rather than the CFG walk's block-set: the
+        lowering of a `return` ends in a `ReturnStatement`, and codegen's
+        `_generate_block` stops at the first terminated statement, so an
+        appended clear behind one is unreachable rather than ill-formed.
+
+        A block with a VALUE (`final_expr`) takes no E-FALL: its value is
+        computed after every statement, so a clear appended to the statement
+        list would run BEFORE the expression that reads the binding. Such a
+        block keeps today's timing (the release falls to `release()` at Done,
+        one position late, never a leak) — and its `return` paths are ordered
+        anyway, since E-RET walks this scope off the same stack."""
+        names = self._block_scope_names(block)
+        self._push_scope(names)
+        try:
+            self._lower_block_body_in_place(block)
+            if (names and block.final_expr is None
+                    and not _stmts_terminate(block.statements)):
+                block.statements = (block.statements
+                                    + self._scope_release_seq(names))   # E-FALL
+        finally:
+            self._pop_scope()
+
+    def _lower_block_body_in_place(self, block):
         block.statements = self._lower_stmt_list(block.statements)
         if block.final_expr is not None:
             fforgets = []
