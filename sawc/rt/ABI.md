@@ -210,6 +210,69 @@ seam: the status-carrying OS ops below call it IMMEDIATELY after a failing sysca
 (nothing runs between, so errno is never clobbered), and std NEVER calls it after
 a bare libc op. Not an errno accessor across the std boundary — std sees tags.
 
+It also STAMPS the raw code the next seam hands back. That stamp is part of this
+seam's contract, not an implementation detail: a runtime whose classifier
+forgets it answers a stale number.
+
+### `__saw_rt_last_raw_code() -> word`
+The RAW platform error code behind this thread's most recent
+`__saw_rt_last_syserror()` classification — the hosted errno itself, not a tag.
+`0` where the platform has none, and `0` on a thread that has classified
+nothing.
+
+**This AMENDS the "Pin deviation" paragraph above; it does not overturn it**
+(design 234 §2, user ruling Aug 22). Both of that paragraph's grounds survive
+intact:
+
+- *The status word still carries only the tag.* A failing op still returns one
+  negated word holding a tag, so the `(status, value)` correspondence with the
+  SOS syscall ABI — the reason the encoding is what it is — is untouched. This
+  is a SEPARATE symbol, which is why the change is additive in exactly the sense
+  the tag-table widening above is: no signature moves, so `runtime_abi.py`'s
+  arity/width check and `make abidoc`'s symbol-set check see what they saw
+  before.
+- *std still never reads errno after the fact.* The deleted v1
+  `__saw_rt_errno` read the LIVE errno global whenever std asked, so anything
+  running between the failing op and the read clobbered it (v1's `tcp_listen`
+  called `close()` in that window). Here the value is captured INSIDE the
+  runtime, in the same statement that classifies, and this seam only hands back
+  what was already frozen.
+
+What changed is the need. Classification is lossy BY DESIGN — EACCES and EPERM
+are both `PermissionDenied` — and design 234 §2 makes `IoError` carry a portable
+kind *and* the platform's raw number so a log can name the real one. Design 117
+bought diagnostic richness by growing the tag table instead; the tag table is
+still the portable half and still grows the same way (DF-215a).
+
+**Per THREAD.** errno is per-thread, MT TaskGroups classify on several threads at
+once, and a process-global slot would hand one thread's refusal to another. Both
+hosted bodies use pthread thread-specific data, which is what
+`rt/common/op_budget.saw` uses for the same reason (Saw has no thread-local
+storage).
+
+**FRESHNESS — the caller's obligation.** The value is valid immediately after a
+failing op returned `-tag`, on the SAME thread. A tag the runtime SYNTHESIZES
+without consulting errno leaves the slot alone — `-Invalid` for an unrecognized
+open mode, `-NotFound` for a name the resolver answered with no IPv4 address —
+so a caller pairing one of those with a raw code must supply `0` itself. std
+does: `IoError.of(syscall:tag:)` reads this seam and is used only where a
+runtime op just classified, while the synthesized paths build their error
+through `IoError.of(syscall:kind:)`, whose `code` is `0`. The blocking
+`__saw_rt_resolve_ipv4` is on the synthesized side for a second reason: it runs
+on an offload worker thread (design 183), so its classification is not on the
+calling thread's slot at all.
+
+**SOS / freestanding.** A SOS or kernel runtime answers its NATIVE STATUS WORD,
+which on SOS numerically COINCIDES with the SysError tag — the SOS syscall ABI's
+status half is that same tag space (sos/spec.md §5.7). That coincidence is
+documented rather than engineered around: SOS stores nothing extra, and `code`
+reads back as the number `kind` was built from. A freestanding runtime with no
+status of its own answers `0`, which §2 sanctions in as many words ("`0` where
+the platform has none"). `sos/rt/common` implements neither this seam nor
+`__saw_rt_last_syserror` today — it exports four seams and no OS-op family — so
+there is nothing there to stamp yet; the paragraph above is the answer for when
+one lands.
+
 ## Sockets — OS-divergent helpers
 
 ### `__saw_rt_set_nonblocking(fd: word) -> word  (0/-1)`
@@ -726,6 +789,7 @@ Changes since v2, additive but for the one removal noted:
 | 182    | `__saw_rt_proc_{exit_fd,wait_fd,try_wait,release}` — the zero-thread child wait |
 | 187    | `__saw_rt_proc_wait` **REMOVED**: its last caller (`Command.output`) went cooperative, so the v1 blocking reap has none. A runtime that still exports it is harmless; one that does not is complete |
 | DF-215a | SysError tags 17-21 (`HostUnreachable`/`NetUnreachable`/`TimedOut`/`HostDown`/`NetDown`) — the five off-loopback errnos the map omitted. No symbol, no signature, no renumbering; see the tag table above |
+| 234 | `__saw_rt_last_raw_code` — the raw platform code beside the tag, stamped by `__saw_rt_last_syserror` and read by std's `IoError`. Additive: one new symbol, no existing signature moved. AMENDS the "Pin deviation" paragraph without overturning either of its grounds; see that seam's entry |
 
 ## The compiler → executor entry-point boundary (design 118, stage 1: map + carve)
 

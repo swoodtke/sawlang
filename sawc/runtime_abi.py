@@ -33,6 +33,12 @@ RUNTIME_ABI_SYMBOLS = frozenset({
     # Errors (design 117: the errno accessors are gone; the host errno ->
     # portable SysError tag mapping lives behind this one seam)
     "__saw_rt_last_syserror",
+    # design 234 §2 (an AMENDMENT to 117's pin, not an overturn — see ABI.md):
+    # the raw platform code the classification above folded away, captured
+    # beside the tag at the instant it is produced, per thread. The status word
+    # still carries only the tag, and std still never reads errno after the
+    # fact — this hands back what the runtime already froze.
+    "__saw_rt_last_raw_code",
     # Sockets
     "__saw_rt_set_nonblocking",
     "__saw_rt_sin_set_family",

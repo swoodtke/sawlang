@@ -8,10 +8,24 @@
 // sawc/rt/common/os_ops.saw call it IMMEDIATELY after a failing syscall (nothing
 // runs between, so errno is never clobbered), so std never sees a raw errno.
 // `sin_set_family` still stamps the OS-divergent sockaddr_in prefix.
+//
+// design 234 §2 adds ONE seam beside it — `__saw_rt_last_raw_code()`, the raw
+// platform number the classification below folds away. See the comment over
+// `RAW_CODE_KEY`; the same block lives in host_linux/net_os.saw.
 
 extern "C" {
     // errno lives behind __error() on macOS (returns `int*`).
     func __error() -> UnsafePointer<Int32>
+
+    // Thread-specific storage for the raw-code slot below. `pthread_key_t` is
+    // `unsigned long` on macOS — register-passed and a platform word wide — so
+    // the key is modelled as `Int` and `pthread_key_create` is handed a zeroed
+    // 8-byte slot to write its bytes into. That is the modelling
+    // rt/common/op_budget.saw already uses for the per-thread op budget.
+    func pthread_key_create(key: UnsafePointer<Int8>, dtor: UnsafePointer<Int8>) -> Int32
+    func pthread_key_delete(key: Int) -> Int32
+    func pthread_getspecific(key: Int) -> Int
+    func pthread_setspecific(key: Int, value: Int) -> Int32
 }
 
 // The portable SysError tag space (ABI.md). A failing op returns the NEGATED tag.
@@ -81,11 +95,63 @@ func errno_value() unsafe -> Int {
     __error()[0] as Int
 }
 
+// design 234 §2: the RAW platform code behind the classification below, kept
+// beside the tag.
+//
+// `rt_last_syserror` folds a whole errno family into one portable tag (EACCES
+// and EPERM are both `PermissionDenied`), which throws away the number a log
+// wants. The tag still travels in the op's single negated-word return — design
+// 117's encoding is untouched — and this slot carries the raw number alongside
+// it, stamped in the same statement that classifies. It is NOT the deleted
+// `__saw_rt_errno` accessor returning: that one read the live errno global
+// whenever std asked, so anything between the failing syscall and the read
+// clobbered it (the v1 `tcp_listen` bug — a `close()` between a failed `bind()`
+// and the errno read). Nothing can clobber this one; it is frozen at
+// classification time and only handed back afterwards.
+//
+// PER-THREAD, because errno is: a process-global slot would hand one thread's
+// refusal to another, and MT TaskGroups classify on several threads at once.
+// The storage is pthread thread-specific data for the reason op_budget.saw
+// gives — Saw has no thread-local storage — and both encodings are biased by
+// one so the all-zero initial state reads as "nothing captured yet".
+static RAW_CODE_KEY: Atomic<Int> = Atomic(0)
+
+// The pthread key, created once and published by CAS (op_budget.saw's pattern):
+// create, try to publish, and if somebody else won, delete the spare and use
+// theirs. Holds `key + 1`, so a genuine key of 0 is not read as "no key yet".
+func raw_code_key() unsafe -> Int {
+    let cur = RAW_CODE_KEY.load()
+    if cur != 0 {
+        return cur - 1
+    }
+    var fresh: Int = 0
+    pthread_key_create((&fresh) as UnsafePointer<Int8>, 0 as UnsafePointer<Int8>)
+    if RAW_CODE_KEY.compare_exchange(0, fresh + 1) {
+        return fresh
+    }
+    pthread_key_delete(fresh)
+    RAW_CODE_KEY.load() - 1
+}
+
+func raw_code_store(value: Int) unsafe {
+    pthread_setspecific(raw_code_key(), value + 1)
+}
+
+@export("__saw_rt_last_raw_code")
+func rt_last_raw_code() unsafe -> Int {
+    let raw = pthread_getspecific(raw_code_key())
+    if raw == 0 {
+        return 0
+    }
+    raw - 1
+}
+
 // design 117: map the current errno to a portable SysError tag. Called by the
 // common status-carrying OS ops right after a failing syscall.
 @export("__saw_rt_last_syserror")
 func rt_last_syserror() -> Int {
     let e = errno_value()
+    raw_code_store(e)
     let tag = if e == EAGAIN {
         SysError.WouldBlock
     } else if e == EINPROGRESS || e == EALREADY {
