@@ -62,6 +62,26 @@ class _SpawnBorrow(NamedTuple):
         return "&var" if self.mutable else "&"
 
 
+def _moved_names(node, out=None):
+    """Every name a `move` under `node` consumes.
+
+    The one thing a BORROW capture cannot serve (DF-218h): `move` out of a
+    reference is not a transfer the language has, and every capture spelling
+    that lifts the refusal double-frees, so a moved name must stay a value
+    capture and keep the copy-tier refusal it already had. Used by
+    `_synthesize_place_window_captures`.
+    """
+    if out is None:
+        out = set()
+    if node is None:
+        return out
+    if isinstance(node, MoveExpr) and getattr(node, 'variable', None):
+        out.add(node.variable)
+    for child in child_nodes(node):
+        _moved_names(child, out)
+    return out
+
+
 class ExpressionsMixin:
     """Mixin providing expression checking methods for TypeChecker."""
 
@@ -11474,17 +11494,30 @@ class ExpressionsMixin:
         closure scope, so the body's move state, its mutability and design 132's
         capture-write question are answered where `[&var x]` answers them.
 
-        Two names are deliberately left as plain captures:
+        A binding that is ALREADY a reference — a `&var T` parameter forwarded
+        into the window, or an ENCLOSING WINDOW's own parameter where two
+        windows nest — takes its mode from the reference rather than from the
+        binding's mutability, and it is not exempt: a plain capture there was
+        DF-248b's silent lost write, because codegen binds a reference closure
+        parameter to the POINTER with its INNER type recorded beside it, so the
+        capture walk loaded the value and put a copy in the env.
+
+        TWO names are deliberately left plain captures, and each keeps a
+        refusal exactly where it was:
 
         * the receiver's own ROOT (`place_window_root`). Borrowing it would put
           a second access to the root INSIDE the open window, which is what
           design 188 refuses in one call — and `v[0].n = v.pop()!` is exactly
-          the invalidation that rule exists for. Its refusal stays where it is
-          (DF-248a records the bogus half).
-        * a REFERENCE-typed binding (a `&var T` parameter forwarded into the
-          window). Its plain capture already copies the POINTER, so it is a
-          borrow already; re-borrowing it would take the address of the
-          parameter slot instead.
+          the invalidation that rule exists for. (DF-248a records the bogus
+          half: a root read that invalidates nothing is refused too.)
+        * a name the body MOVES (`v.push(move h)` through a place — DF-218h).
+          `move` out of a borrow capture is not a transfer the language has:
+          the enclosing frame still holds the drop flag, and every capture
+          spelling that lifts the refusal DOUBLE-FREES instead (measured, both
+          `[move h]` and `[&var h]`, and a hand-written closure has the same
+          hole). The plain capture's copy-tier refusal is the protective
+          answer until the closure move-out design lands, so this walk must not
+          quietly turn it into a double free.
 
         `self` is never listed: design 216 already captures a receiver by
         borrow, at the mode the receiver itself carries.
@@ -11495,18 +11528,23 @@ class ExpressionsMixin:
             return          # already synthesized (the second check re-sees them)
         from ast_nodes import CaptureSpec
         root = getattr(expr, 'place_window_root', None)
+        moved = _moved_names(expr.body)
         specs = []
         for name in self._analyze_closure_captures(expr.body, outer_scope):
-            if name == 'self' or name == root:
+            if name == 'self' or name == root or name in moved:
                 continue
             info = outer_scope.lookup(name)
             if info is None or info.type is None:
                 continue
             if info.type.kind == TypeKind.REFERENCE:
-                continue
-            specs.append(CaptureSpec(
-                name=name, mode='ref_var' if info.mutable else 'ref',
-                line=expr.line, column=expr.column))
+                # An ENCLOSING WINDOW's binding (nested windows in one call), or
+                # a `&var T` parameter forwarded in. The borrow it already is,
+                # spelled — see DF-248b for why the plain capture was not one.
+                mode = 'ref_var' if info.type.reference_mutable else 'ref'
+            else:
+                mode = 'ref_var' if info.mutable else 'ref'
+            specs.append(CaptureSpec(name=name, mode=mode,
+                                     line=expr.line, column=expr.column))
         expr.capture_specs = specs
 
     def _check_closure(self, expr: ClosureExpr, expected_type: Optional[SawType] = None,

@@ -1,0 +1,65 @@
+// A closure nested inside another closure captures the outer one's REFERENCE
+// parameter BY VALUE, so a write through it is silently lost.
+//
+// `{ &var c in inner({ bump(&var c) }) }` — the inner closure captures `c`,
+// which is a `&var Int` binding. Codegen stores a reference closure parameter as
+// the POINTER itself with its INNER type recorded beside it (that is what makes
+// `{ e in e }` yield a `T`), so the capture walk sees an `Int`-typed name, loads
+// the VALUE through the pointer and puts a copy in the env. The write lands in
+// the copy; the referent never moves.
+//
+// Two things hide it. The closure's own reads see the copy AFTER the write, so
+// the value it hands back is right and only the ROOT is stale — which is why the
+// oracle here is the root, not the result. And design 132's capture-write rule
+// catches the ASSIGNMENT spelling (`c = c + 41`) at compile time, so only the
+// ARGUMENT spelling gets through.
+//
+// The PLACE-WINDOW face of this is fixed: a window body's captures are borrows
+// (DF-169h), and DF-248b's own fix made that reach a window closure's parameter
+// too, so nested windows in one call (`setboth(&var a.at().n, &var b.at().n)`)
+// land both writes. What is left is the hand-written face, and it is left
+// because the checker cannot see it: a closure's `&var c` parameter is bound
+// under its INNER type with a mutability flag, so `outer_scope.lookup("c")` is
+// indistinguishable from an ordinary `var` local. Marking a binding as a borrow
+// is what the fix needs, and `VariableInfo` is shared by every scope in the
+// compiler.
+//
+// ORACLE: the root the reference points at, after the call.
+// XFAIL: DF-248b a nested closure captures an enclosing closure's reference
+// parameter by value, so a write through it is lost
+// EXPECT: success
+// EXPECT-OUTPUT:
+// explicit borrow capture: root 42
+// argument face: root 42
+// shared read: root 1 saw 1
+
+func outer(body: (&var Int) sync -> Int) -> Int {
+    var n = 1
+    let _ = body(&var n)
+    return n
+}
+
+func read_outer(body: (&Int) sync -> Int) -> Int {
+    let n = 1
+    return body(&n)
+}
+
+func inner(body: () sync -> Int) -> Int { body() }
+func bump(x: &var Int) { x = x + 41 }
+func peek(x: &Int) -> Int { x }
+
+func main() {
+    // The control: the borrow capture written out. This one is correct today.
+    print("explicit borrow capture: root {}",
+          outer({ &var c in inner({ [&var c] in c = c + 41  c }) }))
+
+    // The ARGUMENT spelling of the same write — no assignment, so design 132's
+    // capture-write rule never asks, and the write is lost.
+    print("argument face: root {}",
+          outer({ &var c in inner({ bump(&var c)  c }) }))
+
+    // A shared reference parameter reads through the copy, which is right here
+    // only because nothing wrote to it.
+    print("shared read: root 1 saw {}",
+          read_outer({ &c in inner({ peek(&c) }) }))
+}

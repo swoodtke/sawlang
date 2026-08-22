@@ -1,0 +1,52 @@
+// NESTED place windows in one call, on two different roots: BOTH writes land.
+//
+// `setboth(&var a.at().n, &var b.at().n)` is design 188's accept side — two
+// windows on two roots alias nothing — and it silently lost both writes
+// (DF-248b). The window lowering nests, so the inner window's body is a closure
+// inside the outer window's closure, and it captured the outer window's own
+// PARAMETER. Codegen stores a reference closure parameter as the pointer itself
+// with its INNER type beside it, so the capture walk saw a `Cell`-typed name,
+// loaded the value through the pointer and put a copy in the env: `a` never
+// moved. DF-169h's borrow captures fixed `b` (the outer window's own body
+// reaches `b` by borrow now) and left `a`, which is what said the remaining
+// half was the window's PARAMETER rather than an enclosing local.
+//
+// The hand-written face of the same capture is still open (DF-248b, pinned by
+// `closure_nested_ref_param_capture.saw`): a closure's `&var c` parameter is
+// bound under its inner type, so the checker cannot tell it from a `var` local.
+// A window's parameter it CAN tell, because the window lowering builds it.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// two roots: a=50 b=60
+// three roots: 1 2 3
+// separate statements: c=50 d=60
+
+struct Cell { n: Int }
+struct Plain { c: Cell }
+extension Plain {
+    func at(&self) borrows -> Cell { lend self.c }
+}
+
+func setboth(x: &var Int, y: &var Int) { x = 50  y = 60 }
+func setthree(x: &var Int, y: &var Int, z: &var Int) { x = 1  y = 2  z = 3 }
+
+func main() {
+    var a = Plain(c: Cell(n: 0))
+    var b = Plain(c: Cell(n: 0))
+    setboth(&var a.at().n, &var b.at().n)
+    print("two roots: a={a.c.n} b={b.c.n}")
+
+    // Three deep: every window's parameter is captured by the ones inside it.
+    var p = Plain(c: Cell(n: 0))
+    var q = Plain(c: Cell(n: 0))
+    var r = Plain(c: Cell(n: 0))
+    setthree(&var p.at().n, &var q.at().n, &var r.at().n)
+    print("three roots: {p.c.n} {q.c.n} {r.c.n}")
+
+    // The control: the same two writes as separate statements, one window each.
+    var c = Plain(c: Cell(n: 0))
+    var d = Plain(c: Cell(n: 0))
+    c.at().n = 50
+    d.at().n = 60
+    print("separate statements: c={c.c.n} d={d.c.n}")
+}
