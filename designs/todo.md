@@ -31,10 +31,7 @@ is scheduled and in what order is the whole of what they say.
 
 ## [QUEUE] — scheduled, in order (user-approved)
 
-- ~~DF-218s remainder + DF-218w~~ — LANDED Aug 21 on branch `df-218s-218w`, two commits. DF-218s CLOSED (forced frame residency, pin flipped with its block-kind matrix); DF-218w NARROWED to the mixed `case Both(v, _)` shape, both ledger rows retired, three pins now (one flipped, two XFAIL). Two findings filed: DF-218x (sync `if let` leak on a `return`/`break` out of the then-branch) and DF-218y (a multi-field all-`_` payload's field order, and sync is the suspect half). Entries below
-- ~~Small-fix batch~~ — LANDED Aug 21-22 (branch `small-fix-batch`, five fixes + a docs commit): DF-216c (+DF-217d), DF-216h, DF-219c, DF-238a (a fourth face found and fixed with it), DF-218v all CLOSED in place. Three findings filed: DF-242a (driven try/catch teardown timing), DF-242b (cross-module overload set bound bare as one overload), DF-242c (suffixed literal does not disambiguate an Int-vs-narrow overload set). Conformance K74/K75 (renumbered from K72/K73 at integration). xfails 13 -> 10
-- Design 234 — the fallibility flip (designs/234-fallibility-flip.md) — UNITS 0-1 LANDED Aug 22 (routing clause + DF-232h/DF-213b; entry below). UNIT 2 RULED Aug 22 (user): OPTION 1, the additive seam `__saw_rt_last_raw_code() -> word`, an AMENDMENT to design 117's ABI pin (both its grounds survive: the status word still carries only the tag, and std never reads errno after the fact); SOS answers its native status word, the tag coincidence documented. The two unhomed panic sites also RULED: both KEEP their panics as documented boundaries (the erased-error boxing panic joins §5's family — an error path cannot report an alloc error without allocating; Data.[]'s COW-separation panic stays under the accessor rule, the Result-returning preflight named as the fallible spelling). Units 2-5 DISPATCHED Aug 22 (branch `design-234-b`)
-- sos riders batch — LANDED Aug 21 (branch sos-riders): the remainder both flipped — `clock_get` takes `type:` at its two declarations, the kernel decode and the three labeled call sites, and all 46 rights-enum cases in `sos/kernel/abi/` read as shifts with the values probe-verified byte-identical before and after (ordinals left decimal; the `>= 256` static_assert threshold is not a case and stayed, reported). The kcore re-narrowing LANDED Aug 20; the member audit RAN Aug 20 and its narrowing unit LANDED Aug 20 (84 sites: 78 `public(package)`, 6 private, 2 consumed; the audit's file-local split was inverted — DF-232q); see the re-narrowing rider section
+- Design 234 — the fallibility flip (designs/234-fallibility-flip.md; unit-2 rulings Aug 22 in the brief + entry below) — units 0-2, 4, 5 and the channel sub-unit LANDED Aug 22 (`design-234`, `design-234-b`); DQ-230b executed. UNIT 3's MAIN FLIP is the REMAINDER, stopped on three pending rulings: DF-245a sequencing (lead recommends fix-fallible-init-first, dissolving the 194-site factory migration), DF-245b (owed regardless), and the 1434-site consumer-migration protocol (proposed: `try!` wholesale in examples/tests, judgment in std/tools). Re-queues behind those rulings
 - Design 242 — the Thread/Task split (designs/242-thread-task-split.md; AUTHORED + fully RULED Aug 22, nine rulings in the header, none open) — `Thread.spawn -> Thread<T>` / `Task.spawn -> Task<T>` into the background singleton, must-consume handles (join/detach/cancel per path), group.spawn exempt, sync-enforced blocking-permitted thread bodies. AFTER the in-flight Aug-22 group (234 remainder + df-218xy), BEFORE 238
 - Design 238 — the sawos split (designs/238-sawos-split.md; four rulings Aug 19, D-b1/b2/b3 open) — BEFORE the M3 ladder; UNITS 0-1 LANDED Aug 21 (the oracle + the freestanding suite), units 2-7 open and user-reserved
 - M3 ladder — designs/232-sos-m3-sketch.md: unit 1.5 interruptibility, 2 CreateProcess, 2.75 handle lifecycle, 3 give, 4 Memory/IoMemory, 5 quotas, 5.5 death notifications, 6 money shot — runs IN sawos, after design 238
@@ -114,35 +111,6 @@ Ok payload is an optional. A fix propagates the peeled Ok payload into the
 tail ahead of the body check, at both tail sites. Low value on its own —
 `return None` is the one-keyword workaround, and the shape (an absent value
 that is also fallible) is rare. [232, 234]
-
-## ~~DF-244a — a propagating `try` inside a `return` (or a block TAIL) in a
-## SUSPENDING body never reaches the frame's error edge~~ — **FIXED Aug 22**
-## on branch `design-234`, found while probing design 234 unit 1's position
-## matrix
-
-MECHANISM (obligation 4, and it is one site, not a family of positions):
-`_lower_stmt` dispatches a propagating `try` to design 196 unit 3's error
-landing BELOW the control-flow ladder — and the `ReturnStatement` branch sits
-ABOVE it. So a `return` carrying a propagating `try` was lowered IN PLACE with
-the `try` still inside `resume() -> Poll`, and the exact failure the landing
-exists to prevent came back: the typechecker's second pass read the propagation
-target off `Poll` (``cannot propagate errors from a function returning `Poll` ``)
-or codegen reached `_create_result_err_for_return` inside `resume`
-(``Cannot create Result.Err outside Result-returning function``, an ICE).
-SWEEP: 26 rows × {sync, suspending}, compiled AND run. Five expression shapes
-failed under `return` — bare, argument, receiver, binary operand, `match`
-scrutinee, `??` RHS (two of them the ICE) — and every one of them PASSED when
-bound to a `let` first, which is what made it look like a rule about expression
-positions rather than the one statement kind it is. A block TAIL is the same
-site (tail normalization turns it into a return), and it needed the second half
-of the fix: `_norm_block` left a NON-spanning tail in `final_expr`, where
-`_done` lowers it with the `try` inside. The landing dispatch stays BELOW the
-ladder — a `while` whose body holds a propagating `try` is a loop to split, not
-a statement to wrap — so the `return` branch DEFERS to it rather than the
-dispatch moving up. Regression test
-`examples/suspending_return_propagates_a_try.saw` (9 rows, Ok and Err path
-each). Matters to design 234 because the flip multiplies `return try f()`.
-[196, 234]
 
 ## DF-245a — an `init`'s DECLARED return type is never checked against the
 ## receiver, so a wrong one is an ICE (found while probing design 234 unit 3's
@@ -543,138 +511,6 @@ at all), and worse in one way: a missing file is visibly missing, while a wrong
 one looks authoritative. Repro is cheap and stands on its own — any type error
 in a `--module-path` module, reached from an entry file shorter than the
 dependency. [232g, 140]
-
-## DF-243c — `SegFlag.Device`'s docstring says "Bit 8 rather than 3" and the
-## value IS bit 3 (filed Aug 21, same session; surfaced by the shift
-## respelling — NOT introduced by it)
-
-`sos/imgformat/src/lib.saw`'s `SegFlag` docstring closes with: "Bit 8 rather
-than 3, because 1/2/4 are a RISC-V PMP config's low three bits … a fourth bit
-in that field would be the PMP `A` field's low bit." The case is `Device = 8`,
-which IS the fourth bit — bit index 3 — and riscv32's `PMP_A_TOR` is `0x8`, the
-very value the sentence warns about. The prose describes a collision it says
-was avoided and the value walks straight into it. The decimal `8` hid this;
-`1 << 3` puts the bit index in the reader's eye, which is the respelling
-earning its keep.
-
-NOT LIVE, and that is why it is a finding rather than a fix: riscv32's
-`prot_region` masks with `PMP_PERM_MASK = 0x7` before staging a cfg byte, so
-the Device bit never reaches the A field; arm64 names `SegFlag.Write`/`Execute`
-explicitly and never installs the mask raw; Blade emits through named cases on
-the other side. Every consumer is correct today.
-
-WHAT IT NEEDS IS A RULING, not an edit — which half was meant. Either the value
-should move (a WIRE-FORMAT change: `SosimgSeg.flags` is `UInt8`, so "bit 8" is
-not even representable, and any move is a version bump touching both emitters
-and both loaders), or the sentence should say what the code actually does and
-why it is safe (the mask is the real reason, and it is not mentioned where the
-flag is declared). Left exactly as found; the value is unchanged and
-probe-verified. [140, 178]
-
-## DF-238a — a module-QUALIFIED free-function call does not carry its
-## parameter's fixed-width type into a literal argument (filed Aug 21, design
-## 238 unit 1; found writing the freestanding suite's cross-target rows)
-
-`m.f(300)` at a `func f(b: UInt8)` COMPILES and the callee receives 44. The
-bare twin `f(300)` under `import m.{f}` is the clean ``integer literal 300 does
-not fit in `UInt8` `` it should be, so the literal is not adopting the
-parameter's width through the qualifier — it stays at platform `Int` and is
-truncated at the call with nothing said. Hosted, running evidence: a program
-printing `qualified: 44`.
-
-SECOND FACE, 32-bit targets only: a literal WIDER than the platform word has no
-platform-`Int` reading at all, so instead of truncating it falls out as an
-INTERNAL COMPILER ERROR — ``internal compiler error … (IntLiteral): integer
-literal 40029095242992 does not fit in the 32-bit platform Int of target
-'riscv32-unknown-none-elf'`` for `m.take_wide(0x2468_0000_ACF0)` at an `Int64`
-parameter. Same missing expectation, different fallout per target, which is why
-this surfaced in the freestanding suite and not in the compiler suite.
-
-MECHANISM (obligation 4): the qualified free-function call path resolves the
-callee but does not thread its signature into argument checking, so the
-expected-type propagation every other call shape performs simply does not run.
-
-WHY IT IS SILENT RATHER THAN AN ERROR, and this is a COMPOSITION with a finding
-already on this tracker: the literal that never adopted stays a platform `Int`,
-and `_types_compatible` admits a platform `Int`/`UInt` into any integer type —
-which is DF-195b, filed and pinned separately. 238a is why the literal is still
-an `Int` at the call; 195b is why an `Int` may land in a `UInt8` with nothing
-said. Fixing EITHER turns the 44 into a diagnostic; fixing 238a is the one that
-makes it the RIGHT diagnostic, at the literal and naming the range. Whoever
-takes one should read the other first.
-POSITION MATRIX, probed with compile/run evidence on both targets:
-
-| spelling | literal adopts + range-checks? |
-|---|---|
-| `import m` + `m.f(lit)` | **NO — silent truncation / ICE** |
-| `import m as mm` + `mm.f(lit)` | **NO — silent truncation** |
-| `import m.{f}` + `f(lit)` | yes |
-| `import m.*` + `f(lit)` | yes |
-| `m.T.s(lit)` qualified STATIC method | yes |
-| `m.T(field: lit)` qualified CONSTRUCTOR | yes |
-| same-module call, annotation, return, field, `static`, suffixed literal | yes |
-
-THIRD FACE, same path, found in the same session: GENERIC TYPE-ARGUMENT
-INFERENCE does not run there either. `m.over<T: Named>(&r)` at a conforming
-`Rec` is ``argument `value` expects `&T` but got `&Rec` `` — `T` was never
-solved — where the bare twin infers it and the same call with an EXPLICIT
-`<Rec>` fails identically. Inference reads the callee's signature, so this is
-one more thing the qualified path does not thread rather than a second
-mechanism, and it is why the freestanding suite's `module_compose` case reaches
-its generic bare and its non-generic calls through the qualifier.
-
-So the hole is the qualified FREE-FUNCTION path alone; the two qualified MEMBER
-paths beside it are correct, which is where a fix should look for the
-propagation it is missing. Pinned XFAIL:
-`examples/qualified_call_literal_adopts_parameter_width.saw` (+
-`examples/modules/qualcall238a/`), whose two controls are the qualified static
-method and the qualified constructor — so a fix cannot pass by breaking them.
-The freestanding suite's cases reach `fscore` through `import fscore.*` rather
-than the qualifier for this reason, stated at the runner's case table. [238,
-185, 235, 150]
-
-ELEVATED at the 205 integration (Aug 21, lead): design 205 closed the DF-195b
-permission that had been silently absorbing this gap, so the un-adopted `Int`
-at a fixed-width qualified call is now a REFUSAL of a perfectly ordinary bare
-literal — `fsrt.stop(0)` broke every freestanding case at the merge (the 205
-sweep could not see code that landed in parallel). Migrated at integration:
-`tests/freestanding/core/src/lib.saw` spells `0u32` with a comment naming this
-finding; the fix un-suffixes it. A bare literal at ANY qualified free-function
-call with a fixed-width parameter now refuses, so this gap is user-visible on
-the ordinary path and should be scheduled accordingly.
-
-**STATUS: CLOSED Aug 21 (small-fix batch).** `_check_module_function_call` now
-threads the RESOLVED callee's signature exactly as the bare path does, in the
-bare path's own order: solve/verify the type arguments (design 93/105
-inference, `_check_type_param_bounds` for the bounds and design 219's
-discharge, `_effect_record_poly_call` for the deferred effect edge), substitute
-into the parameter and return types, admit the design-53 arity RANGE, check
-design 108's omitted generic defaults, then per argument
-`_apply_literal_expected_type` before `_check_expression`, plus the existential
-coercion arm. Codegen's `_generate_module_function_call` gained the two things
-that follow: `_instantiate_generic_function` for a generic callee (the template
-is registered under the same key the bare path uses) and `_fill_func_defaults`
-for an omitted trailing default.
-A FOURTH FACE, found by this fix's own probe and the same mechanism rather than
-a new one: a DEFAULTED parameter could not be omitted at all through a
-qualifier (``function `with_default` takes 2 argument(s), but 1 were given``) —
-the arity test compared against the full parameter list and codegen filled no
-default. Recorded here rather than filed separately, per the entry's own
-mechanism statement.
-PIN FLIPPED: `examples/qualified_call_literal_adopts_parameter_width.saw`, with
-its two controls intact. COMPANION:
-`examples/qualified_call_threads_the_callee_signature.saw` (eight rows — width
-adoption, a defaulted parameter omitted and supplied, inference at a bounded
-parameter, at a plain one and across two, an explicit type-argument list, and
-optional auto-wrap), over an extended `examples/modules/qualcall238a/`.
-The SECOND face is 32-bit-only and cannot live in `examples/`, so it is
-asserted in the freestanding suite: `module_compose` passes a wide literal
-through the qualifier at `check_wide`'s `Int64` (the exact ICE shape) and a
-bare literal through it at a new `fscore.widen_byte`'s `UInt8`. MIGRATION
-REVERSED: `tests/freestanding/core/src/lib.saw` spells `fsrt.stop(0)` again and
-the runner's case-table note now records the qualifier as a free choice.
-DF-239b was explicitly out of scope and is untouched. Gated suite + freestanding
-both arches.
 
 ## DF-242b — a cross-module OVERLOAD SET is bound BARE as ONE overload (filed
 ## Aug 21, probing DF-238a's fix)
