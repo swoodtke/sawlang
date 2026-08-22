@@ -281,12 +281,10 @@ public func to_cbor(lock: &LockData) -> Result<Data, EncodeError> {
     try enc.begin_array(lock.len())
     var i = 0
     while i < lock.len() {
-        // Read the entry out before serializing it. Calling a method on the
-        // PLACE would put `enc` inside the lowered window closure, which
-        // refuses to capture a NoCopy value (DF-169h); a `LockEntry` is five
-        // Strings, so the read is five retains.
-        let entry = lock.entries[i]
-        try entry.serialize(to: &var enc)
+        // The entry is serialized where it sits: a window body borrows the
+        // enclosing scope, so `enc` is reached rather than copied. Reading the
+        // entry out first was five retains per record (DF-169h's workaround).
+        try lock.entries[i].serialize(to: &var enc)
         i = i + 1
     }
     return enc.finish()
