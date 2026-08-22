@@ -1548,8 +1548,13 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   Nothing rejects the call today (DF-181c).
 - **A CHANNEL WAIT IS A PARK, AND CHANNELS CLOSE EXPLICITLY (design 230).**
   `receive() -> Result<T, ChannelError>`, `send`/`close ->
-  Result<Void, ChannelError>`, `enum ChannelError { case Closed, case Cancelled }`
-  (a receive TIMEOUT is the reserved next case). The park is the mechanical half:
+  Result<Void, ChannelError>`, `enum ChannelError { case Closed, case Cancelled,
+  case Alloc(e: AllocError) }` (a receive TIMEOUT is the reserved next case).
+  `Alloc` arrived with design 234 §1 and CARRIES the leaf error rather than
+  restating its vocabulary — it renders through it (`the channel could not
+  allocate a queue node: allocation of 64 bytes (align 8) failed`), and adding a
+  case makes an exhaustive `match` on a `ChannelError` a compile error until you
+  handle it. The park is the mechanical half:
   a waiting receiver costs 0% CPU and is woken by a send or a close ON ITS OWN
   CHANNEL — before 230 it suspended READY and a sole waiter burned 100% of a core,
   so treat a quiet channel wait as working now and SUSPECT in older builds.
@@ -1631,15 +1636,35 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   both suspend and both are drivable from a spawned worker (design 95 keys the two
   overloads' driven frames by resolved signature, so a worker may call BOTH back
   to back). `IoError: Error` — interpolate it (`"{e}"`) for the whole story:
-  `io error: connect failed (host unreachable)`. It carries the failing op's name
-  plus a PORTABLE TAG, one small named set each host runtime maps its own errnos
-  onto, so a failure reads the same everywhere. `e.code()` is that tag and is
-  **NOT an OS errno** (tag 16 is the catch-all `Other`, errno 16 is `EBUSY`); it
-  was spelled `errno()` until DF-215a, where the difference bit. The raw platform
-  number is not carried across the seam at all, by design. The five off-loopback
-  causes — host/network unreachable, timed out, host/network down — were unmapped
-  until Aug 15, so a pre-fix build says `(other error)` for EVERY remote dial
-  failure.
+  `io error: connect failed (host unreachable)`. **It carries the failing op's
+  name, a PORTABLE KIND and the platform's RAW CODE (design 234 §2), and the two
+  halves answer different questions.** `e.kind()` is an `IoErrorKind` (`import
+  std.net.{IoErrorKind}`) — a curated portable set (`NotFound`,
+  `PermissionDenied`, `ConnectionRefused`, `TimedOut`, `Interrupted`, …) ending
+  in `Unknown` — and it is the branchable half:
+  ```saw
+  match e.kind() {
+      case NotFound -> create_it(),
+      case PermissionDenied -> give_up(),
+      case _ -> retry_later(e.code())        // log the number, don't branch on it
+  }
+  ```
+  Classification is DIAGNOSTIC, not contractual: it is lossy on purpose (EACCES
+  and EPERM both land on `PermissionDenied`), so treat `Unknown` as an opaque
+  failure rather than an errno to be worked out. `e.code()` is that number — an
+  `Int32`, the platform's OWN (`ECONNREFUSED` is 61 on macOS and 111 on Linux),
+  `0` where the platform has none, which includes a failure std raised itself
+  (a park cut short by cancellation). Only `kind()` reaches the rendered text,
+  which is what makes `"{e}"` read the same on every host. Growth is loud:
+  promoting a code out of `Unknown` into a new kind breaks an exhaustive match
+  at compile time rather than silently rerouting it. Treat all of this as
+  working now and SUSPECT in older builds: `e.code()` returned the portable TAG
+  under a name that read like an errno (tag 16 was the catch-all `Other`, errno
+  16 is `EBUSY`), there was no `kind()`, and the raw platform number was
+  discarded inside the runtime with nothing able to recover it. The five
+  off-loopback causes — host/network unreachable, timed out, host/network down —
+  were unmapped until Aug 15, so a pre-fix build says `(other error)` for EVERY
+  remote dial failure.
   accept/read/read_into/write/connect all OBSERVE cooperative cancellation at their
   internal park — including a task ALREADY parked on a permanently-idle fd (design
   102 item 2): a peer's `handle.cancel()` or a `cancel_addr` write rouses the parked
@@ -2280,7 +2305,8 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
   `File`/`Directory`/`Path` (std.file/directory/path), `Data` (std.data),
   `Channel` (std.channel), `Mutex` (std.mutex), `Once` (std.once — design 186),
   `Instant` (std.time),
-  `IoError`/`TcpListener`/`TcpStream` (std.net), `Utf8Error` (std.string),
+  `IoError`/`IoErrorKind`/`TcpListener`/`TcpStream` (std.net), `Utf8Error`
+  (std.string),
   `yield_now` (std.task — design 114; the wrapper over the stdlib-internal
   cooperative-yield intrinsic) and `dump_tasks` (std.task — design 158),
   `Command` (std.process), `Env` (std.env),

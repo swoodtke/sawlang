@@ -71,17 +71,25 @@ extern "C" {
 /// `Closed` is reported by `receive` once a closed channel has been drained, and
 /// by `send` and `close` on a channel that is already closed. `Cancelled` is
 /// reported by `receive` when the task waiting was cancelled, so a consumer
-/// parked on a channel ends the same way one parked on a socket does. A timeout
-/// case is the reserved next one: a receive with a deadline is the other
-/// legitimate way one of these calls can fail to deliver, which is why the error
-/// is an enum rather than a bare `Closed` marker.
+/// parked on a channel ends the same way one parked on a socket does. `Alloc`
+/// carries the allocator's own refusal when a queue node cannot be made.
+///
+/// This is design 234 §1's compound shape: the three sources a channel op
+/// genuinely mixes, flat, with the generic one carrying the LEAF error rather
+/// than re-enumerating its vocabulary. A timeout case is the reserved next one —
+/// a receive with a deadline is the other legitimate way one of these calls can
+/// fail to deliver, which is why the error is an enum rather than a bare
+/// `Closed` marker.
 public enum ChannelError {
     /// The channel was closed with `close()`, and — for `receive` — drained.
     case Closed,
     /// The waiting task was cancelled. `receive` reports it before it looks at
     /// the queue, so a cancelled consumer stops rather than taking one more
     /// message; nothing is dequeued and the channel is untouched.
-    case Cancelled
+    case Cancelled,
+    /// The allocator refused the queue node a `send` needed, with the size and
+    /// alignment it asked for. Design 234 §1: carry the leaf, never restate it.
+    case Alloc(e: AllocError)
 }
 
 extension ChannelError {
@@ -89,14 +97,24 @@ extension ChannelError {
     public func describe(&self) -> String {
         match self {
             case Closed -> "channel is closed",
-            case Cancelled -> "the receiving task was cancelled"
+            case Cancelled -> "the receiving task was cancelled",
+            case Alloc(_) -> "the channel could not allocate a queue node"
         }
     }
 }
 
 extension ChannelError: Printable {
     public func format(&self, into: &var StringBuilder) {
-        into.append(self.describe())
+        match self {
+            // The leaf renders itself — that is what carrying it is for, and
+            // the size it asked for is the actionable half of an OOM report.
+            case Alloc(e) -> {
+                into.append(self.describe())
+                into.append(": ")
+                e.format(into: &var into)
+            },
+            case _ -> into.append(self.describe())
+        }
     }
 }
 

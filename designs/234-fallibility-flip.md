@@ -389,13 +389,110 @@ TWO FINDINGS, both pre-existing, both named by mechanism:
   itself, in a NAMED body as much as a closure, so it is not the
   closure-vs-named disagreement DF-232h was. `return None` works.
 
-## Unit 2 — HELD FOR A RULING (Aug 22)
+## Unit 2 — the error-type reshapes (Aug 22, on the Aug-22 ruling)
 
-**Not started.** §2's `IoError` reshape cannot be implemented as ratified
-without changing a DIFFERENT ratified decision, so it stops here rather than
-being coded around.
+RULED: option 1. The collision below is recorded as it was found; what follows
+is what landed.
 
-### The collision
+### What landed
+
+**The seam.** `__saw_rt_last_raw_code() -> word`, added to
+`RUNTIME_ABI_SYMBOLS` and described in `rt/ABI.md` beside
+`__saw_rt_last_syserror`, which now STAMPS it — that stamp is part of the
+classifier's contract, stated in the document, because a runtime whose
+classifier forgets it answers a stale number. The ABI.md entry records the
+amendment against the "Pin deviation" paragraph rather than editing that
+paragraph out, and shows both of its grounds surviving: the status word still
+carries only the tag (so the one-negated-word `(status, value)` correspondence
+with the SOS syscall ABI is untouched, and the change is additive in the same
+sense DF-215a's tag widening was), and std still never reads errno after the
+fact (the value is frozen INSIDE the runtime in the same statement that
+classifies; the deleted v1 `__saw_rt_errno` read the LIVE global whenever std
+asked, which is what the v1 `tcp_listen` `close()` clobbered).
+
+**PER-THREAD storage**, in both host bodies, over pthread thread-specific data —
+the idiom `rt/common/op_budget.saw` already uses, for the same reason (Saw has
+no thread-local storage). Not a taste call: errno is per-thread, MT TaskGroups
+classify on several threads at once, and a process-global slot would hand one
+thread's refusal to another. The ~30-line block is duplicated into
+`host_macos/net_os.saw` and `host_linux/net_os.saw` because it has to sit in the
+file that CLASSIFIES and that file is per-host; each object is its own
+translation unit, so factoring it into `common/` would have meant a second
+exported symbol in every hosted binary.
+
+**The freshness rule is written down as the caller's obligation**, because it is
+the one thing that can go quietly wrong. A tag the runtime SYNTHESIZES without
+consulting errno leaves the slot alone (`-Invalid` for an unrecognized open
+mode, `-NotFound` for a name with no IPv4 address), so std splits its factories:
+`IoError.of(syscall:tag:)` reads the seam and is used only where a runtime op
+just classified, and `IoError.of(syscall:kind:)` is the std-raised form whose
+`code` is `0`. Three std paths take the second one — the six design-102
+cancellation exits (through a new `io_cancelled` helper, which also reads better
+than the `io_error(op, SYS_INTERRUPTED)` it replaces), `resolve_error` (whose
+tag may be runtime-synthesized AND whose classification happened on an offload
+WORKER thread), and `net_read_once`'s scratch-buffer refusal, which needed a
+sentinel of its own (`NET_NO_SCRATCH`, far below the tag space) so the read
+loops can tell it from an OS refusal. Without that split, a resolve failure
+would have logged whatever errno the thread last saw — most often `EAGAIN` from
+a park loop.
+
+**SOS: nothing to stamp.** `sos/rt/common` exports four seams and implements no
+OS-op family and no `__saw_rt_last_syserror`, so a body would be dead code. The
+ruled answer is DOCUMENTED for when one lands, in ABI.md and in lib.saw's
+runtime-seam header: SOS answers its NATIVE STATUS WORD, which numerically
+coincides with the SysError tag because the status half of the ratified
+`(status, value)` syscall ABI IS that tag space (sos/spec.md §5.7) — a
+documented coincidence, not a second copy of the number.
+
+**`IoErrorKind`**, 21 cases, raw-backed `UInt8` on the frozen tag numbers, so
+`IoErrorKind.from(raw:)` IS the mapping and there is no second table to drift.
+Names are un-abbreviated (`ConnectionReset`, `AddressInUse`,
+`ResourcesExhausted`) per the API-naming doctrine, tag 16 `Other` becomes
+`Unknown` — the escape hatch §2 asks for — and there is no `Ok` case: an
+`IoError` is a failure, and a kind meaning "no failure" would be the errno-lie
+in miniature. Tag 0 and any tag past the table both answer `Unknown`.
+
+**`IoError` is `{syscall, kind, code: Int32}`.** `syscall` STAYS: §2's snippet
+shows the two fields it is reshaping and does not discuss the third, and
+dropping it would have turned every message into a bare `io error (not found)`.
+Only `kind` reaches the rendered text, deliberately — the raw number is
+platform-specific (`ECONNREFUSED` is 61 on macOS, 111 on Linux) and putting it
+in the text would make every pinned string host-dependent. So **the three
+rendering pins did not change**, against unit 0's prediction that they would;
+the reshape is invisible to `"{e}"` by design. `code()` now returns the raw
+`Int32` where it used to return the tag, which unit 0 proved breaks no reader
+(both fields private, zero `.code()` call sites tree-wide), and `kind()` is the
+new name for the branchable half.
+
+**`ChannelError` gained `Alloc(e: AllocError)`** and renders through the leaf.
+Nothing produces it yet — `send`'s `NoMemory` arm still panics until unit 3's
+channel sub-unit, which is where DQ-230b closes.
+
+Pin: `examples/io_error_kind_and_raw_code.saw` — the rendered text, the kind, a
+`match` on it, nonzero code for an OS refusal, zero for a std-raised failure, an
+unmapped tag landing on `Unknown`, and the `ChannelError.Alloc` rendering. It
+asserts the KIND exactly and the raw NUMBER only as nonzero: the number is a
+platform constant, and pinning it would pin the platform.
+
+Docs fixed with the code rather than deferred to unit 5, because each was a
+statement the reshape made false: LANGUAGE_SPEC's std.net paragraph (which said
+"there is no accessor for the raw platform number, because the runtime ABI does
+not carry one across the seam") and its `ChannelError` declaration, and the
+saw-lang skill's `IoError` and `ChannelError` entries plus its import-gate list.
+
+### FINDING: DF-245a — an `init`'s declared return type is unchecked
+
+Probing whether §2's sibling question for unit 3 — can an allocating
+CONSTRUCTOR return a `Result`? — has an answer turned up a compiler defect, filed
+as DF-245a with its mechanism and sweep. Short version: an `init` may be declared
+with any return type, the call site ignores it and types the result as the
+receiver, and codegen then emits IR that does not verify. So the answer is NO,
+and unit 3's allocating constructors (`Vector(capacity:)`, `Data(capacity:)`,
+`Arc(value:)`, `Mutex(value:)`, `Channel()`) have to become static factories —
+which makes "retire the `try_` prefix" a DELETION of the `init` plus a rename of
+the twin, at 194 call sites.
+
+### The collision (as found, before the ruling)
 
 §2 requires `code: Int32` to ride on EVERY `IoError`, carrying "the platform's
 raw truth", and says why: classification loses information by design (EACCES

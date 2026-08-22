@@ -6298,7 +6298,11 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   public func send(&self, v: T) -> Result<Void, ChannelError>
   public func receive(&self) -> Result<T, ChannelError>
 
-  public enum ChannelError { case Closed, case Cancelled }
+  public enum ChannelError {
+      case Closed,
+      case Cancelled,
+      case Alloc(e: AllocError)      // design 234 §1: carry the leaf
+  }
   ```
 
   Any holder may call `close()`; by convention the producer does, after its last
@@ -6310,6 +6314,11 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   `Err(Cancelled)` is the other answer a `receive` can give: the waiting task was
   cancelled, nothing was dequeued, and the consumer loop ends the way a cancelled
   socket read ends. `send` and `close` never report it — neither waits.
+  `Err(Alloc(e))` is the third: the allocator refused the queue node a `send`
+  needed, and the case CARRIES the `AllocError` rather than restating its
+  vocabulary, which is design 234 §1's rule for a compound domain enum. It
+  renders through the leaf — `the channel could not allocate a queue node:
+  allocation of 64 bytes (align 8) failed`.
   `ChannelError` is an enum because a receive TIMEOUT is the other legitimate way
   one of these calls can fail to deliver; that case is reserved, not yet built.
 
@@ -6856,13 +6865,24 @@ one's `Deinit` closes its fd exactly once (the move checkpoint prevents
 use-after-close, `NoCopy` prevents double-close). Suspension is hidden INSIDE the
 methods — `accept` / `read` / `connect` register the fd with the reactor and park
 the task internally, so the caller writes an ordinary method call with no `io_wait`
-in sight. Errors are `IoError`: the failing operation's name plus a portable
-failure tag, conforming to `Error` so `"{e}"` renders it as
-`io error: connect failed (host unreachable)`. Each host runtime maps its own
-errno numbers onto one small named set of tags, so the same failure reads the
-same on every host. `e.code()` returns that tag, which is not an OS errno; there
-is no accessor for the raw platform number, because the runtime ABI does not
-carry one across the seam.
+in sight. Errors are `IoError`: the failing operation's name, a portable
+`IoErrorKind`, and the platform's own code for the refusal. It conforms to
+`Error`, so `"{e}"` renders it as
+`io error: connect failed (host unreachable)` — the KIND only, which is what
+makes the text read the same on every host.
+
+The two halves answer different questions and design 234 §2 keeps them apart.
+`e.kind()` is the branchable half: a curated portable set (`NotFound`,
+`PermissionDenied`, `ConnectionRefused`, `TimedOut`, …) ending in `Unknown` for
+a failure the vocabulary has no word for. Classification is DIAGNOSTIC, not
+contractual — several platform codes fold into one kind, `EACCES` and `EPERM`
+both landing on `PermissionDenied` — so correct handling of `Unknown` treats it
+as an opaque failure rather than an errno to be worked out. `e.code()` is the
+loggable half: the platform's raw number (`ECONNREFUSED` is 61 on macOS and 111
+on Linux), `0` where the platform has none, which includes a failure std raised
+on its own behalf such as a park cut short by cancellation. Log the code, branch
+on the kind. Growth is loud: promoting a code out of `Unknown` into a new kind
+breaks an exhaustive match at compile time instead of silently rerouting it.
 
 ```saw
 // A cooperative echo, entirely over the safe owning API. Failable ops return

@@ -52,6 +52,15 @@ extern "C" {
     // clobber the design-117 status convention exists to make impossible.
     func __saw_rt_last_syserror() -> Int
 
+    // design 234 §2: the RAW platform code the classification above folded
+    // away, captured beside the tag at the instant it was produced (rt/ABI.md
+    // — an AMENDMENT to design 117's pin, not an overturn: the status word
+    // still carries only the tag, and this is not an errno read after the
+    // fact). Valid immediately after a failing op returned `-tag`, on this
+    // thread; `IoError.of(syscall:tag:)` is the ONE reader, and the paths whose
+    // tag nothing classified go through `IoError.of(syscall:kind:)` instead.
+    func __saw_rt_last_raw_code() -> Int
+
     // design 184: hostname resolution, and the ONLY seam in std that is
     // `blocking`. `getaddrinfo` is unbounded — it may consult /etc/hosts, mDNS,
     // LDAP or the network and wait out a DNS timeout — so every call is
@@ -107,11 +116,21 @@ static NET_ERROR: Int = -1           // the `tcp_*` error sentinel
 // documented in rt/ABI.md). A failing rt op returns the NEGATED tag; the raw
 // `tcp_try_*` primitives translate that back to the WOULD_BLOCK/NET_ERROR
 // sentinels their callers expect, while the owning types keep the tag for IoError.
+// (The `Interrupted` tag left this list with design 234: the cancellation exits
+// that used to spell it now build their error from `IoErrorKind.Interrupted`
+// directly, through `io_cancelled`, because nothing classified an errno there
+// and the raw code must stay 0.)
 static SYS_WOULD_BLOCK: Int = 1
 static SYS_IN_PROGRESS: Int = 2
-static SYS_INTERRUPTED: Int = 4
 static SYS_NOT_FOUND: Int = 10
-static SYS_OTHER: Int = 16
+
+// std's OWN scratch-buffer refusal, sitting far below the tag space (tags run
+// 0..21) so a read loop can tell it from an OS refusal. It matters because the
+// two build their `IoError` differently: an OS refusal carries the raw code the
+// runtime just captured, and this one has no platform number behind it at all.
+// Design 234 unit 3 turns this whole path into a `Result` and the sentinel goes
+// with it.
+static NET_NO_SCRATCH: Int = -1000
 
 // How many addresses a resolution asks for. `connect` dials the FIRST answer,
 // so one is all it needs; asking for more would copy words nothing reads.
@@ -329,8 +348,9 @@ static INVALID_FD: Int32 = -1
 // One nonblocking read of up to READ_CHUNK bytes into a scratch buffer, appended
 // to `into` (grows as needed). Returns the byte count (0 = peer closed / EOF) or
 // a NEGATED SysError tag (design 117): the owning types keep the tag for a
-// precise IoError. The pointer work is confined here (raw layer); TcpStream.read
-// drives it behind an io_wait park.
+// precise IoError. `NET_NO_SCRATCH` is the third answer — std could not get the
+// chunk buffer, which is not something the OS refused. The pointer work is
+// confined here (raw layer); TcpStream.read drives it behind an io_wait park.
 func net_read_once(fd: Int, into: &var Data) unsafe -> Int {
     if let ptr = GlobalAllocator().alloc(READ_CHUNK, 1) {
         let r = __saw_rt_tcp_read(fd, ptr, READ_CHUNK)
@@ -340,7 +360,7 @@ func net_read_once(fd: Int, into: &var Data) unsafe -> Int {
         GlobalAllocator().dealloc(ptr, READ_CHUNK, 1)
         return r
     }
-    return 0 - SYS_OTHER
+    return NET_NO_SCRATCH
 }
 
 // One nonblocking write of the tail of `s` starting at `off`. Returns bytes
@@ -357,80 +377,203 @@ func net_write_data_once(fd: Int, bytes: &Data, off: Int) unsafe -> Int {
 }
 
 // =============================================================================
-// IoError — errno-shaped error conforming to `Error` (design 56 / 84)
+// IoError — the OS boundary, as a portable KIND plus the platform's raw code
+// (design 56 / 84, reshaped by design 234 §2)
 // =============================================================================
 
-// Carries the failing syscall name plus its portable SysError tag (design 117 —
-// no longer a raw errno); prints via the `Error` (Printable) vtable, e.g.
-// "io error: connect failed (connection refused)".
-public struct IoError {
-    syscall: String
-    code: Int
+/// What kind of failure the operating system reported.
+///
+/// The OS boundary is genuinely open-vocabulary — the errno set is large,
+/// platform-dependent and not closed — so this is a CURATED portable set and
+/// `Unknown` is its escape hatch. Two rules keep it honest:
+///
+/// - **Classification is diagnostic, not contractual.** Several platform codes
+///   share one kind: `EACCES` and `EPERM` are both `PermissionDenied`. A
+///   program that needs the exact number reads `IoError.code()`. Correct
+///   handling of `Unknown` treats it as an opaque failure, never as "I know
+///   which code this secretly is".
+/// - **Growth is loud.** Promoting a code out of `Unknown` into a new case
+///   breaks an exhaustive match at compile time rather than silently rerouting
+///   it somewhere else.
+///
+/// The raw values ARE the portable SysError tags `sawc/rt/ABI.md` freezes, so a
+/// tag a runtime returns becomes a kind through `from(raw:)` and there is no
+/// second table to keep in step. A tag this vocabulary does not know — a
+/// runtime newer than this std — reads as `Unknown`.
+public enum IoErrorKind: UInt8 {
+    /// The operation would have blocked, and the descriptor is non-blocking.
+    case WouldBlock = 1,
+    /// A connection is still being established.
+    case InProgress = 2,
+    /// The socket is already connected.
+    case AlreadyConnected = 3,
+    /// The call was interrupted — by a signal, or by cooperative cancellation.
+    case Interrupted = 4,
+    /// The peer reset the connection.
+    case ConnectionReset = 5,
+    /// Nothing was listening at the address.
+    case ConnectionRefused = 6,
+    /// The connection was aborted before it was established.
+    case ConnectionAborted = 7,
+    /// The write end has no reader left.
+    case BrokenPipe = 8,
+    /// The socket is not connected.
+    case NotConnected = 9,
+    /// No such file, directory or host.
+    case NotFound = 10,
+    /// The caller is not allowed to do this.
+    case PermissionDenied = 11,
+    /// The thing being created is already there.
+    case AlreadyExists = 12,
+    /// The address is already bound.
+    case AddressInUse = 13,
+    /// An argument the system rejected.
+    case InvalidArgument = 14,
+    /// A system resource ran out — descriptors, memory or disk space.
+    case ResourcesExhausted = 15,
+    /// A failure this portable vocabulary has no word for. Opaque by contract;
+    /// `IoError.code()` carries the platform's own number.
+    case Unknown = 16,
+    /// The host cannot be reached.
+    case HostUnreachable = 17,
+    /// The network cannot be reached.
+    case NetworkUnreachable = 18,
+    /// The operation ran out of time.
+    case TimedOut = 19,
+    /// The host is down.
+    case HostDown = 20,
+    /// The network is down.
+    case NetworkDown = 21
 }
 
-// The human name of a portable SysError tag (rt/ABI.md), for IoError.format.
-func sys_error_name(tag: Int) -> String {
-    match tag {
-        case 0 -> "ok",
-        case 1 -> "would block",
-        case 2 -> "in progress",
-        case 3 -> "already connected",
-        case 4 -> "interrupted",
-        case 5 -> "connection reset",
-        case 6 -> "connection refused",
-        case 7 -> "connection aborted",
-        case 8 -> "broken pipe",
-        case 9 -> "not connected",
-        case 10 -> "not found",
-        case 11 -> "permission denied",
-        case 12 -> "already exists",
-        case 13 -> "address in use",
-        case 14 -> "invalid argument",
-        case 15 -> "resources exhausted",
-        // The REMOTE-reach failures (DF-215a). Every one of these can only
-        // happen off loopback, which is why the suite never produced one and
-        // why all five read as "other error" until the map named them.
-        case 17 -> "host unreachable",
-        case 18 -> "network unreachable",
-        case 19 -> "timed out",
-        case 20 -> "host is down",
-        case 21 -> "network is down",
-        case _ -> "other error"
+extension IoErrorKind {
+    /// The kind a portable SysError tag names, `Unknown` for a tag this
+    /// vocabulary does not know.
+    public static func of(tag: Int) -> IoErrorKind {
+        // Range-checked before the cast: `as UInt8` panics out of range, and a
+        // tag arriving from a runtime is not this module's to trust.
+        if tag < 0 || tag > 255 {
+            return IoErrorKind.Unknown
+        }
+        IoErrorKind.from(raw: tag as UInt8) ?? IoErrorKind.Unknown
     }
+
+    /// A short human name, the one `IoError` renders in parentheses.
+    public func describe(&self) -> String {
+        match self {
+            case WouldBlock -> "would block",
+            case InProgress -> "in progress",
+            case AlreadyConnected -> "already connected",
+            case Interrupted -> "interrupted",
+            case ConnectionReset -> "connection reset",
+            case ConnectionRefused -> "connection refused",
+            case ConnectionAborted -> "connection aborted",
+            case BrokenPipe -> "broken pipe",
+            case NotConnected -> "not connected",
+            case NotFound -> "not found",
+            case PermissionDenied -> "permission denied",
+            case AlreadyExists -> "already exists",
+            case AddressInUse -> "address in use",
+            case InvalidArgument -> "invalid argument",
+            case ResourcesExhausted -> "resources exhausted",
+            case Unknown -> "other error",
+            // The REMOTE-reach failures (DF-215a). Every one of these can only
+            // happen off loopback, which is why the suite never produced one
+            // and why all five read as "other error" until the map named them.
+            case HostUnreachable -> "host unreachable",
+            case NetworkUnreachable -> "network unreachable",
+            case TimedOut -> "timed out",
+            case HostDown -> "host is down",
+            case NetworkDown -> "network is down"
+        }
+    }
+}
+
+extension IoErrorKind: Printable {
+    public func format(&self, into: &var StringBuilder) {
+        into.append(self.describe())
+    }
+}
+
+/// A failed operating-system operation: which call failed, what KIND of refusal
+/// it was, and the platform's own code for it.
+///
+/// Prints through the `Error` vtable as `io error: connect failed (connection
+/// refused)` — the KIND only, so the text reads the same on every host. The
+/// raw code is for a log that wants the number, and is read explicitly.
+public struct IoError {
+    syscall: String
+    kind: IoErrorKind
+    code: Int32
+}
+
+// The raw code this thread's last classification captured (design 234 §2), as
+// an `Int32`. Out-of-range is answered `0` rather than by the panicking `as`:
+// the value comes from a runtime, and a diagnostic field is the last thing that
+// should be able to abort the program reporting an error.
+func raw_code_now() -> Int32 {
+    let raw = __saw_rt_last_raw_code()
+    if raw < -2147483648 || raw > 2147483647 {
+        return 0
+    }
+    raw as Int32
 }
 
 extension IoError {
-    // The portable SysError TAG of the failure — the small fixed tag space in
-    // rt/ABI.md, and NOT an OS errno. The two are different numbering systems
-    // that overlap: tag 16 is `Other`, errno 16 is `EBUSY`.
-    //
-    // This was spelled `errno()` until DF-215a, where a reader took the 16 it
-    // returned for a real errno. The raw OS number is not carried across the
-    // seam at all, and deliberately (design 117): a failing op returns ONE word
-    // holding its result or `-tag`, which is what makes the convention map onto
-    // the SOS `(status, value)` pair — and SOS has no errno to put in it. So the
-    // honest fix is the name. `format` renders the same tag as its human word.
-    public func code(&self) -> Int {
+    /// The portable KIND of the failure.
+    ///
+    /// Diagnostic, not contractual — several platform codes share one kind, so
+    /// a program that must distinguish them reads `code()`. `Unknown` is opaque
+    /// failure, not "some errno I could work out".
+    public func kind(&self) -> IoErrorKind {
+        self.kind
+    }
+
+    /// The platform's OWN code for the failure — the hosted errno itself, and
+    /// on a freestanding target the native status. `0` where the platform has
+    /// none, which includes a failure std raised on its own behalf (a cancelled
+    /// park, a name with no address).
+    ///
+    /// This is NOT the portable tag, and it is not portable: `ECONNREFUSED` is
+    /// 61 on macOS and 111 on Linux. Log it, do not branch on it — `kind()` is
+    /// the branchable half. (It was spelled `code()` and returned the TAG until
+    /// design 234; the tag is now `kind()`, which cannot be mistaken for a
+    /// number.)
+    public func code(&self) -> Int32 {
         self.code
     }
 
-    // Capture the CURRENT failure as a portable SysError tag. VALID ONLY on the
-    // statement after a failing `__saw_rt_*` op: it reads the calling thread's
-    // errno through a seam rt/ABI.md documents as runtime-INTERNAL, and anything
-    // running in between clobbers it (the v1 `tcp_listen` bug — a `close()`
-    // between a failed `bind()` and the errno read).
-    //
-    // NO CALLERS, and the comment that used to sit here claimed the wrong job:
-    // file/directory/env build their errors with `of(syscall, -e)` on the tag
-    // their op already returned, which needs no errno read at all and has been
-    // the shape since design 117. Whether this factory should exist is DF-215e.
+    /// Capture the CURRENT failure as an `IoError`. VALID ONLY on the statement
+    /// after a failing `__saw_rt_*` op: it reads the calling thread's errno
+    /// through a seam rt/ABI.md documents as runtime-INTERNAL, and anything
+    /// running in between clobbers it (the v1 `tcp_listen` bug — a `close()`
+    /// between a failed `bind()` and the errno read).
+    ///
+    /// NO CALLERS: file/directory/env build their errors from the tag their op
+    /// already returned, which needs no errno read at all and has been the
+    /// shape since design 117. Whether this factory should exist is DF-215e.
     public static func from_errno(syscall: String) -> IoError {
-        IoError(syscall: syscall, code: __saw_rt_last_syserror())
+        IoError.of(syscall: syscall, tag: __saw_rt_last_syserror())
     }
 
-    // Build an IoError from a syscall name + a portable SysError tag.
+    /// Build an `IoError` from a syscall name and the portable tag a failing
+    /// runtime op just returned, capturing the platform's raw code with it.
+    ///
+    /// The capture is what makes this the OS-refusal factory: it reads
+    /// `__saw_rt_last_raw_code()`, which is valid immediately after that op, on
+    /// this thread (rt/ABI.md). A tag NOT produced by a classification — one
+    /// std or the runtime synthesized — must not come through here; use the
+    /// `kind:` factory, whose `code` is `0`.
     public static func of(syscall: String, tag: Int) -> IoError {
-        IoError(syscall: syscall, code: tag)
+        IoError(syscall: syscall, kind: IoErrorKind.of(tag: tag),
+                code: raw_code_now())
+    }
+
+    /// Build an `IoError` for a failure the platform did not report — a park
+    /// cut short by cancellation, a name the resolver answered with no address.
+    /// `code()` is `0`, because there is no platform number to carry.
+    public static func of(syscall: String, kind: IoErrorKind) -> IoError {
+        IoError(syscall: syscall, kind: kind, code: 0)
     }
 }
 
@@ -439,25 +582,38 @@ extension IoError: Error {
         into.append("io error: ")
         into.append(self.syscall)
         into.append(" failed (")
-        into.append(sys_error_name(self.code))
+        into.append(self.kind.describe())
         into.append(")")
     }
 }
 
+// An OS refusal: the tag the op just returned, plus the raw code behind it.
 func io_error(syscall: String, tag: Int) -> IoError {
-    IoError(syscall: syscall, code: tag)
+    IoError.of(syscall: syscall, tag: tag)
+}
+
+// A park cut short by design-102 cancellation. Not an OS refusal — nothing
+// classified an errno — so it carries no raw code.
+func io_cancelled(syscall: String) -> IoError {
+    IoError.of(syscall: syscall, kind: IoErrorKind.Interrupted)
 }
 
 // A failed resolution, NAMING THE HOST. The host IS the failure here — an error
 // that does not say which name could not be resolved is unactionable — so it
 // goes in the syscall slot and prints as `io error: resolve "db.internal"
 // failed (not found)`.
+//
+// Built through the `kind:` factory, for two reasons that both point the same
+// way: the resolver's tag may be one the RUNTIME synthesized (a name with no
+// IPv4 address answers `-NotFound` with no errno behind it), and the resolve
+// seam is `blocking`, so whatever it did classify happened on an offload worker
+// thread rather than this one (rt/ABI.md's freshness rule).
 func resolve_error(host: String, tag: Int) -> IoError {
     var what = StringBuilder()
     what.append("resolve \"")
     what.append(host)
     what.append("\"")
-    io_error(what.build(), tag)
+    IoError.of(syscall: what.build(), kind: IoErrorKind.of(tag: tag))
 }
 
 // =============================================================================
@@ -500,7 +656,7 @@ extension TcpListener {
                 // the armed registration, whose token is an address inside this
                 // frame. Disarm before returning.
                 io_unwait(self.fd, 0)
-                return io_error("accept", SYS_INTERRUPTED)   // cancelled before a connection
+                return io_cancelled("accept")   // cancelled before a connection
             }
             let c = __saw_rt_tcp_accept(self.fd)
             if c == -SYS_WOULD_BLOCK {
@@ -614,7 +770,7 @@ extension TcpStream {
             if cancelled() {
                 io_unwait(fd, 1)           // DF-134a: disarm before the fd goes
                 tcp_close(fd)              // design 102: cancelled while connecting
-                return io_error("connect", SYS_INTERRUPTED)
+                return io_cancelled("connect")
             }
             let check = __saw_rt_tcp_connect_check(fd, addr, port)
             if check == -SYS_IN_PROGRESS {
@@ -656,12 +812,16 @@ extension TcpStream {
         while {
             if cancelled() {
                 io_unwait(self.fd, 0)                      // DF-134a: disarm the park
-                return io_error("read", SYS_INTERRUPTED)   // design 102: peer-cancelled at the park
+                return io_cancelled("read")   // design 102: peer-cancelled at the park
             }
             let r = net_read_once(self.fd, &var out)
             if r == -SYS_WOULD_BLOCK {
                 io_wait(self.fd, 0)            // park until readable
                 __saw_rt_op_budget_reset()          // design 89-c: parked, budget reset
+            } else if r == NET_NO_SCRATCH {
+                // std's own refusal, not the OS's — so it carries no raw code.
+                return IoError.of(syscall: "read",
+                                  kind: IoErrorKind.ResourcesExhausted)
             } else if r < 0 {
                 return io_error("read", -r)    // a real read error, not EOF
             } else {
@@ -690,7 +850,7 @@ extension TcpStream {
         while {
             if cancelled() {
                 io_unwait(self.fd, 0)                      // DF-134a: disarm the park
-                return io_error("read", SYS_INTERRUPTED)   // design 102: cancelled at park
+                return io_cancelled("read")   // design 102: cancelled at park
             }
             // Design 106: FORWARD the held `&var into` straight to the raw-layer
             // helper (`net_read_once` owns the scratch buffer + the append). The
@@ -703,6 +863,10 @@ extension TcpStream {
             if r == -SYS_WOULD_BLOCK {
                 io_wait(self.fd, 0)                    // park until readable
                 __saw_rt_op_budget_reset()                  // design 89-c: parked, reset
+            } else if r == NET_NO_SCRATCH {
+                // std's own refusal, not the OS's — so it carries no raw code.
+                return IoError.of(syscall: "read",
+                                  kind: IoErrorKind.ResourcesExhausted)
             } else if r < 0 {
                 return io_error("read", -r)            // a real read error, not EOF
             } else {
@@ -726,7 +890,7 @@ extension TcpStream {
         while off < total {
             if cancelled() {
                 io_unwait(self.fd, 1)                       // DF-134a: disarm the park
-                return io_error("write", SYS_INTERRUPTED)   // design 102: cancelled at the park
+                return io_cancelled("write")   // design 102: cancelled at the park
             }
             let w = net_write_data_once(self.fd, &bytes, off)
             if w == -SYS_WOULD_BLOCK {
@@ -755,7 +919,7 @@ extension TcpStream {
         while off < total {
             if cancelled() {
                 io_unwait(self.fd, 1)                       // DF-134a: disarm the park
-                return io_error("write", SYS_INTERRUPTED)   // design 102: cancelled at the park
+                return io_cancelled("write")   // design 102: cancelled at the park
             }
             let w = net_write_data_once(self.fd, &bytes, off)
             if w == -SYS_WOULD_BLOCK {

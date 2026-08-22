@@ -1,0 +1,72 @@
+// design 234 §2: an `IoError` is a portable KIND plus the platform's own raw
+// code, and the two answer different questions.
+//
+// The kind is what a program BRANCHES on: a curated portable vocabulary ending
+// in `Unknown`. It is deliberately lossy — several platform codes fold onto one
+// kind — which is exactly why the raw code rides along for the log. Before this
+// reshape `code()` returned the portable TAG under a name that read like an
+// errno, and the platform's real number was discarded inside the runtime with
+// nothing able to recover it (rt/ABI.md's "Pin deviation", amended here by the
+// additive `__saw_rt_last_raw_code` seam).
+//
+// What this pins, and what it deliberately does NOT: the KIND and the rendered
+// text are portable and asserted exactly; the raw NUMBER is a platform constant
+// (ECONNREFUSED is 61 on macOS and 111 on Linux), so the test asserts only that
+// a nonzero one arrived for an OS refusal and a zero one for a failure std
+// raised on its own behalf.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// rendered: io error: open failed (not found)
+// kind: not found
+// kind is NotFound: true
+// os refusal carries a raw code: true
+// a std-raised failure carries none: true
+// an unmapped tag is Unknown: true
+// Unknown renders as: other error
+// channel alloc: the channel could not allocate a queue node: allocation of 64 bytes (align 8) failed
+// channel closed: channel is closed
+
+import std.file.*
+import std.path.*
+import std.net.{IoError, IoErrorKind}
+import std.channel.{ChannelError}
+
+func main() {
+    match File.open(Path(s: "/definitely/not/here/design234.txt")) {
+        case Ok(_) -> print("unexpected: the file opened"),
+        case Err(e) -> {
+            print("rendered: {e}")
+            print("kind: {e.kind()}")
+            // Branch on the kind, never on the number.
+            let is_not_found = match e.kind() {
+                case NotFound -> true,
+                case _ -> false
+            }
+            print("kind is NotFound: {is_not_found}")
+            print("os refusal carries a raw code: {e.code() != 0}")
+        }
+    }
+
+    // A failure std raised itself — nothing classified an errno, so there is no
+    // platform number to carry and the field says so rather than repeating
+    // whatever the thread happened to see last.
+    let mine = IoError.of(syscall: "read", kind: IoErrorKind.Interrupted)
+    print("a std-raised failure carries none: {mine.code() == 0}")
+
+    // The vocabulary is curated, so a tag it has no word for — a runtime newer
+    // than this std — lands on `Unknown` rather than inventing a meaning.
+    let unmapped = IoErrorKind.of(tag: 9999)
+    let is_unknown = match unmapped {
+        case Unknown -> true,
+        case _ -> false
+    }
+    print("an unmapped tag is Unknown: {is_unknown}")
+    print("Unknown renders as: {unmapped}")
+
+    // design 234 §1's compound shape: a domain enum carries the LEAF error
+    // rather than re-enumerating its vocabulary, and renders through it.
+    let full = ChannelError.Alloc(e: AllocError(size: 64, align: 8))
+    print("channel alloc: {full}")
+    let shut = ChannelError.Closed
+    print("channel closed: {shut}")
+}

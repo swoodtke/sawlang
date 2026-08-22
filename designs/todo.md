@@ -144,6 +144,53 @@ dispatch moving up. Regression test
 each). Matters to design 234 because the flip multiplies `return try f()`.
 [196, 234]
 
+## DF-245a — an `init`'s DECLARED return type is never checked against the
+## receiver, so a wrong one is an ICE (found while probing design 234 unit 3's
+## constructor question)
+
+An `init` may be declared with ANY return type. The declaration is accepted, the
+CALL is typed as the receiver regardless, and codegen then emits IR that does
+not verify:
+
+```saw
+struct Other { m: Int }
+extension Other {
+    init(seed: Int) -> Int { return seed }        // accepted at the declaration
+}
+func main() { let o = Other(seed: 7)  print("{o.m}") }
+// internal compiler error: LLVM IR parsing error
+//   value doesn't match function result type '%Other = type { i64 }'
+//     ret i64 %"seed.2"
+```
+
+MECHANISM (obligation 4): the two consumers of an `init`'s signature disagree
+and nothing reconciles them. The CALL side derives the constructed type from the
+RECEIVER and ignores the written return type; the BODY side checks `return`
+against the WRITTEN one. Every other member kind has a declaration check that
+ties the two together; `init` has none, so any return type that is not the
+receiver is silently two different types. SIBLINGS the mechanism reaches, all
+one funnel (the `init` declaration): a plain struct extension and a generic one,
+`public` and private, and any wrong type — `-> Int` is the IR-verifier failure
+above, `-> Result<Self, E>` is a `ResultErrWrap` ICE at the `return <error>`
+inside the body, and the call site of the latter types as the bare receiver
+(``cannot assign `Holder` to variable of type `Result<Holder, AllocError>` ``,
+reported at the CALLER, about a signature the caller cannot see). Enums have no
+`init`, so there is no second declaration site.
+
+FIX SHAPE: refuse at the declaration — an `init`'s written return type must BE
+the receiver (`Self` or the spelled receiver type, generic arguments included),
+with the ordinary two-way fixit. Zero in-tree violations, so it costs nothing to
+adopt. NOT fixed here: it is a new refusal with its own conformance row and is
+outside design 234's units.
+
+WHAT IT SETTLES FOR DESIGN 234: a constructor cannot be made fallible by
+declaring `init(...) -> Result<T, E>`. So unit 3's allocating constructors —
+`Vector(capacity:)`, `Data(capacity:)`, `Arc(value:)`, `Mutex(value:)`,
+`Channel()` — must become STATIC factories returning `Result`, which is the same
+shape their `try_` twins already have and turns "retire the prefix" into
+"delete the `init`, rename the twin". That is a public-API change at 194 call
+sites (counted below), not a signature tweak. [234]
+
 ## Design 234 — the fallibility flip (RATIFIED Aug 17; QUEUED behind the
 ## three in-flight Aug-17 branches)
 
@@ -173,17 +220,44 @@ IN FLIGHT on branch `design-234`. Landed so far:
   a propagating `try` in a `return` inside a suspending body) and DF-244b
   (open, the bare-`None` tail residue).
 
-**UNIT 2 IS HELD FOR A USER RULING** and was not started. §2's `IoError`
-`code: Int32` ("the platform's raw truth, ALWAYS present") is not implementable
-without changing design 117's ABI, which REFUSED exactly this in a recorded pin
-deviation (`sawc/rt/ABI.md:174-182`): one negated word cannot carry a tag AND a
-raw errno, and SOS has no errno. `__saw_rt_last_syserror` classifies errno and
-discards the raw value inside the runtime, so nothing downstream can recover
-it. Three ways out, costed in the brief's landing section — a new additive seam
-is the cheap one, and it still needs a ruling on what SOS answers. The rest of
-unit 2 (the `IoErrorKind` vocabulary, `ChannelError.Alloc`) is unblocked but was
-left with it, so the unit lands as one piece rather than as the half that
-changes nothing observable.
+- **unit 2 — the error-type reshapes** (branch `design-234-b`, RULED Aug 22 =
+  option 1, the additive seam): `__saw_rt_last_raw_code() -> word`, stamped by
+  `__saw_rt_last_syserror` in both host bodies, PER-THREAD (pthread TSD, the
+  op_budget idiom — errno is per-thread and MT groups classify on several at
+  once). Recorded in ABI.md as an AMENDMENT to design 117's pin deviation with
+  both of its grounds shown to survive. SOS: nothing to stamp (four seams, no
+  OS-op family, no `last_syserror`), the ruled answer documented in ABI.md and
+  `sos/rt/common/src/lib.saw` for when one lands. `IoError` is now
+  `{syscall, kind: IoErrorKind, code: Int32}` — 21 kinds off the frozen tag
+  table with `Other`→`Unknown` as the escape hatch, two factories
+  (`of(syscall:tag:)` reads the seam, `of(syscall:kind:)` is the std-raised
+  form whose code is 0), and only `kind()` reaches the rendered text so `"{e}"`
+  stays platform-identical. `ChannelError` gained `Alloc(e: AllocError)`,
+  rendering through the leaf. Pin `examples/io_error_kind_and_raw_code.saw`.
+
+**CENSUS CORRECTIONS to unit 0's own numbers**, both found by re-counting
+against the tree, both recorded in the brief's landing section:
+- the alloc twin family is **20**, not 19 — unit 0's own table lists 20 rows
+  (4+7+3+1+1+1+1+2) under a heading that says 19;
+- **FIVE** twins have no infallible partner method, not four — unit 0's own
+  paragraph names five (`Vector.try_with_capacity`, `Vector.try_reserve`,
+  `Data.try_with_capacity`, `Data.try_reserve`, `StringBuilder.try_with_capacity`)
+  under a heading that says four. And each `try_with_capacity` DOES have a
+  panicking partner, just not a method one: `Vector(capacity:)` / `Data(capacity:)`
+  are INITS, which is the constructor question DF-245a below now answers.
+
+**THE COUNT UNIT 0's MATRIX NEVER TOOK, and unit 3's real size**: the matrix
+counts the 56 twin CALL sites and the 24 std alloc-panic sites, but not the
+callers of the INFALLIBLE ops those panics belong to — and design 151 makes
+every one of them a compile error the moment `push`/`append`/`insert` return a
+`Result`. Counted Aug 22: **1434** `.push(`/`.append(`/`.insert(`/
+`.append_char(`/`.append_bytes(` sites (examples 902, sawc/std 115, the rest
+417 across blade/libs/devtools/selfhost/sos), plus **194** constructor sites
+(`Arc(value:)` 67, `Channel<T>()` 72, `Mutex<T>(value:)` 22,
+`Vector<T>(capacity:)`/`Data(capacity:)` 33). Each needs a SPELLED disposition
+(`try!` / `try` / `let _ =`), and which one is a decision the brief does not
+make — `try!` reproduces today's behavior visibly, `let _ =` would hide the
+failure the flip exists to surface. [234]
 
 ## Design 238 — the sawos split (AUTHORED Aug 19, FOUR RULINGS same day;
 ## QUEUED after the sos riders batch, BEFORE the M3 ladder)
