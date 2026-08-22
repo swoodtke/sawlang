@@ -3777,6 +3777,16 @@ reference and both are destroyed once. An `ExplicitCopy` or `NoCopy` element is
 never duplicated implicitly, and the error names the ways out — `with_ref` to
 borrow it in place, `swap_out` to move it out.
 
+**Rendering a place is a borrow, not a read.** `print("{v[0]}")`, `print(v[0])`
+and `print("{}", v[0])` hand the element to `format(&self, into:)` and keep
+nothing, so the table above never comes into it — a move-only element prints
+exactly as an `Int` one does. That covers every rendering position: an
+interpolation operand wherever an interpolation is written, a single-argument
+`print` of a `Printable`, and the format arguments of `print`, `panic` and
+`assert`. The window spans the rendering, so an operand beside it is inside that
+window too — which is why an `assert` condition that names the place's own root
+wants a binding of its own ahead of the call.
+
 **A pattern that binds nothing is a presence test, not a read.** `if let _ =
 g.at(i)`, `guard let _ = g.at(i)`, and a `match` arm like `case Empty` or
 `case Occupied(_)` take no payload out: they look at the discriminant through

@@ -3096,7 +3096,26 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   (`let n = v.len()`). The two-windows-on-one-root half of this is DF-218j,
   which the assignment RHS-hoist closes without touching the rule.
 
-- **DF-218i (BOGUS-REFUSAL, PRE-EXISTING) — rendering a PLACE is judged a
+- **DF-218i — CLOSED (Aug 22, `place-window-fixes`): a rendering operand is a
+  BORROW, like the presence test beside it.** `place_uses` grew a third
+  borrow-classified shape: where the operand IS the place and the value-read
+  table would refuse it, the window's extent becomes the smallest RENDERING
+  expression and the operand is the window's own `&T` binding — which every
+  rendering position already accepts. The three positions go through ONE funnel,
+  `_rendering_slots`, whose docstring names them (interpolation operand;
+  single-argument `print` of a Printable; the format arguments of
+  `print`/`panic`/`assert` past the literal format string and past `assert`'s
+  condition). Scoped to the REFUSED reads deliberately: where the tier permits
+  the read the ordinary per-operand window is the better lowering, and wrapping
+  the whole rendering expression would pull every sibling operand inside the
+  window with it. **The deferred family is RETIRED**, not narrowed:
+  `FAM_RENDERED`/`rendering-operand` is gone from `coro_transform` and from
+  `tools/test_forget_purge.py`'s ledger, so a rendered frame local migrates to
+  `Slot<T>` like any other (`examples/place_rendered_frame_local_migrates.saw`
+  is the IR-confirmed row — `%"__Frame_driven"` field 0 is a `Slot$…$Res` — and
+  it carries blade's own `case Err(e) -> fail("{e}", …)` shape). Pin flipped and
+  widened to the whole matrix. Original finding follows.
+  **(BOGUS-REFUSAL) — rendering a PLACE is judged a
   value read, so a move-only element cannot be printed.** `print("{v[0]}")`
   and `print(v[0])` on a `Vector<Res>` where `Res: NoCopy + Printable` are
   refused with ``lends a place of type `Res`, which is move-only``, though

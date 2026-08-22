@@ -68,7 +68,8 @@ from ast_nodes import (
     MemberAccess, MethodCall, MoveExpr, NoneLiteral, OptionalChainAssign,
     OptionalEvalExpr, OptionalWrap, BindOptional,
     ReferenceExpr, ResultErrWrap, ResultOkWrap, ReturnStatement, SawType,
-    SelfExpr, StringLiteral, TupleIndex, TypeKind, UnaryOp, structural_fields,
+    SelfExpr, StringInterpolation, StringLiteral, TupleIndex, TypeKind, UnaryOp,
+    structural_fields,
 )
 from ast_walk import child_nodes, map_nodes
 from errors import ErrorKind
@@ -303,6 +304,12 @@ class _PlaceUses:
         borrowed = self._borrow_read(expr)
         if borrowed is not None:
             return borrowed
+
+        # RENDERING a place keeps nothing either (DF-218i), so it is the second
+        # borrow-classified shape.
+        rendered = self._render_window(expr)
+        if rendered is not None:
+            return rendered
 
         # A place handed over as a reference argument: the window spans the
         # whole call (design 141 — a Saw reference is call-scoped), and two of
@@ -617,6 +624,113 @@ class _PlaceUses:
             expr.object = self._replace_bind(expr.object, bind, name)
         return expr
 
+    # -- rendering operands (DF-218i) --------------------------------------
+    #
+    # Rendering a value hands it to `format(&self, into:)` and keeps nothing —
+    # the same borrow `v[0].method()` already gets. The place system judged it a
+    # VALUE READ instead, because a bare place read looks the same wherever it
+    # sits, so `print("{v[0]}")` and `print(v[0])` on a move-only element were
+    # ``lends a place of type `Res`, which is move-only`` while the two controls
+    # beside them (a field read out of the place, a `&self` call on it) compiled.
+    #
+    # So a rendering operand joins the presence test as a borrow-classified
+    # shape: the window's extent is the smallest RENDERING expression around it,
+    # and inside that window the operand is the window's own binding — a `&T`,
+    # which every rendering position already accepts.
+
+    def _rendering_slots(self, expr):
+        """Every RENDERING OPERAND of `expr`, as `(read, write)` pairs.
+
+        THE description of what a rendering position is, and the only one — a
+        second list written for a second caller is how a position goes missing.
+        Its three entry points are the three places a value is rendered:
+
+          * `StringInterpolation.expressions` — `"{x}"`, anywhere one is
+            written (design 56).
+          * a single-argument `print(x)` of a `Printable` (design 132 unit D).
+          * the FORMAT ARGUMENTS of `print`/`panic`/`assert` — everything past
+            the literal format string, and past `assert`'s condition ahead of
+            it (design 137).
+
+        A `FormatPlaceholder` sitting in the first list is not an operand and
+        needs no filtering here: it roots no chain, so the caller's own
+        place test declines it.
+        """
+        if isinstance(expr, StringInterpolation):
+            parts = expr.expressions
+            return [(lambda i=i: parts[i],
+                     lambda v, i=i: parts.__setitem__(i, v))
+                    for i in range(len(parts))]
+        if not isinstance(expr, FunctionCall):
+            return []
+        args = expr.arguments
+        if expr.name == "print":
+            first = 0 if len(args) == 1 else 1
+        elif expr.name == "panic":
+            first = 1
+        elif expr.name == "assert":
+            first = 2
+        else:
+            return []
+        return [(lambda a=a: a.value,
+                 lambda v, a=a: setattr(a, 'value', v))
+                for a in args[first:]]
+
+    def _render_window(self, expr):
+        """`expr` re-lowered with its rendering operands BORROWED, or None when
+        no operand of it is a place the value-read table would refuse.
+
+        Scoped to the refused reads on purpose. Where the tier permits the read,
+        the ordinary chain window already lowers each operand on its own, and
+        making a rendering position wrap its whole expression instead would pull
+        every SIBLING operand inside the window with it — which is a capture,
+        and for a sibling naming the window's own root a new refusal (DF-248a).
+        A borrow is the better lowering of the two and this is where it is worth
+        the wrap: it is the difference between compiling and not.
+        """
+        slots = self._rendering_slots(expr)
+        if not slots:
+            return None
+        targets = []
+        for read, write in slots:
+            operand = read()
+            place = self._chain_head(operand)
+            if place is None:
+                continue
+            optional = bool(getattr(place, 'place_optional', False))
+            # The two shapes that turn the place back into a value AT the
+            # operand. A chain that continues past it (`"{v[0].n}"`) is already
+            # a borrow, and a bare CONDITIONAL lend renders a `T?` rather than
+            # the element, so neither is this rule's business.
+            bare = (operand is place and not optional)
+            unwrapped = (isinstance(operand, ForceUnwrap)
+                         and operand.expr is place and optional)
+            if not (bare or unwrapped):
+                continue
+            if not self._value_read_would_refuse(place):
+                continue
+            targets.append((write, place))
+        if not targets:
+            return None
+        names = []
+        for write, place in targets:
+            name = self._fresh()
+            names.append(name)
+            write(self._window_head(name, place,
+                                    getattr(place, 'place_elem_type', None)))
+        # Everything else in the rendering expression — the other operands, an
+        # `assert` condition — is lowered where it stands, now that the operands
+        # this pass owns have been swapped out from under it.
+        self._recurse(expr)
+        result_type = getattr(expr, 'resolved_type', None)
+        inner = expr
+        for (write, place), name in reversed(list(zip(targets, names))):
+            body = Block(statements=[], final_expr=inner,
+                         line=expr.line, column=expr.column)
+            inner = self._window_call(place, name, body, result_type,
+                                      exclusive=False, absent='panic')
+        return inner
+
     def _span_call(self, expr):
         """A call with `&place` / `&var place` arguments -> nested windows."""
         args = self._call_arguments(expr)
@@ -785,6 +899,21 @@ class _PlaceUses:
     # is expressed where it belongs — as the CONTAINER'S own conformance, whose
     # body spells `buf[i].copy()`.
     _COPY_PROVING_BOUNDS = frozenset({"Copy"})
+
+    def _value_read_would_refuse(self, place) -> bool:
+        """Would design 131's table refuse a value read of this place?
+
+        `_value_read_ok`'s question without its diagnostic, for the classifiers
+        that have to decide BEFORE the read is reached — a rendering operand is
+        judged where the rendering sits, not where the place does, and asking
+        the reporting form there would emit an error about a read that then
+        never happens.
+        """
+        elem = getattr(place, 'place_elem_type', None)
+        tier = self.ns.copy_tier(elem) if elem is not None else 'free'
+        if tier == 'abstract':
+            return bool(self._unproven_params(elem))
+        return self.ns.read_policy(elem) not in ('trivial', 'retain')
 
     def _value_read_ok(self, place) -> bool:
         """design 131's table at the one point a place becomes a value.

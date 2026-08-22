@@ -77,7 +77,8 @@ EXPECTED_FAMILIES = {
     "void-payload",         # (c) `Slot<Void>` is not a type llvmlite will build
     "fixed-array",          # (d) `a[i] = v` writes through element storage
     "window-move",          # (e) DF-218h
-    "rendering-operand",    # (f) DF-218i
+    # (f) `rendering-operand` RETIRED Aug 22 with DF-218i — a rendering operand
+    # is a borrow now, so a rendered frame local migrates to `Slot<T>`.
     "scrutinee-temp",       # T1/T3 — the DF-210f forget lives exactly here
     "spawn-cell",           # design 134's cell: TRUSTED, not deferred
 }

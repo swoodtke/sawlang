@@ -1,0 +1,60 @@
+// A move-only frame local whose WHOLE VALUE is a rendering operand.
+//
+// Design 218 stage 1 makes a suspending body's locals `Slot<T>` fields, so a
+// read becomes `self.x.value()` — a lend. A rendered local therefore asked the
+// place system to render a place, which it refused (DF-218i), and stage 1 held
+// the whole family back on the legacy drop-flag encoding
+// (`FAM_RENDERED`/`rendering-operand`). Rendering is a borrow now, so the family
+// is retired and these locals migrate like any other.
+//
+// The shape that found it was blade's `main`: `case Err(e) -> fail("{e}", …)`,
+// one `Box<any Error>` per command, caught only by the bootstrap lane.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// interpolated Res(1)
+// printed Res(1)
+// boxed: bad input
+// deinit 1
+// done
+
+import std.task.*
+
+struct Res { id: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("deinit {self.id}") }
+}
+extension Res: Printable {
+    func to_string(&self) -> String { "Res({self.id})" }
+    func format(&self, into: &var StringBuilder) { into.append(self.to_string()) }
+}
+
+struct BadInput { detail: String }
+extension BadInput: Printable {
+    func format(&self, into: &var StringBuilder) { into.append(self.detail) }
+}
+extension BadInput: Error {}
+
+func may_fail(ok: Bool) -> Result<Int, Box<any Error>> {
+    yield_now()
+    if ok { return 7 }
+    return BadInput(detail: "bad input")
+}
+
+// The local is move-only, lives across the suspension, and is rendered whole.
+func driven() -> Int {
+    let r = Res(id: 1)
+    yield_now()
+    print("interpolated {r}")
+    print("printed {}", r)
+    match may_fail(false) {
+        case Ok(n) -> { print("unexpected {n}") },
+        // The erased box: a frame-resident `Box<any Error>` rendered whole.
+        case Err(e) -> { print("boxed: {e}") }
+    }
+    r.id
+}
+
+func main() {
+    let _ = __saw_drive(driven())
+    print("done")
+}

@@ -1,31 +1,33 @@
 // Rendering a PLACE is a borrow, not a value read.
 //
 // `print("{v[0]}")` hands the element to `format(&self, into:)` and keeps
-// nothing, so the copy tier should not come into it at all — the same way
-// `v[0].method()` borrows through the window. The place system judges it a
-// VALUE READ instead, so a move-only element is refused outright:
+// nothing, so the copy tier does not come into it at all — the same way
+// `v[0].method()` borrows through the window. The place system used to judge it
+// a VALUE READ, so a move-only element could not be printed at all (DF-218i):
 //
 //     error: `v[…]` lends a place of type `Res`, which is move-only —
 //     reading it out as a value would alias storage the container still owns
 //
-// No coroutine is involved (DF-218i). It surfaced through design 218 stage 1,
-// which makes a coroutine frame's locals places too: blade's `main` stopped
-// compiling at `case Err(e) -> fail("{e}", EXIT_FAILURE)`, one `Box<any Error>`
-// per command. Stage 1 holds that family back (`_migrated_enc`) so the
-// refusal reaches nobody through a frame; this row is the same refusal at the
-// spelling any Saw program can write.
+// No coroutine is involved. It surfaced through design 218 stage 1, which makes
+// a coroutine frame's locals places too: blade's `main` stopped compiling at
+// `case Err(e) -> fail("{e}", EXIT_FAILURE)`, one `Box<any Error>` per command.
 //
-// Both rendering positions are here — an interpolation operand and a
-// single-argument `print` of a Printable — plus the two controls that already
-// work: a field read out of the same place, and a `&self` method call on it.
-// XFAIL: DF-218i rendering a move-only place is judged a value read and refused
+// Every rendering position is here — the funnel is `_rendering_slots`, and this
+// is its matrix — at both refused tiers, plus the two controls that always
+// worked: a field read out of the same place, and a `&self` method call on it.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // field 1
 // method 2
 // interpolated Res(1)
+// bound Res(1)
 // printed:
 // Res(1)
+// format arg Res(1)
+// asserted Res(1)
+// forced Res(1)
+// explicit Bag(7)
+// explicit arg Bag(7)
 
 struct Res { n: Int }
 extension Res: NoCopy {}
@@ -37,16 +39,53 @@ extension Res {
     func bump(&self) -> Int { self.n + 1 }
 }
 
+// The ExplicitCopy tier is refused by the same table, so it is the same row.
+struct Bag { items: Vector<Int> }
+@synthesize
+extension Bag: ExplicitCopy {}
+extension Bag: Printable {
+    func to_string(&self) -> String { "Bag({self.items[0]})" }
+    func format(&self, into: &var StringBuilder) { into.append(self.to_string()) }
+}
+
+// `panic`'s format arguments are a rendering position too. It cannot be RUN in
+// a success test, so this row is compile coverage: the function is never called.
+func fail_loudly(v: &Vector<Res>) -> Never {
+    panic("no room for {}", v[0])
+}
+
 func main() {
     var v = Vector<Res>()
     v.push(Res(n: 1))
 
-    // The controls: a place hop and a `&self` call, both borrows today.
+    // The controls: a place hop and a `&self` call, both borrows all along.
     print("field {v[0].n}")
     print("method {v[0].bump()}")
 
-    // The two rendering positions.
+    // An interpolation operand, in the two positions an interpolation sits in.
     print("interpolated {v[0]}")
+    let bound = "bound {v[0]}"
+    print(bound)
+
+    // A single-argument `print` of a Printable.
     print("printed:")
     print(v[0])
+
+    // Format arguments (design 137), on `print` and on `assert`. The
+    // condition is bound ahead of the call because `assert`'s message window
+    // spans it, and a condition naming the window's own ROOT is DF-248a.
+    print("format arg {}", v[0])
+    let ok = v[0].n == 1
+    assert(ok, "asserted {}", v[0])
+    print("asserted {v[0]}")
+
+    // A conditional lend the source promised is there: the `!` is consumed by
+    // the window, whose absent path is the panic it asked for.
+    print("forced {v.get(0)!}")
+
+    var bags = Vector<Bag>()
+    var items: Vector<Int> = [7]
+    bags.push(Bag(items: move items))
+    print("explicit {bags[0]}")
+    print("explicit arg {}", bags[0])
 }

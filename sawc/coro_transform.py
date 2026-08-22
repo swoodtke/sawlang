@@ -833,13 +833,17 @@ FAM_ADDRESSED = "address-taken"          # (b) `&x`, a nested receiver, a ref ar
 FAM_VOID = "void-payload"                # (c) `Slot<Void>` is unbuildable
 FAM_FIXED_ARRAY = "fixed-array"          # (d) `a[i] = v` addresses the element
 FAM_WINDOW_MOVE = "window-move"          # (e) DF-218h
-FAM_RENDERED = "rendering-operand"       # (f) DF-218i
+# (f) `rendering-operand` — RETIRED Aug 22 with DF-218i. The family existed
+# because the place system judged a rendering operand a VALUE READ and refused a
+# move-only element out of a lend; rendering is a borrow now (`place_uses`
+# lowers the operand inside the window), so a rendered frame local migrates to
+# `Slot<T>` like any other.
 FAM_SCRUTINEE_TEMP = "scrutinee-temp"    # T1/T3 — the DF-210f forget lives here
 FAM_SPAWN_CELL = "spawn-cell"            # the design-134 cell: TRUSTED, not deferred
 
 DEFERRED_FAMILIES = (
     FAM_OPT_CLOSURE, FAM_ADDRESSED, FAM_VOID, FAM_FIXED_ARRAY,
-    FAM_WINDOW_MOVE, FAM_RENDERED, FAM_SCRUTINEE_TEMP, FAM_SPAWN_CELL,
+    FAM_WINDOW_MOVE, FAM_SCRUTINEE_TEMP, FAM_SPAWN_CELL,
 )
 
 # design 221: the synthesized `main`-result -> exit-status mapping (Part C's
@@ -855,7 +859,7 @@ EXEC_RUN_ROOT_STATUS = "__saw_exec_run_root_status"
 
 
 def _deferred_family(name, enc, address_taken=(), saw_type=None,
-                     move_arg_receivers=(), rendered=()):
+                     move_arg_receivers=()):
     """Which deferred family holds this frame field back from `Slot<T>`, or
     `None` if it migrates. THE authority on the question — `_migrated_enc` turns
     this answer into an encoding and `_forget_stmt` cites it.
@@ -891,14 +895,6 @@ def _deferred_family(name, enc, address_taken=(), saw_type=None,
         enclosing frame drops `h` again at scope end. The refusal is the
         protective behavior and this row waits for the closure move-out design
         that fixes both halves;
-      * a move-only or ExplicitCopy local read in a RENDERING position —
-        `print("{e}")`, `print(e)` (DF-218i). Rendering hands the value to
-        `format(&self, into:)` and never keeps it, but the place system judges
-        the read a VALUE READ and refuses a move-only element: `print("{v[0]}")`
-        on a `Vector<Res>` is the identical refusal with no coroutine anywhere,
-        which is why the fix belongs to the place system and not here. The
-        caller passes the names, already filtered by tier — the two Copy tiers
-        read out of a lend for free and migrate as usual;
       * a SCRUTINEE temp (`__hoistN` / `__matchN`) — see `_SCRUTINEE_TEMPS`.
         This is the one family whose forget is the TRANSFORM's own (DF-210f)
         rather than a rewritten `move`;
@@ -916,8 +912,6 @@ def _deferred_family(name, enc, address_taken=(), saw_type=None,
         return FAM_ADDRESSED
     if name in move_arg_receivers:
         return FAM_WINDOW_MOVE
-    if name in rendered:
-        return FAM_RENDERED
     if _is_scrutinee_temp(name):
         return FAM_SCRUTINEE_TEMP
     if saw_type is None or saw_type.kind == TypeKind.VOID:
@@ -931,7 +925,7 @@ def _deferred_family(name, enc, address_taken=(), saw_type=None,
 
 
 def _migrated_enc(name, enc, address_taken=(), saw_type=None,
-                  move_arg_receivers=(), rendered=()):
+                  move_arg_receivers=()):
     """`(encoding, deferred family)` for a frame field, given the one `_enc_of`
     picked from its type: `Slot<T>` and `None`, unless `_deferred_family` (which
     carries the reasons) names a family that holds it back.
@@ -940,7 +934,7 @@ def _migrated_enc(name, enc, address_taken=(), saw_type=None,
     rests on it: a legacy encoding is exactly a field whose family is named, and
     `_forget_stmt` refuses to emit for a field with no name to cite."""
     fam = _deferred_family(name, enc, address_taken, saw_type,
-                           move_arg_receivers, rendered)
+                           move_arg_receivers)
     if fam is not None:
         return enc, fam
     return _SLOT_ENC_OF_LEGACY.get(enc, enc), None
@@ -977,47 +971,6 @@ def _contains_move(node, depth=0):
     if isinstance(node, MoveExpr):
         return True
     return any(_contains_move(sub, depth + 1) for sub in child_nodes(node))
-
-
-# The calls that RENDER their argument instead of consuming it: they end in a
-# `format(&self, into:)` on the value. Design 135 gives `print` the same
-# single-argument Printable path an interpolation placeholder takes.
-_RENDERING_CALLS = ("print", "panic", "assert")
-
-
-def _collect_rendered_names(node, out, seen=None):
-    """Names whose WHOLE VALUE is rendered — an interpolation operand or an
-    argument of `print`/`panic`/`assert` that is a bare identifier.
-
-    See `_migrated_enc`: rendering is a borrow in every sense that matters (the
-    value is handed to `format(&self, into:)`), but the place system judges it
-    a VALUE READ, so a move-only element is refused there — `print("{v[0]}")`
-    on a `Vector<Res>` is the same refusal with no coroutine anywhere
-    (DF-218i).
-
-    A PROJECTION is not one of these: `"{got.id}"` renders the field, and a
-    field read out of a lend is an ordinary place hop the system serves. So the
-    walk takes the operand only when it is the name itself, which is exactly
-    the read that would be refused.
-    """
-    if seen is None:
-        seen = set()
-    if node is None or id(node) in seen:
-        return
-    seen.add(id(node))
-    for operand in _rendering_operands(node):
-        if isinstance(operand, Identifier):
-            out.add(operand.name)
-    for sub in child_nodes(node):
-        _collect_rendered_names(sub, out, seen)
-
-
-def _rendering_operands(node):
-    if isinstance(node, StringInterpolation):
-        return list(node.expressions or [])
-    if isinstance(node, FunctionCall) and node.name in _RENDERING_CALLS:
-        return [a.value for a in (node.arguments or [])]
-    return []
 
 
 def _place_root_name(expr):
@@ -4579,14 +4532,6 @@ class _FrameBuilder:
         # window's closure has no drop flag it can reach.
         move_recvs = set()
         _collect_move_arg_receivers(self.func.body, move_recvs)
-        # DF-218i: the names read in a rendering position, filtered to the two
-        # tiers the place system refuses to read out of a lend. See
-        # `_migrated_enc` — a Copy tier reads for free and migrates.
-        rendered_all = set()
-        _collect_rendered_names(self.func.body, rendered_all)
-        rendered = {n for n in rendered_all
-                    if self._frame_read_policy(n) in ('nocopy', 'explicit')}
-
         encmap = {}
         # design 218 stage 4: the family that held a field back from `Slot<T>`,
         # recorded beside the encoding it produced. `_forget_stmt` reads it, so
@@ -4594,17 +4539,17 @@ class _FrameBuilder:
         # instead of a comment asserting one.
         defer_families = {}
 
-        def _record(nm, base_enc, ty, movers=(), rends=()):
-            enc, fam = _migrated_enc(nm, base_enc, addressed, ty, movers, rends)
+        def _record(nm, base_enc, ty, movers=()):
+            enc, fam = _migrated_enc(nm, base_enc, addressed, ty, movers)
             encmap[nm] = enc
             if fam is not None:
                 defer_families[nm] = fam
 
         for p in self.params:
             self._reject_erased_reference_param(p)
-            _record(p.name, _enc_of(p.type), p.type, move_recvs, rendered)
+            _record(p.name, _enc_of(p.type), p.type, move_recvs)
         for lname, lt in self.frame_locals:
-            _record(lname, _enc_of(lt), lt, move_recvs, rendered)
+            _record(lname, _enc_of(lt), lt, move_recvs)
         # design 62 G3: a DISCARDED cooperative `receive()` parks its value in a
         # `__rcvN` holder. Registered here so the ONE store funnel
         # (`_store_field`) can answer for it like any other owning field; no
