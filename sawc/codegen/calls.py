@@ -1016,8 +1016,16 @@ class CallsMixin:
                 segments.append(self._render_argument(item))
         return segments
 
-    def _render_argument(self, arg_expr):
-        """Render one format argument to a `(i8* ptr, word len)` byte range."""
+    def _render_argument(self, arg_expr, in_entry: bool = True):
+        """Render one format argument to a `(i8* ptr, word len)` byte range.
+
+        `in_entry` places the scratch a rendering needs in the ENTRY block,
+        which is right for a format argument on the normal path (the buffer is
+        live while the segments are consumed). A block that ends in
+        `unreachable` — a panic block — passes False, so a function that merely
+        CONTAINS such a site pays no frame bytes for it. See
+        `_render_int_value`, which has carried the same knob since design 137.
+        """
         word = self.int_type
         i8 = ir.IntType(8)
 
@@ -1035,7 +1043,7 @@ class CallsMixin:
         if (saw_type is not None
                 and self.namespace.is_printable(saw_type)
                 and not self._is_builtin_interp_type(saw_type)):
-            return self._render_via_format(arg_expr, saw_type)
+            return self._render_via_format(arg_expr, saw_type, in_entry=in_entry)
 
         value = self._generate_expression(arg_expr)
 
@@ -1055,7 +1063,7 @@ class CallsMixin:
                               TypeKind.UINT32, TypeKind.UINT64}
             is_unsigned = bool(saw_type is not None
                                and saw_type.kind in unsigned_kinds)
-            return self._render_int_value(value, is_unsigned)
+            return self._render_int_value(value, is_unsigned, in_entry=in_entry)
 
         if isinstance(value.type, ir.DoubleType):
             # Float stays snprintf-based, into stack scratch (hosted only —
@@ -1101,7 +1109,7 @@ class CallsMixin:
                                    name="fmt_int_len")
         return (bufp, length)
 
-    def _render_via_format(self, arg_expr, saw_type):
+    def _render_via_format(self, arg_expr, saw_type, in_entry: bool = True):
         """Stream a `Printable` value through `format` into stack scratch.
 
         Builds a FIXED `StringBuilder` (design 137) over a stack buffer and
@@ -1109,18 +1117,25 @@ class CallsMixin:
         landed. The builder truncates rather than growing, so a value that
         renders longer than `PRINTABLE_SCRATCH` ends in the `…` marker — the one
         place this path is bounded, and it says so.
+
+        `in_entry=False` puts the scratch in the CURRENT block instead of the
+        entry block — see `_render_argument`.
         """
         i8 = ir.IntType(8)
         i32 = ir.IntType(32)
         word = self.int_type
 
-        scratch = self._entry_alloca(ir.ArrayType(i8, self.PRINTABLE_SCRATCH),
-                                     name="fmt_scratch")
+        def scratch_alloca(llvm_type, name):
+            return (self._entry_alloca(llvm_type, name=name) if in_entry
+                    else self.builder.alloca(llvm_type, name=name))
+
+        scratch = scratch_alloca(ir.ArrayType(i8, self.PRINTABLE_SCRATCH),
+                                 "fmt_scratch")
         scratch_ptr = self.builder.gep(
             scratch, [ir.Constant(i32, 0), ir.Constant(i32, 0)], inbounds=True)
 
         sb_type, sb_fields = self.struct_types["StringBuilder"]
-        sb_ptr = self._entry_alloca(sb_type, name="fmt_sb")
+        sb_ptr = scratch_alloca(sb_type, "fmt_sb")
 
         def field(name):
             return self.builder.gep(

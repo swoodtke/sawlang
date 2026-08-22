@@ -5212,7 +5212,25 @@ is what keeps "a raw-backed enum value is always a declared case" true.
   `__saw_rt_panic` call, and the format is the same in the hosted and
   freestanding profiles.
 - **Force-unwrap of `None`** (`opt!`) panics with "force unwrap of None".
-  **`try!` on an `Err`** panics with "try! failed".
+- **`try!` on an `Err`** panics with "try! failed: `error`", rendering the error
+  it was handed:
+
+  ```saw
+  func reserve() -> Result<Void, AllocError> {
+      return AllocError(size: 64, align: 8)
+  }
+
+  func main() {
+      try! reserve()
+      // panic at reserve.saw:6: try! failed: allocation of 64 bytes (align 8) failed
+  }
+  ```
+
+  The error goes through the allocation-free format path, so the message
+  survives an exhausted allocator and works freestanding; an erased
+  `Box<any Error>` renders through its vtable, as `"{e}"` does. `E` is not
+  bounded `Printable` at a `try!`, so an error type with no conformance keeps
+  the bare "try! failed".
 - **An integer `as` whose value the target cannot represent** panics with
   "cast to `T` out of range: `value`" (design 170). The value is rendered on
   the failing branch only, through the allocation-free format path. An operand

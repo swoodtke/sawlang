@@ -1,0 +1,41 @@
+// `try!` on an Err panics WITH the error it was handed (DF-245b): the value is
+// right there, `Error` refines `Printable`, and the old message threw it away.
+// It matters because design 234 makes `try!` the migration spelling for a call
+// site that does not want to handle a failure — so this message is what
+// replaces `Vector.push: allocation failed` at such a site.
+//
+// The rendering goes through the design-137 alloc-free format path, so the same
+// text comes out under a denied allocator and in the freestanding profile.
+// `examples/try_force_panic.saw` is the other half of the rule: an error type
+// with no `Printable` conformance keeps the bare `try! failed`.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: panic at try_force_panic_names_the_error.saw:39: try! failed: allocation of 64 bytes (align 8) failed
+
+struct Refusal {
+    size: Int,
+    align: Int
+}
+
+extension Refusal: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("allocation of ")
+        into.append(self.size)
+        into.append(" bytes (align ")
+        into.append(self.align)
+        into.append(") failed")
+    }
+}
+
+extension Refusal: Error {}
+
+func reserve(bytes: Int) -> Result<Void, Refusal> {
+    return Refusal(size: bytes, align: 8)
+}
+
+func main() {
+    print("reserving")
+    // The Ok payload is Void, so this `try!` is a statement — the shape design
+    // 234 migrates an infallible op into.
+    try! reserve(64)
+    print("never reached")
+}

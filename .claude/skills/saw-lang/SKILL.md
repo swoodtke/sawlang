@@ -956,6 +956,15 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   for a caller that does not care which error arrived. There is NO stdlib-wide
   errno-style enum, ever: its defining property is that every signature lies.
   Crossing between tiers is WRITTEN — `try(as LocalError.Alloc) f()`.
+- **`try!` PANICS WITH THE ERROR IT WAS HANDED** (DF-245b, Aug 22):
+  `panic at FILE:LINE: try! failed: allocation of 64 bytes (align 8) failed`.
+  The rendering is the alloc-free format path, so it survives an exhausted
+  allocator and works freestanding, and an erased `Box<any Error>` renders
+  through its vtable. `E` is not bounded `Printable` at a `try!`, so an error
+  type with no conformance keeps the bare `try! failed` — which is the whole
+  message every `try!` used to give, so a build that prints only that on a
+  `Printable` error predates Aug 22. This is what makes `try!` a usable
+  migration for a call site that does not want to handle a failure.
 - **TWO PANICS ARE DOCUMENTED BOUNDARIES, not tiers to migrate** (user ruling,
   Aug 22). The ERASED-ERROR box: returning a concrete error at
   `-> Result<T, Box<any Error>>` allocates, and an error path cannot report an

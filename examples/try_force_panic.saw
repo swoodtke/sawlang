@@ -1,7 +1,12 @@
 // `try!` on an Err panics with the unified `panic at FILE:LINE:` prefix (design
 // 122 unit I): it used to carry a line but no file, in a format of its own.
+//
+// `ParseError` declares no `Printable` conformance, which makes this the
+// FALLBACK row of DF-245b's rule: `E` is not bounded `Printable` at a `try!`,
+// so an error type that never said how it reads keeps the bare `try! failed`.
+// `examples/try_force_panic_names_the_error.saw` is the row where it renders.
 // EXPECT: panic
-// EXPECT-PANIC-CONTAINS: panic at try_force_panic.saw:21: try! failed
+// EXPECT-PANIC-CONTAINS: panic at try_force_panic.saw:26: try! failed
 
 // Test try! (force unwrap) panics on Err
 

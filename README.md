@@ -153,7 +153,8 @@ func main() {
 
 A bare `try` propagates the error to the caller. The enclosing function must
 return a `Result`, and an `Err` becomes an early return, so `load_data` above
-hands `ParseError` back to whoever called it. `try!` panics instead, and
+hands `ParseError` back to whoever called it. `try!` panics instead, printing
+the error it was handed (`panic at cfg.saw:12: try! failed: no such file`), and
 `try?` turns the `Result` into an `Optional` (`None` on error). You can also
 `match` on a `Result` directly, or handle it inline with `catch`.
 

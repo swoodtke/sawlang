@@ -15,6 +15,7 @@ Usage:
 
 from llvmlite import ir
 from ast_nodes import TryExpr, TryCatchExpr, SawType, TypeKind, ResultOkWrap, ResultErrWrap
+from .calls import PreparedValue
 from .mangle import mangle_named
 
 
@@ -99,11 +100,54 @@ class ResultsMixin:
 
         # Panic block: emit the panic via the saw_panic seam.
         self.builder.position_at_end(panic_bb)
-        self._emit_panic("try! failed", line=expr.line)
+        self._emit_try_force_panic(result_val, expr, result_enum_name)
 
         # OK block - extract value
         self.builder.position_at_end(ok_bb)
         return self._extract_result_ok_value(result_val, result_enum_name)
+
+    def _emit_try_force_panic(self, result_val, expr: TryExpr,
+                              result_enum_name: str):
+        """Panic out of a `try!` that met an `Err`, NAMING the error (DF-245b).
+
+        `try!` is the only consumer of a `Result` that does not hand the payload
+        on — `try`, `try?`, `catch` and `main`'s Err exit all do — so it was the
+        one place a failure arrived complete and was reported as `try! failed`
+        and nothing else. That is also the spelling design 234 migrates a call
+        site to when it does not want to handle the failure, which is what makes
+        the message quality the point rather than a papercut: `try! v.push(x)`
+        must say what `Vector.push`'s panic said.
+
+        The error is rendered after the fixed text, through the SAME stack-scratch
+        walk `panic("...{}", e)` uses (`_render_argument` -> design 137), so the
+        alloc-free and denied-allocator paths keep working and an erased
+        `Box<any Error>` renders through its vtable exactly as `"{e}"` does. The
+        scratch lands in THIS block, not the entry block: it ends in
+        `unreachable`, so a function that merely contains a `try!` pays no frame
+        bytes for the message.
+
+        An error type the format walk cannot render — a struct or enum with no
+        `Printable` conformance, which `E` is not bounded to have — keeps the
+        bare text. Nothing is guessed about a type that never said how it reads.
+        """
+        _, _, variant_info = self.enum_types[result_enum_name]
+        err_params = variant_info["Err"]
+        err_type = err_params[0][1] if err_params else None
+        renderable = err_type is not None and (
+            self.namespace.is_printable(err_type)
+            or self._is_builtin_interp_type(err_type))
+        if not renderable:
+            self._emit_panic("try! failed", line=expr.line)
+            return
+
+        err_value = self._extract_result_err_value(result_val, result_enum_name)
+        rendered = PreparedValue(value=err_value, resolved_type=err_type,
+                                 line=expr.line, column=expr.column)
+        prefix_ptr, prefix_len = self._raw_bytes_ptr(
+            self._panic_location_prefix(expr.line) + "try! failed: ")
+        self._emit_runtime_panic(
+            [(prefix_ptr, prefix_len),
+             self._render_argument(rendered, in_entry=False)])
 
     def _generate_try_optional(self, result_val, is_ok, expr: TryExpr, result_enum_name: str):
         """Generate code for try? (convert Result<T, E> to T?)."""

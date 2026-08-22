@@ -34,7 +34,7 @@ is scheduled and in what order is the whole of what they say.
 - Design 234 — the fallibility flip (designs/234-fallibility-flip.md; unit-2 rulings Aug 22 in the brief + entry below) — units 0-2, 4, 5 and the channel sub-unit LANDED Aug 22 (`design-234`, `design-234-b`); DQ-230b executed. UNIT 3's MAIN FLIP is the REMAINDER, stopped on three pending rulings: DF-245a sequencing (lead recommends fix-fallible-init-first, dissolving the 194-site factory migration), DF-245b (owed regardless), and the 1434-site consumer-migration protocol (proposed: `try!` wholesale in examples/tests, judgment in std/tools). Re-queues behind those rulings
 - Design 242 — the Thread/Task split (designs/242-thread-task-split.md) — UNITS 0-1 LANDED Aug 22 (branch `design-242`: the renames, the docs, the compiler-emitted `Thread` identity carve-out; old spellings error with fixits; xfails unchanged). UNITS 2-5 HELD on a ruling: std's own `TaskGroup.crew: Vector<VoidThread>` is the in-tree counterexample to ruling 5's function-local escape refusal — three candidate shapes in the entry below. Two findings filed: DF-247a (a spawn root is undefined at its other same-module call sites), DF-247b (glob import splits the qualified and bare spellings into two types — wants a ruling)
 - Place-window xfail family — DISPATCHED Aug 22 (branch `place-window-fixes`, parallel with 242): DF-169h + DF-218h + DF-218i + DF-218j (four bogus refusals, pins state intended behavior) + the stale-looking DF-232n pin audited. Entries below
-- Diagnostics/codegen small batch — DISPATCHED Aug 22 (branch `diag-batch`, parallel with 242): DF-245b (try! carries its error), DF-238b (32-bit {} low-word), DF-238c (glob loses trait-module conformance), DF-243a (+ un-suffixing the abi asserts), DF-243b+DF-232g residue (diagnostic file threading), DF-225a, DF-225d (DF-225f rides only if trivial). Entries below
+- ~~Diagnostics/codegen small batch~~ — LANDED Aug 22-23 (branch `diag-batch`, seven commits, nothing stopped): DF-245b, DF-238b (+ the checked-cast twin), DF-238c (+ a second face at the thread-assertion funnel, conformance B23), DF-243a (four operator families + the sos abi un-suffixing, byte-identical), DF-243b+DF-232g residue, DF-225a, DF-225d (self usable as its own type on all ten primitives), DF-225f ridden. One finding filed: DF-249a (bounds panic omits index+length — wording decision held). xfails -2, none added
 - Transform typing batch — DISPATCHED Aug 22 (branch `transform-typing`, after 242 units 0-1 integrated): DF-245c (spawned-task None typing), DF-245d (try in binding scrutinee), DF-244b (bare None tail). Entries below
 - Design 238 — the sawos split (designs/238-sawos-split.md; four rulings Aug 19, D-b1/b2/b3 open) — BEFORE the M3 ladder; UNITS 0-1 LANDED Aug 21 (the oracle + the freestanding suite), units 2-7 open and user-reserved
 - M3 ladder — designs/232-sos-m3-sketch.md: unit 1.5 interruptibility, 2 CreateProcess, 2.75 handle lifecycle, 3 give, 4 Memory/IoMemory, 5 quotas, 5.5 death notifications, 6 money shot — runs IN sawos, after design 238
@@ -70,8 +70,12 @@ for sawos; "238 before more M3 work" is absolute.
 - ~~DF-218x~~ — CLOSED Aug 22 (branch `df-218xy`, commit 1): the branch got a cleanup scope of its own, so `_cleanup_to_depth` reaches the binding with no fourth entry point. The sweep found FIVE leaking spellings, not two, and corrected two entry claims (the driven twin was already right; the tuple pattern was mis-scoped rather than leaked). Entry below; conformance K76
 - ~~DF-218y~~ — CLOSED Aug 22 (branch `df-218xy`, commit 2) on the SYNC side, as the Aug-22 ruling directs: discard order is REVERSE-DECLARATION everywhere. The sweep found a SECOND forward loop — the destructuring `let`'s wildcard leaves — which was forward on both twins and moved with it. Pin flipped and extended to 11 rows; entry below; conformance K77
 - DF-244b — a bare `None` TAIL at a `Result<T?, E>` cannot type itself, in a NAMED body as much as a closure; entry below, DF-232h's residue. `return None` is the one-keyword workaround
+<<<<<<< HEAD
 - DF-247a — a function that is a `group.spawn` ROOT is `undefined function` at every other call of it in the same module (entry below, filed by design 242 unit 0's census; PRE-EXISTING, stash-verified). The fix owes the ROOT MATRIX its mechanism reaches, not the one probed cell
 - DF-247b — under a GLOB import the QUALIFIED spelling of a type is a DIFFERENT type from the bare one (entry below, filed by design 242 unit 1; PRE-EXISTING and general, three types probed with two green controls). Wants a RULING first: make it work, or make the glob refuse a qualifier
+=======
+- DF-249a — the fixed-array bounds panic holds the index and the length and prints neither; entry below, filed by DF-245b's sweep. Wants a wording decision (does the length belong in the message, and do std's hand-written accessor panics follow)
+>>>>>>> 59b67d2c (DF-245b: `try!` panics WITH the error it was handed)
 - DF-246a — `examples/task_backtrace_mt.saw` flakes under machine LOAD (a fixed `sleep` standing in for a happens-before between two MT tasks), which reads as a suite regression and costs a battery re-run; `channel_receive_cancel_mt.saw` is the second member of the class. Entry below, found by `df-218xy`'s terminal battery
 - DF-248a — a window body may not name the window's own ROOT, even for a read that invalidates nothing (`v[0].n = v.len()`); held deliberately, and what it wants is a designed "shared second access to the root" rule. Entry below, filed by DF-169h's fix
 - DF-248b RESIDUE — a HAND-WRITTEN closure nested inside another still captures the outer one's `&var` PARAMETER by value, so a write through it is silently lost; the place-window half closed Aug 22. Entry below, pinned XFAIL; wants a borrow marker on `VariableInfo`
@@ -246,6 +250,7 @@ sites (counted below), not a signature tweak. [234]
 
 ## DF-245b — `try!` PANICS WITHOUT THE ERROR IT WAS HANDED, and design 234
 ## makes it the corpus's mass-migration spelling
+## — CLOSED Aug 22 (branch `diag-batch`, commit 1)
 
 ```saw
 func fails() -> Result<Void, AllocError> { return AllocError(size: 64, align: 8) }
@@ -279,6 +284,55 @@ alloc-free and denied-allocator paths keep working. `E` is not bounded
 `Printable` at the `try!` site, so a non-Printable `E` keeps today's text.
 NEEDS A RULING on the exact wording, and it CHANGES A PIN
 (`examples/try_force_panic.saw` expects `try! failed` verbatim). [234, 19]
+
+LANDED Aug 22, in the fix shape above and at that wording:
+`panic at F:L: try! failed: <error>`. `_generate_try_force`'s literal
+`_emit_panic` became `_emit_try_force_panic`, which renders the extracted Err
+through `_render_argument` — design 137's ONE format walk, the same one
+`print("{}", e)` and the checked-cast panic (`cast to UInt8 out of range: 1000`)
+already use, which is why the message is alloc-free by construction rather than
+by a second copy of the rule. `_render_argument`/`_render_via_format` gained the
+`in_entry` knob `_render_int_value` already had, and the `try!` path passes
+False: a panic block ends in `unreachable`, so a function that merely CONTAINS a
+`try!` pays no frame bytes for the 512-byte Printable scratch.
+MATRIX (probed, `.build/scratch/df245b_matrix.saw` + `_suspend.saw`): a
+`Printable` struct, a `Printable` enum at a `Result<Void, E>`, an erased
+`Box<any Error>` (renders through its vtable), a `String` error, an `Int32`
+error, and a NON-Printable struct (keeps the bare text) — plus a `try!` in a
+suspending body over a suspending subject, and the whole file under
+`--no-hidden-alloc`.
+SWEEP (obligation 4): the mechanism is "a compiler-emitted panic that HOLDS the
+offending value and reports fixed text". Census of `_emit_panic`'s callers — the
+force-unwrap of `None` has no value (that IS the failure), and division by zero
+/ integer overflow / shift range report a CONDITION, not a payload; the checked
+CAST already renders its value and is the precedent this follows. One position
+remains and is filed rather than invented: the fixed-array bounds panic
+(DF-249a below) holds the index and the length and prints neither.
+PINS: `examples/try_force_panic_names_the_error.saw` (the rendering row) beside
+`examples/try_force_panic.saw`, whose non-`Printable` `ParseError` is now the
+FALLBACK row and says so. Spec's Runtime-Semantics list, README's error section
+and the saw-lang skill all carry the new message.
+CONFORMANCE: no row owed — this is diagnostic quality on an already-trapping
+path, not a safety guarantee (what `try!` DOES on an `Err` is unchanged).
+
+## DF-249a — the FIXED-ARRAY bounds panic holds the index and the length and
+## prints neither (filed Aug 22, DF-245b's sweep)
+
+`a[i]` out of range on a `[Int; 4]` is `panic at f.saw:9: index out of range`,
+and the two numbers that would make it actionable are both in hand at the trap:
+the index is the value just compared, and the length is the compile-time
+constant it was compared against (`_emit_array_bounds_check`,
+`codegen/operators.py:283`). The checked CAST next door already renders its
+operand (`cast to UInt8 out of range: 1000`, design 170) through the alloc-free
+format path, and DF-245b just put `try!` on the same footing, so the machinery
+and the precedent both exist — `index 7 out of range: length 4` is one
+`_render_int_value(..., in_entry=False)` plus a constant.
+NOT the same finding as DF-245b (that one dropped a value it was HANDED; this
+one declines to report a value it COMPUTED), which is why it is filed rather
+than ridden. Wants a wording decision before it is written: whether the length
+belongs in the message at all, and whether std's own hand-written accessor
+panics (`Vector.[]: index out of range`, authored in Saw) should follow. [122,
+170, 63]
 
 ## DF-245c — ONE SPAWNED TASK ANYWHERE stops every `return None` at a
 ## `-> Result<T?, E>` from typing, in functions that task never calls
