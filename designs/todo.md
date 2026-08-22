@@ -54,7 +54,7 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-242b — a cross-module OVERLOAD SET is bound BARE as a single overload, so a call only another member matches is refused; the QUALIFIED spelling of the same call sees all of them (entry below, found probing DF-238a's fix)
 - DF-242c — a SUFFIXED (exact-typed) literal argument does not disambiguate an `Int`-vs-narrow overload set; same-module and cross-module alike (entry below, found probing DF-238a's fix)
 - ~~DF-238b~~ — CLOSED Aug 22 (branch `diag-batch`, commit 2): an integer renders at its own width now, through the new `_fmt_int_fn` funnel; the freestanding pin lost its XFAIL and grew to four rows. The sweep also fixed the checked-CAST panic, which truncated the same way. Entry below
-- DF-238c — a trait's-module conformance for a foreign type is lost by a GLOB import and carried by a selective one (entry below, pinned XFAIL with its control)
+- ~~DF-238c~~ — CLOSED Aug 22 (branch `diag-batch`, commit 3): a conformance query now walks the GLOB sources beside the qualifier bindings, through the new `coherence_search_namespaces` funnel. The sweep found a SECOND FACE at the same funnel — a declared `UnsafeSend`/`UnsafeSync` was lost the same way. Both pins flipped; conformance row B23. Entry below
 - DF-239b — deep argument typing unchecked on the generic-bound call path (entry below, beside DF-239a)
 - DF-232g RESIDUE — a DECLARED array length that never folds reports with NO FILE from codegen (entry below; the fold half CLOSED Aug 21, this half wants a declared `source_file` annotation on the expression base)
 - DF-226b/c — FuncPointer v1 gaps (entries below, under design 226)
@@ -810,6 +810,7 @@ freestanding suite IS its ledger.
 ## DF-238c — a conformance declared in the TRAIT's module for a foreign type is
 ## carried by the SELECTIVE import form and lost by the GLOB one (filed Aug 21,
 ## design 238 unit 1)
+## — CLOSED Aug 22 (branch `diag-batch`, commit 3)
 
 `extension Rec: Summary` declared in `Summary`'s module, `Rec` declared in
 another — the orphan rule's second half, legal in exactly that one place. A
@@ -841,6 +842,44 @@ between the two halves of the rule and not between the two import forms alone.
 Pinned XFAIL: `examples/conformance_in_the_traits_module_is_program_wide.saw`
 (+ `examples/modules/orphan238c_type/`, `examples/modules/orphan238c_trait/`),
 which carries the control beside the finding. [238, 142, 150]
+
+LANDED Aug 22. WHERE THE TWO ARMS DIVERGE, exactly: a glob binds no QUALIFIER
+(design 150 pin 1), so `check_module`'s glob arm appends to `ns.glob_sources`
+and never touches `ns.modules` — and `type_conforms_to` walked `ns.modules`
+alone. The selective and whole-module forms both bind a qualifier, which is the
+whole of why they carried the conformance; `_import_conformances` (the
+struct/enum copy) never entered into it, because `Rec` is not one of the trait
+module's own declarations to copy. FIX: `Namespace.coherence_search_namespaces`,
+one generator over both lists, with the two queries as its declared entry
+points. Name lookups (`_lookup_struct_deep` and its twins, the trait-parent
+walk) are deliberately NOT routed through it — those are VISIBILITY questions,
+where the glob's copy already answers and widening the search would reach a
+globbed module's private declarations. That is the line the fix draws: a
+conformance is program-wide, a NAME is not.
+SWEEP (obligation 4) — the mechanism is "a query about a type reaches an
+imported module through `ns.modules`, which a glob never populates". Census of
+`self.modules.values()` walks: `type_conforms_to` (the finding),
+`_lookup_thread_assertion` (A SECOND FACE, probed — a globbed
+`extension Shared: UnsafeSync {}` is invisible, so `static SLOT: Shared` is
+refused as non-Sync while the selective import of the same module compiles),
+and the four NAME lookups, which are correct as they stand for the reason above.
+MATRIX (probed, `.build/scratch/df238c_*.saw`): the glob form now resolves, and
+so do a PARENT trait's conformance under the same bound, the generic declared
+in the trait's module and instantiated from the entry, the selective form, the
+QUALIFIED form (which the entry recorded as "never reached — inference fails
+first"; DF-238a's Aug-21 fix cleared that, so it is a real row now), and the
+control beside the TYPE.
+PINS: `examples/conformance_in_the_traits_module_is_program_wide.saw`
+un-XFAIL'd and grown to six rows over four fixture modules
+(`orphan238c_type/`, `orphan238c_trait/` — which gained the parent trait —
+plus the new `orphan238c_sel/` and `orphan238c_qual/`, one per import form,
+because one file can spell only one form per module), and
+`examples/thread_assertion_survives_a_glob_import.saw` over
+`examples/modules/globassert/` for the second face.
+CONFORMANCE: row B23 added — "a conformance declared under the orphan rule is
+coherent program-wide, carried by every import form", covered by both files.
+The skill's orphan-rule bullet carries the suspect-in-older-builds note; the
+SPEC needed no change, since it already stated the rule the compiler now keeps.
 
 ## DF-232g — a LOCAL static DERIVED from an imported const stops being a
 ## compile-time constant, though the same expression folds INLINE (filed Aug 17,

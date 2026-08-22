@@ -2346,6 +2346,16 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
   needs no import: it is visible wherever the type and the trait both are.
   In practice you almost never notice this rule — you conform your own
   types, and the in-tree migration when it landed was zero.
+  **PROGRAM-WIDE MEANS EVERY IMPORT FORM** (DF-238c, fixed Aug 22). The half a
+  GLOB used to lose is the rule's SECOND one — the conformance declared in the
+  TRAIT's module for a foreign type, whose declaration site a glob of the
+  TYPE's module cannot reach either. `import m.*` reported ``type `Rec` does
+  not implement trait `Summary` `` and hinted at adding the extension that was
+  already there, while `import m.{Summary}` compiled the same file. A DECLARED
+  `UnsafeSend`/`UnsafeSync` went the same way, so a `static` of a globbed
+  cell-carrying type was refused as non-Sync. Both work now — treat them as
+  working and SUSPECT in older builds, where switching the import to the
+  selective form was the workaround.
 - **TYPE IDENTITY is (defining module, name) — design 144.** A dependency's
   PRIVATE `struct Header` reserves nothing in your program: you declare your
   own `Header`, with its own layout, methods and `Vector<Header>`. Same for

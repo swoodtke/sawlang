@@ -1256,14 +1256,49 @@ class Namespace:
         method = self.lookup_method(struct_name, method_name)
         return method.is_init if method else False
 
+    def coherence_search_namespaces(self):
+        """Every namespace a COHERENCE query reaches from here (DF-238c).
+
+        THE ONE PLACE that answers "which imported modules can a conformance
+        have been declared in" (obligation 1). ENTRY POINTS: `type_conforms_to`
+        and `_lookup_thread_assertion` — the two queries about what a type was
+        DECLARED to be, as opposed to what a name resolves to.
+
+        Both import forms that bind a QUALIFIER land in `modules`; a GLOB binds
+        none and lands in `glob_sources` instead. That is the right answer for a
+        NAME (a glob copies the names it takes straight into this namespace, and
+        the ones it did not take are ones this module may not see), and the
+        wrong one for a CONFORMANCE: design 142 makes a conformance declared
+        under the orphan rule coherent PROGRAM-WIDE, so no import form may lose
+        one. Before this walked `glob_sources` too, `import m.*` lost every
+        conformance `m` declares for a type declared ELSEWHERE — the orphan
+        rule's second half, the half whose declaration site is the trait's
+        module rather than the type's, and therefore the half a glob of the
+        TYPE's module cannot carry either. The same gap hid the `UnsafeSync` a
+        `static` slot needs, one query over.
+
+        Name lookups (`_lookup_struct_deep` and its enum/alias twins, the
+        trait-parent walk) are deliberately NOT routed here: those are questions
+        about visibility, where the glob's copy already did the right thing and
+        widening the search would reach a globbed module's PRIVATE declarations.
+        """
+        for module_sym in self.modules.values():
+            ns = getattr(module_sym, 'namespace', None)
+            if ns is not None:
+                yield ns
+        for _label, ns in self.glob_sources:
+            if ns is not None:
+                yield ns
+
     def type_conforms_to(self, type_name: str, trait_name: str, _visiting=None) -> bool:
         """Check if a type conforms to a trait.
 
-        Checks this namespace, then any imported module namespace (conformances
-        are registered per-module at typecheck time and only merged for codegen,
-        so a cross-module query — e.g. a manifest module erasing a TomlError from
-        the toml module — must look through imports too, design 56). The visited
-        set guards against import cycles."""
+        Checks this namespace, then every namespace an import reaches
+        (`coherence_search_namespaces`) — conformances are registered per-module
+        at typecheck time and only merged for codegen, so a cross-module query —
+        e.g. a manifest module erasing a TomlError from the toml module — must
+        look through imports too (design 56). The visited set guards against
+        import cycles."""
         if type_name in self.conformances and trait_name in self.conformances[type_name]:
             return True
         if _visiting is None:
@@ -1272,9 +1307,8 @@ class Namespace:
         # not the persistent node identity design 126 R2 replaced: the set dies
         # with the recursion and must compare physical objects.
         _visiting.add(id(self))
-        for module_sym in self.modules.values():
-            ns = getattr(module_sym, 'namespace', None)
-            if ns is not None and id(ns) not in _visiting:
+        for ns in self.coherence_search_namespaces():
+            if id(ns) not in _visiting:
                 if ns.type_conforms_to(type_name, trait_name, _visiting):
                     return True
         return False
@@ -2455,9 +2489,13 @@ class Namespace:
                                  _visiting=None):
         """The bound lists a declared `UnsafeSend`/`UnsafeSync` carries, or None.
 
-        Looks through imported module namespaces exactly as `type_conforms_to`
-        does: a conformance is registered in the module that declares it and the
-        tables are only merged for codegen, so the query has to walk.
+        Looks through imported namespaces exactly as `type_conforms_to` does,
+        and through the same funnel (`coherence_search_namespaces`): a
+        conformance is registered in the module that declares it and the tables
+        are only merged for codegen, so the query has to walk. DF-238c's second
+        face was here — a globbed module's `extension Shared: UnsafeSync {}` was
+        invisible, so a `static SLOT: Shared` was refused as non-Sync while the
+        selective import of the same module compiled.
         """
         table = self.thread_assertions.get(type_name)
         if table is not None and trait_name in table:
@@ -2465,9 +2503,8 @@ class Namespace:
         if _visiting is None:
             _visiting = set()
         _visiting.add(id(self))
-        for module_sym in self.modules.values():
-            ns = getattr(module_sym, 'namespace', None)
-            if ns is not None and id(ns) not in _visiting:
+        for ns in self.coherence_search_namespaces():
+            if id(ns) not in _visiting:
                 found = ns._lookup_thread_assertion(type_name, trait_name,
                                                     _visiting)
                 if found is not None:

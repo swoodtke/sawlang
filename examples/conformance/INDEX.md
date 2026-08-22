@@ -6,7 +6,7 @@ either a file in this directory or an existing `examples/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
-**452 rows: 346 carry a file here, 106 are covered elsewhere** (recounted Aug 16
+**453 rows: 346 carry a file here, 107 are covered elsewhere** (recounted Aug 16
 from the table itself — the audit-era "121 here, 198 elsewhere" had gone stale
 across the briefs listed below). (The audit's 247 plus
 the rows later briefs added: W02-W05, design 194 unit 4; W06-W19, design 195
@@ -32,7 +32,8 @@ matrix; K70-K73, design 218 unit 2's scope-end migration and its two
 emission residues; K74, DF-219c's bound-aware spawn capture audit; K75,
 DF-218v's try/catch error edge — K74/K75 renumbered from K72/K73 at
 integration, where the two Aug-21 branches collided; K76, DF-218x's
-optional-binding branch scope, and K77, DF-218y's discard order.)
+optional-binding branch scope, K77, DF-218y's discard order, and B23,
+DF-238c's orphan-rule coherence across import forms.)
 
 ## How to read it
 
@@ -529,6 +530,7 @@ Claim source: spec 8 *Visibility* + *The prelude*; designs 80, 82, 142, 188 u7, 
 | B20 | no declaration exposes a type its callers cannot see: a `public` function's parameter and return, and a `public` field's type, are refused where they are written when the type is less visible | `B20_private_type_in_public_signature_error.saw`, and the full position matrix at `private_in_public_positions_error.saw` + `private_in_public_extension_surface_error.saw` | Aug 21 ruling ("a public API needs public types") — was a DEVIATION: the value path let a module-private type out, so a caller could hold and use a value it had no way to NAME. Refused at the declaration now, in the Rust E0446 shape, on design 219's precedent that a `public` declaration hard-requires what an internal one may infer |
 | B21 | control: the rule stops at the declaration's own reach — a PRIVATE declaration names anything, and a `public` member of a non-public type is capped at that type's reach (design 80's "legal but inert") | `B21_private_declaration_names_anything.saw` | Aug 21 — the fence on B20, and what makes "narrow the declaration" a real fix rather than a dead end |
 | B22 | a module-private type cannot leave its module on the VALUE path or the design-141 PLACE path, and the refusal lands in the module that can fix it | `B22_private_type_escapes_module_error.saw` | 232o face 2 — the cross-module face, and the row that retires the residue: the place path used to fail in the IMPORTING module as ``argument `__window` expects `(&var Hidden) sync -> Hidden` but got `(&var Hidden) -> Void```, naming a synthesized parameter and never saying "visibility". The file's `EXPECT-ERROR-ABSENT: __window` is what pins that no legal program reaches that lowering; `place_cross_module_same_name_type.saw` is the legal half (a design-144 same-named type across the boundary keeps its identity through a read, a write and a conditional lend) |
+| B23 | a conformance declared under the ORPHAN RULE is coherent PROGRAM-WIDE — carried by every import form, including a `UnsafeSend`/`UnsafeSync` assertion | `conformance_in_the_traits_module_is_program_wide.saw`, `thread_assertion_survives_a_glob_import.saw` | 238c — was a DEVIATION: a conformance query walked the QUALIFIER bindings, which a GLOB deliberately never makes, so `import m.*` lost every conformance `m` declares for a type declared ELSEWHERE (the rule's second half, whose declaration site is the trait's module) and the diagnostic hinted at adding the extension that was already there. `coherence_search_namespaces` is the one funnel now, and its two entry points are `type_conforms_to` and `_lookup_thread_assertion` — the second is the row's other file, where a globbed `extension Shared: UnsafeSync {}` was invisible and a `static` of that type was refused as non-Sync. Name lookups are deliberately NOT routed through it: those are visibility questions, where a glob's copy already answers |
 
 ## Integer width agreement
 

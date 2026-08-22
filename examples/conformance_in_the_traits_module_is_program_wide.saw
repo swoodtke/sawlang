@@ -1,37 +1,64 @@
-// XFAIL: DF-238c a conformance declared in the TRAIT's module for a type
-// declared elsewhere — the orphan rule's second half — is carried by the
-// SELECTIVE import form and NOT by the GLOB one. Under `import m.*` a generic
-// bound checked here reports ``type `Rec` does not implement trait `Summary` ``
-// and hints at adding the extension that is already there and already legal;
-// switching this file's second import to `.{Summary, outside}` makes the same
-// call compile and print 14. LANGUAGE_SPEC's rule is that a conformance
-// declared under the orphan rule is coherent PROGRAM-WIDE and needs no import
-// at all, so neither form should be able to lose it — and the glob is
-// documented as "every public name of the module", which the trait plainly is.
+// Conformance row B23 — a conformance declared under the orphan rule is
+// coherent PROGRAM-WIDE, at every import form.
 //
-// The control below is the orphan rule's OTHER half — a conformance beside the
-// TYPE — reached through a glob of its own. It works, which is what says the
-// glob machinery is not simply blind to conformances.
+// The half under test is the orphan rule's SECOND one: `extension Rec: Summary`
+// declared in `Summary`'s module, with `Rec` declared elsewhere. Its
+// declaration site is the TRAIT's module, so a glob of the TYPE's module cannot
+// carry it and the coherence query has to reach the trait's module itself.
+//
+// Until DF-238c was fixed the GLOB form lost it — ``type `Rec` does not
+// implement trait `Summary` ``, hinting at the extension that is already there
+// and already legal — while the same file with `.{Summary, outside}` compiled.
+// The cause was one funnel: a conformance query walked the QUALIFIER bindings,
+// which a glob deliberately never makes.
+//
+// Four rows over the four modules: glob, selective, qualified, and the control
+// — a conformance beside the TYPE, the orphan rule's other half, which survived
+// a glob throughout and is what says the glob machinery was never simply blind
+// to conformances. `Summary: Base` makes the glob row a trait CHAIN too: the
+// bound has to find the parent's conformance beside the child's.
 //
 // EXPECT: success
 // EXPECT-OUTPUT: 14
 // EXPECT-OUTPUT: 7
-// COMPILE-FLAGS: --module-path orphan238c_type={TESTDIR}/modules/orphan238c_type --module-path orphan238c_trait={TESTDIR}/modules/orphan238c_trait
+// EXPECT-OUTPUT: 7
+// EXPECT-OUTPUT: 14
+// EXPECT-OUTPUT: 21
+// EXPECT-OUTPUT: 28
+// COMPILE-FLAGS: --module-path orphan238c_type={TESTDIR}/modules/orphan238c_type --module-path orphan238c_trait={TESTDIR}/modules/orphan238c_trait --module-path orphan238c_sel={TESTDIR}/modules/orphan238c_sel --module-path orphan238c_qual={TESTDIR}/modules/orphan238c_qual
 import orphan238c_type.*
 import orphan238c_trait.*
+import orphan238c_sel.{Tally, tally_outside}
+import orphan238c_qual
 
 func over_summary_here<T: Summary>(value: &T) -> Int {
     value.summary()
+}
+
+func over_base_here<T: Base>(value: &T) -> Int {
+    value.base_word()
 }
 
 func over_named_here<T: Named>(value: &T) -> Int {
     value.label()
 }
 
+func over_ledger_here<T: orphan238c_qual.Ledger>(value: &T) -> Int {
+    value.ledger()
+}
+
 func main() {
     let r = Rec(n: 7)
-    // The finding: the trait's-module conformance, under a glob.
+    // The finding: the trait's-module conformance, under a GLOB.
     print(over_summary_here(&r))
-    // The control: the type's-module conformance, under a glob.
+    // Its parent, which the same bound has to find.
+    print(over_base_here(&r))
+    // The control: the type's-module conformance, under a glob of its own.
     print(over_named_here(&r))
+    // The generic declared in the trait's module, instantiated from here.
+    print(outside(&r))
+    // The SELECTIVE form, which carried the conformance all along.
+    print(tally_outside(&r))
+    // The QUALIFIED form, at both positions a qualifier appears.
+    print(over_ledger_here(&r))
 }

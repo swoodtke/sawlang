@@ -4,11 +4,23 @@
 // trait).
 //
 // `inside` proves the conformance is REGISTERED: the same generic call, made
-// here, compiles and runs. What the entry module cannot do is make it.
+// here, compiles and runs. What the entry module could not do, before the
+// coherence walk learned about glob imports, was make it.
+//
+// `Base` is `Summary`'s parent, so a bound on `Summary` also has to find the
+// `Base` conformance beside it — the trait-CHAIN row of the same question.
 import orphan238c_type.{Rec}
 
-public trait Summary {
+public trait Base {
+    func base_word(&self) -> Int
+}
+
+public trait Summary: Base {
     func summary(&self) -> Int
+}
+
+extension Rec: Base {
+    func base_word(&self) -> Int { self.n }
 }
 
 extension Rec: Summary {

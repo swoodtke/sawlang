@@ -1,0 +1,16 @@
+// DF-238c's QUALIFIED-form row: a third trait module conforming the same
+// foreign `Rec`, reached with a bare `import orphan238c_qual` and named through
+// the qualifier at every position — the bound and the call.
+import orphan238c_type.{Rec}
+
+public trait Ledger {
+    func ledger(&self) -> Int
+}
+
+extension Rec: Ledger {
+    func ledger(&self) -> Int { self.n * 4 }
+}
+
+public func ledger_outside<T: Ledger>(value: &T) -> Int {
+    value.ledger()
+}
