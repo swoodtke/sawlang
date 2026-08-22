@@ -1,0 +1,19 @@
+// The fence on DF-243a's widening. A const expression adopts an operand's
+// width, so it takes the range check that comes with adoption: a folded value
+// the peer cannot hold is the same clean error a bare literal gives, not a
+// silent narrowing at the comparison.
+//
+// The second row is what says the widening did not open a hole: a RUNTIME
+// operand of a different width is still refused by design 195's operand
+// agreement, because its width is already decided and there is nothing to adopt.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: constant expression 1048576 does not fit in `UInt8` (range 0..=255)
+// EXPECT-ERROR-CONTAINS: operator `>=` requires both operands to have the same type, but the left is `UInt8` and the right is `Int32`
+
+func main() {
+    let small: UInt8 = 3
+    print(small >= (1 << 20))
+
+    let wide: Int32 = 5
+    print(small >= wide)
+}

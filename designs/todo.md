@@ -47,7 +47,7 @@ for sawos; "238 before more M3 work" is absolute.
 ## [BACKLOG] — filed, not scheduled
 
 - `public(package) import` — should the scoped re-export form exist? Refused today (design 229). Real use case: an INTERNAL PRELUDE, one sibling aggregating names for the others (Rust's `pub(crate) use`). Against: siblings can already import each other directly, so it buys convenience, not capability — and kcore, the biggest multi-file package and the one that motivated the tier, does NOT want it (its `public import` block is the EXTERNAL facade). Wait for a package that feels the pain (entry: the re-narrowing rider section)
-- DF-243a — a const EXPRESSION does not adopt the other operand's width in a mixed comparison, where a BARE literal does; entry below. DF-235a/b's family, at the one position that ladder did not reach — and it is what makes the Aug-17 bit-flag ruling need a suffix in an assert and none in a case value
+- ~~DF-243a~~ — CLOSED Aug 22 (branch `diag-batch`, commit 4): the adoption ladder covers the mixed binop now, at all four operator families the sweep found (not just the comparison the filing named), so the Aug-17 bit-flag ruling costs no suffix anywhere. The sos rider un-suffixed 40 assert operands, proved byte-identical. Entry below
 - DF-243b — an error inside a `--module-path` DEPENDENCY is reported under the ENTRY file's path with the dependency's line numbers; entry below. Same family as the DF-232g residue above (a dependency location the reader cannot open)
 - DF-243c — RULED Aug 22 (user): the DOC was wrong ("bit 8" is unrepresentable in a `UInt8`); doc-fix landed same day, lead-direct — the sentence now states the value AND the masking invariant it rests on (`PMP_PERM_MASK = 0x7` before staging). Wire format unchanged. CLOSED; entry below is the record
 - (DF-238a CLOSED Aug 21 by the small-fix batch — entry below; DF-239b, its adjacent, is still open at the line above)
@@ -654,6 +654,7 @@ brief's fork ruling. Units 2-7 remain open and are user-reserved.
 ## DF-243a — a const EXPRESSION does not adopt the other operand's width in a
 ## mixed COMPARISON, where a bare literal does (filed Aug 21, the sos riders
 ## remainder; found respelling the abi rights asserts)
+## — CLOSED Aug 22 (branch `diag-batch`, commit 4)
 
 `static_assert((SystemRight.Debug as UInt32) >= 256, …)` compiles — a bare
 literal adopts the other operand's type in a mixed binop (design 195). Respell
@@ -680,6 +681,45 @@ CONSEQUENCE FOR THE Aug-17 BIT-FLAG RULING: it reads as "spell a bit as a
 shift", and today that costs a width suffix in every operand position. Worth
 deciding whether the adoption ladder should cover the mixed binop, which would
 retire the suffix here. [235, 232c, 195, 185]
+
+LANDED Aug 22 — the ladder covers the mixed binop, so the suffix is retired.
+TWO EDITS AT THE FUNNEL, both in `_check_operand_agreement`'s neighbourhood:
+its CARVE-OUT (rule 1's "only a bare literal promotes") now asks
+`_adopting_const_operand` instead of `_bare_int_literal`, and
+`_adopt_bare_literal_operand` asks the same question so the operand actually
+takes the peer's width. `_adopting_const_operand` is `_adopting_int_source` with
+two deliberate differences, both because it decides ADOPTION rather than
+overload ambiguity: it supplies the names a constant may read first
+(`_stamp_const_names`, DF-240a's walk — that is what makes `flag >= (1 << SHIFT)`
+work), and it EXCLUDES an expression naming a const generic parameter, exactly
+as `_fold_const_expression_into` does, since an abstract body has no value to
+fold. Adoption itself goes through the DF-235a/b fold, so the value is
+materialized AT the peer's width and range-checked there; a PLATFORM peer needs
+no fold (the expression already IS platform `Int`), and a CONST position takes
+none either (design 185's signed platform-`Int` domain is the fold's, so pinning
+a width there would check against a width the fold does not use — the carve-out
+alone is what that position needed).
+MATRIX (probed, `.build/scratch/df243a_*.saw`) — the mechanism reaches every
+entry point of the agreement funnel that takes two numeric PEERS, which is four
+more positions than the filing named: the const-position comparison (the filed
+repro), a runtime comparison, arithmetic `+`, the bitwise `&`, and a constant
+naming a module `static`. Compound assignment was already covered by DF-235a/b
+(its RHS is pre-stamped by the adoption ladder) and is pinned here anyway to
+keep the entry points in one file. A `for`-range's bounds cannot be exercised —
+a range start must be `Int`, which is a separate pre-existing restriction. The
+SHIFT COUNT stays exempt (design 195 matrix row 6). FENCES: a folded value the
+peer cannot hold is the same "does not fit" error a bare literal gives, and a
+RUNTIME operand of a different width is still refused.
+PINS: `examples/const_expression_adopts_an_operand_width.saw` and
+`examples/errors/const_operand_does_not_fit_error.saw`.
+SOS RIDER: `sos/kernel/abi/src/lib.saw`'s 40 `(1u32 << n)` assert operands are
+now `(1 << n)`, so one bit is spelled one way — as a shift, in the case value
+and in the assert that checks it — and the comment that explained the suffix now
+records that it is gone. PROVED VALUE-IDENTICAL: the same consuming program
+compiled against the committed (suffixed) and working (un-suffixed) module trees
+emits byte-identical IR (`.build/scratch/probe_sosabi_identity.py` — IDENTICAL).
+Spec's operand-agreement section and the skill's const-expression bullet both
+carry the rule.
 
 ## DF-243b — an error inside a `--module-path` DEPENDENCY is reported under the
 ## ENTRY file's path, carrying the DEPENDENCY's line numbers (filed Aug 21,

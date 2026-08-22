@@ -5021,12 +5021,31 @@ func doubling(n: Int) -> Int {
 //       `None`, `Int.from(truncating: x)` keeps the low bits
 ```
 
-Implicit promotion happens from **bare integer literals** and nowhere else. A
-bare literal has no width of its own and adopts the other operand's type, so
-`n * 2` is legal at every integer type; the negated form `n * -2` is a bare
-literal too, and `big / 3` on a `UInt big` is an unsigned division, because the
-literal is a `UInt` there. A suffixed literal is exact-typed, and a named value
-carries the type it was declared with.
+Implicit promotion happens from **operands whose width is still undecided** and
+nowhere else. A bare literal has no width of its own and adopts the other
+operand's type, so `n * 2` is legal at every integer type; the negated form
+`n * -2` is a bare literal too, and `big / 3` on a `UInt big` is an unsigned
+division, because the literal is a `UInt` there. A suffixed literal is
+exact-typed, and a named value carries the type it was declared with.
+
+A **constant expression** is in the same state and adopts on the same terms —
+this is the mixed-binop position of the rule in "Integer literals adopt their
+slot's width", so one bit is spelled one way wherever it appears:
+
+```saw
+enum SystemRight: UInt32 {
+    case Transfer = 1 << 0,
+    case Debug = 1 << 8,
+}
+static_assert((SystemRight.Debug as UInt32) >= (1 << 8),
+              "kind-specific rights start at bit 8")
+```
+
+The fold supplies the names a constant may read, so a module `static` or a
+raw-backed enum case may be a leaf; a value that does not fit the peer's width
+is the same "does not fit" error a bare literal gives. A **runtime** operand is
+not a constant, so `word.read() | (1u32 << n)` for a runtime `n` still needs its
+suffix.
 
 There is no promotion ladder. An operation has two peers, and a rule picking a
 winner between them would decide, silently, which operand's reading the program

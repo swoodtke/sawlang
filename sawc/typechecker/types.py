@@ -3447,6 +3447,50 @@ class TypeUtilsMixin:
             return False
         return isinstance(value, int) and not isinstance(value, bool)
 
+    def _adopting_const_operand(self, expr, operand_type=None) -> bool:
+        """`_adopting_int_source`, asked of an OPERAND (DF-243a).
+
+        Three differences from its sibling, all because this one decides whether
+        an operand may ADOPT rather than whether an overload set is ambiguous:
+
+        - AN EXACT-TYPED OPERAND IS EXCLUDED. Rule 1's carve-out is for an
+          operand whose width is still UNDECIDED, and a const expression is in
+          that state exactly while it checked as the platform `Int` — which is
+          what the const evaluator's own domain gives it (design 185). A
+          SUFFIXED literal folds just as happily and is exact-typed (design 53),
+          so without this test `n * 2i16` on an `Int n` stopped being the clean
+          width error design 195 made it and went back to being the codegen ICE
+          it was before (`Type of #2 arg mismatch: i64 != i16`). The caller
+          passes the type the operand checked as; `None` means "not asked", for
+          a caller that has no type in hand.
+        - The NAMES a constant may read are supplied first
+          (`_stamp_const_names`, DF-240a's walk), so `flag >= (1 << PAGE_SHIFT)`
+          is the constant it plainly is. The stamp writes only onto its own
+          nodes and `const_eval` is the only reader, so it is safe on an
+          expression that turns out not to be constant.
+        - An expression naming a const GENERIC parameter is excluded, exactly as
+          `_fold_const_expression_into` excludes it: the abstract body check has
+          no value to fold, so admitting it here would pass an operand nothing
+          can then narrow. The monomorphized body asks again, with a value.
+        """
+        if expr is None:
+            return False
+        if self._bare_int_literal(expr) is not None:
+            return True
+        if operand_type is not None:
+            if self._get_underlying_type(operand_type).kind != TypeKind.INT:
+                return False
+        from const_eval import const_eval, ConstEvalError
+        self._stamp_const_names(expr)
+        try:
+            value = const_eval(expr, env=self._const_param_env(),
+                               width=self.platform_int_width)
+        except (ConstEvalError, Exception):
+            return False
+        if not isinstance(value, int) or isinstance(value, bool):
+            return False
+        return not self._mentions_const_param(expr)
+
     def _check_operand_agreement(self, left_expr, right_expr,
                                  left_type: Optional[SawType],
                                  right_type: Optional[SawType],
@@ -3496,9 +3540,19 @@ class TypeUtilsMixin:
         # does not adopt: whether an integer literal may become a float one is a
         # language question design 195 did not take (DF-195d), so the mix is
         # refused with a hint naming the float spelling.
+        #
+        # DF-243a: a CONST EXPRESSION is on the carve-out too, on exactly the
+        # terms `_adopting_int_source` states — its width is still undecided, so
+        # it is the same thing a bare literal is with arithmetic written on it.
+        # `(r as UInt32) >= 256` compiled and `(r as UInt32) >= (1 << 8)` did
+        # not, which made the Aug-17 bit-flag ruling ("spell a bit as a shift")
+        # cost a width suffix in every operand position and left one file
+        # spelling one bit two ways. DF-235a/b put the const expression on the
+        # adoption ladder everywhere a bare literal adopts; the mixed-binop
+        # OPERAND is the position that ladder did not reach.
         if (lu.kind != TypeKind.FLOAT and ru.kind != TypeKind.FLOAT
-                and (self._bare_int_literal(left_expr) is not None
-                     or self._bare_int_literal(right_expr) is not None)):
+                and (self._adopting_const_operand(left_expr, left_type)
+                     or self._adopting_const_operand(right_expr, right_type))):
             return True
         self._error(
             ErrorKind.TYPE_MISMATCH,
@@ -3559,8 +3613,10 @@ class TypeUtilsMixin:
         """
         if left_type is None or right_type is None:
             return None
-        left_lit = self._bare_int_literal(expr.left) is not None
-        right_lit = self._bare_int_literal(expr.right) is not None
+        # DF-243a: the const EXPRESSION rides here too — `_adopting_const_operand`
+        # is the same question asked of a literal, one level of arithmetic up.
+        left_lit = self._adopting_const_operand(expr.left, left_type)
+        right_lit = self._adopting_const_operand(expr.right, right_type)
         if left_lit and right_lit:
             return None
         if right_lit:
@@ -3603,7 +3659,20 @@ class TypeUtilsMixin:
         if rt.kind not in self._AGREEMENT_INT_KINDS:
             return None
         if self._bare_int_literal(value_expr) is None:
-            return None
+            # DF-243a: a CONST EXPRESSION adopts on the same terms, but only into
+            # a FIXED-WIDTH peer and only when the fold actually answers. The
+            # fold is what materializes the value AT that width
+            # (`const_folded_value`, which codegen emits instead of the
+            # operation); pinning `resolved_type` without it would tell the rest
+            # of the checker a width the emitted operation does not have. A
+            # PLATFORM peer needs neither: the expression already IS platform
+            # `Int`, so there is nothing to narrow and the operation answers in
+            # the peer's type exactly as it does beside a bare literal.
+            if rt.kind not in self._FIXED_INT_RANGES:
+                return None
+            if not self._fold_const_expression_into(value_expr, rt, target):
+                return None
+            return target
         self._apply_literal_expected_type(value_expr, target)
         value_expr.resolved_type = SawType(rt.kind)
         return target

@@ -153,6 +153,19 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   check), and `let mask: UInt8 = Perm.Read | Perm.Write` is legal with the
   value 3 — see FLAG ENUMS below for what that amends. Both were wrong before
   Aug 21: the first compiled and printed `0`, the second was refused.
+  **AND SO DOES A MIXED-BINOP OPERAND (DF-243a, fixed Aug 22)** — the one
+  position on the bare literal's list that ladder had not reached. A const
+  expression beside a typed operand adopts that operand's width in a
+  comparison, in arithmetic and in the bitwise operators, in a const position
+  and out of one: `(right as UInt32) >= (1 << 8)` and `flag + (1 << PAGE_SHIFT)`
+  need no suffix, and one that does not fit is the same "does not fit" error a
+  bare literal gives. It was refused outright before that date (``operator `>=`
+  requires both operands to have the same type, but the left is `UInt32` and
+  the right is `Int` ``) with `1u32 << 8` as the workaround, which is what made
+  the Aug-17 bit-flag ruling cost a suffix in an assert and none in the case
+  value it checks. A RUNTIME operand is still not a constant, so
+  `word.read() | (1u32 << n)` keeps its suffix for the reason the idiom below
+  states.
   **IDIOM (user ruling, Aug 16): no suffix where an expected type is in
   force.** `static CR: UInt32 = 0x301u32` says the width twice — write
   `0x301`; same in a param (`reg.write(0)`), a comparison against a typed
