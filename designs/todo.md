@@ -2483,7 +2483,16 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   field, so a field for it would never be written; (b) a block with a VALUE
   (`final_expr`) takes no in-place E-FALL, since a clear appended to its
   statement list would run ahead of the expression that reads the binding.
-  Bench timing at the terminal battery: no regression outside noise.
+  THE WATCH ITEM, measured rather than estimated. The BENCH lane cannot see
+  this change at all — `devtools/bench/warehouse/warehouse.saw` contains no
+  `yield_now`/`spawn`/`TaskGroup`/`__saw_drive`, so the transform never runs on
+  it (min 385 ms at the terminal battery, on a three-agent machine, and not
+  comparable to a quiet-machine figure either way). The cost the ruling
+  accepted is FRAME SIZE, so that is what was counted: `--emit-frame-layout`
+  over the 110 `examples/coro_*.saw` files, 386 frames, summing each frame's
+  extent. 46390 -> 46606 bytes, **+216 bytes total, +0.47%** (same 386 frames
+  and the same 2 skipped files on both sides — probe:
+  `.build/scratch/probe_frames.py`).
 
 - **DF-218t (ICE, PRE-EXISTING; found Aug 21 while probing DF-218r's
   break-with-a-value edge)** — a VALUE-position loop whose result type is not
