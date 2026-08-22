@@ -1,7 +1,7 @@
-//! Fixture for the visibility grid's DF-232n row (design 235): a
-//! `public(package)` member, reached only through a RELATIVE-path import
-//! (no `--module-path` — no package-root identity is ever computed for
-//! either side).
+//! Fixture for the visibility grid's ad-hoc-package row (design 235): a
+//! `public(package)` member, reached through a RELATIVE-path import inside a
+//! manifest-less tree. Since DF-232n closed, the tree the ENTRY file sits in
+//! IS the package, so the reach is legal — see the importer.
 // EXPECT: skip
 
 public(package) func pkg_secret() -> Int { 1 }

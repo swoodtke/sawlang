@@ -3073,10 +3073,13 @@ construct in the owner and lend `&driver` down.
   receiver's own mode decides the capture's.
   The enclosing method may be sync OR SUSPENDING (design 218 stage 3 closed
   DF-216g); both read the live receiver. Treat the suspending half as working
-  now and SUSPECT in older builds, where it was an ICE. GOTCHA in a suspending
-  body: the receiver is reached through a place window there, and two windows on
-  one move-only root in ONE assignment are refused (DF-218j), so write
-  `self.n += 10` rather than `self.n = self.n + 10` inside such a closure.
+  now and SUSPECT in older builds, where it was an ICE. In a suspending body the
+  receiver is reached through a place window, so `self.n = self.n + 10` inside
+  such a closure is two windows on one root — which is fine since Aug 22
+  (DF-218j: the right-hand side's window closes before the target's opens, which
+  is the order an assignment already had). Before that it was refused with a
+  copy error and `self.n += 10` was the workaround, so distrust the long form in
+  an older build.
 - `guard` must exit (return/break/continue/panic).
 - Shadowing footgun (design 100/107): naming an inner binding after an outer one
   is an ERROR unless the inner DERIVES from the outer (its initializer mentions the

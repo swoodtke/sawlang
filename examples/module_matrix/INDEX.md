@@ -95,7 +95,8 @@ file, so the mechanism is not re-derived per kind five more times.
 | `public` | cross module, re-export chain | qualifier chain, value position | `existing: export229_whole_chain_call.saw` (conformance row B17) |
 | `public(package)` | same package (sibling) | qualified, selective, glob | `existing: module_path_package_visibility.saw`, `df229c_package_selection_binds.saw`, `module_path_glob_facade_sibling.saw` (conformance row B16) |
 | `public(package)` | cross package (`--module-path`-mapped) | qualified, selective, one-hop facade, two-hop facade, glob facade, whole-module facade | `existing: module_path_package_visibility_error.saw`, `module_path_qualified_no_widen_error.saw`, `module_path_reexport_no_widen_error.saw`, `module_path_reexport_twohop_no_widen_error.saw`, `module_path_reexport_kinds_no_widen_error.saw`, `module_path_glob_facade_no_widen_error.saw`, `module_path_whole_facade_no_widen_error.saw`, `module_path_facade_selection_error.saw` (conformance row B15 — every spelling refuses, no widening) |
-| `public(package)` | reached via a RELATIVE-path import (no `--module-path`, no package-root identity on either side) | qualified | RED (DF-232n): `visibility_package_relative_import_fails_open.saw` |
+| `public(package)` | reached via a RELATIVE-path import, inside a MANIFEST-LESS tree | qualified | `visibility_package_adhoc_tree_is_one_package.saw` — GREEN since DF-232n closed (Aug 20), and green by ALLOWING: the entry file's tree is the package |
+| `public(package)` | reached via a RELATIVE-path import, ACROSS a `Saw.toml` root | qualified, selective | `existing: package_tier_foreign_relative_reach_error.saw`, `…_selection_error.saw` (the refusal); `existing: module_tests/pkg232n/tests/package_tier_same_package_reach.saw` (the same-manifest accept side) |
 
 **A SECOND QUESTION joined this grid on Aug 21** ("a public API needs public
 types"). Every row above asks whether an ACCESS may reach a name; the ruling
@@ -118,16 +119,25 @@ position axis (which declared slots name a type) is the funnel's own matrix,
 
 **Cell counts, the declaration-side rows**: 6 green, 0 red, 0 N/A, 0 OPEN.
 
-**The DF-232n row is the one genuine red cell this grid adds.** Every
-`public(package)` row above that refuses correctly does so because BOTH
-sides carry a `--module-path`-mapped package-root identity; the moment
-neither side does (a plain `import modules.X`, which is how the vast
-majority of this repo's own cross-module tests — and every fixture this
-unit's OTHER two grids use — reach each other), `check_visibility`'s
-`if not package_root: return True` fail-open default answers ALLOW instead
-of refusing. Already filed (`libs/toml/tests/*.saw` proved it live against
-`TomlDoc`/`semver.Version`); this ledger's file is the minimal two-file
-pin.
+**The DF-232n row WAS this grid's one genuine red cell, and it went green on
+Aug 20 — by allowing, not by refusing.** When the grid was written, every
+`public(package)` row that refused correctly did so because BOTH sides carried
+a `--module-path`-mapped package-root identity; the moment neither did (a plain
+`import modules.X`, which is how the vast majority of this repo's own
+cross-module tests reach each other), `check_visibility`'s `if not
+package_root: return True` fail-open default answered ALLOW. DF-232n's fix gave
+every module a PACKAGE IDENTITY instead of flipping that default, and the
+identity a manifest-less file gets is the entry file's directory TREE — so two
+relative siblings in one tree are one package and the reach is right. The row
+above says so now, and the arm that does refuse (across a `Saw.toml` root) got
+a row of its own.
+
+**A NOTE ON HOW LONG THAT TOOK TO NOTICE (DF-248c).** The pin kept asserting
+the old intended behavior — `EXPECT: error`, citing DF-232n — for two days
+after DF-232n closed, and no gate said a word: a stale XFAIL breaks the build
+only in the XPASS direction, and this one still FAILED, because it asked for a
+refusal the language deliberately does not give. Nothing cross-checks an
+`// XFAIL: DF-xxx` citation against whether that DF is still open.
 
 **Supplementary, not part of the brief's named 3-tier axis**:
 `public(parent)` (design 80's fourth tier) has its own strong existing
@@ -153,9 +163,9 @@ kind-generality directly), so a struct-scoped static is not expected to
 exercise a different code path than the module-level static or the
 struct's own instance method already covered.
 
-**Cell counts, grid 2** (9 core tier×relation cells, the grid's own
-consolidation unit): 8 green (all cited existing, 1 new
-private/cross-module supplementary file), 1 red (DF-232n, new pin), 0 OPEN.
+**Cell counts, grid 2** (10 core tier×relation cells — the relative-path row
+split in two when DF-232n closed, since the manifest-less tree and the
+across-a-`Saw.toml` reach take opposite answers): 10 green, 0 red, 0 OPEN.
 Two supplementary notes (enum-case tier, struct-static-at-package/parent
 tier) are N/A with reasons recorded in place, per the brief's own
 discipline.
@@ -187,14 +197,19 @@ arbitrary check order's silence with the diagnostic.
   harness shape existed for a two-module cycle before this ledger), and they
   are now its regression tests. Confirmed the same mechanism at 3-cycle
   length, not assumed.
-- **DF-232n** (already filed, the re-narrowing audit) — `public(package)`
-  fails open across a relative-path import; this unit's file is its first
-  minimal two-file pin (the finding's own evidence was `libs/toml/tests/`,
-  a larger fixture).
+- **DF-232n** (already filed, the re-narrowing audit; FIXED Aug 20, branch
+  `df-batch-232n`) — `public(package)` fell open across a relative-path
+  import; this unit's file was its first minimal two-file pin (the finding's
+  own evidence was `libs/toml/tests/`, a larger fixture). The pin is now the
+  ACCEPT row of the ruling that closed it, under the behavior's own name.
+- **DF-248c** (filed Aug 22, auditing this file) — an XFAIL whose cited DF has
+  CLOSED is invisible to every gate, so a pin can keep asserting a superseded
+  intended behavior indefinitely. Found here, and here only: the corpus's
+  other eight citations were all still open when swept.
 
-No new DF numbers filed by unit 2 — both red cells were already-filed,
-not-yet-fixed findings this unit's grids happened to reach and pin for the
-first time. DF-232e's two cells are green as of Aug 21; DF-232n's remains
-red.
+No new DF numbers were filed by unit 2 itself — both red cells were
+already-filed, not-yet-fixed findings this unit's grids happened to reach and
+pin for the first time. DF-232e's two cells are green as of Aug 21, DF-232n's
+as of Aug 20.
 
 No OPEN cells in any of the three grids.

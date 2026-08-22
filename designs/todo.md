@@ -72,6 +72,8 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-244b — a bare `None` TAIL at a `Result<T?, E>` cannot type itself, in a NAMED body as much as a closure; entry below, DF-232h's residue. `return None` is the one-keyword workaround
 - DF-246a — `examples/task_backtrace_mt.saw` flakes under machine LOAD (a fixed `sleep` standing in for a happens-before between two MT tasks), which reads as a suite regression and costs a battery re-run; `channel_receive_cancel_mt.saw` is the second member of the class. Entry below, found by `df-218xy`'s terminal battery
 - DF-248a — a window body may not name the window's own ROOT, even for a read that invalidates nothing (`v[0].n = v.len()`); held deliberately, and what it wants is a designed "shared second access to the root" rule. Entry below, filed by DF-169h's fix
+- DF-248b RESIDUE — a HAND-WRITTEN closure nested inside another still captures the outer one's `&var` PARAMETER by value, so a write through it is silently lost; the place-window half closed Aug 22. Entry below, pinned XFAIL; wants a borrow marker on `VariableInfo`
+- DF-248c — an XFAIL whose cited DF has CLOSED is invisible to every gate (the policy's teeth are the XPASS direction only); the one found instance is fixed, the LANE is not built. Entry below, with the fix direction
 
 - DF-225a — a user `extern "C"` function under a codegen-internal name (`printf`, `abort`, …) ICEs with no location (entry below, under DF-225a-f)
 - DF-225d — a primitive extension method returning bare `self` refuses its own declared return type, both sides printed identical (entry below, under DF-225a-f)
@@ -3075,6 +3077,96 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   whoever picks it up: a `task_backtrace_mt` failure reading `1 live` is this,
   not a regression; re-run it alone before chasing it.
 
+- **DF-248d — CLOSED (Aug 22, `place-window-fixes`), filed and fixed by
+  DF-218i's obligation-4 sweep: COMPARING a place is a borrow too.**
+  `v[0] == w[0]` on a `Vector<Tag>` where `Tag: NoCopy + Equatable` was ``lends
+  a place of type `Tag`, which is move-only``, while `a == b` over two move-only
+  LOCALS compiled beside it — design 239 gave `equals`/`compare` an
+  `other: &Self` precisely so a move-only type with a hand-written comparison is
+  comparable, and the place path never got the message. SAME MECHANISM as
+  DF-218i (a bare place read is judged by design 131's table wherever it sits,
+  including in a position that hands the value to a `&self` callee and keeps
+  nothing), so it went through the same funnel: `_rendering_slots` became
+  `_borrowing_operand_slots` and grew a comparison clause, all six operators,
+  both sides. Row: `examples/place_comparison_operand_is_a_borrow.saw`
+  (LHS-only, RHS-only, both, all six operators, the ExplicitCopy tier and the
+  Copy-tier control). Conformance row P20. The two-places-ONE-ROOT cell keeps
+  DF-248a's boundary.
+
+- **DF-248c (PROCESS GAP; filed Aug 22 by the place-window branch's xfail
+  audit) — an XFAIL whose cited DF has CLOSED is invisible to every gate.** The
+  XFAIL policy's teeth are the XPASS direction: a marker on a test that starts
+  passing breaks the build. Nothing looks the other way. A pin whose finding was
+  fixed by a ruling that SUPERSEDED the intended behavior the pin asserts keeps
+  FAILING — so it stays a well-behaved known failure, forever, while the ledger
+  it belongs to reports a red cell that is green.
+  FOUND: `examples/module_matrix/visibility_package_relative_import_fails_open.saw`
+  cited DF-232n, which CLOSED Aug 20. It asked for a refusal (``EXPECT: error``,
+  ``is public(package) in``) that DF-232n's own fix deliberately does not give:
+  the fix closed the fail-open arm by IDENTITY, and a manifest-less tree
+  compiled from one entry is ONE package (`ModuleResolver.package_identity` arm
+  2, DF-229c's ruling generalized), so two relative siblings under
+  `examples/module_matrix/` reach each other legally. Fixed here: the pin is the
+  ACCEPT row of that ruling under the behavior's own name
+  (`visibility_package_adhoc_tree_is_one_package.saw`), the grid's red cell is
+  green and split in two (the across-a-`Saw.toml` arm got its own row), and
+  `examples/module_matrix/INDEX.md` records both.
+  SWEEP (obligation 4) — a population of ONE today, and the mechanism admits
+  more. All nine `// XFAIL: DF-` citations in `examples/` were checked against
+  `designs/todo.md`: DF-218h, DF-218w, DF-238c, DF-239b, DF-245c, DF-245d and
+  DF-248b are open entries; DF-218j and DF-169h were this branch's own and are
+  now flipped off; DF-232n was the one closed citation. Nothing about that ratio
+  is structural — the next fix that closes a finding whose pin asserts a
+  superseded expectation lands in exactly the same blind spot.
+  FACE 2, found by this branch's own near-miss and the same mechanism: an XFAIL
+  that starts failing for a WORSE reason than the one cited is invisible too.
+  DF-169h's first commit gated GREEN while it had turned DF-218h's clean
+  refusal into a DOUBLE FREE — the pin
+  (`place_window_move_arg_consumes_local.saw`) compiled and printed each id's
+  deinit twice, which is still a failing xfail, so nothing said a word. The
+  marker records an expectation and every gate reads only pass/fail, so the two
+  faces are one gap: what the ledger claims about a pin is never checked against
+  what the pin does. The correction landed one commit later, with a moved-name
+  exclusion in the capture synthesis.
+  FIX DIRECTION (not built here — it is a gate-lane decision, and the matching
+  is prose): a lane that reads every `// XFAIL: DF-xxx` in `examples/` and fails
+  when the DF is not an OPEN tracker entry. The hard half is "open": todo.md
+  keeps a closed entry IN PLACE until the lead moves it to the week's done file,
+  so the test cannot be "appears in todo.md" — it wants either a machine-readable
+  status on the entry or the check keyed to `designs/done_*.md` membership
+  (a citation that appears in a done file is closed, full stop). The second is
+  cheap and would have caught face 1. Face 2 is harder and probably wants the
+  pin to say HOW it fails — an `XFAIL-EXPECT: error` / `XFAIL-EXPECT: output`
+  discriminator the runner checks — so that a refusal turning into a miscompile
+  breaks the build instead of blending in.
+
+- **DF-248b (SILENT LOST WRITE, PRE-EXISTING; filed Aug 22 by DF-169h's sweep;
+  the WINDOW half FIXED in the same branch) — a closure nested inside another
+  closure captures the outer one's REFERENCE PARAMETER by value.** MECHANISM:
+  codegen binds a reference closure parameter to the POINTER itself and records
+  its INNER type beside it (`closures.py`, the `is_reference` arm — that is what
+  makes `{ e in e }` yield a `T`), so the capture walk sees a `T`-typed name,
+  loads the VALUE through the pointer and puts a copy in the env. The write
+  lands in the copy. Two things hide it: the closure's own reads see that copy
+  AFTER the write, so only the ROOT is stale, and design 132's capture-write
+  rule catches the ASSIGNMENT spelling at compile time — so only the ARGUMENT
+  spelling (`inner({ bump(&var c) })`) gets through.
+  FIXED HERE, the PLACE-WINDOW face: `setboth(&var a.at().n, &var b.at().n)` —
+  design 188's own accept side, two roots that alias nothing — lost BOTH writes
+  before DF-169h and the outer one after it, which is what identified the
+  remaining half as the window's own PARAMETER rather than an enclosing local.
+  A window closure's parameter is bound under its REFERENCE type (the
+  `place_shared_window` path), so the synthesis can see it and spells the
+  borrow. Row: `examples/place_window_nested_writes_land.saw`.
+  STILL OPEN, the hand-written face, and it is open because the checker cannot
+  SEE it: a closure's `&var c` parameter is bound under its INNER type with a
+  mutability flag, so `outer_scope.lookup("c")` is indistinguishable from an
+  ordinary `var` local. The fix wants a borrow MARKER on `VariableInfo`, which
+  every scope in the compiler shares — a small change with a wide blast radius,
+  and a sweep of its own (`Mutex.lock`/`SpinLock.lock`/`Arc.with_unique` bodies
+  are the shapes that hand out a `&var` closure parameter in std).
+  PIN: `examples/closure_nested_ref_param_capture.saw` (XFAIL)
+
 - **DF-248a (BOGUS-REFUSAL, BOUNDED; filed Aug 22 by DF-169h's fix) — a window
   body may not name the window's own ROOT, even for a read that invalidates
   nothing.** `v[0].n = v.len()` is ``cannot copy value of type `Vector<Cell>`
@@ -3102,7 +3194,8 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   table would refuse it, the window's extent becomes the smallest RENDERING
   expression and the operand is the window's own `&T` binding — which every
   rendering position already accepts. The three positions go through ONE funnel,
-  `_rendering_slots`, whose docstring names them (interpolation operand;
+  `_borrowing_operand_slots` (named `_rendering_slots` when it landed; DF-248d
+  widened it a commit later), whose docstring names them (interpolation operand;
   single-argument `print` of a Printable; the format arguments of
   `print`/`panic`/`assert` past the literal format string and past `assert`'s
   condition). Scoped to the REFUSED reads deliberately: where the tier permits
@@ -3156,9 +3249,48 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   stopped compiling — stage 1 holds that family back (`_migrated_enc`, the
   fifth deferred family) rather than shipping either the refusal or the
   double free.
+  **STOPPED, with the code site named (Aug 22, `place-window-fixes`).** The
+  branch that fixed DF-169h/i/j reached this one and stopped rather than code
+  around it, as the tracker's own reading says to. The double free is
+  `sawc/codegen/closures.py`'s capture loop: the `move` arm clears the source
+  binding's drop flag and marks it moved ONLY `if escapes`, because only an
+  ESCAPING closure has a heap env with a destructor to release the value later.
+  A NON-escaping closure keeps its env on the stack with no destructor at all
+  ("captures are borrowed and no retain/teardown is needed"), so clearing the
+  flag there would LEAK whenever the body does not consume the capture, and not
+  clearing it double-frees whenever the body does — which is exactly what
+  `run({ [move h] in sink(move h) })` prints (`sank 1 / deinit 1 / done /
+  deinit 1`, re-measured on today's tree). So the missing piece is not a flag: a
+  non-escaping `move` capture needs an env TEARDOWN after the call that consumes
+  the closure, and a body that moves CONDITIONALLY (a value `if`/`match` arm, a
+  `??` short-circuit) needs the flag to live in the env rather than in the
+  frame. That is the closure move-out design the entry already asks for, and it
+  is why the window lowering cannot patch its own closure: the hole is one layer
+  below it. DF-169h's borrow captures deliberately do NOT reach this — a `move`
+  of a borrow-captured name is "cannot move out of reference", a different
+  refusal for the same protective reason.
   PIN: `examples/place_window_move_arg_consumes_local.saw` (XFAIL)
 
-- **DF-218j (BOGUS-REFUSAL, PRE-EXISTING) — an assignment whose TARGET and
+- **DF-218j — CLOSED (Aug 22, `place-window-fixes`): two windows on one root,
+  in one assignment, are SEQUENCED rather than nested.** An assignment already
+  says in which order its two sides run (design 193 fixed the RHS as the first
+  thing it evaluates), so `_assignment` hoists a right-hand side that opens a
+  window on the TARGET'S OWN ROOT into a `let` ahead of the write — the "two
+  windows in SEPARATE statements" shape design 188 has always accepted. The
+  hoist REMOVES the overlap rather than permitting one, so 188's refusal of two
+  by-reference accesses to one root in ONE CALL is untouched
+  (`place_window_exclusivity.saw` still expects that error). Narrow by design:
+  only an RHS rooted at the target's root hoists, since two windows on two
+  different roots nest happily and hoisting those would move a temporary's
+  death to the block's end for every `v[0] = w[1]` in the corpus. SWEEP: the
+  pin is now the matrix — the named accessor, the subscript (`v[0] = v[1]`, an
+  ordinary line that did not compile), a COMPOUND assignment whose RHS
+  re-enters, a forced conditional lend on both sides, and the optional-CHAIN
+  spelling (hoisted at the statement, `_hoist_chain_assign_rhs`). ONE position
+  is out of reach and recorded rather than fixed: the value-position chain
+  assignment (`guard let _ = m[k]?.f = m[k2]!.g`) has no statement to hoist
+  into and stays refused. Original finding follows.
+  **(BOGUS-REFUSAL) — an assignment whose TARGET and
   whose RHS each open a place window on the same MOVE-ONLY root is refused as
   a copy nobody wrote.** `h.at().n = h.at().n + 10` on a NoCopy `h` reports
   ``cannot copy value of type `Holder` which implements NoCopy``, hinting at a
@@ -6197,11 +6329,18 @@ Closed items: see todo_aug1-aug9.md.
   it is a lowering device, not a value, so the code inside it must run against
   the live bindings — and the borrow rides the very rule that admits a
   hand-written `[&var x]` (a direct argument to a non-escaping parameter). Two
-  names stay value captures on purpose: a REFERENCE-typed binding (whose plain
-  capture already copies the pointer — the `&var` PARAMETER row that always
-  worked) and the receiver's own ROOT (borrowing that would put a second access
-  to the root inside the open window — design 188; the bogus half of that
-  boundary is DF-248a). The sweep found a much wider face than the pin: `v[0] =
+  names stay value captures on purpose, each keeping a refusal exactly where it
+  was: the receiver's own ROOT (borrowing that would put a second access to the
+  root inside the open window — design 188; the bogus half of that boundary is
+  DF-248a), and a name the body MOVES (DF-218h — `move` out of a borrow
+  capture is not a transfer the language has, and the copy-tier refusal is the
+  protective answer until the closure move-out design lands). The moved-name
+  exclusion was CORRECTED IN, one commit later: without it the borrow capture
+  lifted DF-218h's refusal and its pin compiled and DOUBLE-FREED, and the suite
+  stayed green because an XFAIL that fails for a WORSE reason is still a known
+  failure (DF-248c face 2). A REFERENCE-typed binding is not an exclusion — see
+  DF-248b, whose window face landed with that correction. The sweep found a
+  much wider face than the pin: `v[0] =
   w[1]` over two disjoint containers was the ExplicitCopy twin of the same
   refusal. Pin flipped (`examples/place_nocopy_arg_in_window.saw`) + the sweep
   matrix `examples/place_window_borrows_enclosing_locals.saw`; LANGUAGE_SPEC's
