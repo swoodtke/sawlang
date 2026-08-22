@@ -171,6 +171,18 @@ IN FLIGHT on branch `design-234`. Landed so far:
   a propagating `try` in a `return` inside a suspending body) and DF-244b
   (open, the bare-`None` tail residue).
 
+**UNIT 2 IS HELD FOR A USER RULING** and was not started. §2's `IoError`
+`code: Int32` ("the platform's raw truth, ALWAYS present") is not implementable
+without changing design 117's ABI, which REFUSED exactly this in a recorded pin
+deviation (`sawc/rt/ABI.md:174-182`): one negated word cannot carry a tag AND a
+raw errno, and SOS has no errno. `__saw_rt_last_syserror` classifies errno and
+discards the raw value inside the runtime, so nothing downstream can recover
+it. Three ways out, costed in the brief's landing section — a new additive seam
+is the cheap one, and it still needs a ruling on what SOS answers. The rest of
+unit 2 (the `IoErrorKind` vocabulary, `ChannelError.Alloc`) is unblocked but was
+left with it, so the unit lands as one piece rather than as the half that
+changes nothing observable.
+
 ## Design 238 — the sawos split (AUTHORED Aug 19, FOUR RULINGS same day;
 ## QUEUED after the sos riders batch, BEFORE the M3 ladder)
 

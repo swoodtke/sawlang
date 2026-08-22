@@ -375,3 +375,62 @@ TWO FINDINGS, both pre-existing, both named by mechanism:
 - **DF-244b (open)** — a bare `None` TAIL at a `Result<T?, E>` cannot type
   itself, in a NAMED body as much as a closure, so it is not the
   closure-vs-named disagreement DF-232h was. `return None` works.
+
+## Unit 2 — HELD FOR A RULING (Aug 22)
+
+**Not started.** §2's `IoError` reshape cannot be implemented as ratified
+without changing a DIFFERENT ratified decision, so it stops here rather than
+being coded around.
+
+### The collision
+
+§2 requires `code: Int32` to ride on EVERY `IoError`, carrying "the platform's
+raw truth", and says why: classification loses information by design (EACCES
+and EPERM both become `PermissionDenied`) and the log wants the real one.
+
+The raw errno never crosses the runtime seam. `__saw_rt_last_syserror()`
+(`sawc/rt/host_macos/net_os.saw:87`, `host_linux/net_os.saw:82`) reads errno,
+classifies it, and returns ONLY the tag — the local `e` holding the raw value
+is discarded inside the runtime, so nothing downstream can recover it.
+
+That is deliberate and RECORDED. `sawc/rt/ABI.md:174-182`, the "Pin deviation"
+paragraph, refuses exactly this on two grounds: a single negated-word return
+cannot carry a tag AND a raw errno, and SOS has no errno to preserve. Design
+117 chose to buy diagnostic richness by growing the TAG table instead, and
+DF-215a's five off-loopback tags are that promise being kept. §2 asks for the
+thing 117 declined.
+
+### The three ways out, costed
+
+1. **A new additive seam** — `__saw_rt_last_raw_code() -> word`, set by the
+   same runtime code that classifies, read at the same instant. Genuinely
+   additive in ABI.md's own sense (a new symbol; no existing signature moves,
+   so `runtime_abi.py`'s arity/width check and `make abidoc`'s symbol-set check
+   see what they saw before), and it does NOT reintroduce the POSIX-errno
+   fragility 117 rejected, because the value is captured inside the runtime
+   beside the tag rather than read after the fact by std. Costs: both hosts,
+   `sos/rt/common` (which must answer something), `runtime_abi.py`, `ABI.md`.
+   The SOS answer needs a ruling of its own — §2 says both "0 where the
+   platform has none" and "on SOS/freestanding, `code` carries the platform's
+   native status", and for SOS those are the same number as the tag.
+2. **Widen the status word** to carry `(tag, code)` — changes the return
+   contract of every status-carrying op. NOT additive; contradicts the
+   one-word/`(status, value)` correspondence with the SOS syscall ABI that
+   ABI.md gives as the reason for the encoding.
+3. **Ship `code` as always 0 on hosted** — contradicts §2's own words, and
+   makes the field useless exactly where it was meant to earn its keep.
+
+Storing the TAG in `code` is not a fourth option: `kind` already is the tag,
+so the struct would carry one fact twice and §2's motivating sentence would be
+false.
+
+### What is NOT blocked
+
+The rest of unit 2 is independent of this: `IoErrorKind`'s vocabulary is
+already sitting in the tag table (22 tags, 21 with words —
+`sys_error_name` has no arm for `Other`, which falls through `case _` and is
+the existing `Unknown` analogue), and `ChannelError` gaining
+`Alloc(e: AllocError)` needs nothing from the seam. Both were left unstarted
+so unit 2 lands as one piece once the ruling arrives — a `kind`-only reshape
+would implement the half that changes nothing observable and skip the half
+that motivated it.
