@@ -1853,11 +1853,36 @@ class ResourcesMixin:
         self.moved_variables.discard(var_name)
         self._emit_scope_var_drop(var_name, saw_type, var_ptr, flag)
 
+    def _cleanup_to_depth(self, cleanup_depth: int):
+        """Release every scope a NONLOCAL EXIT leaves, innermost first, down to
+        (and not including) `cleanup_depth`.
+
+        THE FUNNEL for "this edge leaves some scopes; drop what they own". Its
+        entry points, all of them:
+          - `_cleanup_all_scopes` (depth 0) — a `return`, and the `try`
+            propagation edge that IS a return.
+          - `_generate_break_statement` / `_generate_continue_statement`
+            (loops.py) — bounded at the loop's entry depth, recorded on
+            `loop_stack` BEFORE the loop's own bindings register, so a `for`'s
+            design-65 owning loop variable is inside the unwind (DF-218r).
+          - `_generate_try_propagate`'s CATCH edge (results.py) — bounded at
+            the try BLOCK's entry depth, recorded in `_catch_context`
+            (DF-218v). The catch block is a sibling scope, not a nested one, so
+            everything the try body opened is left by that branch.
+
+        Nothing is POPPED: the fall-through edge out of the same body still
+        owes its own cleanup, and a drop is guarded by the binding's runtime
+        drop flag, so the two edges are independent CFG paths dropping at most
+        once each.
+        """
+        for scope_vars in reversed(self.cleanup_stack[cleanup_depth:]):
+            self._cleanup_scope(scope_vars)
+
     def _cleanup_all_scopes(self):
         """Generate cleanup code for all scopes (for early return).
 
         Called before return statements to ensure all in-scope variables
-        are properly cleaned up.
+        are properly cleaned up. The whole-function case of
+        `_cleanup_to_depth`, which is where the walk lives.
         """
-        for scope_vars in reversed(self.cleanup_stack):
-            self._cleanup_scope(scope_vars)
+        self._cleanup_to_depth(0)

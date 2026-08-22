@@ -179,7 +179,10 @@ While loops, for loops, break, and continue.
 - `break_block`: Target for break statements
 - `result_storage`: Alloca for loop expression result (None for statement context)
 - `cleanup_depth`: `len(self.cleanup_stack)` at loop entry — the boundary
-  `break`/`continue` unwind to (`_cleanup_to_loop_boundary`, DF-218r)
+  `break`/`continue` unwind to (`_cleanup_to_depth` in `resources.py`, DF-218r).
+  That walk is shared: the `try`/`catch` error edge unwinds to the TRY BLOCK's
+  entry depth through the same function, bounded by `_catch_context`'s fifth
+  element (DF-218v)
 
 ### `methods.py` (362 lines)
 Method and function body generation.

@@ -32,32 +32,15 @@ class LoopsMixin:
         _generate_while_expr_value: Generate while loop (expression context)
         _generate_break_statement: Generate break statement
         _generate_continue_statement: Generate continue statement
-        _cleanup_to_loop_boundary: Release the scopes a break/continue exits
+
+    The scopes a `break`/`continue` exits are released by
+    `_cleanup_to_depth` (resources.py), the shared nonlocal-exit walk —
+    DF-218r's own funnel, widened by DF-218v to serve the try/catch error
+    edge as well. The bound this file supplies is the fourth `loop_stack`
+    element: the cleanup depth recorded at loop ENTRY, before the loop's own
+    bindings register, so a `for`'s design-65 owning loop variable is inside
+    the unwind.
     """
-
-    def _cleanup_to_loop_boundary(self, cleanup_depth: int):
-        """Release every scope a `break`/`continue` exits, innermost first.
-
-        DF-218r: a nonlocal exit that is NOT a return used to skip the cleanup
-        stack entirely, so a loop-body local leaked on both edges while the
-        `return` edge (`_cleanup_all_scopes`, statements.py) dropped it. This is
-        that same walk, bounded at the loop's own entry depth instead of running
-        to the function's frame: every scope pushed since the loop was entered
-        is exited by the branch, and nothing outside the loop is.
-
-        `cleanup_depth` is recorded when the loop pushes itself onto
-        `loop_stack`, BEFORE the loop's own bindings are registered — so a `for`
-        loop's design-65 owning loop variable (its scope is pushed after that
-        point) is released here too, which the per-iteration pop at the body's
-        fall-through cannot do once the block is terminated.
-
-        Nothing is popped: the fall-through edge out of the same body still owes
-        its own cleanup, and a drop is guarded by the binding's runtime drop
-        flag, so the two edges are independent CFG paths dropping at most once
-        each.
-        """
-        for scope_vars in reversed(self.cleanup_stack[cleanup_depth:]):
-            self._cleanup_scope(scope_vars)
 
     def _generate_while_expr(self, stmt: WhileExpr):
         """Generate LLVM IR for a while loop (statement context)."""
@@ -531,7 +514,7 @@ class LoopsMixin:
             for slot, saw_type in reversed(self.statement_temps):
                 self._emit_drop_at(slot, saw_type)
             self.statement_temps = []
-        self._cleanup_to_loop_boundary(cleanup_depth)
+        self._cleanup_to_depth(cleanup_depth)
 
         # Jump to the break block (end of loop)
         self.builder.branch(break_block)
@@ -548,5 +531,5 @@ class LoopsMixin:
         # iteration's body locals (and a `for`'s owning loop variable) die here
         # exactly as they do on the fall-through edge (DF-218r).
         continue_block, _, _, cleanup_depth = self.loop_stack[-1]
-        self._cleanup_to_loop_boundary(cleanup_depth)
+        self._cleanup_to_depth(cleanup_depth)
         self.builder.branch(continue_block)

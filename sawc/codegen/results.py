@@ -155,12 +155,17 @@ class ResultsMixin:
         # Check if we have an enclosing catch block
         catch_ctx = getattr(self, '_catch_context', None)
         if catch_ctx:
-            # Unpack context - may have 2 or 4 elements depending on version
-            if len(catch_ctx) == 4:
+            # Unpack context - may have 2, 4 or 5 elements depending on version
+            if len(catch_ctx) == 5:
+                (catch_bb, err_alloca_ptr, error_type, error_types,
+                 catch_cleanup_depth) = catch_ctx
+            elif len(catch_ctx) == 4:
                 catch_bb, err_alloca_ptr, error_type, error_types = catch_ctx
+                catch_cleanup_depth = None
             else:
                 catch_bb, err_alloca_ptr = catch_ctx
                 error_type, error_types = None, []
+                catch_cleanup_depth = None
 
             # Determine the value to store
             value_to_store = err_value
@@ -182,6 +187,25 @@ class ResultsMixin:
                 self.builder.position_at_end(saved_block)
 
             self.builder.store(value_to_store, err_alloca_ptr[0])
+            # DF-218v: the try body's locals die on THIS edge, exactly as they
+            # would on the fall-through out of the same block. The error edge
+            # was the THIRD nonlocal exit that is not a return (after DF-218r's
+            # `break` and `continue`), and the only one that LEAKED: the OK path
+            # popped the scope normally and the propagating no-catch shape below
+            # runs `_cleanup_all_scopes`, so this branch alone left the block
+            # with nothing dropped.
+            #
+            # Order: the in-flight error is COPIED into `caught_error` above,
+            # before any drop runs, so what the catch receives is already out of
+            # the scopes being released. Statement temporaries are drained
+            # first, then the scopes innermost-first — the same sequence
+            # `return` and `break` run.
+            if catch_cleanup_depth is not None:
+                if self.statement_temps:
+                    for slot, temp_type in reversed(self.statement_temps):
+                        self._emit_drop_at(slot, temp_type)
+                    self.statement_temps = []
+                self._cleanup_to_depth(catch_cleanup_depth)
             self.builder.branch(catch_bb)
         else:
             # No enclosing catch - propagate to caller. Erased Result (design
@@ -297,10 +321,17 @@ class ResultsMixin:
         # Also pass error type info for union wrapping
         err_alloca_ptr = [None]  # Will be set by first try expression that fails
 
-        # Save old catch context and set new one
-        # Context: (catch_bb, err_alloca_ptr, error_type, error_types)
+        # Save old catch context and set new one.
+        # Context: (catch_bb, err_alloca_ptr, error_type, error_types,
+        #           cleanup_depth).
+        # DF-218v: the depth is recorded HERE, before `_generate_block` pushes
+        # the try body's own scope, so the error edge unwinds everything the
+        # body opened and nothing outside it. Same discipline as a loop's entry
+        # depth on `loop_stack` (DF-218r) — a catch block is a SIBLING scope,
+        # not a nested one, so the branch to it really does leave them all.
         old_catch_ctx = getattr(self, '_catch_context', None)
-        self._catch_context = (catch_bb, err_alloca_ptr, error_type, error_types)
+        self._catch_context = (catch_bb, err_alloca_ptr, error_type,
+                               error_types, len(self.cleanup_stack))
 
         # Generate try block
         try_result = self._generate_block(expr.try_block)

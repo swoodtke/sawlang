@@ -64,9 +64,9 @@ for sawos; "238 before more M3 work" is absolute.
 - ESP32 path — P4 + TCP/IP stack ultimate goal; S3 via FreeRTOS-fakery stage 2 (HARDWARE PATH entry below)
 - DF-223b — existential dispatch of a suspending trait method, owed a DESIGN (entry below, under design 223)
 - DF-218t — a value-position loop at a non-integer result type is a codegen ICE (the `None` sentinel is built for an integer); entry below, found by 218b stage 0's probes
-- DF-218v — a `try { } catch { }` block LEAKS the try body's locals on its error edge (sync); entry below, found by 218b's SC10 probe, and it corrects DF-218r's class statement
+- DF-242a — a DRIVEN `try { } catch { }` releases the try body's frame fields at frame teardown, where the sync twin releases them at the error edge (entry below, filed by DF-218v's fix; DF-218w/DF-218s's family — the transform cannot see a codegen-owned edge)
 - DF-218w RESIDUE — the MIXED `case Both(v, _)` shape keeps statement-end timing (entry below, pinned XFAIL; the rest of DF-218w closed Aug 21)
-- DF-218x — a sync `if let` binding LEAKS when the then-branch exits by `return`/`break`; entry below, found by DF-218s's sweep. Same batch as DF-218v (both are codegen cleanup gaps at a nonlocal exit)
+- DF-218x — a sync `if let` binding LEAKS when the then-branch exits by `return`/`break`; entry below, found by DF-218s's sweep. Same mechanism family as the now-closed DF-218v (codegen cleanup gaps at a nonlocal exit) — its fix extends DF-218v's `_cleanup_to_depth` walk
 - DF-218y — a multi-field all-`_` match payload drops its fields forward on the sync twin and reverse on the driven one; NEEDS A RULING (entry below says why sync is the suspect half), pinned XFAIL
 
 - DF-225a — a user `extern "C"` function under a codegen-internal name (`printf`, `abort`, …) ICEs with no location (entry below, under DF-225a-f)
@@ -2705,6 +2705,56 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   NOT FIXED HERE: the fix is in codegen's try/catch lowering (design 196's
   territory) and has to decide what the in-flight Result owns at the jump,
   which is more than a cleanup call. Owed a pin at the next batch.
+  **STATUS: CLOSED Aug 21 (small-fix batch), SYNC half.** The in-flight
+  question answered itself at the site: `_generate_try_propagate` COPIES the
+  error into the catch's `caught_error` alloca before it branches, so the value
+  the catch receives is already out of the scopes being released and the edge
+  owes nothing but the cleanup. FIX: DF-218r's own walk, WIDENED rather than
+  duplicated — `_cleanup_to_loop_boundary` moved to `resources.py` beside
+  `_cleanup_all_scopes` as `_cleanup_to_depth`, whose docstring now names all
+  three entry points (`return` at depth 0, `break`/`continue` at the loop's
+  entry depth, the catch edge at the TRY BLOCK's), with `_cleanup_all_scopes`
+  delegating to it so the funnel is total. The bound is a fifth
+  `_catch_context` element, recorded BEFORE `_generate_block` pushes the try
+  body's scope — the same discipline as `loop_stack`'s. Statement temporaries
+  drain first, then the scopes innermost-first: the sequence `return` and
+  `break` already run. MATRIX, all compiled and run: both edges live at runtime
+  (one DEINIT per binding per iteration — a double release would show), a catch
+  that `break`s out of the enclosing loop (two different depths of one stack), a
+  NESTED try/catch, a `for` inside the try body (its design-65 owning loop
+  variable is inside the unwind), a catch edge beside a propagating `return` in
+  one body, and the OK-path control. PIN:
+  `examples/try_catch_error_edge_releases_try_locals.saw` (six cells) +
+  conformance row K73, which also corrects K71's class statement. Docs: the
+  saw-lang skill's scope-end bullet (three broken edges, not two) +
+  `sawc/codegen/README.md`'s loop-stack note.
+  DRIVEN-TWIN PROBE (asked for at dispatch): BYTE-IDENTICAL before and after —
+  the same suspending shapes release at frame teardown either way, so the fix
+  introduces no new divergence. What it does is change the KIND of the standing
+  one, from leak-vs-late to at-the-edge-vs-late, so the residue is filed as
+  DF-242a rather than left inside a closed entry.
+
+- **DF-242a (DEINIT-ORDER, PRE-EXISTING; filed Aug 21 by DF-218v's fix)** — a
+  DRIVEN `try { } catch { }` releases the try body's frame fields at FRAME
+  TEARDOWN, where the sync twin now releases them at the ERROR EDGE. Probe
+  (`.build/scratch/p218v_driven.saw`, the sync pin's shapes with a `yield_now()`
+  in the try body): `in try try-local / in catch catch-local bad / DEINIT
+  catch-local / after try / DEINIT try-local` — one release, after the body has
+  finished, where sync prints `DEINIT try-local` before `in catch`. Nested
+  scopes are late together and in the right order among themselves (`DEINIT
+  inner` then `DEINIT outer`, both after `after nested`). Never a leak and never
+  a double free; intra-body timing only. MECHANISM: exactly what DF-218v's
+  filing predicted — the error edge is CODEGEN's, emitted inside the synthesized
+  landing, and design 218 unit 2's scope walk is the TRANSFORM's, so the walk
+  cannot see this edge to place a release on it. Same family as DF-218w (the
+  transform cannot reach a cell codegen owns) and DF-218s (which ruled forced
+  frame residency for the neighbouring case). NOT FIXED HERE: the fix wants a
+  decision about which side owns the edge — either the transform learns to emit
+  a scope-end release for a codegen-owned branch, or codegen's
+  `_cleanup_to_depth` learns to clear frame fields — and that is a ruling, not a
+  cleanup call. No pin (an XFAIL would have to assert the INTENDED sync-matching
+  order, which is exactly what DF-218s's queued option-3 work may reshuffle);
+  repro in this entry.
 
 - **DF-218w (DEINIT-ORDER; filed Aug 21 — the NARROWED RESIDUE of DF-217p) —
   NARROWED AGAIN Aug 21 (branch `df-218s-218w`, stage 2) to the MIXED

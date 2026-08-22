@@ -1672,9 +1672,25 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   lived until the frame died: the loop above held every connection open until
   the task completed, and a shadow rebind released the OLD value after the new
   one was already in use. The counts always balanced, so nothing leaked — what
-  was wrong was WHEN. The sync half of the same rule had two broken edges of its
-  own until Aug 21 (`break`/`continue` ran no scope cleanup at all, which DID
-  leak), so distrust a pre-Aug-21 build on both sides.
+  was wrong was WHEN. The sync half of the same rule had THREE broken edges of
+  its own until Aug 21 — `break`, `continue`, and the ERROR EDGE of a
+  `try { } catch { }` block, none of which ran any scope cleanup at all, all of
+  which DID leak — so distrust a pre-Aug-21 build on both sides. The try one is
+  the easiest to hit and the least visible:
+  ```saw
+  try {
+      var f = try file.File.open(path)   // an fd
+      let text = try f.read()            // if THIS fails …
+      handle(text)
+  } catch {
+      report(error)                      // … `f` used to leak, silently
+  }
+  ```
+  A catch block is a SIBLING scope, so everything the try body opened dies on
+  the branch into it, innermost-first — the same rule the fall-through edge out
+  of that block has always followed. In a DRIVEN body the same release still
+  happens at frame teardown rather than at the edge: once, never a leak, but
+  later than the sync twin (DF-242a).
   **The SLOT goes too (design 134):**
   the frame allocation is released at completion and its run-queue slot returns to
   a free list, so a group costs O(live + unjoined-result tasks) rather than

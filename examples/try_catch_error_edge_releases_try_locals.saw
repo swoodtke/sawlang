@@ -1,0 +1,210 @@
+// A `try { } catch { }` block releases the TRY BODY's locals on its error edge
+// (DF-218v, FIXED).
+//
+// The branch to the catch is the THIRD nonlocal exit that is not a return —
+// after DF-218r's `break` and `continue`, whose class statement this corrects —
+// and it was the only one that LEAKED outright. The OK path popped the scope
+// normally and the propagating no-catch shape ran `_cleanup_all_scopes`, so
+// this one branch left the block with nothing dropped: `try { let t = Res(...)
+// ... try fail() } catch { ... }` printed no `DEINIT` for `t` at all, and the
+// counts did not balance. A catch block is a SIBLING scope, not a nested one,
+// so everything the try body opened is left by that branch.
+//
+// The in-flight error is copied into the catch's storage before any drop runs,
+// so what the catch receives is already out of the scopes being released.
+//
+// Rows, and each is a shape the walk has to bound correctly:
+//   both_edges     — OK and ERR both taken at runtime, once each: a
+//                    double release would show two DEINITs for one binding
+//   catch_breaks   — the catch `break`s out of the enclosing loop, so the
+//                    error edge and DF-218r's break edge unwind different
+//                    depths of one stack
+//   nested_try     — an inner try/catch inside an outer one: the inner edge
+//                    leaves only the inner body
+//   for_inside_try — a `for` inside the try body, so its design-65 owning loop
+//                    variable is inside the unwind, innermost-first
+//   mixed          — a catch edge and a propagating `return` edge in one body
+//   ok_path        — the control: no error, ordinary fall-through
+// EXPECT: success
+// EXPECT-OUTPUT:
+// in try iter0
+// ok 1
+// DEINIT iter0
+// in try iter1
+// DEINIT iter1
+// caught bad-1
+// after both_edges
+// ---
+// in try try0 with loop0
+// DEINIT try0
+// caught bad-1
+// DEINIT loop0
+// after catch_breaks
+// ---
+// in outer outer-local
+// in inner inner-local
+// DEINIT inner-local
+// inner caught bad-2
+// DEINIT outer-local
+// outer caught bad-3
+// after nested_try
+// ---
+// in try held
+// in for each0
+// ok 1
+// DEINIT each0
+// in for each1
+// DEINIT each1
+// DEINIT held
+// caught bad-4
+// after for_inside_try
+// ---
+// in mixed kept
+// in try inner-kept
+// DEINIT inner-kept
+// caught bad-5
+// DEINIT kept
+// err bad-6
+// ---
+// in try ok-local
+// got 2
+// DEINIT ok-local
+// after ok_path
+// done
+
+struct Res { tag: String }
+
+extension Res: NoCopy {
+    func deinit(&var self) {
+        print("DEINIT {self.tag}")
+    }
+}
+
+struct Bad { code: Int }
+
+extension Bad: Printable {
+    func format(&self, into: &var StringBuilder) { into.append("bad{self.code}") }
+}
+
+extension Bad: Error {}
+
+func maybe(n: Int) -> Result<Int, Bad> {
+    if n < 0 { return Bad(code: n) }
+    return n
+}
+
+func both_edges() {
+    var i = 0
+    while i < 2 {
+        try {
+            let t = Res(tag: "iter{i}")
+            print("in try {t.tag}")
+            let v = try maybe(if i == 0 { 1 } else { -1 })
+            print("ok {v}")
+        } catch {
+            print("caught {error}")
+        }
+        i += 1
+    }
+    print("after both_edges")
+}
+
+func catch_breaks() {
+    var i = 0
+    while i < 3 {
+        let outer = Res(tag: "loop{i}")
+        try {
+            let t = Res(tag: "try{i}")
+            print("in try {t.tag} with {outer.tag}")
+            let v = try maybe(-1)
+            print("unreachable {v}")
+        } catch {
+            print("caught {error}")
+            break
+        }
+        i += 1
+    }
+    print("after catch_breaks")
+}
+
+func nested_try() {
+    try {
+        let a = Res(tag: "outer-local")
+        print("in outer {a.tag}")
+        try {
+            let b = Res(tag: "inner-local")
+            print("in inner {b.tag}")
+            let v = try maybe(-2)
+            print("unreachable {v}")
+        } catch {
+            print("inner caught {error}")
+        }
+        let w = try maybe(-3)
+        print("unreachable {w}")
+    } catch {
+        print("outer caught {error}")
+    }
+    print("after nested_try")
+}
+
+func for_inside_try() {
+    try {
+        let held = Res(tag: "held")
+        print("in try {held.tag}")
+        for i in 0..3 {
+            let each = Res(tag: "each{i}")
+            print("in for {each.tag}")
+            let v = try maybe(if i == 1 { -4 } else { 1 })
+            print("ok {v}")
+        }
+        print("unreachable after for")
+    } catch {
+        print("caught {error}")
+    }
+    print("after for_inside_try")
+}
+
+func mixed() -> Result<Int, Bad> {
+    let kept = Res(tag: "kept")
+    print("in mixed {kept.tag}")
+    try {
+        let t = Res(tag: "inner-kept")
+        print("in try {t.tag}")
+        let v = try maybe(-5)
+        print("unreachable {v}")
+    } catch {
+        print("caught {error}")
+    }
+    let w = try maybe(-6)
+    return w
+}
+
+func ok_path() {
+    try {
+        let t = Res(tag: "ok-local")
+        print("in try {t.tag}")
+        let v = try maybe(2)
+        print("got {v}")
+    } catch {
+        print("unreachable catch")
+    }
+    print("after ok_path")
+}
+
+func main() {
+    both_edges()
+    print("---")
+    catch_breaks()
+    print("---")
+    nested_try()
+    print("---")
+    for_inside_try()
+    print("---")
+    match mixed() {
+        case Ok(n) -> print("ok {n}"),
+        case Err(e) -> print("err {e}")
+    }
+    print("---")
+    ok_path()
+    print("done")
+}
