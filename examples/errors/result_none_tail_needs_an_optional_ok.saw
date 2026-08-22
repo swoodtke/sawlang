@@ -1,0 +1,35 @@
+// The other side of DF-244b: a bare `None` at a `-> Result<T, E>` whose Ok type
+// is NOT an optional stays a refusal, and it is now the same refusal at the tail
+// that the `return` spelling has given since DF-140d. Before the ladder owned
+// the decision, the tail reached codegen instead and died with ``cannot tell
+// what this `None` is a `None` OF`` — a message about a payload type, for a
+// program whose real problem is the declared Ok type.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot return `None` from function `poll` returning
+// EXPECT-ERROR-CONTAINS: its Ok type `Int` is not an optional
+// EXPECT-ERROR-CONTAINS: declare the Ok type as an optional
+
+enum Stop { case Done }
+
+extension Stop {
+    func describe(&self) -> String {
+        match self { case Done -> "done" }
+    }
+}
+
+extension Stop: Printable {
+    func format(&self, into: &var StringBuilder) { into.append(self.describe()) }
+}
+
+extension Stop: Error {}
+
+func poll() -> Result<Int, Stop> {
+    None
+}
+
+func main() {
+    match poll() {
+        case Ok(v) -> print("{v}"),
+        case Err(e) -> print("{e}")
+    }
+}

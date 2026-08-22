@@ -413,7 +413,8 @@ class StatementsMixin:
                     f"method `{method.name}` should return `{expected_return}` but body has no value",
                     method.line, method.column
                 )
-            elif body_type is not None and not self._transfer_compatible(body_type, expected_return):
+            elif body_type is not None and self._reaches_result_autowrap(
+                    body_type, expected_return):
                 # Check for Result auto-wrapping on final expression
                 if expected_return.is_result() and method.body.final_expr:
                     # ENTRY POINT 2 of `_autowrap_into_result`.
@@ -552,7 +553,8 @@ class StatementsMixin:
                 f"function `{func.name}` should return `{resolved_return_type}` but body has no value",
                 func.line, func.column
             )
-        elif body_type is not None and not self._transfer_compatible(body_type, resolved_return_type):
+        elif body_type is not None and self._reaches_result_autowrap(
+                body_type, resolved_return_type):
             # Check for Result auto-wrapping on final expression
             if resolved_return_type.is_result() and func.body.final_expr:
                 # ENTRY POINT 1 of `_autowrap_into_result`.
@@ -610,6 +612,14 @@ class StatementsMixin:
         is why `{ x in 12 }` in a `-> Result<Int32, Bad>` slot was refused while
         `{ x in return 12 }` compiled — two spellings of one intent disagreeing.
 
+        WHICH VALUES REACH IT is `_reaches_result_autowrap`, asked at all four
+        entry points, because "does this transfer?" is not the whole question: a
+        bare `None` transfers into everything by the none-literal rule and still
+        has to be wrapped. Entry point 3 used to answer that by hand and the
+        three TAILS did not, which is DF-244b — `return None` at a
+        `-> Result<T?, E>` compiled and the tail that means the same thing died
+        in codegen.
+
         NOT an entry point, deliberately: the per-ARM reconciliation of a
         value-position `if`/`match` (in `_check_if_expr` / `_check_match_expr`).
         That is a different question — which SIDE each arm lands on, so the
@@ -627,6 +637,8 @@ class StatementsMixin:
           'erased'    — the Err is `Box<any Trait>` and the value conforms
                         -> `ErasedErrWrap` (design 56's re-box at the boundary)
           'none'      — nothing fits
+          'none-lit'  — a bare `None` this Result cannot take; REPORTED here,
+                        for the same reason 'ambiguous' is (below)
 
         Nothing else is reported here: each caller keeps its own wording for
         the outcomes that are errors at ITS site, which is what makes a method,
@@ -637,6 +649,32 @@ class StatementsMixin:
 
         ok_type = expected.unwrap_result_ok()
         err_type = expected.unwrap_result_err()
+
+        # A bare `None` (DF-140d, extended to the tail by DF-244b). It is
+        # answered BEFORE the ambiguity check because the none-literal rule makes
+        # it compatible with EVERY type, so both payloads "fit" and the ambiguity
+        # refusal would fire on a value that is unambiguous: `None` can only ever
+        # mean the Ok side, and only when that side is an optional. The decision
+        # lives here rather than at a caller because only the ladder peels the Ok
+        # payload — exactly the argument that keeps 'ambiguous' here — and it had
+        # been hand-written at `_check_return_statement` alone, which is why
+        # `return None` worked at a `-> Result<T?, E>` and the TAIL that means
+        # the same thing reached codegen bare.
+        if value_type is not None and value_type.is_none_literal():
+            if ok_type is not None and ok_type.is_optional():
+                payload = self._prepare_ok_payload(value_expr, value_type, ok_type)
+                return ('ok', ResultOkWrap(
+                    value=payload, result_type=expected,
+                    line=payload.line, column=payload.column))
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"cannot return `None` from {context_desc} returning "
+                f"`{expected}`: its Ok type `{ok_type}` is not an optional",
+                line, column,
+                hint="return an `Err(...)` for the failure case, or declare the "
+                     "Ok type as an optional"
+            )
+            return ('none-lit', None)
 
         if self._result_autowrap_ambiguous(expected, value_type, context_desc,
                                            line, column, value_expr=value_expr):
@@ -662,6 +700,26 @@ class StatementsMixin:
                 value_expr, expected, value_type, erased))
 
         return ('none', None)
+
+    def _reaches_result_autowrap(self, value_type, expected) -> bool:
+        """Whether a value of `value_type` landing at a declared `expected` has
+        to go through `_autowrap_into_result`.
+
+        The ordinary answer is "its type does not transfer into the declared
+        one". A bare `None` is the exception (DF-244b): the none-literal rule
+        makes it compatible with EVERY type, so the ordinary gate says False and
+        the value would be left exactly as written — which, for a `Result<T?, E>`,
+        means a raw `NoneLiteral` where codegen expects a Result. `return None`
+        escaped that because `_check_return_statement` routed it by hand; the
+        three TAIL entry points had no such route, so a tail `None` died in
+        codegen (``cannot tell what this `None` is a `None` OF``) while the
+        `return` spelling of the same intent compiled. Asked at all four entry
+        points, so the answer cannot drift between them."""
+        if value_type is None or expected is None:
+            return False
+        if not self._transfer_compatible(value_type, expected):
+            return True
+        return value_type.is_none_literal() and expected.is_result()
 
     def _result_autowrap_ambiguous(self, expected, value_type, context_desc, line,
                                    column, value_expr=None) -> bool:
@@ -732,9 +790,24 @@ class StatementsMixin:
         Only the wrap: a mismatch stays deferred to monomorphization, which is
         what decidability is for. A bare `None` tail is stamped instead, exactly
         as the concrete path stamps it.
+
+        A bare `None` at a declared `-> Result<T?, E>` is decidable on the same
+        argument and is wrapped here too (DF-244b): the Ok payload is an optional
+        at every instantiation, and `None` can only ever mean the Ok side, so
+        exactly one wrap is right for all of them. It goes through the ladder so
+        the generic body and the concrete one cannot disagree about a shape they
+        both see. `return None` in the same body always worked — it never
+        consulted decidability — which is the same asymmetry DF-174a found.
         """
         tail = getattr(func.body, 'final_expr', None)
         if tail is None or body_type is None:
+            return
+        if (resolved_return_type.is_result() and body_type.is_none_literal()):
+            outcome, wrapped = self._autowrap_into_result(
+                tail, body_type, resolved_return_type,
+                f"function `{func.name}`", func.line, func.column)
+            if wrapped is not None:
+                func.body.final_expr = wrapped
             return
         if not resolved_return_type.is_optional():
             return
@@ -3202,44 +3275,28 @@ class StatementsMixin:
                     f"function returns void but return has a value of type `{value_type}`",
                     stmt.line, stmt.column
                 )
-            elif (value_type is not None and value_type.is_none_literal()
-                  and self._resolve_type(expected).is_result()):
-                # DF-140d: a bare `None` is compatible with EVERY type by the
-                # none-literal rule, so `not _types_compatible(...)` was False and
-                # the auto-wrap chain below never ran at all — codegen then met a
-                # raw None where a Result was expected ("None literal has no type
-                # information"). Route it explicitly.
-                _res = self._resolve_type(expected)
-                _ok = _res.unwrap_result_ok()
-                if _ok is not None and _ok.is_optional():
-                    _payload = self._prepare_ok_payload(stmt.value, value_type, _ok)
-                    stmt.value = ResultOkWrap(
-                        value=_payload, result_type=_res,
-                        line=_payload.line, column=_payload.column)
-                    self.found_return_with_value = True
-                else:
-                    self._error(
-                        ErrorKind.TYPE_MISMATCH,
-                        f"cannot return `None` from a function returning "
-                        f"`{expected}`: its Ok type `{_ok}` is not an optional",
-                        stmt.line, stmt.column,
-                        hint="return an `Err(...)` for the failure case, or "
-                             "declare the Ok type as an optional"
-                    )
-            elif value_type and not self._transfer_compatible(value_type, expected):
+            elif value_type is not None and self._reaches_result_autowrap(
+                    value_type, self._resolve_type(expected)):
                 # Check for Result auto-wrapping
-                if expected.is_result() and value_type:
+                _res = self._resolve_type(expected)
+                if _res.is_result() and value_type:
                     # ENTRY POINT 3 of `_autowrap_into_result`. A closure's
-                    # `return` arrives here too, through `_return_target`.
+                    # `return` arrives here too, through `_return_target`. The
+                    # RESOLVED type is what goes in, so a `type` alias for a
+                    # Result reaches the ladder exactly as the written form does
+                    # — which is also what the bare-`None` route needs, since it
+                    # peels the Ok payload (DF-140d, moved into the ladder by
+                    # DF-244b so the TAIL entry points share the decision).
                     outcome, wrapped = self._autowrap_into_result(
-                        stmt.value, value_type, expected, "function",
+                        stmt.value, value_type, _res, "a function",
                         stmt.line, stmt.column)
                     if wrapped is not None:
                         stmt.value = wrapped
                         self.found_return_with_value = True
-                    elif outcome == 'ambiguous':
-                        # Treat as a value-return so we do not also emit a
-                        # misleading "body has no value" cascade.
+                    elif outcome in ('ambiguous', 'none-lit'):
+                        # Reported inside the ladder. Treat as a value-return so
+                        # we do not also emit a misleading "body has no value"
+                        # cascade.
                         self.found_return_with_value = True
                     elif outcome == 'result':
                         self._error(
@@ -3251,8 +3308,8 @@ class StatementsMixin:
                         self._error(
                             ErrorKind.TYPE_MISMATCH,
                             f"expected return type `{expected}` but got `{value_type}` "
-                            f"(doesn't match Ok type `{expected.unwrap_result_ok()}` "
-                            f"or Err type `{expected.unwrap_result_err()}`)",
+                            f"(doesn't match Ok type `{_res.unwrap_result_ok()}` "
+                            f"or Err type `{_res.unwrap_result_err()}`)",
                             stmt.line, stmt.column
                         )
                 else:

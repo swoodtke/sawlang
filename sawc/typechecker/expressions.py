@@ -11961,7 +11961,7 @@ class ExpressionsMixin:
                 return_type = expected_ret
         elif (expected_ret is not None and expected_ret.is_result()
                 and expr.body.final_expr is not None
-                and not self._transfer_compatible(return_type, expected_ret)):
+                and self._reaches_result_autowrap(return_type, expected_ret)):
             # DF-232h — ENTRY POINT 4 of `_autowrap_into_result`. A closure's
             # TAIL takes the same Result auto-wrap a named body's tail takes.
             # Its `return` already did (that path shares the named funnel

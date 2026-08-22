@@ -4515,6 +4515,22 @@ The ambiguity rejection, the erased `Box<any Error>` target and the
 optional-Ok-payload wrap all reach a closure tail exactly as they reach a named
 one.
 
+A bare `None` is on that list too. At a declared `Result<T?, E>` it is
+`Ok(None)`, at all four targets and in a generic body:
+
+```saw
+func poll(n: Int) -> Result<Int?, Stop> {
+    if n == 0 { return None }        // an explicit return
+    None                             // …and the tail that means the same thing
+}
+```
+
+It can only mean the Ok side, so it is decided ahead of the ambiguity rule
+rather than by it — the none-literal fits every type, and asking that question
+of a `None` would reject an unambiguous program. A `None` at a `Result` whose Ok
+type is NOT an optional is a compile error naming the declared Ok type, at every
+one of the four targets.
+
 ### Error-type doctrine
 
 Three tiers, and a signature says which one it is on.

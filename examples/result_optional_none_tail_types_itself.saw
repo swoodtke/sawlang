@@ -1,0 +1,142 @@
+// A bare `None` TAIL at a declared `-> Result<T?, E>` types itself, exactly as
+// the `return None` that means the same thing does (DF-244b, FIXED).
+//
+// DF-140d taught `_check_return_statement` that a bare `None` at a
+// `Result<T?, E>` is `Ok(None)` — by hand, at that one site. The none-literal
+// rule makes a `None` compatible with EVERY type, so the TAIL entry points'
+// gate ("does this transfer into the declared type?") answered yes and the
+// value was left exactly as written: a raw `NoneLiteral` where codegen wants a
+// Result, which died as ``cannot tell what this `None` is a `None` OF``. The
+// decision now lives in `_autowrap_into_result`, the one ladder all four entry
+// points share, and `_reaches_result_autowrap` is what routes a bare `None`
+// into it from each of them.
+//
+// Rows — the four entry points and the shapes a tail can take:
+//   fn          — a free function's tail
+//   fn_if       — the arms of a value `if` in tail position
+//   fn_match    — the arms of a value `match` in tail position
+//   method      — a method's tail
+//   generic     — a generic body's tail, which the decidability rule defers
+//                 (the wrap is decidable there for DF-174a's reason: the Ok
+//                 payload is an optional at every instantiation)
+//   generic_m   — the same on a generic struct's method
+//   closure     — a closure's tail, checked against the slot it is passed to
+//   erased      — an erased `Result<T?, Box<any Error>>` tail
+//   suspending  — a free function's tail in a body that suspends, where the
+//                 miscompile was worse than a refusal: it compiled, stored no
+//                 result, and `join` panicked with `force unwrap of None`
+//   some        — the control: a bare `T` tail at the same shape, which takes
+//                 the DF-140d double wrap and always worked
+// EXPECT: success
+// EXPECT-OUTPUT:
+// fn -1
+// fn_if -1
+// fn_match -1
+// method -1
+// generic -1
+// generic_m -1
+// closure -1
+// erased -1
+// suspending -1
+// some 7
+
+import std.task.*
+
+enum Stop { case Done }
+
+extension Stop {
+    func describe(&self) -> String {
+        match self { case Done -> "done" }
+    }
+}
+
+extension Stop: Printable {
+    func format(&self, into: &var StringBuilder) { into.append(self.describe()) }
+}
+
+extension Stop: Error {}
+
+func row_fn() -> Result<Int?, Stop> {
+    None
+}
+
+func row_fn_if(n: Int) -> Result<Int?, Stop> {
+    if n == 0 { None } else { None }
+}
+
+func row_fn_match(n: Int) -> Result<Int?, Stop> {
+    match n {
+        case 0 -> None,
+        case _ -> None
+    }
+}
+
+struct Holder { n: Int }
+
+extension Holder {
+    func poll(&self) -> Result<Int?, Stop> {
+        None
+    }
+}
+
+func row_generic<T>(v: T) -> Result<T?, Stop> {
+    None
+}
+
+struct Wrap<T> { v: T }
+
+extension Wrap<T> {
+    func poll(&self) -> Result<T?, Stop> {
+        None
+    }
+}
+
+func run_it(f: (Int) sync -> Result<Int?, Stop>) -> Result<Int?, Stop> {
+    return f(0)
+}
+
+func row_erased() -> Result<Int?, Box<any Error>> {
+    None
+}
+
+func row_suspending() -> Result<Int?, Stop> {
+    yield_now()
+    None
+}
+
+func row_some() -> Result<Int?, Stop> {
+    7
+}
+
+func show(label: String, r: Result<Int?, Stop>) {
+    match r {
+        case Ok(o) -> print("{label} {o ?? -1}"),
+        case Err(e) -> print("{label} err {e}")
+    }
+}
+
+func main() {
+    var group = TaskGroup()
+
+    show(label: "fn", r: row_fn())
+    show(label: "fn_if", r: row_fn_if(n: 0))
+    show(label: "fn_match", r: row_fn_match(n: 0))
+
+    let h = Holder(n: 0)
+    show(label: "method", r: h.poll())
+
+    show(label: "generic", r: row_generic(v: 3))
+
+    let w = Wrap<Int>(v: 3)
+    show(label: "generic_m", r: w.poll())
+
+    show(label: "closure", r: run_it(f: { n in None }))
+
+    match row_erased() {
+        case Ok(o) -> print("erased {o ?? -1}"),
+        case Err(e) -> print("erased err {e}")
+    }
+
+    show(label: "suspending", r: group.spawn(row_suspending()).join())
+    show(label: "some", r: row_some())
+}

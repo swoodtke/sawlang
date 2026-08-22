@@ -127,9 +127,13 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   too. It was refused outright before that date (``argument `f` expects
   `(Int) sync -> Result<Int32, Bad>` but got `(Int) -> Int32` ``), with
   `return 12` as the workaround, so distrust a bare Result tail in an
-  older build. ONE corner is still open (DF-244b): a bare `None` TAIL at a
-  `Result<T?, E>` cannot type itself — in a NAMED body as much as a
-  closure — so write `return None` there.
+  older build. A bare `None` TAIL at a `Result<T?, E>` is `Ok(None)` on
+  the same terms since DF-244b (fixed Aug 22) — a named body, a method, a
+  closure, a generic body and an erased `Box<any Error>` target alike —
+  where it used to die with ``cannot tell what this `None` is a `None`
+  OF`` and `return None` was the one-keyword workaround. A `None` at a
+  Result whose Ok type is NOT an optional stays the clean refusal it
+  always was for `return`, now at the tail too.
   **A CONSTANT EXPRESSION IS ON THAT LIST TOO (DF-235a/b, fixed Aug 21):**
   anything the const evaluator folds — `2 + 3`, a shift, a mask, `~m`, a
   negated constant — adopts the slot's width and is range-checked on the
@@ -3099,8 +3103,9 @@ construct in the owner and lend `&driver` down.
   That gap is CLOSED (DF-213b/DF-232h, Aug 22): a closure declared
   `-> Result<T, E>` auto-wraps its TAIL value exactly as a named function does,
   so `{ x in 12 }` and `{ x in return 12 }` mean the same thing. `return v`
-  was the workaround, and is still needed for a bare `None` tail at a
-  `Result<T?, E>` (DF-244b, which a named body has too).
+  was the workaround. Its last corner closed with DF-244b (Aug 22): a bare
+  `None` tail at a `Result<T?, E>` types itself now, in a closure and in a named
+  body alike.
 - **Writing to a by-value capture is a compile error** (design 132). The env is
   immutable and each plain/`move`/`copy` capture is loaded into a per-call
   local, so `{ n = n + 1  n }` would count in a copy that dies with the call.

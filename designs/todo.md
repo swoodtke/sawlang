@@ -35,7 +35,7 @@ is scheduled and in what order is the whole of what they say.
 - Design 242 — the Thread/Task split (designs/242-thread-task-split.md) — UNITS 0-1 LANDED Aug 22 (branch `design-242`: the renames, the docs, the compiler-emitted `Thread` identity carve-out; old spellings error with fixits; xfails unchanged). UNITS 2-5 HELD on a ruling: std's own `TaskGroup.crew: Vector<VoidThread>` is the in-tree counterexample to ruling 5's function-local escape refusal — three candidate shapes in the entry below. Two findings filed: DF-247a (a spawn root is undefined at its other same-module call sites), DF-247b (glob import splits the qualified and bare spellings into two types — wants a ruling)
 - Place-window xfail family — DISPATCHED Aug 22 (branch `place-window-fixes`, parallel with 242): DF-169h + DF-218h + DF-218i + DF-218j (four bogus refusals, pins state intended behavior) + the stale-looking DF-232n pin audited. Entries below
 - ~~Diagnostics/codegen small batch~~ — LANDED Aug 22-23 (branch `diag-batch`, seven commits, nothing stopped): DF-245b, DF-238b (+ the checked-cast twin), DF-238c (+ a second face at the thread-assertion funnel, conformance B23), DF-243a (four operator families + the sos abi un-suffixing, byte-identical), DF-243b+DF-232g residue, DF-225a, DF-225d (self usable as its own type on all ten primitives), DF-225f ridden. One finding filed: DF-249a (bounds panic omits index+length — wording decision held). xfails -2, none added
-- Transform typing batch — DISPATCHED Aug 22 (branch `transform-typing`, after 242 units 0-1 integrated): DF-245c (spawned-task None typing), DF-245d (try in binding scrutinee), DF-244b (bare None tail). Entries below
+- ~~Transform typing batch~~ — ALL THREE LANDED Aug 22 (branch `transform-typing`, one commit each, after 242 units 0-1 integrated): DF-245c (a bare `None`'s payload type now outlives the second typecheck pass), DF-245d (a propagating `try` in a container HEAD — the sweep widened the rule from the binding forms), DF-244b (the bare `None` tail, through design 234's ladder). Two XFAIL pins flipped (suite xfails 7 -> 5), two new passing tests added (DF-244b had no pin: `result_optional_none_tail_types_itself.saw` plus the refusal `errors/result_none_tail_needs_an_optional_ok.saw`). Two findings filed: DF-250a, DF-250b. Entries below
 - Design 238 — the sawos split (designs/238-sawos-split.md; four rulings Aug 19, D-b1/b2/b3 open) — BEFORE the M3 ladder; UNITS 0-1 LANDED Aug 21 (the oracle + the freestanding suite), units 2-7 open and user-reserved
 - M3 ladder — designs/232-sos-m3-sketch.md: unit 1.5 interruptibility, 2 CreateProcess, 2.75 handle lifecycle, 3 give, 4 Memory/IoMemory, 5 quotas, 5.5 death notifications, 6 money shot — runs IN sawos, after design 238
 
@@ -69,7 +69,7 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-218w RESIDUE — the MIXED `case Both(v, _)` shape keeps statement-end timing (entry below, pinned XFAIL; the rest of DF-218w closed Aug 21)
 - ~~DF-218x~~ — CLOSED Aug 22 (branch `df-218xy`, commit 1): the branch got a cleanup scope of its own, so `_cleanup_to_depth` reaches the binding with no fourth entry point. The sweep found FIVE leaking spellings, not two, and corrected two entry claims (the driven twin was already right; the tuple pattern was mis-scoped rather than leaked). Entry below; conformance K76
 - ~~DF-218y~~ — CLOSED Aug 22 (branch `df-218xy`, commit 2) on the SYNC side, as the Aug-22 ruling directs: discard order is REVERSE-DECLARATION everywhere. The sweep found a SECOND forward loop — the destructuring `let`'s wildcard leaves — which was forward on both twins and moved with it. Pin flipped and extended to 11 rows; entry below; conformance K77
-- DF-244b — a bare `None` TAIL at a `Result<T?, E>` cannot type itself, in a NAMED body as much as a closure; entry below, DF-232h's residue. `return None` is the one-keyword workaround
+- ~~DF-244b~~ — CLOSED Aug 22 (branch `transform-typing`, commit 3): the ladder's ENTRY CONDITION was the defect, not its ordering — a bare `None` transfers into everything, so no tail site ever reached it. The decision moved INTO `_autowrap_into_result` and one predicate now answers for all four entry points. Entry below
 - DF-247a — a function that is a `group.spawn` ROOT is `undefined function` at every other call of it in the same module (entry below, filed by design 242 unit 0's census; PRE-EXISTING, stash-verified). The fix owes the ROOT MATRIX its mechanism reaches, not the one probed cell
 - DF-247b — under a GLOB import the QUALIFIED spelling of a type is a DIFFERENT type from the bare one (entry below, filed by design 242 unit 1; PRE-EXISTING and general, three types probed with two green controls). Wants a RULING first: make it work, or make the glob refuse a qualifier
 - DF-249a — the fixed-array bounds panic holds the index and the length and prints neither; entry below, filed by DF-245b's sweep. Wants a wording decision (does the length belong in the message, and do std's hand-written accessor panics follow)
@@ -184,8 +184,9 @@ not an implementation choice.
 
 Not pinned: the pin belongs with the ruling. [150, 194, 242]
 
-## DF-244b — a bare `None` TAIL at a `Result<T?, E>` cannot type itself, in a
-## NAMED body as much as a closure (filed Aug 22, DF-232h's residue)
+## ~~DF-244b — a bare `None` TAIL at a `Result<T?, E>` cannot type itself, in a
+## NAMED body as much as a closure~~ (filed Aug 22, DF-232h's residue) —
+## **FIXED Aug 22** on branch `transform-typing`, commit 3
 
 `func f() -> Result<Int32?, Bad> { None }` is ``cannot tell what this `None` is
 a `None` OF``, while `{ return None }` compiles and prints `ok -1`. Both
@@ -200,6 +201,45 @@ Ok payload is an optional. A fix propagates the peeled Ok payload into the
 tail ahead of the body check, at both tail sites. Low value on its own —
 `return None` is the one-keyword workaround, and the shape (an absent value
 that is also fallible) is rare. [232, 234]
+
+**FIXED Aug 22** (branch `transform-typing`, commit 3), and the mechanism as
+FOUND corrects the guess above. The wrap ladder does not run after the body
+check for this value at all — it never runs, because the ENTRY CONDITION at all
+four sites is "does the body's type fail to transfer into the declared one?",
+and the none-literal rule makes a bare `None` transfer into EVERYTHING. So the
+tail was left exactly as written and codegen met a raw `NoneLiteral`. Nothing
+about the body check refused it. `_check_return_statement` escaped only because
+DF-140d had hand-written the decision at that ONE site — which is what made
+`return None` work and the tail that means the same thing die.
+FIX, extending design 234 unit 1's funnel rather than adding a rule beside it:
+the bare-`None` decision MOVED into `_autowrap_into_result` (a new arm, ahead of
+the ambiguity check — a `None` fits both payloads by the none-literal rule, so
+asking the ambiguity question of one would reject an unambiguous program), the
+hand-written copy at entry point 3 is GONE, and one predicate
+`_reaches_result_autowrap` answers "does this value reach the ladder?" at all
+four entry points so the answer cannot drift between them. The generic tail
+needed one more clause, on DF-174a's argument: `_wrap_optional_tail` routes a
+bare `None` at a declared `Result<T?, E>` through the same ladder, because the
+Ok payload is an optional at every instantiation and so exactly one wrap is
+right for all of them.
+SWEEP (obligation 4), compiled AND run: 20 rows — the four entry points x the
+tail shapes (bare, a value `if`'s arms, a value `match`'s arms) x {sync,
+suspending}, plus a generic body, a generic STRUCT's method, an erased
+`Result<T?, Box<any Error>>`, a closure whose tail is a value `if`, and the
+`return` control. 8 failed before, 0 after. TWO faces, not one: the sync rows
+were the codegen refusal, and the SUSPENDING tail rows COMPILED and then panicked
+`force unwrap of None` inside `Task.join` — the tail normalization turns a tail
+into a `return`, so the transform hid the refusal and left a task that stores no
+result. CONTROL rows: a `None` at a Result whose Ok type is not an optional now
+gives the same clean refusal at all four sites (the tail's used to be the codegen
+message about a payload type, for a program whose real problem is the declared Ok
+type).
+Pins: `examples/result_optional_none_tail_types_itself.saw` (10 rows) and
+`examples/errors/result_none_tail_needs_an_optional_ok.saw` (the refusal).
+Docs: LANGUAGE_SPEC's four-return-targets section and the saw-lang skill's two
+Result-tail paragraphs.
+CONFORMANCE: none owed — a typing over-rejection plus one ICE, no guarantee
+moves.
 
 ## DF-245a — an `init`'s DECLARED return type is never checked against the
 ## receiver, so a wrong one is an ICE (found while probing design 234 unit 3's
