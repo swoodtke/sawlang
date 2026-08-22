@@ -3777,15 +3777,22 @@ reference and both are destroyed once. An `ExplicitCopy` or `NoCopy` element is
 never duplicated implicitly, and the error names the ways out — `with_ref` to
 borrow it in place, `swap_out` to move it out.
 
-**Rendering a place is a borrow, not a read.** `print("{v[0]}")`, `print(v[0])`
-and `print("{}", v[0])` hand the element to `format(&self, into:)` and keep
-nothing, so the table above never comes into it — a move-only element prints
-exactly as an `Int` one does. That covers every rendering position: an
-interpolation operand wherever an interpolation is written, a single-argument
-`print` of a `Printable`, and the format arguments of `print`, `panic` and
-`assert`. The window spans the rendering, so an operand beside it is inside that
-window too — which is why an `assert` condition that names the place's own root
-wants a binding of its own ahead of the call.
+**A position that keeps nothing is a borrow, not a read.** Some expressions hand
+a value to a `&self` callee and are done with it, and a place in one of those is
+borrowed where it sits — the table above never comes into it, so a move-only
+element behaves exactly as an `Int` one does. Two such positions:
+
+*Rendering.* `print("{v[0]}")`, `print(v[0])` and `print("{}", v[0])` hand the
+element to `format(&self, into:)`. That covers an interpolation operand wherever
+an interpolation is written, a single-argument `print` of a `Printable`, and the
+format arguments of `print`, `panic` and `assert`.
+
+*Comparison.* `v[0] == w[0]` and the ordering operators lower to
+`equals`/`compare`, whose `other` is a `&Self`, so neither side is read out.
+
+The window spans the whole expression that asks for the borrow, so an operand
+beside the place is inside that window too — which is why an `assert` condition
+that names the place's own root wants a binding of its own ahead of the call.
 
 **A pattern that binds nothing is a presence test, not a read.** `if let _ =
 g.at(i)`, `guard let _ = g.at(i)`, and a `match` arm like `case Empty` or

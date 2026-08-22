@@ -1,0 +1,87 @@
+// COMPARING a place is a borrow, not a value read.
+//
+// Design 239 gave `equals`/`compare` an `other: &Self`, so a comparison
+// destroys neither operand at any tier — which is exactly what made a move-only
+// type with a hand-written comparison comparable. A place operand did not get
+// the message (DF-248d): a bare place read is judged by design 131's table
+// wherever it sits, so `v[0] == w[0]` on a `Vector<Tag>` was ``lends a place of
+// type `Tag`, which is move-only`` while `a == b` over two move-only LOCALS
+// compiled beside it.
+//
+// The sibling of DF-218i, found by its sweep and fixed through the same funnel:
+// a position that hands the place to a `&self` callee and keeps nothing is a
+// BORROW, and the window's extent is the smallest expression that asks for it.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// locals: true
+// left place: true
+// right place: true
+// both places: true
+// not equal: true
+// less: true
+// less-equal: true
+// greater: false
+// greater-equal: false
+// explicit copy tier: true
+// copy tier control: true
+
+struct Tag { id: Int }
+extension Tag: NoCopy {}
+extension Tag: Equatable {
+    func equals(&self, other: &Self) -> Bool { self.id == other.id }
+}
+extension Tag: Comparable {
+    func compare(&self, other: &Self) -> Ordering {
+        if self.id < other.id {
+            Ordering.Less
+        } else {
+            if self.id > other.id { Ordering.Greater } else { Ordering.Equal }
+        }
+    }
+}
+
+// The ExplicitCopy tier is refused by the same table, so it is the same row.
+struct Bag { items: Vector<Int> }
+@synthesize
+extension Bag: ExplicitCopy {}
+extension Bag: Equatable {
+    func equals(&self, other: &Self) -> Bool { self.items[0] == other.items[0] }
+}
+
+func main() {
+    let a = Tag(id: 1)
+    let b = Tag(id: 1)
+    print("locals: {a == b}")
+
+    var v = Vector<Tag>()
+    v.push(Tag(id: 1))
+    var w = Vector<Tag>()
+    w.push(Tag(id: 1))
+    var big = Vector<Tag>()
+    big.push(Tag(id: 9))
+
+    print("left place: {v[0] == b}")
+    print("right place: {a == w[0]}")
+    print("both places: {v[0] == w[0]}")
+    print("not equal: {v[0] != big[0]}")
+
+    // The ordering operators go through `compare`, whose `other` is a `&Self`
+    // for the same reason.
+    print("less: {v[0] < big[0]}")
+    print("less-equal: {v[0] <= w[0]}")
+    print("greater: {v[0] > big[0]}")
+    print("greater-equal: {v[0] >= big[0]}")
+
+    var bags = Vector<Bag>()
+    var items: Vector<Int> = [7]
+    bags.push(Bag(items: move items))
+    var others = Vector<Bag>()
+    var more: Vector<Int> = [7]
+    others.push(Bag(items: move more))
+    print("explicit copy tier: {bags[0] == others[0]}")
+
+    // The control: a Copy-tier element reads for free and keeps the ordinary
+    // per-operand window.
+    var ns: Vector<Int> = [4, 4]
+    print("copy tier control: {ns[0] == ns[1]}")
+}

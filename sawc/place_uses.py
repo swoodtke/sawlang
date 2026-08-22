@@ -60,8 +60,8 @@ immutable variable" diagnostic, with no new error text to author.
 """
 
 from ast_nodes import (
-    Argument, ArrayIndex, ASTNode, AssignStatement, Block, BoolLiteral,
-    BreakStatement, BindingPattern, ClosureExpr, ClosureParam,
+    Argument, ArrayIndex, ASTNode, AssignStatement, BinaryOp, Block,
+    BoolLiteral, BreakStatement, BindingPattern, ClosureExpr, ClosureParam,
     CompoundAssignStatement, ContinueStatement, ErasedErrWrap, Expression,
     ExpressionStatement, ForceUnwrap, ForLoop, FunctionCall, GuardLetStatement,
     Identifier, IfExpr, IfLetExpr, LetStatement, MatchArm, MatchExpr,
@@ -391,11 +391,12 @@ class _PlaceUses:
         if borrowed is not None:
             return borrowed
 
-        # RENDERING a place keeps nothing either (DF-218i), so it is the second
+        # A position that hands the place to a `&self` callee and keeps nothing
+        # — rendering it (DF-218i), comparing it (DF-248d) — is the second
         # borrow-classified shape.
-        rendered = self._render_window(expr)
-        if rendered is not None:
-            return rendered
+        borrowed_operand = self._borrow_operand_window(expr)
+        if borrowed_operand is not None:
+            return borrowed_operand
 
         # A place handed over as a reference argument: the window spans the
         # whole call (design 141 — a Saw reference is call-scoped), and two of
@@ -710,26 +711,32 @@ class _PlaceUses:
             expr.object = self._replace_bind(expr.object, bind, name)
         return expr
 
-    # -- rendering operands (DF-218i) --------------------------------------
+    # -- borrowing operands (DF-218i, DF-248d) ------------------------------
     #
-    # Rendering a value hands it to `format(&self, into:)` and keeps nothing —
-    # the same borrow `v[0].method()` already gets. The place system judged it a
-    # VALUE READ instead, because a bare place read looks the same wherever it
-    # sits, so `print("{v[0]}")` and `print(v[0])` on a move-only element were
-    # ``lends a place of type `Res`, which is move-only`` while the two controls
+    # Some positions take a value and KEEP NOTHING: they hand it to a `&self`
+    # callee and are done with it. Rendering is one — `format(&self, into:)` —
+    # and a comparison is another, since design 239 made `equals`/`compare` take
+    # `other: &Self` at every tier. The place system judged both a VALUE READ,
+    # because a bare place read looks the same wherever it sits, so
+    # `print("{v[0]}")` and `v[0] == w[0]` on a move-only element were
+    # ``lends a place of type `Res`, which is move-only`` while the controls
     # beside them (a field read out of the place, a `&self` call on it) compiled.
     #
-    # So a rendering operand joins the presence test as a borrow-classified
-    # shape: the window's extent is the smallest RENDERING expression around it,
-    # and inside that window the operand is the window's own binding — a `&T`,
-    # which every rendering position already accepts.
+    # So a borrowing operand joins the presence test as a borrow-classified
+    # shape: the window's extent is the smallest enclosing expression that ASKS
+    # for the borrow, and inside that window the operand is the window's own
+    # binding — a `&T`, which every one of these positions already accepts.
 
-    def _rendering_slots(self, expr):
-        """Every RENDERING OPERAND of `expr`, as `(read, write)` pairs.
+    # The comparisons, all of which lower to `equals` / `compare` and therefore
+    # borrow both operands (design 239).
+    _BORROWING_OPERATORS = frozenset({"==", "!=", "<", ">", "<=", ">="})
 
-        THE description of what a rendering position is, and the only one — a
+    def _borrowing_operand_slots(self, expr):
+        """Every BORROWING OPERAND of `expr`, as `(read, write)` pairs.
+
+        THE description of what a borrowing position is, and the only one — a
         second list written for a second caller is how a position goes missing.
-        Its three entry points are the three places a value is rendered:
+        Its entry points, one clause each:
 
           * `StringInterpolation.expressions` — `"{x}"`, anywhere one is
             written (design 56).
@@ -737,16 +744,27 @@ class _PlaceUses:
           * the FORMAT ARGUMENTS of `print`/`panic`/`assert` — everything past
             the literal format string, and past `assert`'s condition ahead of
             it (design 137).
+          * both operands of a COMPARISON (design 239): `==` `!=` `<` `>` `<=`
+            `>=` all lower to `equals`/`compare`, whose `other` is a `&Self`,
+            so neither side is read out.
 
         A `FormatPlaceholder` sitting in the first list is not an operand and
-        needs no filtering here: it roots no chain, so the caller's own
-        place test declines it.
+        needs no filtering here: it roots no chain, so the caller's own place
+        test declines it. The same goes for a comparison between primitives —
+        that read is free, so the caller's tier test declines it.
         """
         if isinstance(expr, StringInterpolation):
             parts = expr.expressions
             return [(lambda i=i: parts[i],
                      lambda v, i=i: parts.__setitem__(i, v))
                     for i in range(len(parts))]
+        if isinstance(expr, BinaryOp):
+            if expr.op not in self._BORROWING_OPERATORS:
+                return []
+            return [(lambda: expr.left,
+                     lambda v: setattr(expr, 'left', v)),
+                    (lambda: expr.right,
+                     lambda v: setattr(expr, 'right', v))]
         if not isinstance(expr, FunctionCall):
             return []
         args = expr.arguments
@@ -762,19 +780,19 @@ class _PlaceUses:
                  lambda v, a=a: setattr(a, 'value', v))
                 for a in args[first:]]
 
-    def _render_window(self, expr):
-        """`expr` re-lowered with its rendering operands BORROWED, or None when
+    def _borrow_operand_window(self, expr):
+        """`expr` re-lowered with its borrowing operands BORROWED, or None when
         no operand of it is a place the value-read table would refuse.
 
         Scoped to the refused reads on purpose. Where the tier permits the read,
         the ordinary chain window already lowers each operand on its own, and
-        making a rendering position wrap its whole expression instead would pull
+        making a borrowing position wrap its whole expression instead would pull
         every SIBLING operand inside the window with it — which is a capture,
         and for a sibling naming the window's own root a new refusal (DF-248a).
         A borrow is the better lowering of the two and this is where it is worth
         the wrap: it is the difference between compiling and not.
         """
-        slots = self._rendering_slots(expr)
+        slots = self._borrowing_operand_slots(expr)
         if not slots:
             return None
         targets = []
@@ -804,7 +822,7 @@ class _PlaceUses:
             names.append(name)
             write(self._window_head(name, place,
                                     getattr(place, 'place_elem_type', None)))
-        # Everything else in the rendering expression — the other operands, an
+        # Everything else in the borrowing expression — the other operands, an
         # `assert` condition — is lowered where it stands, now that the operands
         # this pass owns have been swapped out from under it.
         self._recurse(expr)

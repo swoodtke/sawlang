@@ -3124,17 +3124,26 @@ construct in the owner and lend `&driver` down.
   `String.substring(s, e)` ALL PANIC out of range — no silent no-op
   (`set`/`swap` used to be) and no clamp (`substring` used to be). An empty
   `substring(i, i)` is still legal; a REVERSED range panics.
-- **RENDERING a place is a BORROW, not a read** (DF-218i). `print("{v[0]}")`,
-  `print(v[0])` and `print("{}", v[0])` hand the element to
-  `format(&self, into:)` and keep nothing, so the copy tier never comes into it
-  and a move-only element prints like an `Int` one. Every rendering position:
-  an interpolation operand anywhere, a single-argument `print` of a `Printable`,
-  and the format arguments of `print`/`panic`/`assert`. Treat it as working now
-  and SUSPECT in older builds, where it was ``lends a place of type `Res`, which
-  is move-only`` — printing a `Vector<Res>` element was simply unwritable.
-  GOTCHA: the window spans the rendering, so anything else in the same call is
-  inside it — an `assert` condition naming the place's own root
-  (`assert(v[0].n == 1, "{}", v[0])`) wants a `let` of its own first (DF-248a).
+- **RENDERING or COMPARING a place is a BORROW, not a read** (DF-218i,
+  DF-248d). Both positions hand the element to a `&self` callee and keep
+  nothing — `format(&self, into:)` for one, `equals`/`compare`'s `other: &Self`
+  for the other — so the copy tier never comes into it and a move-only element
+  prints and compares like an `Int` one:
+  ```saw
+  print("{v[0]}")   print(v[0])   print("{}", v[0])    // every rendering slot
+  v[0] == w[0]      v[0] < w[0]                        // all six operators
+  ```
+  Rendering covers an interpolation operand anywhere, a single-argument `print`
+  of a `Printable`, and the format arguments of `print`/`panic`/`assert`. Treat
+  both as working now and SUSPECT in older builds, where each was ``lends a
+  place of type `Res`, which is move-only`` — printing or comparing a
+  `Vector<Res>` element was simply unwritable, while the same operation over two
+  move-only LOCALS compiled.
+  GOTCHA: the window spans the whole expression that asks for the borrow, so
+  anything else in it is inside the window — an `assert` condition naming the
+  place's own root (`assert(v[0].n == 1, "{}", v[0])`) wants a `let` of its own
+  first, and so does the two-places-ONE-container comparison `v[0] == v[1]`
+  (DF-248a).
 - **A pattern that BINDS NOTHING is a presence test, not a read** (design 146).
   `if let _ = doc.section(name)`, `guard let _ = ...`, and a `match` arm like
   `case Empty` or `case Occupied(_)` look at the discriminant through the
