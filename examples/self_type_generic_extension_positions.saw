@@ -15,13 +15,15 @@
 // a nested return, and an ENUM extension — design 145's kind, where a
 // struct-kinded `self` would carry no variants.
 //
-// NOT a row: an extension that RENAMES the struct's parameter
-// (`struct Pair<A>` + `extension Pair<U>`). `Self` there resolves to `Pair<U>`
-// and the call site refuses it against `Pair<String>` — but so does the
-// HAND-WRITTEN `other: &Pair<U>`, identically, because the call site's
-// substitution map is keyed by the STRUCT's parameter names and a renamed
-// extension parameter is in no such key. That is DF-216h, independent of this
-// fix; matching the hand-written spelling exactly is the right answer here.
+// NOT a row here, and it has its own file now: an extension that RENAMES the
+// struct's parameter (`struct Pair<A>` + `extension Pair<U>`). `Self` there
+// resolves to `Pair<U>` and the call site used to refuse it against
+// `Pair<String>` — but so did the HAND-WRITTEN `other: &Pair<U>`, identically,
+// because the call site's substitution map was keyed by the STRUCT's parameter
+// names and a renamed extension parameter was in no such key. That was
+// DF-216h, independent of this fix, and matching the hand-written spelling
+// exactly was the right answer here; it is covered by
+// `renamed_extension_type_param.saw`, which carries the `Self` rows too.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // ref 9

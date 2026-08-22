@@ -16,7 +16,8 @@ from ast_nodes import (
     Program, StaticDecl, SawType, TypeKind, Visibility, has_synthesize,
     Block, ReturnStatement, BreakStatement, ContinueStatement, IfExpr, WhileExpr,
     IntLiteral, FloatLiteral, BoolLiteral, UnaryOp, ArrayLiteral, StructInit,
-    FunctionCall, ExpressionStatement, SourceLocationLiteral, expr_diverges
+    FunctionCall, ExpressionStatement, SourceLocationLiteral, expr_diverges,
+    ext_param_aliases
 )
 from errors import ErrorKind
 from namespace import (
@@ -1886,6 +1887,41 @@ class RegistrationMixin:
                 base, type_args=getattr(resolved, 'type_args', None))
         return resolved
 
+    @staticmethod
+    def ext_param_aliases(ext_type_params, declared_type_params):
+        """The shared definition — see `ast_nodes.ext_param_aliases`. Kept as a
+        method because the typechecker's three readers spell it `self.`; the
+        RULE has exactly one home, which codegen reads directly."""
+        return ext_param_aliases(ext_type_params, declared_type_params)
+
+    def _ext_rename_subst(self, extension) -> Dict[str, SawType]:
+        """The definition-side half of DF-216h: the type's declared parameters
+        expressed in the EXTENSION's names, so a method body reads the type's
+        storage in the names its own signature is written in.
+
+        Positional and TOTAL when any position renames — every declared
+        parameter gets an entry, identity included — because `_check_method`
+        rebuilds the receiver's type arguments from this map's values in order.
+        Empty (today's answer, an argument-free receiver) when nothing renames.
+        """
+        struct_info = (self.get_struct_info(extension.struct_name)
+                       or self.get_enum_info(extension.struct_name))
+        declared = list(getattr(struct_info, 'type_params', None) or [])
+        ext_params = list(getattr(extension, 'type_params', None) or [])
+        if not declared or not ext_params:
+            return {}
+        if any(getattr(tp, 'is_const', False) for tp in ext_params):
+            # A const parameter is a VALUE, not a type argument this can spell
+            # abstractly — the same carve-out `_ext_written_self_type` makes.
+            return {}
+        if not self.ext_param_aliases(ext_params, declared):
+            return {}
+        subst: Dict[str, SawType] = {}
+        for i, tp in enumerate(declared):
+            alias = (ext_params[i].name if i < len(ext_params) else tp.name)
+            subst[tp.name] = SawType(TypeKind.STRUCT, struct_name=alias)
+        return subst
+
     def _is_known_type(self, name: str) -> bool:
         """Check if a name refers to a known type (built-in or user-defined)."""
         return (name in self.BUILTIN_TYPE_NAMES or
@@ -3057,6 +3093,12 @@ class RegistrationMixin:
                 self_mutable=self_mutable,
                 self_is_reference=method.self_is_reference,
                 extension_bounds=extension_bounds,
+                # DF-216h: the extension's OWN parameter names, so a call site
+                # can bind them when they rename the struct's (see
+                # `_receiver_type_subst`). Empty for a specialized extension —
+                # its signatures are already concrete.
+                owner_type_params=([] if is_specialized
+                                   else list(extension.type_params or [])),
                 is_unsafe=getattr(method, 'is_unsafe', False),
                 visibility=getattr(method, 'visibility', Visibility.PRIVATE),
                 def_module=ext_def_module,

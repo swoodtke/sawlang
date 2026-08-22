@@ -86,6 +86,17 @@ class StatementsMixin:
                         # Convert the specialization key name to a SawType
                         type_name = specialization_key[i]
                         type_subst[type_param.name] = self._name_to_type(type_name)
+        else:
+            # DF-216h: an extension may RENAME the parameters it re-declares
+            # (`extension Pair<U>` over `struct Pair<A>`). Its signatures are
+            # written in ITS names, so the BODY must see the type's storage in
+            # them too — otherwise `self.first` types as the struct's `A` while
+            # `-> U` says `U`, and the method does not type-check against its
+            # own declaration. A rename map does it, positionally; the
+            # same-named case (the overwhelming majority) builds nothing and
+            # keeps today's argument-free receiver, whose self-referential
+            # `Wrap<T>` spelling `_ext_written_self_type` documents.
+            type_subst = self._ext_rename_subst(extension)
 
         # For a fully-generic extension (not a specialization), expose its type
         # parameters and their bounds to the method bodies, so that e.g. a

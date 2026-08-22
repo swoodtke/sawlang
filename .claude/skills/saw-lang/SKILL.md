@@ -1216,10 +1216,19 @@ v.map<String>({ $0.to_string() })   // the closure's return; explicit still wins
   extension too** (DF-216f, DF-216r): a parameter, a return, and nested in
   either (`&Self`, `Self?`, `Vector<Self>`, `(Self, Int)`). Inside
   `extension Wrap<T>` it means `Wrap<T>` — the spelling you would write by
-  hand. One gap left: an extension that RENAMES its struct's parameter
-  (`struct Pair<A>` + `extension Pair<U>`) does not substitute it, for `Self`
-  and for the hand-written `Pair<U>` alike (DF-216h) — repeat the struct's own
-  parameter names and it is a non-issue.
+  hand.
+- **AN EXTENSION MAY RENAME THE PARAMETER IT RE-DECLARES** (DF-216h, fixed
+  Aug 21): `struct Pair<A>` extended as `extension Pair<U>` binds `U` to the
+  receiver's argument at every position — a hand-written `&Pair<U>`, `Self` in
+  any of its spellings, a field read typed by it, a static's parameters, a
+  method-level generic beside it, a partial rename over two parameters, a
+  bounded rename, and a generic enum's extension. Positional, as the
+  re-declaration always was. Treat it as working now and SUSPECT in older
+  builds, where NOTHING substituted: the call site refused with ``argument
+  `other` expects `&Pair<U>` but got `&Pair<String>` `` and the body itself did
+  not type-check against its own declaration (``method `firstval` should return
+  `U` but returns `A` ``). Repeating the struct's own parameter names was the
+  workaround, and is still the clearer spelling.
 - **`equals`/`compare` TAKE `other: &Self` (design 239).** The right operand is
   a shared reference at every tier, which is what `==` `!=` `<` `>` `<=` `>=`
   have always passed. A comparison destroys neither operand, and a move-only

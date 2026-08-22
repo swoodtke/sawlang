@@ -68,6 +68,14 @@ class FunctionSymbol:
     # A method with unmet bounds for a given instantiation does not exist there
     # (conditional conformance); the typechecker uses this to diagnose calls.
     extension_bounds: Dict[str, List[str]] = field(default_factory=dict)
+    # DF-216h: the OWNING extension's declared type parameters, in the type's
+    # own positional order — `[U]` for `extension Pair<U>` over
+    # `struct Pair<A>`. An extension may RENAME the parameters it re-declares,
+    # and this method's signature is written in ITS names, so a call site
+    # binding only the STRUCT's declared names leaves them unsubstituted.
+    # Empty for a non-generic or specialized extension (nothing to rename) and
+    # for a plain function.
+    owner_type_params: List[TypeParameter] = field(default_factory=list)
     ast_node: Optional[Any] = None  # Function or Method AST node
     # Overloading (design 55): when a name carries 2+ overloads, the mangler
     # assigns each a type-signature-suffixed codegen symbol; `mangled_name` holds

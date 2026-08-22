@@ -15,7 +15,7 @@ from typing import Optional, List
 from llvmlite import ir
 from ast_nodes import (
     SawType, TypeKind, Extension, EnumVariant, Method, self_by_pointer,
-    specialization_key
+    specialization_key, ext_param_aliases
 )
 from .mangle import mangle_function, mangle_named, mangle_method
 
@@ -555,6 +555,14 @@ class GenericsMixin:
         exactly one home, which is the point of design 194 unit 2."""
         return specialization_key(type_args)
 
+    def _declared_type_params(self, type_name: str):
+        """The type's OWN declared type parameters — struct or enum (design
+        145 keeps them in two tables). The positional order an extension
+        re-declares them in, which is what `ext_param_aliases` lines up."""
+        decl = (self.generic_structs.get(type_name)
+                or self.generic_enums.get(type_name))
+        return getattr(decl, 'type_params', None) or []
+
     def _monomorphize_single_extension(self, generic_ext: Extension, type_args: List[SawType],
                                         mangled_struct_name: str, type_mapping: dict[str, SawType],
                                         skip_methods: set = None):
@@ -565,6 +573,22 @@ class GenericsMixin:
         """
         if skip_methods is None:
             skip_methods = set()
+
+        # DF-216h: this extension may RENAME the type's parameters, and its
+        # method signatures + bodies are written in ITS names. `type_mapping`
+        # arrives keyed by the TYPE's declared names, so bind the aliases for
+        # the same positions beside them — otherwise every `U` in the extension
+        # reaches `_get_llvm_type` unsubstituted. A no-op for the same-named
+        # case, which is why the map is only rebuilt when an alias exists.
+        aliases = ext_param_aliases(
+            getattr(generic_ext, 'type_params', None),
+            self._declared_type_params(generic_ext.struct_name))
+        if aliases:
+            type_mapping = dict(type_mapping)
+            for declared_name, alias in aliases:
+                bound = type_mapping.get(declared_name)
+                if bound is not None:
+                    type_mapping[alias] = bound
 
         # Set type param context
         old_context = self.type_param_context
@@ -768,10 +792,12 @@ class GenericsMixin:
 
         # Locate the generic method AST across the struct's generic extensions.
         method = None
+        owning_ext = None
         for generic_ext in self.generic_extensions.get(base_name, []):
             for m in generic_ext.methods:
                 if m.name == method_name and getattr(m, 'type_params', None):
                     method = m
+                    owning_ext = generic_ext
                     break
             if method is not None:
                 break
@@ -792,6 +818,16 @@ class GenericsMixin:
             for i, tp in enumerate(generic_struct.type_params):
                 if i < len(struct_type_args):
                     type_mapping[tp.name] = struct_type_args[i]
+        # DF-216h: bind the OWNING extension's aliases for the same positions —
+        # a method-generic method in `extension Pair<U>` writes `U` in its
+        # signature, and the map above is keyed by `struct Pair<A>`'s names.
+        if owning_ext is not None:
+            for declared_name, alias in ext_param_aliases(
+                    getattr(owning_ext, 'type_params', None),
+                    self._declared_type_params(base_name)):
+                bound = type_mapping.get(declared_name)
+                if bound is not None:
+                    type_mapping[alias] = bound
         for tp, ta in zip(method.type_params, method_type_args):
             type_mapping[tp.name] = ta
 

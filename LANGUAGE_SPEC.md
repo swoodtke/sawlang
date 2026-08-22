@@ -2494,6 +2494,21 @@ extension Wrap<T> {
 }
 ```
 
+An extension re-declares the type's parameters POSITIONALLY, so it may RENAME
+them. The extension's names are what its signatures and bodies are written in,
+and they bind to the receiver's arguments exactly as the type's own names do:
+
+```saw
+struct Pair<A> { first: A, second: A }
+
+extension Pair<U> {                                  // U is Pair's A
+    func agree(&self, other: &Pair<U>) -> Bool { ... }
+    func firstval(&self) -> U { self.first }
+}
+```
+
+Repeating the type's own names is the clearer spelling and the usual one.
+
 **Key Features:**
 - Methods use `&self` (shared reference) or `&var self` (exclusive reference).
   Both receivers are borrows and the sigil says so; a bare `var self` is a

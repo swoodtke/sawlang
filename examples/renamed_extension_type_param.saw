@@ -1,0 +1,97 @@
+// An extension may RENAME the type parameter it re-declares (DF-216h).
+//
+// `struct Pair<A>` extended as `extension Pair<U>` used to substitute nothing:
+// the call site built its substitution map from the STRUCT's declared names, so
+// every signature written in the extension's names stayed abstract
+// (``argument `other` expects `&Pair<U>` but got `&Pair<String>` ``), and a
+// body reading the type's own storage saw `A` where its declaration said `U`
+// (``method `firstval` should return `U` but returns `A` ``). `Self` behaved
+// identically, because DF-216r makes it mean exactly the hand-written spelling.
+//
+// An extension re-declares its type's parameters POSITIONALLY, so the alias and
+// the declared name denote the same position — carrying both is a rename, not
+// an ambiguity. `ast_nodes.ext_param_aliases` is the one definition of which
+// positions rename; the typechecker binds them at the definition (the body
+// reads the type's storage in the extension's names) and at every call shape,
+// and codegen binds them at its two monomorphization sites.
+//
+// Rows: a hand-written `&Pair<U>` parameter, `Self` as a reference / by value /
+// optional / a bare return / a static's return, a body reading a field typed by
+// the renamed parameter, a method-level generic beside the renamed one, a
+// PARTIAL rename (position 0 renamed, position 1 kept), a BOUNDED rename, and a
+// generic ENUM extension.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// agree true
+// me y
+// maybe false
+// firstval x
+// mapped 7
+// build n
+// swapped 3
+// leftval 3
+// label rec-9
+// slot 1
+
+trait Named {
+    func name(&self) -> String
+}
+
+struct Rec { id: Int }
+
+extension Rec: Named {
+    func name(&self) -> String { "rec-{self.id}" }
+}
+
+struct Pair<A> { first: A, second: A }
+
+extension Pair<U> {
+    func agree(&self, other: &Pair<U>) -> Bool { true }
+    func me(&self) -> Self { Pair<U>(first: self.first, second: self.second) }
+    func maybe(&self) -> Self? { None }
+    func firstval(&self) -> U { self.first }
+    func mapped<R>(&self, r: R) -> R { r }
+    static func build(a: U, b: U) -> Self { Pair<U>(first: a, second: b) }
+}
+
+struct Two<A, B> { left: A, right: B }
+
+extension Two<X, B> {
+    func swapped(&self) -> Two<B, X> { Two<B, X>(left: self.right, right: self.left) }
+    func leftval(&self) -> X { self.left }
+}
+
+struct Holder<T> { value: T }
+
+extension Holder<W: Named> {
+    func label(&self) -> String { self.value.name() }
+}
+
+enum Slot<T> { case Full(v: T), case Blank }
+
+extension Slot<E> {
+    func describe(&self) -> Int {
+        match self { case Full(_) -> 1, case Blank -> 0 }
+    }
+}
+
+func main() {
+    let p = Pair<String>(first: "x", second: "y")
+    let q = Pair<String>(first: "x", second: "y")
+    print("agree {p.agree(&q)}")
+    print("me {p.me().second}")
+    print("maybe {p.maybe().is_some()}")
+    print("firstval {p.firstval()}")
+    print("mapped {p.mapped(r: 7)}")
+    print("build {Pair<String>.build(a: "m", b: "n").second}")
+
+    let t = Two<Int, String>(left: 3, right: "r")
+    print("swapped {t.swapped().right}")
+    print("leftval {t.leftval()}")
+
+    let h = Holder<Rec>(value: Rec(id: 9))
+    print("label {h.label()}")
+
+    let s = Slot<Int>.Full(v: 4)
+    print("slot {s.describe()}")
+}

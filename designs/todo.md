@@ -2130,6 +2130,33 @@ extension's bound.
   names onto the method symbol and agreeing with codegen's mangling, which is
   where the design surface is (does a renamed parameter participate in the
   monomorphization key?) — so it stays its own dispatch.
+  **STATUS: CLOSED Aug 21 (small-fix batch).** The design question answered
+  itself: a renamed parameter does NOT enter the monomorphization key, because
+  an extension re-declares its type's parameters POSITIONALLY — the alias and
+  the declared name denote the same position, so the key stays the type's and
+  the alias is a second binding of it. `ast_nodes.ext_param_aliases` is the ONE
+  definition of which positions rename (beside `specialization_key`, and for
+  its reason: the typechecker and codegen have to agree or a signature that
+  type-checks fails to monomorphize). Four consumers, named in its docstring:
+  the typechecker's definition-side rename (`_ext_rename_subst`, so the BODY
+  reads the type's storage in the extension's names — the half the filing did
+  not have, and the reason `func firstval(&self) -> U { self.first }` reported
+  ``should return `U` but returns `A` `` before any call site was involved);
+  the call-side `_receiver_type_subst`, the funnel over all four call shapes
+  the entry asked for, carried on a new `FunctionSymbol.owner_type_params`; and
+  codegen's two monomorphization sites
+  (`_monomorphize_single_extension`, `_ensure_monomorphized_generic_method`).
+  OBLIGATION-4 PROBE, all compiled + run: `Self` in a renamed extension at
+  every position (`&Self`, by value via the hand-written `&Pair<U>`, `Self?`, a
+  bare `-> Self`, a static's `-> Self`) — the DF-216f/r work HOLDS, and what
+  was broken was the map it was handed, exactly as the assessment said — plus a
+  field read typed by the renamed parameter, a method-level generic beside it,
+  a PARTIAL rename (position 0 renamed, position 1 kept), a BOUNDED rename, and
+  a generic ENUM extension. PIN: `examples/renamed_extension_type_param.saw`
+  (ten rows); `examples/self_type_generic_extension_positions.saw`'s
+  "NOT a row" note now points at it. Docs: LANGUAGE_SPEC extensions section +
+  the saw-lang skill's `Self` bullet. Gated suite (2132 pass / 11 xfail) +
+  freestanding both arches.
 - **DF-216e — CLOSED (Aug 17), and it needed no new type: the ESCAPING BIT was
   missing at two positions.** The filing read the acceptance as a position
   heuristic that could not tell "the callee RUNS this closure" from "the callee

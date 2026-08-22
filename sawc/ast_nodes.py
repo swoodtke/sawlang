@@ -185,6 +185,38 @@ def specialization_key(type_args) -> tuple:
     return tuple(key_parts)
 
 
+def ext_param_aliases(ext_type_params, declared_type_params):
+    """The extension's name for each of the type's declared parameters, where
+    the two DIFFER (DF-216h).
+
+    ONE definition, for the same reason `specialization_key` above has one: the
+    typechecker and codegen must agree exactly about what a renamed parameter
+    binds, or a signature that type-checks fails to monomorphize. An extension
+    re-declares its type's parameters POSITIONALLY and is free to rename them —
+    `extension Pair<U>` over `struct Pair<A>` — so every consumer that binds
+    "the type's parameters" by NAME has to bind the extension's aliases beside
+    them, or the method's whole signature stays abstract.
+
+    Returns `(declared_name, alias_name)` pairs, EMPTY when the extension
+    repeats the type's own names (the overwhelming majority, and the only case
+    that worked before this). Consumers: the typechecker's definition-side
+    rename (`_ext_rename_subst`) and its call-side receiver binding
+    (`_receiver_type_subst`, which serves all four call shapes); codegen's two
+    monomorphization sites (`_monomorphize_single_extension` and
+    `_ensure_monomorphized_generic_method`).
+    """
+    pairs = []
+    declared = list(declared_type_params or ())
+    for i, tp in enumerate(ext_type_params or ()):
+        if i >= len(declared):
+            break
+        alias = getattr(tp, 'name', None)
+        declared_name = getattr(declared[i], 'name', None)
+        if alias and declared_name and alias != declared_name:
+            pairs.append((declared_name, alias))
+    return pairs
+
+
 @dataclass
 class SawType:
     kind: TypeKind

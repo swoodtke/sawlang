@@ -3248,6 +3248,43 @@ class ExpressionsMixin:
                     f"type `{resolved_arg}` does not satisfy the `{bound}` bound",
                     line, column, hint=hint)
 
+    def _receiver_type_subst(self, struct_info, type_args, method_info,
+                             subst=None):
+        """What this RECEIVER binds the callee's owning declaration's type
+        parameters to.
+
+        THE FUNNEL for that question, over all four call shapes (obligation 1).
+        Entry points: `_check_method_call` and `_check_overloaded_method_call`
+        (instance, receiver args off the object's type),
+        `_check_static_method_call` and `_check_overloaded_static_method_call`
+        (static, receiver args off the type spelling, design-37 default-filled
+        before they arrive here).
+
+        Binds the TYPE's declared parameter names, and then — DF-216h — the
+        OWNING EXTENSION's aliases for the same positions. An extension may
+        rename what it re-declares (`extension Pair<U>` over `struct Pair<A>`),
+        and the method's signature is written in the extension's names, so a
+        map keyed only by the struct's left every such signature abstract:
+        ``argument `other` expects `&Pair<U>` but got `&Pair<String>` ``. Both
+        names denote the same position, so carrying both is a rename, not an
+        ambiguity.
+
+        `subst` is updated in place when given (the caller may already hold the
+        struct-keyed half); the map is returned either way.
+        """
+        if subst is None:
+            subst = {}
+        args = list(type_args or [])
+        declared = list(getattr(struct_info, 'type_params', None) or [])
+        for tp, ta in zip(declared, args):
+            subst[tp.name] = ta
+        owner = list(getattr(method_info, 'owner_type_params', None) or [])
+        for declared_name, alias in self.ext_param_aliases(owner, declared):
+            bound = subst.get(declared_name)
+            if bound is not None:
+                subst[alias] = bound
+        return subst
+
     def _fold_method_type_args(self, expr, method_info, type_subst,
                                self_offset: int) -> bool:
         """Bind the CALLEE's OWN generic type parameters at a method call site.
@@ -3400,6 +3437,12 @@ class ExpressionsMixin:
         # Fold the method's OWN generic type params (inferred or explicit) into
         # the substitution alongside the struct's args (design 105).
         full_subst = dict(type_subst) if type_subst else {}
+        # DF-216h: the WINNER's extension aliases (the representative's went in
+        # upstream, and a mixed-rename overload set would need the winner's).
+        if full_subst:
+            self._receiver_type_subst(
+                getattr(obj_type, 'symbol', None) or self.get_struct_info(struct_name),
+                obj_type.type_args, method_info, full_subst)
         if method_info.type_params:
             for tp, ta in zip(method_info.type_params, expr.type_args or []):
                 full_subst[tp.name] = self._resolve_type(ta)
@@ -9530,6 +9573,14 @@ class ExpressionsMixin:
 
         # Look up method - first check specialized extensions, then generic
         method_info = self._lookup_method(struct_info, expr.method_name, obj_type.type_args)
+        # DF-216h: fold in the owning extension's aliases for the same
+        # positions (a no-op unless the extension renames). Done here, off the
+        # representative, so the design-55 resolver below sees a substitution
+        # that can match a renamed candidate's parameter types; the winner's
+        # own aliases are re-folded in `_check_overloaded_method_call`.
+        if type_subst and method_info is not None:
+            self._receiver_type_subst(struct_info, obj_type.type_args,
+                                      method_info, type_subst)
         # DF-217q: a STATIC method is not reachable through an INSTANCE. It has
         # no `self`, so the receiver has nowhere to go: the call-site parameter
         # offset sliced a slot the callee does not have, every label lined up
@@ -9933,10 +9984,11 @@ class ExpressionsMixin:
         obj_type_args = getattr(expr.object, 'type_args', None)
         struct_type_params = getattr(struct_info, 'type_params', None)
         type_map = {}
+        receiver_args = []
         if obj_type_args and struct_type_params:
-            resolved_args = [self._resolve_type(ta) for ta in obj_type_args]
-            resolved_args = self._append_default_type_args(struct_name, resolved_args)
-            for tp, ta in zip(struct_type_params, resolved_args):
+            receiver_args = [self._resolve_type(ta) for ta in obj_type_args]
+            receiver_args = self._append_default_type_args(struct_name, receiver_args)
+            for tp, ta in zip(struct_type_params, receiver_args):
                 type_map[tp.name] = ta
         method_info, mapping = self._resolve_overload(
             f"{struct_name}.{expr.method_name}", candidates, arg_types,
@@ -9954,6 +10006,11 @@ class ExpressionsMixin:
         self._stamp_overload_plan(expr, method_info.param_names, mapping)
         self._effect_call_method(
             method_info, f"`{struct_name}.{expr.method_name}`", expr.line)
+        # DF-216h: the resolved winner's extension aliases (the pre-resolution
+        # map above is keyed by the struct's declared names alone).
+        if receiver_args:
+            self._receiver_type_subst(struct_info, receiver_args, method_info,
+                                      type_map)
         # Fold the static method's OWN generic type params (design 105) into the
         # substitution alongside the struct's args.
         if method_info.type_params:
@@ -10217,8 +10274,8 @@ class ExpressionsMixin:
         if obj_type_args and struct_type_params:
             resolved_args = [self._resolve_type(ta) for ta in obj_type_args]
             resolved_args = self._append_default_type_args(struct_name, resolved_args)
-            for tp, ta in zip(struct_type_params, resolved_args):
-                type_map[tp.name] = ta
+            self._receiver_type_subst(struct_info, resolved_args, method_info,
+                                      type_map)
         # DF-216c: fold the STATIC's own generic type params in on top — a
         # static has no `self` slot, so the logical parameter list starts at 0.
         # Without this the method's `U` reached the argument check below
