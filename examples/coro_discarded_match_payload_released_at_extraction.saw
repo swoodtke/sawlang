@@ -1,32 +1,41 @@
-// XFAIL: DF-218w a driven `case Has(_)` releases the discarded payload at the
-// END of the match statement, where the sync twin releases it at EXTRACTION
+// A driven `case Has(_)` releases the discarded payload at EXTRACTION, where
+// the sync twin releases it — DF-218w's per-arm emission (E-ARM).
 //
-// The narrowed residue of DF-217p, whose scope-end migration moved this cell
-// from "frame teardown" to "the end of the statement" and could not move it
-// further. What is left is intra-statement TIMING, one position late, and never
-// a leak or a double free — the counts balance on both twins.
+// DF-217p's scope-end migration moved this cell from "frame teardown" to "the
+// end of the match statement" and stopped there. A `_` payload binding names no
+// value to own, so it is registered in no cleanup scope and no scope exit can
+// reach it; sync answers that by dropping it INLINE at extraction
+// (codegen/match.py's consume branch, the DF-217n fix). The driven twin has no
+// consume mode to be in — its scrutinee is the frame TEMP the container-head
+// hoist made (`self.__headN`), not an owned local — so the temp's own release
+// was what dropped the payload, one position late.
 //
-// MECHANISM. A `_` payload binding names no value to own, so it is registered
-// in no cleanup scope and no scope exit can reach it. Sync answers that by
-// dropping it INLINE at extraction (codegen/match.py's consume branch, the
-// DF-217n fix). The driven twin has no consume mode to be in: its scrutinee is
-// the frame TEMP the container-head hoist made (`self.__headN`), not an owned
-// local, so `scrut_is_local` is false, nothing drops the payload inline, and
-// the temp's own release — 218b's E-STMT edge, at the construct's merge point —
-// is what drops it. That release is correct and exactly-once; it is simply the
-// statement's end rather than the extraction point.
+// THE FIX is an edge, not a mode: an arm that claims NOTHING of the scrutinee
+// by name — every payload binding `_`, and a design-63 pattern that binds
+// nothing either — releases the temp at the arm's START. Such an arm leaves the
+// payload owned by the temp and aliased by nobody, which is what makes the
+// early release safe. The merge-point release survives behind it as the
+// idempotent tag-drop (a no-op once the arm has released) and is still the edge
+// for an arm that DOES bind and for a dispatch that matched no arm.
 //
-// The positions this reaches are the arms that bind a payload to `_` and
-// nothing else. An arm with a NAMED binding is clean on both twins (the
-// binding's store either consumes the temp or takes its own retain, and the
-// scrutinee dies at the statement's end on both sides), which is why
-// `match_consume` retired with the rest of DF-217p and `match_nobinding` did
-// not.
+// MATRIX. The rows are the arm shapes that claim nothing, plus the control that
+// claims, plus both lowerings:
 //
-// The fix is per-ARM emission — release the scrutinee temp at the START of an
-// arm whose only payload binding is `_` — which needs a rule for the mixed
-// `case Two(v, _)` shape, where sync drops one field inline and the other at
-// arm end while the frame temp holds the whole enum. Not attempted here.
+//   discard   — `case Has(_)`, the original cell, lowered IN PLACE (the head
+//               was the only suspending part, so the construct itself spans
+//               nothing once it is hoisted)
+//   wildcard  — `case _` over an owning variant, where sync drops the whole
+//               scrutinee at the arm's start for the same reason
+//   split     — `case Has(_)` where the ARM suspends too, so the match is
+//               CFG-split and the release rides the arm's entry state
+//   named     — the control: an arm that binds by name keeps the statement's
+//               end on BOTH twins, because the binding is live for the arm
+//
+// The shapes this does NOT reach are pinned separately, both XFAIL and both
+// intra-statement timing rather than a leak: the mixed `case Both(v, _)`
+// (coro_mixed_match_payload_released_at_extraction.saw, DF-218w's narrowed
+// residue) and a multi-field all-`_` payload's field ORDER
+// (coro_discarded_match_payload_field_drop_order.saw, DF-218y).
 // EXPECT: success
 // EXPECT-OUTPUT:
 // -- sync
@@ -38,6 +47,36 @@
 // NEW t1
 // DEINIT t1
 // arm
+// scope closed
+// -- sync wildcard
+// NEW t2
+// DEINIT t2
+// arm
+// scope closed
+// -- driven wildcard
+// NEW t2
+// DEINIT t2
+// arm
+// scope closed
+// -- sync split
+// NEW t3
+// DEINIT t3
+// arm
+// scope closed
+// -- driven split
+// NEW t3
+// DEINIT t3
+// arm
+// scope closed
+// -- sync named
+// NEW t4
+// arm
+// DEINIT t4
+// scope closed
+// -- driven named
+// NEW t4
+// arm
+// DEINIT t4
 // scope closed
 
 import std.task.{yield_now}
@@ -64,23 +103,80 @@ func mk_tag_s(id: Int) -> Tag {
     Tag(cell: Arc<Res>(value: Res(name: "t{id}")))
 }
 
-func sync_body() {
+func sync_discard() {
     match Held.Has(x: mk_tag(1)) {
         case Has(_) -> { print("arm") }
     }
     print("scope closed")
 }
 
-func driven_body() {
+func driven_discard() {
     match Held.Has(x: mk_tag_s(1)) {
         case Has(_) -> { print("arm") }
     }
     print("scope closed")
 }
 
+func sync_wildcard() {
+    match Held.Has(x: mk_tag(2)) {
+        case _ -> { print("arm") }
+    }
+    print("scope closed")
+}
+
+func driven_wildcard() {
+    match Held.Has(x: mk_tag_s(2)) {
+        case _ -> { print("arm") }
+    }
+    print("scope closed")
+}
+
+func sync_split() {
+    match Held.Has(x: mk_tag(3)) {
+        case Has(_) -> { print("arm") }
+    }
+    print("scope closed")
+}
+
+func driven_split() {
+    match Held.Has(x: mk_tag_s(3)) {
+        case Has(_) -> {
+            yield_now()
+            print("arm")
+        }
+    }
+    print("scope closed")
+}
+
+func sync_named() {
+    match Held.Has(x: mk_tag(4)) {
+        case Has(v) -> { print("arm") }
+    }
+    print("scope closed")
+}
+
+func driven_named() {
+    match Held.Has(x: mk_tag_s(4)) {
+        case Has(v) -> { print("arm") }
+    }
+    print("scope closed")
+}
+
 func main() {
     print("-- sync")
-    sync_body()
+    sync_discard()
     print("-- driven")
-    __saw_drive(driven_body())
+    __saw_drive(driven_discard())
+    print("-- sync wildcard")
+    sync_wildcard()
+    print("-- driven wildcard")
+    __saw_drive(driven_wildcard())
+    print("-- sync split")
+    sync_split()
+    print("-- driven split")
+    __saw_drive(driven_split())
+    print("-- sync named")
+    sync_named()
+    print("-- driven named")
+    __saw_drive(driven_named())
 }

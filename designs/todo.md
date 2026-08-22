@@ -31,7 +31,7 @@ is scheduled and in what order is the whole of what they say.
 
 ## [QUEUE] — scheduled, in order (user-approved)
 
-- DF-218s remainder + DF-218w — the two transform-emission residues of the 218 unit 2 landing, queued TOGETHER (user, Aug 21): DF-218s's interleaving half RULED same day, OPTION 3 — force frame residency on the owning real locals of any block containing a `return` (the try/catch `force` mechanism; scope walk becomes the total authority) — and DF-218w's per-arm `_`-payload release (owes the mixed `case Two(v, _)` rule at briefing). Acceptance: their two pins + K70 + the two DF-218w ledger rows. Entries below
+- ~~DF-218s remainder + DF-218w~~ — LANDED Aug 21 on branch `df-218s-218w`, two commits. DF-218s CLOSED (forced frame residency, pin flipped with its block-kind matrix); DF-218w NARROWED to the mixed `case Both(v, _)` shape, both ledger rows retired, three pins now (one flipped, two XFAIL). Two findings filed: DF-218x (sync `if let` leak on a `return`/`break` out of the then-branch) and DF-218y (a multi-field all-`_` payload's field order, and sync is the suspect half). Entries below
 - Small-fix batch — DF-216c generic-static monomorphization (+DF-217d rides, same missing path) + DF-216h renamed extension param plumbing + DF-219c bound-aware spawn capture audit + DF-218v sync try/catch error-edge leak (ADDED by user, Aug 21; entry below) (SCHEDULED Aug 21, user; entries below — mechanisms assessed, sites located; DF-239b joins only if its resolution strategy is settled at briefing, DF-238a a candidate too after its Aug-21 elevation)
 - Design 234 — the fallibility flip (designs/234-fallibility-flip.md) — after 235/237 (the M3-1.5 interleave carve-out WITHDRAWN by user, Aug 20 — 1.5 waits for sawos)
 - sos riders batch — LANDED Aug 21 (branch sos-riders): the remainder both flipped — `clock_get` takes `type:` at its two declarations, the kernel decode and the three labeled call sites, and all 46 rights-enum cases in `sos/kernel/abi/` read as shifts with the values probe-verified byte-identical before and after (ordinals left decimal; the `>= 256` static_assert threshold is not a case and stayed, reported). The kcore re-narrowing LANDED Aug 20; the member audit RAN Aug 20 and its narrowing unit LANDED Aug 20 (84 sites: 78 `public(package)`, 6 private, 2 consumed; the audit's file-local split was inverted — DF-232q); see the re-narrowing rider section
@@ -63,7 +63,9 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-223b — existential dispatch of a suspending trait method, owed a DESIGN (entry below, under design 223)
 - DF-218t — a value-position loop at a non-integer result type is a codegen ICE (the `None` sentinel is built for an integer); entry below, found by 218b stage 0's probes
 - DF-218v — a `try { } catch { }` block LEAKS the try body's locals on its error edge (sync); entry below, found by 218b's SC10 probe, and it corrects DF-218r's class statement
+- DF-218w RESIDUE — the MIXED `case Both(v, _)` shape keeps statement-end timing (entry below, pinned XFAIL; the rest of DF-218w closed Aug 21)
 - DF-218x — a sync `if let` binding LEAKS when the then-branch exits by `return`/`break`; entry below, found by DF-218s's sweep. Same batch as DF-218v (both are codegen cleanup gaps at a nonlocal exit)
+- DF-218y — a multi-field all-`_` match payload drops its fields forward on the sync twin and reverse on the driven one; NEEDS A RULING (entry below says why sync is the suspect half), pinned XFAIL
 
 - DF-225a — a user `extern "C"` function under a codegen-internal name (`printf`, `abort`, …) ICEs with no location (entry below, under DF-225a-f)
 - DF-225d — a primitive extension method returning bare `self` refuses its own declared return type, both sides printed identical (entry below, under DF-225a-f)
@@ -2544,7 +2546,9 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   territory) and has to decide what the in-flight Result owns at the jump,
   which is more than a cleanup call. Owed a pin at the next batch.
 
-- **DF-218w (DEINIT-ORDER; filed Aug 21 — the NARROWED RESIDUE of DF-217p)** —
+- **DF-218w (DEINIT-ORDER; filed Aug 21 — the NARROWED RESIDUE of DF-217p) —
+  NARROWED AGAIN Aug 21 (branch `df-218s-218w`, stage 2) to the MIXED
+  `case Both(v, _)` shape; the rest is CLOSED.** —
   a driven `case Has(_)` releases the discarded payload at the END of the
   match statement, where the sync twin releases it at EXTRACTION. Design 218
   unit 2 moved this cell from frame teardown to statement end and could not
@@ -2562,6 +2566,41 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   other at arm end while the frame temp holds the whole enum.
   PIN: `examples/coro_discarded_match_payload_released_at_extraction.saw`
   (XFAIL) + two `tools/corodiff_known.txt` rows re-filed from DF-217p's block
+  **LANDED, as the per-arm emission the entry named — E-ARM.** An arm that
+  claims NOTHING of the scrutinee by name (every payload binding `_`, and a
+  design-63 pattern binding nothing either) releases the hoisted temp at the
+  arm's START; the merge-point release survives behind it as the idempotent
+  tag-drop and is still the edge for an arm that DOES bind. Both lowerings take
+  it (`_split_match`'s arm entry state, `_lower_inplace`'s MatchExpr). PIN
+  FLIPPED with three cells added (bare wildcard, the CFG-split arm, the
+  named-binding control); BOTH ledger rows retired.
+  THE MIXED SHAPE keeps statement-end timing, which is what stays open. Probed
+  first, as the dispatch directed: sync drops the `_` field inline at
+  extraction and the NAMED one at arm end, through two different destructors.
+  The driven twin holds ONE value — the frame temp carrying the whole enum —
+  and `_release_shape` releases a field whole, so there is no spelling that
+  drops `b` while `v` still names `a`, and an arm-start release would free what
+  `v` reads. Intra-statement timing, never a leak; corodiff cannot see it
+  (`st_match_nobinding` builds the single-field `case Has(_)`), so the pin is
+  the whole instrument.
+  NARROWED PIN: `examples/coro_mixed_match_payload_released_at_extraction.saw`
+  (XFAIL, one cell)
+
+- **DF-218y (DEINIT-ORDER, PRE-EXISTING; filed Aug 21 by DF-218w's fix) —
+  NEEDS A RULING, and the SYNC twin is the suspect half.** A multi-field
+  all-`_` arm (`case Pair(_, _)`) drops its payload fields in DECLARATION
+  order on the sync twin and in REVERSE on the driven one. DF-218w's E-ARM put
+  both at the same POINT (the arm's start); the order is what is left.
+  MECHANISM: two different destructors. Sync drops a `_`-discarded field inline
+  as it EXTRACTS it, so its loop runs in binding-index order — forward. The
+  driven twin releases the frame temp as one value and the enum's synthesized
+  memberwise deinit is reverse-declaration, which is what design 128 states for
+  every structural teardown in the language. So sync's forward inline loop is
+  the only drop path in Saw that is not reverse, and the fix may belong on THAT
+  side rather than on the transform's. Not decided here — the pin states parity
+  at sync's order (the standing contract) and flips whichever way the ruling
+  goes.
+  PIN: `examples/coro_discarded_match_payload_field_drop_order.saw` (XFAIL)
 
 - **DF-218x (SYNC LEAK, PRE-EXISTING; found Aug 21 by DF-218s's
   obligation-4 sweep)** — an `if let` binding is NOT released when the

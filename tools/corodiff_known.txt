@@ -77,16 +77,29 @@
 # construct's merge point — an idempotent tag-drop, paired with the DF-210f
 # forget that survives on the consuming arms.
 #
-# TWO SIGNATURES SURVIVE, RE-FILED under DF-218w: the `_`-arm cells, whose
-# residual divergence is intra-statement TIMING. Sync drops a discarded payload
-# INLINE at extraction (it is registered in no cleanup scope, so no scope exit
-# could reach it); the driven twin has no consume mode to be in and drops the
-# whole temp at the statement's end. One position late, never a leak.
-
-# DF-218w (reported 2026-08-21) — the narrowed residue of DF-217p.
-# PIN: examples/coro_discarded_match_payload_released_at_extraction.saw
-DF-218w-2026-08-21	DEINIT-ORDER: match_nobinding/in_rhs @ linear
-DF-218w-2026-08-21	DEINIT-ORDER: match_nobinding/in_rhs @ loop
+# DF-218w's two rows are GONE, removed by the landing that fixed them (Aug 21,
+# branch `df-218s-218w`). They were the `_`-arm cells, whose residual divergence
+# was intra-statement TIMING: sync drops a discarded payload INLINE at
+# extraction (it is registered in no cleanup scope, so no scope exit could reach
+# it), and the driven twin — with no consume mode to be in, its scrutinee being
+# the frame temp the container-head hoist made — dropped the whole temp at the
+# statement's end.
+#
+# E-ARM is the edge that closed them: an arm that claims NOTHING of the
+# scrutinee by name releases the hoisted temp at the arm's START, because the
+# payload is then owned by the temp and aliased by nobody. The merge-point
+# release survives behind it as the idempotent tag-drop — a no-op once the arm
+# has released, and still the edge for an arm that DOES bind. Both lowerings
+# take it: `_split_match`'s arm entry state and `_lower_inplace`'s MatchExpr,
+# which is where corodiff's `in_rhs` placement lands (the head is the only
+# suspending part, so the construct spans nothing once it is hoisted).
+#
+# FAM_SCRUTINEE_TEMP is narrowed again, not retired, and the DF-210f forget is
+# untouched. What DF-218w still names is the MIXED `case Both(v, _)` shape,
+# which corodiff does not generate (`st_match_nobinding` builds the single-field
+# `case Has(_)`) and which is pinned in examples/ instead:
+# examples/coro_mixed_match_payload_released_at_extraction.saw, plus
+# examples/coro_discarded_match_payload_field_drop_order.saw for DF-218y.
 
 # DF-218e's row is GONE, removed by design 218 unit 2 stage E (Aug 21) in the
 # landing that fixed it. CONSUMPTION SYMMETRY: a suspending callee is consumed

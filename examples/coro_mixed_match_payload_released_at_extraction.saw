@@ -1,0 +1,89 @@
+// XFAIL: DF-218w a driven `case Both(v, _)` holds the DISCARDED field to the
+// statement's end, where the sync twin drops it at extraction
+//
+// DF-218w's narrowed residue, and the one arm shape its per-arm edge (E-ARM)
+// cannot take. An arm that claims NOTHING of the scrutinee by name releases the
+// hoisted temp at its own start, because the payload is then aliased by nobody.
+// This arm claims HALF of it: `v` names the first field for the arm's whole
+// length while `_` discards the second.
+//
+// Sync answers that with two drops at two points — the `_` field INLINE at
+// extraction (codegen/match.py's consume branch), the named binding at the
+// arm's end through the arm cleanup scope it is registered in.
+//
+// MECHANISM (obligation 4). The driven twin holds ONE value: the frame temp the
+// container-head hoist made, carrying the whole enum. `_release_shape` releases
+// a field WHOLE — a `Slot.clear()` or design 44's `= None` — so there is no
+// spelling that drops `b` while `a` is still named, and releasing the temp at
+// the arm's start would free the value `v` reads for the rest of the arm. The
+// positions this reaches are exactly the arms that bind SOME payload field by
+// name and discard another; an arm that claims none takes E-ARM (the pin
+// `coro_discarded_match_payload_released_at_extraction.saw`) and an arm that
+// claims all of them is at parity already, because both twins then drop at the
+// statement's end.
+//
+// What is left is intra-statement TIMING: the discarded field lives to the end
+// of the match statement instead of dying at extraction. Never a leak and never
+// a double free — the counts balance on both twins, and the temp's release is
+// the idempotent tag-drop.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -- sync
+// NEW t1
+// NEW t2
+// DEINIT t2
+// arm
+// DEINIT t1
+// scope closed
+// -- driven
+// NEW t1
+// NEW t2
+// DEINIT t2
+// arm
+// DEINIT t1
+// scope closed
+
+import std.task.{yield_now}
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+
+struct Tag { cell: Arc<Res> }
+@synthesize
+extension Tag: Copy {}
+
+enum Both { case Pair(a: Tag, b: Tag) }
+
+func mk_tag(id: Int) -> Tag {
+    print("NEW t{id}")
+    Tag(cell: Arc<Res>(value: Res(name: "t{id}")))
+}
+
+func mk_tag_s(id: Int) -> Tag {
+    yield_now()
+    print("NEW t{id}")
+    Tag(cell: Arc<Res>(value: Res(name: "t{id}")))
+}
+
+func sync_mixed() {
+    match Both.Pair(a: mk_tag(1), b: mk_tag(2)) {
+        case Pair(v, _) -> { print("arm") }
+    }
+    print("scope closed")
+}
+
+func driven_mixed() {
+    match Both.Pair(a: mk_tag_s(1), b: mk_tag(2)) {
+        case Pair(v, _) -> { print("arm") }
+    }
+    print("scope closed")
+}
+
+func main() {
+    print("-- sync")
+    sync_mixed()
+    print("-- driven")
+    __saw_drive(driven_mixed())
+}

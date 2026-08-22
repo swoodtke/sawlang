@@ -1,0 +1,88 @@
+// XFAIL: DF-218y a multi-field all-`_` payload drops its fields in DECLARATION
+// order on the sync twin and in reverse on the driven one
+//
+// DF-218w's per-arm edge put both twins at the same POINT — an arm that claims
+// nothing of the scrutinee releases at its START, so `DEINIT` precedes `arm` on
+// both sides now. What it cannot reconcile is the order WITHIN the payload:
+//
+//   sync    DEINIT t1, DEINIT t2   (field `a`, then field `b`)
+//   driven  DEINIT t2, DEINIT t1   (field `b`, then field `a`)
+//
+// MECHANISM, and why this is a RULING rather than a fix. Each side reaches the
+// fields through a different destructor. Sync drops a `_`-discarded field
+// inline as it extracts it, so its loop runs in binding index order — FORWARD.
+// The driven twin releases the frame temp as ONE value, and the enum's
+// synthesized memberwise deinit drops the active variant's payload in REVERSE
+// declaration order, which is what design 128 states for every structural
+// teardown in the language. So the two disagree, and the twin that disagrees
+// with the rest of the language is the SYNC one: its forward inline loop is the
+// only drop path in Saw that is not reverse-declaration.
+//
+// The standing contract is sync parity, so this pin states parity — with sync's
+// order, which is what parity means today. If the resolution is instead that
+// codegen's inline loop should run reverse like everything else, the fix lands
+// on the sync side and this pin's EXPECT flips with it. Either way both twins
+// end up saying one thing.
+//
+// Never a leak: the counts balance on both sides, at the same point.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -- sync
+// NEW t1
+// NEW t2
+// DEINIT t1
+// DEINIT t2
+// arm
+// scope closed
+// -- driven
+// NEW t1
+// NEW t2
+// DEINIT t1
+// DEINIT t2
+// arm
+// scope closed
+
+import std.task.{yield_now}
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+
+struct Tag { cell: Arc<Res> }
+@synthesize
+extension Tag: Copy {}
+
+enum Both { case Pair(a: Tag, b: Tag) }
+
+func mk_tag(id: Int) -> Tag {
+    print("NEW t{id}")
+    Tag(cell: Arc<Res>(value: Res(name: "t{id}")))
+}
+
+func mk_tag_s(id: Int) -> Tag {
+    yield_now()
+    print("NEW t{id}")
+    Tag(cell: Arc<Res>(value: Res(name: "t{id}")))
+}
+
+func sync_all_discarded() {
+    match Both.Pair(a: mk_tag(1), b: mk_tag(2)) {
+        case Pair(_, _) -> { print("arm") }
+    }
+    print("scope closed")
+}
+
+func driven_all_discarded() {
+    match Both.Pair(a: mk_tag_s(1), b: mk_tag(2)) {
+        case Pair(_, _) -> { print("arm") }
+    }
+    print("scope closed")
+}
+
+func main() {
+    print("-- sync")
+    sync_all_discarded()
+    print("-- driven")
+    __saw_drive(driven_all_discarded())
+}

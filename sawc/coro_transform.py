@@ -5808,14 +5808,44 @@ class _FrameBuilder:
         DF-210f forget, so the release there is a no-op, and emitting an
         unconditional drop instead would free the payload twice. That forget
         SURVIVES; this closes the non-consuming half's timing. The family is
-        narrowed in reach, not retired."""
+        narrowed in reach, not retired.
+
+        E-ARM (DF-218w) is the second entry point, one position earlier: an arm
+        that claims NOTHING of the scrutinee releases the temp at its own START,
+        where the sync twin's inline drop sits. Both edges emit, and the merge
+        one is the no-op behind an arm that already released — which is exactly
+        what the idempotence above buys."""
         if not isinstance(node, Identifier):
             return []
-        name = node.name
-        if name not in self._hoist_temps or name not in self.encmap:
+        return self._scrutinee_temp_release_by_name(node.name)
+
+    def _scrutinee_temp_release_by_name(self, name):
+        """`_scrutinee_temp_release` by NAME, for the E-ARM callers.
+
+        They emit AFTER `_rewrite_hosting` has replaced the scrutinee
+        identifier with a field access, so the node is no longer there to read
+        the name off; they capture the name first and come in here."""
+        if name is None or name not in self._hoist_temps or name not in self.encmap:
             return []
         return self._release_shape(
             name, self.encmap.get(name), self._frame_slot_type(name))
+
+    def _arm_claims_no_payload(self, arm):
+        """Whether `arm` binds NOTHING of the scrutinee by name — every payload
+        binding is `_`, and its design-63 `pattern` binds nothing either.
+
+        The exact condition under which the hoisted scrutinee temp's release may
+        move from the construct's merge point to the arm's START (DF-218w).
+        Such an arm leaves the payload owned by the temp and aliased by NOBODY,
+        which is what makes the early release safe. An arm that does bind by
+        name is the opposite case and must keep the merge point: in the driven
+        twin those bindings are not owners — a spanning arm stores each into its
+        own frame field, a non-spanning one leaves it as a codegen pattern
+        binding aliasing the payload the temp still holds — so releasing at the
+        arm's start would free the value the binding still reads."""
+        if any(b != "_" for b in (arm.bindings or ())):
+            return False
+        return not self._pattern_binding_names(getattr(arm, 'pattern', None))
 
     # ----------------------------------------------------- the CFG walk
     def _lower_stmts(self, stmts, loop_ctx):
@@ -6267,6 +6297,10 @@ class _FrameBuilder:
 
     def _split_match(self, e, loop_ctx):
         forgets = []
+        # E-ARM (DF-218w) reads the temp by NAME, so capture it before the
+        # rewrite below turns the identifier into a field access.
+        scrut_name = (e.matched_expr.name
+                      if isinstance(e.matched_expr, Identifier) else None)
         cap_lets, scrut = self._rewrite_hosting(e.matched_expr, forgets)
         if forgets:
             raise CoroTransformError(
@@ -6347,6 +6381,11 @@ class _FrameBuilder:
         self._term.add(self.cur)
         for arm, entry, arm_binds in arm_entries:
             self.cur = entry
+            # E-ARM (DF-218w): an arm that claims no payload drops the temp
+            # HERE, where the sync twin's inline drop at extraction sits. The
+            # merge release below stays and is a no-op on this path.
+            if self._arm_claims_no_payload(arm):
+                self._emit(self._scrutinee_temp_release_by_name(scrut_name))
             if isinstance(arm.body, Block):
                 self._lower_block(arm.body, loop_ctx, extra=arm_binds)
             else:
@@ -7648,12 +7687,26 @@ class _FrameBuilder:
                 # was the only suspending thing in it lowers in place (the
                 # construct itself spans nothing once the head is hoisted), so
                 # this is where that shape's merge point is.
+                scrut_name = (e.matched_expr.name
+                              if isinstance(e.matched_expr, Identifier)
+                              else None)
                 scrut_release = self._scrutinee_temp_release(e.matched_expr)
                 cap_lets, e.matched_expr = self._rewrite_hosting(
                     e.matched_expr, forgets)
                 for arm in e.arms:
                     if isinstance(arm.body, Block):
                         self._lower_block_in_place(arm.body)
+                        # E-ARM (DF-218w): an arm claiming no payload drops the
+                        # temp at its START. PREPENDED after the body is
+                        # lowered, not before — these statements already name
+                        # the frame field, and running them back through the
+                        # in-place lowering would rewrite an already-rewritten
+                        # target. `scrut_release` above is a separate list of
+                        # nodes, so no node is shared between two positions.
+                        if self._arm_claims_no_payload(arm):
+                            arm.body.statements = (
+                                self._scrutinee_temp_release_by_name(scrut_name)
+                                + arm.body.statements)
                     else:
                         aforgets = []
                         arm.body = self._rewrite_expr(arm.body, aforgets)
