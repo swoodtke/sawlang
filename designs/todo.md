@@ -70,16 +70,15 @@ for sawos; "238 before more M3 work" is absolute.
 - ~~DF-218x~~ — CLOSED Aug 22 (branch `df-218xy`, commit 1): the branch got a cleanup scope of its own, so `_cleanup_to_depth` reaches the binding with no fourth entry point. The sweep found FIVE leaking spellings, not two, and corrected two entry claims (the driven twin was already right; the tuple pattern was mis-scoped rather than leaked). Entry below; conformance K76
 - ~~DF-218y~~ — CLOSED Aug 22 (branch `df-218xy`, commit 2) on the SYNC side, as the Aug-22 ruling directs: discard order is REVERSE-DECLARATION everywhere. The sweep found a SECOND forward loop — the destructuring `let`'s wildcard leaves — which was forward on both twins and moved with it. Pin flipped and extended to 11 rows; entry below; conformance K77
 - DF-244b — a bare `None` TAIL at a `Result<T?, E>` cannot type itself, in a NAMED body as much as a closure; entry below, DF-232h's residue. `return None` is the one-keyword workaround
-<<<<<<< HEAD
 - DF-247a — a function that is a `group.spawn` ROOT is `undefined function` at every other call of it in the same module (entry below, filed by design 242 unit 0's census; PRE-EXISTING, stash-verified). The fix owes the ROOT MATRIX its mechanism reaches, not the one probed cell
 - DF-247b — under a GLOB import the QUALIFIED spelling of a type is a DIFFERENT type from the bare one (entry below, filed by design 242 unit 1; PRE-EXISTING and general, three types probed with two green controls). Wants a RULING first: make it work, or make the glob refuse a qualifier
-=======
 - DF-249a — the fixed-array bounds panic holds the index and the length and prints neither; entry below, filed by DF-245b's sweep. Wants a wording decision (does the length belong in the message, and do std's hand-written accessor panics follow)
->>>>>>> 59b67d2c (DF-245b: `try!` panics WITH the error it was handed)
 - DF-246a — `examples/task_backtrace_mt.saw` flakes under machine LOAD (a fixed `sleep` standing in for a happens-before between two MT tasks), which reads as a suite regression and costs a battery re-run; `channel_receive_cancel_mt.saw` is the second member of the class. Entry below, found by `df-218xy`'s terminal battery
 - DF-248a — a window body may not name the window's own ROOT, even for a read that invalidates nothing (`v[0].n = v.len()`); held deliberately, and what it wants is a designed "shared second access to the root" rule. Entry below, filed by DF-169h's fix
 - DF-248b RESIDUE — a HAND-WRITTEN closure nested inside another still captures the outer one's `&var` PARAMETER by value, so a write through it is silently lost; the place-window half closed Aug 22. Entry below, pinned XFAIL; wants a borrow marker on `VariableInfo`
 - DF-248c — an XFAIL whose cited DF has CLOSED is invisible to every gate (the policy's teeth are the XPASS direction only); the one found instance is fixed, the LANE is not built. Entry below, with the fix direction
+- DF-250a — a COLLECTION LITERAL does not shape through a `Result`'s Ok payload, where the bare `-> Vector<Int>` twin compiles (entry below, filed by DF-245c's sweep; PRE-EXISTING and spawn-independent). The fix is a third peel beside DF-226e's and DF-140d's, at one funnel
+- DF-250b — a `??` whose DEFAULT is a bare `None` at a NON-optional peeled type is an LLVM ICE where the documented behaviour is a clean refusal (entry below, filed by DF-245c's sweep; PRE-EXISTING). Wants the refusal first, the funnel guard beside it
 
 - ~~DF-225a~~ — CLOSED Aug 22 (branch `diag-batch`, commit 6): the five join the ordinary duplicate-declaration rule — same LLVM signature unifies (so `printf` is callable), a different one is a clean refusal. The sweep probed every compiler-declared symbol and found the five are exactly the ones std does not also declare. Entry below, under DF-225a-f
 - ~~DF-225d~~ — CLOSED Aug 22 (branch `diag-batch`, commit 7): the three copies of "which names are primitives" became ONE table, so `self` inside a primitive extension is that primitive again. The sweep found the class is wider than the filing — arithmetic, comparison and `Bool`/`UInt` too, all ten design 176 added. Entry below, under DF-225a-f
@@ -286,6 +285,7 @@ alloc-free and denied-allocator paths keep working. `E` is not bounded
 NEEDS A RULING on the exact wording, and it CHANGES A PIN
 (`examples/try_force_panic.saw` expects `try! failed` verbatim). [234, 19]
 
+<<<<<<< HEAD
 LANDED Aug 22, in the fix shape above and at that wording:
 `panic at F:L: try! failed: <error>`. `_generate_try_force`'s literal
 `_emit_panic` became `_emit_try_force_panic`, which renders the extracted Err
@@ -337,6 +337,11 @@ panics (`Vector.[]: index out of range`, authored in Saw) should follow. [122,
 
 ## DF-245c — ONE SPAWNED TASK ANYWHERE stops every `return None` at a
 ## `-> Result<T?, E>` from typing, in functions that task never calls
+=======
+## ~~DF-245c — ONE SPAWNED TASK ANYWHERE stops every `return None` at a
+## `-> Result<T?, E>` from typing, in functions that task never calls~~ —
+## **FIXED Aug 22** on branch `transform-typing`, commit 1
+>>>>>>> ae94bdb0 (DF-245c: a bare `None`'s payload type outlives the second typecheck pass)
 
 ```saw
 func poll(n: Int) -> Result<Int?, Stop> {
@@ -381,6 +386,29 @@ Workaround, which std.channel now uses: an annotated local
 the shape of every non-blocking poll, so the flip meets this immediately.
 [234, 244]
 
+**FIXED Aug 22** (branch `transform-typing`, commit 1). The mechanism as FOUND
+is narrower and more mechanical than "the second pass does not re-derive": the
+contextual annotation was written to `resolved_type`, which is the very field
+`_check_expression` stamps generically on every node it visits, so the design-146
+second pass ERASED it — and the branch that had written it (the DF-140d `return`
+route into `_prepare_ok_payload`) could not re-run, because its own first-pass
+rewrite into a `ResultOkWrap` is what it keys on. `_apply_literal_expected_type`
+case (0) had already met this and chosen the durable field, `expected_type`; the
+OTHER contextual-`None` funnel, `_propagate_optional_type`, had not. It now
+stamps both, and its docstring names its nine entry points.
+SWEEP (obligation 4): 18 return-position rows x {no spawn, spawn}, compiled AND
+run — the rest of `_stamp_return_literal_types`'s work, as the entry asked.
+Exactly five cells failed, all one shape (a `None` inside a synthesized
+`ResultOkWrap`): a free function, a method, a suspending body (which failed with
+or without a spawn — a suspending body IS the transform running), the arms of a
+value `if`, and a generic body. Everything else in the family survives already,
+and for one reason: a fixed-width literal, a collection literal, a struct field
+`None`, a Vector-element `None` and a plain `-> T?` `None` are all stamped
+through `_apply_literal_expected_type`'s durable field, or sit in a position
+whose annotating path re-runs unchanged on the second pass. Pin FLIPPED to a
+passing test carrying all five rows. Two unrelated findings fell out of the
+sweep and are filed separately: DF-250a, DF-250b.
+
 ## DF-245d — a PROPAGATING `try` in an optional-binding SCRUTINEE inside a
 ## SUSPENDING body is refused
 
@@ -406,6 +434,65 @@ consumer. Pin: `examples/suspending_binding_scrutinee_propagates_a_try.saw`
 (XFAIL, both the `while let` and `if let` rows).
 `examples/while_let_channel_drain.saw` spells `try!` and cites this entry.
 [196, 234, 244]
+
+## DF-250a — a COLLECTION LITERAL does not shape through a `Result`'s Ok
+## payload (filed Aug 22 by DF-245c's return-position sweep)
+
+`func row() -> Result<Vector<Int>, Stop> { return [1, 2, 3] }` is ``expected
+return type `Result<Vector<Int, GlobalAllocator>, Stop>` but got `[Int; 3]`
+(doesn't match Ok type `Vector<Int, GlobalAllocator>` or Err type `Stop`)``, and
+the TAIL spelling gives the same refusal in `_reconcile_return_type`'s words. The
+bare `-> Vector<Int>` twin compiles and runs. Pre-existing and spawn-independent
+(both cells of the sweep row failed identically), so it is not the transform.
+
+MECHANISM (obligation 4): `_apply_literal_expected_type` is the design-54
+shaping funnel and it is handed the DECLARED return type, which here is a
+`Result` — it has no Result arm, so the literal is never told it is a `Vector`
+and stays a `[Int; 3]`. The auto-wrap ladder then runs on an already-wrong type
+and reports the mismatch. Two payload peels already exist for this exact
+position and neither is shaping: `_apply_literal_expected_type` case (0d) peels
+to the unique payload that can take a bare INTEGER literal (DF-226e), and
+`_prepare_ok_payload` peels the Ok OPTIONAL (DF-140d). SIBLINGS the mechanism
+reaches, unprobed: every literal kind case (0) shapes — Map, Set, the repeat
+literal, a tuple — at an Ok payload, and the same at the `T?` layer
+(`Result<Vector<Int>?, E>`). The fix is a third peel at the same place, so the
+sweep's grid is (literal kind) x (Result / Result-of-optional) x (return, tail,
+argument, `let`). Workaround: bind the literal to an annotated local first.
+[54, 226, 234]
+
+## DF-250b — a `??` whose DEFAULT is a bare `None` at a NON-optional peeled
+## type is an LLVM ICE, not a refusal (filed Aug 22 by DF-245c's sweep)
+
+```saw
+func row() -> Int? {
+    let a: Int? = None
+    return a ?? None
+}
+// internal compiler error: LLVM IR parsing error
+//   '%.6' defined with type '{ i1, i64 }' but expected 'i64'
+//   %"coalesced" = phi i64 [%"some_value", %"some"], [%".6", %"none"]
+```
+
+`??` peels ONE layer, so on an `Int?` left operand the default owes an `Int` —
+and a bare `None` is not one. The documented behaviour is a clean error naming
+both types (the skill's `v.get(9) ?? v.get(0)` row); what happens is a verifier
+failure. Pre-existing and spawn-independent. The two-layer twin
+`v.get(9) ?? None` on a `Vector<Int?>` (peeled type `Int?`) works, which is what
+makes this the missing REFUSAL rather than a broken adoption.
+
+MECHANISM (obligation 4): `_check_nil_coalesce` pushes the PEELED type into the
+default through `_propagate_optional_type`, which stamps whatever it is handed
+onto a `NoneLiteral` without asking whether it is an optional at all — so the
+`None` is annotated `Int`, codegen reads no `inner_type` off it, falls back to
+the enclosing function's `Int?` return and builds a `{i1, i64}` for a slot the
+phi types `i64`. So the funnel has one unguarded stamp and the type check never
+fires. SIBLINGS the mechanism reaches, unprobed: every other caller that peels
+before propagating, and every position where the resulting non-optional stamp
+could reach codegen. The fix wants the refusal FIRST (a bare `None` at a
+non-optional expected type is a type error, wherever it lands), with the funnel
+guard beside it — DF-245c's commit guards only the durable `expected_type`
+stamp it added, deliberately, so as not to change this shape's fallout before it
+is decided. [111, 234]
 
 ## Design 242 — the Thread/Task split (AUTHORED + fully RULED Aug 22; IN
 ## FLIGHT on branch `design-242`)

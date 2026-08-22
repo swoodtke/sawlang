@@ -7206,11 +7206,52 @@ class ExpressionsMixin:
         return SawType(TypeKind.OPTIONAL, inner_type=None)
 
     def _propagate_optional_type(self, expr: Expression, expected_type: SawType):
-        """Propagate expected optional type to None literals in an expression tree."""
+        """THE CONTEXTUAL-`None` FUNNEL: push an expected optional type onto every
+        bare `None` a value expression can hand out, so codegen can size the
+        `{i1, T}` it builds.
+
+        Runs AFTER the subexpression has been checked ("later contextual
+        annotation wins"), which is what separates it from
+        `_apply_literal_expected_type` — the other half of the same job, which
+        runs BEFORE. Its ENTRY POINTS, every one of them a slot that names a type
+        the `None` flowing into it has to adopt:
+          1. `_check_function` / `_check_method`  — a body's TAIL at `-> T?`
+          2. `_check_return_statement`            — `return None` at `-> T?`
+          3. `_prepare_ok_payload`                — the Ok payload of a
+             `Result<T?, E>`, at every one of `_autowrap_into_result`'s four
+             entry points and at the DF-140d `return` branch above it
+          4. `_check_let` / `_check_assignment`   — an annotated slot
+          5. `_check_struct_init`                 — a field initializer
+          6. `_check_nil_coalesce`                — a `??` default
+          7. `_check_if_expr` / `_check_match_expr` (via `_annotate_none_in_block`)
+             — the arm that has no type of its own, taking the other arm's
+          8. `_check_closure`                     — a closure body's tail
+          9. `_check_call` argument auto-wrap     — a `None` at a `T?` parameter
+
+        TWO STAMPS, and the second is the DURABLE one (DF-245c). `resolved_type`
+        is where codegen looks first, but it is also the field
+        `_check_expression` stamps generically on every node it visits — so on
+        the design-146 SECOND typecheck pass, over the post-transform AST, the
+        generic `Optional<?>` overwrites whatever was pushed here. That is
+        invisible in a single-pass compile and fatal once the coroutine
+        transform runs: `return None` at a `-> Result<T?, E>` was rewritten into
+        a `ResultOkWrap` by the first pass, so on the second pass the DF-140d
+        branch that annotated it no longer matches, nothing re-annotates, and
+        the `None` reaches codegen bare — in whatever function happens to
+        contain it, whether or not any task calls it. `expected_type` is the
+        field that survives (it is an ordinary annotation nothing re-derives),
+        which is exactly why `_apply_literal_expected_type` case (0) chose it for
+        the same value; stamping both keeps the same-pass reader working and
+        makes the annotation outlive a re-check.
+        """
         if expr is None:
             return
         if isinstance(expr, NoneLiteral):
             expr.resolved_type = expected_type
+            if (expected_type is not None
+                    and expected_type.kind == TypeKind.OPTIONAL
+                    and expected_type.inner_type is not None):
+                expr.expected_type = expected_type
         elif isinstance(expr, IfExpr):
             if expr.then_branch and expr.then_branch.final_expr:
                 self._propagate_optional_type(expr.then_branch.final_expr, expected_type)

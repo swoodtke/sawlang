@@ -1,19 +1,27 @@
-// XFAIL: DF-245c — a bare `return None` at a `-> Result<T?, E>` stops typing as
-// soon as ANY spawned task exists in the program, even in a function that task
-// never calls. The second typecheck pass, over the post-transform AST, does not
-// push the peeled `Ok` payload onto the `None`, so it reports ``cannot tell what
-// this `None` is a `None` OF`` at a line the transform never touched. Design 234
-// §4 makes `Result<T?, E>` the shape of every non-blocking poll, so the flip
-// meets this on its first sub-unit.
+// A bare `None` at a `-> Result<T?, E>` keeps its payload type across the
+// design-146 SECOND typecheck pass — the one the coroutine transform turns on
+// for the whole module. DF-245c: the contextual annotation lived only in
+// `resolved_type`, which `_check_expression` re-stamps generically on the
+// second pass, and the branch that had written it could not re-run (its own
+// first-pass rewrite into a `ResultOkWrap` is what it keyed on). So ONE spawned
+// task anywhere made every `return None` at that shape fail to type, in
+// functions the task never called. `_propagate_optional_type` now stamps
+// `expected_type` too — the durable field `_apply_literal_expected_type` case
+// (0) already chose for the same value.
 //
-// The body is the minimal repro: `poll` is SYNC, `worker` is spawned and does
-// not call it, and removing the spawn makes `poll` compile unchanged. The
-// annotated-local spelling (`let absent: T? = None  return absent`) is what
-// std.channel uses instead, which is the workaround this pin exists to retire.
+// `poll` is SYNC and `worker` never calls it: the trigger was the transform
+// RUNNING, not the call graph. The rows below are the sweep's failing cells —
+// a free function, a method, a suspending body, the branch arms of a value
+// `if`, and a generic body.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // worker 7
 // poll -1
+// poll 3
+// method -1
+// suspending -1
+// arms -1
+// generic -1
 
 import std.task.*
 
@@ -38,17 +46,65 @@ func poll(n: Int) -> Result<Int?, Stop> {
     return n
 }
 
+struct Holder { n: Int }
+
+extension Holder {
+    func poll(&self) -> Result<Int?, Stop> {
+        if self.n == 0 {
+            return None
+        }
+        return self.n
+    }
+}
+
+// The same shape in a body that itself suspends — it failed with or without a
+// spawn, because a suspending body is what makes the transform run.
+func poll_suspending(n: Int) -> Result<Int?, Stop> {
+    yield_now()
+    if n == 0 {
+        return None
+    }
+    return n
+}
+
+// The `None`s the annotation has to reach through a value `if`'s arms.
+func poll_arms(n: Int) -> Result<Int?, Stop> {
+    return if n == 0 { None } else { None }
+}
+
+func poll_generic<T>(v: T, take: Bool) -> Result<T?, Stop> {
+    if take {
+        return v
+    }
+    return None
+}
+
 func worker() -> Int {
     yield_now()
     return 7
+}
+
+func report(label: String, r: Result<Int?, Stop>) {
+    match r {
+        case Ok(o) -> print("{label} {o ?? -1}"),
+        case Err(e) -> print("{label} err {e}")
+    }
 }
 
 func main() {
     var group = TaskGroup()
     let h = group.spawn(worker())
     print("worker {h.join()}")
-    match poll(0) {
-        case Ok(o) -> print("poll {o ?? -1}"),
-        case Err(e) -> print("poll err {e}")
-    }
+
+    report(label: "poll", r: poll(n: 0))
+    report(label: "poll", r: poll(n: 3))
+
+    let holder = Holder(n: 0)
+    report(label: "method", r: holder.poll())
+
+    let s = group.spawn(poll_suspending(n: 0))
+    report(label: "suspending", r: s.join())
+
+    report(label: "arms", r: poll_arms(n: 0))
+    report(label: "generic", r: poll_generic(v: 9, take: false))
 }
