@@ -88,7 +88,7 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   ARGUMENT were compiler crashes (the latter for `panic` too), `o ?? panic(..)`
   was refused, and a diverging arm or tail emitted invalid IR whenever the
   callee was overloaded or module-private.
-  **A task body may not be `Never`**: `group.spawn(halt())`, `spawn { while {} }`
+  **A task body may not be `Never`**: `group.spawn(halt())`, `Thread.spawn { while {} }`
   and `__saw_drive(halt())` are refused, since `join` on such a handle could
   never return. Write a forever-task as `-> Void` with a loop and end it by
   cancelling the task or breaking the loop. Calling a suspending `-> Never`
@@ -1505,7 +1505,7 @@ dump_tasks()                // every live task's logical backtrace (std.task)
 - **`TaskGroup(threads: N)` IS A LIVE POOL (design 75 + 225).** N OS workers over
   a shared queue, started at the group's FIRST spawn and running until its
   `Deinit` — so a task spawned into a multi-threaded group starts at once and
-  runs alongside the thread that owns the group, exactly as `spawn {}` and a
+  runs alongside the thread that owns the group, exactly as `Thread.spawn {}` and a
   cooperative group's tasks already did. `handle.join()` WAITS for its one task
   and leaves the pool running (three spawn-join rounds cost N threads, not 3N);
   `Deinit` lets the workers finish every live task and joins them. Until Aug 16
@@ -1547,10 +1547,13 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   instead: the value stays with one task and peers name operations on it over a
   `Channel` (remote operation, not shared access), which works for every type
   because the message is what has to be Send.
-- `spawn { … } -> Task<T>` checks BOTH directions of the thread crossing
+- `Thread.spawn { … } -> Thread<T>` checks BOTH directions of the thread crossing
   (design 193): every capture must be `Send` on the way in, and `T` must be
-  `Send` on the way back, since the task computes the result on its own thread
-  and `join()` hands it over. A borrow capture (`[&var n]`) is refused before
+  `Send` on the way back, since the body computes the result on its own thread
+  and `join()` hands it over. A `Void` body's handle is the distinct `VoidThread`
+  (`Thread<Void>` is unwritable, by the visible-`Void` rule), exactly as
+  `group.spawn` of a `Void` body gives a `VoidTask`.
+  A borrow capture (`[&var n]`) is refused before
   either question — an escaping closure cannot hold a pointer into the frame
   that spawned it.
   **INSIDE A GENERIC BODY, THE DECLARED BOUND IS THE ANSWER** (DF-219c, fixed
@@ -1564,12 +1567,24 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   you get it wrong: a non-Sync payload makes the WHOLE `Arc` non-Send, so the
   message says "not `Send`" — read past it to the sentence naming the unmet
   bound (`` `Arc` is `Send` only when its payload is `Sync` ``).
-- Thread engine (`spawn`/`Task`/`Channel.recv`) is separate from the
-  cooperative TaskGroup engine — don't mix per task. `Channel.recv` from a task is
-  the worst version of mixing them: the block is unbounded and the thread it stops
+- **THE NAMESPACE IS THE ENGINE (design 242).** `Thread.*` is OS threads and
+  blocking; `Task.*` and `TaskGroup` are cooperative and suspending. The two are
+  different machines — one blocks, one suspends; a `Thread<T>` joins on drop, a
+  `Task<T>` does not; `Channel.recv` blocks and `receive` parks — so the call
+  site's namespace is what says which one you are on:
+  ```saw
+  var t = Thread.spawn { crunch(n) }   // Thread<Int>; join() BLOCKS this thread
+  let h = group.spawn(crunch(n))       // Task<Int>;   join() drives the group
+  ```
+  A `Void` body gives `VoidThread` / `VoidTask` respectively.
+  Don't mix engines per task. `Channel.recv` from a task is the worst version
+  of mixing them: the block is unbounded and the thread it stops
   is the EXECUTOR's, so every sibling stops too — including the task that would
   have sent the value, which turns the wait into a group deadlock. Use `receive`.
   Nothing rejects the call today (DF-181c).
+  The bare `spawn { … }` is GONE: it named neither engine, read like the
+  cooperative one and started an OS thread. Writing one is a clean error naming
+  both spellings, so code that still has it predates Aug 22.
 - **A CHANNEL WAIT IS A PARK, AND CHANNELS CLOSE EXPLICITLY (design 230).**
   `receive() -> Result<T, ChannelError>`, `send`/`close ->
   Result<Void, ChannelError>`, `enum ChannelError { case Closed, case Cancelled,
@@ -1638,7 +1653,7 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   the second was DF-230a, fixed with the `Cancelled` case above.)
   FORGETTING `close()` IS A DEADLOCK, and the executor reports it instead of
   hanging: every live task parked on a channel, nothing runnable, no io, no timer
-  and no unjoined `spawn {}` task means nothing can ever run, so the program
+  and no unjoined `Thread.spawn {}` task means nothing can ever run, so the program
   panics with `dump_tasks()` attached and each waiter marked `channel-parked`.
   It is decided by elimination, never by watching a task fail to progress —
   design 127's op budget makes a long computation present exactly like a
@@ -1836,12 +1851,12 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   completion, a task with a result keeps its slot until `join` takes the value.
   Handles are `(slot, generation)` pairs, so a handle to a task that has come and
   gone can never reach whatever occupies its slot next: joining an already-joined
-  `TaskHandle` panics, joining a finished `VoidTaskHandle` returns, and `cancel`
+  `Task` panics, joining a finished `VoidTask` returns, and `cancel`
   is a no-op on both. **A DYNAMIC number of tasks works through a
-  `Vector<TaskHandle<T>>`** (probe-verified Aug 10 — a dogfood reader
+  `Vector<Task<T>>`** (probe-verified Aug 10 — a dogfood reader
   feared the NoCopy handle wouldn't compose with the vector; it does):
   ```saw
-  var handles = Vector<TaskHandle<Int>>()
+  var handles = Vector<Task<Int>>()
   for i in 0..5 {
       handles.push(group.spawn(work(i)))
   }
@@ -2169,7 +2184,7 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   `consume(move buf)` between a spawn and its join used to drop the buffer and
   hand the task freed memory, silently, exit 0.
   RELEASES LATER THAN THE JOIN, all conservative: a DISCARDED or never-joined
-  handle holds its borrow to the GROUP's death (a `TaskHandle`'s Deinit owns
+  handle holds its borrow to the GROUP's death (a `Task`'s Deinit owns
   nothing and does not join), and so does one stored in a field or an element; a
   join inside an `if` releases on that path only, so the borrow is live again
   below the branch (hoist the join out); a borrow still live when a LOOP BODY
@@ -2842,7 +2857,7 @@ construct in the owner and lend `&driver` down.
   `[T; N]` element. Storage the receiver only POINTS AT is not covered, since
   the copy shares it: `self.cells[i] = v` on a `Vector` field writes the
   caller's element and is fine, and so is a write through an `UnsafePointer`
-  field (std's `TaskHandle.cancel`).
+  field (std's `Task.cancel`).
   **A PLACE WINDOW is the fourth spelling** (design 200, DF-176c): where the
   field's type publishes a `borrows` accessor, `self.grid[0] += 100` opens an
   EXCLUSIVE window on the copy and is the same error — a silent no-op until

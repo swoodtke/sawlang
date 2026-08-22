@@ -919,7 +919,7 @@ requirement reached through an `any Trait` existential all diverge on the same
 terms, in the hosted and freestanding profiles alike.
 
 **A task body may not be `Never`.** A task is a computation something later
-waits for, so `group.spawn(halt())`, `spawn { while { } }` and
+waits for, so `group.spawn(halt())`, `Thread.spawn { while { } }` and
 `__saw_drive(halt())` are refused at the call:
 
 ```
@@ -5707,7 +5707,7 @@ suspend, and the marked side is the rare negative effect `sync` (a checked
 suspension-free context). The model is task-only: no user-facing thread API, no
 thread identity ever exposed — the engine is a swappable implementation detail.
 Two engines ship and coexist (they are not unified): the design-21b
-thread-per-task engine (`spawn`/`Task`/`Channel`, below) and the cooperative
+OS-thread engine (`Thread.spawn`/`Thread<T>`/`Channel.recv`, below) and the cooperative
 executor — single-threaded by default, with `TaskGroup(threads: N)` opting into
 multiple threads (design 75) — carrying the coroutine transform, suspending
 `main`, and the multi-task `TaskGroup` (designs 44/45/52/52b, below).
@@ -5721,7 +5721,7 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   iff all its fields/payloads are; `UnsafePointer<T>` is neither and poisons its
   containers structurally. The wrappers override the structural rule so their raw
   pointers do not poison them: `Arc<T>` is `Send + Sync` iff `T: Send + Sync`;
-  `Mutex<T>`/`Channel<T>`/`Task<T>` are `Send`/`Sync` iff `T: Send`; and an
+  `Mutex<T>`/`Channel<T>`/`Thread<T>` are `Send`/`Sync` iff `T: Send`; and an
   OWNING CONTAINER inherits its contents' answer — `Vector<T>`, `Map<K, V>` and
   `Set<T>` are `Send`/`Sync` iff their elements are, with `Data` and
   `StringBuilder` unconditional on `String`'s argument (design 187, closing
@@ -5838,20 +5838,24 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   the payload. A `&var self` payload method is rejected (aliased mutation — use
   `Arc<Mutex<T>>`). This gives the `Arc<Mutex<T>>` idiom its access path:
   `arc.lock { ... }` forwards to `Mutex.lock`.
-- **`spawn` / `Task<T>`** — `spawn { ... } -> Task<T>` launches the closure on a
-  fresh task (hosted pthread-per-task engine; thread identity is never exposed).
+- **`Thread.spawn` / `Thread<T>`** — `Thread.spawn { ... } -> Thread<T>`
+  launches the closure on a fresh OS thread (hosted pthread-per-thread engine;
+  the thread identity is never exposed). A body whose value is `Void` yields a
+  `VoidThread` instead, for the same reason `group.spawn` yields a `VoidTask`:
+  `Thread<Void>` cannot be written as an annotation, and joining one has no
+  value to hand back.
   The Send capture-audit walks the closure's captures and rejects the first
   whose type is not `Send`, naming the capture. The RESULT type is checked the
-  same way: it is computed on the task's thread and handed back by `join()`, so
-  a non-`Send` result is refused at the `spawn`. Inside a GENERIC body the audit
+  same way: it is computed on the spawned thread and handed back by `join()`, so
+  a non-`Send` result is refused at the spawn. Inside a GENERIC body the audit
   reads the enclosing signature's DECLARED bounds — a `<T: Send>` bound licenses
   capturing a `T`, `<T: Send + Sync>` licenses an `Arc<T>` — because a generic
   body is checked once, abstractly, and a declared bound is a promise the caller
   is separately made to keep (it is checked at the call, against the concrete
   type argument). An unbounded `T` is refused, as it always was.
-  `Task<T>` is `NoCopy + Deinit`:
-  `join` blocks for the result; dropping an unjoined `Task` **joins** it
-  (structured concurrency — a task's lifetime is a value's lifetime).
+  `Thread<T>` and `VoidThread` are `NoCopy + Deinit`:
+  `join` blocks for the result; dropping an unjoined handle **joins** it
+  (structured concurrency — a thread's lifetime is a value's lifetime).
 - **`Channel<T: Send>`** — a `Copy` handle onto a shared, internally
   refcounted unbounded MPMC queue (cloning the handle shares the queue; the last
   handle drains and frees it). Guarded by an internal pthread mutex + condvar
@@ -5865,13 +5869,13 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
 
 The atomic-ordering runtime (`__saw_atomic_*`, per the String protocol) is
 shared by `Arc` and `Channel`; the thread-spawn/join (`__saw_rt_thread_spawn`/
-`_join`, design 117) and condvar wrappers back `spawn`/`Task` and `Channel`. Under the cooperative engine the channel wait
+`_join`, design 117) and condvar wrappers back `Thread.spawn`/`Thread<T>` and
+`Channel`. Under the cooperative engine the channel wait
 is the suspending `receive()` twin — `recv()` remains the blocking
 thread-engine call; `lock`'s
 critical section stays synchronous (a `sync` closure cannot suspend), which is
 how the never-block invariant makes holding a lock across a suspension point a
-compile error. Task bodies may suspend, so a `spawn` closure is not a
-`sync` context.
+compile error. A `Thread.spawn` closure is not a `sync` context today.
 
 **Status: tasks, channels, Mutex, Send/Sync — implemented (stage 1,
 thread-per-task engine). Cooperative engine — implemented: the coroutine
@@ -6234,11 +6238,11 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
 `Box<any Resumable>` lets distinct frame types share one queue,
 `Vector<Box<any Resumable>>`.
 
-- **`TaskGroup`** is a local nursery. `group.spawn(f(args)) -> TaskHandle<T>`
+- **`TaskGroup`** is a local nursery. `group.spawn(f(args)) -> Task<T>`
   lowers like `__saw_drive`: `f` becomes a spawnable root (frame + `Resumable`
   conformance), and a synthesized `__spawn_f` helper builds the frame, erases it
   into a `Box<any Resumable>`, enqueues it, and returns a typed handle. A `Void`
-  task is fine too: it returns a result-less `VoidTaskHandle` (design 102 item 1).
+  task is fine too: it returns a result-less `VoidTask` (design 102 item 1).
   `spawn` works through a shared reference to the group, and enqueueing mutates
   the queue through it. That is safe for a different reason than `Channel.send`'s
   (which is `Sync`, lock-backed for true parallelism): a `TaskGroup` is `NoMove`
@@ -6258,7 +6262,7 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   function releasing the last handle drives the group's remaining tasks to
   completion there, whether or not its text mentions the group. A task that
   never completes blocks that join wherever it is — the same property a
-  stack-local group's scope-end join already has; `TaskHandle.cancel()` is the
+  stack-local group's scope-end join already has; `Task.cancel()` is the
   tool for ending one early.
 - **One function, several roles.** A function may be spawned, `__saw_drive`n and
   embedded as another frame's sub-frame in the same program. The spawn role
@@ -6282,7 +6286,7 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   a cancelled sleeper is made runnable and takes its cancel path on resume. The drive loop is `sync` (built from `resume`), which is what
   lets the group's `Deinit` run it. A multi-threaded `TaskGroup(threads: N)`
   keeps its own queue and its own live worker pool instead (design 75/225).
-- **`TaskHandle<T>`** owns nothing. It records the task's `(slot, generation)` in
+- **`Task<T>`** owns nothing. It records the task's `(slot, generation)` in
   its group plus raw pointers into that task's group-owned CELL, which holds the
   result and the cancel word (design 134). The cell is not part of the frame and
   outlives it. `join()` drives the group (a multi-threaded group's pool is
@@ -6324,8 +6328,8 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   carries a counter that advances when the slot retires, so a handle to a task
   that has come and gone is recognisably STALE and every handle operation checks
   before it acts. The outcomes are defined, never a read of whatever occupies the
-  slot next: `TaskHandle.join` panics ("this task's result was already joined")
-  because it cannot invent a second result, `VoidTaskHandle.join` returns (the
+  slot next: `Task.join` panics ("this task's result was already joined")
+  because it cannot invent a second result, `VoidTask.join` returns (the
   task is finished, which is what the call was asking), and `cancel` is a no-op
   on both. `cancel_addr()` is the one exception to reuse: the raw address it
   hands a peer must outlive the task and carries no generation for the peer to
@@ -6471,7 +6475,8 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   again, is recorded as future work.
 - **The quiescent deadlock report (design 230).** When every live task is parked
   on a channel, no io is registered, no timer is pending, nothing is runnable and
-  no unjoined `spawn {}` task exists, nothing in the process can ever run again.
+  no unjoined `Thread.spawn {}` body exists, nothing in the process can ever
+  run again.
   The executor reports that state and aborts, printing the task dump after the
   panic line so the parked-on-what is visible:
 
@@ -6540,14 +6545,14 @@ threads, no lock).
   covers pure-compute tasks is frame-resident, so it is per-task already.
 - **Shared timer / cancellation.** Sleeps advance by the earliest deadline under the
   queue lock (a shared timer, no per-worker wheel). Cross-task cancellation:
-  `TaskHandle.cancel_addr() -> Int` yields the `__cancel` word's address (a `Send`
+  `Task.cancel_addr() -> Int` yields the `__cancel` word's address (a `Send`
   `Int`) so a canceller task can set it from a worker thread; the target observes it
   via `cancelled()` (the `__cancel` byte is set-once monotonic — race-free,
   eventually consistent, cooperative). The word is in the task's cell, which the
   group keeps alive, so a write that lands after the task finished is inert rather
   than undefined; taking the address pins the slot (design 134, above). The 21b
-  thread-per-task `spawn`/`Task`/`Channel` engine is separate and untouched — the
-  two engines coexist.
+  OS-thread `Thread.spawn`/`Thread<T>`/`Channel.recv` engine is separate and
+  untouched — the two engines coexist.
 
 Now-closed gaps (design 62), each landed with tests:
 - **`if let` / `guard let` over a suspending call (G2).** `if let x = f() { ... }`
@@ -6600,21 +6605,21 @@ semantics (fairness, the op budget) designed for a spelling only tests write.
 ### Tasks and Channels
 
 ```saw
-// Spawn a task (escaping closure; every capture must be Send)
-var task = spawn {
+// Spawn an OS thread (escaping closure; every capture must be Send)
+var worker = Thread.spawn {
     heavy_computation()          // returns Int
 }
-let result = task.join()         // Task<Int>: NoCopy; deinit joins if unjoined
+let result = worker.join()       // Thread<Int>: NoCopy; deinit joins if unjoined
 
 // Channels: Copy handles onto a shared queue
 let ch = Channel<Int>()          // Channel<T: Send>
-var producer = spawn {
+var producer = Thread.spawn {
     try! ch.send(42)             // send/receive/close report through Result
     true
 }
-let got = ch.recv()              // blocks the calling thread (thread-per-task
-                                 // engine); the cooperative twin is the
-                                 // suspending receive() (below)
+let got = ch.recv()              // blocks the calling thread (the thread
+                                 // engine's receive); the cooperative twin is
+                                 // the suspending receive() (below)
 producer.join()
 ```
 
@@ -6633,8 +6638,8 @@ func worker(base: Int) -> Int {
 
 func main() {
     var group = TaskGroup()
-    let a = group.spawn(worker(10))   // -> TaskHandle<Int> (a Void spawn gives
-                                      //    a VoidTaskHandle, design 102)
+    let a = group.spawn(worker(10))   // -> Task<Int> (a Void spawn gives
+                                      //    a VoidTask, design 102)
     let b = group.spawn(worker(20))
     print(a.join())                   // drive the group; take a's result: 11
     print(b.join())                   // 21
@@ -6884,7 +6889,7 @@ let taken = consume(move buf)
 Three cases release later than the join, each conservatively:
 
 - A handle that is **discarded or never joined** holds its borrow until the
-  group's death. Nothing joins it earlier: `TaskHandle`'s `Deinit` owns nothing
+  group's death. Nothing joins it earlier: `Task`'s `Deinit` owns nothing
   and leaves the result in the group's cell, so it is the group's `Deinit` that
   drains the task. A handle stored in a field or an element is the same case,
   since there is no binding to recognize a join on.
@@ -7078,8 +7083,8 @@ answering, on a FUSE mount, on a device node, or on a FIFO (`File.open` on one
 waits for a writer even locally), a read is unbounded — and a cooperative task
 that issues one holds its executor thread for the duration, with every sibling
 task on that thread waiting behind it. There is no per-call opt-out; code that
-knows it is on such a mount should do that work in a `spawn`-ed `Task`, whose own
-thread is then the one that waits.
+knows it is on such a mount should do that work in a `Thread.spawn` body, whose
+own thread is then the one that waits.
 
 #### Blocking externs and the offload
 
@@ -7175,16 +7180,17 @@ the completion path. Two consequences worth stating: a cancelled task still wait
 for its C call to finish before it can return, and nothing the call points at may
 be released until that join, which is why the frame keeps its storage until then.
 
-**Two engines coexist today, deliberately not unified.** `spawn`/`Task`/`Channel`
-(design 21b) run on a **thread-per-task** engine: `spawn` starts an OS thread,
-`Task.join()`/`Channel.recv()` block that thread, and `Deinit` joins an unjoined
-task at scope exit (structured concurrency). Separately, a suspending `main`
-runs on the **single-threaded cooperative executor** (above) with `yield_now`/
-`sleep`. Cooperative `spawn`, structured join, and cancellation shipped as
-`TaskGroup` on the ambient cooperative scheduler — `Box<any Resumable>` is the
-type-erased handle that made the shared run queue possible. The residual split
-is only that the thread-per-task engine remains its own runtime: do not mix the
-two engines for one task.
+**Two engines coexist today, deliberately not unified, and the NAMESPACE is
+which one you are on.** `Thread.spawn`/`Thread<T>`/`Channel.recv` (design 21b)
+run on the **OS-thread** engine: `Thread.spawn` starts an OS thread,
+`Thread.join()`/`Channel.recv()` block that thread, and `Deinit` joins an
+unjoined handle at scope exit (structured concurrency). Separately, a suspending
+`main` runs on the **single-threaded cooperative executor** (above) with
+`yield_now`/`sleep`. Cooperative spawn, structured join, and cancellation
+shipped as `TaskGroup` on the ambient cooperative scheduler — `Box<any
+Resumable>` is the type-erased handle that made the shared run queue possible.
+The residual split is only that the OS-thread engine remains its own runtime: do
+not mix the two engines for one task.
 
 ### Shared State
 
@@ -7198,7 +7204,7 @@ holding a lock is a compile error.
 surface is safe under true parallelism: more than one thread may hold shared
 access at once") are compiler-derived STRUCTURALLY — a struct or
 enum is `Send`/`Sync` iff every field or payload is, and **explicit
-`extension X: Send` is rejected**. `spawn` audits every capture for `Send`;
+`extension X: Send` is rejected**. `Thread.spawn` audits every capture for `Send`;
 `Channel<T>` requires `T: Send`. `String` is `Send`+`Sync` (immutable buffer,
 atomic refcount); `UnsafePointer` is neither and poisons anything holding one;
 an interior cell blocks `Sync` ([Interior mutability](#interior-mutability)).
@@ -9140,7 +9146,7 @@ so the module list below is also the import list: a leaf name is what
 `import std.<leaf>` binds as a qualifier.
 Actually shipped today: `String`, `StringBuilder`, `Vector<T, A>`,
 `Map<K, V, A>`, `Set<T, A>`, `Arc<T>`, `Box<T, A>`, `Mutex<T>`, `Channel<T>`,
-`Task<T>`, `TaskGroup`, `File`, `Directory`, `Path`, `Data`, `Env`,
+`Thread<T>`, `TaskGroup`, `File`, `Directory`, `Path`, `Data`, `Env`,
 `Command`/`ProcessError` (std.process — a real argv spawn, never a shell: one
 `arg()` is one argv element and nothing in it is split, expanded or executed;
 run `/bin/sh -c` explicitly if a shell is what you want, design 122. `env(name:
@@ -9177,8 +9183,8 @@ need one of the three [import forms](#imports).
 | `std.alloc` | `Allocator`, `GlobalAllocator`, `AllocError` | `Allocator`, `GlobalAllocator` |
 | `std.slab` | `SlabHead`, `slab_alloc`, `slab_dealloc` | no |
 | `std.numeric` | the `Int` / `Float` extensions | yes (methods on primitives) |
-| `std.taskgroup` | `TaskGroup`, `TaskHandle<T>`, `VoidTaskHandle` | yes |
-| `std.task` | `yield_now`, `Task<T>` (the `spawn` handle) | no |
+| `std.taskgroup` | `TaskGroup`, `Task<T>`, `VoidTask` | yes |
+| `std.task` | `yield_now`, `Thread<T>`, `VoidThread` (the `Thread.spawn` handles) | no |
 | `std.channel` | `Channel<T>`, `ChannelError` | no |
 | `std.mutex` / `std.spinlock` | `Mutex<T>`, `SpinLock<T>` | no |
 | `std.once` | `Once<T>` | no |
@@ -9194,9 +9200,10 @@ need one of the three [import forms](#imports).
 | `std.compiler.frame` | `Slot<T>`, `UnsafeRef<T>`, `Poll`, `Resumable` | no |
 
 Concurrency has no module of its own beyond those: it is colorless, with no
-thread API and no `async`/`await`. `spawn { ... } -> Task<T>` is the
-thread-per-task engine and `group.spawn(f(args)) -> TaskHandle<T>` the
-cooperative one; see [§6 Concurrency](#6-concurrency) for the real API.
+`async`/`await`. The NAMESPACE is the engine.
+`Thread.spawn { ... } -> Thread<T>` is the OS-thread engine and
+`group.spawn(f(args)) -> Task<T>` the cooperative one; see
+[§6 Concurrency](#6-concurrency) for the real API.
 
 `Iterator`, `Equatable`, `Comparable`, `Hashable`, `Printable`, `Error`, `Send`
 and `Sync` are prelude traits declared in `builtin.saw`, not module contents.
@@ -10286,7 +10293,7 @@ The classification below covers every allocation `sawc` emits.
 | `to_string()` for an interpolated `Printable` piece | `"{point}"` | no | rejected, as part of the interpolation |
 | `to_string()` for one-argument `print` of a `Printable` | `print(point)` | no | rejected |
 | Task control block and coroutine frame | `spawn`, `TaskGroup.spawn` | yes: the call starts a task | allowed |
-| A spawned closure's environment | `spawn { ... }` | yes: part of starting the task | allowed |
+| A spawned closure's environment | `Thread.spawn { ... }` | yes: part of starting the task | allowed |
 | Erased-error box | returning a concrete error from `-> Result<T, Box<any Error>>`, and each `try` that propagates one | yes: the `Box` is in the written signature | allowed |
 | Existential box | `Box<any Shape>.make(v)` | yes | allowed |
 | Collection literal | `[a, b]`, `{k: v}`, `{a, b}` | yes: the literal names the collection | allowed |
