@@ -1248,6 +1248,17 @@ class ExpressionsMixin:
         - try! expr                 - force unwrap (panic on error)
         - try expr catch { ... }    - inline catch handler
         - try { ... } catch { ... } - block try-catch
+        - try(as E.Case) expr       - ERROR ROUTING (design 234 §3): propagate
+                                      the callee's error as `E.Case(<it>)`
+
+        The routing clause sits in PREFIX position, and that is load-bearing
+        rather than taste: a trailing `try f() as X.Y` cannot be classified at
+        parse time, since `LocalError.Alloc` and `time.Duration` are the same
+        dotted-path shape and `try parse_id() as UserId` is design 63's value
+        projection of the UNWRAPPED result. The prefix slot is owned by `try`,
+        so every trailing `as` stays an ordinary cast. `(` immediately followed
+        by `as` is the tell — `as` can never begin an expression, so
+        `try (foo())` is never mistaken for a clause.
         """
         start = self.advance()  # consume 'try'
 
@@ -1259,6 +1270,10 @@ class ExpressionsMixin:
         elif self.match(TokenType.EXCLAIM):
             self.advance()
             variant = "force"
+
+        route_path = None
+        if self.match(TokenType.LPAREN) and self.peek(1).type == TokenType.AS:
+            route_path = self._parse_try_route_clause()
 
         self.skip_newlines()
 
@@ -1295,6 +1310,7 @@ class ExpressionsMixin:
                 expr=expr,
                 variant=variant,
                 catch_block=catch_block,
+                route_path=route_path,
                 line=start.line,
                 column=start.column
             )
@@ -1303,9 +1319,40 @@ class ExpressionsMixin:
             expr=expr,
             variant=variant,
             catch_block=None,
+            route_path=route_path,
             line=start.line,
             column=start.column
         )
+
+    def _parse_try_route_clause(self) -> List[str]:
+        """Parse `(as EnumType.Case)` — design 234 §3's error-routing clause.
+
+        Returns the dotted path as written, at least two segments (the enum and
+        its case; a module qualifier makes three). The caller has already
+        confirmed the `(`/`as` pair.
+        """
+        self.expect(TokenType.LPAREN)
+        self.expect(TokenType.AS)
+        segments = []
+        while True:
+            tok = self.expect(
+                TokenType.IDENT,
+                "expected an enum case after `as` — the routing clause is "
+                "`try(as ErrorType.Case) ...`")
+            segments.append(tok.value)
+            if self.match(TokenType.DOT):
+                self.advance()
+                continue
+            break
+        self.expect(
+            TokenType.RPAREN,
+            "expected `)` closing the `try(as ...)` routing clause")
+        if len(segments) < 2:
+            self.error(
+                f"`try(as {segments[0] if segments else ''})` names no case — "
+                f"the routing clause is `try(as ErrorType.Case) ...`, naming "
+                f"the enum and the case the error is carried in")
+        return segments
 
     # === Collection Literals (design 54) ===
 

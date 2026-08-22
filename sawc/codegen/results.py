@@ -152,6 +152,16 @@ class ResultsMixin:
         _, _, result_variant_info = self.enum_types[result_enum_name]
         concrete_err_type = result_variant_info["Err"][0][1]
 
+        # design 234 §3: the ROUTING clause `try(as LocalError.Alloc) f()`
+        # converts the error channel before anything downstream looks at it —
+        # the caller's signature, an enclosing catch's union, an erasure into
+        # `Box<any Error>`. So it happens FIRST, and everything below runs on
+        # the routed value exactly as it would on an unrouted one.
+        if expr.route_target is not None and expr.route_case is not None:
+            err_value = self._build_enum_case_value(
+                err_value, expr.route_target, expr.route_case)
+            concrete_err_type = expr.route_target
+
         # Check if we have an enclosing catch block
         catch_ctx = getattr(self, '_catch_context', None)
         if catch_ctx:
@@ -686,32 +696,42 @@ class ResultsMixin:
         else:
             err_type_name = str(concrete_err_type)
 
-        # Get the union enum type info
-        union_enum_name = union_type.enum_name
-        if union_enum_name not in self.enum_types:
+        return self._build_enum_case_value(err_value, union_type, err_type_name,
+                                           what="union")
+
+    def _build_enum_case_value(self, value, enum_type: SawType, case_name: str,
+                               what: str = "enum"):
+        """Build `<enum_type>.<case_name>(value)` — a one-payload enum case.
+
+        Two callers, one construction: the multi-error catch's synthesized union
+        (`_wrap_error_in_union`, which picks the case by the concrete error's
+        NAME) and design 234 §3's routing clause (`_generate_try_propagate`,
+        which takes the case the author wrote).
+        """
+        enum_name = enum_type.enum_name
+        if enum_name not in self.enum_types:
             # Ensure it's monomorphized
-            self._ensure_enum_monomorphized(union_enum_name, union_type)
+            self._ensure_enum_monomorphized(enum_name, enum_type)
 
-        llvm_enum_type, variant_tags, variant_info = self.enum_types[union_enum_name]
+        llvm_enum_type, variant_tags, variant_info = self.enum_types[enum_name]
 
-        # Find the variant for this error type
-        if err_type_name not in variant_tags:
-            raise ValueError(f"Error type {err_type_name} not found in union {union_enum_name}")
+        if case_name not in variant_tags:
+            raise ValueError(
+                f"case {case_name} not found in {what} {enum_name}")
 
-        # Create the union enum value
-        union_val = ir.Constant(llvm_enum_type, ir.Undefined)
+        enum_val = ir.Constant(llvm_enum_type, ir.Undefined)
 
         # Set the tag
-        tag = ir.Constant(ir.IntType(32), variant_tags[err_type_name])
-        union_val = self.builder.insert_value(union_val, tag, 0)
+        tag = ir.Constant(ir.IntType(32), variant_tags[case_name])
+        enum_val = self.builder.insert_value(enum_val, tag, 0)
 
         # Create payload struct for the variant
-        variant_params = variant_info[err_type_name]
+        variant_params = variant_info[case_name]
         param_types = [self._get_llvm_type(t) for _, t in variant_params]
         param_struct_type = ir.LiteralStructType(param_types)
 
         param_struct = ir.Constant(param_struct_type, ir.Undefined)
-        param_struct = self.builder.insert_value(param_struct, err_value, 0)
+        param_struct = self.builder.insert_value(param_struct, value, 0)
 
         # Convert struct to bytes and store in payload. Size the scratch to the
         # FULL payload `[N x i8]`, not the smaller variant struct — see
@@ -723,5 +743,5 @@ class ResultsMixin:
 
         payload_bytes = self.builder.load(payload_alloca, name="union_err_bytes")
 
-        union_val = self.builder.insert_value(union_val, payload_bytes, 1)
-        return union_val
+        enum_val = self.builder.insert_value(enum_val, payload_bytes, 1)
+        return enum_val

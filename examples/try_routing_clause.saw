@@ -1,0 +1,275 @@
+// Design 234 §3 — `try(as ErrorType.Case) f()` routes a callee's error into a
+// case of THIS function's error type, at every position a `try` can appear.
+//
+// The clause converts the error CHANNEL only; the Ok value is untouched. There
+// is no auto-lift, no trait and no candidate search: the named case must have a
+// SINGLE payload the source error type can fill, which is checked and done.
+// This is Rust's `.map_err(E::C)?` without the closure, and it is explicit for
+// the reasons the design gives — editing an enum never changes behavior at a
+// distant `try` site, and every construction is greppable.
+//
+// PREFIX position is load-bearing, not taste. A trailing `try f() as X.Y`
+// cannot be classified at parse time: `LocalError.Alloc` and `time.Duration`
+// are the same dotted-path shape, so the clause would collide with design 63's
+// value projection of the UNWRAPPED result. The prefix slot is owned by `try`,
+// so every trailing `as` stays an ordinary cast — the `cast_still_a_cast` row
+// is that control, and `paren_after_try` is the other one: `(` followed by
+// anything but `as` is an ordinary parenthesized expression.
+//
+// Rows are the position matrix (obligation 1 — the clause rides the `TryExpr`
+// NODE, so ONE chokepoint serves them all: `_check_try_routing` in the
+// typechecker, `_generate_try_propagate` in codegen):
+//   statement     — a bare `try` statement over a `Result<Void, E>` callee
+//   let_init      — a `let` initializer
+//   argument      — an argument of an enclosing call
+//   interpolation — inside a string interpolation
+//   match_subject — the scrutinee of a `match`
+//   coalesce      — the right operand of `??`, whose short-circuit survives
+//   returned      — a `return` operand
+//   tail          — a bare tail expression
+//   two_sources   — two callees with DIFFERENT error types routed into one
+//                   domain enum, which is the whole point of the clause
+//   in_catch      — inside a `try { } catch { }` block: nothing is owed there,
+//                   and the routed type is what the catch's union absorbs
+//   qualified     — a MODULE-QUALIFIED target, `route.DepError.Alloc`
+//   suspending    — a suspending body, where the routed type is what counts
+//                   for the one-error-type fence
+//   susp_two      — two error types in one suspending body, routed into one:
+//                   the fence sees ONE type, so this is a new tool rather
+//                   than a new restriction
+// COMPILE-FLAGS: --module-path route={TESTDIR}/modules/route_dep
+// EXPECT: success
+// EXPECT-OUTPUT:
+// statement ok 1
+// statement err alloc/A30
+// let_init ok 6
+// let_init err alloc/A30
+// argument ok 12
+// argument err alloc/A30
+// interpolation ok v=6
+// interpolation err alloc/A30
+// match_subject ok 600
+// match_subject err alloc/A30
+// coalesce ok 6
+// coalesce err alloc/A30
+// returned ok 4
+// returned err parse/P-3
+// tail ok 4
+// tail err parse/P-3
+// two_sources ok 1
+// two_sources err alloc/A30
+// two_sources err parse/P-12
+// in_catch 6
+// in_catch caught
+// qualified ok 9
+// qualified err dep/dep alloc 30
+// suspending ok 6
+// suspending err alloc/A30
+// susp_two ok 1
+// susp_two err alloc/A30
+// susp_two err parse/P-12
+// cast_still_a_cast 12
+// paren_after_try 6
+
+import std.task.*
+import route
+
+struct AllocFail { size: Int }
+extension AllocFail: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("A")
+        into.append(self.size)
+    }
+}
+extension AllocFail: Error {}
+
+struct ParseFail { line: Int }
+extension ParseFail: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("P")
+        into.append(self.line)
+    }
+}
+extension ParseFail: Error {}
+
+enum LocalError {
+    case Alloc(e: AllocFail),
+    case Parse(e: ParseFail),
+    case Dep(e: route.DepAlloc)
+}
+extension LocalError: Printable {
+    func format(&self, into: &var StringBuilder) {
+        match self {
+            case Alloc(e) -> { into.append("alloc/")  e.format(into: &var into) },
+            case Parse(e) -> { into.append("parse/")  e.format(into: &var into) },
+            case Dep(e) -> { into.append("dep/")  e.format(into: &var into) }
+        }
+    }
+}
+extension LocalError: Error {}
+
+func grab(n: Int) -> Result<Int, AllocFail> {
+    if n > 10 { return AllocFail(size: n) }
+    return n * 2
+}
+
+func note(n: Int) -> Result<Void, AllocFail> {
+    if n > 10 { return AllocFail(size: n) }
+    return
+}
+
+func scan(n: Int) -> Result<Int, ParseFail> {
+    if n < 0 { return ParseFail(line: n) }
+    return n + 1
+}
+
+func twice(a: Int) -> Int { a * 2 }
+func maybe_none(n: Int) -> Int? { if n == 0 { None } else { n } }
+
+func row_statement(n: Int) -> Result<Int, LocalError> {
+    try(as LocalError.Alloc) note(n)
+    return 1
+}
+
+func row_let_init(n: Int) -> Result<Int, LocalError> {
+    let a = try(as LocalError.Alloc) grab(n)
+    return a
+}
+
+func row_argument(n: Int) -> Result<Int, LocalError> {
+    return twice(try(as LocalError.Alloc) grab(n))
+}
+
+func row_interpolation(n: Int) -> Result<String, LocalError> {
+    return "v={try(as LocalError.Alloc) grab(n)}"
+}
+
+func row_match_subject(n: Int) -> Result<Int, LocalError> {
+    return match try(as LocalError.Alloc) grab(n) {
+        case 6 -> 600,
+        case _ -> 0
+    }
+}
+
+func row_coalesce(n: Int) -> Result<Int, LocalError> {
+    return maybe_none(0) ?? try(as LocalError.Alloc) grab(n)
+}
+
+func row_returned(n: Int) -> Result<Int, LocalError> {
+    return try(as LocalError.Parse) scan(n)
+}
+
+func row_tail(n: Int) -> Result<Int, LocalError> {
+    try(as LocalError.Parse) scan(n)
+}
+
+// TWO error types, one domain enum — the shape the clause exists for.
+func row_two_sources(n: Int) -> Result<Int, LocalError> {
+    let a = try(as LocalError.Alloc) grab(n)
+    let b = try(as LocalError.Parse) scan(a - 6)
+    return b
+}
+
+// A routed `try` inside a `try { } catch { }` block: the catch's synthesized
+// union absorbs the ROUTED type, so nothing extra is owed here.
+func row_in_catch(n: Int) -> Int {
+    var out = 0
+    try {
+        let a = try(as LocalError.Alloc) grab(n)
+        out = a
+    } catch {
+        out = -1
+    }
+    return out
+}
+
+func row_qualified(n: Int) -> Result<Int, LocalError> {
+    return try(as LocalError.Dep) route.fetch(n)
+}
+
+func row_suspending(n: Int) -> Result<Int, LocalError> {
+    yield_now()
+    let a = try(as LocalError.Alloc) grab(n)
+    yield_now()
+    return a
+}
+
+// The one-error-type fence counts the ROUTED type, so two sources in one
+// suspending body are ONE type at the fence.
+func row_susp_two(n: Int) -> Result<Int, LocalError> {
+    yield_now()
+    let a = try(as LocalError.Alloc) grab(n)
+    let b = try(as LocalError.Parse) scan(a - 6)
+    yield_now()
+    return b
+}
+
+// CONTROL: a trailing `as` is still design 63's value projection.
+type Doubled = Int
+func row_cast_still_a_cast(n: Int) -> Result<Doubled, AllocFail> {
+    return Doubled(try grab(n))
+}
+
+// CONTROL: `(` that no `as` follows is an ordinary parenthesized expression.
+func row_paren_after_try(n: Int) -> Result<Int, AllocFail> {
+    return try (grab(n))
+}
+
+func show(label: String, r: Result<Int, LocalError>) {
+    match r {
+        case Ok(v) -> print("{label} ok {v}"),
+        case Err(e) -> print("{label} err {e}")
+    }
+}
+
+func main() {
+    show("statement", row_statement(3))
+    show("statement", row_statement(30))
+    show("let_init", row_let_init(3))
+    show("let_init", row_let_init(30))
+    show("argument", row_argument(3))
+    show("argument", row_argument(30))
+
+    match row_interpolation(3) {
+        case Ok(s) -> print("interpolation ok {s}"),
+        case Err(e) -> print("interpolation err {e}")
+    }
+    match row_interpolation(30) {
+        case Ok(s) -> print("interpolation ok {s}"),
+        case Err(e) -> print("interpolation err {e}")
+    }
+
+    show("match_subject", row_match_subject(3))
+    show("match_subject", row_match_subject(30))
+    show("coalesce", row_coalesce(3))
+    show("coalesce", row_coalesce(30))
+    show("returned", row_returned(3))
+    show("returned", row_returned(-3))
+    show("tail", row_tail(3))
+    show("tail", row_tail(-3))
+    show("two_sources", row_two_sources(3))
+    show("two_sources", row_two_sources(30))
+    show("two_sources", row_two_sources(-3))
+
+    print("in_catch {row_in_catch(3)}")
+    if row_in_catch(30) == -1 { print("in_catch caught") }
+
+    show("qualified", row_qualified(3))
+    show("qualified", row_qualified(30))
+
+    var group = TaskGroup()
+    show("suspending", group.spawn(row_suspending(3)).join())
+    show("suspending", group.spawn(row_suspending(30)).join())
+    show("susp_two", group.spawn(row_susp_two(3)).join())
+    show("susp_two", group.spawn(row_susp_two(30)).join())
+    show("susp_two", group.spawn(row_susp_two(-3)).join())
+
+    match row_cast_still_a_cast(6) {
+        case Ok(d) -> print("cast_still_a_cast {d as Int}"),
+        case Err(_) -> print("cast_still_a_cast err")
+    }
+    match row_paren_after_try(3) {
+        case Ok(v) -> print("paren_after_try {v}"),
+        case Err(_) -> print("paren_after_try err")
+    }
+}

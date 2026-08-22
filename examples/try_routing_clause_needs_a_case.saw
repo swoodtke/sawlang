@@ -1,0 +1,32 @@
+// Design 234 §3 — a routing clause names an enum AND a case, and a clause that
+// stops at the enum is refused at the PARSE, where the shape is decided.
+//
+// Its own file because a parse error ends the compile, so it cannot share one
+// with the typechecker-level refusals in `try_routing_clause_refusals.saw`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: names no case
+
+struct AllocFail { size: Int }
+extension AllocFail: Printable {
+    func format(&self, into: &var StringBuilder) { into.append("A") }
+}
+extension AllocFail: Error {}
+
+enum LocalError { case Alloc(e: AllocFail) }
+extension LocalError: Printable {
+    func format(&self, into: &var StringBuilder) { into.append("L") }
+}
+extension LocalError: Error {}
+
+func grab(n: Int) -> Result<Int, AllocFail> {
+    if n > 10 { return AllocFail(size: n) }
+    return n * 2
+}
+
+func build(n: Int) -> Result<Int, LocalError> {
+    return try(as LocalError) grab(n)
+}
+
+func main() {
+    print(1)
+}

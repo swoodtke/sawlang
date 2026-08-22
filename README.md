@@ -157,6 +157,26 @@ hands `ParseError` back to whoever called it. `try!` panics instead, and
 `try?` turns the `Result` into an `Optional` (`None` on error). You can also
 `match` on a `Result` directly, or handle it inline with `catch`.
 
+When the callee fails with a different type than your signature names, say
+where it goes:
+
+```saw
+enum ConfigError {
+    case Alloc(e: AllocError),
+    case Parse(e: ParseError)
+}
+
+func build() -> Result<Config, ConfigError> {
+    let buf = try(as ConfigError.Alloc) alloc_buffer(4096)
+    let cfg = try(as ConfigError.Parse) parse(buf)
+    return cfg
+}
+```
+
+The named case must carry exactly one payload the callee's error fits. There
+is no lifting trait and no candidate search, so editing the enum never changes
+what a distant `try` does, and every conversion is visible where it happens.
+
 A `Result` cannot be dropped by accident. Writing a fallible call as a bare
 statement is a compile error, because the failure it reports would go nowhere:
 

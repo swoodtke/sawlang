@@ -11790,6 +11790,26 @@ class ExpressionsMixin:
                     line=expr.body.final_expr.line,
                     column=expr.body.final_expr.column)
                 return_type = expected_ret
+        elif (expected_ret is not None and expected_ret.is_result()
+                and expr.body.final_expr is not None
+                and not self._transfer_compatible(return_type, expected_ret)):
+            # DF-232h — ENTRY POINT 4 of `_autowrap_into_result`. A closure's
+            # TAIL takes the same Result auto-wrap a named body's tail takes.
+            # Its `return` already did (that path shares the named funnel
+            # through `_return_target`), so the two spellings of one intent
+            # disagreed: `run({ x in 12 })` against `(Int) sync ->
+            # Result<Int32, Bad>` was ``argument `f` expects ... but got `(Int)
+            # -> Int32` `` while `{ x in return 12 }` compiled. The optional
+            # analogue directly above is what this had no counterpart to.
+            self._apply_literal_expected_type(expr.body.final_expr,
+                                              expected_ret)
+            outcome, wrapped = self._autowrap_into_result(
+                expr.body.final_expr, return_type, expected_ret,
+                "closure", expr.body.final_expr.line,
+                expr.body.final_expr.column)
+            if wrapped is not None:
+                expr.body.final_expr = wrapped
+                return_type = expected_ret
         captures = self._analyze_closure_captures(expr.body, outer_scope)
         # An explicitly-listed capture is captured even if the body scan missed
         # it (e.g. a borrow named for its side of an exclusivity check). Preserve
@@ -12425,14 +12445,29 @@ class ExpressionsMixin:
         err_type = inner_type.unwrap_result_err()
 
         if expr.variant == "optional":
+            self._reject_route_clause(expr, "try?")
             # try? returns T?
             return SawType(TypeKind.OPTIONAL, inner_type=ok_type)
 
         elif expr.variant == "force":
+            self._reject_route_clause(expr, "try!")
             # try! returns T (panics on Err)
             return ok_type
 
         else:  # "propagate"
+            # design 234 §3: the ROUTING clause converts the error CHANNEL, and
+            # it does so BEFORE propagation — so everything downstream (the
+            # signature check, the enclosing catch's union, the suspending
+            # one-fence rule) sees the TARGET type and needs no special case.
+            routed = self._check_try_routing(expr, err_type)
+            if routed is None:
+                # A malformed clause already reported. Say nothing further: what
+                # this `try` propagates is the target the author named, and
+                # validating the SOURCE type against the signature would add a
+                # second diagnostic about a type they did not mean to send.
+                return ok_type
+            err_type = routed
+
             # If there's an inline catch block, check it
             if expr.catch_block:
                 return self._check_try_with_catch(expr, ok_type, err_type)
@@ -12440,6 +12475,118 @@ class ExpressionsMixin:
             # Otherwise, try expr propagates - function must return Result<_, E>
             self._validate_error_propagation(err_type, expr.line, expr.column, expr)
             return ok_type
+
+    def _reject_route_clause(self, expr: TryExpr, spelling: str):
+        """`try!` / `try?` never take design 234's routing clause: neither
+        PROPAGATES, so there is no error channel to convert."""
+        if expr.route_path is None:
+            return
+        self._error(
+            ErrorKind.TYPE_MISMATCH,
+            f"`{spelling}` cannot take a routing clause — "
+            f"`{spelling}` does not propagate the error, so there is no error "
+            f"channel to convert",
+            expr.line, expr.column,
+            hint=f"drop the `(as {'.'.join(expr.route_path)})`, or write a "
+                 f"propagating `try` if the error should leave this function"
+        )
+
+    def _check_try_routing(self, expr: TryExpr,
+                           err_type: SawType) -> Optional[SawType]:
+        """Design 234 §3 — resolve `try(as ErrorType.Case) f()`.
+
+        THE ONE ENTRY POINT for the routing clause, on both the checking and the
+        stamping side. Every position a `try` may appear in reaches it through
+        `_check_try_expr` — statement, `let` initializer, argument, string
+        interpolation, `match` subject, `??` right operand, a suspending body's
+        ANF hoist, and inside a `try { } catch { }` block — because the clause
+        rides the `TryExpr` NODE rather than any one syntactic context. Codegen
+        has the mirror chokepoint in `_generate_try_propagate`.
+
+        No auto-lift, no trait, no candidate search: the named case must have a
+        SINGLE payload the source error type can fill, checked here and done.
+
+        Returns the error type that PROPAGATES: the unchanged source type when
+        no clause was written, the routing TARGET when the clause is well
+        formed, and None when it is not — a malformed clause has reported once
+        already, and its caller must not go on to check the SOURCE type against
+        the signature, which would add a second diagnostic about a type the
+        author did not mean to send.
+        """
+        if expr.route_path is None:
+            return err_type
+        if expr.catch_block is not None:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                "a `try` with a routing clause cannot also carry a `catch` — "
+                "route the error onward, or handle it here, not both",
+                expr.line, expr.column,
+                hint="drop the `(as ...)` clause to handle the error in the "
+                     "`catch`, or drop the `catch` to route it to the caller"
+            )
+            return None
+
+        *type_segments, case_name = expr.route_path
+        type_name = type_segments[-1]
+        qualified = ".".join(type_segments) if len(type_segments) > 1 else None
+        written = ".".join(expr.route_path)
+
+        enum_info = self.get_enum_info(type_name, qualified_path=qualified)
+        if enum_info is None:
+            self._error(
+                ErrorKind.UNKNOWN_TYPE,
+                f"`try(as {written})`: `{'.'.join(type_segments)}` is not an "
+                f"enum in scope — a routing clause names an enum case",
+                expr.line, expr.column,
+                hint="the target of a routing clause is a payload-carrying "
+                     "case of an error enum, e.g. "
+                     "`enum LocalError { case Alloc(e: AllocError) }`"
+            )
+            return None
+
+        if case_name not in enum_info.variants:
+            known = ", ".join(f"`{v}`" for v in enum_info.variant_order) or "none"
+            self._error(
+                ErrorKind.UNKNOWN_TYPE,
+                f"`try(as {written})`: enum `{type_name}` has no case "
+                f"`{case_name}`",
+                expr.line, expr.column,
+                hint=f"cases of `{type_name}`: {known}"
+            )
+            return None
+
+        payload = enum_info.variants[case_name]
+        if len(payload) != 1:
+            shape = ("carries no payload" if not payload
+                     else f"carries {len(payload)} payload fields")
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`try(as {written})`: case `{case_name}` {shape}, so it "
+                f"cannot carry the error — a routing target holds exactly one "
+                f"value",
+                expr.line, expr.column,
+                hint=f"declare it as `case {case_name}(e: {err_type})`, or "
+                     f"route to a case that already carries one value"
+            )
+            return None
+
+        payload_type = self._resolve_type(payload[0][1])
+        if not self._transfer_compatible(err_type, payload_type):
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`try(as {written})`: case `{case_name}` carries "
+                f"`{payload_type}`, but this call fails with `{err_type}`",
+                expr.line, expr.column,
+                hint=f"route to a case whose payload is `{err_type}`, or widen "
+                     f"the case's payload"
+            )
+            return None
+
+        target = self._resolve_type(SawType(TypeKind.ENUM, enum_name=type_name,
+                                            symbol=enum_info))
+        expr.route_target = target
+        expr.route_case = case_name
+        return target
 
     def _validate_error_propagation(self, err_type: SawType, line: int, column: int, expr=None):
         """Validate that error can be propagated from current function or to enclosing catch."""

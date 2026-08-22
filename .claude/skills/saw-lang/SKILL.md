@@ -120,9 +120,16 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   is `Ok(4)` at `Int32`, `return 7` at `-> Result<String, Int32>` is
   `Err(7)`. Where BOTH payloads could take it (`Result<Int32, Int8>`)
   it is refused by name; write `Result<Int32, Int8>.Ok(value: 4)`.
-  A closure's `return` behaves as a named body's; a closure's TAIL
-  still does not auto-wrap into a Result at all (DF-232d, open —
-  `{ x in 12 }` at a `-> Result<Int32, E>` slot; use `return 12`).
+  A closure's `return` behaves as a named body's, and so does a closure's
+  TAIL since DF-232h (fixed Aug 22): `{ x in 12 }` at a
+  `-> Result<Int32, E>` slot is `Ok(12)`, and the ambiguity refusal, the
+  erased `Box<any Error>` target and an optional Ok payload all reach it
+  too. It was refused outright before that date (``argument `f` expects
+  `(Int) sync -> Result<Int32, Bad>` but got `(Int) -> Int32` ``), with
+  `return 12` as the workaround, so distrust a bare Result tail in an
+  older build. ONE corner is still open (DF-244b): a bare `None` TAIL at a
+  `Result<T?, E>` cannot type itself — in a NAMED body as much as a
+  closure — so write `return None` there.
   **A CONSTANT EXPRESSION IS ON THAT LIST TOO (DF-235a/b, fixed Aug 21):**
   anything the const evaluator folds — `2 + 3`, a shift, a mask, `~m`, a
   negated constant — adopts the slot's width and is range-checked on the
@@ -844,6 +851,7 @@ let rows: Vector<Result<Int, String>> = [1, 2]   // …and every declared slot
 // There is no `Ok(x)`/`Err(e)` to write: the wrap IS the construction. `T == E`
 // is the one ambiguity, and it is a compile error — spell the variant then.
 try! f()   try? f()   try f() catch { fallback }
+try(as LocalError.Alloc) alloc(4096)     // ROUTE the error channel (design 234)
 try { let a = try f(); let b = try g() } catch {
     match error { case ParseError(e) -> ..., case IoError(e) -> ... }
 }   // multi-type: error is an ephemeral union (can't escape the catch)
@@ -853,6 +861,33 @@ func load() -> Result<Cfg, Box<any Error>> {   // erased: any error type
 }   // catch binds the box; "{error}" prints via vtable
 if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
 ```
+- **`try(as ErrorType.Case) f()` ROUTES the error channel (design 234 §3).**
+  A `try` whose callee fails with a type your signature does not name spells
+  the conversion, in a PREFIX clause:
+  ```saw
+  enum ConfigError { case Alloc(e: AllocError), case Parse(e: ParseError) }
+
+  func build() -> Result<Config, ConfigError> {
+      let buf = try(as ConfigError.Alloc) alloc_buffer(4096)
+      let cfg = try(as ConfigError.Parse) parse(buf)
+      let extra = try read_defaults()          // already ConfigError: bare try
+      return assemble(cfg, extra)
+  }
+  ```
+  The named case must carry EXACTLY ONE payload the callee's error fits —
+  checked, done. No lifting trait, no candidate search, so editing an enum
+  never changes what a distant `try` does. Rust's `.map_err(E::C)?` without
+  the closure. The Ok value is untouched.
+  PREFIX is load-bearing: `ConfigError.Alloc` and `time.Duration` are the same
+  dotted shape, so a trailing clause would collide with design 63's projection
+  of the unwrapped result — every trailing `as` stays an ordinary cast, and
+  `try (f())` (a `(` no `as` follows) stays a parenthesized expression.
+  `try!`/`try?` take NO clause (neither propagates), and a clause plus a
+  `catch` on one `try` is refused — route or handle, not both. Inside a
+  `try { } catch { }` block nothing is owed: the union absorbs the ROUTED
+  type. Routing happens BEFORE propagation, so the routed type is what the
+  suspending one-error-type fence counts — two callees routed into one domain
+  enum are ONE type there, which is a new tool, not a new restriction.
 - **DISCARDING A `Result` IS A COMPILE ERROR** (design 151) — the last silent
   drop in the language is closed. A failable call written as a bare statement
   throws away the failure it reports, so `stream.write(body)` alone is now
@@ -2872,8 +2907,11 @@ construct in the owner and lend `&driver` down.
   value-expression tail (`if`/`match` as the closure's last expression) — a
   census of all 2003 tracked `.saw` files found zero closure `return`s — so
   reach for `return` when it reads better, not by default.
-  One gap remains (DF-213b): a closure declared `-> Result<T, E>` does not
-  auto-wrap its TAIL value the way a named function does. Write `return v`.
+  That gap is CLOSED (DF-213b/DF-232h, Aug 22): a closure declared
+  `-> Result<T, E>` auto-wraps its TAIL value exactly as a named function does,
+  so `{ x in 12 }` and `{ x in return 12 }` mean the same thing. `return v`
+  was the workaround, and is still needed for a bare `None` tail at a
+  `Result<T?, E>` (DF-244b, which a named body has too).
 - **Writing to a by-value capture is a compile error** (design 132). The env is
   immutable and each plain/`move`/`copy` capture is loaded into a per-call
   local, so `{ n = n + 1  n }` would count in a copy that dies with the call.

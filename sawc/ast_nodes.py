@@ -1533,9 +1533,22 @@ class TryExpr(Expression):
     variant: str  # "propagate", "optional", or "force"
     catch_block: Optional['Block'] = None  # For inline catch: try expr catch { ... }
 
+    # design 234 §3 — the ERROR-ROUTING clause, `try(as LocalError.Alloc) f()`.
+    # The dotted path AS WRITTEN: the last segment is the enum CASE, everything
+    # ahead of it names the enum (a module qualifier included), so
+    # `["LocalError", "Alloc"]` and `["errors", "LocalError", "Alloc"]` are the
+    # two shapes. None when no clause was written. PREFIX position is
+    # load-bearing: a trailing `as` stays design 63's value projection.
+    route_path: Optional[List[str]] = None
+
     # --- typechecker -> codegen (design 126 R1) ---
     # The concrete Result enum this `try` unwraps.
     result_enum_type: Optional['SawType'] = annotation(None)
+    # design 234 §3: the resolved routing target — the enum the error channel is
+    # converted INTO, and the case that carries it. Codegen builds that case
+    # around the extracted error before propagating.
+    route_target: Optional['SawType'] = annotation(None)
+    route_case: Optional[str] = annotation(None)
     # Propagating into an ERASED `Result<T, Box<any Error>>`: the boxing
     # descriptor codegen needs to erase the concrete error on the way out.
     erase_propagate: Optional[Dict[str, Any]] = annotation(None)

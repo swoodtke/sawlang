@@ -1,42 +1,55 @@
-// XFAIL: DF-232h a closure's TAIL expression does not auto-wrap into a declared
-// `Result` return type, though its `return` does and though the optional
-// analogue works
+// A closure's TAIL expression auto-wraps into a declared `Result` return type,
+// exactly as its `return` does and as the optional analogue always did
+// (DF-232h, FIXED — it rode design 234 unit 1, whose funnel extraction is the
+// fix the finding asked for).
 //
-// Found Aug 17 while fixing DF-226e, and deliberately NOT folded into it: this
-// is not a literal-width problem. The literal half is fixed — case (0d) peels
-// the Result to its unique adoptable payload, so the tail below is correctly
-// typed `Int32` — and the failure is one layer out, at the wrap:
+// Found Aug 17 while fixing DF-226e, and deliberately not folded into it: this
+// was never a literal-width problem. The literal half was already fixed — case
+// (0d) peels a Result to its unique adoptable payload, so the tail below was
+// correctly typed `Int32` — and the failure was one layer out, at the wrap:
 //
 //   argument `f` expects `(Int) sync -> Result<Int32, Bad>`
 //                but got `(Int) -> Int32`
 //
-// THREE PROBES BRACKET IT, and they are why this is its own finding:
+// THREE PROBES BRACKETED IT, and they are why it was its own finding:
 //
-//   { x in 12 }                              fails  (a literal)
-//   { x in k }   for an `Int32` k            fails  (no literal in sight)
-//   { x in Result<Int32, Bad>.Ok(value: 1) } compiles (explicit, no wrap owed)
-//   { x in return 12 }                       compiles (the `return` spelling)
+//   { x in 12 }                              failed   (a literal)
+//   { x in k }   for an `Int32` k            failed   (no literal in sight)
+//   { x in Result<Int32, Bad>.Ok(value: 1) } compiled (explicit, no wrap owed)
+//   { x in return 12 }                       compiled (the `return` spelling)
 //
-// So the two spellings of one intent disagree. `_check_closure`
-// (sawc/typechecker/expressions.py, the `expected_ret` block) auto-wraps a tail
-// into an expected OPTIONAL — `{ x in 15 }` at `-> Int32?` works — and has no
-// `Result` counterpart, while a closure's `return` statement is checked by
-// `_check_return_statement`, which shares the named body's auto-wrap chain.
+// So the two spellings of one intent disagreed. `_check_closure` auto-wrapped a
+// tail into an expected OPTIONAL and had no `Result` counterpart, while a
+// closure's `return` is checked by `_check_return_statement`, which shares the
+// named body's auto-wrap chain.
 //
-// A FIX IS AN EXTRACTION, not a second copy (obligation 1): the Ok-vs-Err
-// ladder lives inline in `_check_return_statement`
-// (`_result_autowrap_ambiguous`, then Ok, then Err, then the erased-Err
-// target). It wants to become one funnel called from both the return path and
-// the closure tail, with the matrix being the Ok side, the Err side, the
-// ambiguity refusal, an erased `Box<any Error>` target, and an optional Ok
-// payload needing `_prepare_ok_payload`.
+// THE FIX WAS AN EXTRACTION, not a second copy (obligation 1): the Ok-vs-Err
+// ladder sat inline in THREE places — a function tail, a method tail and a
+// `return` — and is now one funnel, `_autowrap_into_result`, whose docstring
+// names its four entry points. The closure tail is the fourth.
 //
-// Workaround meanwhile: write `return` instead of a bare tail.
-//
+// Rows are the matrix the finding named:
+//   ok_literal    — a bare literal on the Ok side (the original repro)
+//   ok_nonliteral — a value with a width of its own, so no literal peel runs
+//   err           — the Err side
+//   erased        — an erased `Box<any Error>` Err target (design 56's re-box)
+//   ok_optional   — an OPTIONAL Ok payload, which needs `_prepare_ok_payload`
+//                   to wrap the value into the `Some` before the Result wrap
+//   explicit      — the control: an explicitly built Result, no wrap owed
+//   returned      — the control: the `return` spelling, which always worked
+//   value_if      — a tail `if` whose arms land on opposite sides
+// The ambiguity refusal is the ninth row of that matrix and lives in
+// `closure_tail_result_ambiguous_payloads.saw`, since it is a compile error.
 // EXPECT: success
 // EXPECT-OUTPUT:
-// tail = 12
-// tail nonliteral = 14
+// ok_literal = 12
+// ok_nonliteral = 14
+// err = -1
+// erased = boxed
+// ok_optional = 5
+// explicit = 1
+// returned = 12
+// value_if = 3
 
 struct Bad { code: Int }
 extension Bad: Printable {
@@ -51,8 +64,35 @@ func run(f: (Int) sync -> Result<Int32, Bad>) -> Int32 {
     }
 }
 
+func run_erased(f: (Int) sync -> Result<Int32, Box<any Error>>) -> String {
+    match f(0) {
+        case Ok(_) -> "plain",
+        case Err(_) -> "boxed"
+    }
+}
+
+func run_optional(f: (Int) sync -> Result<Int32?, Bad>) -> Int32 {
+    match f(0) {
+        case Ok(v) -> v ?? -9i32,
+        case Err(_) -> -1i32
+    }
+}
+
 func main() {
-    print("tail = {run(f: { x in 12 })}")
+    print("ok_literal = {run(f: { x in 12 })}")
+
     let k: Int32 = 14i32
-    print("tail nonliteral = {run(f: { x in k })}")
+    print("ok_nonliteral = {run(f: { x in k })}")
+
+    print("err = {run(f: { x in Bad(code: 3) })}")
+
+    print("erased = {run_erased(f: { x in Bad(code: 4) })}")
+
+    print("ok_optional = {run_optional(f: { x in 5 })}")
+
+    print("explicit = {run(f: { x in Result<Int32, Bad>.Ok(value: 1i32) })}")
+
+    print("returned = {run(f: { x in return 12 })}")
+
+    print("value_if = {run(f: { x in if x == 0 { 3 } else { Bad(code: 5) } })}")
 }

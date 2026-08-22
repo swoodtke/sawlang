@@ -6538,16 +6538,27 @@ class _FrameBuilder:
     def _propagating_try_errors(self, s):
         """The error type of every propagating `try` in `s`, deduplicated by
         printed form (the same walk `_has_propagating_try` uses, so the two
-        always agree about which `try`s are propagating)."""
+        always agree about which `try`s are propagating).
+
+        A ROUTED `try` (design 234 §3) counts as its TARGET type: the clause
+        converts the error channel BEFORE propagation, so what reaches this
+        frame's one error edge is the routed enum. That is what makes the
+        routing clause a new tool for suspending code rather than a new
+        restriction — two callees with different error types, both routed into
+        one domain enum, are ONE type at the fence."""
         out = {}
 
         def scan(n):
             if isinstance(n, TryExpr):
                 if n.variant == "propagate" and n.catch_block is None:
-                    rt = getattr(n, 'result_enum_type', None)
-                    et = rt.unwrap_result_err() if (
-                        rt is not None and rt.is_result()) else None
-                    out.setdefault(str(et), et)
+                    routed = getattr(n, 'route_target', None)
+                    if routed is not None:
+                        out.setdefault(str(routed), routed)
+                    else:
+                        rt = getattr(n, 'result_enum_type', None)
+                        et = rt.unwrap_result_err() if (
+                            rt is not None and rt.is_result()) else None
+                        out.setdefault(str(et), et)
             if isinstance(n, TryCatchExpr):
                 scan(n.catch_block)
                 return

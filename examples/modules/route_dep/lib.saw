@@ -1,0 +1,35 @@
+//! A dependency owning both a leaf error and the domain enum that carries it,
+//! so design 234 §3's routing clause can be exercised at a MODULE-QUALIFIED
+//! target (`try(as route.DepError.Alloc) ...`).
+
+public struct DepAlloc { public size: Int }
+
+extension DepAlloc: Printable {
+    public func format(&self, into: &var StringBuilder) {
+        into.append("dep alloc ")
+        into.append(self.size)
+    }
+}
+
+extension DepAlloc: Error {}
+
+public enum DepError {
+    case Alloc(e: DepAlloc),
+    case Empty
+}
+
+extension DepError: Printable {
+    public func format(&self, into: &var StringBuilder) {
+        match self {
+            case Alloc(e) -> e.format(into: &var into),
+            case Empty -> into.append("dep empty")
+        }
+    }
+}
+
+extension DepError: Error {}
+
+public func fetch(n: Int) -> Result<Int, DepAlloc> {
+    if n > 10 { return DepAlloc(size: n) }
+    return n * 3
+}

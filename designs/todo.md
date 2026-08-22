@@ -68,6 +68,7 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-218w RESIDUE — the MIXED `case Both(v, _)` shape keeps statement-end timing (entry below, pinned XFAIL; the rest of DF-218w closed Aug 21)
 - DF-218x — a sync `if let` binding LEAKS when the then-branch exits by `return`/`break`; entry below, found by DF-218s's sweep. Same mechanism family as the now-closed DF-218v (codegen cleanup gaps at a nonlocal exit) — its fix extends DF-218v's `_cleanup_to_depth` walk
 - DF-218y — a multi-field all-`_` match payload drops its fields forward on the sync twin and reverse on the driven one; NEEDS A RULING (entry below says why sync is the suspect half), pinned XFAIL
+- DF-244b — a bare `None` TAIL at a `Result<T?, E>` cannot type itself, in a NAMED body as much as a closure; entry below, DF-232h's residue. `return None` is the one-keyword workaround
 
 - DF-225a — a user `extern "C"` function under a codegen-internal name (`printf`, `abort`, …) ICEs with no location (entry below, under DF-225a-f)
 - DF-225d — a primitive extension method returning bare `self` refuses its own declared return type, both sides printed identical (entry below, under DF-225a-f)
@@ -94,6 +95,23 @@ parameter types are stored raw, and resolving one at a foreign call site runs
 the design-194 prelude gate against the wrong module. Wants a resolution
 strategy, hence its own entry. PIN:
 `examples/generic_bound_call_concrete_param_type.saw` (XFAIL). [239]
+
+## DF-244b — a bare `None` TAIL at a `Result<T?, E>` cannot type itself, in a
+## NAMED body as much as a closure (filed Aug 22, DF-232h's residue)
+
+`func f() -> Result<Int32?, Bad> { None }` is ``cannot tell what this `None` is
+a `None` OF``, while `{ return None }` compiles and prints `ok -1`. Both
+spellings were probed, in a named body and in a closure, and they agree — so
+this is NOT the closure-vs-named disagreement DF-232h was, and DF-232h's fix
+neither caused nor was owed it. MECHANISM: the wrap ladder runs AFTER the body
+is checked, and a bare `None` fails in the body check itself, before any
+expectation reaches it. `_check_return_statement` gets past that because
+`_stamp_return_literal_types` / its own DF-140d branch push the expected type
+onto the value FIRST; the tail path has no equivalent push for a Result whose
+Ok payload is an optional. A fix propagates the peeled Ok payload into the
+tail ahead of the body check, at both tail sites. Low value on its own —
+`return None` is the one-keyword workaround, and the shape (an absent value
+that is also fallible) is rare. [232, 234]
 
 ## ~~DF-244a — a propagating `try` inside a `return` (or a block TAIL) in a
 ## SUSPENDING body never reaches the frame's error edge~~ — **FIXED Aug 22**
@@ -137,6 +155,21 @@ ChannelError gains Alloc). DISPATCH ORDER: after the kcore split, the
 literal/const family and the small-fix batch all integrate — corpus-wide
 touches conflict with everything; M3 unit 1.5+ may interleave with units 1-2
 only. [234]
+
+IN FLIGHT on branch `design-234`. Landed so far:
+- **unit 0 — the consumer sweep**: the migration matrix is in the brief's
+  landing section. Three corrections to the brief's own census, all recorded
+  there: 19 alloc twins across 10 std files (not "~16 across nine"), FOUR of
+  them with NO infallible twin at all (a rename, not a merge), and
+  `try_receive`'s §4 shape is a CHANGE rather than a preservation.
+- **unit 1 — the routing clause** `try(as ErrorType.Case) f()`: parser,
+  typechecker (one chokepoint, `_check_try_routing`), codegen, the coroutine
+  fence, 13-row position matrix + 10 refusals. RIDER **DF-232h CLOSED** by
+  the funnel extraction the entry asked for (`_autowrap_into_result`, four
+  named entry points), which also closes **DF-213b** — the same defect filed
+  from another angle. Two findings filed: DF-244a (FIXED, its own commit —
+  a propagating `try` in a `return` inside a suspending body) and DF-244b
+  (open, the bare-`None` tail residue).
 
 ## Design 238 — the sawos split (AUTHORED Aug 19, FOUR RULINGS same day;
 ## QUEUED after the sos riders batch, BEFORE the M3 ladder)
@@ -1923,11 +1956,30 @@ What landed beyond the brief's text, as decisions a reader may need:
   it is fixed here); NOT true of a closure's TAIL, which never reached the
   Result wrap at all — filed separately as DF-232h.
 
-## DF-232h — a closure's TAIL expression does not auto-wrap into a declared
+## ~~DF-232h — a closure's TAIL expression does not auto-wrap into a declared
 ## `Result` return type, though its `return` does and though the OPTIONAL
-## analogue works (found Aug 17 by DF-226e's fix, probed; RENUMBERED from the
-## branch's DF-232d at integration — the kcore split claimed d-g first;
-## SCHEDULED Aug 17 as a rider on design 234 unit 1, user)
+## analogue works~~ — **FIXED Aug 22** as design 234 unit 1's rider (found
+## Aug 17 by DF-226e's fix, probed; RENUMBERED from the branch's DF-232d at
+## integration — the kcore split claimed d-g first; SCHEDULED Aug 17 as a
+## rider on design 234 unit 1, user)
+
+LANDED as the extraction the entry asked for, not a second copy: the
+Ok-vs-Err ladder is now `_autowrap_into_result` in
+`sawc/typechecker/statements.py`, ONE funnel whose docstring names its four
+entry points — a function tail, a method tail, a `return`, and the closure
+tail that had no copy at all. The three hand-written copies are gone; each
+caller keeps only its own wording for the outcomes that are errors at ITS
+site, which is what lets a method, a function, a `return` and a closure each
+name themselves. The if/match per-ARM reconciliation is deliberately NOT an
+entry point, and the docstring says why (a different question, with no
+ambiguity refusal, no erasure and no optional-payload peel). Matrix covered
+row by row in the flipped pin `examples/closure_tail_autowraps_result.saw`
+(Ok literal, Ok non-literal, Err, erased `Box<any Error>`, optional Ok
+payload, the two controls, a value-`if` tail) plus
+`examples/closure_tail_result_ambiguous_payloads.saw` for the refusal.
+DF-213b above is the same defect filed from another angle and closes with it.
+Residue filed as DF-244b (a bare `None` TAIL, which a NAMED body has too).
+Original filing:
 
 `run(f: { x in 12 })` against `(Int) sync -> Result<Int32, Bad>` is
 ``argument `f` expects `(Int) sync -> Result<Int32, Bad>` but got
@@ -3840,18 +3892,23 @@ all.
   lives in a frame the closure's error path never reaches. Both are clean
   diagnostics now, and codegen carries the closure's own return type.
 
-- **DF-213b (OPEN) — a closure declared `-> Result<T, E>` does not auto-wrap
-  its TAIL value.** A named function returning `Result<Int, E>` auto-wraps a
-  bare `n` tail into `Ok(n)`; a closure with the same declared return type does
-  not, so `call_res({ x in let v = try f(x)  v })` is
+- ~~**DF-213b — a closure declared `-> Result<T, E>` does not auto-wrap
+  its TAIL value.**~~ — **FIXED Aug 22 by design 234 unit 1**, which found it
+  again from a different angle and filed it as DF-232h; the two entries are
+  one defect and one fix (`_autowrap_into_result`, the funnel extraction, with
+  the closure tail as its fourth entry point). DF-213b's own repro
+  `call_res({ x in let v = try f(x)  v })` compiles and prints 4. A named
+  function returning `Result<Int, E>` auto-wraps a bare `n` tail into `Ok(n)`;
+  a closure with the same declared return type did not, so that call was
   ``argument `body` expects `(Int) sync -> Result<Int, E>` but got
-  `(Int) -> Int` ``. `return v` works — the `return` path wraps — so the
-  workaround is one keyword, which is why this is a wart rather than a
+  `(Int) -> Int` ``. `return v` worked — the `return` path wraps — so the
+  workaround was one keyword, which is why this was a wart rather than a
   blocker. Exposed while writing design 213's position matrix (leg 9 of
-  `examples/closure_return_is_local.saw` carries the `return` spelling and a
-  comment citing this entry); NOT caused by it — the tail-wrap gap predates
-  the closure-callable funnel and lives in `_check_closure`'s post-body
-  reconciliation, which handles the OPTIONAL auto-wrap and has no Result twin.
+  `examples/closure_return_is_local.saw` carried the `return` spelling and a
+  comment citing this entry, now updated); NOT caused by it — the tail-wrap gap
+  predated the closure-callable funnel and lived in `_check_closure`'s
+  post-body reconciliation, which handled the OPTIONAL auto-wrap and had no
+  Result twin.
 
 ## Design 212 findings — the long-function decomposition sweep (Aug 12)
 

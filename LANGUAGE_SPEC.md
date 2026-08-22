@@ -4430,6 +4430,21 @@ wrap abstractly against its declared parameters (a `T`-typed value → `Ok`, an
 `E`-typed value → `Err`) and monomorphizes that choice consistently, even when
 an instantiation makes `T == E`.
 
+Four return targets take this wrap, and they take the identical one: a
+function body's tail, a method body's tail, an explicit `return`, and a
+CLOSURE body's tail.
+
+```saw
+func run(f: (Int) sync -> Result<Int32, ParseError>) -> Int32 { ... }
+
+run({ x in 12 })                       // Ok(12), same as `{ x in return 12 }`
+run({ x in ParseError(line: x) })      // Err
+```
+
+The ambiguity rejection, the erased `Box<any Error>` target and the
+optional-Ok-payload wrap all reach a closure tail exactly as they reach a named
+one.
+
 ### Try Variants
 
 The `try` keyword has three forms:
@@ -4447,6 +4462,60 @@ let maybe_content: String? = try? read_file("data.txt")
 // try! - force unwrap (panics on Err)
 let content = try! read_file("data.txt")  // Panics if Err
 ```
+
+### Error routing at `try`
+
+A `try` whose callee fails with a different error type than the enclosing
+function declares spells the conversion, as a prefix clause:
+
+```saw
+struct AllocError { size: Int, align: Int }
+struct ParseError { line: Int }
+
+enum ConfigError {
+    case Alloc(e: AllocError),
+    case Parse(e: ParseError)
+}
+
+func alloc_buffer(bytes: Int) -> Result<Data, AllocError> { ... }
+func parse(buf: Data) -> Result<Config, ParseError> { ... }
+func read_defaults() -> Result<Defaults, ConfigError> { ... }
+
+func build() -> Result<Config, ConfigError> {
+    let buf = try(as ConfigError.Alloc) alloc_buffer(4096)
+    let cfg = try(as ConfigError.Parse) parse(buf)
+    let extra = try read_defaults()          // already ConfigError: bare try
+    return assemble(cfg, extra)
+}
+```
+
+The clause converts the error channel only; the Ok value is untouched. The
+named case must carry exactly one payload, and the callee's error type must fit
+it. There is no candidate search and no lifting trait — editing an enum never
+changes what a distant `try` does, and every construction site is greppable.
+
+The clause is written in PREFIX position because a trailing one could not be
+told apart from a cast. `ConfigError.Alloc` and `time.Duration` are the same
+dotted-path shape, so `try parse_id() as UserId` — a projection of the
+unwrapped result — would be ambiguous with routing. The slot after `try` is
+owned by `try`; every trailing `as` remains an ordinary cast.
+
+`try!` and `try?` take no clause: neither propagates, so there is no error
+channel to convert. A clause and a `catch` on one `try` are refused together —
+route the error onward, or handle it here.
+
+```saw
+let n = try!(as ConfigError.Alloc) alloc_buffer(64)
+// error: `try!` cannot take a routing clause — `try!` does not propagate the
+//        error, so there is no error channel to convert
+```
+
+Inside a `try { } catch { }` block nothing is owed: the catch's error union
+absorbs whatever propagates, routed or not. The routing happens before
+propagation, so a routed `try` counts as its TARGET type everywhere downstream
+— including the one-error-type rule a suspending `try { } catch { }` follows,
+where routing two callees into one domain enum makes them one type at the
+fence.
 
 ### Inline Catch
 

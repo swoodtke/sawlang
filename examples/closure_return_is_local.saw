@@ -135,9 +135,11 @@ func leg_match_wrap() -> String {
 func leg_try() -> String {
     let r = call_res({ x in
         let v = try might_fail(x - 1)
-        // `return v` rather than a bare `v` tail: a closure declared
-        // `-> Result<T, E>` does not auto-wrap its TAIL value the way a named
-        // function does (DF-213b) — the `return` path does.
+        // A bare `v` tail would work too since DF-213b/DF-232h closed: a
+        // closure's tail takes the same Result auto-wrap a named body's does.
+        // The `return` spelling is kept here because this leg is about where a
+        // `return` goes, and `closure_tail_autowraps_result.saw` covers the
+        // tail.
         return v
     })
     match r { case Ok(v) -> "ok {v}", case Err(e) -> "err {e}" }

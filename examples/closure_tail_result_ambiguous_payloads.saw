@@ -1,0 +1,23 @@
+// A closure TAIL whose value fits BOTH payloads of the declared `Result` is
+// the same refusal a named body's tail gets — the ninth row of DF-232h's
+// matrix, split out because it is a compile error.
+//
+// The auto-wrap is one funnel now (`_autowrap_into_result`, design 234 unit 1),
+// and the ambiguity refusal lives INSIDE it: only the ladder sees both
+// payloads, so only the ladder can tell that neither side is meant. Design 30
+// ruling 1 demands the explicit variant rather than silently defaulting to Ok,
+// and that demand now reaches a closure tail as it always reached a `return`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: ambiguous
+
+func run(f: (Int) sync -> Result<Int32, Int32>) -> Int32 {
+    match f(0) {
+        case Ok(v) -> v,
+        case Err(e) -> e
+    }
+}
+
+func main() {
+    let k: Int32 = 7i32
+    print("{run(f: { x in k })}")
+}

@@ -238,3 +238,140 @@ Compiler brief: per-commit full suite + sos_runner both arches
 (`battery.sh suite sos`); terminal full battery. The corpus migration
 sub-units are the ones most likely to disturb IR determinism ordering —
 `irdet --all` is in the terminal battery as always.
+
+GATE AMENDMENT (user, Aug 21, after this brief was ratified): a compiler
+change now gates per-commit on the full suite + `tools/freestanding_runner.py`
+(both arches), NOT sos_runner; a commit that TOUCHES `sos/` additionally gates
+sos_runner on both arches. The terminal battery is unchanged and still carries
+its `sos` stage. This brief's later units touch `sos/`, so those commits owe
+both.
+
+---
+
+# Landing
+
+## Unit 0 — the consumer sweep (Aug 22)
+
+Two censuses, both probe-backed (every claim below is a compile or a run, not
+a grep). THREE CORRECTIONS to the brief's own numbers, recorded because the
+later units are planned off them.
+
+### Correction 1 — the twin family is 19, not "~16 across nine std files"
+
+19 alloc twins across **10** files. The brief's §"The decision" list omits
+`try_set` and `try_append_bytes`, and counts `cbor.saw` (a consumer, not a
+declarer) while missing that `once.saw` and `spinlock.saw` hold two of the
+three NON-blocking ops.
+
+| file | twins |
+|---|---|
+| `sawc/std/vector.saw` | `try_with_capacity`, `try_push`, `try_reserve`, `try_copy` |
+| `sawc/std/data.saw` | `try_with_capacity`, `try_set`, `try_push`, `try_reserve`, `try_append`, `try_append_bytes`, `try_detached` |
+| `sawc/std/stringbuilder.saw` | `try_with_capacity`, `try_append`, `try_append_char` |
+| `sawc/std/map.saw` | `try_insert` |
+| `sawc/std/set.saw` | `try_insert` |
+| `sawc/std/box.saw` | `try_make` |
+| `sawc/std/arc.saw` | `try_make` |
+| `sawc/std/channel.saw` | `try_make`, `try_send` |
+
+The three §4 keepers: `Channel.try_receive`, `SpinLock.try_lock`,
+`Once.try_get`.
+
+### Correction 2 — FOUR twins have no infallible twin, so unit 3 RENAMES them
+
+`Vector.try_with_capacity`, `Vector.try_reserve`, `Data.try_with_capacity`,
+`Data.try_reserve` and `StringBuilder.try_with_capacity` have no
+`reserve`/`with_capacity` to merge into (compile-refuted: ``type `Vector` has
+no method `reserve` ``). Retiring the prefix there renames a SOLE method
+rather than collapsing a pair, which is a different migration shape — a caller
+of `try_reserve` gets a rename, not a signature change.
+
+### Correction 3 — `try_receive`'s §4 shape is a CHANGE, not a preservation
+
+`try_receive` is `-> T?` today, and `receive` is
+`-> Result<T, ChannelError>`, so a closed channel is currently
+indistinguishable from an empty one on the poll path. §4's
+`Result<T?, ChannelError>` fixes that and breaks all 15 call sites
+syntactically (10 use `if let`/`while let`, 3 use `!`). That is unit 4's
+work, not unit 3's, and it is the largest single call-site cluster in the
+whole census.
+
+### The migration matrix
+
+| consumer | count | where | chosen semantic |
+|---|---|---|---|
+| alloc `try_` twins | 19 decls | 10 std files | retire the prefix; the twin's behavior becomes the ordinary op's (4 of them a rename — correction 2) |
+| twin CALL sites | 56 | examples/ 45 (5 conformance), sawc/std/ 11 | migrate with the type; ZERO in blade/, libs/, sos/, devtools/, tools/, selfhost/, sawc/rt/ |
+| panicking alloc sites in std | 24 | 12 std files | flip to `Result`; `Channel.send`, `File.read`, `File.write` already RETURN Result and only their alloc ARM changes |
+| compiler-emitted alloc panics | 3 | closures.py (env), calls.py (spawn CB), core.py (String) | STAY panics — §5's hidden-allocation boundary, `--no-hidden-alloc` is the opt-out |
+| `existentials.py:402` boxing panic | 1 | codegen | its stated rationale is "`Box<T>.make` parity"; that parity moves under unit 3, so this site needs a ruling the brief does not give — HELD for the user |
+| `Data.[]`'s COW-separation panic | 1 | `data.saw:222` | a place accessor's `lend` prologue: an expression exists to hang a `try` on, but it is a subscript — the brief names no home for it, HELD for the user |
+| oom-panic examples that INVERT | 6 | examples/ | expectation flips from `EXPECT: panic` to a Result match |
+| oom-panic examples that STAY | 2 | `alloc_string_oom_panic`, `alloc_string_no_degradation` | they pin the HIDDEN String allocation, which §5 keeps as a panic; they become the positive statement of that boundary |
+| tier-demonstration examples | 8 | examples/ | bodies migrate; `try_with_capacity.saw` and `box_try_make.saw` are NAMED for retiring methods and get renamed (Aug-9 naming ruling) |
+| `--no-hidden-alloc` tests | 5 | examples/ | untouched — they already pin §5's boundary |
+| `IoError` field readers | 0 | — | both fields are PRIVATE (compile-refuted), and there are ZERO `.code()` call sites tree-wide, so unit 2's reshape breaks no reader |
+| `IoError` rendering pins | 3 | examples/ | update the pinned strings with the reshape |
+| `ChannelError` consumers outside `channel.saw` | 2 real | examples/ | both go through `describe()`/`{e}`; NO `case Closed`/`case Cancelled` match exists anywhere outside `channel.saw` |
+| `ChannelError.describe()` pins | 2 | examples/ | `"the receiving task was cancelled"` is pinned twice; `"channel is closed"` by nothing |
+| `AllocError` field readers | 4 | 2 examples/ | `size`/`align` are PUBLIC and stay |
+| conformance rows | 0 existing | INDEX.md | obligation 3's rows for the alloc tier are all NEW; Z01 (`push` inside a `with_var_ref` window) must be re-read once `push` returns a Result |
+| implicit `IoError` carriers | ~20 files | blade/, devtools/ | they never spell `IoError` — it reaches them through `try` into `Box<any Error>`; the reshape leaves them alone, the FLIP does not. Typechecked by the `bootstrap` stage only |
+| doc mentions of `try_` | 30 + 19 lines | LANGUAGE_SPEC.md, SKILL.md | unit 5; README has ZERO |
+
+Trees with NOTHING to migrate for the twin family: `blade/`, `libs/`, `sos/`,
+`devtools/`, `tools/`, `tests/`, `selfhost/`, `sawc/rt/`.
+
+Two trees the brief's unit list never names and that the flip WILL reach
+through the infallible ops (`push`/`append`/`insert`): `devtools/` and
+`selfhost/`. `devtools/irdet` and `devtools/bench` are themselves battery
+lanes, so breaking either takes the gate down with it.
+
+### The `try_` prefix has a THIRD in-tree meaning
+
+`selfhost/lexer/src/lib.saw:786` `try_read_int_suffix` means "may not match".
+It is not std and is out of §4's scope, but it is the one in-tree name that
+reads wrong once the prefix narrows.
+
+## Unit 1 — the routing clause + DF-232h (Aug 22)
+
+`try(as ErrorType.Case) f()` lands as specified. ONE chokepoint each side
+(obligation 1): `_check_try_routing` in the typechecker and the routing block
+in `_generate_try_propagate` in codegen, each docstring naming its entry
+points. The clause rides the `TryExpr` NODE, so every position a `try` can sit
+in is served by construction rather than enumerated.
+
+Position matrix, `examples/try_routing_clause.saw`, 13 rows: statement, `let`
+initializer, argument, interpolation, `match` scrutinee, `??` RHS, `return`
+operand, tail, TWO SOURCES routed into one enum, inside a
+`try { } catch { }` block, a MODULE-QUALIFIED target, a suspending body, and
+two error types in one suspending body (which the fence now sees as one).
+Two controls in the same file pin that the prefix slot took nothing away: a
+trailing `as` is still a value projection, and `try (f())` is still a
+parenthesized expression.
+
+Refusals, `examples/try_routing_clause_refusals.saw` (9) +
+`examples/try_routing_clause_needs_a_case.saw` (the parse-level one, its own
+file because a parse error ends the compile): `try!`/`try?` with a clause,
+clause + `catch`, a non-enum target, an unknown type, an unknown case, a
+payload-free case, a two-field case, a payload-type mismatch, and a clause
+naming no case. Each reports EXACTLY ONCE — a malformed clause says what the
+author meant to send, so the caller does not then check the SOURCE type
+against the signature and complain a second time about a type they never
+intended.
+
+DF-232h landed as the extraction it asked for: `_autowrap_into_result` in
+`sawc/typechecker/statements.py` is now the ONE Result auto-wrap ladder, over
+four entry points (function tail, method tail, `return`, closure tail). It
+closes DF-213b too — the same defect filed from another angle.
+
+TWO FINDINGS, both pre-existing, both named by mechanism:
+- **DF-244a (FIXED, its own commit ahead of unit 1)** — a propagating `try` in
+  a `return` (or a block tail) inside a suspending body never reached design
+  196's error landing, because `_lower_stmt`'s `return` branch sits above the
+  dispatch. Five expression shapes under `return` failed, two as ICEs, and all
+  five passed when bound to a `let` first. Design 234 multiplies exactly this
+  shape, which is why it was fixed rather than filed and left.
+- **DF-244b (open)** — a bare `None` TAIL at a `Result<T?, E>` cannot type
+  itself, in a NAMED body as much as a closure, so it is not the
+  closure-vs-named disagreement DF-232h was. `return None` works.

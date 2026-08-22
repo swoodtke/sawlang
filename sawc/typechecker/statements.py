@@ -416,53 +416,27 @@ class StatementsMixin:
             elif body_type is not None and not self._transfer_compatible(body_type, expected_return):
                 # Check for Result auto-wrapping on final expression
                 if expected_return.is_result() and method.body.final_expr:
-                    ok_type = expected_return.unwrap_result_ok()
-                    err_type = expected_return.unwrap_result_err()
-
-                    if body_type.is_result():
-                        # Already a Result but types don't match
+                    # ENTRY POINT 2 of `_autowrap_into_result`.
+                    outcome, wrapped = self._autowrap_into_result(
+                        method.body.final_expr, body_type, expected_return,
+                        f"method `{method.name}`", method.line, method.column)
+                    if wrapped is not None:
+                        method.body.final_expr = wrapped
+                    elif outcome == 'result':
                         self._error(
                             ErrorKind.TYPE_MISMATCH,
                             f"method `{method.name}` should return `{expected_return}` but returns `{body_type}`",
                             method.line, method.column
                         )
-                    elif self._result_autowrap_ambiguous(
-                            expected_return, body_type, f"method `{method.name}`",
-                            method.line, method.column,
-                            value_expr=method.body.final_expr):
-                        pass  # design 30: ambiguity reported; no wrap
-                    elif self._transfer_compatible(body_type, ok_type):
-                        # DF-140d: see through the Ok-payload optional first.
-                        _payload = self._prepare_ok_payload(
-                            method.body.final_expr, body_type, ok_type)
-                        method.body.final_expr = ResultOkWrap(
-                            value=_payload,
-                            result_type=expected_return,
-                            line=_payload.line,
-                            column=_payload.column
-                        )
-                    elif self._transfer_compatible(body_type, err_type):
-                        # Wrap in ResultErrWrap
-                        method.body.final_expr = ResultErrWrap(
-                            value=method.body.final_expr,
-                            result_type=expected_return,
-                            line=method.body.final_expr.line,
-                            column=method.body.final_expr.column
-                        )
-                    elif (self._erased_err_target(expected_return) is not None
-                          and self._can_erase_to(
-                              body_type, self._erased_err_target(expected_return))):
-                        # Erased Result (design 56): box + Err-wrap a concrete error.
-                        method.body.final_expr = self._make_erased_err_wrap(
-                            method.body.final_expr, expected_return, body_type,
-                            self._erased_err_target(expected_return))
-                    else:
+                    elif outcome == 'none':
                         self._error(
                             ErrorKind.TYPE_MISMATCH,
                             f"method `{method.name}` should return `{expected_return}` but returns `{body_type}` "
-                            f"(doesn't match Ok type `{ok_type}` or Err type `{err_type}`)",
+                            f"(doesn't match Ok type `{expected_return.unwrap_result_ok()}` "
+                            f"or Err type `{expected_return.unwrap_result_err()}`)",
                             method.line, method.column
                         )
+                    # 'ambiguous' reported inside the ladder; no wrap.
                 else:
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
@@ -581,56 +555,27 @@ class StatementsMixin:
         elif body_type is not None and not self._transfer_compatible(body_type, resolved_return_type):
             # Check for Result auto-wrapping on final expression
             if resolved_return_type.is_result() and func.body.final_expr:
-                ok_type = resolved_return_type.unwrap_result_ok()
-                err_type = resolved_return_type.unwrap_result_err()
-
-                if body_type.is_result():
-                    # Already a Result but types don't match
+                # ENTRY POINT 1 of `_autowrap_into_result`.
+                outcome, wrapped = self._autowrap_into_result(
+                    func.body.final_expr, body_type, resolved_return_type,
+                    f"function `{func.name}`", func.line, func.column)
+                if wrapped is not None:
+                    func.body.final_expr = wrapped
+                elif outcome == 'result':
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"function `{func.name}` should return `{resolved_return_type}` but returns `{body_type}`",
                         func.line, func.column
                     )
-                elif self._result_autowrap_ambiguous(
-                        resolved_return_type, body_type, f"function `{func.name}`",
-                        func.line, func.column,
-                        value_expr=func.body.final_expr):
-                    pass  # design 30: ambiguity reported; no wrap
-                elif self._transfer_compatible(body_type, ok_type):
-                    # DF-140d: see through the Ok-payload optional (bare `None`
-                    # stamped, bare `T` wrapped in `Some`) before the Result wrap.
-                    _payload = self._prepare_ok_payload(
-                        func.body.final_expr, body_type, ok_type)
-                    func.body.final_expr = ResultOkWrap(
-                        value=_payload,
-                        result_type=resolved_return_type,
-                        line=_payload.line,
-                        column=_payload.column
-                    )
-                elif self._transfer_compatible(body_type, err_type):
-                    # Wrap in ResultErrWrap
-                    func.body.final_expr = ResultErrWrap(
-                        value=func.body.final_expr,
-                        result_type=resolved_return_type,
-                        line=func.body.final_expr.line,
-                        column=func.body.final_expr.column
-                    )
-                elif (self._erased_err_target(resolved_return_type) is not None
-                      and self._can_erase_to(
-                          body_type, self._erased_err_target(resolved_return_type))):
-                    # Erased Result (design 56): a concrete `E: Error` is boxed
-                    # and Err-wrapped at the return boundary (resolution 55 ->
-                    # auto-wrap 30 -> ERASE 56, one sequence).
-                    func.body.final_expr = self._make_erased_err_wrap(
-                        func.body.final_expr, resolved_return_type, body_type,
-                        self._erased_err_target(resolved_return_type))
-                else:
+                elif outcome == 'none':
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
                         f"function `{func.name}` should return `{resolved_return_type}` but returns `{body_type}` "
-                        f"(doesn't match Ok type `{ok_type}` or Err type `{err_type}`)",
+                        f"(doesn't match Ok type `{resolved_return_type.unwrap_result_ok()}` "
+                        f"or Err type `{resolved_return_type.unwrap_result_err()}`)",
                         func.line, func.column
                     )
+                # 'ambiguous' reported inside the ladder; no wrap.
             else:
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
@@ -647,6 +592,76 @@ class StatementsMixin:
                     line=func.body.final_expr.line,
                     column=func.body.final_expr.column
                 )
+
+    def _autowrap_into_result(self, value_expr, value_type, expected,
+                              context_desc, line, column):
+        """Wrap a bare value into a declared `Result<T, E>` — THE ONE LADDER.
+
+        FOUR ENTRY POINTS, every one of them a RETURN TARGET (design 234 unit 1
+        extracted this from the three hand-written copies DF-232h found; the
+        fourth site is the one that had no copy at all):
+          1. `_reconcile_return_type`  — a function body's TAIL
+          2. `_check_method`           — a method body's TAIL
+          3. `_check_return_statement` — an explicit `return <value>`
+          4. `_check_closure`          — a CLOSURE body's tail   (DF-232h)
+
+        A closure's `return` is entry point 3 already: it reaches the named
+        body's funnel through `_return_target`. Its TAIL shared nothing, which
+        is why `{ x in 12 }` in a `-> Result<Int32, Bad>` slot was refused while
+        `{ x in return 12 }` compiled — two spellings of one intent disagreeing.
+
+        NOT an entry point, deliberately: the per-ARM reconciliation of a
+        value-position `if`/`match` (in `_check_if_expr` / `_check_match_expr`).
+        That is a different question — which SIDE each arm lands on, so the
+        whole construct has one type — and it has no ambiguity refusal, no
+        erasure and no optional-payload peel. Folding it in would make one
+        function answer two things.
+
+        The ladder is design 30 -> 55 -> 56, in that order, and returns an
+        `(outcome, wrapped)` pair:
+          'result'    — the value is ALREADY a Result (the types disagree)
+          'ambiguous' — both payloads accept it; REPORTED here, since only the
+                        ladder sees both payloads (design 30 ruling 1)
+          'ok'        — fits the Ok payload      -> `ResultOkWrap`
+          'err'       — fits the Err payload     -> `ResultErrWrap`
+          'erased'    — the Err is `Box<any Trait>` and the value conforms
+                        -> `ErasedErrWrap` (design 56's re-box at the boundary)
+          'none'      — nothing fits
+
+        Nothing else is reported here: each caller keeps its own wording for
+        the outcomes that are errors at ITS site, which is what makes a method,
+        a function, a `return` and a closure each name themselves.
+        """
+        if value_type is not None and value_type.is_result():
+            return ('result', None)
+
+        ok_type = expected.unwrap_result_ok()
+        err_type = expected.unwrap_result_err()
+
+        if self._result_autowrap_ambiguous(expected, value_type, context_desc,
+                                           line, column, value_expr=value_expr):
+            return ('ambiguous', None)
+
+        if self._transfer_compatible(value_type, ok_type):
+            # DF-140d: see through the Ok-payload optional FIRST — a bare `None`
+            # stamped with the Ok type, a bare `T` wrapped in `Some` — or the
+            # Result wrap receives something the wrong shape and ICEs.
+            payload = self._prepare_ok_payload(value_expr, value_type, ok_type)
+            return ('ok', ResultOkWrap(
+                value=payload, result_type=expected,
+                line=payload.line, column=payload.column))
+
+        if self._transfer_compatible(value_type, err_type):
+            return ('err', ResultErrWrap(
+                value=value_expr, result_type=expected,
+                line=value_expr.line, column=value_expr.column))
+
+        erased = self._erased_err_target(expected)
+        if erased is not None and self._can_erase_to(value_type, erased):
+            return ('erased', self._make_erased_err_wrap(
+                value_expr, expected, value_type, erased))
+
+        return ('none', None)
 
     def _result_autowrap_ambiguous(self, expected, value_type, context_desc, line,
                                    column, value_expr=None) -> bool:
@@ -3214,61 +3229,30 @@ class StatementsMixin:
             elif value_type and not self._transfer_compatible(value_type, expected):
                 # Check for Result auto-wrapping
                 if expected.is_result() and value_type:
-                    ok_type = expected.unwrap_result_ok()
-                    err_type = expected.unwrap_result_err()
-
-                    # Already a Result - no wrapping needed (but types don't match)
-                    if value_type.is_result():
+                    # ENTRY POINT 3 of `_autowrap_into_result`. A closure's
+                    # `return` arrives here too, through `_return_target`.
+                    outcome, wrapped = self._autowrap_into_result(
+                        stmt.value, value_type, expected, "function",
+                        stmt.line, stmt.column)
+                    if wrapped is not None:
+                        stmt.value = wrapped
+                        self.found_return_with_value = True
+                    elif outcome == 'ambiguous':
+                        # Treat as a value-return so we do not also emit a
+                        # misleading "body has no value" cascade.
+                        self.found_return_with_value = True
+                    elif outcome == 'result':
                         self._error(
                             ErrorKind.TYPE_MISMATCH,
                             f"expected return type `{expected}` but got `{value_type}`",
                             stmt.line, stmt.column
                         )
-                    # design 30: bare value fits both Ok and Err (T == E) - ambiguous
-                    elif self._result_autowrap_ambiguous(
-                            expected, value_type, "function", stmt.line, stmt.column,
-                            value_expr=stmt.value):
-                        # ambiguity reported; treat as a value-return so we don't
-                        # also emit a misleading "body has no value" cascade.
-                        self.found_return_with_value = True
-                    # Value matches T - wrap in ResultOkWrap
-                    elif self._transfer_compatible(value_type, ok_type):
-                        # DF-140d: `Result<T?, E>` needs the payload wrapped into
-                        # the Optional FIRST — a bare `None` stamped with the Ok
-                        # type, a bare `T` wrapped in `Some` — or the Result wrap
-                        # receives something the wrong shape and ICEs.
-                        _payload = self._prepare_ok_payload(
-                            stmt.value, value_type, ok_type)
-                        stmt.value = ResultOkWrap(
-                            value=_payload,
-                            result_type=expected,
-                            line=_payload.line,
-                            column=_payload.column
-                        )
-                        self.found_return_with_value = True
-                    # Value matches E - wrap in ResultErrWrap
-                    elif self._transfer_compatible(value_type, err_type):
-                        stmt.value = ResultErrWrap(
-                            value=stmt.value,
-                            result_type=expected,
-                            line=stmt.value.line,
-                            column=stmt.value.column
-                        )
-                        self.found_return_with_value = True
-                    elif (self._erased_err_target(expected) is not None
-                          and self._can_erase_to(
-                              value_type, self._erased_err_target(expected))):
-                        # Erased Result (design 56): box + Err-wrap a concrete error
-                        # at an explicit `return E`.
-                        stmt.value = self._make_erased_err_wrap(
-                            stmt.value, expected, value_type,
-                            self._erased_err_target(expected))
-                        self.found_return_with_value = True
                     else:
                         self._error(
                             ErrorKind.TYPE_MISMATCH,
                             f"expected return type `{expected}` but got `{value_type}` "
-                            f"(doesn't match Ok type `{ok_type}` or Err type `{err_type}`)",
+                            f"(doesn't match Ok type `{expected.unwrap_result_ok()}` "
+                            f"or Err type `{expected.unwrap_result_err()}`)",
                             stmt.line, stmt.column
                         )
                 else:
