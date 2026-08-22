@@ -11,13 +11,14 @@
 // `Err(Closed)` — a distinction the pre-234 `T?` shape could not make, where a
 // closed channel and an empty one were the same answer.
 //
-// The consumer here is a SPAWNED task, and a propagating `try` in a binding
-// SCRUTINEE inside a suspending body is refused today (DF-245d, pinned by
-// `examples/suspending_binding_scrutinee_propagates_a_try.saw`), so this file
-// spells `try!` and the `try` form is the one that pin will unlock. The channel
-// is never closed here, so the two behave identically: the loop is bounded by
-// the message count, and `try!` would only differ on a close that cannot
-// happen.
+// The consumer here is a SPAWNED task, which is what made this the first
+// consumer of DF-245d: a propagating `try` in a container HEAD inside a
+// suspending body used to be refused, so the file spelled `try!` and cited the
+// finding. It reads the way design 234 §4 intends now — the consumer answers
+// `Result<Int, ChannelError>` and a close would leave through its error
+// channel. The channel is never closed here, so the loop is bounded by the
+// message count and the propagation is the honest spelling of a case that
+// cannot arise.
 //
 // The inner drain does not itself suspend, so it stays an ordinary loop nested
 // inside the spanning one — its `break` targets itself, never the outer loop.
@@ -27,7 +28,7 @@
 // 6
 
 import std.task.*
-import std.channel.{Channel}
+import std.channel.{Channel, ChannelError}
 
 func producer(ch: Channel<Int>) -> Int {
     var i = 0
@@ -39,12 +40,12 @@ func producer(ch: Channel<Int>) -> Int {
     return i
 }
 
-func consumer(ch: Channel<Int>) -> Int {
+func consumer(ch: Channel<Int>) -> Result<Int, ChannelError> {
     var sum = 0
     var got = 0
     while got < 3 {
         var drained = 0
-        while let v = try! ch.try_receive() {
+        while let v = try ch.try_receive() {
             sum = sum + v
             got = got + 1
             drained = drained + 1
@@ -61,6 +62,6 @@ func main() {
     let ch = Channel<Int>()
     let hp = group.spawn(producer(ch.copy()))
     let hc = group.spawn(consumer(ch.copy()))
-    print(hp.join())   // 3
-    print(hc.join())   // 1 + 2 + 3
+    print(hp.join())          // 3
+    print(try! hc.join())     // 1 + 2 + 3
 }

@@ -6208,7 +6208,15 @@ Observable rules:
   - A propagating **`try`** returns the error from the function. In a state
     machine that means storing the `Result` into the frame's slot and finishing,
     so `let chunk = try stream.read()` in a task body reports the failure to the
-    caller instead of panicking (`try!`) or losing the cause (`try?`).
+    caller instead of panicking (`try!`) or losing the cause (`try?`). It may
+    sit in a `return` or a block tail, and in a CONTAINER HEAD — an `if let` /
+    `guard let` / `while let` subject, an `if` or `while` condition, a `for`
+    range endpoint, a `match` scrutinee — which is what makes the non-blocking
+    drain loop `while let job = try ch.try_receive() { … }` write the same way
+    in a task as in sync code. Both were refused before Aug 22 (a `return` until
+    DF-244a, a head until DF-245d), naming `Poll` — a type the source never
+    mentions — or failing as an internal error, so `try!` was the workaround and
+    an older build still needs it.
   - A **`try { … } catch { … }` block** may suspend anywhere inside it. The catch
     arm becomes a resume target of its own, reachable from every state the try
     body lowers into, so a statement after a `try` runs only if the earlier one

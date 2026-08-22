@@ -1,50 +1,78 @@
-// XFAIL: DF-245d — a PROPAGATING `try` in an optional-binding SCRUTINEE inside a
-// SUSPENDING body is refused with ``try` cannot propagate errors from a function
-// returning `Poll``. DF-244a fixed the same shape under `return` and a block
-// TAIL; the binding scrutinees are the sibling positions its sweep did not
-// cover. Design 234 §4 makes this the natural drain loop — `try` peels the error
-// channel, `while let` peels the optional — so the flip meets it immediately.
+// A propagating `try` in a CONTAINER HEAD inside a suspending body reaches the
+// coroutine frame's error edge (DF-245d, FIXED).
 //
-// The body below is the minimal repro and states the INTENDED behavior: both
-// rows drain 1 + 2 + 3 and stop on `Ok(None)`, and the `Err` path propagates out
-// of the task to its `join`.
+// A head is the expression a construct evaluates OUTSIDE every block it owns —
+// an `if let`/`guard let`/`while let` subject, an `if`/`while` condition, a
+// `for` range endpoint, a `match` scrutinee. `_lower_stmt` dispatches a
+// propagating `try` to design 196 unit 3's error landing, and the landing wraps
+// a STATEMENT, so a `try` left in a head was lowered inside the state with its
+// propagation target read off `resume() -> Poll`. Same two faces DF-244a found
+// under `return`: ``cannot propagate errors from a function returning `Poll` ``
+// from the typechecker's second pass, or ``Cannot create Result.Err outside
+// Result-returning function`` from codegen. `_hoist_container_heads` — design
+// 224's lift, which already moves a head that SPANS a suspension — now moves a
+// head that carries a propagating `try` for the same reason.
+//
+// Design 234 §4 makes the `while let` row the natural drain loop: the `try`
+// peels the error channel and the `while let` peels the optional.
+//
+// Rows: the three binding forms over the shapes a `try` can hide in, plus the
+// other three head kinds. Each runs on the Ok path and the Err path — the two
+// `step` rows report `A27` because they index from `n - 3`, everything else
+// reports the `n` it was handed.
 // EXPECT: success
 // EXPECT-OUTPUT:
-// while: 6
-// if: 1
+// while ok 6
+// while err A27
+// if ok 6
+// if err A27
+// guard ok 12
+// guard err A30
+// guard_nested ok 600
+// guard_nested err A30
+// if_cond ok 6
+// if_cond err A30
+// for_range ok 6
+// for_range err A30
+// match_scrutinee ok 6
+// match_scrutinee err A30
 
 import std.task.*
 
-enum Stop { case Done }
-
-extension Stop {
-    func describe(&self) -> String {
-        match self { case Done -> "done" }
+struct AllocFail { size: Int }
+extension AllocFail: Printable {
+    func format(&self, into: &var StringBuilder) {
+        into.append("A")
+        into.append(self.size)
     }
 }
+extension AllocFail: Error {}
 
-extension Stop: Printable {
-    func format(&self, into: &var StringBuilder) { into.append(self.describe()) }
-}
-
-extension Stop: Error {}
-
-// `Ok(Some(n))` up to 3, then `Ok(None)`; `Err(Done)` is the never-reached arm
-// that makes the propagation real rather than decorative.
-func step(i: Int) -> Result<Int?, Stop> {
+// `Ok(Some(n))` while `i` is small, `Ok(None)` once it is not, and `Err` above
+// 10 — the arm that makes the propagation real rather than decorative.
+func step(i: Int) -> Result<Int?, AllocFail> {
+    if i > 10 {
+        return AllocFail(size: i)
+    }
     if i > 2 {
         let absent: Int? = None
         return absent
     }
-    if i == 9 {
-        return Stop.Done
-    }
     return i + 1
 }
 
-func drain_while() -> Result<Int, Stop> {
+func grab(n: Int) -> Result<Int, AllocFail> {
+    if n > 10 { return AllocFail(size: n) }
+    return n * 2
+}
+
+func wrap(x: Int) -> Int? { x }
+
+// `while let` — the drain. Its body spans a suspension, so the binding is CFG
+// split and the scrutinee is evaluated once per iteration.
+func row_while(n: Int) -> Result<Int, AllocFail> {
     var sum = 0
-    var i = 0
+    var i = n - 3
     while let v = try step(i) {
         yield_now()
         sum = sum + v
@@ -53,18 +81,81 @@ func drain_while() -> Result<Int, Stop> {
     return sum
 }
 
-func drain_if() -> Result<Int, Stop> {
-    yield_now()
-    if let v = try step(0) {
-        return v
+// `if let`, with the branch spanning — the split that kept the `try` inside.
+func row_if(n: Int) -> Result<Int, AllocFail> {
+    if let v = try step(n - 3) {
+        yield_now()
+        return v * 6
     }
     return 0
 }
 
+// `guard let`, whose binding belongs to the enclosing block, so the whole rest
+// of that block is its scope.
+func row_guard(n: Int) -> Result<Int, AllocFail> {
+    guard let v = wrap(try grab(n)) else { return 0 }
+    yield_now()
+    return v * 2
+}
+
+// The `try` nested inside a larger head expression, not the head itself.
+func row_guard_nested(n: Int) -> Result<Int, AllocFail> {
+    yield_now()
+    guard let v = wrap(match try grab(n) { case 6 -> 600, case _ -> 0 })
+        else { return 0 }
+    return v
+}
+
+// The other three head kinds the same lift covers.
+func row_if_cond(n: Int) -> Result<Int, AllocFail> {
+    if (try grab(n)) > 0 {
+        yield_now()
+        return 6
+    }
+    return 0
+}
+
+func row_for_range(n: Int) -> Result<Int, AllocFail> {
+    var sum = 0
+    for i in 0..(try grab(n)) {
+        yield_now()
+        sum = sum + 1
+    }
+    return sum
+}
+
+func row_match_scrutinee(n: Int) -> Result<Int, AllocFail> {
+    match try grab(n) {
+        case 6 -> {
+            yield_now()
+            return 6
+        },
+        case _ -> { return 0 }
+    }
+}
+
+func show(label: String, r: Result<Int, AllocFail>) {
+    match r {
+        case Ok(v) -> print("{label} ok {v}"),
+        case Err(e) -> print("{label} err {e}")
+    }
+}
+
 func main() {
     var group = TaskGroup()
-    let a = group.spawn(drain_while())
-    print("while: {try! a.join()}")
-    let b = group.spawn(drain_if())
-    print("if: {try! b.join()}")
+
+    show("while", group.spawn(row_while(3)).join())
+    show("while", group.spawn(row_while(30)).join())
+    show("if", group.spawn(row_if(3)).join())
+    show("if", group.spawn(row_if(30)).join())
+    show("guard", group.spawn(row_guard(3)).join())
+    show("guard", group.spawn(row_guard(30)).join())
+    show("guard_nested", group.spawn(row_guard_nested(3)).join())
+    show("guard_nested", group.spawn(row_guard_nested(30)).join())
+    show("if_cond", group.spawn(row_if_cond(3)).join())
+    show("if_cond", group.spawn(row_if_cond(30)).join())
+    show("for_range", group.spawn(row_for_range(3)).join())
+    show("for_range", group.spawn(row_for_range(30)).join())
+    show("match_scrutinee", group.spawn(row_match_scrutinee(3)).join())
+    show("match_scrutinee", group.spawn(row_match_scrutinee(30)).join())
 }

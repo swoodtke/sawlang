@@ -3159,8 +3159,23 @@ class _FrameBuilder:
     # expression in `let` position would be — the guard survives the lift.
 
     def _hoist_container_heads(self):
-        """Lift every suspension-spanning container HEAD into a preceding driven
-        statement, so the suspension lands where the state split can express it.
+        """Lift every container HEAD the state machine cannot hold in place into
+        a preceding driven statement.
+
+        TWO reasons a head has to move, and they are the same reason twice — the
+        head is evaluated OUTSIDE every block the container owns, so anything in
+        it that needs a statement of its own has nowhere to be:
+
+          1. It SPANS A SUSPENSION. The lift puts the suspension where the state
+             split can express it (design 224).
+          2. It carries a PROPAGATING `try` (DF-245d). `_lower_stmt` dispatches
+             one to design 196 unit 3's error landing, and the landing wraps a
+             STATEMENT — so a `try` left in a head is lowered inside the state,
+             with its propagation target read off `resume() -> Poll`. That is
+             the same failure DF-244a found under `return`, in both its faces:
+             the typechecker's second pass names `Poll`, a type the author never
+             wrote, or codegen reaches `_create_result_err_for_return` inside
+             `resume` and ICEs.
 
         THE INVARIANT this establishes, which `_collect_calls` then checks: after
         this pass no statement-position container has a head that spans a
@@ -3181,7 +3196,7 @@ class _FrameBuilder:
     def _head_stmt(self, s):
         """Return the replacement statement list for `s`."""
         heads = [(owner, field) for (owner, field) in control_heads(s)
-                 if self._spans_suspension(getattr(owner, field))]
+                 if self._head_must_move(getattr(owner, field))]
         if not heads:
             return [s]
         ctrl = s.expression if isinstance(s, ExpressionStatement) else s
@@ -3199,6 +3214,20 @@ class _FrameBuilder:
             settled.extend(self._head_stmt(st))
         return settled + [s]
 
+    def _head_must_move(self, head) -> bool:
+        """Whether `head` — a container's head expression — has to be lifted out
+        of the head slot. The two clauses `_hoist_container_heads` documents.
+
+        The `try` clause is DF-245d, and it is DF-244a's second half at the other
+        position: `_norm_block` had to call a tail carrying a propagating `try`
+        "spanning" for exactly this reason, because the lowering keys on
+        STATEMENTS and the landing dispatch wraps one. A head is the one other
+        place an expression sits outside every block its construct owns."""
+        if head is None:
+            return False
+        return (self._spans_suspension(head)
+                or self._has_propagating_try(head))
+
     def _head_lift(self, head, out):
         """Replace `head` with a read of a preceding `let __headN = <head>`,
         appending the statement(s) to `out`.
@@ -3208,13 +3237,16 @@ class _FrameBuilder:
         endpoint that is merely side-effecting (not suspending) is lifted beside
         a suspending right one for DF-133a's reason: leaving it in place would
         move its evaluation AFTER the suspension the author wrote to its right.
+        The endpoints ask `_head_must_move`, the same question the slot itself
+        was selected by, so a `for i in 0..(try n())` is lifted for the `try`
+        exactly as it is for a suspension (DF-245d).
         """
         if isinstance(head, RangeExpr):
-            if self._spans_suspension(head.end):
+            if self._head_must_move(head.end):
                 if not self._anf_is_pure(head.start):
                     head.start = self._head_lift(head.start, out)
                 head.end = self._head_lift(head.end, out)
-            elif self._spans_suspension(head.start):
+            elif self._head_must_move(head.start):
                 head.start = self._head_lift(head.start, out)
             return head
         tmp = f"__head{self._head_ctr}"
@@ -3788,9 +3820,20 @@ class _FrameBuilder:
                 # `let _ = try! s.read()` / `let _ = h.join()` pair), and one of
                 # the same type held its value alive until the frame died instead
                 # of dropping it where it was written.
+                # A THIRD residency reason, and it is `force`'s (above) at the
+                # other landing site (DF-245d). A statement carrying a
+                # propagating `try` is lowered behind a one-statement
+                # `try { … } catch { … }` wrapper — `_emit_try_landing` inside a
+                # split try/catch, `_emit_try_propagate` with no enclosing catch
+                # — and a `let` inside that wrapper is SCOPED to it, invisible to
+                # the statement after it. `force` says so for the whole subtree
+                # of a split try/catch; the propagate site has no such marker, so
+                # the binding asks for itself. A frame field has no scope, which
+                # is the same repair.
                 if s.name != "_":
                     t = s.type_annotation or getattr(s.value, 'resolved_type', None)
-                    if scope_spans or (ret_scope and _type_owns(t)):
+                    if (scope_spans or (ret_scope and _type_owns(t))
+                            or self._has_propagating_try(s)):
                         add(s.name, t, s.line, s.column)
                 return
             if isinstance(s, DestructuringLet):

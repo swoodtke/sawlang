@@ -409,8 +409,9 @@ whose annotating path re-runs unchanged on the second pass. Pin FLIPPED to a
 passing test carrying all five rows. Two unrelated findings fell out of the
 sweep and are filed separately: DF-250a, DF-250b.
 
-## DF-245d — a PROPAGATING `try` in an optional-binding SCRUTINEE inside a
-## SUSPENDING body is refused
+## ~~DF-245d — a PROPAGATING `try` in an optional-binding SCRUTINEE inside a
+## SUSPENDING body is refused~~ — **FIXED Aug 22** on branch `transform-typing`,
+## commit 2; the rule is about CONTAINER HEADS, not the binding forms
 
 ```saw
 while let v = try step(i) { ... }    // inside a spawned/driven body
@@ -434,6 +435,48 @@ consumer. Pin: `examples/suspending_binding_scrutinee_propagates_a_try.saw`
 (XFAIL, both the `while let` and `if let` rows).
 `examples/while_let_channel_drain.saw` spells `try!` and cites this entry.
 [196, 234, 244]
+
+**FIXED Aug 22** (branch `transform-typing`, commit 2). The sweep WIDENED the
+rule and CORRECTED the entry's claim above: it is not about the binding forms,
+it is about CONTAINER HEADS — the one place an expression sits outside every
+block its construct owns — so the fix is one clause on design 224's head lift
+(`_hoist_container_heads`, via the new `_head_must_move`), which already moves a
+head that SPANS a suspension and now moves one that carries a propagating `try`
+for the same reason. That is DF-244a's second half at the other position:
+`_norm_block` had to call a try-carrying TAIL "spanning" because the lowering
+keys on STATEMENTS and the landing dispatch wraps one.
+SWEEP (obligation 4), all compiled AND run:
+  * 3 binding forms x 6 expression shapes (plain, argument, receiver, binary
+    operand, `match` subject, `??` RHS) x {sync, suspending, suspending with a
+    spanning body} = 54 cells. ALL 18 sync cells passed and 30 of the 36
+    suspending cells FAILED, in the two faces DF-244a named: the `Poll` refusal
+    and ``Cannot create Result.Err outside Result-returning function`` (an ICE,
+    a face this entry had not recorded). The 6 that passed are the one cell the
+    entry mis-generalised — `if let` whose branch does NOT span, which is not
+    CFG-split and so reached the landing dispatch already. That is also why
+    `while let` fails even with a body that suspends nowhere: design 127's op
+    budget makes every loop in a task body span.
+  * the OTHER 4 head kinds `control_heads` enumerates — an `if` condition, a
+    `while` condition, a `for` range endpoint, a `match` scrutinee — x {sync,
+    suspending, suspending-spanning} = 12 cells. Two failed the same way, and
+    they are siblings the entry never named.
+  * a SECOND clause was needed and is its own finding-shaped thing: the lifted
+    temp must be a frame FIELD. `_collect_frame_locals` already forces residency
+    inside a SPLIT try/catch, for the stated reason that a `let` lowered behind
+    a landing pad is scoped to the pad's synthesized `try { }` and invisible to
+    the statement after it — and the PROPAGATE landing (no enclosing catch) has
+    no such marker. A `let` carrying a propagating `try` now asks for itself.
+    Without it the two head shapes whose container is lowered IN PLACE (an `if`
+    condition, a `match` scrutinee, in a body with no other suspension) failed
+    with `undefined variable __head0`; with it every cell above is green and
+    every answer matches its sync twin.
+All 66 cells green after the fix. Pin FLIPPED and rebuilt as 7 rows x {Ok, Err}
+covering the three binding forms, a `try` NESTED inside a larger head, and the
+other three head kinds. `examples/while_let_channel_drain.saw` got its honest
+spelling back — `consumer` returns `Result<Int, ChannelError>` and drains with a
+plain `try`. Docs: LANGUAGE_SPEC's design-196 propagating-`try` bullet and the
+saw-lang skill's container-head + channel-drain paragraphs.
+CONFORMANCE: none owed — a typing/lowering over-rejection, no guarantee moves.
 
 ## DF-250a — a COLLECTION LITERAL does not shape through a `Result`'s Ok
 ## payload (filed Aug 22 by DF-245c's return-position sweep)

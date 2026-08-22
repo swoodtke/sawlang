@@ -1653,10 +1653,12 @@ dump_tasks()                // every live task's logical backtrace (std.task)
       return n
   }
   ```
-  GOTCHA: that spelling does not compile in a SUSPENDING body yet (DF-245d — a
-  propagating `try` in a binding scrutinee inside one is refused); write
-  `try! ch.try_receive()` there. A pre-234 build has the bare `T?`, so
-  `if let v = ch.try_receive()` without a `try!` means the code predates Aug 22.
+  That works in a SUSPENDING body too since DF-245d (fixed Aug 22) — see the
+  container-HEAD rule in the concurrency section: a propagating `try` in a
+  head used to be refused there, and `try! ch.try_receive()` was the
+  workaround, so distrust the plain `try` spelling in an older build. A pre-234
+  build has the bare `T?`, so `if let v = ch.try_receive()` without a `try!`
+  means the code predates Aug 22.
   `close()` is the part you have to WRITE. A handle carries no sender/receiver
   role — every handle is the same handle, and a waiting receiver holds one too —
   so nothing can work out that the producers are gone. Say so:
@@ -2074,6 +2076,21 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   working now and SUSPECT in older builds. One boundary: a VALUE-position
   `while` whose condition suspends is a clean error (its result comes out of a
   `break <value>`, which a suspension-spanning loop does not support).
+  **A PROPAGATING `try` IN A HEAD WORKS TOO (DF-245d, fixed Aug 22)** — the same
+  five head slots, and the drain loop design 234 §4 asks for is the one that
+  wanted it:
+  ```saw
+  while let job = try ch.try_receive() { run(job) }   // in a spawned task
+  guard let cfg = try load(path) else { return 0 }
+  if (try grab(n)) > 0 { … }        for i in 0..(try count()) { … }
+  ```
+  Until then a `try` written in a head was refused with ``cannot propagate
+  errors from a function returning `Poll` `` — a type the author never wrote —
+  or died as ``Cannot create Result.Err outside Result-returning function``, so
+  treat all five as working now and SUSPECT in older builds, where `try!` was
+  the workaround. This is DF-244a's rule at the other position: the lowering
+  keys on STATEMENTS, and a head is the one place an expression sits outside
+  every block its construct owns.
   **THREE MORE POSITIONS, fixed Aug 21 (design 237)** — treat each as working
   now and SUSPECT in older builds. A DESTRUCTURING `let`'s RHS, in both
   spellings (`let (a, b) = (s(1), s(2))` and `let (a, b) = pair()` where `pair`
