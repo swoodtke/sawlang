@@ -1020,13 +1020,39 @@ class GenericsMixin:
                                 method.source_file,
                                 method.line)
 
-        # Clear variables for this method
+        # Clear variables for this method. DF-251a: the CLEANUP state has to be
+        # isolated too, exactly as `_generate_method_generic` isolates it. This
+        # was the one body generator that reset neither the cleanup stack nor
+        # the drop flags, so a `_cleanup_all_scopes()` here — which every
+        # explicit `return` in the body runs — emitted the PREVIOUS function's
+        # registered drops into this one. A `String` param of some earlier
+        # `init` came out as `call String_deinit(i8** %text.1)` in a function
+        # with no `%text.1`, i.e. a module that does not verify. The scope is
+        # pushed but nothing is registered into it, which is the behavior a
+        # generic init already had (see DF-251b: the non-generic twin registers
+        # its owning params here and this one still does not).
         self.variables = {}
         self.void_variables = set()
+        saved_cleanup_stack = self.cleanup_stack
+        saved_drop_flags = self.drop_flags
+        saved_moved_variables = self.moved_variables
+        self.cleanup_stack = [[]]
+        self.drop_flags = {}
+        self.moved_variables = set()
 
         # Set type param context
         old_context = self.type_param_context
         self.type_param_context = type_mapping
+
+        # The SUBSTITUTED return type, exactly as `_generate_method_generic`
+        # sets it and for the same reason — return-position wrapping has to be
+        # built at THIS instantiation, so a `None` learns its optional payload
+        # and a Result wrap names the monomorphization that actually exists.
+        # Nothing set it here AT ALL before, so the value leaked in from
+        # whatever body was generated last, exactly as the cleanup state did.
+        old_return_type = self.current_return_type
+        self.current_return_type = self._substitute_saw_type(
+            method.return_type, type_mapping)
 
         # Create allocas for parameters
         for i, param in enumerate(method.parameters):
@@ -1050,4 +1076,8 @@ class GenericsMixin:
                 self.builder.ret(ir.Constant(struct_type, ir.Undefined))
 
         # Restore context
+        self.current_return_type = old_return_type
+        self.cleanup_stack = saved_cleanup_stack
+        self.drop_flags = saved_drop_flags
+        self.moved_variables = saved_moved_variables
         self.type_param_context = old_context

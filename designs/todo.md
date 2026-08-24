@@ -289,6 +289,97 @@ shape their `try_` twins already have and turns "retire the prefix" into
 "delete the `init`, rename the twin". That is a public-API change at 194 call
 sites (counted below), not a signature tweak. [234]
 
+## DF-251a — a GENERIC extension's `init` body inherited the PREVIOUS
+## function's cleanup state, so an unrelated `String_deinit` landed in it
+## — CLOSED Aug 24 (branch `df-245a-fallible-init`, commit 1); PRE-EXISTING,
+## verified by stash against the branch point 13f85716
+
+`_generate_init_method_generic` was the one body generator that reset neither
+the cleanup stack nor the drop flags nor `moved_variables`, and set no
+`current_return_type`. Every explicit `return` in a body runs
+`_cleanup_all_scopes()`, so a generic init containing one emitted whatever the
+LAST-generated function had registered:
+
+```saw
+extension Label { init(text: String) -> Label {
+    if text.len() == 0 { return Label(v: 0) }
+    return Label(v: text.len()) } }
+extension Wrap<T> { init(payload: T, mark: Int) -> Wrap<T> {
+    if mark < 0 { return Wrap<T>(item: payload, tag: 0) }
+    return Wrap<T>(item: payload, tag: mark) } }
+// internal compiler error: LLVM IR parsing error
+//   use of undefined value '%text.1'
+//   call void @"String_deinit"(i8** %"text.1")
+```
+in `Wrap$1$Int_init_payload_mark`, which has no `text`. Needs THREE things at
+once, which is why it sat unnoticed: an earlier init with an OWNING param, a
+generic init after it, and an explicit `return` in that generic body (a bare
+tail asks for no cleanup). Found landing DF-245a, whose fallible generic init
+returns twice by construction; nothing about the fallible form is required.
+LANDED: the state is saved, cleared and restored exactly as
+`_generate_method_generic` does it. Regression test
+`examples/init_generic_body_isolates_cleanup_state.saw`. [234, 245]
+
+## DF-251b — a generic extension's `init` REGISTERS no param cleanups, where
+## the non-generic twin does (filed Aug 24 by DF-251a's fix; PRE-EXISTING)
+
+DF-217m gave `_generate_init_method` a param cleanup scope: an `init`'s
+by-value owning param that no path moves into the built value is the
+initializer's to release. `_generate_init_method_generic` never grew one — it
+pushes no scope and calls `_register_cleanup` for nothing — so the same
+un-moved owning param leaks in a GENERIC extension's init. DF-251a's fix
+isolates the state (which is the miscompile) and deliberately leaves the
+registration alone, because turning drops on is a behavior change that wants
+the placement-move tracking checked first, exactly as design 65 had to for
+instance methods. Same function also never populates `variable_types` for its
+params or sets the design-192 `_current_decl` breadcrumb, so an ICE inside a
+generic init body names no declaration. One fix, three faces. [234]
+
+## DF-251c — DF-216h's extension-parameter RENAME does not reach an `init`'s
+## parameters at the construction site (filed Aug 24 while writing DF-245a's
+## receiver-spelling control; PRE-EXISTING)
+
+```saw
+struct Pair<A> { first: Int, second: A }
+extension Pair<U> {
+    init(three: U) -> Pair<U> { Pair<U>(first: 3, second: three) }
+    func peek(&self) -> U { self.second }
+}
+let p = Pair<Int>(three: 11)
+// error: parameter `three` expects type `U` but got `Int`
+```
+The METHOD half works (DF-216h landed Aug 21). MECHANISM: `_check_struct_init`
+builds its `type_mapping` from the STRUCT's own parameters (`A` -> `Int`) and
+substitutes the init symbol's `param_types` with it, but those types are
+written in the EXTENSION's names (`U`), so nothing maps. The method path routes
+through `_receiver_type_subst`, which reads `owner_type_params` — the
+extension's own names, already recorded on every method symbol including an
+init's. So the fix is to ask the same question at the construction site; the
+data is there. The RETURN spelling is unaffected: DF-245a's declaration check
+accepts `Pair<U>` and reports nothing here. Boundary recorded in
+`examples/init_receiver_return_spellings.saw`. [216]
+
+## DF-251d — an `init` BODY that suspends is an internal compiler error
+## (filed Aug 24 by DF-245a's suspending-init probe; PRE-EXISTING)
+
+```saw
+extension Other { init(seed: Int) -> Other { Other(m: slow(seed)) } }
+// slow() calls yield_now()
+// internal compiler error at f.saw:18:13 (StructInit): 'Other_init_seed'
+```
+The identical NON-suspending init compiles, so the suspension is the cause.
+MECHANISM: `coro_transform` enumerates `ext.methods` with no `is_init` filter
+anywhere in the file, so an init body IS scanned and IS transformed — but a
+construction is a `StructInit` (or a labelled `FunctionCall`), never a
+`MethodCall`, so `_scan_method_callees` can never name the frame and the plain
+mangled symbol the call site looks up is gone. Either end is a fix: teach the
+scan the construction node kinds, or refuse a suspending `init` at the
+declaration the way design 141 refuses a `borrows` one. This is the BOUNDARY
+DF-245a's brief was asked to record: a fallible `init` may not suspend today,
+and the failure is an ICE rather than a diagnostic. No XFAIL pin — an
+ICE-producing example is a fuzz-oracle finding by construction and would need a
+`sawfuzz_known.txt` entry to sit in the corpus; the repro is above. [234, 120]
+
 ## DF-245b — `try!` PANICS WITHOUT THE ERROR IT WAS HANDED, and design 234
 ## makes it the corpus's mass-migration spelling
 ## — CLOSED Aug 22 (branch `diag-batch`, commit 1)

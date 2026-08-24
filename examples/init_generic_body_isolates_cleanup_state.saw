@@ -1,0 +1,54 @@
+// DF-251a: a GENERIC extension's `init` body is generated with its own cleanup
+// state, so no other function's registered drops leak into it.
+//
+// `_generate_init_method_generic` was the one body generator that reset neither
+// the cleanup stack nor the drop flags. Every explicit `return` in a body runs
+// `_cleanup_all_scopes()`, so a generic init with a `return` emitted whatever
+// the PREVIOUS function had registered — here `Label_init_text`'s owning
+// `String` param — into a function that has no such binding:
+//
+//   error: internal compiler error: LLVM IR parsing error
+//     use of undefined value '%text.1'
+//     call void @"String_deinit"(i8** %"text.1")
+//
+// The order matters and so does the `return`: the String-param init must be
+// generated FIRST, and the generic init must have an explicit `return` rather
+// than a bare tail, or nothing asks for the leaked cleanup. Found while landing
+// DF-245a, where a fallible generic init (whose body returns twice by
+// construction) hit it, but nothing here is fallible — the defect predates it.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// 3 7
+// hi 1
+
+struct Label { v: Int }
+
+extension Label {
+    init(text: String) -> Label {
+        if text.len() == 0 { return Label(v: 0) }
+        return Label(v: text.len())
+    }
+}
+
+struct Wrap<T> { item: T, tag: Int }
+
+extension Wrap<T> {
+    init(payload: T, mark: Int) -> Wrap<T> {
+        if mark < 0 { return Wrap<T>(item: payload, tag: 0) }
+        return Wrap<T>(item: payload, tag: mark)
+    }
+}
+
+func main() {
+    let b = Label(text: "abc")
+    print("{b.v}")
+
+    let wi = Wrap<Int>(payload: 3, mark: 7)
+    print("{wi.item} {wi.tag}")
+
+    // A second instantiation, whose own owning param must not pick anything up
+    // from the first one either.
+    let ws = Wrap<String>(payload: "hi", mark: 1)
+    print("{ws.item} {ws.tag}")
+}
