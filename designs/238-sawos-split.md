@@ -283,7 +283,27 @@ would break unit 4 (which lands the resolver in-repo with `SAWLANG_ROOT`
 pointing at the repo). The user's ruling is preserved exactly where it applies:
 for a sawos user who has set nothing, resolution is `$PATH` then fetch.
 
-Three sub-decisions this opens — each a real gap, none blocking:
+**D-b1/b2/b3 RULED Aug 24 (user): THE ABSOLUTE SIMPLEST THING, pre-1.0.**
+The language has no real users yet, so perfect version fidelity is admirable
+but unnecessary; before v1.0 the self-hosted story lands (the compiler is
+COMPILED — see design 231), which makes all of this simpler, and the
+machinery below is deliberately not built ahead of that.
+- **D-b1**: `make install` writes `bin/` SHIMS (a `sawc` shim exec'ing the
+  checkout's venv python against `sawc/sawc.py`, and the built `blade`
+  binary copied/linked) onto a prefix (default `~/.local/bin`). No
+  pyproject, no packaging — the two names exist, that is all step 2 needs.
+- **D-b2**: OPTION (b) — `sawc --version` prints a plain semver from ONE
+  source-of-truth constant; `sawlang.pin` records the version (step 2's
+  check) and the SHA (step 3's fetch); the granularity asymmetry is
+  ACCEPTED AND DOCUMENTED. Standing practice going forward: version bumps
+  become rigorous (a brief that changes user-visible behavior bumps).
+  A mismatch is still the loud refusal naming both — never a silent build.
+- **D-b3**: the fetch path requires `python3` (clean refusal naming it if
+  absent) and creates its own venv inside the cache entry with llvmlite —
+  the ten-line step that keeps the fresh-machine promise; nothing fancier.
+
+Three sub-decisions this opens — each a real gap, none blocking (RULED
+above; the analysis below is the record):
 
 - **D-b1 — there is no `sawc` binary to find (OPEN).** sawc is
   `python sawc/sawc.py` plus llvmlite: no `pyproject.toml`, no `setup.py`, no
