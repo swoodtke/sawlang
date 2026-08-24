@@ -244,6 +244,11 @@ class StatementsMixin:
         # method body is checked with none of its caller's open.
         saved_borrows, saved_pending = self._task_borrows, self._pending_task_borrows
         self._task_borrows, self._pending_task_borrows = [], []
+        # design 242 ruling 5: must-consume handles are function-local too — the
+        # v1 fence is that a handle never leaves the function unconsumed.
+        saved_obligations = self._spawn_obligations
+        saved_pending_obligation = self._pending_spawn_obligation
+        self._spawn_obligations, self._pending_spawn_obligation = [], None
 
         # Create new scope for method
         self.current_scope = Scope()
@@ -487,6 +492,8 @@ class StatementsMixin:
         self.current_method = None
         self.moved_bindings = saved_moves
         self._task_borrows, self._pending_task_borrows = saved_borrows, saved_pending
+        self._spawn_obligations = saved_obligations
+        self._pending_spawn_obligation = saved_pending_obligation
         self.current_type_params = prev_method_type_params
         self.current_const_param_types = prev_method_const_params
         self._exit_unsafe_scope(
@@ -986,6 +993,10 @@ class StatementsMixin:
         # Task-capture borrows are function-local for the same reason (189).
         saved_borrows, saved_pending = self._task_borrows, self._pending_task_borrows
         self._task_borrows, self._pending_task_borrows = [], []
+        # And so are design 242's must-consume handles (ruling 5's v1 fence).
+        saved_obligations = self._spawn_obligations
+        saved_pending_obligation = self._pending_spawn_obligation
+        self._spawn_obligations, self._pending_spawn_obligation = [], None
 
         # Track type parameters as opaque for the duration of this body. Their
         # bounds are recorded so future bound-aware method/trait lookups can use
@@ -1134,6 +1145,8 @@ class StatementsMixin:
         self.current_function = None
         self.moved_bindings = saved_moves
         self._task_borrows, self._pending_task_borrows = saved_borrows, saved_pending
+        self._spawn_obligations = saved_obligations
+        self._pending_spawn_obligation = saved_pending_obligation
         self._exit_unsafe_scope(func, saved_unsafe_contact, "function", func.name)
         self.namespace.allow_all_access = _saved_aaa
         self._checking_builtins = _saved_cb
@@ -1148,13 +1161,29 @@ class StatementsMixin:
         # inside this block does not release for the code AFTER it — the other
         # path never joined — so anything that was live here comes back below.
         entry_borrows = list(self._task_borrows)
+        # design 242 ruling 5: the same question for must-consume handles — a
+        # `join()` written only inside this block settles nothing for the code
+        # after it, so what was unconsumed on the way in is recorded here.
+        entry_unconsumed = self._spawn_obligation_scope_entry()
 
         for stmt in block.statements:
             self._check_statement(stmt)
+            # design 242: a spawn form's handle is either bound by the statement
+            # that made it or consumed where it was made; anything left here
+            # went somewhere nothing can consume it.
+            self._check_unclaimed_spawn_obligation()
+            # A `return` is an exit from the function, and the obligation is
+            # per-PATH, so every live handle owes its fate here — including the
+            # one being returned, which is ruling 5's function-local fence.
+            # Asked AFTER the statement so that `return t.join()` counts as the
+            # consume it is.
+            if isinstance(stmt, ReturnStatement) and self._return_target() is None:
+                self._check_spawn_obligations_at_return()
 
         result_type = None
         if block.final_expr is not None:
             result_type = self._check_expression(block.final_expr)
+            self._check_unclaimed_spawn_obligation()
         elif block.statements and _statement_diverges(block.statements[-1]):
             # Design 177: a block whose last STATEMENT is a diverging
             # `while { ... }` produces no value AND cannot fall out of its end,
@@ -1168,6 +1197,10 @@ class StatementsMixin:
         # design 189: release what the groups declared here carried, and restore
         # what was live on the way in but joined only inside this block.
         self._close_task_borrow_scope(self.current_scope, entry_borrows)
+        # design 242 ruling 5: report every handle declared here that reached
+        # this exit with no fate written, and un-settle a consume that happened
+        # only on this path.
+        self._close_spawn_obligation_scope(self.current_scope, entry_unconsumed)
 
         # Restore scope
         self.current_scope = old_scope
@@ -1778,6 +1811,11 @@ class StatementsMixin:
             # handle that carries the borrows the spawn just opened, and
             # `h.join()` is where they are released.
             self._bind_task_borrow_handle(info, stmt.name)
+            # design 242 ruling 5: and `let h = Thread.spawn { ... }` is the
+            # binding that carries the handle's FATE. A `let _ =` never gets
+            # here (`_` binds nothing), which is what refuses the explicit
+            # discard the Result rule blesses — see the funnel in `types.py`.
+            self._claim_spawn_obligation(info, stmt.name)
 
     def _is_multithreaded_taskgroup_init(self, value) -> bool:
         """True if `value` is a `TaskGroup(threads: ...)` construction (design 75).
@@ -2711,6 +2749,14 @@ class StatementsMixin:
                                     rhs_moves=False,
                                     rhs_what="this assignment"):
             return
+
+        # design 242 ruling 9a: the assignment half of the storage discharge —
+        # `keeper.held = move t` into a type that declares a `deinit` of its
+        # own. The method half (`self.crew.push(move t)`) is in
+        # `_check_method_call`; both route through the one funnel in `types.py`.
+        if self._spawn_obligations:
+            self._discharge_spawn_obligation_into_storage(
+                stmt.target, [stmt.value])
 
         # Handle both simple variable assignment and field assignment
         if isinstance(stmt.target, Identifier):

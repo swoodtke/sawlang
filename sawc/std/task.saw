@@ -1,9 +1,10 @@
 //! Thread handles and the cooperative yield.
 //!
 //! `Thread.spawn { ... }` hands back a `Thread<T>` — a `VoidThread` when the
-//! body returns nothing. A thread's lifetime is its handle's: dropping an
-//! unjoined handle joins the thread, so it cannot outlive the scope that
-//! spawned it. Nothing exposes the underlying OS thread.
+//! body returns nothing. A thread's fate is explicit: the handle reaches
+//! `join()` or `detach()` on every path, or the program does not compile.
+//! Dropping one is not a fate, and a handle that reaches its destructor
+//! unconsumed panics. Nothing exposes the underlying OS thread.
 //!
 //! `yield_now` is the explicit cede. A task that only computes never parks on
 //! I/O, so it never gives another task a turn on its own; one call per pass
@@ -27,15 +28,15 @@
 // __saw_rt_thread_join), the closure's heap environment pointer at byte 8, and
 // the task's result at byte 16 (written by the trampoline after the body returns).
 //
-// Structured by default: a thread's lifetime is a value's lifetime. Dropping an
-// unjoined Thread JOINS it (deinit below), so a thread cannot outlive its
-// handle. The engine never exposes a thread id/handle to Saw code.
+// Structured by default: a thread's lifetime is a value's lifetime, and design
+// 242 ruling 5 makes the way it ends something the author writes. The engine
+// never exposes a thread id/handle to Saw code.
 //
 // NOTE (deviation from the item-5 sketch): the original brief wrote
 // `join(move self)`. Saw has no `move self` receiver form, so `join` takes
-// `&var self` and sets a `joined` flag once joined; `deinit` only joins while
-// that flag is clear. This yields the same join-once / join-on-deinit semantics
-// without a consuming receiver.
+// `&var self` and sets a `joined` flag once joined. Since design 242 that flag
+// reads "this handle's fate has been written" — `deinit` faults when it is
+// still clear.
 
 extern "C" {
     // design 117: join an OS thread by its handle value (pthread_t word).
@@ -76,9 +77,10 @@ extension PosixThread: NativeThread {
 
 /// The handle to a spawned thread, carrying the result type `T`.
 ///
-/// `Thread.spawn { ... }` returns one. Take the result with `join`; a handle
-/// that goes out of scope unjoined joins the thread itself and drops the
-/// result. The handle cannot be copied, so exactly one place owns the thread.
+/// `Thread.spawn { ... }` returns one. Take the result with `join`, or give the
+/// thread to the process with `detach`; one of the two on every path, checked
+/// where the thread is spawned. The handle cannot be copied, so exactly one
+/// place owns the thread.
 public struct Thread<T> {
     // Points at the thread control block (`None` only on the inert OOM path).
     handle: UnsafePointer<Int8>?
@@ -97,9 +99,8 @@ extension Thread<T: Send>: UnsafeSync {}
 extension Thread<T> {
     /// Waits for the thread to finish and returns its result.
     ///
-    /// Blocks the calling thread. A thread yields its result once: joining a
-    /// second time, or joining a handle whose thread was already joined at scope
-    /// exit, panics.
+    /// Blocks the calling thread. A thread yields its result once, so joining a
+    /// second time panics.
     public func join(&var self) unsafe -> T {
         if self.joined {
             // Already joined (or inert): no result to hand back. Misuse —
@@ -126,21 +127,26 @@ extension Thread<T> {
     }
 }
 
-/// A thread handle is not copyable — one owner, one join — and joins its thread
-/// when it goes out of scope.
+// design 242 ruling 9b: an unconsumed handle PANICS here. It used to JOIN,
+// which is what made `let _ = spawn { ... }` — the natural fire-and-forget
+// guess — a silent sequential call plus thread overhead, and what made every
+// exit edge of a function holding one a blocking edge. Every fate is explicit
+// now: ruling 5's must-consume check refuses an unconsumed handle at compile
+// time, and this is the backstop for the one path that check cannot see —
+// ruling 9a's storage discharge, where the owner's own deinit was trusted to
+// consume and forgot. A caller-checkable bug is a fault, not a status (the
+// design-134 double-join precedent).
+//
+// Panics do not unwind, so a panic raised from a destructor cannot meet another
+// one on the way out.
+/// A thread handle is not copyable — one owner, one join.
 extension Thread<T>: NoCopy {
-    /// Joins the thread unless `join` already did, drops the unclaimed result,
-    /// and frees the control block.
+    /// Panics if the thread was neither joined nor detached: a thread's fate is
+    /// explicit, and dropping the handle is not one of the fates.
     public func deinit(&var self) unsafe {
-        // An unjoined thread is joined at scope exit (structured concurrency),
-        // its unclaimed result dropped, and the control block freed.
         if not self.joined {
-            if let h = self.handle {
-                PosixThread(handle: (h as UnsafePointer<Int>)[0]).join()
-                __saw_exec_thread_task_ended()   // design 230 unit B, as in `join`
-                let result_ptr = (h + 16) as UnsafePointer<T>
-                __saw_deinit_in_place(result_ptr)
-                GlobalAllocator().dealloc(h, 16 + sizeof<T>(), 16)
+            if let _ = self.handle {
+                panic("Thread was dropped without being joined or detached — `join()` waits for it and takes its result, `detach()` gives the thread to the process")
             }
         }
     }
@@ -161,8 +167,8 @@ extension Thread<T>: NoCopy {
 /// The handle to a spawned thread that returns nothing.
 ///
 /// `Thread.spawn { ... }` returns one when the body's value is `Void`. `join`
-/// waits for the thread and returns; a handle that goes out of scope unjoined
-/// joins the thread itself.
+/// waits for the thread and returns; `detach` gives the thread to the process.
+/// One of the two on every path, checked where the thread is spawned.
 public struct VoidThread {
     handle: UnsafePointer<Int8>?
     joined: Bool
@@ -175,8 +181,7 @@ extension VoidThread: UnsafeSync {}
 extension VoidThread {
     /// Waits for the thread to finish.
     ///
-    /// Blocks the calling thread. Joining a second time, or joining a handle
-    /// whose thread was already joined at scope exit, panics.
+    /// Blocks the calling thread. Joining a second time panics.
     public func join(&var self) unsafe {
         if self.joined {
             panic("VoidThread.join: thread already joined")
@@ -193,16 +198,14 @@ extension VoidThread {
     }
 }
 
-/// A thread handle is not copyable — one owner, one join — and joins its thread
-/// when it goes out of scope.
+/// A thread handle is not copyable — one owner, one join.
 extension VoidThread: NoCopy {
-    /// Joins the thread unless `join` already did and frees the control block.
+    /// Panics if the thread was neither joined nor detached — see
+    /// `Thread.deinit` for why (design 242 ruling 9b).
     public func deinit(&var self) unsafe {
         if not self.joined {
-            if let h = self.handle {
-                PosixThread(handle: (h as UnsafePointer<Int>)[0]).join()
-                __saw_exec_thread_task_ended()
-                GlobalAllocator().dealloc(h, 16, 16)
+            if let _ = self.handle {
+                panic("VoidThread was dropped without being joined or detached — `join()` waits for it, `detach()` gives the thread to the process")
             }
         }
     }

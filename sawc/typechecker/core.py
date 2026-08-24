@@ -119,6 +119,37 @@ class TaskCaptureBorrow:
 
 
 @dataclass
+class SpawnObligation:
+    """One must-consume handle minted by a SINGLETON spawn form (design 242
+    ruling 5).
+
+    `Thread.spawn { … }` and `Task.spawn { … }` hand back a handle whose fate is
+    load-bearing: dropping it used to JOIN (the thread engine) or silently
+    abandon a result (the cooperative one), so the natural fire-and-forget
+    spelling did something nobody wrote. Ruling 5 makes every fate explicit —
+    the handle reaches `join()`, `detach()` or (cooperatively) `cancel()` on
+    every path, or the program does not compile.
+
+    `group.spawn` mints NOTHING here: ruling 6 attaches the obligation to the
+    FORM, not to the type, because a group is a declared in-scope consumer whose
+    `Deinit` is the join barrier. That is why this record is created in the two
+    spawn-form checkers and nowhere else.
+
+    Function-local by construction (ruling 5's v1 fence): the record lives from
+    the form to the end of the scope its binding dies in, and a handle that
+    leaves the function unconsumed is refused rather than tracked onward.
+    """
+    type_name: str                     # "Thread" | "VoidThread" | "Task" | "VoidTask"
+    form: str                          # "Thread.spawn" | "Task.spawn"
+    line: int
+    column: int
+    binding_id: Optional[int] = None   # the local that took the handle
+    binding_name: Optional[str] = None
+    consumed: bool = False             # a join/detach/cancel, or 9a storage
+    reported: bool = False             # one diagnostic per obligation
+
+
+@dataclass
 class ClosureReturnTarget:
     """The callable a `return` inside a closure literal returns to (design 213).
 
@@ -380,6 +411,15 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # waiting for the `let h = ...` binding that will carry them. Cleared at
         # every statement boundary, so nothing else can claim them.
         self._pending_task_borrows: List['TaskCaptureBorrow'] = []
+        # design 242 ruling 5: the must-consume handles minted by a singleton
+        # spawn form and still live in the function being checked, plus the one
+        # the statement being checked just minted and nothing has claimed yet.
+        # Both are cleared per function, exactly as the borrow state above is.
+        self._spawn_obligations: List['SpawnObligation'] = []
+        self._pending_spawn_obligation: Optional['SpawnObligation'] = None
+        # Spawn-form nodes whose handle is consumed by the method call wrapping
+        # them (`Thread.spawn { … }.join()`), so the form mints no obligation.
+        self._chained_spawn_consumes: set = set()
         # Structs whose copy() is compiler-derived (memberwise), checked for
         # NoCopy fields after all conformances are registered.
         self._derived_copy_structs: set[str] = set()

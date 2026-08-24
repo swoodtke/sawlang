@@ -1,8 +1,9 @@
 // A spawn body that yields Void (design 77 item 1). The task control block used
 // to carry a `{i8*, i8*, T result}` slot typed `void` for a Void body, which is
 // illegal LLVM IR (an ICE). The result slot is now a 1-byte placeholder for a
-// Void body: nothing is stored or read, and Task<Void>.join yields Void. Both
-// the explicit-join and the drop-joins-it (deinit) paths are exercised.
+// Void body: nothing is stored or read, and VoidThread.join yields Void.
+// (Design 242 retired the third path this used to exercise — a handle dropped
+// unjoined joined its thread; every fate is written now.)
 // EXPECT: success
 // EXPECT-OUTPUT: 15
 
@@ -16,9 +17,9 @@ func bump(times: Int) {
     }
 }
 
-func drop_path() {
-    // Task dropped unjoined: its Deinit joins it before the block frees.
+func joined_in_a_callee() {
     var t = Thread.spawn { bump(5) }
+    t.join()
 }
 
 func main() {
@@ -26,6 +27,6 @@ func main() {
     var t1 = Thread.spawn { bump(6) }
     t0.join()   // VoidThread.join yields Void
     t1.join()
-    drop_path()
+    joined_in_a_callee()
     print(COUNTER.load())   // 4 + 6 + 5 = 15
 }

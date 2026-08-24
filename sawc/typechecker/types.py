@@ -4658,6 +4658,284 @@ class TypeUtilsMixin:
                 b.handle_id, b.handle_name = None, None
         self._task_borrows = kept
 
+    # ------------------------------------------------------------------
+    # design 242 rulings 5/6/9a — the must-consume obligation of a SINGLETON
+    # spawn form. THE FUNNEL (obligation 1).
+    #
+    # One rule in two halves, and every position routes through the methods
+    # below rather than asking the question again:
+    #
+    #   (1) A singleton spawn form's result is either BOUND to a local
+    #       `let`/`var` or CONSUMED right where it is made
+    #       (`Thread.spawn { … }.join()`). Anything else — a bare statement, a
+    #       `let _ =`, an argument, a `return`, a struct field, a tail
+    #       expression — is refused AT THE FORM. `_mint_spawn_obligation`
+    #       creates the pending record, `_claim_spawn_obligation` (the `let`
+    #       binding) and `_chained_spawn_consumes` (the chained consume) are the
+    #       only two things that may take it, and
+    #       `_check_unclaimed_spawn_obligation` reports whatever is left at the
+    #       end of the statement.
+    #
+    #   (2) A BOUND handle reaches `join()`, `detach()` or `cancel()` on every
+    #       path out of the scope that owns it — or moves into storage whose
+    #       owner consumes in its own `Deinit` (ruling 9a).
+    #       `_consume_spawn_obligation` marks the first,
+    #       `_discharge_spawn_obligation_into_storage` the second, and
+    #       `_close_spawn_obligation_scope` reports at the scope's end. Per-path
+    #       exactly as design 189's borrows are: a consume that happened only
+    #       inside a nested block is undone on the way out, because the other
+    #       path never consumed.
+    #
+    # ENTRY POINTS, all of them:
+    #   * `_check_spawn` (`Thread.spawn { … }`) — mints.
+    #   * `_check_let_statement` — claims, and refuses the `let _ =` spelling by
+    #     simply not claiming.
+    #   * `_check_method_call` — the chained consume, the bound consume, and the
+    #     receiver-rooted half of the 9a storage discharge.
+    #   * `_check_assignment` — the assignment-target half of 9a.
+    #   * `_check_statement` — the unclaimed-at-statement-end report.
+    #   * `_check_block` — the scope-exit report.
+    #   * `_check_return_statement` — the path that leaves the function.
+    #   * `_check_function`/`_check_method` — resets the per-function state.
+    #
+    # `group.spawn` reaches NONE of this: ruling 6 attaches the obligation to
+    # the FORM, and the group is the declared consumer. Row K80 is the control.
+    # ------------------------------------------------------------------
+
+    # form name -> the methods that discharge the handle it mints. `cancel` is a
+    # consume only on the cooperative side: a cancelled task still runs its
+    # cancel path to completion, which is a fate; a thread has no such thing.
+    _SINGLETON_SPAWN_FORMS = {
+        "Thread.spawn": ("join", "detach"),
+        "Task.spawn": ("join", "detach", "cancel"),
+    }
+
+    def _spawn_form_of(self, node) -> Optional[str]:
+        """The singleton spawn form `node` IS, or None. The one place that
+        decides what carries the obligation."""
+        from ast_nodes import FunctionCall
+        if isinstance(node, FunctionCall) and node.name in self._SINGLETON_SPAWN_FORMS:
+            return node.name
+        return None
+
+    def _mint_spawn_obligation(self, expr, type_name: str, form: str) -> None:
+        """Register the obligation a singleton spawn form's handle carries."""
+        from .core import SpawnObligation
+        if id(expr) in self._chained_spawn_consumes:
+            # `Thread.spawn { … }.join()` — the handle is consumed where it is
+            # made, so there is nothing to carry (ruling 9's blessed
+            # wait-here spelling). The mark is dropped as it is read: the
+            # spawn's own body is full of statements, so anything cleared at a
+            # statement boundary would be gone before the receiver is checked.
+            self._chained_spawn_consumes.discard(id(expr))
+            return
+        self._pending_spawn_obligation = SpawnObligation(
+            type_name=type_name, form=form, line=expr.line, column=expr.column)
+
+    def _claim_spawn_obligation(self, var_info, name: str) -> None:
+        """`let h = Thread.spawn { … }` — this binding now carries the fate."""
+        pending = self._pending_spawn_obligation
+        if pending is None or var_info is None:
+            return
+        pending.binding_id = var_info.binding_id
+        pending.binding_name = name
+        self._spawn_obligations.append(pending)
+        self._pending_spawn_obligation = None
+
+    def _spawn_obligation_for(self, name: str):
+        """The live obligation the binding `name` carries, if any."""
+        if not self._spawn_obligations or name is None:
+            return None
+        info = self.current_scope.lookup(name)
+        if info is None:
+            return None
+        for ob in self._spawn_obligations:
+            if ob.binding_id == info.binding_id:
+                return ob
+        return None
+
+    def _consume_spawn_obligation(self, name: str, method: str) -> None:
+        """`h.join()` / `h.detach()` / `h.cancel()` — the explicit fate."""
+        ob = self._spawn_obligation_for(name)
+        if ob is None:
+            return
+        if method in self._SINGLETON_SPAWN_FORMS.get(ob.form, ()):
+            ob.consumed = True
+
+    def _type_has_written_deinit(self, t) -> bool:
+        """Does `t`'s type DECLARE a hand-written `deinit` (design 131)?
+
+        Ruling 9a's v1 approximation, and the whole of it: a declared deinit is
+        NECESSARY for the storage discharge and is not sufficient — an owner
+        whose deinit forgets is exactly the gap ruling 9b's runtime panic
+        backstops (row K82). The checked "a handle FIELD obliges the owner's
+        deinit to consume it" rule is named future work.
+
+        The synthesized empty `deinit` a declared copy policy mints (design 131)
+        is not one: it lowers to the structural field drops and nothing else, so
+        it promises nothing about a stored handle. Same test
+        `_static_needs_destruction` uses.
+        """
+        if t is None:
+            return False
+        t = self._resolve_type_alias(t)
+        if t is None:
+            return False
+        name = (t.struct_name if t.kind == TypeKind.STRUCT
+                else t.enum_name if t.kind == TypeKind.ENUM else None)
+        if name is None:
+            return False
+        deinit = self.namespace.lookup_method(name, "deinit")
+        return bool(deinit is not None and not getattr(
+            getattr(deinit, 'ast_node', None), 'is_synthesized', False))
+
+    def _spawn_storage_root_type(self, dest):
+        """The type of the value that OWNS the storage `dest` names.
+
+        `dest` is an assignment target or a method-call receiver, and the owner
+        is the ROOT of its access path: `self.crew.push(move t)` roots in
+        `self` (a `TaskGroup`, whose deinit joins the crew) and
+        `keeper.held = move t` roots in `keeper`.
+
+        The root, not the container that literally holds the handle — which is
+        what makes the rule read as ruling 9a states it ("storage whose OWNER
+        consumes in its own Deinit") rather than as a question about `Vector`.
+        The consequence, recorded because it is the widest edge of the
+        approximation: a bare local container (`v.push(move t)` on a local
+        `Vector<VoidThread>`) roots in the container ITSELF, and std's `Vector`
+        declares a hand-written deinit — so that shape is discharged too, and
+        a local vector the author forgets to drain meets ruling 9b's panic at
+        the element drop rather than a compile error. Draining and joining such
+        a vector is legal code that must keep compiling, and the checker cannot
+        tell the two apart; the runtime backstop can.
+        """
+        node = dest
+        for _ in range(32):
+            if isinstance(node, SelfExpr):
+                info = self.current_scope.lookup("self")
+                return info.type if info is not None else None
+            if isinstance(node, Identifier):
+                info = self.current_scope.lookup(node.name)
+                return info.type if info is not None else None
+            if isinstance(node, MemberAccess):
+                # A field of the root: the OWNER is what the root names, so keep
+                # walking rather than asking about the field's own type.
+                node = node.object
+                continue
+            if isinstance(node, (ArrayIndex, TupleIndex)):
+                node = getattr(node, 'array_expr', None) or getattr(node, 'tuple_expr', None)
+                if node is None:
+                    return None
+                continue
+            if isinstance(node, MethodCall):
+                node = node.object
+                continue
+            return None
+        return None
+
+    def _discharge_spawn_obligation_into_storage(self, dest, values) -> None:
+        """Ruling 9a: a move into storage whose owner declares a `deinit`.
+
+        `values` are the expressions written INTO that storage — an assignment's
+        RHS, or a method call's arguments — and a `move` of an obligated handle
+        among them is what the rule is about. Both spellings reach here:
+        `self.crew.push(move t)` (std's own worker pool) and `k.held = move t`.
+        """
+        if not self._spawn_obligations:
+            return
+        moved = [v.variable for v in (values or [])
+                 if isinstance(v, MoveExpr) and not v.path]
+        if not moved:
+            return
+        obligations = [ob for ob in (self._spawn_obligation_for(m) for m in moved)
+                       if ob is not None]
+        if not obligations:
+            return
+        if self._type_has_written_deinit(self._spawn_storage_root_type(dest)):
+            for ob in obligations:
+                ob.consumed = True
+
+    def _spawn_consume_hint(self, ob) -> str:
+        """The sentence naming every legal fate for this handle."""
+        if ob.form == "Task.spawn":
+            return ("`join()` waits for it and takes its result, `detach()` "
+                    "hands it to the process (its result is dropped at "
+                    "completion), and `cancel()` asks it to stop. To manage a "
+                    "dynamic set of tasks, spawn them into a `TaskGroup` — a "
+                    "group is a declared consumer, so its handles may be "
+                    "dropped freely")
+        return ("`join()` waits for it and takes its result — "
+                "`Thread.spawn { ... }.join()` is the wait-here spelling — and "
+                "`detach()` gives the thread to the process. To manage a "
+                "dynamic set of workers, spawn them into a `TaskGroup` — a "
+                "group is a declared consumer, so its handles may be dropped "
+                "freely")
+
+    def _check_unclaimed_spawn_obligation(self) -> None:
+        """Half (1): the form's handle went somewhere nothing can consume it."""
+        ob = self._pending_spawn_obligation
+        self._pending_spawn_obligation = None
+        if ob is None or ob.reported:
+            return
+        ob.reported = True
+        self._error(
+            ErrorKind.TYPE_MISMATCH,
+            f"`{ob.form}` hands back a `{ob.type_name}` that must be consumed, "
+            f"and this one is discarded",
+            ob.line, ob.column,
+            hint=f"bind it and consume it on every path — {self._spawn_consume_hint(ob)}"
+        )
+
+    def _report_spawn_obligation(self, ob, where: str) -> None:
+        """Half (2): a bound handle left this scope with no fate written."""
+        if ob.reported:
+            return
+        ob.reported = True
+        self._error(
+            ErrorKind.TYPE_MISMATCH,
+            f"`{ob.binding_name}` holds a `{ob.type_name}` that is never "
+            f"consumed: it was spawned at line {ob.line} and {where}",
+            ob.line, ob.column,
+            hint=(f"{self._spawn_consume_hint(ob)}. Moving it into storage "
+                  f"discharges the obligation only when the storing type "
+                  f"declares a `deinit` of its own")
+        )
+
+    def _spawn_obligation_scope_entry(self):
+        """The obligations that were UNCONSUMED on the way into a block — the
+        set a consume inside it does not settle for the code after it."""
+        return {id(ob) for ob in self._spawn_obligations if not ob.consumed}
+
+    def _close_spawn_obligation_scope(self, scope, entry_unconsumed) -> None:
+        """End-of-block bookkeeping, design 189's `_close_task_borrow_scope`
+        read over the consumption question instead of the borrow one."""
+        if not self._spawn_obligations:
+            return
+        dead = {v.binding_id for v in scope.variables.values()}
+        for ob in self._spawn_obligations:
+            if ob.binding_id in dead and not ob.consumed:
+                fates = " or ".join(
+                    f"`{m}()`" for m in self._SINGLETON_SPAWN_FORMS[ob.form])
+                self._report_spawn_obligation(
+                    ob, f"reaches the end of its scope with no {fates} "
+                        f"on this path")
+        self._spawn_obligations = [ob for ob in self._spawn_obligations
+                                   if ob.binding_id not in dead]
+        # A consume on ONE path is not a consume: an obligation that was live on
+        # the way in and was settled only inside this block comes back.
+        for ob in self._spawn_obligations:
+            if id(ob) in entry_unconsumed:
+                ob.consumed = False
+
+    def _check_spawn_obligations_at_return(self) -> None:
+        """Every live handle owes its fate before the function returns —
+        including the one being returned, which is ruling 5's function-local
+        fence (a handle may not leave unconsumed)."""
+        for ob in self._spawn_obligations:
+            if not ob.consumed:
+                self._report_spawn_obligation(
+                    ob, "this `return` leaves the function without consuming it")
+
     def _check_call_exclusivity(self, values, param_types=None,
                                 receiver: Optional[Expression] = None,
                                 receiver_mutable: bool = False,

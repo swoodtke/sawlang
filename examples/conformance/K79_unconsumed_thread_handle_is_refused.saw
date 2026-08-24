@@ -1,0 +1,28 @@
+// Conformance row K79 — a BOUND singleton-spawn handle that reaches its
+// scope's exit unconsumed is REFUSED, and a consume on only ONE path does not
+// discharge it
+//
+// design 242 ruling 5: the obligation is per-path. `join()` inside an `if` is a
+// consume on that branch and on no other, so the binding still reaches the end
+// of its scope unconsumed on the branch that skipped it — the same conservative
+// reading design 189 gives a task-capture borrow released on one path.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `t` holds a `VoidThread` that is never consumed
+// EXPECT-ERROR-CONTAINS: reaches the end of its scope with no `join()` or `detach()` on this path
+
+func work() {
+    print("worked")
+}
+
+func main() {
+    var t = Thread.spawn { work() }
+    if work_needed() {
+        t.join()
+    }
+    print("done")
+}
+
+func work_needed() -> Bool {
+    true
+}

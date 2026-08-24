@@ -1,0 +1,69 @@
+// Conformance row K81 — a move into STORAGE whose owner consumes in its own
+// `Deinit` discharges the must-consume obligation
+//
+// design 242 ruling 9a, ruled Aug 24: ruling 6's principle — a declared,
+// in-scope consumer discharges the obligation — generalized from groups to
+// owning types. A worker pool must outlive the function that starts it, so its
+// handles have to escape; the structured teardown is the owner's own `deinit`,
+// not a `detach()`. std's `TaskGroup.crew: Vector<VoidThread>` is the in-tree
+// case, and it compiles unchanged under this rule.
+//
+// v1 is an APPROXIMATION and this row pins exactly that shape: the storing type
+// DECLARES a hand-written `deinit` (necessary, not sufficient). A checked "a
+// `Thread<T>`/`Task<T>` field obliges the owner's deinit to consume it" rule is
+// named future work; row K82 pins what happens when the approximation is
+// evaded.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// pool of 3
+// worked 3
+
+import std.task.{VoidThread}
+
+static WORKED: Atomic<Int> = Atomic(0)
+
+func work() {
+    WORKED.fetch_add(1)
+}
+
+struct Pool {
+    workers: Vector<VoidThread>
+}
+
+extension Pool: NoCopy {
+    // The hand-written deinit that discharges the obligation — and, here, the
+    // one that actually keeps its side of the bargain.
+    func deinit(&var self) {
+        while self.workers.len() > 0 {
+            if let held = self.workers.pop() {
+                var h = move held
+                h.join()
+            }
+        }
+    }
+}
+
+extension Pool {
+    func start(&var self, count: Int) {
+        var i = 0
+        while i < count {
+            var t = Thread.spawn { work() }
+            // The discharge: the handle moves into storage `Pool` owns, and
+            // `Pool` declares a deinit of its own.
+            self.workers.push(move t)
+            i = i + 1
+        }
+    }
+}
+
+func run() {
+    var pool = Pool(workers: [])
+    pool.start(3)
+    print("pool of {pool.workers.len()}")
+}
+
+func main() {
+    run()
+    print("worked {WORKED.load()}")
+}

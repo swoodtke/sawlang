@@ -2193,7 +2193,12 @@ class ExpressionsMixin:
         # — `Thread<Void>` cannot be written as an annotation (the visible-`Void`
         # rule, designs 122/132), and joining one has no value to hand back.
         if result_type.kind == TypeKind.VOID:
+            # design 242 ruling 5: the handle's fate is load-bearing, so the
+            # obligation is minted HERE — at the FORM, which is what ruling 6
+            # keeps `group.spawn` out of. See the funnel in `types.py`.
+            self._mint_spawn_obligation(expr, "VoidThread", "Thread.spawn")
             return SawType(TypeKind.STRUCT, struct_name=VOID_THREAD_STRUCT_NAME)
+        self._mint_spawn_obligation(expr, f"Thread<{result_type}>", "Thread.spawn")
         return SawType(TypeKind.STRUCT, struct_name=THREAD_STRUCT_NAME,
                        type_args=[result_type])
 
@@ -9345,6 +9350,22 @@ class ExpressionsMixin:
         if (expr.method_name == "join" and self._task_borrows
                 and isinstance(expr.object, Identifier)):
             self._release_task_borrows_for_handle(expr.object.name)
+        # design 242 ruling 5, THREE entries into the must-consume funnel, all
+        # here because all three are shaped as a method call (see `types.py`):
+        #   * `Thread.spawn { ... }.join()` — the blessed chained consume. Noted
+        #     BEFORE the receiver is checked, because that is what mints the
+        #     obligation the chain discharges.
+        if self._spawn_form_of(expr.object) is not None and expr.method_name in (
+                self._SINGLETON_SPAWN_FORMS.get(expr.object.name, ())):
+            self._chained_spawn_consumes.add(id(expr.object))
+        #   * `h.join()` / `h.detach()` / `h.cancel()` on a bound handle.
+        if self._spawn_obligations and isinstance(expr.object, Identifier):
+            self._consume_spawn_obligation(expr.object.name, expr.method_name)
+        #   * ruling 9a's storage discharge through a method that STORES:
+        #     `self.crew.push(move t)`, std's own worker pool.
+        if self._spawn_obligations:
+            self._discharge_spawn_obligation_into_storage(
+                expr.object, [a.value for a in (expr.arguments or [])])
         # design 51: erased-direct `Box<any Trait>.make(v)` — intercept before the
         # normal generic Box static-factory path (which would substitute the
         # unsized `any Trait` for `T` and reject the concrete argument).

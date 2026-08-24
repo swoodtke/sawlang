@@ -1,0 +1,45 @@
+// design 242 ruling 5/9b: a thread's fate is EXPLICIT. This file used to pin
+// join-on-deinit — a `Thread` local dropped unjoined joined its thread, so
+// `fireAndForget` was a sequential call that read like a fire-and-forget — and
+// that fate is retired. The handle now reaches `join()` on every path or the
+// program does not compile, so the write below is visible for the reason it
+// always should have been: somebody waited for it.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// 84
+
+import std.mutex.{Mutex}
+func waitForIt(shared: Arc<Mutex<Int>>) {
+    var t = Thread.spawn {
+        shared.lock { &var c in
+            c = c + 42
+            true
+        }
+        true
+    }
+    // The join is written, where the old shape had `t` simply go out of scope.
+    let _ = t.join()
+}
+
+func main() {
+    let shared = Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
+    waitForIt(shared)
+    shared.lock { &var c in
+        print(c)   // 42, deterministic (the task finished at the join)
+        true
+    }
+    // The blessed chained spelling: the handle is consumed where it is made,
+    // so it never reaches a binding and owes nothing further.
+    Thread.spawn {
+        shared.lock { &var c in
+            c = c + 42
+            true
+        }
+        true
+    }.join()
+    shared.lock { &var c in
+        print(c)   // 84
+        true
+    }
+}

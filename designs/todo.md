@@ -32,7 +32,7 @@ is scheduled and in what order is the whole of what they say.
 ## [QUEUE] — scheduled, in order (user-approved)
 
 - Design 234 — the fallibility flip (designs/234-fallibility-flip.md) — units 0-2, 4, 5 + channel sub-unit LANDED Aug 22; UNIT 3 RULED Aug 24 (user): PATH 1 — ~~fix DF-245a FIRST~~ **DF-245a LANDED Aug 24** (branch `df-245a-fallible-init`: fallible `init` is expressible; an `init` may declare ONLY `Self`/the receiver or `Result<Self, E>`, nothing else — no `Self?`, refused at the declaration; entry below), so unit 3 may now flip the constructors in place and is UNBLOCKED, THEN the flip as ratified (no factory migration). Migration protocol RATIFIED: examples/tests take `try!` mechanically (failure-path tests get real matches, flagged by name); sawc/std per-site with a propagate bias (`try!` inside std re-creates the panic tier); blade/devtools/tools/selfhost per-site, propagate bias, irdet+bench their own careful commit; every non-mechanical site listed in the landing section (the 205 precedent). Execution: DF-245a brief-let, then unit 3 as one dispatch
-- Design 242 — the Thread/Task split (designs/242-thread-task-split.md) — UNITS 0-1 LANDED Aug 22 (branch `design-242`: the renames, the docs, the compiler-emitted `Thread` identity carve-out; old spellings error with fixits; xfails unchanged). UNITS 2-5 RULED Aug 24 (user, rulings 9a/9b in the brief): shape (a) — a move into storage whose owner consumes in its own Deinit discharges the obligation (v1: hand-written-deinit approximation, checked field-obligation named future work) — plus the RUNTIME BACKSTOP: an unconsumed handle PANICS in its deinit, retiring every implicit fate. DISPATCHED Aug 24 (branch `design-242-b`). Two findings filed: DF-247a (a spawn root is undefined at its other same-module call sites), DF-247b (glob import splits the qualified and bare spellings into two types — wants a ruling)
+- Design 242 — the Thread/Task split (designs/242-thread-task-split.md) — units 0-1 LANDED Aug 22; UNITS 2 + 4(part) + 5 LANDED Aug 24 (branch `design-242-b`: the consumption funnel per-path, 9a's storage discharge keyed on a hand-written-deinit root, 9b's panic on the two THREAD handles, the blocking-permitted sync context via a second fixpoint, docs; conformance K78-K84; the 9b probe corrected the census — three corpus sites migrated). UNIT 3 BLOCKED on a user ruling: the brief's brace form `Task.spawn { }` cannot suspend (the transform frames named functions only), so the Task engine's spelling must be the CALL form `Task.spawn(work(3))` or something new — recorded in the entry below. detach() DEFERRED with it (needs a control-block handoff + a new `__saw_rt_*` seam — an ABI.md decision, not code). Task<T> must-consume + 9b's Task panic land with unit 3. One finding filed: DF-252a (FuncPointer called by name in a driven body, pinned XFAIL)
 - ~~Place-window xfail family~~ — LANDED Aug 22 (branch `place-window-fixes`): DF-169h/DF-218i(+248d)/DF-218j closed, DF-232n pin resolved as superseded-by-ruling. DF-218h stopped for a ruling, now RULED Aug 24 (user): DEFERRED MOVE — a non-escaping closure's `move` capture transfers ownership WHEN THE BODY RUNS (env holds a pointer; the body takes the value and clears the caller's drop flag at run time), so a conditional lend's absent path leaks nothing and the executed path frees once; a Slot-based spelling is an acceptable implementation strategy. The rule is uniform for non-escaping closures (direct-call shapes swept, not window-special). HOLDS until design-242-b lands (capture-machinery overlap), then dispatches with DF-248a. Entry below
 - ~~Diagnostics/codegen small batch~~ — LANDED Aug 22-23 (branch `diag-batch`, seven commits, nothing stopped): DF-245b, DF-238b (+ the checked-cast twin), DF-238c (+ a second face at the thread-assertion funnel, conformance B23), DF-243a (four operator families + the sos abi un-suffixing, byte-identical), DF-243b+DF-232g residue, DF-225a, DF-225d (self usable as its own type on all ten primitives), DF-225f ridden. One finding filed: DF-249a (bounds panic omits index+length — wording decision held). xfails -2, none added
 - ~~Transform typing batch~~ — ALL THREE LANDED Aug 22 (branch `transform-typing`, one commit each, after 242 units 0-1 integrated): DF-245c (a bare `None`'s payload type now outlives the second typecheck pass), DF-245d (a propagating `try` in a container HEAD — the sweep widened the rule from the binding forms), DF-244b (the bare `None` tail, through design 234's ladder). Two XFAIL pins flipped (suite xfails 7 -> 5), two new passing tests added (DF-244b had no pin: `result_optional_none_tail_types_itself.saw` plus the refusal `errors/result_none_tail_needs_an_optional_ok.saw`). Two findings filed: DF-250a, DF-250b. Entries below
@@ -757,22 +757,44 @@ are law. Status by unit:
   SOS's own `struct Thread` compiling; pin
   `examples/thread_name_belongs_to_the_user.saw`. Two findings: DF-247a,
   DF-247b.
-- **Units 2-5 — OPEN.** Unit 2 (must-consume) has an OPEN QUESTION the brief
-  does not answer; see the ruling needed below.
-
-**RULING NEEDED before unit 2 (raised Aug 22 by the implementing agent).**
-Ruling 5's function-local escape refusal — "storing or returning an
-unconsumed must-consume handle is refused" — has exactly one in-tree
-counterexample, and it is std's own: `TaskGroup.crew: Vector<VoidThread>`,
-pushed in `__start_crew` and joined in `__shutdown_crew_inner`, which is how
-an MT group's worker pool is owned. The pool must outlive the function that
-starts it, so the handle must escape, and `detach()` is not the answer (the
-group's `Deinit` genuinely joins its workers — that is the structured
-teardown). Three shapes the ruling could take: (a) the obligation is
-discharged by a move into storage whose owner joins in its own `Deinit`,
-which is ruling 6's group reasoning generalized; (b) a std/runtime carve-out;
-(c) rework the crew to hold something that is not a handle. The agent did not
-pick — the rule is the brief's, and (a) widens what "consumed" means.
+- **Unit 2 (the consumption rules) — LANDED.** Rulings 5/6/9a/9b. ONE funnel
+  (`typechecker/types.py`, entries named in its header) in two halves: a
+  singleton spawn form's handle is BOUND to a local or CONSUMED where it is
+  made (`Thread.spawn { }.join()`), and a bound handle reaches `join()`/
+  `detach()`/`cancel()` on every path — per-path exactly as design 189's
+  borrows are, with a nested-block consume undone on the way out. Both
+  discard spellings refused, `let _ =` included (the one place design 151's
+  blessed explicit discard does not apply); `return` is an exit and refuses
+  the escape, which is ruling 5's function-local fence. 9a's storage
+  discharge keys on the ROOT of the destination path declaring a hand-written
+  `deinit`, which is what makes std's crew compile unchanged. 9b: `Thread<T>`
+  and `VoidThread` deinits PANIC instead of joining. Conformance rows K78-K82
+  (written first). CONSUMER SWEEP (obligation 2) found THREE corpus users of
+  drop-join and no more: `task_join_on_deinit.saw` (the whole test WAS the
+  retired contract — renamed `thread_fate_is_written_not_dropped.saw` and
+  rewritten around the explicit join plus the chained spelling),
+  `spawn_void_body.saw`'s `drop_path`, and `conformance/D11`, which is refused
+  earlier and needed nothing. Suite 2181 pass / 4 xfail (unchanged),
+  freestanding 31, corodiff clean.
+- **Units 3-5 — OPEN.** Two deviations from the brief's unit split, both
+  recorded here: (a) `detach()` is NOT implemented yet — unit 2's diagnostics
+  NAME it, as the brief's own unit ordering intends (units 3 and 4 build it);
+  (b) 9b's deinit panic landed on `Thread<T>`/`VoidThread` ONLY. On the
+  cooperative side every handle alive today comes from `group.spawn` and is
+  free to drop (ruling 6), so a `Task<T>`/`VoidTask` panic would fire on
+  nothing; the must-consume BIT it needs cannot be written through today's
+  `join(&self)` receiver either, so it belongs with `Task.spawn` and
+  `detach()` in unit 3.
+- **The widest edge of 9a's approximation, recorded for a possible tightening.**
+  The discharge asks whether the destination path's ROOT type declares a
+  hand-written `deinit`. std's `Vector` declares one, so `v.push(move t)` into
+  a BARE LOCAL `Vector<VoidThread>` is discharged too — a local vector the
+  author drains and joins is legal code that must keep compiling, and the
+  checker cannot tell it from one that is forgotten. The forgotten one meets
+  ruling 9b's panic at the element drop. The alternative reading (require at
+  least one field hop from the root, so a bare container is refused and ruling
+  5's "`Vector<Task<T>>` stays a group idiom" sentence holds literally) is a
+  ruling, not a fix, and is left to the user.
 
 ## Design 234 — the fallibility flip (RATIFIED Aug 17; QUEUED behind the
 ## three in-flight Aug-17 branches)
