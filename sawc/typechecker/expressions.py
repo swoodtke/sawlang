@@ -2130,10 +2130,16 @@ class ExpressionsMixin:
                 closure.line, closure.column
             )
         # Check the body as an escaping closure (heap env, move-only-capture
-        # rejection). Not a `sync` context: task bodies may suspend under a
-        # future cooperative engine.
+        # rejection).
         ctype = self._check_closure(closure, expected_type=None,
                                     as_call_argument=True, force_escape=True)
+        # design 242 rulings 8 + 9: and it is a `sync` context that PERMITS a
+        # `blocking` extern. The fresh OS thread runs no executor, so a
+        # suspension there has nothing to resume it — before this the body
+        # compiled as ordinary sync code and a `yield_now()` inside it was a
+        # silent no-op (unit 0's probe). Blocking the thread on FFI is the
+        # headline reason to spawn one, so that one source stays legal.
+        self._effect_mark_thread_spawn_body(closure)
         result_type = SawType(TypeKind.VOID)
         if ctype is not None and ctype.kind == TypeKind.FUNCTION:
             result_type = ctype.func_return_type or SawType(TypeKind.VOID)

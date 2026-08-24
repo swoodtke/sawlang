@@ -6,7 +6,7 @@ either a file in this directory or an existing `examples/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
-**459 rows: 352 carry a file here, 107 are covered elsewhere** (recounted Aug 16
+**461 rows: 354 carry a file here, 107 are covered elsewhere** (recounted Aug 16
 from the table itself — the audit-era "121 here, 198 elsewhere" had gone stale
 across the briefs listed below). (The audit's 247 plus
 the rows later briefs added: W02-W05, design 194 unit 4; W06-W19, design 195
@@ -34,12 +34,17 @@ DF-218v's try/catch error edge — K74/K75 renumbered from K72/K73 at
 integration, where the two Aug-21 branches collided; K76, DF-218x's
 optional-binding branch scope, K77, DF-218y's discard order, B23,
 <<<<<<< HEAD
+<<<<<<< HEAD
 DF-238c's orphan-rule coherence across import forms, and A02, DF-245a's
 `init` declared-return rule.)
 =======
 DF-238c's orphan-rule coherence across import forms, and K78-K82, design 242
 unit 2's no-implicit-fates rules.)
 >>>>>>> 80fc3291 (design 242 unit 2: a spawned thread's fate is written, never dropped)
+=======
+DF-238c's orphan-rule coherence across import forms, K78-K82, design 242
+unit 2's no-implicit-fates rules, and K83-K84, its unit 4 thread-body rules.)
+>>>>>>> 43409ecc (design 242 unit 4 (part): a thread body is sync, and may block on FFI)
 
 ## How to read it
 
@@ -507,6 +512,8 @@ Claim source: spec 6 *Send and Sync* + *Cooperative tasks*; designs 75, 88, 103,
 | K80 | control: a `group.spawn` handle may be dropped freely, at all four spellings | `K80_group_spawn_handle_may_be_dropped.saw` | 242 ruling 6 — the obligation attaches to the FORM, not to the TYPE, so the accept-loop idiom (`while true { group.spawn(handle(accept())) }`) is untouched. The row that catches a must-consume check written against `Task<T>`/`VoidTask` |
 | K81 | a move into STORAGE whose owner consumes in its own `Deinit` discharges the obligation | `K81_storage_owner_discharges_the_obligation.saw` | 242 ruling 9a, ruled Aug 24 — ruling 6's principle generalized from groups to owning types, because a worker pool must outlive the function that starts it and `detach()` is not the answer when the owner's `deinit` genuinely joins. std's `TaskGroup.crew: Vector<VoidThread>` is the in-tree case and compiles unchanged. v1 asks only that the storing value's ROOT type DECLARE a hand-written `deinit` — necessary, not sufficient — and K82 is what the gap costs |
 | K82 | an unjoined, undetached thread handle PANICS in its deinit | `K82_forgotten_thread_handle_panics_in_deinit.saw` | 242 ruling 9b, ruled Aug 24 — the runtime backstop that retires every implicit fate: no silent join-on-drop, no cancel-on-drop. A RUNTIME row, because ruling 5's static check is what makes it unreachable from ordinary code; it is constructed through 9a's approximation gap, an owner whose hand-written deinit deliberately forgets to join what it stored. Panics do not unwind, so a destructor panic cannot meet another on the way out |
+| K83 | a `Thread.spawn { ... }` body is a `sync` context | `K83_thread_spawn_body_is_sync_enforced.saw` | 242 ruling 8 — a fresh OS thread runs no executor, so a suspension there has nothing to resume it. Design 242 unit 0's probe found what that cost: the body compiled as ORDINARY SYNC CODE with no frame in the emitted IR, so a `yield_now()` inside it was a silent no-op. The diagnostic names `TaskGroup(threads: 1)`, which is suspending work on a dedicated thread with an executor attached |
+| K84 | a `Thread.spawn { ... }` body may call a `blocking` extern, and the call runs DIRECTLY | `K84_thread_spawn_permits_a_blocking_extern.saw` + `k84_blocking_refused_in_an_ordinary_sync_body.saw` | 242 ruling 9 — K83's one exception, and the headline reason to reach for a thread: without it the use case has no legal spelling at all, since a `blocking` extern is refused in every ordinary sync context and the two-declarations rule bans re-declaring the symbol. The IR half pins "directly": design 103's offload machinery must be ABSENT, which is what codegen already emitted before this was a rule. Two files, because the row is a narrowing of one rule and the control is what says so |
 
 ## Visibility and module boundaries
 

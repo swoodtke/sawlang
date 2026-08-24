@@ -83,6 +83,7 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-251b — a GENERIC extension's `init` registers no param cleanups (an un-moved owning param leaks), populates no `variable_types` and sets no ICE breadcrumb, where the non-generic twin does all three. Entry below, filed by DF-251a's fix; one function, three faces
 - DF-251c — DF-216h's extension-parameter RENAME does not reach an `init`'s parameters at the construction site, so `Pair<Int>(three: 11)` under `extension Pair<U>` is refused; the METHOD half works. Entry below, with the mechanism and the data the fix needs
 - DF-251d — an `init` BODY that suspends is an internal compiler error; the coro transform scans init bodies but a construction is a `StructInit`, not a `MethodCall`, so nothing can name the frame. Entry below; either transform it or refuse it at the declaration
+- DF-252a — calling a `FuncPointer` value BY NAME inside a driven body is an internal compiler error (entry below, filed by design 242 unit 4; PRE-EXISTING, and invisible until ruling 8 refused the vacuous test that claimed to cover it). Pinned XFAIL, seven-cell matrix with three green controls
 
 - ~~DF-225a~~ — CLOSED Aug 22 (branch `diag-batch`, commit 6): the five join the ordinary duplicate-declaration rule — same LLVM signature unifies (so `printf` is callable), a different one is a clean refusal. The sweep probed every compiler-declared symbol and found the five are exactly the ones std does not also declare. Entry below, under DF-225a-f
 - ~~DF-225d~~ — CLOSED Aug 22 (branch `diag-batch`, commit 7): the three copies of "which names are primitives" became ONE table, so `self` inside a primitive extension is that primitive again. The sweep found the class is wider than the filing — arithmetic, comparison and `Bool`/`UInt` too, all ten design 176 added. Entry below, under DF-225a-f
@@ -727,6 +728,61 @@ guard beside it — DF-245c's commit guards only the durable `expected_type`
 stamp it added, deliberately, so as not to change this shape's fallout before it
 is decided. [111, 234]
 
+## DF-252a — calling a `FuncPointer` value BY NAME inside a driven body is an
+## internal compiler error (filed Aug 24 by design 242 unit 4)
+
+```saw
+func doubled(n: Int) sync -> Int { n * 2 }
+func worker() -> Int {
+    let p: FuncPointer<(Int) sync -> Int> = doubled
+    yield_now()
+    p(4)
+}
+// group.spawn(worker())
+// internal compiler error at f.saw:5:5 (FunctionCall): Undefined function: p
+```
+
+Design 226 says a `FuncPointer<F>` is an ORDINARY value that travels through
+every composite, and designs 210/223 say a suspending body is ordinary code with
+a frame under it. Where the two meet, the compiler dies. PRE-EXISTING; invisible
+until design 242 ruling 8 refused `Thread.spawn { worker() }`, the spelling
+`funcpointer226_composites.saw` used to make this claim with — a thread body is
+not driven, so its `yield_now()`s were no-ops and no frame was ever built, and
+the section passed while checking nothing.
+
+MECHANISM (obligation 4): `_frame_field_encoding` (coro_transform.py ~560)
+classifies a frame field by TYPE KIND, and `_rewrite_expr_node`'s call rewrite —
+the one that turns a call to a frame-resident callable `f(args)` into the
+indirect field call `self.f(args)` — is keyed on the `opt_closure` encoding,
+which only a `TypeKind.FUNCTION` field gets. A `FuncPointer<F>` is a one-word POD
+STRUCT, so it lands on `plain`, no rewrite fires, and the call reaches codegen as
+a bare `FunctionCall(name="p")` — which `_generate_function_call` resolves
+against `self.variables`, where a frame field is not.
+
+MATRIX (probed Aug 24, four failing cells + three green controls):
+
+| cell | shape | result |
+|------|-------|--------|
+| A | a `FuncPointer` LOCAL, suspension between the binding and the call | ICE |
+| B | the same local, suspension AFTER the call | ICE |
+| C | a `FuncPointer` PARAMETER of the driven body | ICE |
+| D | a `FuncPointer` FIELD read into a local, then called | ICE |
+| E | control: a plain CLOSURE local called in a driven body | works — the `opt_closure` rewrite |
+| F | control: the same `FuncPointer` local called in a SYNC body | works |
+| G | control: a `FuncPointer` field called DIRECTLY (`t.run(4)`) | works — the MemberAccess path never consults `self.variables` |
+
+B is the sharp one: the call needs no suspension near it, so this is not about
+the value crossing a state boundary — it is about the BINDING being frame-
+resident at all. G is the workaround (keep the pointer in a struct field and call
+it through the field) and is also the shape a dispatch table already has, which
+is why design 226's own tests never hit this.
+
+The fix is a third encoding arm or a widened rewrite predicate — "a frame field
+whose type is CALLABLE", which today means `TypeKind.FUNCTION` or a
+`FuncPointer<F>` struct — and it belongs with the DF-226b/c FuncPointer batch
+rather than with design 242. Pinned XFAIL:
+`examples/funcpointer_call_in_a_driven_body.saw`. [226, 242]
+
 ## Design 242 — the Thread/Task split (AUTHORED + fully RULED Aug 22; IN
 ## FLIGHT on branch `design-242`)
 
@@ -776,15 +832,49 @@ are law. Status by unit:
   `spawn_void_body.saw`'s `drop_path`, and `conformance/D11`, which is refused
   earlier and needed nothing. Suite 2181 pass / 4 xfail (unchanged),
   freestanding 31, corodiff clean.
-- **Units 3-5 — OPEN.** Two deviations from the brief's unit split, both
-  recorded here: (a) `detach()` is NOT implemented yet — unit 2's diagnostics
-  NAME it, as the brief's own unit ordering intends (units 3 and 4 build it);
-  (b) 9b's deinit panic landed on `Thread<T>`/`VoidThread` ONLY. On the
-  cooperative side every handle alive today comes from `group.spawn` and is
-  free to drop (ruling 6), so a `Task<T>`/`VoidTask` panic would fire on
-  nothing; the must-consume BIT it needs cannot be written through today's
-  `join(&self)` receiver either, so it belongs with `Task.spawn` and
-  `detach()` in unit 3.
+- **Unit 4 (`Thread.spawn` semantics) — LANDED IN PART, rulings 8 and 9.** The
+  body is a `sync` context (ruling 8) that PERMITS a `blocking` extern (ruling
+  9), which is one decision about one context and is set in one place
+  (`_effect_mark_thread_spawn_body`). Ruling 9 is a second fixpoint over the
+  same graph — `suspends_ignoring_blocking`, `really_suspending`'s shape with
+  blocking sources struck out — computed only when a blocking-permitted
+  context exists, and the violation path skips blocking sources so it names
+  the cooperative suspension that actually broke the rule. Both directions
+  tested (conformance K83, K84 + its ordinary-sync control), and K84 pins
+  "runs DIRECTLY" on the IR: design 103's offload machinery is absent.
+  Ruling 8 turned unit 0's probe finding into a refusal, and the refusal
+  immediately caught a corpus test that was passing VACUOUSLY —
+  `funcpointer226_composites.saw`'s across-a-suspend section spawned onto a
+  thread, so no frame was ever built and its `yield_now()`s were no-ops. Its
+  claim does not hold on the cooperative engine either: DF-252a, filed with a
+  seven-cell matrix and pinned XFAIL. Suite 2183 + the new rows, freestanding
+  31, corodiff clean.
+- **Units 3, 4c and 5 — OPEN.** Deviations and blockers, all recorded here:
+  - `detach()` is NOT implemented. Unit 2's diagnostics NAME it, as the
+    brief's own unit ordering intends. Its honest implementation is a
+    control-block ownership handoff between the detacher and the trampoline
+    (an atomic exchange on a state word, whoever loses frees and drops the
+    result) plus a `pthread_detach`, i.e. a control-block LAYOUT change and a
+    NEW `__saw_rt_*` seam in a document `rt/ABI.md` freezes. Both of those are
+    decisions rather than code, so they are left to the user.
+  - 9b's deinit panic landed on `Thread<T>`/`VoidThread` ONLY. On the
+    cooperative side every handle alive today comes from `group.spawn` and is
+    free to drop (ruling 6), so a `Task<T>`/`VoidTask` panic would fire on
+    nothing; the must-consume BIT it needs cannot be written through today's
+    `join(&self)` receiver either, so it belongs with `Task.spawn`.
+  - **RULING NEEDED before unit 3: what does `Task.spawn` TAKE?** The brief
+    writes the BRACE form (`Task.spawn { } -> Task<T>`, rulings 3 and 7), and
+    a brace body cannot suspend: the coroutine transform builds a frame for a
+    named function, and `group.spawn` accordingly requires a direct call to
+    one (`_check_taskgroup_spawn`, "expects a direct call to a free
+    function"). A closure is never transformed — which is exactly what unit
+    0's probe found on the thread side and what ruling 8 now refuses. So the
+    brace form gives a Task engine whose bodies cannot suspend, which is the
+    engine's whole point. Two things point at the CALL form
+    `Task.spawn(work(3))`: it is the spelling the cooperative engine already
+    has, and ruling 7 itself speaks of "no `&`/`&var` ARGUMENTS" at
+    `Task.spawn`, which a brace form does not have. The agent did not pick —
+    this is a user-facing API spelling, and getting it wrong wastes the unit.
 - **The widest edge of 9a's approximation, recorded for a possible tightening.**
   The discharge asks whether the destination path's ROOT type declares a
   hand-written `deinit`. std's `Vector` declares one, so `v.push(move t)` into

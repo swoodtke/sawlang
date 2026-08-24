@@ -1,0 +1,35 @@
+// XFAIL: DF-252a a `FuncPointer` value called by NAME inside a driven body is
+// an internal compiler error (`Undefined function: p`) — the frame-field
+// call rewrite is keyed on the closure encoding, which a POD `FuncPointer`
+// field does not get
+//
+// Design 226 says a `FuncPointer<F>` is an ordinary value that travels through
+// every composite, and design 210/223 say a suspending body is ordinary code
+// with a frame under it. This is where the two meet: the pointer is held across
+// a suspension, so it lives in the coroutine frame, and calling it must work
+// exactly as it does in a sync body.
+//
+// Found Aug 24 by design 242 unit 4. `funcpointer226_composites.saw` claimed to
+// check this and did not: it spawned the body onto a THREAD, where nothing is
+// driven, so its `yield_now()`s were no-ops and no frame existed. Ruling 8's
+// sync enforcement refused that spelling, which is what exposed the hole.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// across a suspend 14
+
+func doubled(n: Int) sync -> Int { n * 2 }
+
+func worker() -> Int {
+    let p: FuncPointer<(Int) sync -> Int> = { n in n * 3 }
+    yield_now()
+    let q: FuncPointer<(Int) sync -> Int> = doubled
+    yield_now()
+    p(2) + q(4)
+}
+
+func main() {
+    var group = TaskGroup()
+    let t = group.spawn(worker())
+    print("across a suspend {t.join()}")
+}

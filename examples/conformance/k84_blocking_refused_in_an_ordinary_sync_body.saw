@@ -1,0 +1,23 @@
+// Conformance row K84, the other side — an ordinary `sync` body still refuses a
+// `blocking` extern
+//
+// design 242 ruling 9 makes the `Thread.spawn` body a blocking-PERMITTED sync
+// context, which is a narrowing of one rule rather than a hole in it. This is
+// the control that says so: the same call, in the same program, in a body whose
+// only difference is that no thread was spawned for it.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot suspend in `sync func` declaration
+// EXPECT-ERROR-CONTAINS: blocking extern `__saw_rt_blocking_sleep`
+
+extern "C" {
+    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
+}
+
+func nap() sync -> Int {
+    __saw_rt_blocking_sleep(1)
+}
+
+func main() {
+    print(nap())
+}

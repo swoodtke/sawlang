@@ -87,9 +87,45 @@ REAL_SUSPEND_LABELS = ("yield_now", "sleep", "__saw_io_park", "io_wait",
                        "__saw_chan_park")
 
 
+_BLOCKING_SOURCE_PREFIX = "blocking extern"
+
+
 def _is_real_source(source: SuspendSource) -> bool:
     return (source.label in REAL_SUSPEND_LABELS
-            or source.label.startswith("blocking extern"))
+            or source.label.startswith(_BLOCKING_SOURCE_PREFIX))
+
+
+def suspends_ignoring_blocking(nodes) -> Dict[Any, bool]:
+    """`suspends`, computed with every BLOCKING-EXTERN source struck out.
+
+    The question design 242 ruling 9's blocking-permitted context asks: a
+    `Thread.spawn { ... }` body may block its own thread on FFI (that is the
+    point of spawning one), and must still be refused every OTHER way of
+    suspending — a cooperative primitive, a park, a suspending callee — because
+    there is no executor on that thread to resume it.
+
+    Same shape as the `suspends` fixpoint and as `really_suspending`: monotone,
+    SCC-safe, and computed once per finalize. Blocking-ness is a property of the
+    SOURCE, so a helper the body calls is struck out on the same terms — which
+    is what makes `Thread.spawn { drain(fd) }` legal for a `drain` written
+    around a `blocking` extern.
+    """
+    out: Dict[Any, bool] = {}
+    for key, node in nodes.items():
+        out[key] = any(not s.label.startswith(_BLOCKING_SOURCE_PREFIX)
+                       for s in node.direct)
+    changed = True
+    while changed:
+        changed = False
+        for key, node in nodes.items():
+            if out.get(key):
+                continue
+            for e in node.edges:
+                if out.get(e.target):
+                    out[key] = True
+                    changed = True
+                    break
+    return out
 
 
 def really_suspending(nodes) -> Dict[Any, bool]:
@@ -160,6 +196,12 @@ class SuspendNode:
     # from a rule the author did not write (design 219's copy-policy `copy()`)
     # supplies its own, because the general advice cannot name that rule.
     sync_hint: Optional[str] = None
+    # design 242 ruling 9: this sync context PERMITS a `blocking` extern. Set on
+    # a `Thread.spawn { ... }` body and nowhere else — the thread is the
+    # author's to block, which is the headline reason to reach for one. Every
+    # OTHER suspension source is refused there exactly as in any sync context,
+    # so the flag narrows one rule rather than opening a hole.
+    blocking_permitted: bool = False
     direct: List[SuspendSource] = field(default_factory=list)
     edges: List[SuspendEdge] = field(default_factory=list)
     suspends: bool = False              # computed by the fixpoint
@@ -403,6 +445,36 @@ class EffectsMixin:
             node.sync_reason = sync_reason
         self._suspend_stack.append(node)
         return node
+
+    def _effect_mark_thread_spawn_body(self, closure):
+        """design 242 rulings 8 + 9: a `Thread.spawn { ... }` body is a `sync`
+        context in which a `blocking` extern is nonetheless legal.
+
+        Both halves in one place, because they are one decision about one
+        context. Ruling 8: a suspending body needs an executor and the fresh OS
+        thread has none, so `yield_now()` there is a no-op — which is precisely
+        what it silently was (design 242 unit 0's probe: the body compiled as
+        ordinary sync code with no frame in the emitted IR). Ruling 9: the
+        thread exists to be blocked, so an unbounded FFI call runs DIRECTLY
+        rather than being offloaded to yet another thread; that too was already
+        what codegen emitted, and this makes it a rule rather than an accident.
+
+        Applied AFTER the closure body is checked, on the node
+        `_effect_enter_closure` minted for it — the flags feed the fixpoint's
+        diagnosis pass, not the graph, so the order does not matter.
+        """
+        node = self._suspend_nodes.get(closure.node_id)
+        if node is None:
+            return
+        node.sync_reason = "a `Thread.spawn { ... }` body"
+        node.blocking_permitted = True
+        node.sync_hint = (
+            "a spawned thread runs no executor, so there is nothing there to "
+            "resume a suspension — it would simply not cede. For suspending "
+            "work on a dedicated thread write `TaskGroup(threads: 1)`, which "
+            "brings an executor with it; a `blocking` extern is the one thing "
+            "this body MAY do, and it blocks the spawned thread on purpose"
+        )
 
     def _effect_exit(self):
         if self._suspend_stack:
@@ -852,9 +924,18 @@ class EffectsMixin:
         # shared with the builtin compile that supplies the std method table.
         self._main_suspends = bool(really_suspending(nodes).get(("fn", "main")))
 
+        # design 242 ruling 9: a blocking-permitted context asks a narrower
+        # question, so the second fixpoint is computed only if one exists.
+        beyond_blocking = None
         for node in nodes.values():
-            if node.sync_reason and node.suspends:
-                self._report_sync_violation(node)
+            if not (node.sync_reason and node.suspends):
+                continue
+            if node.blocking_permitted:
+                if beyond_blocking is None:
+                    beyond_blocking = suspends_ignoring_blocking(nodes)
+                if not beyond_blocking.get(node.key):
+                    continue
+            self._report_sync_violation(node)
 
         self._report_existential_suspend_dispatch(really_suspending(nodes))
 
@@ -898,7 +979,8 @@ class EffectsMixin:
                 break
 
     def _report_sync_violation(self, node: SuspendNode):
-        hops, susp_short, susp_line = self._effect_path(node)
+        hops, susp_short, susp_line = self._effect_path(
+            node, skip_blocking=node.blocking_permitted)
         chain = " → ".join(hops)
         msg = (f"cannot suspend in {node.sync_reason}: {node.desc} "
                f"calls {chain} ({susp_short} suspends at line {susp_line})")
@@ -910,18 +992,31 @@ class EffectsMixin:
             source_file=node.source_file,
         )
 
-    def _effect_path(self, node: SuspendNode) -> Tuple[List[str], str, int]:
+    def _effect_path(self, node: SuspendNode,
+                     skip_blocking: bool = False) -> Tuple[List[str], str, int]:
         """One representative path from `node` to a suspension source.
 
         Returns (hops, suspending_node_short, source_line) where `hops` is the
         chain of callee short-names ending in the source label.
+
+        `skip_blocking` walks past blocking-extern sources (design 242 ruling 9):
+        in a blocking-permitted context those are legal, so a path that names one
+        would point at the wrong line — the reader needs the cooperative
+        suspension that actually broke the rule.
         """
         visited = set()
 
+        def sources(n: SuspendNode):
+            if not skip_blocking:
+                return n.direct
+            return [s for s in n.direct
+                    if not s.label.startswith(_BLOCKING_SOURCE_PREFIX)]
+
         def walk(n: SuspendNode):
             visited.add(n.key)
-            if n.direct:
-                src = n.direct[0]
+            own = sources(n)
+            if own:
+                src = own[0]
                 return ([src.label], n.short, src.line)
             for e in n.edges:
                 t = self._suspend_nodes.get(e.target)

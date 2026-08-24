@@ -1,0 +1,42 @@
+// Conformance row K84 — a `Thread.spawn { ... }` body may call a `blocking`
+// extern, and the call runs DIRECTLY
+//
+// design 242 ruling 9: the sync enforcement of row K83 has exactly one
+// exception, and it is the headline reason to reach for a thread at all —
+// calling a thread-phobic or long-blocking C library. The thread is the
+// author's to block. Without this the use case has no legal spelling: a
+// `blocking` extern is refused in every ordinary sync context (the other half
+// of this row, `k84_blocking_refused_in_an_ordinary_sync_body.saw`), and the
+// two-declarations rule bans re-declaring the same symbol as non-blocking.
+//
+// The IR assertion is the "runs DIRECTLY" half. Design 103 offloads a blocking
+// call from a SUSPENDING body onto a worker thread and parks the task on the
+// job's pipe; here there is no task and no executor, so the machinery must be
+// absent entirely and the thread must simply block. That was already what
+// codegen emitted before design 242 — arrived at by accident rather than by a
+// rule, which is what unit 0's probe recorded and what this row pins.
+//
+// It holds through a HELPER too: blocking-ness is a property of the source, so
+// a function written around a blocking extern is struck out on the same terms.
+//
+// EXPECT: success
+// EXPECT-IR-ABSENT: __saw_blk_start
+// EXPECT-IR-ABSENT: __saw_blk_take
+// EXPECT-OUTPUT:
+// napped
+
+extern "C" {
+    blocking func __saw_rt_blocking_sleep(ms: Int) -> Int
+}
+
+func nap_helper() -> Int {
+    __saw_rt_blocking_sleep(1)
+}
+
+func main() {
+    var direct = Thread.spawn { __saw_rt_blocking_sleep(1) }
+    var through = Thread.spawn { nap_helper() }
+    let _ = direct.join()
+    let _ = through.join()
+    print("napped")
+}
