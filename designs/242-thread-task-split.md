@@ -90,6 +90,24 @@ actively miscommunicates which one a call site is on.
    (designs 91/102/117), and `threads: N` workers are the existence proof
    that executors share it. What a suspending context needs is an executor
    loop, never a reactor.
+9a. **RULED Aug 24 (user) — the crew-escape question, shape (a):** the
+   must-consume obligation is discharged by a MOVE INTO STORAGE WHOSE OWNER
+   CONSUMES IN ITS OWN `Deinit` — ruling 6's principle (a declared consumer
+   discharges the obligation) extended from groups to owning types. v1
+   approximation: the storing type declares a hand-written `deinit`
+   (necessary, not sufficient); a checked "a `Thread<T>`/`Task<T>` field
+   obliges the owner's deinit to consume it" rule is NAMED FUTURE WORK, not
+   v1. std's `TaskGroup.crew` compiles under this reading unchanged.
+9b. **RULED Aug 24 (user) — the runtime backstop:** an unjoined, undetached
+   `Thread<T>`/`VoidThread`/`Task<T>`/`VoidTask` PANICS in its deinit,
+   naming the type and the legal consumes. Under the checked rule this path
+   is reachable only through 9a's approximation gap (an owner's deinit that
+   forgot), which is a caller-checkable bug — a fault, not a status (the
+   design-134 double-join precedent). This RETIRES the old implicit fates
+   entirely: no silent join-on-drop, no cancel-on-drop — every fate is
+   explicit, and the evading path dies loudly. Boundary: panics do not
+   unwind, so no panic-during-panic hazard; a live OS thread at process
+   death is the already-ruled process-death boundary.
 9. **A `Thread.spawn` body is a BLOCKING-PERMITTED sync context.** A
    `blocking` extern called there runs DIRECTLY — no offload, the thread
    blocks and that is the point (calling a thread-phobic or long-blocking C
