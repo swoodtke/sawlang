@@ -937,7 +937,7 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   checked, done. No lifting trait, no candidate search, so editing an enum
   never changes what a distant `try` does. Rust's `.map_err(E::C)?` without
   the closure. The Ok value is untouched.
-  PREFIX is load-bearing: `ConfigError.Alloc` and `time.Duration` are the same
+  PREFIX is load-bearing: `ConfigError.Alloc` and `time.Instant` are the same
   dotted shape, so a trailing clause would collide with design 63's projection
   of the unwrapped result — every trailing `as` stays an ordinary cast, and
   `try (f())` (a `(` no `as` follows) stays a parenthesized expression.

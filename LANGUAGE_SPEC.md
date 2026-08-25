@@ -4764,7 +4764,7 @@ it. There is no candidate search and no lifting trait — editing an enum never
 changes what a distant `try` does, and every construction site is greppable.
 
 The clause is written in PREFIX position because a trailing one could not be
-told apart from a cast. `ConfigError.Alloc` and `time.Duration` are the same
+told apart from a cast. `ConfigError.Alloc` and `time.Instant` are the same
 dotted-path shape, so `try parse_id() as UserId` — a projection of the
 unwrapped result — would be ambiguous with routing. The slot after `try` is
 owned by `try`; every trailing `as` remains an ordinary cast.
