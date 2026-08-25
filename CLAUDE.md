@@ -190,6 +190,9 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   tools/battery.sh --list
   ```
   Stages: `suite`, `icebreadcrumb`, `lexdiff`, `astdiff`, `astgraft`,
+  `citations` (DF-248c, Aug 24: stale XFAIL/ledger citations against the
+  tracker's closed set + committed conflict markers over tracked files —
+  the gate for the files nothing compiles),
   `forgetgate`, `ircontract`, `preludegate`, `stdtypes`, `abidoc`, `bttable`,
   `fuzz` (`sawfuzz --quick`), `corodiff` (`--quick`), `bench` (the warehouse
   benchmark — checksums GATE, timing report-only; devtools/bench/ +

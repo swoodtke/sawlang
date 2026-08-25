@@ -186,7 +186,13 @@ def find_conflict_markers() -> list[tuple[str, int, int, str]]:
 def collect_citations() -> list[Citation]:
     """Every DF citation the tree makes, in file order."""
     found: list[Citation] = []
-    for path in sorted(REPO_ROOT.rglob("*.saw")):
+    # TRACKED .saw files only — an rglob also walks agent WORKTREES under
+    # .claude/worktrees/ (another checkout's in-flight pins are not this
+    # tree's citations; found live at integration, lead fix Aug 24).
+    saw_paths = sorted(
+        REPO_ROOT / name for name in tracked_files() if name.endswith(".saw")
+    )
+    for path in saw_paths:
         if any(part in SKIP_DIRS for part in path.parts):
             continue
         try:
