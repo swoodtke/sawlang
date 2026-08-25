@@ -384,8 +384,8 @@ extension StringBuilder {
     // schedule (no leak, no double-free). Returning `buf as String` would instead
     // hand back a header-less pointer that corrupts on len()/release.
     //
-    // Panics if the String allocation is refused (design 123): the String layer
-    // is the infallible tier, and returning `""` here — which is what a NULL
+    // Panics if the String allocation is refused: the String layer is design
+    // 234 §5's last panicking one, and returning `""` here — which is what a NULL
     // from the allocator used to produce — is indistinguishable from a builder
     // that legitimately has nothing in it. The `""` below is the second case
     // and only the second case: a builder that was never appended to.

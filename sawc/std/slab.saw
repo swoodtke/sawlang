@@ -60,8 +60,8 @@ extension SlabHead: NoCopy {}
 //                 mutate interiorly)
 //
 // The returned chunk is UNINITIALIZED memory — the caller (e.g. `Box.make`)
-// placement-moves a value into it. `None` feeds the three-tier failure model:
-// an infallible factory panics on it, a fallible one returns `Err`.
+// placement-moves a value into it. `None` is what `Box.make` turns into
+// `Err(AllocError)`.
 func slab_alloc(region: UnsafePointer<Int8>, chunk_count: Int, chunk_size: Int, head: &SlabHead) unsafe -> UnsafePointer<Int8>? {
     // 1. Reuse a freed chunk if the free-list is non-empty (LIFO pop).
     while true {

@@ -2,7 +2,7 @@
 // allocator `JobSlab` — a zero-field unit struct whose storage is a static
 // region — backs `Box<Job, JobSlab>` (`type JobBox`). Box is the slab's
 // consumer: fixed-size Job chunks, not a variable-size Vector. Proves:
-//   * N allocations succeed, the (N+1)th `try_make` returns Err (exhaustion),
+//   * N allocations succeed, the (N+1)th `make` returns Err (exhaustion),
 //   * scope death returns the chunks (Box deinit routes dealloc through JobSlab),
 //   * re-allocation then succeeds over the reclaimed chunks.
 //

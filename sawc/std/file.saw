@@ -136,9 +136,10 @@ extension File {
     // `Err` carries the errno cause of the failing lseek(2) or read(2). An empty
     // `Ok` means the file had nothing left, which is a different answer from a
     // failure and always was — it just used to share `None` with it (design 92).
-    // Allocator exhaustion panics rather than joining either (design 123), and
-    // the `Data` fill below is the infallible tier too, so a short buffer cannot
-    // make this return FEWER bytes than the file holds.
+    // Allocator exhaustion is a THIRD answer (design 234): the staging buffer
+    // and the `Data` fill below both report, mapped onto this domain's word for
+    // it (`ResourcesExhausted`), so a short buffer cannot make this return FEWER
+    // bytes than the file holds and cannot be mistaken for EOF either.
     public func read(&var self, size: Int = 0) unsafe -> Result<Data, IoError> {
         var bytes_to_read = size
 

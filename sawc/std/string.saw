@@ -15,10 +15,10 @@ extern "C" {
     //  - __saw_string_len:  O(1) length from the header (no strlen scan)
     //  - __saw_string_alloc: allocate a fresh refcount=1 String buffer of `len`
     //    bytes (+ header + NUL); the returned bytes pointer is a valid String.
-    //    It PANICS rather than returning NULL on allocator exhaustion (design
-    //    123), which is why it is declared non-optional here: `String` is the
-    //    infallible tier and every producer below returns a plain `String`, so
-    //    a NULL had nowhere to go except into a plausible wrong answer.
+    //    It PANICS rather than returning NULL on allocator exhaustion, which is
+    //    why it is declared non-optional here: every producer below returns a
+    //    plain `String`, so a NULL had nowhere to go except into a plausible
+    //    wrong answer. That is design 234 §5's String boundary, from inside.
     func __saw_string_len(s: UnsafePointer<Int8>) -> Int
     func __saw_string_alloc(len: Int) -> UnsafePointer<Int8>
     func __saw_string_from_bytes(src: UnsafePointer<Int8>, len: Int) -> String

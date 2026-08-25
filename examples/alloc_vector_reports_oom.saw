@@ -1,7 +1,12 @@
-// Design 123: Vector's fallible tier. `try_push`, `try_reserve`, `try_copy` and
-// `try_with_capacity` all report allocator exhaustion as `Err(AllocError)` and
-// leave the vector exactly as it was — no partial application, no silent
-// truncation. A denying allocator drives every one of them.
+// Conformance row A05 — `Vector.reserve`, beside `push` and `try_copy`, under a
+// denying allocator.
+//
+// All three report allocator exhaustion as `Err(AllocError)` and leave the
+// vector exactly as it was: no partial application, no silent truncation.
+// `reserve` is one of the two twins that had no infallible partner to merge
+// into, so retiring the prefix renamed a sole method (`try_reserve` ->
+// `reserve`). `try_copy` is the one that KEPT its name — `copy()` is the
+// `ExplicitCopy` hook and cannot report, which is DF-257b.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 4
@@ -40,7 +45,7 @@ func main() {
     }
     print(v.len())                       // 4
 
-    // try_push: the grow is refused, the error carries the exact request
+    // push: the grow is refused, the error carries the exact request
     // (capacity 4 -> 8 elements of 8 bytes), and the vector is untouched.
     match v.push(99) {
         case Ok(_) -> print("pushed"),
@@ -49,7 +54,7 @@ func main() {
     print(v.len())                       // still 4
     print(v.get(3)!)                     // 3 — content untouched by the refusal
 
-    // try_reserve: same refusal, reported before anything is written.
+    // reserve: same refusal, reported before anything is written.
     match v.reserve(100) {
         case Ok(_) -> print("reserved"),
         case Err(_) -> print("reserve denied")

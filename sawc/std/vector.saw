@@ -245,6 +245,14 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
         if let buf = self.buffer {
             buf[self.length] = value
             self.length = self.length + 1
+        } else {
+            // Unreachable: a successful `_reserve` leaves capacity >= 1, which
+            // this type's invariant pairs with a live buffer. The retired
+            // `try_push` fell through to `Ok` here, which would be a push that
+            // reported success and dropped the element — the silent degradation
+            // this whole file exists to refuse. The panicking `push` had this
+            // guard; retiring the twin keeps the stricter of the two bodies.
+            panic("Vector.push: buffer is empty")
         }
         return
     }

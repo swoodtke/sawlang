@@ -322,10 +322,11 @@ extension Command {
     // (Signature names a raw pointer, so this is already the design-81 marked
     // domain.)
     //
-    // Panics if the array cannot be allocated (design 123, infallible tier).
+    // Panics if the array cannot be allocated. design 234 §5's boundary applies:
     // `run`/`output` report a `None` here as "could not launch process", which
-    // is a different failure from the one that happened — the callers' error
-    // channels are about the CHILD, not about memory.
+    // is a different failure from the one that happened — their error channels
+    // are about the CHILD, not about memory — so the refusal has nowhere honest
+    // to go and says so loudly instead.
     func build_argv(&self) unsafe -> UnsafePointer<Int8> {
         let n = self.args.len()
         let slot = sizeof<UnsafePointer<Int8>>()

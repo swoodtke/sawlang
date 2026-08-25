@@ -11,8 +11,8 @@
 // none==none true
 // some==none false
 // operator eq true
-// try_push none ok
-// try_push some ok
+// push none ok
+// push some ok
 // len 2
 // try! 7
 // try! none -1
@@ -50,12 +50,12 @@ func main() {
 
     var v = Vector<Int?>()
     match v.push(n) {
-        case Ok(_) -> print("try_push none ok"),
-        case Err(e) -> print("try_push err {e}")
+        case Ok(_) -> print("push none ok"),
+        case Err(e) -> print("push err {e}")
     }
     match v.push(a) {
-        case Ok(_) -> print("try_push some ok"),
-        case Err(e) -> print("try_push err {e}")
+        case Ok(_) -> print("push some ok"),
+        case Err(e) -> print("push err {e}")
     }
     print("len {v.len()}")
 

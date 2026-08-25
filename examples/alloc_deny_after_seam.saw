@@ -1,9 +1,9 @@
-// Design 123: the hosted default allocator carries an allocation budget so the
-// three-tier failure policy can be tested where it actually bites — the types
-// that take no allocator type parameter. `__saw_rt_alloc_deny_after(allow)`
-// permits `allow` more allocations and refuses every one after; a negative
-// `allow` disarms. This test only proves the seam itself: denial is observed
-// through `Vector.try_with_capacity`, the fallible-tier factory that predates it.
+// The hosted default allocator carries an allocation budget so the failure
+// policy can be tested where it actually bites — the types that take no
+// allocator type parameter. `__saw_rt_alloc_deny_after(allow)` permits `allow`
+// more allocations and refuses every one after; a negative `allow` disarms.
+// This test only proves the seam itself: denial is observed through
+// `Vector(capacity:)`, which reports it.
 //
 // Design 137 dropped the second parameter. Denial used to be a bounded WINDOW
 // that re-armed the allocator by itself, because a panic assembled its message

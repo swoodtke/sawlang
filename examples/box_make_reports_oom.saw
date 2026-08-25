@@ -1,11 +1,14 @@
-// `Box.try_make` — the fallible constructor (design 42 item 1, three-tier model
-// tier 2; named `make_or` until design 123 made `try_` the one spelling of the
-// fallible tier). Success returns `Ok(Box)`; on allocator failure it returns
+// Conformance row A11 (the `Box` half) — `Box.make` reports.
+//
+// The static factory (design 42 item 1) was `make_or`, then design 123's
+// `try_make` beside a panicking `make`, and since design 234 it is one `make`
+// that reports. Success returns `Ok(Box)`; on allocator failure it returns
 // `Err(AllocError)` carrying the request's size/align AND cleanly deinits the
-// value (never leaks it). The failure path is forced with an always-None probe
-// allocator and a deinit-printing payload — "gone 2" proves the clean drop.
-// The interpolated `Err` also covers AllocError's design-123 Printable/Error
-// conformance.
+// value (never leaks it) — "reports" and "does not leak" are one guarantee
+// here, because the refusal path owns a value it never stored. The failure is
+// forced with an always-None probe allocator and a deinit-printing payload;
+// "gone 2" proves the clean drop, and the interpolated `Err` covers
+// AllocError's Printable/Error conformance.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 7
@@ -37,7 +40,7 @@ func main() {
     }
 
     // Failure (NullAlloc, Deinit payload): the value is cleanly deinit'd inside
-    // try_make's scope exit ("gone 2"), then Err carries size = sizeof(Res) = 8.
+    // `make`'s scope exit ("gone 2"), then Err carries size = sizeof(Res) = 8.
     match Box<Res, NullAlloc>.make(Res(id: 2)) {
         case Ok(b) -> print(b.peek()),
         case Err(e) -> print(e.size)      // gone 2, then 8
