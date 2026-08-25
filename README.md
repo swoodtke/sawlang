@@ -333,8 +333,8 @@ default values, and they compile to specialized code:
 func first<T: Copy>(v: &Vector<T>) -> T? { v.get(0) }
 
 let names: Vector<String> = ["ada", "alan"]
-let n = first(&names)                  // T = String, inferred
-let lengths = names.map({ $0.len() })  // map<Int> solved from the closure
+let n = first(&names)                       // T = String, inferred
+let lengths = try! names.map({ $0.len() })  // map<Int> solved from the closure
 ```
 
 `Equatable`, `Comparable`, `Hashable`, and the copy policies can have their
@@ -585,8 +585,9 @@ The standard library lives in `sawc/std/` and includes:
   import: `std.channel`, `std.mutex`, `std.once`.
 - **std.data** — `Data`, copy-on-write byte buffer.
 - **std.net** — `TcpListener` / `TcpStream`, owning and cooperative.
-- **std.file** — `File` / `Directory` / `Path` / `Env`; every fallible
-  operation returns a `Result`.
+- **The filesystem** — `File` (std.file), `Directory` (std.directory), `Path`
+  (std.path) and `Env` (std.env), one module each; every fallible operation
+  returns a `Result`.
 - **std.process** — run child processes cooperatively.
 - **std.time** — `Instant` and `unix_timestamp` (hosted). `Duration` needs no
   import because `sleep` takes one.

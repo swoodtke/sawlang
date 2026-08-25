@@ -467,7 +467,7 @@ var u = w.copy()       // explicit duplicate
   ```saw
   func collect() -> Vector<Int> {
       var v = Vector<Int>()
-      v.push(1)
+      try! v.push(1)
       return move v      // or `move v` as the tail — same rule
   }
   ```
@@ -1064,7 +1064,7 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
       }
   }
   extension SysError: Printable {
-      func format(&self, into: &var StringBuilder) { into.append(self.describe()) }
+      func format(&self, into: &var StringBuilder) { try! into.append(self.describe()) }
   }
   extension SysError: Error {}
   ```
@@ -1281,8 +1281,9 @@ extension Circle: Shape { func area(&self) -> Int { ... } }  // default inherite
 func show(s: &any Shape) { print(s.area()) }   // dynamic dispatch
 var boxed: Box<any Shape> = Box<any Shape>.make(c)  // owned existential
 func biggest<T: Shape + Comparable>(v: &Vector<T>) -> ...
-v.map({ $0.to_string() })           // type args INFERRED (design 93): U from
-v.map<String>({ $0.to_string() })   // the closure's return; explicit still wins
+try! v.map({ $0.to_string() })          // type args INFERRED (design 93): U from
+try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still wins
+                                        // (map allocates the new Vector, so it reports)
 ```
 - `any` only behind `&`, `&var`, or `Box` (unsized otherwise).
 - **WHAT A GENERIC BODY REQUIRES IS INFERRED, and refused at the CALL (design
@@ -2066,7 +2067,7 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   ```saw
   var handles = Vector<Task<Int>>()
   for i in 0..5 {
-      handles.push(group.spawn(work(i)))
+      try! handles.push(group.spawn(work(i)))
   }
   var total = 0
   while handles.len() > 0 {
@@ -2360,7 +2361,7 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   same borrow, and everything below applies to each. The argument spelling is
   what a worker filling a caller's buffer wants:
   ```saw
-  func fill(v: &var Vector<Int>, n: Int) -> Int { … v.push(i) … v.len() }
+  func fill(v: &var Vector<Int>, n: Int) -> Int { … try! v.push(i) … v.len() }
   var buf: Vector<Int> = []
   var group = TaskGroup()
   let h = group.spawn(fill(&var buf, 3))
@@ -2495,7 +2496,7 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
   func fresh() -> data.Data { data.Data() }   // the module
   func main() {
       var data = fresh()                       // local wins from here, no error
-      data.push(65)                            // a method call, not module access
+      try! data.push(65)                       // a method call, not module access
   }
   ```
   If member lookup then fails on the shadowing value, the error names the
@@ -3475,17 +3476,21 @@ construct in the owner and lend `&driver` down.
   is exactly one argv element, so spaces, quotes, `;`, `*` and `$VAR` inside an
   argument are literal bytes the child receives verbatim (nothing is split,
   expanded or executed). Want a shell? Spawn one explicitly:
-  `Command(program: "/bin/sh")`, `arg("-c")`, `arg("cmd | cmd2")`. `arg` returns
-  Void, so build it in statements, not a chain:
+  `Command(program: "/bin/sh")`, `arg("-c")`, `arg("cmd | cmd2")`. `arg` STORES
+  the argument, so it allocates and REPORTS — `Result<Void, AllocError>` since
+  design 234 — and it hands back no builder, so build the command in statements
+  rather than a chain:
   ```saw
   var c = Command(program: "git")
-  c.arg("clone"); c.arg(url)
+  try! c.arg("clone")
+  try! c.arg(url)
   let code = try! c.run()
   ```
   `run() -> Result<Int32, ProcessError>`: Ok(code) = launched + exited (signal
   death = 128+signum, never a bogus 0); Err = could not launch (spawn failed, or
   the child could not exec -> 127). `ProcessError: Error` names the program.
-  `.output() -> CommandOutput?` captures stdout (stderr is inherited).
+  `.output() -> Result<CommandOutput?, AllocError>` captures stdout (stderr is
+  inherited); the `None` inside the `Ok` is the cancelled case, below.
   `run()` AND `output()` ARE BOTH COOPERATIVE (designs 182 + 187) — `run` parks
   on the child's exit, and `output` additionally drains the stdout pipe on a
   worker thread (the seam is `blocking`, so design 183 offloads it), so a task
@@ -3507,9 +3512,9 @@ construct in the owner and lend `&driver` down.
   Capturing stderr on its own is not expressible yet.
   ```saw
   var c = Command(program: python)
-  c.arg("build.py")
-  c.env("PYTHONHASHSEED", "1")   // this child only; everything else inherited
-  c.merge_stderr()               // its diagnostics are not ours to print
+  try! c.arg("build.py")
+  try! c.env("PYTHONHASHSEED", "1")  // this child only; everything else inherited
+  c.merge_stderr()                   // its diagnostics are not ours to print
   ```
 - `UnsafePointer<T> + n` / `- n` / `[i]` are ELEMENT-STRIDE GEPs (the C
   convention: `UnsafePointer<Int32> + 1` advances 4 bytes). Use them for typed
