@@ -254,6 +254,21 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # ---------------------------------------------------------------- #
         self._poisoned_type_names: Set[str] = set()
         self._type_refusals: Dict[str, object] = {}
+        # DF-247b: the same idea, keyed on the WHOLE dotted spelling. A
+        # `data.Data` whose qualifier is not bound here is refused and then
+        # keeps its spelling as a name-only type, so every later comparison
+        # reports the mismatch that refusal caused ("cannot assign `Data` to
+        # variable of type `data.Data`" — the shape DF-247b was filed as). The
+        # full spelling is the key, not the simple name the poison set uses,
+        # because the BARE `Data` beside it is a perfectly good type and its own
+        # mismatches must still be reported.
+        self._unbound_qualifier_types: Set[str] = set()
+        # The FILES that refusal fired in. A local of the unresolved type makes
+        # every read off it answer nothing, so the enclosing body types as no
+        # value — DF-232o's "body has no value" shadow, reached through a local
+        # rather than through the signature. Scoped to the file because the
+        # refusal is reported there and that file already fails to compile.
+        self._unbound_qualifier_files: Set[str] = set()
         # DF-232n: module path -> package identity, for every module the driver
         # loaded (`ModuleResolver.package_identity`). A package reached by
         # RELATIVE path has no mapped name to root it at, so this is what makes
@@ -1567,9 +1582,10 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
 
         The use-site half of design 229's diagnostic: the reader wrote a name
         that a module they can see does have, and needs to be told that seeing
-        it is not reaching it. Both import shapes are searched — the qualifier
-        forms through `modules`, the glob form through `glob_sources`, which
-        binds no qualifier and would otherwise be unable to speak."""
+        it is not reaching it. All THREE import shapes are searched — the
+        whole-module form through `modules`, and the glob and selective forms
+        through their own source lists, since neither binds a qualifier
+        (DF-247b) and both would otherwise be unable to speak."""
         ns = self.namespace
         for qualifier, module_sym in ns.modules.items():
             source_ns = getattr(module_sym, 'namespace', None)
@@ -1578,11 +1594,38 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             origin = source_ns.hidden_import(name, as_module=as_module)
             if origin is not None:
                 return (qualifier, origin)
-        for label, source_ns in getattr(ns, 'glob_sources', ()):
+        for label, source_ns in (list(getattr(ns, 'glob_sources', ()))
+                                 + list(getattr(ns, 'selective_sources', ()))):
             origin = source_ns.hidden_import(name, as_module=as_module)
             if origin is not None:
                 return (label, origin)
         return None
+
+    def _nonbinding_qualifier_hint(self, name: str) -> Optional[str]:
+        """The fixit for a qualifier this file did not bind, or None (DF-247b).
+
+        THE ONE PLACE that turns "this name is not a qualifier here" into advice
+        (obligation 1). ENTRY POINTS, the two positions a qualifier is written
+        in: `_gate_resolved_type`'s qualified arm (a TYPE — `data.Data`), and
+        `_check_identifier`'s undefined-variable ladder (an EXPRESSION —
+        `data.Data()`, `time.Instant.now()`, `m.CONST`).
+
+        Design 150's amendment made this reachable by taking the qualifier away
+        from the selective form, so the common case is an author whose
+        `import std.data.{Data}` used to reach the rest of the module for free.
+        The fix is one line and nothing about the error would suggest it, so the
+        hint names it. A qualifier no import in the file mentions at all gets
+        the general form instead — that is a typo or a missing import, not a
+        migration.
+        """
+        entry = getattr(self.namespace, 'nonbinding_qualifiers', {}).get(name)
+        if entry is None:
+            return None
+        path, form = entry
+        written = (f"`import {path}.*`" if form == "glob"
+                   else f"`import {path}.{{...}}`")
+        return (f"{written} binds the names it takes and no qualifier — add "
+                f"`import {path}` to write `{name}.<name>`")
 
     def _names_a_type_here(self, name: str) -> bool:
         """Whether `name` already denotes a type in this module's own view."""
@@ -1648,27 +1691,64 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         return False
 
     @staticmethod
-    def _qualifier_is_reexported(imp) -> bool:
+    def _import_is_glob(imp) -> bool:
+        """Whether `imp` is the `.*` form, in either spelling the parser uses."""
+        return (bool(getattr(imp, 'is_glob', False))
+                or list(getattr(imp, 'path', ()) or ())[-1:] == ['*'])
+
+    @classmethod
+    def _import_binds_qualifier(cls, imp) -> bool:
+        """Whether this import FORM binds a module qualifier.
+
+        THE ONE ANSWER (design 150 as amended by DF-247b, obligation 1). The
+        WHOLE-MODULE form binds one — `import std.data` binds `data`, `as`
+        renaming it — and NOTHING else does. The selective and glob forms bind
+        exactly the surface they name and no qualifier.
+
+        The amendment is the design's own reasoning applied consistently. A
+        selective import is the form whose whole point is that the import LIST
+        documents the dependency; handing it a qualifier for everything it did
+        not list gave the file an undocumented reach into the rest of the module
+        — the very thing the braces exist to prevent — and made `import m.{A}`
+        and `import m` differ only in convenience. And a bonus reach was where
+        DF-247b's fresh-identity bug hid: under a glob the same spelling
+        resolved to a name-only type that compared unequal to the bare one, with
+        nothing said.
+
+        Callers: `_bind_module_qualifier` (which applies this, so no binding
+        site can bypass it) and `_qualifier_is_reexported`.
+        """
+        return not cls._import_is_glob(imp) and not getattr(imp, 'symbols', None)
+
+    @classmethod
+    def _qualifier_is_reexported(cls, imp) -> bool:
         """Whether `imp` re-exports the qualifier it binds (design 229).
 
         Per FORM, not per `public` keyword. The WHOLE-MODULE form binds no bare
         name, so its qualifier is the only thing it has to hand on — that IS
         the re-export, and `public import dep` means an importer reaches dep's
-        surface through the chain. The SELECTIVE form's qualifier stays this
-        file's own convenience even under `public import`: a selective
-        re-export hands on the names it NAMED, and re-exporting the qualifier
-        beside them would quietly hand on the whole module. The glob form binds
-        no qualifier at all."""
+        surface through the chain. The other two forms bind no qualifier at all
+        (DF-247b), so a `public import m.{A}` hands on the names it NAMED and
+        nothing else, which is what makes a curated facade possible."""
         return (bool(getattr(imp, 'is_public', False))
-                and not getattr(imp, 'symbols', None))
+                and cls._import_binds_qualifier(imp))
 
     def _bind_module_qualifier(self, ns, imp, alias, path, source_ns):
         """Bind `alias` as a module qualifier in `ns` (design 150 pins 1, 3, 5).
 
-        One import form or another, a qualifier is one name bound to one module.
-        Two imports claiming it is reported HERE, at the import, naming both
-        paths — the use site could only say the qualifier reached the wrong
-        module, which is the wrong place to learn it.
+        THE ONE BINDING SITE, and it applies `_import_binds_qualifier` itself
+        rather than trusting its callers to (obligation 1: the decision has one
+        home). ENTRY POINTS: `_process_std_import` for `std.*`, and
+        `check_module`'s whole-module arm for a user module. Both used to have a
+        selective-arm sibling; those are gone with the amendment, and a caller
+        that grew one back would be refused here rather than quietly binding.
+
+        A qualifier is one name bound to one module. Two imports claiming it is
+        reported HERE, at the import, naming both paths — the use site could
+        only say the qualifier reached the wrong module, which is the wrong
+        place to learn it. Two imports of the SAME module never collide (the
+        paths match), which is what makes `import std.data` beside
+        `import std.data.{Data}` legal and complementary.
 
         The qualifier's VISIBILITY is what a reach from an importer is judged
         against, so it carries design 229's answer for this import's form
@@ -1678,6 +1758,8 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         "module `facade` has no symbol `dep`" for public symbols too, so the
         form re-exported NOTHING in value position)."""
         from namespace import ModuleSymbol
+        if not self._import_binds_qualifier(imp):
+            return
         prior = ns.modules.get(alias)
         if prior is not None and list(getattr(prior, 'path', ())) != list(path):
             self._error(
@@ -1863,21 +1945,31 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             for sym_name in available:
                 _expose(sym_name, sym_name)
 
-        # Design 150 pins 1 and 3: the whole-module and selective forms bind the
-        # last path segment as a qualifier (`as Y` overrides). The glob form does
-        # not, exactly as a user-module glob does not — it gave you the names.
-        if not is_glob:
-            std_alias = getattr(imp, 'alias', None) or path[-1]
-            # design 229: the qualifier is re-exported by the whole-module form
-            # only; a selective import's qualifier stays this file's own. One
-            # predicate for both halves of that rule, so the export gate and
-            # the qualifier's own visibility can never drift (DF-232l).
-            if not self._qualifier_is_reexported(imp):
-                ns.note_private_import(std_alias, std_source, as_module=True)
+        # Design 150 pin 1, as amended by DF-247b: the WHOLE-MODULE form binds
+        # the last path segment as a qualifier (`as Y` overrides), and the
+        # selective and glob forms bind none — they gave you the names.
+        std_alias = getattr(imp, 'alias', None) or path[-1]
+        # design 229's note is about what this file IMPORTS, not about what it
+        # binds, so every form records it: `m.dep.X` from an importer is refused
+        # by naming the private import, and that story is the same whether or
+        # not `dep` also bound a qualifier over here.
+        if not self._qualifier_is_reexported(imp):
+            ns.note_private_import(std_alias, std_source, as_module=True)
+        if self._import_binds_qualifier(imp):
             self._bind_module_qualifier(
                 ns, imp, alias=std_alias,
                 path=["std"] + path[1:],
                 source_ns=self._std_leaf_namespace(leaf, builtin_namespace))
+        else:
+            # The two consumers a non-binding form still owes (DF-247b): the
+            # per-file std leaf view, so a CONFORMANCE the leaf declares is
+            # reachable exactly as it was through the qualifier, and the fixit
+            # table, so `data.Data` under `import std.data.*` can be told which
+            # line would make it mean something.
+            ns.selective_sources.append(
+                (std_source, self._std_leaf_namespace(leaf, builtin_namespace)))
+            ns.nonbinding_qualifiers.setdefault(
+                std_alias, (std_source, "glob" if is_glob else "selective"))
         return leaf
 
     def _decl_is_std_sourced(self, node) -> bool:
@@ -2221,6 +2313,13 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         name a module this file imports has and does not hand on (design 229),
         and — last, since either of those is a better answer where it applies —
         does it name a type at all (design 241 unit 1, DF-225b).
+
+        The QUALIFIED arm asks its own two, in the same shape: design 229's
+        export wall first, then — DF-247b — whether the qualifier is bound here
+        at all. That second one used to be nobody's: an unresolvable qualifier
+        left the written spelling alone, so `data.Data` became a name-only type
+        that compared unequal to `Data` and the author was told about a type
+        mismatch rather than about the import.
         """
         name = saw_type.written_name
         if not name:
@@ -2238,8 +2337,10 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             if key in self._gate_reported:
                 return
             self._gate_reported.add(key)
-            self._report_qualified_not_reexported(
-                name, saw_type.written_line, saw_type.written_column)
+            if self._report_qualified_not_reexported(
+                    name, saw_type.written_line, saw_type.written_column):
+                return
+            self._report_unbound_qualifier(saw_type, name)
             return
         key = (saw_type.written_file, name,
                saw_type.written_line, saw_type.written_column)
@@ -2267,6 +2368,43 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # names a type at all.
         self._report_undefined_type_name(saw_type, name, type_params,
                                          is_type_argument)
+
+    def _report_unbound_qualifier(self, saw_type, name: str) -> None:
+        """A qualified TYPE whose first hop is not a qualifier here (DF-247b).
+
+        The design-150 amendment's refusal. Only the FIRST hop is judged: every
+        hop past it reaches through a module, and a wrong name over there is
+        design 229's diagnostic or the module's own "no such symbol", both of
+        which have run by the time this is reached.
+
+        THE SCOPE FENCE is the same one `_report_undefined_type_name` carries
+        and for the same reason: a foreign module's signature reaches resolution
+        whenever one of its declarations is instantiated, and it names ITS
+        qualifiers, which are nothing here. Only the file being checked may be
+        judged; its own nodes are judged when it is.
+        """
+        first = name.split('.')[0]
+        if self._module_qualifier(first) is not None:
+            return
+        if self.namespace.modules.get(first) is not None:
+            return
+        here = self._decl_source_file or self._get_current_source_file()
+        if not saw_type.written_file or saw_type.written_file != here:
+            return
+        # The refusal is the story; the mismatches this unresolved spelling
+        # causes downstream are its shadow (DF-232o's rule, keyed on the whole
+        # dotted name so the bare one beside it is untouched).
+        self._unbound_qualifier_types.add(name)
+        self._unbound_qualifier_files.add(saw_type.written_file)
+        self._error(
+            ErrorKind.UNKNOWN_TYPE,
+            f"`{first}` is not a module qualifier here",
+            saw_type.written_line, saw_type.written_column,
+            hint=(self._nonbinding_qualifier_hint(first)
+                  or f"a qualifier is bound by the whole-module import form — "
+                     f"write `import <module>` to spell `{name}`"),
+            source_file=(saw_type.written_file or None),
+        )
 
     # ---------------------------------------------------------------- 241
     # AN UNDEFINED TYPE NAME (design 241 unit 1, closing DF-225b).
@@ -3140,6 +3278,12 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                     source_ast, source_ns = checked_modules[base_path]
                     glob_label = '.'.join(base_path) if base_path else "<entry>"
                     ns.glob_sources.append((glob_label, source_ns))
+                    # DF-247b: a glob has never bound a qualifier, and the
+                    # spelling used to resolve to a name-only type anyway. Say
+                    # which line would bind one instead.
+                    if base_path:
+                        ns.nonbinding_qualifiers.setdefault(
+                            base_path[-1], (glob_label, "glob"))
                     # Design 229: the glob takes the module's SURFACE — what it
                     # declares public plus what it re-exports — never a name it
                     # merely imports.
@@ -3281,18 +3425,26 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                             if local not in ns.statics:
                                 ns.register_static(local, sym)
                             ns.make_accessible(local)
-                    # The selective form ALSO binds the qualifier, for reaching
-                    # the names it did not select (design 150 pin 3). That
-                    # qualifier is this module's convenience and stays private
-                    # even under `public import` (design 229): a selective
-                    # re-export hands on the names it NAMED, and re-exporting
-                    # the qualifier beside them would hand on the whole module.
+                    # DF-247b's amendment to design 150 pin 3: the selective
+                    # form binds the names it SELECTED and NO qualifier. The
+                    # import list is what documents the dependency, and a bonus
+                    # reach into everything the list did not name is the
+                    # undocumented dependency the braces exist to prevent.
+                    #
+                    # Two things the form still owes, neither of which is the
+                    # qualifier: design 229's private-import note (an importer
+                    # asking for `m.dep.X` is refused by naming what `m`
+                    # imports, whoever binds what), and the source namespace as
+                    # a COHERENCE search root (design 142 makes a conformance
+                    # program-wide, so no import form may lose one — DF-238c
+                    # closed the glob's copy of this hole).
                     sel_alias = (imp.alias or (imp.path[-1] if imp.path else ""))
-                    ns.note_private_import(sel_alias, '.'.join(imp_path),
+                    sel_source = '.'.join(imp_path) if imp_path else "<entry>"
+                    ns.note_private_import(sel_alias, sel_source,
                                            as_module=True)
-                    self._bind_module_qualifier(
-                        ns, imp, alias=sel_alias,
-                        path=list(imp_path), source_ns=source_ns)
+                    ns.selective_sources.append((sel_source, source_ns))
+                    ns.nonbinding_qualifiers.setdefault(
+                        sel_alias, (sel_source, "selective"))
             else:
                 # import foo.bar -> register module for qualified access
                 direct_imports.add(imp_path)

@@ -436,14 +436,17 @@ class TypeUtilsMixin:
         the same symbol object across modules is not a collision.
         """
         matches = []  # list of (module_name, symbol)
-        for module_name, module_sym in self.namespace.modules.items():
-            if not module_sym.namespace:
-                continue
+        # DF-247b: `imported_search_sources`, not `modules` — a selectively
+        # imported module is still one this name may come from, and since the
+        # design 150 amendment it no longer binds a qualifier to be found under.
+        # The sos kernel is where that mattered: `ATTACHMENTS[a].kind` reads a
+        # field off an element whose TYPE the import list never named.
+        for module_name, module_ns in self.namespace.imported_search_sources():
             # design 229: a module hands on its own surface. A name it merely
             # imports is not found through it, bare any more than qualified.
-            if module_sym.namespace.hidden_import(name):
+            if module_ns.hidden_import(name):
                 continue
-            sym = lookup(module_sym.namespace)
+            sym = lookup(module_ns)
             if sym is None or getattr(sym, 'visibility', None) == Visibility.PRIVATE:
                 continue
             # Dedup shared objects (builtins) by identity.
@@ -2670,8 +2673,14 @@ class TypeUtilsMixin:
         if t is None or depth > 6:
             return False
         for name in (t.struct_name, t.enum_name):
-            if name and (name.split('$', 1)[0].rpartition('.')[2]
-                         in self._poisoned_type_names):
+            if not name:
+                continue
+            if (name.split('$', 1)[0].rpartition('.')[2]
+                    in self._poisoned_type_names):
+                return True
+            # DF-247b: a qualified spelling whose qualifier is not bound here.
+            # Matched WHOLE, so the bare name beside it stays judged.
+            if name in self._unbound_qualifier_types:
                 return True
         for child in (t.inner_type, t.array_element_type, t.func_return_type):
             if self._type_is_poisoned(child, depth + 1):
@@ -2690,8 +2699,20 @@ class TypeUtilsMixin:
         shadow — the ONE mistake is the tier, reported where the type is named —
         so the two "body has no value" verdicts (`_check_method_body`,
         `_reconcile_return_type`) consult this before adding a second story.
+
+        DF-247b adds the second route to the same shadow: an unbound QUALIFIER
+        refused in this file leaves a local of an unresolved type, and a read
+        off THAT answers nothing just as a parameter's does. A local is not in
+        the signature, so the question is asked of the FILE — which is sound
+        because the refusal was reported there and that file cannot compile.
         """
-        if not self._poisoned_type_names or decl is None:
+        if decl is None:
+            return False
+        if (self._unbound_qualifier_files
+                and getattr(decl, 'source_file', None)
+                in self._unbound_qualifier_files):
+            return True
+        if not self._poisoned_type_names:
             return False
         for param in (getattr(decl, 'parameters', None) or ()):
             if self._type_is_poisoned(getattr(param, 'type', None)):
@@ -2719,7 +2740,7 @@ class TypeUtilsMixin:
         # refusal stand as the story. Judged here because this is the single
         # place two types are compared; the fifteen mismatch diagnostics that
         # ask it are all downstream of this one answer.
-        if self._poisoned_type_names and (
+        if (self._poisoned_type_names or self._unbound_qualifier_types) and (
                 self._type_is_poisoned(a) or self._type_is_poisoned(b)):
             return True
 

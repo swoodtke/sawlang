@@ -467,6 +467,22 @@ class Namespace:
         # — and a bare name refused because the globbed module only imports it
         # would otherwise have no way to say so.
         self.glob_sources: List[Tuple[str, 'Namespace']] = []
+        # The SELECTIVE imports, on exactly the same terms (design 150 as
+        # amended by DF-247b). A selective import binds the names it lists and
+        # NO qualifier, so its source module left `modules` with the amendment —
+        # and the two questions `modules` was answering for it are not the
+        # qualifier question: whether a CONFORMANCE declared over there is
+        # visible here (design 142's orphan rule makes one coherent
+        # program-wide, so no import form may lose one — DF-238c), and which
+        # module is hiding a bare name this file cannot reach (design 229's
+        # teaching case). Both read this list beside `glob_sources`.
+        self.selective_sources: List[Tuple[str, 'Namespace']] = []
+        # The names this file's selective and glob imports would have bound as
+        # qualifiers before the amendment: leaf -> (module path, form word).
+        # Nothing resolves through it — it exists so the refusal at a qualifier
+        # that is not bound can name the whole-module line that WOULD bind it,
+        # which is the one thing the author needs and cannot guess.
+        self.nonbinding_qualifiers: Dict[str, Tuple[str, str]] = {}
 
         # --- the import gate's tables, wired in from outside (design 194 u1) --
         # Filled by `sawc.py` on the BUILTIN namespace once std has been parsed,
@@ -1281,6 +1297,47 @@ class Namespace:
         method = self.lookup_method(struct_name, method_name)
         return method.is_init if method else False
 
+    def imported_search_sources(self):
+        """`(label, namespace)` for every module an ordinary NAME lookup may
+        fall through to (DF-247b).
+
+        THE ONE LIST for that question. Four walks used to iterate `modules`
+        directly and reach a selectively-imported module because the selective
+        form also bound a qualifier: `_lookup_struct_deep` and its type-alias
+        and enum twins, `trait_refines`' parent walk, and — the one the sos
+        kernel found — `_cross_module_lookup`, the bare-name fallback that
+        answers `ATTACHMENTS[a].kind` when the element's TYPE was never
+        selected beside the static that holds it.
+
+        The design 150 amendment took the QUALIFIER away and nothing else, so
+        these read this instead: `import m.{Child}` still finds `Child`'s
+        unselected PARENT over in `m`, and the only thing that changed is that
+        `m.Whatever` is no longer a spelling.
+
+        A GLOB source is deliberately NOT here, and that is the pre-existing
+        line: a glob COPIES the names it is entitled to, so a name it did not
+        copy is one this module may not see, and widening the walk would reach
+        the globbed module's private declarations. A selective import's source
+        was always reachable, so keeping it reachable is the conservative half.
+
+        The label is how a caller names the module in a diagnostic; a module
+        imported BOTH ways yields twice, which its callers already handle by
+        deduplicating symbol objects by identity.
+        """
+        for qualifier, module_sym in self.modules.items():
+            ns = getattr(module_sym, 'namespace', None)
+            if ns is not None:
+                yield (qualifier, ns)
+        for label, ns in self.selective_sources:
+            if ns is not None:
+                yield (label, ns)
+
+    def imported_search_namespaces(self):
+        """The namespaces of `imported_search_sources`, for callers with no
+        diagnostic to write."""
+        for _label, ns in self.imported_search_sources():
+            yield ns
+
     def coherence_search_namespaces(self):
         """Every namespace a COHERENCE query reaches from here (DF-238c).
 
@@ -1289,29 +1346,36 @@ class Namespace:
         and `_lookup_thread_assertion` — the two queries about what a type was
         DECLARED to be, as opposed to what a name resolves to.
 
-        Both import forms that bind a QUALIFIER land in `modules`; a GLOB binds
-        none and lands in `glob_sources` instead. That is the right answer for a
-        NAME (a glob copies the names it takes straight into this namespace, and
-        the ones it did not take are ones this module may not see), and the
-        wrong one for a CONFORMANCE: design 142 makes a conformance declared
-        under the orphan rule coherent PROGRAM-WIDE, so no import form may lose
-        one. Before this walked `glob_sources` too, `import m.*` lost every
-        conformance `m` declares for a type declared ELSEWHERE — the orphan
-        rule's second half, the half whose declaration site is the trait's
-        module rather than the type's, and therefore the half a glob of the
-        TYPE's module cannot carry either. The same gap hid the `UnsafeSync` a
-        `static` slot needs, one query over.
+        The WHOLE-MODULE form binds a qualifier and lands in `modules`; the GLOB
+        and (since DF-247b's amendment to design 150) the SELECTIVE form bind
+        none and land in `glob_sources` / `selective_sources` instead. That is
+        the right answer for a NAME (a copying import brings the names it takes
+        straight into this namespace, and the ones it did not take are ones this
+        module may not see), and the wrong one for a CONFORMANCE: design 142
+        makes a conformance declared under the orphan rule coherent
+        PROGRAM-WIDE, so no import form may lose one. Before this walked
+        `glob_sources` too, `import m.*` lost every conformance `m` declares for
+        a type declared ELSEWHERE — the orphan rule's second half, the half
+        whose declaration site is the trait's module rather than the type's, and
+        therefore the half a glob of the TYPE's module cannot carry either. The
+        same gap hid the `UnsafeSync` a `static` slot needs, one query over.
+        `selective_sources` is that same list for the form the amendment moved:
+        the selective import's source used to be reachable only because it also
+        bound a qualifier, which was never what made the conformance visible.
 
         Name lookups (`_lookup_struct_deep` and its enum/alias twins, the
         trait-parent walk) are deliberately NOT routed here: those are questions
-        about visibility, where the glob's copy already did the right thing and
-        widening the search would reach a globbed module's PRIVATE declarations.
+        about visibility, where the copying import already did the right thing
+        and widening the search would reach that module's PRIVATE declarations.
         """
         for module_sym in self.modules.values():
             ns = getattr(module_sym, 'namespace', None)
             if ns is not None:
                 yield ns
         for _label, ns in self.glob_sources:
+            if ns is not None:
+                yield ns
+        for _label, ns in self.selective_sources:
             if ns is not None:
                 yield ns
 
@@ -1433,11 +1497,10 @@ class Namespace:
         result = self.lookup_struct(name)
         if result:
             return result
-        for module_sym in self.modules.values():
-            if module_sym.namespace:
-                found = module_sym.namespace._lookup_struct_deep(name)
-                if found:
-                    return found
+        for ns in self.imported_search_namespaces():
+            found = ns._lookup_struct_deep(name)
+            if found:
+                return found
         return None
 
     def _lookup_type_alias_deep(self, name: str) -> Optional[TypeAliasSymbol]:
@@ -1445,11 +1508,10 @@ class Namespace:
         result = self.lookup_type_alias(name)
         if result:
             return result
-        for module_sym in self.modules.values():
-            if module_sym.namespace:
-                found = module_sym.namespace._lookup_type_alias_deep(name)
-                if found:
-                    return found
+        for ns in self.imported_search_namespaces():
+            found = ns._lookup_type_alias_deep(name)
+            if found:
+                return found
         return None
 
     def is_trivially_copyable(self, saw_type: SawType) -> bool:
@@ -2321,12 +2383,11 @@ class Namespace:
             seen.add(name)
             info = self.lookup_trait(name)
             if info is None:
-                for module_sym in self.modules.values():
-                    if module_sym.namespace:
-                        found = module_sym.namespace.lookup_trait(name)
-                        if found is not None:
-                            info = found
-                            break
+                for ns in self.imported_search_namespaces():
+                    found = ns.lookup_trait(name)
+                    if found is not None:
+                        info = found
+                        break
             if info is not None:
                 stack.extend(getattr(info, 'parent_traits', []) or [])
         return False
@@ -2703,11 +2764,10 @@ class Namespace:
         result = self.lookup_enum(name)
         if result:
             return result
-        for module_sym in self.modules.values():
-            if module_sym.namespace:
-                found = module_sym.namespace._lookup_enum_deep(name)
-                if found:
-                    return found
+        for ns in self.imported_search_namespaces():
+            found = ns._lookup_enum_deep(name)
+            if found:
+                return found
         return None
 
     def _send_sync(self, saw_type: SawType, want_sync: bool, visiting: set,

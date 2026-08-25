@@ -10,16 +10,18 @@
 // conformance the orphan rule permits in exactly one place — plus a `static`
 // and a raw-backed enum crossing module lines.
 //
-// The IMPORT FORMS are chosen rather than habitual. `import fscore.{…}`
-// selects two names BARE and binds the `fscore.` qualifier for everything it
-// did not name, so this one case exercises both spellings. `Summary` and
-// `report_summary` are selected because a glob does not carry the conformance a
-// generic bound needs (DF-238c, open and pinned); the qualifier serves the
-// non-generic calls, which is now a free choice rather than a forced one —
-// DF-238a's third face (the qualified path solving no type arguments) closed
-// Aug 21. Nothing here is worked around silently: the one live finding is
-// pinned, and this comment is the map.
+// The IMPORT FORMS are chosen rather than habitual, and BOTH of `fscore`'s are
+// written on purpose: `import fscore.{…}` selects two names BARE, and since
+// DF-247b that is all a selective import binds, so the `fscore.` qualifier the
+// non-generic calls use comes from the whole-module line beside it. `Summary`
+// and `report_summary` are selected rather than qualified because a glob does
+// not carry the conformance a generic bound needs (DF-238c, closed Aug 22);
+// the qualifier serves the rest, which is a free choice rather than a forced
+// one — DF-238a's third face (the qualified path solving no type arguments)
+// closed Aug 21. So this one case exercises both spellings of one module and
+// the design-150 amendment's complementary pair at the same time.
 
+import fscore
 import fscore.{Summary, report_summary}
 import fsdata.{Descriptor, Flag, DESCRIPTOR_BYTES}
 

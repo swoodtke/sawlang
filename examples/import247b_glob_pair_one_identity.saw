@@ -1,0 +1,42 @@
+// DF-247b half 2, the GLOB half of the pair — and the axes the finding was
+// filed on.
+//
+// `import std.data` + `import std.data.*` is the combination that used to be
+// unwritable in effect: the glob bound no qualifier, so `data.Data` resolved to
+// a name-only type and `var b: data.Data = Data()` was "cannot assign `Data` to
+// variable of type `data.Data`", a mismatch against a phantom. With the
+// whole-module line beside it the two spellings are one type, here and at the
+// compiler-emitted type the filing's second axis used (`frame.Slot<Int>`), and
+// the same holds for a user module.
+// COMPILE-FLAGS: --module-path pair247b={TESTDIR}/modules/pair247b
+// EXPECT: success
+// EXPECT-OUTPUT: std 3
+// EXPECT-OUTPUT: emitted 7
+// EXPECT-OUTPUT: user 11
+
+import std.data
+import std.data.*
+import std.compiler.frame
+import std.compiler.frame.*
+import pair247b
+import pair247b.*
+
+func main() {
+    // A gated std type, the filing's first axis.
+    var a: Data = Data()
+    a.push(1 as UInt8)
+    var b: data.Data = move a
+    b.push(2 as UInt8)
+    b.push(3 as UInt8)
+    print("std {b.len()}")
+
+    // A COMPILER-EMITTED std type, the filing's second axis, with the generic
+    // argument written on the qualified side and read on the bare one.
+    let s: frame.Slot<Int> = Slot<Int>.of(7)
+    print("emitted {s.value()}")
+
+    // And a user module, where the glob and the qualifier come from two lines
+    // that name one module.
+    let w: pair247b.Widget = Widget(count: 11)
+    print("user {w.count()}")
+}

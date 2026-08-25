@@ -471,8 +471,13 @@ any other module:
 ```saw
 import std.time                    // binds the qualifier: time.Instant.now()
 import std.time.*                  // every public name, bare: Instant.now()
-import std.time.{Instant}          // Instant bare, plus the time qualifier
+import std.time.{Instant}          // Instant bare, and only Instant
 ```
+
+Each form binds exactly what it names, so the qualifier comes from the
+whole-module line and nowhere else. Write both when you want both — they are
+complementary, and the bare and qualified spellings are then the same type
+everywhere.
 
 Imports are private: what an import binds is the file's, not its callers'. A
 module's surface is what it declares `public` — importing `parser` reaches

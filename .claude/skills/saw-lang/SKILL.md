@@ -2377,7 +2377,7 @@ dump_tasks()                // every live task's logical backtrace (std.task)
 
 ## Modules & packages
 ```saw
-import std.net.{TcpListener, TcpStream}   // selective: those names bare + a `net.` qualifier
+import std.net.{TcpListener, TcpStream}   // selective: EXACTLY those names, bare
 import std.file.*                          // glob: every public name of the module, BARE
 import std.file                            // whole module: QUALIFIED ONLY — `file.File`
 import mymodule as mm       // aliasing; `module`/`public`/`package`/`parent`
@@ -2387,15 +2387,35 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
   (design 150).** `import std.time` binds the last segment as a QUALIFIER
   and exposes nothing bare (`time.Instant.now()`, `let t: time.Instant`);
   `import std.time.*` puts every public name in scope bare;
-  `import std.time.{Instant}` does both — `Instant` bare AND a `time.`
-  qualifier for what it did not name. `as` renames the qualifier
-  (`import std.time as clock`), braces rename a symbol (`{Map as Dict}`).
+  `import std.time.{Instant}` binds `Instant` and only `Instant`. `as`
+  renames the qualifier (`import std.time as clock`), braces rename a
+  symbol (`{Map as Dict}`).
   A qualifier works in EVERY position a name appears: annotations (incl.
   behind `&`/`&var` and inside `Optional`), return types, generic arguments,
   call heads, constructors, static-method chains (`time.Instant.now()`),
   enum construction, `any` existentials (`&any shapes.Named`) and generic
   bounds (`<T: shapes.Named>`). A bare name that only a qualifier is in
   scope for is a clean error naming all three forms.
+  **EACH FORM BINDS EXACTLY WHAT IT NAMES (DF-247b, Aug 24).** Only the
+  whole-module form binds a qualifier. A selective import used to bind one
+  too, for reaching what it did not list — an undocumented reach into the
+  rest of the module, which is the very thing the braces exist to prevent.
+  Want both? Write both, on two lines naming one module — they are
+  COMPLEMENTARY, not a duplicate-qualifier collision (that error is about
+  two DIFFERENT modules), and the bare and qualified spellings are then ONE
+  TYPE in every position:
+  ```saw
+  import std.file
+  import std.file.{File}
+  func open_it(p: Path) -> Result<File, IoError> { File.open(p) }
+  func exists(p: Path) -> Bool { file.File.exists(p) }
+  ```
+  A qualifier no whole-module import bound is a clean error naming the line
+  that would bind it (``error: `net` is not a module qualifier here``), in a
+  type position and an expression position alike. Treat all of this as
+  current and SUSPECT in older builds, where `import std.net.{TcpStream}` also
+  gave you `net.IoError` — and where the same spelling under a GLOB resolved
+  to a name-only type that compared unequal to the bare one, with nothing said.
   **IDIOM**: braces in library code (the import list documents the
   dependency and survives a rename); glob for a vocabulary module a file
   leans on (`std.path.*` in a file that is all paths); qualified for
@@ -2441,9 +2461,9 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
   the name really lives in. std is under the same rule: your `import
   std.data` is not on your surface. `public import` opts in, on every form —
   `public import wire` re-exports the QUALIFIER (`m.wire.Header`), `public
-  import wire.{Header}` re-exports that NAME (and not the `wire` qualifier
-  it also binds for you, which is what makes a curated facade possible),
-  `public import wire.*` re-exports the whole vocabulary. Your own view of
+  import wire.{Header}` re-exports that NAME and only it (it binds no
+  qualifier of its own to hand on, which is what makes a curated facade
+  possible), `public import wire.*` re-exports the whole vocabulary. Your own view of
   your imports is unchanged either way, and a re-export widens no extension
   scope (a re-exported type keeps its own module's inherent API and brings
   nothing else).

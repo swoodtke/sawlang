@@ -1,17 +1,26 @@
-// Design 150 pins 1-3: the three import forms, side by side.
-//   `import std.X`          -> qualified only
-//   `import std.X.*`        -> every public name, bare
-//   `import std.X.{A}`      -> `A` bare AND the `X` qualifier for the rest
+// Design 150 pins 1-3, as amended by DF-247b: the three import forms, side by
+// side, and each binds EXACTLY what it names.
+//   `import std.X`          -> the qualifier `X`, nothing bare
+//   `import std.X.*`        -> every public name, bare, no qualifier
+//   `import std.X.{A}`      -> `A` bare, no qualifier
 //   `import std.X as Y`     -> the qualifier under another name
+//
+// The selective form's bonus qualifier is what the amendment removed: the
+// import LIST is what documents the dependency, and a free reach into
+// everything the list did not name is the undocumented dependency the braces
+// exist to prevent. Ask for the qualifier by writing the whole-module line —
+// which is legal beside the selective one, and is the pair the next test over
+// (`import247b_pair_one_identity.saw`) pins.
 // EXPECT: success
 // EXPECT-OUTPUT: qualified 3
 // EXPECT-OUTPUT: glob true
 // EXPECT-OUTPUT: selective-bare 5
-// EXPECT-OUTPUT: selective-qualified 5
+// EXPECT-OUTPUT: both-forms 5
 // EXPECT-OUTPUT: aliased true
 import std.data
 import std.path.*
 import std.file.{File}
+import std.file
 import std.time as clock
 
 func main() {
@@ -26,13 +35,14 @@ func main() {
     let p = Path(s: "/etc/hosts")
     print("glob {p.is_absolute()}")
 
-    // Selective: the selected name is bare...
+    // Selective: the selected name is bare, and that is all it binds.
     let bare = if File.exists(p) { 5 } else { 5 }
     print("selective-bare {bare}")
 
-    // ...and the qualifier still reaches the module for anything else.
-    let qualified = if file.File.exists(p) { 5 } else { 5 }
-    print("selective-qualified {qualified}")
+    // The whole-module line beside it is what supplies the qualifier, and the
+    // two spellings are ONE type.
+    let both = if file.File.exists(p) { 5 } else { 5 }
+    print("both-forms {both}")
 
     // `as` renames the qualifier a whole-module import binds.
     let started = clock.Instant.now()

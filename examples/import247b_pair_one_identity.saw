@@ -1,0 +1,103 @@
+// DF-247b half 2: `import m` beside `import m.{...}` is LEGAL and
+// COMPLEMENTARY, and with both written the bare and qualified spellings are ONE
+// TYPE in every position a type name appears.
+//
+// The pair is newly legal — the selective form binds no qualifier since the
+// design 150 amendment, so nothing collides and the whole-module line is how a
+// file that selects some names still reaches the rest. That makes this the
+// shape DF-247b's own mechanism could have lurked on: a qualified spelling that
+// resolves to a name-only type compares unequal to the bare one and says
+// nothing, which is exactly what a glob used to do. Every row below crosses the
+// two spellings on purpose, so a fresh identity anywhere is a type error here.
+// COMPILE-FLAGS: --module-path pair247b={TESTDIR}/modules/pair247b
+// EXPECT: success
+// EXPECT-OUTPUT: annotation 3
+// EXPECT-OUTPUT: construction 30
+// EXPECT-OUTPUT: generic 7
+// EXPECT-OUTPUT: erasure widget widget
+// EXPECT-OUTPUT: extension 13
+// EXPECT-OUTPUT: bound widget widget
+// EXPECT-OUTPUT: slots 41 2
+// EXPECT-OUTPUT: alias 9
+
+import pair247b
+import pair247b.{Widget, Named, Shade, make}
+
+// ANNOTATION — the DF-247b repro shape, both directions.
+func annotation() -> Int {
+    let a: Widget = make(1)
+    let b: pair247b.Widget = a
+    let c: Widget = b
+    a.count() + b.count() + c.count()
+}
+
+// CONSTRUCTION — either spelling builds the same type.
+func construction() -> Int {
+    let a: pair247b.Widget = Widget(count: 10)
+    let b: Widget = pair247b.Widget(count: 20)
+    a.count() + b.count()
+}
+
+// GENERIC ARGUMENT — a bare element pushed into a qualified container, and back.
+func generic_argument() -> Int {
+    var v: Vector<pair247b.Widget> = []
+    v.push(Widget(count: 3))
+    var w: Vector<Widget> = []
+    w.push(pair247b.Widget(count: 4))
+    v[0].count() + w[0].count()
+}
+
+// `&any` BOUND — erasing a value made under one spelling to the other's trait.
+func by_bare_erasure(t: &any Named) -> String { t.label() }
+func by_qualified_erasure(t: &any pair247b.Named) -> String { t.label() }
+
+// GENERIC BOUND — conformance coherence, asked through both spellings.
+func label_bare<T: Named>(t: &T) -> String { t.label() }
+func label_qualified<T: pair247b.Named>(t: &T) -> String { t.label() }
+
+// DECLARATION SLOTS — design 194's three raw ones, qualified.
+struct Holder {
+    w: pair247b.Widget,
+    tag: Shade
+}
+
+enum Chosen {
+    case Picked(w: pair247b.Widget),
+    case Nothing
+}
+
+type Outline = pair247b.Widget
+
+func main() {
+    print("annotation {annotation()}")
+    print("construction {construction()}")
+    print("generic {generic_argument()}")
+
+    let bare = Widget(count: 1)
+    let qualified = pair247b.Widget(count: 2)
+    print("erasure {by_bare_erasure(&qualified)} {by_qualified_erasure(&bare)}")
+
+    // EXTENSION LOOKUP — a method the receiver's own module declares, reached
+    // through a binding annotated with the other spelling.
+    var a: Widget = pair247b.Widget(count: 5)
+    a.bump()
+    var b: pair247b.Widget = Widget(count: 6)
+    b.bump()
+    print("extension {a.count() + b.count()}")
+
+    print("bound {label_bare(&qualified)} {label_qualified(&bare)}")
+
+    let h = Holder(w: Widget(count: 41), tag: Shade.Dark)
+    print("slots {h.w.count()} {h.tag as UInt8}")
+
+    // The enum payload comes back BARE out of the match, and the `type` alias
+    // — a DISTINCT type over the qualified spelling — takes it and projects
+    // back through the other one.
+    let picked = Chosen.Picked(w: pair247b.Widget(count: 9))
+    let inner: Widget = match picked {
+        case Picked(w) -> w,
+        case Nothing -> Widget(count: 0)
+    }
+    let outline: Outline = Outline(inner)
+    print("alias {(outline as pair247b.Widget).count()}")
+}

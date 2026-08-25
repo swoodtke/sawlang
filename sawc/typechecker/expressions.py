@@ -870,10 +870,16 @@ class ExpressionsMixin:
                          "may name only the statics above it — which is also "
                          "what makes a cycle impossible. Move the declaration up")
                 return None
+            # DF-247b: the EXPRESSION half of the unbound-qualifier refusal.
+            # `data.Data()` under `import std.data.*` reads its head as a
+            # variable, so it always ended here — with a true sentence and no
+            # way to act on it. The hint is the type position's, from the same
+            # helper, so both spellings of one mistake teach the same fix.
             self._error(
                 ErrorKind.UNDEFINED_VARIABLE,
                 f"undefined variable `{expr.name}`",
-                expr.line, expr.column
+                expr.line, expr.column,
+                hint=self._nonbinding_qualifier_hint(expr.name)
             )
             return None
 
@@ -4307,22 +4313,45 @@ class ExpressionsMixin:
             )
             return None
         if not func_info:
-            # Check if function exists in any imported module (not directly accessible)
+            # A function a module this file imports HAS, and this file did not
+            # bind. DF-247b widened the walk from `modules` to
+            # `imported_search_sources`: a selective import no longer binds a
+            # qualifier, so the module it named would otherwise stop being
+            # findable here — and this is the diagnostic whose whole job is to
+            # say which module has the name.
+            #
+            # The advice follows the amendment. The qualified spelling is only
+            # available where a whole-module import bound the qualifier, so a
+            # file that reached this module through braces or a glob is told to
+            # SELECT the name (the smaller edit, and the one its import list
+            # already documents), with the whole-module line as the other out.
             from namespace import SymbolKind
-            for module_name, module_sym in self.namespace.modules.items():
-                if module_sym.namespace:
-                    # design 229: not through a module that merely imports it.
-                    if module_sym.namespace.hidden_import(expr.name):
-                        continue
-                    sym = module_sym.namespace.lookup_function(expr.name)
-                    if sym and sym.visibility == Visibility.PUBLIC:
-                        self._error(
-                            ErrorKind.UNDEFINED_FUNCTION,
-                            f"function `{expr.name}` is not directly accessible",
-                            expr.line, expr.column,
-                            hint=f"use qualified access (e.g., `{module_name}.{expr.name}`) or import it directly"
-                        )
-                        return None
+            for module_name, module_ns in self.namespace.imported_search_sources():
+                # design 229: not through a module that merely imports it.
+                if module_ns.hidden_import(expr.name):
+                    continue
+                sym = module_ns.lookup_function(expr.name)
+                if sym and sym.visibility == Visibility.PUBLIC:
+                    qualifier = self.namespace.modules.get(module_name)
+                    if qualifier is not None:
+                        hint = (f"use qualified access "
+                                f"(`{module_name}.{expr.name}`), or select it "
+                                f"with `import {module_name}.{{{expr.name}}}`")
+                    else:
+                        # The qualifier a whole-module import binds is the LAST
+                        # path segment, which is what the reader would write.
+                        leaf = module_name.rsplit('.', 1)[-1]
+                        hint = (f"select it with "
+                                f"`import {module_name}.{{{expr.name}}}`, or "
+                                f"add `import {module_name}` to write "
+                                f"`{leaf}.{expr.name}`")
+                    self._error(
+                        ErrorKind.UNDEFINED_FUNCTION,
+                        f"function `{expr.name}` is not directly accessible",
+                        expr.line, expr.column,
+                        hint=hint
+                    )
+                    return None
             # `UserId(42)` — the explicit crossing INTO a distinct alias
             # (design 63). Checked before the struct branch below because an
             # alias name is resolved by its own lookup, not by struct info.

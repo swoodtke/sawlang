@@ -78,6 +78,7 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-249a — RULED Aug 24 (user): YES to both, ONE wording family — every bounds/range panic (compiler traps AND std's hand-written accessor prologues) spells `<what>: index out of range: <i> (len <n>)` (range/slice variants spell both bounds); free via the design-137 format machinery, alloc-free everywhere. Arithmetic traps (overflow/shift/div-zero) deliberately EXCLUDED from v1 (operand-format questions, marginal value) — recorded, not forgotten. Mechanical sweep + pinned-string updates; DISPATCHED Aug 24 (branch `resolution-wording`). Entry below
 - ~~DF-246a~~ — CLOSED Aug 24 (branch `harness-doctrine`, commit 1): the three ruled rules are TESTING.md's "Waiting in a multi-threaded test", with the park-on-controlled-gate idiom as its worked example, and BOTH members of the class are rewritten to it — each 10/10 byte-identical in isolation AND at loadavg 34, where the backtrace one also dropped from 3.9s per run to 0.01s. Entry below
 - ~~DF-248a~~ — CLOSED Aug 24 (branch `deferred-move`, commit 2) to the ruling: the hoist widened from a window-opening RHS to any read of the root, and every other in-window naming keeps its refusal behind the teaching text. Entry below
+- ~~DF-247b~~ — CLOSED Aug 24 (branch `resolution-wording`, commit 3): the design 150 amendment, both halves. One predicate (`_import_binds_qualifier`) inside the one binding site decides which form binds a qualifier; an unbound one is a refusal naming the whole-module line, in a type position and an expression position. The same-module pair is legal by construction and pinned position by position (conformance B24). Census: 5 files, 14 sites migrated — one of them in sos/, so the commit gated on sos_runner too. Consumer sweep moved the selective source into two new search lists rather than losing it; the first gate found two more walks the sweep had missed (the bare-name cross-module fallback, which is what 80 kernel builds died on, and the "not directly accessible" diagnostic), and the census probe had a string-interpolation blind spot it closed. Original ruling: (1) a QUALIFIER is bound ONLY by the whole-module form (`import std.data`, renamed by `as`); the selective and glob forms bind exactly their named/bare surface and NO qualifier — the former bonus-qualifier reach becomes a refusal with the fixit naming the whole-module line (an undocumented dependency was exactly what 150's own braces idiom exists to prevent); (2) same-module combinations (`import std.data` + `.{Data}` or `.*`) become LEGAL and complementary, and with both imported the bare and qualified spellings are ONE TYPE in EVERY position (annotation, construction, generic arg, `&any` bound, extension lookup, conformance coherence) — pinned by a position matrix, since the pair is newly legal and DF-247b's fresh-identity mechanism could lurk on it. Obligation-2 census owed (any in-tree qualifier use whose only import is selective/glob gets its explicit whole-module line). QUEUED for dispatch with DF-218h at the next free slot. Entry below
 - ~~DF-249a~~ — CLOSED Aug 24 (branch `resolution-wording`, commit 1): one funnel (`_emit_array_bounds_check`, 8 call sites) plus 13 std prologues all spell `<what>: index out of range: <i> (len <n>)`; the range variant spells both bounds; `Vector.swap` split its joint check so the message can name the guilty index; the negative index reports at its own signedness. 18 pins updated, one added (`fixedbuf_get_oob_panic.saw`, const-generic length under `--no-hidden-alloc`). Arithmetic traps excluded per the ruling, recorded in the spec. Entry below
 - DF-246a — RULED Aug 24 (user), the MT-TEST DOCTRINE, three rules: (1) a fixed sleep is NEVER a synchronizer (it may pace a poll loop, never establish state); (2) the awaited state must be STABLE once reached (workers park on gates the TEST controls — a channel nobody sends on, an Atomic the observer flips); (3) observe by POLLING the observation itself until the stable state appears, a generous deadline bounding only genuine breakage. No synchronized `dump_tasks` twin — its unsync character is a recorded feature. Execution: TESTING.md section (the three rules + the park-on-controlled-gate idiom), both flaky tests rewritten, DF-246a closes. Rides the DF-218h/247b/248a dispatch or the next harness batch. Entry below
 - DF-248a — RULED Aug 24 (user): NO carve-out to the Law. The ASSIGNMENT-RHS face (`v[0].n = v.len()`) LEGALIZES via the design-193/DF-218j hoist (RHS-first is the documented order, so hoisting the read ahead of the target's window is semantics-preserving by rule); every OTHER in-window naming of the root (arguments, body reads) keeps its refusal, because the hoist there would run the read ahead of the accessor's PROLOGUE — an observable reorder of documented sequence. USER REQUIREMENT: the refusal carries TEACHING TEXT explaining the asymmetry (the two shapes look identical to an uninformed reader — the error must say WHY the assignment form works and this one doesn't, and give the one-line `let` hoist as the fix). QUEUED for dispatch with DF-218h + DF-247b. Entry below
@@ -209,9 +210,10 @@ above); the rest are unprobed and presumed to be the same cell.
 Not pinned yet — a pin belongs with the sweep, and design 242 stopped at
 recording the shape rather than growing an unrelated fix. [52b, 242]
 
-## DF-247b — under a GLOB import the QUALIFIED spelling of a type is a
-## DIFFERENT type from the bare one (filed Aug 22 by design 242 unit 1's
-## identity probes; PRE-EXISTING and general — not a std-carve-out corner)
+## ~~DF-247b — under a GLOB import the QUALIFIED spelling of a type is a
+## DIFFERENT type from the bare one~~ (filed Aug 22 by design 242 unit 1's
+## identity probes) — **FIXED Aug 24** on branch `resolution-wording`, commit 3,
+## as the ruled DESIGN 150 AMENDMENT
 
 ```saw
 import std.data.*
@@ -248,6 +250,78 @@ the fix is "make it work" or "make the glob refuse a qualifier" is a RULING,
 not an implementation choice.
 
 Not pinned: the pin belongs with the ruling. [150, 194, 242]
+
+**FIXED Aug 24** (branch `resolution-wording`, commit 3), both ruled halves.
+HALF 1 — a QUALIFIER is bound ONLY by the whole-module form. The decision is one
+predicate, `_import_binds_qualifier`, applied INSIDE `_bind_module_qualifier`
+rather than at its callers, so no binding site can bypass it (obligation 1; the
+docstring names its two entries, and the selective arms that used to be a third
+and fourth are gone). The former bonus reach is a refusal naming the line that
+would bind it, at the two positions a qualifier is written: the TYPE funnel's
+qualified arm (`` `data` is not a module qualifier here ``, after design 229's
+export wall has had its say) and the expression ladder's undefined-variable
+verdict, both through one `_nonbinding_qualifier_hint`. The phantom's downstream
+shadows are suppressed on DF-232o's rule, keyed on the WHOLE dotted spelling so
+the bare `Data` beside it stays judged, plus the file-scoped "body has no value"
+verdict a local of an unresolved type produces.
+HALF 2 — the same-module pair is legal and complementary. It falls out rather
+than being added: with only one form binding, `import std.data` +
+`import std.data.{Data}` cannot collide, and the duplicate-qualifier error still
+fires on two DIFFERENT modules (both collision pins use whole-module imports and
+are untouched). ONE IDENTITY pinned position by position, since a fresh identity
+there would be silent — annotation (both directions), construction, generic
+argument (bare element into a qualified container and back), `&any` existential,
+generic bound, extension lookup, struct field, enum payload, `type` alias, and
+an `as` target: `examples/import247b_pair_one_identity.saw` over the new fixture
+`examples/modules/pair247b/`, plus `import247b_glob_pair_one_identity.saw` for
+the GLOB pair at the filing's own two axes (a gated std type and the
+compiler-emitted `frame.Slot<Int>`).
+CONSUMER SWEEP (obligation 2) — what read the selective form's `ns.modules`
+entry, and what each of them was really asking:
+  * COHERENCE (`coherence_search_namespaces`): would have LOST a conformance,
+    which is DF-238c's finding one form over. The source moved to a new
+    `selective_sources` list the same funnel walks beside `glob_sources`.
+  * design 229's bare-name hint (`_import_hiding`): same list, same reason.
+  * NAME lookups that fall through to imports — SIX walks, and the last two the
+    first gate found rather than the sweep: `_lookup_struct_deep` and its type
+    alias and enum twins, `trait_refines`' parent walk, `_cross_module_lookup`
+    (the bare-name fallback; sos's `ATTACHMENTS[a].kind` reads a field off an
+    element whose TYPE the import list never named, and 80 kernel builds failed
+    on it), and the "not directly accessible" diagnostic that says WHICH module
+    has a name. These were never qualifier questions — `import m.{Child}` has to
+    keep finding `Child`'s unselected PARENT — so they read a new
+    `imported_search_sources` that is `modules` plus the selective sources. A
+    GLOB source is deliberately still excluded there: a glob COPIES what it is
+    entitled to, so a name it did not copy is one this module may not see.
+  * `-W shadowed-qualifier` and the member-lookup shadow hint: scoped to the one
+    binding form automatically, since both read `ns.modules`.
+  * design 229's private-import NOTE is still recorded by every form — it says
+    what this module IMPORTS, not what it binds — which is what keeps B13's
+    chain hop (`wall229.wire229.Header`) and the facade refusal reporting the
+    surface wall rather than a missing qualifier.
+CENSUS (obligation 2, the migration): a token-level walk of every tracked `.saw`
+file over the compiler's own front end, filtering member accesses and local
+bindings, then hand-verified. FIVE files, FOURTEEN sites, each given its
+explicit whole-module line: `examples/import150_std_forms.saw` (1 — the design
+150 forms pin itself, rewritten to document the amended rule),
+`examples/module_matrix/import_form_selective_positions.saw` (1 — design 235's
+selective-form row, same rewrite),
+`examples/conformance/B13_import_is_not_reexport.saw` (2 — which makes it a
+bonus test of half 2, all three forms of one module in one file),
+`tests/freestanding/cases/module_compose.saw` (9), and
+`sos/kernel/sysapi/src/lib.saw` (1 — `sosabi.ENTRY_IMAGE`; an ordinary import,
+so the vDSO wall is unchanged). Nothing in blade, libs, devtools or selfhost
+used one: every apparent hit there was a local named after a std leaf, which is
+design 150 pin 4 working as designed.
+The token walk had ONE BLIND SPOT, found by the gate and then closed in the
+probe: a STRING INTERPOLATION is one token, so `"{lib.other_widget(9).n}"` was
+invisible to it — which is the position a qualifier is most likely to be
+PRINTED from. The corrected sweep scans interpolations as text beside the token
+stream, and that is what the fifth file is.
+CONFORMANCE: row B24 added (the amended binding + the one-identity matrix), and
+B23's note gained the sentence that keeps its claim true through the amendment.
+Spec's Imports section, README's import block and the saw-lang skill's import
+table all carry the amended cells.
 
 ## ~~DF-244b — a bare `None` TAIL at a `Result<T?, E>` cannot type itself, in a
 ## NAMED body as much as a closure~~ (filed Aug 22, DF-232h's residue) —

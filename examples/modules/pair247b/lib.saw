@@ -1,0 +1,46 @@
+//! The module DF-247b's one-identity matrix imports BOTH ways at once.
+//!
+//! Deliberately holds one of everything the matrix needs a position for: a
+//! trait (the `&any` and bound rows), a struct with extension methods declared
+//! in its own module (the extension-lookup row), a raw-backed enum (a second
+//! nominal type for the declaration slots), and a free function that hands back
+//! a value without the caller naming the type at all.
+
+public trait Named {
+    func label(&self) -> String
+}
+
+public struct Widget {
+    n: Int
+}
+
+extension Widget {
+    /// `count:` rather than `n:` — a memberwise `init` is already synthesized,
+    /// and a custom one repeating the field names is ambiguous with it.
+    public init(count: Int) -> Widget {
+        Widget(n: count)
+    }
+
+    public func count(&self) -> Int {
+        self.n
+    }
+
+    public func bump(&var self) {
+        self.n = self.n + 1
+    }
+}
+
+extension Widget: Named {
+    public func label(&self) -> String {
+        "widget"
+    }
+}
+
+public enum Shade: UInt8 {
+    case Light = 1,
+    case Dark = 2
+}
+
+public func make(n: Int) -> Widget {
+    Widget(count: n)
+}

@@ -5,6 +5,12 @@
 // reachability is the visibility chain, so all four spellings get the same
 // answer: the bare name under a glob, the `{X}` selection, the qualified
 // `wall229.Header`, and the chain `wall229.wire229.Header`.
+//
+// All THREE import forms of one module sit here, which since DF-247b is what
+// the qualified spellings need: only the whole-module line binds `wall229`.
+// The chain's second hop is unaffected — `wall229` imports `wire229`
+// selectively and binds no qualifier for it either, and what refuses the hop is
+// the private-import note, which every form still records.
 // COMPILE-FLAGS: --module-path wire229={TESTDIR}/modules/wire229 --module-path wall229={TESTDIR}/modules/wall229
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: `Header` is not part of `wall229`'s surface
@@ -12,6 +18,7 @@
 // EXPECT-ERROR-CONTAINS: but not re-exported
 // EXPECT-ERROR-CONTAINS: import `wire229` directly
 
+import wall229
 import wall229.*
 import wall229.{Header}
 

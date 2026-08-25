@@ -9144,8 +9144,31 @@ other module.
 | Form | What enters scope |
 |---|---|
 | `import std.file` | the qualifier `file`; nothing bare |
-| `import std.file.*` | every public name of the module, bare |
-| `import std.file.{File, Path as P}` | `File` and `P` bare, plus the `file` qualifier |
+| `import std.file.*` | every public name of the module, bare; no qualifier |
+| `import std.file.{File, Path as P}` | `File` and `P` bare; no qualifier |
+
+**Each form binds exactly what it names.** Only the whole-module form binds a
+qualifier — a selective or glob import gives you the names it lists or takes and
+nothing else. That is the point of the braces: the import list is what documents
+the dependency, and a free reach into everything the list did not name is the
+undocumented dependency the form exists to prevent.
+
+A file that wants both writes both, on two lines that name one module:
+
+```saw
+import std.file
+import std.file.{File}
+
+func open_it(p: Path) -> Result<File, IoError> { File.open(p) }
+func exists(p: Path) -> Bool { file.File.exists(p) }
+```
+
+They are **complementary, not conflicting** — the duplicate-qualifier error
+below is about two imports of two DIFFERENT modules — and the bare and qualified
+spellings are then **one type** everywhere: an annotation, a construction, a
+generic argument, an `any` existential, a generic bound, a struct field, an enum
+payload, a `type` alias, and extension and conformance lookup all see the same
+type with the same identity.
 
 What an import binds is private to the file that writes it. Each form takes an
 optional `public` prefix to hand it on; see [Re-export](#re-export).
@@ -9193,17 +9216,20 @@ import std.path.*
 let p = Path(s: "/etc/hosts")
 ```
 
-**Selective** names what it takes, and also binds the qualifier for reaching
-what it did not:
+**Selective** names what it takes, and takes exactly that:
 
 ```saw
 import std.net.{TcpListener, TcpStream}
 let listener = try! TcpListener.listen(0)      // selected, bare
-let err: net.IoError = ...                     // not selected, still reachable
+let err: net.IoError = ...                     // error: `net` is not a
+                                               // module qualifier here
 ```
 
-`as` renames either half. On a whole-module or selective import it renames the
-qualifier; inside braces it renames one symbol:
+Add `import std.net` beside it to write the qualified form, or select
+`IoError` too.
+
+`as` renames the qualifier a whole-module import binds; inside braces it renames
+one symbol:
 
 ```saw
 import std.time as clock                       // clock.Instant.now()
@@ -9226,6 +9252,16 @@ error: `Data` is not in the prelude and must be imported
 hint: `import std.data.{Data}` selects it, `import std.data.*` takes the
       module's whole vocabulary bare, and `import std.data` lets you write
       `data.Data`
+```
+
+And the mirror — a qualified reference whose qualifier no whole-module import
+bound — names the line that would bind it, in a type position and an expression
+position alike:
+
+```
+error: `data` is not a module qualifier here
+hint: `import std.data.{...}` binds the names it takes and no qualifier —
+      add `import std.data` to write `data.<name>`
 ```
 
 #### Re-export
@@ -9271,11 +9307,11 @@ its own shape binds:
 | `public import wire.{Header}` | `Header`, bare and as `parser.Header` |
 | `public import wire.*` | every public name of `wire`, bare and qualified |
 
-A selective re-export hands on the names it lists. The qualifier it also binds
-— the one that reaches what it did not select — stays private, so `public
-import wire.{Header}` publishes `Header` without publishing the rest of `wire`.
-That is what a curated facade is made of: a module can publish the handful of
-types its callers need and keep the internals they sit beside unreachable.
+A selective re-export hands on the names it lists, and nothing else — it binds
+no qualifier of its own to hand on — so `public import wire.{Header}` publishes
+`Header` without publishing the rest of `wire`. That is what a curated facade is
+made of: a module can publish the handful of types its callers need and keep the
+internals they sit beside unreachable.
 
 Two things a re-export does not change. The module's own view of its imports is
 the same either way: `public` on an import controls what flows through the
