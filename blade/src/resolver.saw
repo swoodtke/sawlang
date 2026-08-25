@@ -48,7 +48,7 @@ extension ResolveError {
 
 extension ResolveError: Error {
     public func format(&self, into: &var StringBuilder) {
-        into.append(self.message)
+        try! into.append(self.message)
     }
 }
 
@@ -104,12 +104,12 @@ extension Resolution {
     public func rev(&self, i: Int) -> String { self.revs.get(i) ?? "" }
 
     public func add(&var self, name: String, version: String, kind: String, loc: String, declared: String, rev: String) {
-        self.names.push(name)
-        self.versions.push(version)
-        self.kinds.push(kind)
-        self.locs.push(loc)
-        self.declareds.push(declared)
-        self.revs.push(rev)
+        try! self.names.push(name)
+        try! self.versions.push(version)
+        try! self.kinds.push(kind)
+        try! self.locs.push(loc)
+        try! self.declareds.push(declared)
+        try! self.revs.push(rev)
     }
 }
 
@@ -139,9 +139,9 @@ extension ReqList {
     public func requirer(&self, i: Int) -> String { self.requirers.get(i) ?? "" }
 
     public func add(&var self, name: String, constraint: String, requirer: String) {
-        self.names.push(name)
-        self.constraints.push(constraint)
-        self.requirers.push(requirer)
+        try! self.names.push(name)
+        try! self.constraints.push(constraint)
+        try! self.requirers.push(requirer)
     }
 }
 
@@ -183,7 +183,7 @@ func ensure_deps_dir() {
         // which is untidy rather than broken.
         match File.create(gi) {
             case Ok(f) -> {
-                let _ = f.write("*\n".to_data())
+                let _ = f.write(try! "*\n".to_data())
             },
             case Err(e) -> print("warning: could not write .blade/.gitignore: {e}")
         }
@@ -207,9 +207,9 @@ func stack_to_string(stack: &Vector<String>) -> String {
     var i = 0
     while i < stack.len() {
         if i > 0 {
-            b.append(" -> ")
+            try! b.append(" -> ")
         }
-        b.append(stack.get(i) ?? "")
+        try! b.append(stack.get(i) ?? "")
         i = i + 1
     }
     b.build()
@@ -220,7 +220,7 @@ func stack_to_string(stack: &Vector<String>) -> String {
 // (absolute path — e.g. a manifest root from Directory.current()) is preserved.
 func normalize_path(s: String) -> String {
     let absolute = s.starts_with("/")
-    let parts = s.split("/")
+    let parts = try! s.split("/")
     var out = Vector<String>()
     for p in parts.iter() {
         if p.is_empty() || p.equals(".") {
@@ -231,19 +231,19 @@ func normalize_path(s: String) -> String {
                 let _ = out.pop()
             }
         } else {
-            out.push(p)
+            try! out.push(p)
         }
     }
     var b = StringBuilder()
     if absolute {
-        b.append("/")
+        try! b.append("/")
     }
     var i = 0
     while i < out.len() {
         if i > 0 {
-            b.append("/")
+            try! b.append("/")
         }
-        b.append(out.get(i) ?? "")
+        try! b.append(out.get(i) ?? "")
         i = i + 1
     }
     b.build()
@@ -381,7 +381,7 @@ func visit(
     }
     resolution.add(dep_name, resolved_version, resolved_kind, dep_loc, declared, resolved_rev)
 
-    stack.push(dep_name)
+    try! stack.push(dep_name)
     let sub = match m.dependencies() {
         case Ok(x) -> move x,
         case Err(_) -> { return ResolveError(msg: "cannot read dependencies of `{dep_name}`") }
@@ -435,20 +435,20 @@ func validate(resolution: &Resolution, reqs: &ReqList) -> Result<Bool, ResolveEr
         if conflict {
             // Build a message naming every requirer + its requirement.
             var b = StringBuilder()
-            b.append("cannot satisfy version requirements for `")
-            b.append(name)
-            b.append("` (resolved ")
-            b.append(ver_str)
-            b.append("):")
+            try! b.append("cannot satisfy version requirements for `")
+            try! b.append(name)
+            try! b.append("` (resolved ")
+            try! b.append(ver_str)
+            try! b.append("):")
             var r = 0
             while r < reqs.len() {
                 if reqs.name(r).equals(name) {
                     let cons = reqs.constraint(r)
                     if not cons.is_empty() {
-                        b.append("\n  `")
-                        b.append(reqs.requirer(r))
-                        b.append("` requires ")
-                        b.append(cons)
+                        try! b.append("\n  `")
+                        try! b.append(reqs.requirer(r))
+                        try! b.append("` requires ")
+                        try! b.append(cons)
                     }
                 }
                 r = r + 1

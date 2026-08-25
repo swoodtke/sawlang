@@ -107,7 +107,18 @@ extension Directory {
 
                     // Create full path by joining with the directory path
                     let full_path = path.join(name)
-                    result.push(full_path)
+                    // design 234: the listing's own allocator refusal, mapped
+                    // onto this domain's word for it. The directory handle is
+                    // closed on the way out — an `Err` must not leak the `DIR*`
+                    // the `Ok` path closes below.
+                    match result.push(full_path) {
+                        case Ok(_) -> {},
+                        case Err(_) -> {
+                            closedir(dir)
+                            return IoError.of("readdir",
+                                              IoErrorKind.ResourcesExhausted)
+                        }
+                    }
                 } else {
                     done = true
                 }

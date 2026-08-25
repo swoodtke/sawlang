@@ -41,7 +41,7 @@ func main() {
 
     // Escaping state is shared, not captured: the closure mutates the payload
     // through a `&var` parameter the lock hands it.
-    let cell = Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
+    let cell = try! Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
     let inc = { cell.lock({ &var v in v = v + 1
                                       true }) }
     let _ = inc()

@@ -24,7 +24,7 @@ func main() {
     print(m.lock { &var n in n > 0 })        // R = Bool, the pre-M1 shape
     print(m.lock { &var n in "n={n}" })      // R = String
 
-    let shared = Arc<Mutex<Int>>(value: Mutex<Int>(value: 10))
+    let shared = try! Arc<Mutex<Int>>(value: Mutex<Int>(value: 10))
     print(shared.lock { &var n in n + 1 })   // forwarded, R = Int
     shared.lock { &var n in n = n * 3 }      // forwarded, R = Void
     print(shared.lock { &var n in n })

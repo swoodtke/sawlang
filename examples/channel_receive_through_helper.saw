@@ -41,7 +41,7 @@ func worker(id: Int, ch: Channel<Int>) {
 }
 
 func main() {
-    var ch = Channel<Int>()
+    var ch = try! Channel<Int>()
     try! ch.send(1)
     var group = TaskGroup()
     var k = 0

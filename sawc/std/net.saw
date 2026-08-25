@@ -354,11 +354,22 @@ static INVALID_FD: Int32 = -1
 func net_read_once(fd: Int, into: &var Data) unsafe -> Int {
     if let ptr = GlobalAllocator().alloc(READ_CHUNK, 1) {
         let r = __saw_rt_tcp_read(fd, ptr, READ_CHUNK)
+        var placed = r
         if r > 0 {
-            into.append_bytes(ptr, r)
+            // design 234: growing `into` can now be refused, and this function's
+            // return is a byte count or a negated tag — so the refusal takes the
+            // SAME third answer std's own scratch failure already has. The
+            // callers turn `NET_NO_SCRATCH` into
+            // `IoError(kind: ResourcesExhausted)`, which is what an out-of-memory
+            // read is; the bytes just read are dropped with the scratch buffer,
+            // which is the all-or-nothing this read had either way.
+            match into.append_bytes(ptr, r) {
+                case Ok(_) -> {},
+                case Err(_) -> { placed = NET_NO_SCRATCH }
+            }
         }
         GlobalAllocator().dealloc(ptr, READ_CHUNK, 1)
-        return r
+        return placed
     }
     return NET_NO_SCRATCH
 }
@@ -491,7 +502,7 @@ extension IoErrorKind {
 
 extension IoErrorKind: Printable {
     public func format(&self, into: &var StringBuilder) {
-        into.append(self.describe())
+        try! into.append(self.describe())
     }
 }
 
@@ -579,11 +590,11 @@ extension IoError {
 
 extension IoError: Error {
     public func format(&self, into: &var StringBuilder) {
-        into.append("io error: ")
-        into.append(self.syscall)
-        into.append(" failed (")
-        into.append(self.kind.describe())
-        into.append(")")
+        try! into.append("io error: ")
+        try! into.append(self.syscall)
+        try! into.append(" failed (")
+        try! into.append(self.kind.describe())
+        try! into.append(")")
     }
 }
 
@@ -608,11 +619,14 @@ func io_cancelled(syscall: String) -> IoError {
 // IPv4 address answers `-NotFound` with no errno behind it), and the resolve
 // seam is `blocking`, so whatever it did classify happened on an offload worker
 // thread rather than this one (rt/ABI.md's freshness rule).
+// The three appends FORCE rather than report: this function's whole job is to
+// describe a failure, and there is no error channel behind an error constructor
+// — the same shape as a `format` body (design 234 §5's rendering boundary).
 func resolve_error(host: String, tag: Int) -> IoError {
     var what = StringBuilder()
-    what.append("resolve \"")
-    what.append(host)
-    what.append("\"")
+    try! what.append("resolve \"")
+    try! what.append(host)
+    try! what.append("\"")
     IoError.of(syscall: what.build(), kind: IoErrorKind.of(tag: tag))
 }
 
@@ -913,7 +927,15 @@ extension TcpStream {
     // key driven-method frames by resolved signature, so the two overloads get
     // distinct frames). Same park-until-sent loop over the string's UTF-8.
     public func write(&self, s: String) -> Result<Void, IoError> {
-        let bytes = s.to_data()
+        // design 234: staging the string's bytes can be refused, and this
+        // domain's word for that is `ResourcesExhausted` — the same one the
+        // read path's scratch failure already uses.
+        let bytes = match s.to_data() {
+            case Ok(d) -> move d,
+            case Err(_) -> {
+                return IoError.of("write", IoErrorKind.ResourcesExhausted)
+            }
+        }
         var off = 0
         let total = bytes.len()
         while off < total {

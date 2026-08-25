@@ -32,7 +32,7 @@ extension SysError {
 
 extension SysError: Printable {
     func format(&self, into: &var StringBuilder) {
-        into.append(self.describe())
+        try! into.append(self.describe())
     }
 }
 

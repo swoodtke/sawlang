@@ -33,7 +33,7 @@ func worker(h: Held) -> Int {
 }
 
 func main() {
-    var group = TaskGroup(threads: 4)
+    var group = try! TaskGroup(threads: 4)
     let h0 = group.spawn(worker(Held(tag: 1)))
     let h1 = group.spawn(worker(Held(tag: 2)))
     let h2 = group.spawn(worker(Held(tag: 4)))

@@ -14,7 +14,7 @@ func worker(ch: Channel<Int>) -> Int {
 
 func main() {
     var group = TaskGroup()
-    let ch = Channel<Int>()
+    let ch = try! Channel<Int>()
     try! ch.send(5)
     let h = group.spawn(worker(ch.copy()))
     print(h.join())            // 5 + 1 = 6

@@ -51,7 +51,7 @@ extension Pool {
             var t = Thread.spawn { work() }
             // The discharge: the handle moves into storage `Pool` owns, and
             // `Pool` declares a deinit of its own.
-            self.workers.push(move t)
+            try! self.workers.push(move t)
             i = i + 1
         }
     }

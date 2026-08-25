@@ -270,7 +270,7 @@ func main() {
     print("row7 {} {}", h7.join(), r7_plain())
     print("row8 {} {}", h8.join(), r8_plain())
 
-    var mt = TaskGroup(threads: 2)
+    var mt = try! TaskGroup(threads: 2)
     let h9 = mt.spawn(r9_driven())
     print("row9 {} {}", h9.join(), r9_plain())
 

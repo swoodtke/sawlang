@@ -21,7 +21,7 @@ func take(f: () -> Int) -> Int {
 }
 
 func main() {
-    let a = Arc<Res>(value: Res(id: 5))
+    let a = try! Arc<Res>(value: Res(id: 5))
     let f = { a.strong_count() }   // env retains a -> strong 2
     print(take(f))                 // 2 (lent, f still owned by main)
     print(a.strong_count())        // 2 (f still alive — no ownership transfer)

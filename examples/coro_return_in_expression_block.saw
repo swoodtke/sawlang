@@ -25,7 +25,7 @@ struct Fail {}
 
 extension Fail: Error {
     func format(&self, into: &var StringBuilder) {
-        into.append("fail")
+        try! into.append("fail")
     }
 }
 

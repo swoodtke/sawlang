@@ -1,10 +1,13 @@
+// Conformance row A10 — `StringBuilder` under a refusing allocator.
+//
 // Design 123: StringBuilder repeated RS-1's shape. `grow` returned Void, so a
 // refused grow left `capacity` short and `append`/`append_char` copied their
 // bytes past the end of the buffer, then advanced `length` past `capacity`.
+// That became a panic with a `try_`-prefixed twin beside each op.
 //
-// `append`/`append_char` are the infallible tier and panic now; `try_append`/
-// `try_append_char`/`try_with_capacity` report the refusal and leave the builder
-// exactly as it was. The global allocation budget drives all three.
+// Design 234 retires the split: `append`, `append_char` and
+// `StringBuilder(capacity:)` REPORT the refusal and leave the builder exactly
+// as it was. The global allocation budget drives all three.
 //
 // Note the shape of each check: the budget is disarmed BEFORE the result is
 // reported, because interpolating the error into a message allocates a String
@@ -26,12 +29,12 @@ extern "C" {
 
 func main() {
     var b = StringBuilder()
-    b.append("saw")             // allocates the first 16-byte buffer
+    try! b.append("saw")             // allocates the first 16-byte buffer
     print(b.build())            // saw
 
     // Deny everything: this append needs 3 + 16 + 1 > 16 bytes, so it must grow.
     __saw_rt_alloc_deny_after(0)
-    let appended = b.try_append("0123456789abcdef")
+    let appended = b.append("0123456789abcdef")
     __saw_rt_alloc_deny_after(-1)
     match appended {
         case Ok(_) -> print("appended"),
@@ -40,12 +43,12 @@ func main() {
     print(b.len())              // 3 — untouched
     print(b.build())            // saw — content untouched
 
-    // try_append_char at the capacity edge: 3 bytes plus a terminator exactly
+    // `append_char` at the capacity edge: 3 bytes plus a terminator exactly
     // fills capacity 4, so one more byte has to grow.
-    var c = StringBuilder(capacity: 4)
-    c.append("abc")
+    var c = try! StringBuilder(capacity: 4)
+    try! c.append("abc")
     __saw_rt_alloc_deny_after(0)
-    let charred = c.try_append_char(100)
+    let charred = c.append_char(100)
     __saw_rt_alloc_deny_after(-1)
     match charred {
         case Ok(_) -> print("char appended"),
@@ -53,16 +56,16 @@ func main() {
     }
     print(c.len())              // 3 — untouched
 
-    // The fallible capacity factory.
+    // The capacity constructor, reporting in place (DF-245a).
     __saw_rt_alloc_deny_after(0)
-    let made = StringBuilder.try_with_capacity(64)
+    let made = StringBuilder(capacity: 64)
     __saw_rt_alloc_deny_after(-1)
     match made {
         case Ok(_) -> print("capacity ok"),
         case Err(_) -> print("capacity denied")
     }
 
-    // The infallible tier still works once allocation is available.
-    b.append(" and more")
+    // The same operations just work once allocation is available.
+    try! b.append(" and more")
     print(b.build())            // saw and more
 }

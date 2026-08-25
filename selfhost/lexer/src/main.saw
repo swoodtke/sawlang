@@ -17,7 +17,7 @@ import std.path.{Path}
 import std.env.{Env}
 
 func main() -> Int {
-    let args = Env.args()
+    let args = try! Env.args()
     // Parse an optional leading `--docs` flag, then the file path.
     var docs_mode = false
     var path = ""

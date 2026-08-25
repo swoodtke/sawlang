@@ -30,7 +30,7 @@ func canceller(target: Int) unsafe -> Int {
 }
 
 func main() {
-    var group = TaskGroup(threads: 2)
+    var group = try! TaskGroup(threads: 2)
     let hv = group.spawn(victim())
     let addr = hv.cancel_addr()
     let hc = group.spawn(canceller(addr))

@@ -52,8 +52,8 @@ type Marker = qslot.Tag
 
 func main() {
     var many: Vector<qslot.Tag> = []
-    many.push(qslot.Tag(of: 1))
-    many.push(qslot.Tag(of: 2))
+    try! many.push(qslot.Tag(of: 1))
+    try! many.push(qslot.Tag(of: 2))
     let h = Holder(
         tag: qslot.Tag(of: 7),
         level: qslot.Level.High,
@@ -81,6 +81,6 @@ func main() {
     // worked; this one bound an element type that kept the dot, and the push
     // below was told it expected `qslot.Tag` and got `Tag`.
     var built = Vector<qslot.Tag>()
-    built.push(qslot.Tag(of: 6))
+    try! built.push(qslot.Tag(of: 6))
     print("constructor arg {built[0].n}")
 }

@@ -74,7 +74,7 @@ func arc_worker(ch: Channel<Arc<Held>>) -> Int {
 
 func nocopy_row() {
     var group = TaskGroup()
-    let ch = Channel<Res>()
+    let ch = try! Channel<Res>()
     print("nocopy ctor 7")
     try! ch.send(Res(id: 7, tag: "seven"))
     let h = group.spawn(nocopy_worker(ch.copy()))
@@ -83,7 +83,7 @@ func nocopy_row() {
 
 func explicit_row() {
     var group = TaskGroup()
-    let ch = Channel<Dup>()
+    let ch = try! Channel<Dup>()
     try! ch.send(Dup(id: 8, tag: "eight"))
     let h = group.spawn(explicit_worker(ch.copy()))
     print("explicit join {h.join()}")
@@ -91,10 +91,10 @@ func explicit_row() {
 
 func vector_row() {
     var group = TaskGroup()
-    let ch = Channel<Vector<Int>>()
+    let ch = try! Channel<Vector<Int>>()
     var v = Vector<Int>()
-    v.push(1)
-    v.push(2)
+    try! v.push(1)
+    try! v.push(2)
     try! ch.send(move v)
     let h = group.spawn(vector_worker(ch.copy()))
     print("vector join {h.join()}")
@@ -102,8 +102,8 @@ func vector_row() {
 
 func arc_row() {
     var group = TaskGroup()
-    let ch = Channel<Arc<Held>>()
-    let a = Arc<Held>(value: Held(id: 9))
+    let ch = try! Channel<Arc<Held>>()
+    let a = try! Arc<Held>(value: Held(id: 9))
     print("arc after ctor {a.strong_count()}")
     try! ch.send(a.copy())
     print("arc after send {a.strong_count()}")

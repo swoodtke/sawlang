@@ -29,7 +29,7 @@ func expected_output() -> String {
 func run_once(expected: &String) -> Int {
     var c = Command(program: bench_bin())
     let t0 = Instant.now()
-    let out = c.output()
+    let out = try! c.output()
     let ms = t0.elapsed().as_millis() as Int
     if let o = out {
         let got = o.stdout.trim()

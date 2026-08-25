@@ -21,8 +21,8 @@ struct Flaky {
 
 extension Flaky: Printable {
     func format(&self, into: &var StringBuilder) {
-        into.append("flaky ")
-        into.append(self.n)
+        try! into.append("flaky ")
+        try! into.append(self.n)
     }
 }
 

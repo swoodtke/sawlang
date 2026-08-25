@@ -31,7 +31,7 @@ func main() {
         }
     }
     match File.create(file) {
-        case Ok(f) -> match f.write("x".to_data()) {
+        case Ok(f) -> match f.write(try! "x".to_data()) {
             case Ok(_) -> print("wrote the test file"),
             case Err(e) -> {
                 print("could not write the test file: {e}")

@@ -117,14 +117,14 @@ func c3_driven() {
 
 // c4 — declared Copy. The control: a retain, not a steal.
 func c4_plain() {
-    let a = Arc<Res>(value: res("a"))
+    let a = try! Arc<Res>(value: res("a"))
     let f = { print("c4 inside {a.strong_count()}") }
     f()
     print("c4 outside {a.strong_count()}")
 }
 
 func c4_driven() {
-    let a = Arc<Res>(value: res("a"))
+    let a = try! Arc<Res>(value: res("a"))
     let f = { print("c4 inside {a.strong_count()}") }
     yield_now()
     f()

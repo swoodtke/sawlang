@@ -51,7 +51,7 @@ extension Stop {
 }
 
 extension Stop: Printable {
-    func format(&self, into: &var StringBuilder) { into.append(self.describe()) }
+    func format(&self, into: &var StringBuilder) { try! into.append(self.describe()) }
 }
 
 extension Stop: Error {}

@@ -10,7 +10,7 @@ import std.task.*
 
 struct Boom { code: Int }
 extension Boom: Printable {
-    func format(&self, into: &var StringBuilder) { into.append("Boom") }
+    func format(&self, into: &var StringBuilder) { try! into.append("Boom") }
 }
 extension Boom: Error {}
 

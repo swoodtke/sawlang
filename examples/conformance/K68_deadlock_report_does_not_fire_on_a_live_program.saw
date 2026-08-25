@@ -56,14 +56,14 @@ func spin(rounds: Int) sync -> Int {
 func main() {
     // 1 — the only other live task is asleep.
     var g = TaskGroup()
-    let ch1 = Channel<Int>()
+    let ch1 = try! Channel<Int>()
     let w1 = g.spawn(waiter(ch1.copy()))
     let s1 = g.spawn(late_sender(ch1.copy(), 1))
     let _ = s1.join()
     print("sleeper fed {}", w1.join())
 
     // 2 — the sender is a thread-engine task, invisible to every run queue.
-    let ch2 = Channel<Int>()
+    let ch2 = try! Channel<Int>()
     let feeder = ch2.copy()
     var t = Thread.spawn { [feeder] in
         let _ = spin(3000000)
@@ -73,8 +73,8 @@ func main() {
     let _ = t.join()
 
     // 3 — the sender is a task of a multi-threaded group.
-    var mt = TaskGroup(threads: 2)
-    let ch3 = Channel<Int>()
+    var mt = try! TaskGroup(threads: 2)
+    let ch3 = try! Channel<Int>()
     let s3 = mt.spawn(late_sender(ch3.copy(), 3))
     print("mt fed {}", try! ch3.receive())
     let _ = s3.join()
@@ -82,7 +82,7 @@ func main() {
     // 4 — the RECEIVER is the MT task and the sender is this thread, which is
     // busy. A worker sees one channel-parked task, nothing runnable, no io and
     // no timer; what it must not conclude is that nothing can send.
-    let ch4 = Channel<Int>()
+    let ch4 = try! Channel<Int>()
     let w4 = mt.spawn(waiter(ch4.copy()))
     let _ = spin(60000000)
     try! ch4.send(4)

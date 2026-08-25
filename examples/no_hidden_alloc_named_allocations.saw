@@ -28,11 +28,11 @@ struct Point { x: Int, y: Int }
 
 extension Point: Printable {
     func format(&self, into: &var StringBuilder) {
-        into.append("(")
-        into.append(self.x)
-        into.append(", ")
-        into.append(self.y)
-        into.append(")")
+        try! into.append("(")
+        try! into.append(self.x)
+        try! into.append(", ")
+        try! into.append(self.y)
+        try! into.append(")")
     }
 }
 
@@ -43,8 +43,8 @@ extension Square: Shape { func area(&self) -> Int { self.side * self.side } }
 struct NotFound { path: String }
 extension NotFound: Printable {
     func format(&self, into: &var StringBuilder) {
-        into.append("file not found: ")
-        into.append(self.path)
+        try! into.append("file not found: ")
+        try! into.append(self.path)
     }
 }
 extension NotFound: Error {}
@@ -68,7 +68,7 @@ func main() {
     print("point = {}", p)
 
     var v: Vector<Int> = [1, 2, 3]
-    v.push(4)
+    try! v.push(4)
     let m = {"a": 1, "b": 2}
     print("pushed {}, literal {}, map {}", v.len(), 3, m.len())
 
@@ -93,6 +93,6 @@ func main() {
     }
 
     var b = StringBuilder()
-    b.append("hi")
+    try! b.append("hi")
     print("n = {} flag = {} text = {}", 7, true, b.build())
 }

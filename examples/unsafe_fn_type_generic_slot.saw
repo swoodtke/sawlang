@@ -19,7 +19,7 @@ func fill() unsafe -> Int {
     var pointers = Vector<UnsafePointer<Int8>>()
     if let block = GlobalAllocator().alloc(BLOCK_BYTES, BLOCK_ALIGN) {
         block[0] = 3 as Int8
-        pointers.push(block)
+        try! pointers.push(block)
         let value = pointers.with_ref(0) { p in p[0] as Int }
         print("{value}")
         GlobalAllocator().dealloc(block, BLOCK_BYTES, BLOCK_ALIGN)

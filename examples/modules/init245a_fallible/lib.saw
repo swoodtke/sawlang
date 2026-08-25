@@ -4,7 +4,7 @@
 public enum GadgetError { case TooSmall }
 
 extension GadgetError: Printable {
-    func format(&self, into: &var StringBuilder) { into.append("too small") }
+    func format(&self, into: &var StringBuilder) { try! into.append("too small") }
 }
 
 extension GadgetError: Error {}

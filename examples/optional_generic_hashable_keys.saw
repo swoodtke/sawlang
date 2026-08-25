@@ -32,11 +32,11 @@ func main() {
     let zero: Int? = 0
     let none: Int? = None
 
-    print("ins 1 {s.insert(one)}")
-    print("ins 1 again {s.insert(one)}")
-    print("ins 0 {s.insert(zero)}")
-    print("ins None {s.insert(none)}")
-    print("ins None again {s.insert(none)}")
+    print("ins 1 {try! s.insert(one)}")
+    print("ins 1 again {try! s.insert(one)}")
+    print("ins 0 {try! s.insert(zero)}")
+    print("ins None {try! s.insert(none)}")
+    print("ins None again {try! s.insert(none)}")
     print("len {s.len()}")
 
     print("has 1 {s.contains(one)}")
@@ -52,9 +52,9 @@ func main() {
 
     // The same holds for an Optional KEY.
     var m = Map<Int?, String>()
-    let _ = m.insert(zero, "zero")
-    let _ = m.insert(none, "none")
-    let _ = m.insert(one, "one")
+    let _ = try! m.insert(zero, "zero")
+    let _ = try! m.insert(none, "none")
+    let _ = try! m.insert(one, "one")
     print("map len {m.len()}")
     let at_zero = m[zero] ?? "MISSING"
     let at_none = m[none] ?? "MISSING"

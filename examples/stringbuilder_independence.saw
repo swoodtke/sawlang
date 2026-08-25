@@ -13,12 +13,12 @@
 
 func main() {
     var sb = StringBuilder()
-    sb.append("abc")
+    try! sb.append("abc")
     let snapshot = sb.build()     // independent owned String "abc"
 
     print(snapshot)               // abc
 
-    sb.append("def")              // mutate the builder AFTER snapshotting
+    try! sb.append("def")              // mutate the builder AFTER snapshotting
     print(sb.build())             // abcdef
     print(snapshot)               // abc — snapshot is unchanged
 
@@ -27,9 +27,9 @@ func main() {
     var count = 0
     for i in 0..1000000 {
         var b = StringBuilder()
-        b.append("x")
+        try! b.append("x")
         let s = b.build()         // owned String, freed at end of turn
-        b.append("y")             // independent: does not touch s
+        try! b.append("y")             // independent: does not touch s
         if s.len() == 1 {
             count = count + 1
         }

@@ -37,8 +37,8 @@ func wait_for(inbox: Channel<Int>) unsafe -> Int? {
 }
 
 func main() {
-    let inbox = Channel<Int>()
-    var workers = TaskGroup(threads: 2)
+    let inbox = try! Channel<Int>()
+    var workers = try! TaskGroup(threads: 2)
     let a = workers.spawn(feed(inbox.copy(), 10))
     let b = workers.spawn(feed(inbox.copy(), 20))
     var total = 0

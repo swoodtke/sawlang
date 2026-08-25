@@ -31,8 +31,8 @@ func consumer(ch: Channel<Int>, count: Int) -> Int {
 }
 
 func main() {
-    var group = TaskGroup(threads: 3)
-    let ch = Channel<Int>()
+    var group = try! TaskGroup(threads: 3)
+    let ch = try! Channel<Int>()
     let hp = group.spawn(producer(ch.copy(), 10))
     let hc = group.spawn(consumer(ch.copy(), 10))
     print(hp.join())   // 10 (produced count)

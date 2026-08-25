@@ -16,11 +16,11 @@ extension Sized {
     // void call, so the whole chain is a void merge.
     func show(&self, into: &var StringBuilder) {
         if self.n >= 1000 {
-            into.append("big")
+            try! into.append("big")
         } else if self.n >= 100 {
-            into.append("med")
+            try! into.append("med")
         } else {
-            into.append("small")
+            try! into.append("small")
         }
     }
 }

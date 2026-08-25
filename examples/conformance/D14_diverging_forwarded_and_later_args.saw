@@ -75,8 +75,8 @@ func later_arg_field(k: &Killer, c: Bool) -> Int {
 }
 
 func main() {
-    let b = Box<Killer>.make(Killer(id: 1))
-    let a = Arc<Killer>(value: Killer(id: 2))
+    let b = try! Box<Killer>.make(Killer(id: 1))
+    let a = try! Arc<Killer>(value: Killer(id: 2))
     let h = Holder(f: { n: Int in
         print("field die {n}")
         while { }

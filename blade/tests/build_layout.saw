@@ -57,7 +57,7 @@ func main() {
     let marker = Path(s: "{scratch.tests_dir()}/marker")
     match File.create(marker) {
         case Ok(f) -> {
-            match f.write("artifact\n".to_data()) {
+            match f.write(try! "artifact\n".to_data()) {
                 case Ok(_) -> {},
                 case Err(e) -> panic("could not write the marker: {e}")
             }

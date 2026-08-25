@@ -18,12 +18,12 @@ import std.process.{Command}
 // empty capture is visible.
 func captured_diagnostic(merge: Bool) -> String {
     var c = Command(program: "/bin/sh")
-    c.arg("-c")
-    c.arg("printf diagnostic 1>&2")
+    try! c.arg("-c")
+    try! c.arg("printf diagnostic 1>&2")
     if merge {
         c.merge_stderr()
     }
-    if let r = c.output() {
+    if let r = try! c.output() {
         "[{r.stdout}]"
     } else {
         "<spawn failed>"
@@ -39,10 +39,10 @@ func main() {
 
     // Both streams, in the order the child wrote them.
     var both = Command(program: "/bin/sh")
-    both.arg("-c")
-    both.arg("printf 'out then '; printf diagnostic 1>&2")
+    try! both.arg("-c")
+    try! both.arg("printf 'out then '; printf diagnostic 1>&2")
     both.merge_stderr()
-    if let r = both.output() {
+    if let r = try! both.output() {
         print("[{r.stdout}]")
     } else {
         print("<spawn failed>")

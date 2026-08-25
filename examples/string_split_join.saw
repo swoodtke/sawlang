@@ -13,7 +13,7 @@
 func main() {
     // Test split
     let text = "apple,banana,cherry"
-    let parts = text.split(",")
+    let parts = try! text.split(",")
 
     print("Split by comma:")
     for part in parts.iter() {
@@ -27,7 +27,7 @@ func main() {
 
     // Test round trip
     let original = "one,two,three"
-    let split_parts = original.split(",")
+    let split_parts = try! original.split(",")
     let rejoined = split_parts.join(",")
     print("Round trip:")
     print(rejoined)

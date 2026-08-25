@@ -16,7 +16,7 @@ import std.task.*
 
 struct Fail { code: Int }
 extension Fail: Printable {
-    func format(&self, into: &var StringBuilder) { into.append("Fail") }
+    func format(&self, into: &var StringBuilder) { try! into.append("Fail") }
 }
 extension Fail: Error {}
 

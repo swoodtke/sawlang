@@ -25,6 +25,6 @@ func fan_arc<T: Send + Sync>(a: Arc<T>) -> Int {
 }
 
 func main() unsafe {
-    let c = Arc<Cell>(value: Cell(start: 0))
+    let c = try! Arc<Cell>(value: Cell(start: 0))
     print("count {fan_arc(move c)}")
 }

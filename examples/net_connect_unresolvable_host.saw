@@ -23,10 +23,10 @@ func over_long_name() -> String {
     var b = StringBuilder()
     var i = 0
     while i < 50 {
-        b.append("label.")
+        try! b.append("label.")
         i = i + 1
     }
-    b.append("example")
+    try! b.append("example")
     b.build()
 }
 

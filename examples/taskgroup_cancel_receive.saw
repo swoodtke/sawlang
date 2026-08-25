@@ -36,7 +36,7 @@ func consumer(ch: Channel<Int>) -> Int {
 
 func main() {
     var group = TaskGroup()
-    let ch = Channel<Int>()
+    let ch = try! Channel<Int>()
     try! ch.send(10)
     try! ch.send(20)
     let h = group.spawn(consumer(ch.copy()))

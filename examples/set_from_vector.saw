@@ -9,10 +9,10 @@
 
 func main() {
     var src = Vector<Int>()
-    src.push(5)
-    src.push(5)   // duplicate — collapses
-    src.push(6)
-    let s = Set<Int>(from: move src)
+    try! src.push(5)
+    try! src.push(5)   // duplicate — collapses
+    try! src.push(6)
+    let s = try! Set<Int>(from: move src)
     print(s.len())                                 // 2
     if s.contains(5) { print(1) } else { print(0) }  // 1
     if s.contains(6) { print(1) } else { print(0) }  // 1

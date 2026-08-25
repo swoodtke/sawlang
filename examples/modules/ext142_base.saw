@@ -15,8 +15,8 @@ extension Reading {
 // The orphan rule's first permitted home: the module that defines the TYPE.
 extension Reading: Printable {
     public func format(&self, into: &var StringBuilder) {
-        into.append("Reading(")
-        into.append(self.raw)
-        into.append(")")
+        try! into.append("Reading(")
+        try! into.append(self.raw)
+        try! into.append(")")
     }
 }

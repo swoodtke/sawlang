@@ -28,13 +28,13 @@ struct Tag {
 extension Tag: Printable {
     func format(&self, into: &var StringBuilder) {
         self.n.format(into: &var into)
-        into.append("|")
+        try! into.append("|")
         self.s.format(into: &var into)
-        into.append("|")
+        try! into.append("|")
         self.b.format(into: &var into)
-        into.append("|")
+        try! into.append("|")
         self.u.format(into: &var into)
-        into.append("|")
+        try! into.append("|")
         self.f.format(into: &var into)
     }
 }
@@ -43,7 +43,7 @@ struct Wrap { tag: Tag }
 
 extension Wrap: Printable {
     func format(&self, into: &var StringBuilder) {
-        into.append("nested: ")
+        try! into.append("nested: ")
         self.tag.format(into: &var into)
     }
 }
@@ -64,6 +64,6 @@ func main() {
     __saw_rt_alloc_deny_after(-1)
 
     var v = Vector<Int>()
-    v.push(1)
+    try! v.push(1)
     print("disarmed, heap works again")
 }

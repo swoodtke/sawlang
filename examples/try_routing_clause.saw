@@ -77,8 +77,8 @@ import route
 struct AllocFail { size: Int }
 extension AllocFail: Printable {
     func format(&self, into: &var StringBuilder) {
-        into.append("A")
-        into.append(self.size)
+        try! into.append("A")
+        try! into.append(self.size)
     }
 }
 extension AllocFail: Error {}
@@ -86,8 +86,8 @@ extension AllocFail: Error {}
 struct ParseFail { line: Int }
 extension ParseFail: Printable {
     func format(&self, into: &var StringBuilder) {
-        into.append("P")
-        into.append(self.line)
+        try! into.append("P")
+        try! into.append(self.line)
     }
 }
 extension ParseFail: Error {}
@@ -100,9 +100,9 @@ enum LocalError {
 extension LocalError: Printable {
     func format(&self, into: &var StringBuilder) {
         match self {
-            case Alloc(e) -> { into.append("alloc/")  e.format(into: &var into) },
-            case Parse(e) -> { into.append("parse/")  e.format(into: &var into) },
-            case Dep(e) -> { into.append("dep/")  e.format(into: &var into) }
+            case Alloc(e) -> { try! into.append("alloc/")  e.format(into: &var into) },
+            case Parse(e) -> { try! into.append("parse/")  e.format(into: &var into) },
+            case Dep(e) -> { try! into.append("dep/")  e.format(into: &var into) }
         }
     }
 }

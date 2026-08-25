@@ -30,8 +30,8 @@ func show(d: &Dep) {
 
 func build() -> String {
     var b = StringBuilder()
-    b.append("cfg")
-    b.append(".toml")
+    try! b.append("cfg")
+    try! b.append(".toml")
     b.build()
 }
 

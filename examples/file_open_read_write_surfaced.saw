@@ -55,7 +55,7 @@ func check_failures() {
 
 func write_scratch() -> Bool {
     match File.create(scratch()) {
-        case Ok(f) -> match f.write("hello".to_data()) {
+        case Ok(f) -> match f.write(try! "hello".to_data()) {
             case Ok(n) -> {
                 print("wrote {n} bytes")
                 true

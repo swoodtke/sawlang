@@ -17,14 +17,14 @@
 func main() {
     var m = Map<Int, Int>()
     print(m.len())                                  // 0
-    m.insert(1, 10)
-    m.insert(2, 20)
+    try! m.insert(1, 10)
+    try! m.insert(2, 20)
     print(m.len())                                  // 2
     if let v = m.get(1) { print(v) }                // 10
     if let v = m.get(2) { print(v) }                // 20
     if let v = m.get(3) { print(v) } else { print(-1) }  // -1
 
-    let old = m.insert(1, 99)                        // update returns old
+    let old = try! m.insert(1, 99)                        // update returns old
     if let o = old { print(o) }                     // 10
     if let v = m.get(1) { print(v) }                // 99
 

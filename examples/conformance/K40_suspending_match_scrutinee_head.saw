@@ -97,13 +97,13 @@ func main() {
 
     // The receiver is spawned BEFORE the feeder, so its `receive()` genuinely
     // has to park and hand the executor to a sibling.
-    let ch = Channel<Int>()
+    let ch = try! Channel<Int>()
     let w = g.spawn(recv_scrut(ch.copy()))
     let f = g.spawn(feed(ch.copy(), 7))
     let rc = w.join()
     f.join()
 
-    let mch = Channel<Int>()
+    let mch = try! Channel<Int>()
     let m = g.spawn(method_scrut(Src(ch: mch.copy())))
     let f2 = g.spawn(feed(mch.copy(), 9))
     let rm = m.join()

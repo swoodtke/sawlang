@@ -32,7 +32,7 @@ func closer(ch: Channel<Int>) -> Int {
 
 func main() {
     var g = TaskGroup()
-    let ch = Channel<Int>()
+    let ch = try! Channel<Int>()
     let w = g.spawn(waiter(ch.copy()))
     let c = g.spawn(closer(ch.copy()))
     let _ = c.join()

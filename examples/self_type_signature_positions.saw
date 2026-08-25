@@ -77,8 +77,8 @@ func main() {
     print("optional {a.add_opt(other: Counter(n: 1))}")
 
     var many: Vector<Counter> = []
-    many.push(Counter(n: 5))
-    many.push(Counter(n: 6))
+    try! many.push(Counter(n: 5))
+    try! many.push(Counter(n: 6))
     print("generic {a.add_many(rest: &many)}")
 
     print("tuple {a.add_pair(p: (Counter(n: 2), 1))}")

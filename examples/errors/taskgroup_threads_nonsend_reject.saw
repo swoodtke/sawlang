@@ -20,9 +20,9 @@ func work(jobs: Vector<() sync -> Int>) -> Int {
 }
 
 func main() {
-    var group = TaskGroup(threads: 2)
+    var group = try! TaskGroup(threads: 2)
     var v = Vector<() sync -> Int>()
-    v.push({ 1 })
+    try! v.push({ 1 })
     let a = group.spawn(work(move v))
     print(a.join())
 }

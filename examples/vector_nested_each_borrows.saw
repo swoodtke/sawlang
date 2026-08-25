@@ -19,23 +19,23 @@ func main() {
     var rows = Vector<Vector<Int>>()
 
     var a = Vector<Int>()
-    a.push(1)
-    a.push(2)
-    a.push(3)
-    rows.push(move a)
+    try! a.push(1)
+    try! a.push(2)
+    try! a.push(3)
+    try! rows.push(move a)
 
     var b = Vector<Int>()
-    b.push(4)
-    b.push(5)
-    rows.push(move b)
+    try! b.push(4)
+    try! b.push(5)
+    try! rows.push(move b)
 
-    rows.push(Vector<Int>())
+    try! rows.push(Vector<Int>())
 
     // Nested `each` over borrowed inner vectors.
     rows.each { row in
         var line = StringBuilder()
         row.each { [&var line] n in
-            line.append(" {n}")
+            try! line.append(" {n}")
         }
         print("row:{line.build()}")
     }

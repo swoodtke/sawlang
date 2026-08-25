@@ -101,7 +101,7 @@ func main() {
     print("written {writable[0] ?? "-"} {writable[1] ?? "-"}")
 
     // 6. Balance, sync.
-    let r = Arc<Res>(value: Res(tag: 1))
+    let r = try! Arc<Res>(value: Res(tag: 1))
     print("arc base {r.strong_count()}")
     arc_array(r: r)
     print("arc after {r.strong_count()}")

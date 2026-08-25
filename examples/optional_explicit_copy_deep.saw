@@ -23,7 +23,7 @@ func main() {
     print("duplicate {duplicate!.len()}")
 
     // Independence: the copy owns its own buffer.
-    duplicate!.push(4)
+    try! duplicate!.push(4)
     print("after push: original {original!.len()} duplicate {duplicate!.len()}")
 
     // None copies to None, with no payload touched.

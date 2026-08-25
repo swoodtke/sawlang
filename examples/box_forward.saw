@@ -15,7 +15,7 @@ extension Point {
 }
 
 func main() {
-    let b = Box<Point>.make(Point(x: 3, y: 4))
+    let b = try! Box<Point>.make(Point(x: 3, y: 4))
     print(b.sum())        // 7  — forwarded &self method
     print(b.scaled(2))    // 14 — forwarding with an argument
 }

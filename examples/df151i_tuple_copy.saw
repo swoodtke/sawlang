@@ -72,7 +72,7 @@ extension Res: NoCopy {
 
 func res(tag: Int) -> Arc<Res> {
     LIVE.fetch_add(1)
-    Arc<Res>(value: Res(name: "res-{tag}"))
+    try! Arc<Res>(value: Res(name: "res-{tag}"))
 }
 
 // THE FILED REPRO, and the property that makes the copy worth having: the
@@ -86,11 +86,11 @@ func res(tag: Int) -> Arc<Res> {
 // 3. An aliasing "copy" would read 33.
 func deep_copy_is_independent() -> Int {
     var v: Vector<Int> = Vector<Int>()
-    v.push(1)
-    v.push(2)
+    try! v.push(1)
+    try! v.push(2)
     let t = (move v, 7)
     var (a, b) = t.copy()
-    a.push(99)
+    try! a.push(99)
     assert(b == 7, "the trivial element came through wrong")
     t.0.len() * 10 + a.len()
 }
@@ -102,10 +102,10 @@ func deep_copy_is_independent() -> Int {
 // a copy grown to 2, and the shared element held by both.
 func element_deep_copy_retains(k: Int) -> Int {
     var v: Vector<Arc<Res>> = Vector<Arc<Res>>()
-    v.push(res(tag: k))
+    try! v.push(res(tag: k))
     let t = (move v, k)
     var (a, b) = t.copy()
-    a.push(res(tag: k + 1))
+    try! a.push(res(tag: k + 1))
     assert(b == k, "the trivial element came through wrong")
     t.0.len() * 100 + a.len() * 10 + t.0.get(0)!.strong_count()
 }
@@ -137,11 +137,11 @@ func string_element_retains(k: Int) -> Int {
 // independent duplicate grown to 2.
 func nested_tuple_copy() -> Int {
     var v: Vector<Int> = Vector<Int>()
-    v.push(5)
+    try! v.push(5)
     let t = ((move v, 1), 2)
     let (inner, outer) = t.copy()
     var (iv, tag) = move inner
-    iv.push(6)
+    try! iv.push(6)
     assert(tag == 1 && outer == 2, "a trivial element came through wrong")
     t.0.0.len() * 10 + iv.len()
 }
@@ -152,7 +152,7 @@ func nested_tuple_copy() -> Int {
 // is bitwise.
 func mixed_tier_copy(k: Int) -> Int {
     var v: Vector<Int> = Vector<Int>()
-    v.push(k)
+    try! v.push(k)
     let t = (move v, res(tag: k), k)
     let u = t.copy()
     u.1.strong_count() + u.0.len()
@@ -218,7 +218,7 @@ func generic_tuple() -> Int {
 // and the explicit copy on top of it is a second independent owner.
 func tuple_in_vector_copy(k: Int) -> Int {
     var v: Vector<(Arc<Res>, Int)> = Vector<(Arc<Res>, Int)>()
-    v.push((res(tag: k), k))
+    try! v.push((res(tag: k), k))
     let u = v.get(0)!.copy()
     u.0.strong_count() - 1
 }

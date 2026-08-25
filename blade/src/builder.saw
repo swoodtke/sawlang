@@ -79,9 +79,9 @@ func append_dir_saw(b: &var StringBuilder, dir: String) {
         if let e = entries.get(i) {
             if let ext = e.ext() {
                 if ext.equals("saw") {
-                    b.append(e.as_str())
-                    b.append("\n")
-                    b.append(read_file(e.as_str()))
+                    try! b.append(e.as_str())
+                    try! b.append("\n")
+                    try! b.append(read_file(e.as_str()))
                 }
             }
         }
@@ -109,7 +109,7 @@ func is_up_to_date(layout: &BuildLayout, hash: &String, artifact: String) -> Boo
 func record_build_stamp(layout: &BuildLayout, hash: &String) {
     match File.create(Path(s: layout.stamp())) {
         case Ok(f) -> {
-            let _ = f.write(hash.to_data())
+            let _ = f.write(try! hash.to_data())
         },
         case Err(_) -> print("    (could not record the build hash)")
     }
@@ -158,7 +158,7 @@ extension Builder {
     // `Command` itself never splits or interprets anything: one `arg` is one
     // argv element (design 122).
     public func compiler_command(&self) -> Command {
-        let words = self.compiler().split(" ")
+        let words = try! self.compiler().split(" ")
         var program = "sawc"
         if let first = words.get(0) {
             if not first.is_empty() {
@@ -170,7 +170,7 @@ extension Builder {
         while i < words.len() {
             if let extra = words.get(i) {
                 if not extra.is_empty() {
-                    cmd.arg(extra)
+                    try! cmd.arg(extra)
                 }
             }
             i = i + 1
@@ -221,9 +221,9 @@ extension Builder {
     // marker. Hashes CONTENT, not mtimes.
     public func build_hash(&self, res: &Resolution) -> String {
         var b = StringBuilder()
-        b.append("sawc-1;")
-        b.append(read_file("Saw.toml"))
-        b.append(read_file("Saw.lock"))
+        try! b.append("sawc-1;")
+        try! b.append(read_file("Saw.toml"))
+        try! b.append(read_file("Saw.lock"))
         append_dir_saw(&var b, "src")
         var i = 0
         while i < res.len() {
@@ -354,12 +354,12 @@ extension Builder {
         let elf = layout.artifact("{name}.elf")
 
         var saw = self.compiler_command()
-        saw.arg(source_file)
-        saw.arg("-o")
-        saw.arg(obj)
-        saw.arg("--freestanding")
-        saw.arg("--target")
-        saw.arg(cfg.target)
+        try! saw.arg(source_file)
+        try! saw.arg("-o")
+        try! saw.arg(obj)
+        try! saw.arg("--freestanding")
+        try! saw.arg("--target")
+        try! saw.arg(cfg.target)
         // design 149, reaching the SOS image path (design 172 part 2): a
         // freestanding image that carries its own `__saw_rt_*` bodies says so
         // with `[package] runtime = true`, exactly as a host runtime package
@@ -368,27 +368,27 @@ extension Builder {
         // the COMPILE, and a package build compiles its whole module graph
         // into one unit.
         if self.manifest.is_runtime() {
-            saw.arg("--runtime-provider")
+            try! saw.arg("--runtime-provider")
         }
         if not cfg.target_features.is_empty() {
-            saw.arg("--target-features")
-            saw.arg(cfg.target_features)
+            try! saw.arg("--target-features")
+            try! saw.arg(cfg.target_features)
         }
         var i = 0
         while i < res.len() {
-            saw.arg("--module-path")
-            saw.arg("{res.name(i)}={self.dep_dir(&res, i)}/src")
+            try! saw.arg("--module-path")
+            try! saw.arg("{res.name(i)}={self.dep_dir(&res, i)}/src")
             i = i + 1
         }
         try self.run_tool(&saw, "sawc")
 
         var objects = Vector<String>()
-        objects.push(obj)
+        try! objects.push(obj)
 
         // `[sos] native` is a space-separated list of translation units, each
         // compiled separately so a HAL file and a shared runtime file can be
         // named without either knowing about the other.
-        let units = cfg.native.split(" ")
+        let units = try! cfg.native.split(" ")
         var u = 0
         while u < units.len() {
             guard let unit = units.get(u) else {
@@ -401,44 +401,44 @@ extension Builder {
             }
             let native_obj = layout.artifact("{name}.native{u}.o")
             var cc = Command(program: sos_clang())
-            cc.arg("--target={cfg.target}")
+            try! cc.arg("--target={cfg.target}")
             // An empty flag is NOT passed. Profile B needs neither `-march` nor
             // `-mabi`, and `-march=` with nothing after it is a clang error
             // rather than a no-op.
             if not cfg.march.is_empty() {
-                cc.arg("-march={cfg.march}")
+                try! cc.arg("-march={cfg.march}")
             }
             if not cfg.mabi.is_empty() {
-                cc.arg("-mabi={cfg.mabi}")
+                try! cc.arg("-mabi={cfg.mabi}")
             }
-            cc.arg("-ffreestanding")
+            try! cc.arg("-ffreestanding")
             // -fno-builtin matters: sos/rt/common_c/support.c DEFINES memcpy,
             // and without it LLVM may rewrite its byte loop into a call to
             // itself. See that file's header.
-            cc.arg("-fno-builtin")
-            cc.arg("-ffunction-sections")
-            cc.arg("-fdata-sections")
-            cc.arg("-nostdlib")
-            cc.arg("-O2")
-            cc.arg("-c")
-            cc.arg(unit)
-            cc.arg("-o")
-            cc.arg(native_obj)
+            try! cc.arg("-fno-builtin")
+            try! cc.arg("-ffunction-sections")
+            try! cc.arg("-fdata-sections")
+            try! cc.arg("-nostdlib")
+            try! cc.arg("-O2")
+            try! cc.arg("-c")
+            try! cc.arg(unit)
+            try! cc.arg("-o")
+            try! cc.arg(native_obj)
             try self.run_tool(&cc, "clang")
-            objects.push(native_obj)
+            try! objects.push(native_obj)
             u = u + 1
         }
 
         var ld = Command(program: sos_ld())
-        ld.arg("-T")
-        ld.arg(cfg.linker_script)
-        ld.arg("--gc-sections")
-        ld.arg("-o")
-        ld.arg(elf)
+        try! ld.arg("-T")
+        try! ld.arg(cfg.linker_script)
+        try! ld.arg("--gc-sections")
+        try! ld.arg("-o")
+        try! ld.arg(elf)
         var o = 0
         while o < objects.len() {
             if let object = objects.get(o) {
-                ld.arg(object)
+                try! ld.arg(object)
             }
             o = o + 1
         }
@@ -512,24 +512,24 @@ extension Builder {
         }
 
         var cmd = self.compiler_command()
-        cmd.arg(source_file)
-        cmd.arg("-o")
-        cmd.arg(output_path)
+        try! cmd.arg(source_file)
+        try! cmd.arg("-o")
+        try! cmd.arg(output_path)
         if let triple = self.layout.triple() {
-            cmd.arg("--target")
-            cmd.arg(triple)
+            try! cmd.arg("--target")
+            try! cmd.arg(triple)
         }
         // design 149: `[package] runtime = true` says this package implements
         // the `__saw_rt_*` seams. sawc then permits those exports, checks each
         // signature against rt/ABI.md, and links no runtime of its own beside it.
         if self.manifest.is_runtime() {
-            cmd.arg("--runtime-provider")
+            try! cmd.arg("--runtime-provider")
         }
         var i = 0
         while i < res.len() {
             let name = res.name(i)
-            cmd.arg("--module-path")
-            cmd.arg("{name}={self.dep_dir(&res, i)}/src")
+            try! cmd.arg("--module-path")
+            try! cmd.arg("{name}={self.dep_dir(&res, i)}/src")
             i = i + 1
         }
 
@@ -596,18 +596,18 @@ extension Builder {
         }
 
         var b = StringBuilder()
-        b.append(content)
+        try! b.append(content)
         if not content.contains("[dependencies]") {
-            b.append("\n[dependencies]\n")
+            try! b.append("\n[dependencies]\n")
         }
         if kind.equals("git") {
             if version.is_empty() {
-                b.append("{name} = \{ git = \"{loc}\" \}\n")
+                try! b.append("{name} = \{ git = \"{loc}\" \}\n")
             } else {
-                b.append("{name} = \{ git = \"{loc}\", version = \"{version}\" \}\n")
+                try! b.append("{name} = \{ git = \"{loc}\", version = \"{version}\" \}\n")
             }
         } else {
-            b.append("{name} = \{ path = \"{loc}\" \}\n")
+            try! b.append("{name} = \{ path = \"{loc}\" \}\n")
         }
 
         let text = b.build()
@@ -615,7 +615,7 @@ extension Builder {
             case Ok(handle) -> move handle,
             case Err(e) -> { return BuildError(msg: "could not write Saw.toml: {e}") }
         }
-        match f.write(text.to_data()) {
+        match f.write(try! text.to_data()) {
             case Ok(_) -> print("    Updated Saw.toml"),
             case Err(e) -> { return BuildError(msg: "could not write Saw.toml: {e}") }
         }
@@ -652,7 +652,7 @@ extension Builder {
         var i = 0
         while i < args.len() {
             if let arg = args.get(i) {
-                cmd.arg(arg)
+                try! cmd.arg(arg)
             }
             i = i + 1
         }

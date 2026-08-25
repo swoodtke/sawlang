@@ -45,7 +45,7 @@ func main() {
 
 func grow(v: Vector<Int>) -> Vector<Int> {
     var out = move v
-    out.push(10)
+    try! out.push(10)
     move out
 }
 

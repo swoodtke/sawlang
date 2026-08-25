@@ -21,7 +21,7 @@ extension Res: NoCopy {
 }
 
 func build() {
-    let a = Arc<Res>(value: Res(id: 7))
+    let a = try! Arc<Res>(value: Res(id: 7))
     // Two DISTINCT closures each capture `a` (retain) -> strong = 1 + 2 = 3.
     let fs: Vector<() -> Int> = [{ a.strong_count() * 0 + 1 }, { a.strong_count() * 0 + 2 }]
     print(a.strong_count())     // 3

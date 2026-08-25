@@ -27,8 +27,8 @@ func main() {
     var v = Vector<Int?>()
     let a: Int? = 1
     let n: Int? = None
-    v.push(a)
-    v.push(n)
+    try! v.push(a)
+    try! v.push(n)
     let first = v[0] ?? -1
     if let _ = v[1] { print("before {first} present") } else { print("before {first} inner-absent") }
 

@@ -94,13 +94,13 @@ enum Held { case Has(x: Tag) }
 
 func mk_tag(id: Int) -> Tag {
     print("NEW t{id}")
-    Tag(cell: Arc<Res>(value: Res(name: "t{id}")))
+    Tag(cell: try! Arc<Res>(value: Res(name: "t{id}")))
 }
 
 func mk_tag_s(id: Int) -> Tag {
     yield_now()
     print("NEW t{id}")
-    Tag(cell: Arc<Res>(value: Res(name: "t{id}")))
+    Tag(cell: try! Arc<Res>(value: Res(name: "t{id}")))
 }
 
 func sync_discard() {

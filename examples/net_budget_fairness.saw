@@ -67,7 +67,7 @@ func recirc(s_read: TcpStream, s_write: TcpStream, stop: Arc<Mutex<Int>>) -> Int
 
 func main() {
     let (s0, s1) = TcpStream.pair()
-    let stop = Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
+    let stop = try! Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
     var group = TaskGroup()
     let hs = group.spawn(sibling(stop))
     let hr = group.spawn(recirc(move s0, move s1, stop))

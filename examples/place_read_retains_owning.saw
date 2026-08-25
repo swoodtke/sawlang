@@ -47,8 +47,8 @@ func read_each(reg: &Registry) {
 
 func main() {
     var v = Vector<Named>()
-    v.push(Named(name: "alpha"))
-    v.push(Named(name: "beta"))
+    try! v.push(Named(name: "alpha"))
+    try! v.push(Named(name: "beta"))
     let reg = Registry(entries: move v)
 
     print("-- read out, vector still owns")

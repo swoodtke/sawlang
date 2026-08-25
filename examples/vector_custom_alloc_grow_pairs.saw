@@ -32,7 +32,7 @@ func use_vector() {
     var v = Vector<Int, CountAlloc>()
     var i = 0
     while i < 40 {
-        v.push(i)          // forces several grows (cap 4, 8, 16, 32, 64)
+        try! v.push(i)          // forces several grows (cap 4, 8, 16, 32, 64)
         i = i + 1
     }
     print(v.len())         // 40

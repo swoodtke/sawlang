@@ -23,7 +23,7 @@ func offsetOf(bytes: Vector<Int>) -> Int {
     var i = 0
     while i < bytes.len() {
         if let b = bytes.get(i) {
-            d.push(b as UInt8)
+            try! d.push(b as UInt8)
         }
         i = i + 1
     }
@@ -35,25 +35,25 @@ func offsetOf(bytes: Vector<Int>) -> Int {
 
 func bytes2(a: Int, b: Int) -> Vector<Int> {
     var x = Vector<Int>()
-    x.push(a)
-    x.push(b)
+    try! x.push(a)
+    try! x.push(b)
     move x
 }
 
 func bytes3(a: Int, b: Int, c: Int) -> Vector<Int> {
     var x = Vector<Int>()
-    x.push(a)
-    x.push(b)
-    x.push(c)
+    try! x.push(a)
+    try! x.push(b)
+    try! x.push(c)
     move x
 }
 
 func bytes4(a: Int, b: Int, c: Int, d: Int) -> Vector<Int> {
     var x = Vector<Int>()
-    x.push(a)
-    x.push(b)
-    x.push(c)
-    x.push(d)
+    try! x.push(a)
+    try! x.push(b)
+    try! x.push(c)
+    try! x.push(d)
     move x
 }
 
@@ -63,7 +63,7 @@ func main() {
 
     // Invalid lead byte 0xFF (no valid encoding).
     var ff = Vector<Int>()
-    ff.push(255)
+    try! ff.push(255)
     print(offsetOf(move ff))                    // 0
 
     // Invalid continuation: 0xC3 followed by '(' (0x28), not a continuation.
@@ -89,6 +89,6 @@ func main() {
 
     // Truncated 2-byte at end of buffer: lone 0xC3.
     var trunc = Vector<Int>()
-    trunc.push(195)
+    try! trunc.push(195)
     print(offsetOf(move trunc))                 // 0
 }

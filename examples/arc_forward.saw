@@ -20,11 +20,11 @@ extension Counter {
 
 func main() {
     // Forward an ordinary &self method through Arc<Counter>.
-    let ac = Arc<Counter>(value: Counter(n: 42))
+    let ac = try! Arc<Counter>(value: Counter(n: 42))
     print(ac.peek())   // 42
 
     // Forward Mutex.lock through Arc<Mutex<Int>> and mutate under the lock.
-    let shared = Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
+    let shared = try! Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
     var i = 0
     while i < 7 {
         shared.lock { &var c in

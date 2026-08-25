@@ -6,9 +6,17 @@
 // with a 2-element `Vector<Int, FailAlloc>`: `len after failed-grow push = 3`
 // and `get(2)` read back the value stored off the end, exit 0, no diagnostic.
 //
-// `push` is the infallible tier, so it panics now.
-// EXPECT: panic
-// EXPECT-PANIC-CONTAINS: Vector.push: allocation failed
+// Conformance row A03. Design 123 made `push` PANIC, which closed the overflow;
+// design 234 hands the same refusal to the caller as a value, and the guarantee
+// is unchanged — the length does not move and nothing lands past the buffer.
+// The error carries the size of the request that was refused, which the panic's
+// fixed text never could.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 4
+// refused: allocation of 64 bytes (align 8) failed
+// 4
+// 3
 
 // Denies every allocation after the first `budget` of them, so the vector gets
 // a real buffer and then loses the grow.
@@ -35,10 +43,15 @@ func main() {
     // The first push allocates capacity 4; pushes 2-4 fit; push 5 must grow and
     // the allocator is out of budget by then.
     while i < 4 {
-        v.push(i)
+        try! v.push(i)
         i = i + 1
     }
     print(v.len())      // 4 — everything so far is real
-    v.push(99)          // grow denied -> panic, never an out-of-bounds write
-    print(v.len())
+    let refused = v.push(99)     // grow denied: reported, never an out-of-bounds write
+    match refused {
+        case Ok(_) -> print("unexpected: the push was accepted"),
+        case Err(e) -> print("refused: {e}")
+    }
+    print(v.len())      // 4 — the length did not move
+    print(v.get(3)!)    // 3 — and the element before the refusal is intact
 }

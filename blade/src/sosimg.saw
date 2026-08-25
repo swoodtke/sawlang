@@ -49,7 +49,7 @@ extension SosError {
 
 extension SosError: Error {
     public func format(&self, into: &var StringBuilder) {
-        into.append(self.message)
+        try! into.append(self.message)
     }
 }
 
@@ -458,7 +458,7 @@ func sos_target_sections(doc: &TomlDoc) -> Vector<String> {
             continue
         }
         if name.starts_with("sos.") {
-            out.push(name.substring(SOS_PREFIX_LEN, name.len()))
+            try! out.push(name.substring(SOS_PREFIX_LEN, name.len()))
         }
         i = i + 1
     }
@@ -582,7 +582,7 @@ extension Data {
     }
 
     func put_u8(&var self, v: UInt) {
-        self.push((v & 0xFF) as UInt8)
+        try! self.push((v & 0xFF) as UInt8)
     }
 
     func put_u16(&var self, v: UInt) {
@@ -819,7 +819,7 @@ func collect_segments(elf: &Data, shape: &ElfShape) -> Result<Vector<PlacedSeg>,
                     reserved1: 0u8,
                     reserved2: 0u8,
                 )
-                segments.push(PlacedSeg(elf_off: p_offset as Int, record: record))
+                try! segments.push(PlacedSeg(elf_off: p_offset as Int, record: record))
             }
         }
         i = i + 1
@@ -865,7 +865,7 @@ public func elf_to_sosimg(elf: &Data, prio_map: UInt, arch: SosimgArch,
     // LAST, after every loadable segment, so a reader that stops early has
     // still seen the whole program.
     if device_len != 0 {
-        segments.push(PlacedSeg(
+        try! segments.push(PlacedSeg(
             elf_off: 0,
             record: SosimgSeg(
                 load_addr: device_base as UInt64,
@@ -914,7 +914,7 @@ public func elf_to_sosimg(elf: &Data, prio_map: UInt, arch: SosimgArch,
         i = i + 1
     }
 
-    var out = Data(capacity: cursor)
+    var out = try! Data(capacity: cursor)
 
     let header = SosimgHeader(
         magic: SOSIMG_MAGIC,
@@ -952,7 +952,7 @@ public func elf_to_sosimg(elf: &Data, prio_map: UInt, arch: SosimgArch,
             guard let byte = elf.get(placed.elf_off + b) else {
                 return SosError(msg: "segment {s} runs past the end of the linked image")
             }
-            out.push(byte)
+            try! out.push(byte)
             b = b + 1
         }
         s = s + 1

@@ -24,7 +24,7 @@
 // closure-owns-its-catch=caught inner
 
 struct E { m: String }
-extension E: Printable { func format(&self, into: &var StringBuilder) { into.append(self.m) } }
+extension E: Printable { func format(&self, into: &var StringBuilder) { try! into.append(self.m) } }
 extension E: Error {}
 
 func might_fail(n: Int) -> Result<Int, E> {

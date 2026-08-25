@@ -31,7 +31,7 @@ func main() {
     let pair = tcp_socketpair()
     let a = pair.0
     let b = pair.1                       // peer: never written, so `a` stays idle
-    var g = TaskGroup(threads: 2)
+    var g = try! TaskGroup(threads: 2)
     let hp = g.spawn(parker(a))
     let addr = hp.cancel_addr()
     let _ = g.spawn(canceller(addr))

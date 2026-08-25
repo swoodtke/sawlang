@@ -109,11 +109,11 @@ extension ChannelError: Printable {
             // The leaf renders itself — that is what carrying it is for, and
             // the size it asked for is the actionable half of an OOM report.
             case Alloc(e) -> {
-                into.append(self.describe())
-                into.append(": ")
+                try! into.append(self.describe())
+                try! into.append(": ")
                 e.format(into: &var into)
             },
-            case _ -> into.append(self.describe())
+            case _ -> try! into.append(self.describe())
         }
     }
 }
@@ -145,34 +145,13 @@ extension Channel<T: Send>: UnsafeSend {}
 extension Channel<T: Send>: UnsafeSync {}
 
 extension Channel<T: Send> {
-    /// Creates a fresh empty channel.
-    ///
-    /// Panics if the allocator refuses the shared block (design 123,
-    /// infallible tier). It used to build an INERT channel: `send` swallowed
-    /// every message, `recv` force-unwrapped a `None` and `receive` looped
-    /// forever. `try_make` reports the failure instead.
-    public init() unsafe -> Channel<T> {
-        if let block = GlobalAllocator().alloc(176, 16) {
-            __saw_rt_pthread_mutex_init_default(block)
-            let cond = (block + 64) as UnsafePointer<Int8>
-            __saw_rt_pthread_cond_init_default(cond)
-            let refcount = (block + 128) as UnsafePointer<Int>
-            refcount[0] = 1
-            let count = (block + 136) as UnsafePointer<Int>
-            count[0] = 0
-            let ready = (block + 160) as UnsafePointer<Int>
-            ready[0] = 0
-            let closed = (block + 168) as UnsafePointer<Int>
-            closed[0] = 0
-            Channel<T>(block: block)
-        } else {
-            panic("Channel(): allocation failed")
-        }
-    }
-
     /// Creates a fresh empty channel, reporting allocator exhaustion as
     /// `Err(AllocError)`.
-    public static func try_make() unsafe -> Result<Channel<T>, AllocError> {
+    ///
+    /// Under design 123 this panicked, and before that it built an INERT
+    /// channel: `send` swallowed every message, `recv` force-unwrapped a `None`
+    /// and `receive` looped forever.
+    public init() unsafe -> Result<Channel<T>, AllocError> {
         if let block = GlobalAllocator().alloc(176, 16) {
             __saw_rt_pthread_mutex_init_default(block)
             let cond = (block + 64) as UnsafePointer<Int8>

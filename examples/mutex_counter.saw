@@ -10,7 +10,7 @@
 
 import std.mutex.{Mutex}
 func main() {
-    let shared = Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
+    let shared = try! Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
 
     var t0 = Thread.spawn { [shared] in
         var k = 0

@@ -83,32 +83,32 @@ extension MiniEncoder: Encoder {
             return EncodeError(fault: EncodeFault.Unsupported)
         }
         let biased = v + INT_BIAS
-        self.out.push(TAG_INT)
-        self.out.push(((biased >> 8) & 255) as UInt8)
-        self.out.push((biased & 255) as UInt8)
+        try! self.out.push(TAG_INT)
+        try! self.out.push(((biased >> 8) & 255) as UInt8)
+        try! self.out.push((biased & 255) as UInt8)
         return
     }
 
     func write_bool(&var self, v: Bool) sync -> Result<Void, EncodeError> {
-        self.out.push(if v { TAG_TRUE } else { TAG_FALSE })
+        try! self.out.push(if v { TAG_TRUE } else { TAG_FALSE })
         return
     }
 
     func write_null(&var self) sync -> Result<Void, EncodeError> {
-        self.out.push(TAG_NULL)
+        try! self.out.push(TAG_NULL)
         return
     }
 
     func write_text(&var self, v: String) sync -> Result<Void, EncodeError> {
-        let bytes = v.to_data()
+        let bytes = try! v.to_data()
         if bytes.len() > 255 {
             return EncodeError(fault: EncodeFault.BufferFull)
         }
-        self.out.push(TAG_TEXT)
-        self.out.push(bytes.len() as UInt8)
+        try! self.out.push(TAG_TEXT)
+        try! self.out.push(bytes.len() as UInt8)
         var i = 0
         while i < bytes.len() {
-            self.out.push(bytes[i])
+            try! self.out.push(bytes[i])
             i = i + 1
         }
         return
@@ -126,8 +126,8 @@ extension MiniEncoder: Encoder {
         if count > 255 {
             return EncodeError(fault: EncodeFault.BufferFull)
         }
-        self.out.push(TAG_ARRAY)
-        self.out.push(count as UInt8)
+        try! self.out.push(TAG_ARRAY)
+        try! self.out.push(count as UInt8)
         return
     }
 
@@ -214,7 +214,7 @@ extension MiniDecoder: Decoder {
         var i = 0
         while i < (n as Int) {
             let byte = try self.next()
-            b.append_char(byte as Int8)
+            try! b.append_char(byte as Int8)
             i = i + 1
         }
         return b.build()
@@ -263,8 +263,8 @@ func describe(c: Track) -> String {
 
 func main() {
     var deps = Vector<Dep>()
-    deps.push(Dep(name: "toml", version: "0.1.0"))
-    deps.push(Dep(name: "semver", version: "2.0.0"))
+    try! deps.push(Dep(name: "toml", version: "0.1.0"))
+    try! deps.push(Dep(name: "semver", version: "2.0.0"))
 
     let m = Manifest(kind: Track.Release, port: 443, name: "api", tag: None,
                      deps: move deps, lo: -7i8, hi: 200u8)

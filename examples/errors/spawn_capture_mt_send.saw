@@ -23,7 +23,7 @@ func run(f: () -> Int) -> Int {
 
 func main() {
     var n = 7
-    var group = TaskGroup(threads: 2)
+    var group = try! TaskGroup(threads: 2)
     let h = group.spawn(run({ [&var n] in n = n + 1  n }))
     print("task saw {h.join()}")
 }

@@ -46,8 +46,8 @@ func bump_many(a: Arc<Cell>) unsafe -> Int {
 }
 
 func main() unsafe {
-    let c = Arc<Cell>(value: Cell(start: 0))
-    var g = TaskGroup(threads: 2)
+    let c = try! Arc<Cell>(value: Cell(start: 0))
+    var g = try! TaskGroup(threads: 2)
     let a1 = c.copy()
     let h1 = g.spawn(bump_many(a1))
     h1.join()

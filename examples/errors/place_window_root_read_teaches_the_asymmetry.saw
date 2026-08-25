@@ -23,7 +23,7 @@
 struct Res { id: Int }
 extension Res: NoCopy {}
 extension Res: Printable {
-    func format(&self, into: &var StringBuilder) { into.append("Res({self.id})") }
+    func format(&self, into: &var StringBuilder) { try! into.append("Res({self.id})") }
 }
 extension Res: Equatable {
     func equals(&self, other: &Res) -> Bool { self.id == other.id }
@@ -34,8 +34,8 @@ extension Res {
 
 func main() {
     var v = Vector<Res>()
-    v.push(Res(id: 1))
-    v.push(Res(id: 2))
+    try! v.push(Res(id: 1))
+    try! v.push(Res(id: 2))
 
     // An ARGUMENT naming the root: it runs after the accessor's prologue.
     v[0].bump(by: v.len())

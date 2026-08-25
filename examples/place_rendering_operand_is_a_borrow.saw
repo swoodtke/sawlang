@@ -33,7 +33,7 @@ struct Res { n: Int }
 extension Res: NoCopy {}
 extension Res: Printable {
     func to_string(&self) -> String { "Res({self.n})" }
-    func format(&self, into: &var StringBuilder) { into.append(self.to_string()) }
+    func format(&self, into: &var StringBuilder) { try! into.append(self.to_string()) }
 }
 extension Res {
     func bump(&self) -> Int { self.n + 1 }
@@ -45,7 +45,7 @@ struct Bag { items: Vector<Int> }
 extension Bag: ExplicitCopy {}
 extension Bag: Printable {
     func to_string(&self) -> String { "Bag({self.items[0]})" }
-    func format(&self, into: &var StringBuilder) { into.append(self.to_string()) }
+    func format(&self, into: &var StringBuilder) { try! into.append(self.to_string()) }
 }
 
 // `panic`'s format arguments are a rendering position too. It cannot be RUN in
@@ -56,7 +56,7 @@ func fail_loudly(v: &Vector<Res>) -> Never {
 
 func main() {
     var v = Vector<Res>()
-    v.push(Res(n: 1))
+    try! v.push(Res(n: 1))
 
     // The controls: a place hop and a `&self` call, both borrows all along.
     print("field {v[0].n}")
@@ -85,7 +85,7 @@ func main() {
 
     var bags = Vector<Bag>()
     var items: Vector<Int> = [7]
-    bags.push(Bag(items: move items))
+    try! bags.push(Bag(items: move items))
     print("explicit {bags[0]}")
     print("explicit arg {}", bags[0])
 }

@@ -20,7 +20,7 @@ extension Cell {
 
 func main() {
     var seed = Vector<Cell>()
-    seed.push(Cell(n: 1))
+    try! seed.push(Cell(n: 1))
     let v = move seed
     v[0].bump()
     print(v[0].n)

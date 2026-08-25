@@ -162,11 +162,11 @@ extension ProcessError {
 extension ProcessError: Error {
     public func format(&self, into: &var StringBuilder) {
         if self.was_cancelled {
-            into.append("cancelled while waiting for process: ")
+            try! into.append("cancelled while waiting for process: ")
         } else {
-            into.append("could not launch process: ")
+            try! into.append("could not launch process: ")
         }
-        into.append(self.program)
+        try! into.append(self.program)
     }
 }
 
@@ -247,8 +247,8 @@ extension Command {
     // Add a single argument. Whatever bytes it holds, it arrives at the child
     // process as exactly one element of `argv` — no quoting rules to get wrong,
     // because no shell ever sees it.
-    public func arg(&var self, argument: String) {
-        self.args.push(argument)
+    public func arg(&var self, argument: String) -> Result<Void, AllocError> {
+        return try self.args.push(argument)
     }
 
     // The number of arguments added so far.
@@ -270,7 +270,7 @@ extension Command {
     // or containing the `=` POSIX reserves as the separator. That is a
     // programming error in the same class as an out-of-range index, not a
     // condition the child could report.
-    public func env(&var self, name: String, value: String) {
+    public func env(&var self, name: String, value: String) -> Result<Void, AllocError> {
         if name.is_empty() {
             panic("Command.env: an environment variable name must not be empty")
         }
@@ -279,9 +279,9 @@ extension Command {
         }
 
         var spec = StringBuilder()
-        spec.append(name)
-        spec.append("=")
-        spec.append(value)
+        let _ = try spec.append(name)
+        let _ = try spec.append("=")
+        let _ = try spec.append(value)
         let entry = spec.build()
 
         var i = 0
@@ -294,7 +294,7 @@ extension Command {
             }
             i = i + 1
         }
-        self.envs.push(entry)
+        return try self.envs.push(entry)
     }
 
     // The number of environment variables `env` has set so far.
@@ -529,10 +529,16 @@ extension Command {
     // Consequence for callers: `output()` suspends, so a `sync` function cannot
     // call it. Cancelling the task ends the WAIT, not the child, and answers
     // `None`; a child cancelled mid-drain keeps running, unreaped.
-    public func output(&self) unsafe -> CommandOutput? {
+    // design 234: the two answers ride separate channels. `Ok(None)` keeps its
+    // old meaning — the child could not be launched, or the wait was cancelled —
+    // and `Err(AllocError)` is the collection buffer running out, which used to
+    // panic inside `Data.append_bytes` and now reaches the caller that asked for
+    // the output.
+    public func output(&self) unsafe -> Result<CommandOutput?, AllocError> {
         let job = self.spawn_job(true)
         if job <= 0 {
-            return None
+            let absent: CommandOutput? = None
+            return absent
         }
 
         // Both buffers are FRAME-RESIDENT, which is design 183's pointer rule
@@ -552,7 +558,7 @@ extension Command {
             let n = __saw_rt_proc_read_stdout(
                 job, (&chunk) as UnsafePointer<Int8>, PROC_READ_CHUNK)
             if n > 0 {
-                collected.append_bytes((&chunk) as UnsafePointer<Int8>, n)
+                let _ = try collected.append_bytes((&chunk) as UnsafePointer<Int8>, n)
             } else {
                 // 0 = EOF (the child closed stdout / exited); < 0 = a read
                 // error. Either way there is nothing more to collect — the
@@ -565,7 +571,8 @@ extension Command {
         // run() does (DF2): a signal death is a nonzero failure, not exit 0.
         let w = self.reap(job)
         if w.cancelled || w.raw < 0 {
-            return None
+            let absent: CommandOutput? = None
+            return absent
         }
         let exit_code = decode_wait_status(w.raw as Int32)
 
@@ -578,7 +585,8 @@ extension Command {
             __saw_string_from_bytes(collected.byte_ptr(), collected.len())
         }
 
-        CommandOutput(stdout: stdout_str, exit_code: exit_code)
+        let out: CommandOutput? = CommandOutput(stdout: stdout_str, exit_code: exit_code)
+        return out
     }
 }
 

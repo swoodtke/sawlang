@@ -19,7 +19,7 @@ extension Res: NoCopy {
 }
 
 func main() {
-    let a = Arc<Res>(value: Res(id: 5))
+    let a = try! Arc<Res>(value: Res(id: 5))
     print(a.strong_count())        // 1
     let f = { a.strong_count() }   // env retains a -> strong 2
     let g = f                      // Copy: env refcount 2, Arc shared

@@ -12,9 +12,9 @@
 
 func main() {
     var v = Vector<Int>()
-    v.push(5)
-    v.push(6)
-    v.push(7)
+    try! v.push(5)
+    try! v.push(6)
+    try! v.push(7)
 
     var total = 0
     v.each_indexed { [&var total] i, x in

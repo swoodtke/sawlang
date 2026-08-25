@@ -10,11 +10,11 @@
 // The closure is a NON-escaping parameter. Here it orders DESCENDING.
 func main() {
     var d = Vector<Int>()
-    d.push(3)
-    d.push(1)
-    d.push(4)
-    d.push(9)
-    d.push(5)
+    try! d.push(3)
+    try! d.push(1)
+    try! d.push(4)
+    try! d.push(9)
+    try! d.push(5)
     d.sort_by { a, b in
         if a > b {
             Ordering.Less

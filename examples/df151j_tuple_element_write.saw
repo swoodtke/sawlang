@@ -50,7 +50,7 @@ extension Res: NoCopy {
 
 func res(tag: Int) -> Arc<Res> {
     LIVE.fetch_add(1)
-    Arc<Res>(value: Res(name: "res-{tag}"))
+    try! Arc<Res>(value: Res(name: "res-{tag}"))
 }
 
 struct Counter { n: Int }
@@ -71,12 +71,12 @@ func whole_element_replace() -> Int {
 // that dropped twice would double-free it.
 func replace_frees_the_buffer() -> Int {
     var first: Vector<Int> = Vector<Int>()
-    first.push(1)
+    try! first.push(1)
     var t = (move first, 0)
     var second: Vector<Int> = Vector<Int>()
-    second.push(1)
-    second.push(2)
-    second.push(3)
+    try! second.push(1)
+    try! second.push(2)
+    try! second.push(3)
     t.0 = move second
     t.0.len()
 }

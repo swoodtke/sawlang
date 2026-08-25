@@ -1,0 +1,39 @@
+// XFAIL: DF-257d the `$0` shorthand is invisible to the implicit-parameter scan
+// when it sits inside a `try`/`try!`/`try?` operand, so the closure infers
+// arity 0 and the argument is refused as `() -> Void`.
+//
+// PRE-EXISTING — nothing here needs a fallible container. Design 234 meets it
+// because `try!` is the corpus's migration spelling and `$0` closures are
+// everywhere: `v.each { [&var out] in out.push($0 * 2) }` becomes
+// `v.each { [&var out] in try! out.push($0 * 2) }`, and the shorthand vanishes.
+//
+//   error: undefined variable `$0`
+//   error: argument `body` expects `(Int) -> Void` but got `() -> Void`
+//
+// The control below — the same `$0` with no `try` around it — compiles, which
+// is what makes the `try` the whole delta. The named-parameter spelling
+// (`{ n in try! ... }`) is the workaround the corpus takes meanwhile, cited at
+// each site.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// plain 21
+// forced 42
+// bound 42
+
+func fallible(n: Int) -> Result<Int, AllocError> {
+    return n * 2
+}
+
+func run(body: (Int) -> Void) {
+    body(21)
+}
+
+func main() {
+    // Control: `$0` outside any try.
+    run({ print("plain {$0}") })
+    // The subject: `$0` inside a `try!` operand.
+    run({ print("forced {try! fallible($0)}") })
+    // And as the whole body.
+    run({ let v = try! fallible($0)  print("bound {v}") })
+}

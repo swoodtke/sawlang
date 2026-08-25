@@ -73,7 +73,7 @@ extension Res: NoCopy {
 
 func res(tag: Int) -> Arc<Res> {
     LIVE.fetch_add(1)
-    Arc<Res>(value: Res(name: "res-{tag}"))
+    try! Arc<Res>(value: Res(name: "res-{tag}"))
 }
 
 // The filed repro: a plain local, no temporary lifetime question anywhere.
@@ -177,8 +177,8 @@ func element_read(k: Int) -> Int {
 // Tuple elements of a container the container destroys.
 func in_vector(k: Int) -> Int {
     var v: Vector<(Arc<Res>, Int)> = Vector<(Arc<Res>, Int)>()
-    v.push((res(tag: k), k))
-    v.push((res(tag: k + 1), k + 1))
+    try! v.push((res(tag: k), k))
+    try! v.push((res(tag: k + 1), k + 1))
     v.len()
 }
 
@@ -194,8 +194,8 @@ extension Cell: NoCopy {
 // (design 33) and balanced before this change. Kept so it stays that way.
 func owning_array(k: Int) -> Int {
     LIVE.fetch_add(2)
-    let a: [Arc<Cell>; 2] = [Arc<Cell>(value: Cell(tag: "c-{k}")),
-                             Arc<Cell>(value: Cell(tag: "d-{k}"))]
+    let a: [Arc<Cell>; 2] = [try! Arc<Cell>(value: Cell(tag: "c-{k}")),
+                             try! Arc<Cell>(value: Cell(tag: "d-{k}"))]
     a[0].strong_count()
 }
 

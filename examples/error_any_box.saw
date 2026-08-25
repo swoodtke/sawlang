@@ -12,20 +12,20 @@
 struct Point { x: Int, y: Int }
 extension Point: Printable {
     func format(&self, into: &var StringBuilder) {
-        into.append("(")
-        into.append(self.x)
-        into.append(", ")
-        into.append(self.y)
-        into.append(")")
+        try! into.append("(")
+        try! into.append(self.x)
+        try! into.append(", ")
+        try! into.append(self.y)
+        try! into.append(")")
     }
 }
 
 struct MyErr { code: Int }
 extension MyErr: Error {
     func format(&self, into: &var StringBuilder) {
-        into.append("err(")
-        into.append(self.code)
-        into.append(")")
+        try! into.append("err(")
+        try! into.append(self.code)
+        try! into.append(")")
     }
 }
 

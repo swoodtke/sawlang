@@ -12,9 +12,9 @@
 
 func main() {
     var v = Vector<Int>()
-    v.push(10)
-    v.push(20)
-    v.push(30)
+    try! v.push(10)
+    try! v.push(20)
+    try! v.push(30)
 
     // each + a borrow-captured accumulator == fold (the flagship idiom)
     var sum = 0
@@ -32,8 +32,11 @@ func main() {
 
     // map: build a new Vector by pushing into a borrow-captured result
     var out = Vector<Int>()
-    v.each { [&var out] in
-        out.push($0 * 2)
+    // The parameter is NAMED here rather than `$0`: DF-257d makes the shorthand
+    // invisible to the implicit-parameter scan when it sits inside a `try`
+    // operand, so `try! out.push($0 * 2)` infers a zero-argument closure.
+    v.each { [&var out] n in
+        try! out.push(n * 2)
     }
     var doubled_sum = 0
     out.each { [&var doubled_sum] in

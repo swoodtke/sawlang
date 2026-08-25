@@ -65,7 +65,7 @@ func trivial_tier() {
 }
 
 func implicitcopy_tier() {
-    let a = Arc<Int>(value: 7)
+    let a = try! Arc<Int>(value: 7)
     var s = Slot<Arc<Int>>.empty()
     s.put(a)                                  // bare: the transfer retains
     print("implicit inside {s.value().strong_count()}")

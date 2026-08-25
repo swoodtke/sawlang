@@ -48,7 +48,7 @@ struct Rows { rows: Vector<Vector<Int>> }
 extension Rows: NoCopy {}
 
 extension Rows {
-    func widen(&self) { self.rows[0].push(9) }
+    func widen(&self) { try! self.rows[0].push(9) }
     func width(&self) -> Int { self.rows[0].len() }
 }
 
@@ -58,7 +58,7 @@ struct Bag { cells: Vector<Int> }
 extension Bag: NoCopy {}
 
 extension Bag {
-    func fill(&var self) { self.cells.push(9) }
+    func fill(&var self) { try! self.cells.push(9) }
     func size(&self) -> Int { self.cells.len() }
 }
 

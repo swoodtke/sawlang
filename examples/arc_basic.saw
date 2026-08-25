@@ -25,7 +25,7 @@ func consume(a: Arc<Res>) {
 }
 
 func main() {
-    let a = Arc<Res>(value: Res(id: 5))
+    let a = try! Arc<Res>(value: Res(id: 5))
     print(a.strong_count())   // 1
 
     consume(a)                // strong 1 -> 2 -> 1

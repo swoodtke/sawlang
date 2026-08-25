@@ -20,7 +20,7 @@ func handle(stream: TcpStream) -> Int {
         if chunk.len() == 0 {
             reading = false                        // peer closed
         } else {
-            req.append(move chunk)
+            try! req.append(move chunk)
             if (try! req.to_string()).contains("\r\n\r\n") {
                 reading = false                    // have the full request head
             }
@@ -28,10 +28,10 @@ func handle(stream: TcpStream) -> Int {
     }
     let body = "hello"
     var sb = StringBuilder()
-    sb.append("HTTP/1.1 200 OK\r\nContent-Length: ")
-    sb.append(body.len())
-    sb.append("\r\n\r\n")
-    sb.append(body)
+    try! sb.append("HTTP/1.1 200 OK\r\nContent-Length: ")
+    try! sb.append(body.len())
+    try! sb.append("\r\n\r\n")
+    try! sb.append(body)
     try! stream.write(sb.build())               // park on would-block until sent
     return body.len()
 }
@@ -45,7 +45,7 @@ func client(stream: TcpStream) -> Int {
         if chunk.len() == 0 {
             reading = false
         } else {
-            resp.append(move chunk)
+            try! resp.append(move chunk)
             if (try! resp.to_string()).contains("hello") {
                 reading = false
             }

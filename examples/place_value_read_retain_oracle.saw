@@ -42,8 +42,8 @@ func main() {
 
     // ---- Copy elements ----
     var res = Vector<Res>()
-    res.push(Res(name: "a"))
-    res.push(Res(name: "b"))
+    try! res.push(Res(name: "a"))
+    try! res.push(Res(name: "b"))
 
     // A BORROW through the place costs nothing.
     print("-- borrow, no copy")

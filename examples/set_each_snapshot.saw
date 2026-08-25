@@ -13,25 +13,25 @@
 
 func main() {
     var t = Set<Int>()
-    t.insert(3)
-    t.insert(1)
-    t.insert(2)
+    try! t.insert(3)
+    try! t.insert(1)
+    try! t.insert(2)
 
     var sum = 0
     t.each { [&var sum] e in sum = sum + e }
     print(sum)                        // 6 (order-independent)
 
-    var v = t.to_vector()
+    var v = try! t.to_vector()
     v.sort()
     for e in v.iter() { print(e) }    // 1, 2, 3 (sorted)
 
-    let one = Set<Int>.of(42)
+    let one = try! Set<Int>.of(42)
     print(one.len())                  // 1
     if one.contains(42) { print(1) } else { print(0) }  // 1
 
     var ss = Set<String>()
-    ss.insert("a")
-    ss.insert("b")
-    ss.insert("a")
+    try! ss.insert("a")
+    try! ss.insert("b")
+    try! ss.insert("a")
     print(ss.len())                   // 2 (dedup)
 }

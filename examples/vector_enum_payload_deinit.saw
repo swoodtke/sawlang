@@ -27,10 +27,10 @@ extension Slot: NoCopy {}
 func main() {
     var v = Vector<Slot>()
     let s0 = Slot.Occupied(r: R(id: 7))
-    v.push(move s0)
+    try! v.push(move s0)
     let s1 = Slot.Empty
-    v.push(move s1)
+    try! v.push(move s1)
     let s2 = Slot.Occupied(r: R(id: 9))
-    v.push(move s2)
+    try! v.push(move s2)
     print(100)
 }

@@ -27,13 +27,13 @@ func makeRes(id: Int) -> Res {
 // The group lives (and tears down) inside this helper, so `main` can read the
 // final drop count AFTER structured join has dropped every unjoined result.
 func run() {
-    var group = TaskGroup(threads: 3)
+    var group = try! TaskGroup(threads: 3)
     var i = 0
     var joined = 0
     var handles = Vector<Task<Res>>()
     while i < 6 {
         let h = group.spawn(makeRes(i))
-        handles.push(move h)
+        try! handles.push(move h)
         i = i + 1
     }
     // Join the first three (results drop at the caller); leave three unjoined

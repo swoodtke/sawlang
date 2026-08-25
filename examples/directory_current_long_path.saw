@@ -34,7 +34,7 @@ func component() -> String {
     var b = StringBuilder()
     var i = 0
     while i < COMPONENT_LENGTH {
-        b.append("d")
+        try! b.append("d")
         i = i + 1
     }
     b.build()

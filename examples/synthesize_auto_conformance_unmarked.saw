@@ -27,7 +27,7 @@ func main() {
 
     // Auto-Hashable carries the POD struct into a Map with no declaration.
     var seen: Map<Point, Int> = {:}
-    seen.insert(Point(x: 1, y: 2), 10)
-    seen.insert(Point(x: 3, y: 4), 20)
+    try! seen.insert(Point(x: 1, y: 2), 10)
+    try! seen.insert(Point(x: 3, y: 4), 20)
     print(seen.len())
 }

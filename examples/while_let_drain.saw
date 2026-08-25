@@ -146,8 +146,8 @@ func wildcard_binding() {
 // asks an `if let`.)
 func nocopy_payload() {
     var toks: Vector<Token> = []
-    toks.push(Token(id: 1, label: "a"))
-    toks.push(Token(id: 2, label: "b"))
+    try! toks.push(Token(id: 1, label: "a"))
+    try! toks.push(Token(id: 2, label: "b"))
     var ids = 0
     while let t = toks.pop() {
         ids = ids + t.id

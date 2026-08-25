@@ -28,7 +28,7 @@ extension Cli: ExplicitCopy {}
 extension Cli {
     static func parse() -> Result<Cli, Int> {
         var v: Vector<String> = []
-        v.push("build")
+        try! v.push("build")
         Cli(command: move v)
     }
     func count(&self) -> Int { self.command.len() }

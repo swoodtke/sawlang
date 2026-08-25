@@ -15,8 +15,8 @@ import std.data.{Data}
 func main() {
     // Valid ASCII "Hi"
     var ascii = Data()
-    ascii.push(72 as UInt8)   // H
-    ascii.push(105 as UInt8)  // i
+    try! ascii.push(72 as UInt8)   // H
+    try! ascii.push(105 as UInt8)  // i
     match String.fromBytes(&ascii) {
         case Ok(s) -> {
             print(s.len())    // 2 bytes
@@ -27,11 +27,11 @@ func main() {
 
     // Valid multibyte "café": c a f é(0xC3 0xA9) -> 5 bytes, 4 scalars
     var cafe = Data()
-    cafe.push(99 as UInt8)    // c
-    cafe.push(97 as UInt8)    // a
-    cafe.push(102 as UInt8)   // f
-    cafe.push(195 as UInt8)   // é lead
-    cafe.push(169 as UInt8)   // é continuation
+    try! cafe.push(99 as UInt8)    // c
+    try! cafe.push(97 as UInt8)    // a
+    try! cafe.push(102 as UInt8)   // f
+    try! cafe.push(195 as UInt8)   // é lead
+    try! cafe.push(169 as UInt8)   // é continuation
     match String.fromBytes(&cafe) {
         case Ok(s) -> {
             print(s.len())            // 5 bytes

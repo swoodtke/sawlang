@@ -19,42 +19,42 @@ func show(d: &Data) -> String {
     var i = 0
     while i < d.len() {
         if i > 0 {
-            out.append(",")
+            try! out.append(",")
         }
-        out.append(d.get(i)! as Int)
+        try! out.append(d.get(i)! as Int)
         i = i + 1
     }
     out.build()
 }
 
 func main() {
-    var a = Data(capacity: 4)
-    a.push(1)
-    a.push(2)
-    a.append(a)
+    var a = try! Data(capacity: 4)
+    try! a.push(1)
+    try! a.push(2)
+    try! a.append(a)
     print("self-append {show(&a)}")
 
     // A slice of self: the argument holds a retain AND a narrower window.
-    var b = Data(capacity: 4)
-    b.push(10)
-    b.push(20)
-    b.push(30)
-    b.append(b.slice(1, 3)!)
+    var b = try! Data(capacity: 4)
+    try! b.push(10)
+    try! b.push(20)
+    try! b.push(30)
+    try! b.append(b.slice(1, 3)!)
     print("slice-append {show(&b)}")
 
     // Appending into storage a sibling shares: the sibling keeps its bytes.
-    var c = Data(capacity: 4)
-    c.push(7)
+    var c = try! Data(capacity: 4)
+    try! c.push(7)
     let sibling = c.copy()
-    var tail = Data(capacity: 4)
-    tail.push(9)
-    c.append(move tail)
+    var tail = try! Data(capacity: 4)
+    try! tail.push(9)
+    try! c.append(move tail)
     print("shared-append {show(&c)} sibling {show(&sibling)}")
 
     // Separation and growth in the same call, twice over.
-    var e = Data(capacity: 2)
-    e.push(5)
-    e.append(e)
-    e.append(e)
+    var e = try! Data(capacity: 2)
+    try! e.push(5)
+    try! e.append(e)
+    try! e.append(e)
     print("grow-append {show(&e)}")
 }

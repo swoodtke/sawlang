@@ -29,10 +29,10 @@ extension Version: Comparable {}
 
 func main() {
     var vs = Vector<Version>()
-    vs.push(Version(major: 1, minor: 2, patch: 0))
-    vs.push(Version(major: 1, minor: 0, patch: 5))
-    vs.push(Version(major: 2, minor: 0, patch: 0))
-    vs.push(Version(major: 1, minor: 2, patch: 3))
+    try! vs.push(Version(major: 1, minor: 2, patch: 0))
+    try! vs.push(Version(major: 1, minor: 0, patch: 5))
+    try! vs.push(Version(major: 2, minor: 0, patch: 0))
+    try! vs.push(Version(major: 1, minor: 2, patch: 3))
     vs.sort()
     // Sorted: 1.0.5, 1.2.0, 1.2.3, 2.0.0
     var i = 0

@@ -24,15 +24,15 @@ func each_count<T: Copy>(v: &Vector<T>) -> Int {
 
 func run(probe: &Arc<Int>) {
     var v = Vector<W>()
-    v.push(W(rc: probe.copy()))
-    v.push(W(rc: probe.copy()))
+    try! v.push(W(rc: probe.copy()))
+    try! v.push(W(rc: probe.copy()))
     print(probe.strong_count())      // 3 (probe + 2 stored)
     print(each_count<W>(&v))         // 2
     print(probe.strong_count())      // 3 — balanced (no per-iteration leak)
 }
 
 func main() {
-    let probe = Arc<Int>(value: 0)
+    let probe = try! Arc<Int>(value: 0)
     run(&probe)
     print(probe.strong_count())      // 1
 }

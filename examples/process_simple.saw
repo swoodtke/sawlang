@@ -7,10 +7,10 @@ import std.process.{Command}
 func main() {
     // Test capturing output from printf (no trailing newline)
     var cmd = Command(program: "/bin/echo")
-    cmd.arg("-n")
-    cmd.arg("hello")
+    try! cmd.arg("-n")
+    try! cmd.arg("hello")
 
-    if let result = cmd.output() {
+    if let result = try! cmd.output() {
         let out = result.stdout
         let ok = result.success()
         print("stdout: {out}")

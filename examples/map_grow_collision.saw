@@ -17,7 +17,7 @@ func main() {
     var m = Map<Int, Int>()
     var i = 0
     while i < 50 {
-        m.insert(i, i * 100)
+        try! m.insert(i, i * 100)
         i = i + 1
     }
     print(m.len())                                   // 50

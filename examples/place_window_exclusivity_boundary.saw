@@ -96,15 +96,15 @@ func main() {
 
     var cells: Vector<Vector<Cell>> = []
     var inner: Vector<Cell> = []
-    inner.push(Cell(n: 1))
-    inner.push(Cell(n: 2))
-    cells.push(move inner)
+    try! inner.push(Cell(n: 1))
+    try! inner.push(Cell(n: 2))
+    try! cells.push(move inner)
     cells[0][1].n += 1
     print("nested={cells[0][1].n}")
 
     var d = Data()
-    d.push(1)
-    d.push(2)
+    try! d.push(1)
+    try! d.push(2)
     d[0] = 9
     print("d0={d[0]} d1={d[1]}")
 }

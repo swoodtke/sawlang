@@ -19,8 +19,8 @@ extension Level {
 
 extension Level: Printable {
     public func format(&self, into: &var StringBuilder) {
-        into.append("Level(")
-        into.append(self.rank())
-        into.append(")")
+        try! into.append("Level(")
+        try! into.append(self.rank())
+        try! into.append(")")
     }
 }

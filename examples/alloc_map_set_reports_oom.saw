@@ -1,3 +1,6 @@
+// Conformance rows A06 and A07 — `Map.insert` and `Set.insert` under a
+// refusing allocator, and the all-or-nothing they promise.
+//
 // Design 123: Map and Set. `Map._grow` built its slot table with
 // `Vector(capacity:)` + `push`, both of which degraded silently, so on a
 // refused allocation:
@@ -10,7 +13,9 @@
 // Set inherited all of it and additionally returned `true` ("newly inserted")
 // for an element it had just dropped.
 //
-// `insert` panics now; `try_insert` reports and leaves the table intact.
+// Design 123 made `insert` panic and added a `try_insert` twin that reported;
+// design 234 retires the split — `insert` REPORTS, and the table is intact
+// after an `Err`: every key that was in it still is.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 3
@@ -42,18 +47,18 @@ extension FailAlloc: Allocator {
 
 func main() {
     var m = Map<Int, Int, FailAlloc>()
-    m.insert(1, 10)
-    m.insert(2, 20)
-    m.insert(3, 30)
+    try! m.insert(1, 10)
+    try! m.insert(2, 20)
+    try! m.insert(3, 30)
     print(m.len())                      // 3
 
     // Load factor: the 7th entry (7*4 > 8*3) triggers the rehash. Get to 6 with
     // budget, then starve the allocator.
-    m.insert(4, 40)
-    m.insert(5, 50)
-    m.insert(6, 60)
+    try! m.insert(4, 40)
+    try! m.insert(5, 50)
+    try! m.insert(6, 60)
     BUDGET.store(0)
-    let inserted = m.try_insert(7, 70)
+    let inserted = m.insert(7, 70)
     BUDGET.store(64)
     match inserted {
         case Ok(_) -> print("inserted"),
@@ -64,14 +69,14 @@ func main() {
 
     // Set rides on the same path.
     var s = Set<Int, FailAlloc>()
-    print(s.insert(1))                  // true — newly inserted
-    s.insert(2)
-    s.insert(3)
-    s.insert(4)
-    s.insert(5)
-    s.insert(6)
+    print(try! s.insert(1))             // true — newly inserted
+    try! s.insert(2)
+    try! s.insert(3)
+    try! s.insert(4)
+    try! s.insert(5)
+    try! s.insert(6)
     BUDGET.store(0)
-    let added = s.try_insert(7)
+    let added = s.insert(7)
     BUDGET.store(64)
     match added {
         case Ok(_) -> print("set inserted"),

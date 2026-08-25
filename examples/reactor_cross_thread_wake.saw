@@ -67,8 +67,8 @@ func await_count(counter: Arc<Mutex<Int>>, want: Int) -> Int {
 
 func main() {
     let r = __saw_rt_reactor_create()
-    let entered = Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
-    let left = Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
+    let entered = try! Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
+    let left = try! Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
 
     var a = Thread.spawn { [r, entered, left] in parker(r, entered.copy(), left.copy()) }
     var b = Thread.spawn { [r, entered, left] in parker(r, entered.copy(), left.copy()) }

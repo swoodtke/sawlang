@@ -59,9 +59,9 @@ func consume(orders: Channel<Int>, progress: Channel<Int>) -> Int {
 }
 
 func main() {
-    var g = TaskGroup(threads: 2)
-    let orders = Channel<Int>()
-    let progress = Channel<Int>()
+    var g = try! TaskGroup(threads: 2)
+    let orders = try! Channel<Int>()
+    let progress = try! Channel<Int>()
     try! orders.send(FIRST_ORDER)
     try! orders.send(SECOND_ORDER)
     let h = g.spawn(consume(orders.copy(), progress.copy()))

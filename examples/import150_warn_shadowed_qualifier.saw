@@ -14,7 +14,7 @@ import std.data
 
 func main() {
     var data = data.Data()
-    data.push(1)
-    data.push(2)
+    try! data.push(1)
+    try! data.push(2)
     print("ok {data.len()}")
 }

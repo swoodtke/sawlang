@@ -16,11 +16,11 @@ import std.data.{Data}
 func main() {
     // Create and populate Data
     var data = Data()
-    data.push(72 as UInt8)   // H
-    data.push(101 as UInt8)  // e
-    data.push(108 as UInt8)  // l
-    data.push(108 as UInt8)  // l
-    data.push(111 as UInt8)  // o
+    try! data.push(72 as UInt8)   // H
+    try! data.push(101 as UInt8)  // e
+    try! data.push(108 as UInt8)  // l
+    try! data.push(108 as UInt8)  // l
+    try! data.push(111 as UInt8)  // o
 
     print("Original: {data.len()} bytes")
     if let b = data.get(0) {
@@ -36,7 +36,7 @@ func main() {
     }
 
     // Test set() - modifies in place
-    data.set(1, 88 as UInt8)  // Change e to X
+    try! data.set(1, 88 as UInt8)  // Change e to X
     if let b = data.get(1) {
         print("After set: {b as Int}")  // Should be 88 (X)
     }
@@ -50,9 +50,9 @@ func main() {
 
     // Test iterator
     var data2 = Data()
-    data2.push(72 as UInt8)   // H
-    data2.push(101 as UInt8)  // e
-    data2.push(108 as UInt8)  // l
+    try! data2.push(72 as UInt8)   // H
+    try! data2.push(101 as UInt8)  // e
+    try! data2.push(108 as UInt8)  // l
 
     var iter = data2.iter()
     var done = false

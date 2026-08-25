@@ -36,13 +36,13 @@ func main() {
     print(len_of_opt_copy<String>("hi"))
 
     var v = Vector<Int>()
-    v.push(1)
+    try! v.push(1)
     var w = Vector<Int>()
-    w.push(2)
+    try! w.push(2)
     let arr: [Vector<Int>; 2] = [move v, move w]
     print(len_of_copy<Vector<Int>>(move arr))
 
     var u = Vector<Int>()
-    u.push(7)
+    try! u.push(7)
     print(len_of_opt_copy<Vector<Int>>(move u))
 }

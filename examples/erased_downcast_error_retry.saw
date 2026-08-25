@@ -8,10 +8,10 @@
 struct IoErr { n: Int }
 struct ParseErr { n: Int }
 extension IoErr: Error {
-    func format(&self, into: &var StringBuilder) { into.append("io") }
+    func format(&self, into: &var StringBuilder) { try! into.append("io") }
 }
 extension ParseErr: Error {
-    func format(&self, into: &var StringBuilder) { into.append("parse") }
+    func format(&self, into: &var StringBuilder) { try! into.append("parse") }
 }
 
 func step(kind: Int) -> Result<Int, Box<any Error>> {

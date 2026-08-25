@@ -41,32 +41,14 @@ extension Arc<T: Send + Sync>: UnsafeSend {}
 extension Arc<T: Send + Sync>: UnsafeSync {}
 
 extension Arc<T> {
-    /// Constructs a fresh `Arc` owning `value` (strong = 1, weak = 1).
+    /// Constructs a fresh `Arc` owning `value` (strong = 1, weak = 1),
+    /// reporting allocator exhaustion as `Err(AllocError)`.
     ///
-    /// Panics if the allocator refuses the control block (design 123,
-    /// infallible tier). It used to build an INERT `Arc` — `value` silently
-    /// dropped, `strong_count()` reporting 0, and any forwarded payload method
-    /// dereferencing a null block. `try_make` reports the failure instead.
-    public init(value: T) unsafe -> Arc<T> {
-        let size = 16 + sizeof<T>()
-        if let block = GlobalAllocator().alloc(size, 16) {
-            let strong_ptr = block as UnsafePointer<Int>
-            strong_ptr[0] = 1
-            let weak_ptr = (block + 8) as UnsafePointer<Int>
-            weak_ptr[0] = 1
-            let payload_ptr = (block + 16) as UnsafePointer<T>
-            payload_ptr[0] = value
-            Arc<T>(ptr: block)
-        } else {
-            panic("Arc(value:): allocation failed")
-        }
-    }
-
-    /// Constructs a fresh `Arc` owning `value`, reporting allocator exhaustion
-    /// as `Err(AllocError)`.
-    ///
-    /// `value` is destroyed on the failure path rather than leaked.
-    public static func try_make(value: T) unsafe -> Result<Arc<T>, AllocError> {
+    /// `value` is destroyed on the failure path rather than leaked. Under design
+    /// 123 this panicked, and before that it built an INERT `Arc` — `value`
+    /// silently dropped, `strong_count()` reporting 0, and any forwarded payload
+    /// method dereferencing a null block.
+    public init(value: T) unsafe -> Result<Arc<T>, AllocError> {
         let size = 16 + sizeof<T>()
         if let block = GlobalAllocator().alloc(size, 16) {
             let strong_ptr = block as UnsafePointer<Int>

@@ -72,11 +72,11 @@ struct Holder { cell: Box<Res> }
 extension Holder: NoCopy {}
 
 func mk(tag: String) -> Holder? {
-    Holder(cell: Box<Res>.make(Res(name: tag)))
+    Holder(cell: try! Box<Res>.make(Res(name: tag)))
 }
 
 func mk_pair(tag: String) -> (Holder, Int)? {
-    (Holder(cell: Box<Res>.make(Res(name: tag))), 1)
+    (Holder(cell: try! Box<Res>.make(Res(name: tag))), 1)
 }
 
 func sink(h: Holder) { print("sank") }

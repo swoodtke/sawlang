@@ -20,12 +20,12 @@ func feed(inbox: Channel<Int>, v: Int) {
 // No join at all: the group's `Deinit` at the end of this scope is the only
 // thing that makes the task run to completion.
 func run(inbox: Channel<Int>) {
-    var workers = TaskGroup(threads: 2)
+    var workers = try! TaskGroup(threads: 2)
     let _ = workers.spawn(feed(inbox.copy(), 8))
 }
 
 func main() {
-    let inbox = Channel<Int>()
+    let inbox = try! Channel<Int>()
     run(inbox.copy())
     let got = try! inbox.receive()
     print("main got {}", got)

@@ -18,7 +18,7 @@ func waiter(fd: Int) -> Int {
 func main() {
     let p1 = tcp_socketpair()
     let p2 = tcp_socketpair()
-    var group = TaskGroup(threads: 2)
+    var group = try! TaskGroup(threads: 2)
     let h1 = group.spawn(waiter(p1.0))
     let h2 = group.spawn(waiter(p2.0))
     print(h1.join() + h2.join())    // 2 (both io-parked frames woke)

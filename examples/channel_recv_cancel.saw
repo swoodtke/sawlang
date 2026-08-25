@@ -38,7 +38,7 @@ func worker(ch: Channel<Int>) -> Int {
 
 func main() {
     var group = TaskGroup()
-    let ch = Channel<Int>()
+    let ch = try! Channel<Int>()
     try! ch.send(100)
     let h = group.spawn(worker(ch.copy()))
     h.cancel()          // set before the group is driven

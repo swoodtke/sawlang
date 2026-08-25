@@ -40,8 +40,8 @@ func describe_one(o: Int?) -> String {
 
 func main() {
     var v = Vector<Int?>()
-    v.push(7)
-    v.push(None)
+    try! v.push(7)
+    try! v.push(None)
 
     // The containers genuinely produce a two-layer value; now it has a name.
     print("param {describe(v.get(0))}")
@@ -49,7 +49,7 @@ func main() {
 
     // GENERIC ARGUMENT position.
     var nested = Vector<Int??>()
-    nested.push(v.get(0))
+    try! nested.push(v.get(0))
     print("generic arg {describe(nested.get(0)!)}")
 
     // FIELD position — an absent outer layer.

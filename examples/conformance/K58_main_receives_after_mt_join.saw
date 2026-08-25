@@ -17,8 +17,8 @@ func feed(inbox: Channel<Int>, v: Int) {
 }
 
 func main() {
-    let inbox = Channel<Int>()
-    var workers = TaskGroup(threads: 2)
+    let inbox = try! Channel<Int>()
+    var workers = try! TaskGroup(threads: 2)
     let h = workers.spawn(feed(inbox.copy(), 6))
     h.join()
     let got = try! inbox.receive()

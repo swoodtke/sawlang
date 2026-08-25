@@ -44,7 +44,7 @@ func fill(n: Int) -> String {
     var fresh: Vector<Int> = [7]
     v = move fresh
     yield_now()
-    v.push(n)
+    try! v.push(n)
     "{v.len()} and {v.get(1)!}"
 }
 

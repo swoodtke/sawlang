@@ -27,7 +27,7 @@ struct Cell { n: Int }
 struct Oops { why: String }
 
 extension Oops: Error {
-    func format(&self, into: &var StringBuilder) { into.append(self.why) }
+    func format(&self, into: &var StringBuilder) { try! into.append(self.why) }
 }
 
 // A driven generic FUNCTION: its call site is rewritten to the monomorphized

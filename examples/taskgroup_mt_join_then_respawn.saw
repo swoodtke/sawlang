@@ -24,7 +24,7 @@ func step(base: Int) -> Int {
 }
 
 func main() {
-    var pool = TaskGroup(threads: 4)
+    var pool = try! TaskGroup(threads: 4)
     var round = 1
     var base = 1
     while round <= 3 {

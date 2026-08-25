@@ -20,8 +20,8 @@ import std.task.*
 struct ParseError { at: Int }
 extension ParseError: Printable {
     func format(&self, into: &var StringBuilder) {
-        into.append("bad input at ")
-        into.append(self.at)
+        try! into.append("bad input at ")
+        try! into.append(self.at)
     }
 }
 extension ParseError: Error {}
@@ -69,10 +69,10 @@ func main() {
     // An Optional is not a Result — discarding one is ordinary.
     maybe(7)
     var m: Map<String, Int> = {:}
-    m.insert("a", 1)
+    try! m.insert("a", 1)
     // `insert` hands back the old value as a `V?`; dropping it is the normal
     // spelling, and design 151 leaves it alone.
-    m.insert("a", 2)
+    try! m.insert("a", 2)
     let had = m.get("a")!
     print("map had: {had}")
 

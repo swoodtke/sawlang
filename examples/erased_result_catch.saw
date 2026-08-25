@@ -9,8 +9,8 @@
 struct IoErr { n: Int }
 extension IoErr: Error {
     func format(&self, into: &var StringBuilder) {
-        into.append("io#")
-        into.append(self.n)
+        try! into.append("io#")
+        try! into.append(self.n)
     }
 }
 

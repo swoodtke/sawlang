@@ -26,8 +26,8 @@ public func beta_score() -> Int {
 
 public func beta_vector_sum() -> Int {
     var v: Vector<Header> = []
-    v.push(Header(label: "ab"))
-    v.push(Header(label: "cdef"))
+    try! v.push(Header(label: "ab"))
+    try! v.push(Header(label: "cdef"))
     var total = 0
     var i = 0
     while i < v.len() {

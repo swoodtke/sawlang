@@ -26,9 +26,9 @@ extension Res: NoCopy {
 }
 
 func main() {
-    let keeper = Arc<Res>(value: Res(id: 1))
+    let keeper = try! Arc<Res>(value: Res(id: 1))
     var v = Vector<Arc<Res>>()
-    v.push(keeper.copy())
+    try! v.push(keeper.copy())
     print("after push {keeper.strong_count()}")
 
     if let popped = v.pop() {

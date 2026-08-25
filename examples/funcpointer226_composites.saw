@@ -43,7 +43,7 @@ func main() {
     if let q = o { print("through an optional {q(4)}") }
 
     var v: Vector<FuncPointer<(Int) sync -> Int>> = [p]
-    v.push({ n in n + 100 })
+    try! v.push({ n in n + 100 })
     let first = v[0]
     let second = v[1]
     print("out of a vector {first(1)} {second(1)}")

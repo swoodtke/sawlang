@@ -38,7 +38,7 @@ extension Held: NoCopy {}
 
 func main() {
     var v: Vector<Slot> = []
-    v.push(Slot.Filled(r: Res(id: 1)))
+    try! v.push(Slot.Filled(r: Res(id: 1)))
     let h = match v[0] {
         case Filled(r) -> Held(r: move r),
         case Empty -> Held(r: Res(id: 0))

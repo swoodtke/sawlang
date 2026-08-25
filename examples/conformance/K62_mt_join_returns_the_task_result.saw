@@ -18,7 +18,7 @@ func square(n: Int) -> Int {
 }
 
 func main() {
-    var workers = TaskGroup(threads: 2)
+    var workers = try! TaskGroup(threads: 2)
     let a = workers.spawn(square(1))
     let b = workers.spawn(square(2))
     let c = workers.spawn(square(3))

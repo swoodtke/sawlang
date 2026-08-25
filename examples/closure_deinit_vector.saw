@@ -16,8 +16,8 @@ func main() {
     let a = Res(v: 1)
     let b = Res(v: 2)
     var fs: Vector<() -> Int> = []
-    fs.push({ [move a] in a.v })
-    fs.push({ [move b] in b.v })
+    try! fs.push({ [move a] in a.v })
+    try! fs.push({ [move b] in b.v })
     print("pushed")
     // fs drops -> each closure element's env destructor runs once
 }

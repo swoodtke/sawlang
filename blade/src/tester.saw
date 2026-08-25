@@ -83,8 +83,8 @@ extension Tester {
                     } else {
                         res.loc(i)
                     }
-                    b.append(" --module-path ")
-                    b.append("{name}={dir}/src")
+                    try! b.append(" --module-path ")
+                    try! b.append("{name}={dir}/src")
                     i = i + 1
                 }
                 b.build()
@@ -177,7 +177,7 @@ extension Tester {
                             passed = passed + 1
                             print("test {name} ... ok ({dur})")
                         } else {
-                            failed_tests.insert(name, true)
+                            try! failed_tests.insert(name, true)
                             print("test {name} ... FAILED ({dur})")
                         }
                     }
@@ -195,7 +195,7 @@ extension Tester {
         } else {
             // Report the failed names in sorted order (a keys() snapshot sorted
             // for deterministic output — the map's own order is unspecified).
-            var names = failed_tests.keys()
+            var names = try! failed_tests.keys()
             names.sort()
             for n in names.iter() {
                 print("    failed: {n}")

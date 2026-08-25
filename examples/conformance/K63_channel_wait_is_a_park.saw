@@ -46,8 +46,8 @@ func watcher() -> Int {
 
 func main() {
     var g = TaskGroup()
-    let fed = Channel<Int>()
-    let never = Channel<Int>()
+    let fed = try! Channel<Int>()
+    let never = try! Channel<Int>()
     let a = g.spawn(waiter(fed.copy()))
     let b = g.spawn(idle(never.copy()))
     let w = g.spawn(watcher())

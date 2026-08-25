@@ -24,8 +24,8 @@ struct MyError {
 
 extension MyError: Error {
     func format(&self, into: &var StringBuilder) {
-        into.append("err")
-        into.append(self.code)
+        try! into.append("err")
+        try! into.append(self.code)
     }
 }
 
@@ -35,8 +35,8 @@ func build(ok: Bool) -> Result<Vector<Dependency>, Box<any Error>> {
         return MyError(code: 7)
     }
     var v = Vector<Dependency>()
-    v.push(Dependency(name: "a"))
-    v.push(Dependency(name: "b"))
+    try! v.push(Dependency(name: "a"))
+    try! v.push(Dependency(name: "b"))
     return move v
 }
 

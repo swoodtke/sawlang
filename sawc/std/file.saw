@@ -164,8 +164,11 @@ extension File {
             return Data()
         }
 
+        // design 234: the read buffer's own refusal is an answer now, not a
+        // panic, and this domain already has the word for it. Same on the two
+        // `Data` allocations below.
         guard let buf = malloc(bytes_to_read) else {
-            panic("File.read: allocation failed")
+            return IoError.of("read", IoErrorKind.ResourcesExhausted)
         }
         let bytes_read = __saw_rt_fs_read(self.fd as Int, buf, bytes_to_read)
         if bytes_read < 0 {
@@ -177,10 +180,22 @@ extension File {
         // `Data` holds `UInt8`, so each byte is REINTERPRETED, not converted:
         // a file byte >= 0x80 arrives negative and a checked `as` would panic
         // on it (design 170). Same width, so this is a pure bit reinterpret.
-        var data = Data(capacity: bytes_read)
+        var data = match Data(capacity: bytes_read) {
+            case Ok(d) -> move d,
+            case Err(_) -> {
+                free(buf)
+                return IoError.of("read", IoErrorKind.ResourcesExhausted)
+            }
+        }
         var i = 0
         while i < bytes_read {
-            data.push(UInt8.from(truncating: buf[i]))
+            match data.push(UInt8.from(truncating: buf[i])) {
+                case Ok(_) -> {},
+                case Err(_) -> {
+                    free(buf)
+                    return IoError.of("read", IoErrorKind.ResourcesExhausted)
+                }
+            }
             i = i + 1
         }
         free(buf)
@@ -193,15 +208,15 @@ extension File {
 
     // Write `data` to the file, returning the number of bytes written.
     //
-    // `Err` carries the errno cause of the failing write(2). Allocator
-    // exhaustion panics rather than joining it (design 123).
+    // `Err` carries the errno cause of the failing write(2), or — since design
+    // 234 — this domain's word for the staging buffer's own refusal.
     public func write(&self, data: Data) unsafe -> Result<Int, IoError> {
         if data.len() == 0 {
             return 0
         }
 
         guard let buf = malloc(data.len()) else {
-            panic("File.write: allocation failed")
+            return IoError.of("write", IoErrorKind.ResourcesExhausted)
         }
         // Copy data bytes to buffer — the `UInt8` -> `Int8` reinterpret that
         // mirrors `read` above, byte values >= 128 included (design 170).

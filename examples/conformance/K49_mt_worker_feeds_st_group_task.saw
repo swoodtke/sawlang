@@ -34,9 +34,9 @@ func consume(inbox: Channel<Int>) unsafe -> Int {
 }
 
 func main() {
-    let inbox = Channel<Int>()
+    let inbox = try! Channel<Int>()
     var cooperative = TaskGroup()
-    var workers = TaskGroup(threads: 2)
+    var workers = try! TaskGroup(threads: 2)
     let c = cooperative.spawn(consume(inbox.copy()))
     let h = workers.spawn(feed(inbox.copy(), 7))
     let got = c.join()

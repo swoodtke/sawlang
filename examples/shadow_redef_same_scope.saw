@@ -39,7 +39,7 @@ func main() {
     // var -> var, move derivation of an owning Vector (old moved, no extra drop).
     var xs: Vector<Int> = [10, 20]
     var xs = wrap(move xs)
-    xs.push(30)                       // it is its own mutable binding
+    try! xs.push(30)                       // it is its own mutable binding
     print(xs.fold(0) { $0 + $1 })     // 60
 
     // let -> var then var -> let, call-wrapped derivation.

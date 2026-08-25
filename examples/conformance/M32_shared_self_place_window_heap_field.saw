@@ -25,7 +25,7 @@ struct Rows { rows: Vector<Vector<Int>> }
 extension Rows: NoCopy {}
 
 extension Rows {
-    func widen(&self) { self.rows[0].push(9) }
+    func widen(&self) { try! self.rows[0].push(9) }
     func bump_head(&self) { self.rows[0][0] += 100 }
     func stamp_tail(&self) { self.rows[0][2] = 55 }
     func width(&self) -> Int { self.rows[0].len() }

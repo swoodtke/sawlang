@@ -65,7 +65,7 @@ func autoimplicit_capture() {
 
 // Declared Copy: a retain, and the frame's own field survives it.
 func arc_capture() {
-    let a = Arc<Res>(value: res("a"))
+    let a = try! Arc<Res>(value: res("a"))
     let f = { print("arc inside {a.strong_count()}") }
     yield_now()
     f()

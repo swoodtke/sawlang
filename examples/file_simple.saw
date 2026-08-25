@@ -20,19 +20,19 @@ import std.net.{IoError}
 
 func sample_bytes() -> Data {
     var data = Data()
-    data.push(72 as UInt8)   // H
-    data.push(101 as UInt8)  // e
-    data.push(108 as UInt8)  // l
-    data.push(108 as UInt8)  // l
-    data.push(111 as UInt8)  // o
-    data.push(44 as UInt8)   // ,
-    data.push(32 as UInt8)   // space
-    data.push(87 as UInt8)   // W
-    data.push(111 as UInt8)  // o
-    data.push(114 as UInt8)  // r
-    data.push(108 as UInt8)  // l
-    data.push(100 as UInt8)  // d
-    data.push(33 as UInt8)   // !
+    try! data.push(72 as UInt8)   // H
+    try! data.push(101 as UInt8)  // e
+    try! data.push(108 as UInt8)  // l
+    try! data.push(108 as UInt8)  // l
+    try! data.push(111 as UInt8)  // o
+    try! data.push(44 as UInt8)   // ,
+    try! data.push(32 as UInt8)   // space
+    try! data.push(87 as UInt8)   // W
+    try! data.push(111 as UInt8)  // o
+    try! data.push(114 as UInt8)  // r
+    try! data.push(108 as UInt8)  // l
+    try! data.push(100 as UInt8)  // d
+    try! data.push(33 as UInt8)   // !
     move data
 }
 

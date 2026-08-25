@@ -30,8 +30,8 @@ func across_suspend() -> Int {
     var v = Vector<Int?>()
     let a: Int? = 5
     let n: Int? = None
-    v.push(a)
-    v.push(n)
+    try! v.push(a)
+    try! v.push(n)
 
     let held = v.get(0)
     let held_none = v.get(1)
@@ -46,7 +46,7 @@ func across_suspend() -> Int {
 }
 
 func main() {
-    var ch = Channel<Int?>()
+    var ch = try! Channel<Int?>()
     let n: Int? = None
     let a: Int? = 7
     try! ch.send(n)
@@ -61,7 +61,7 @@ func main() {
     print("across suspend {h.join()}")
 
     let payload: Int? = 5
-    var arc = Arc<Int?>(value: payload)
+    var arc = try! Arc<Int?>(value: payload)
     let r = arc.with_unique({ p in p ?? -1 })
     print("with_unique {r ?? -1}")
 

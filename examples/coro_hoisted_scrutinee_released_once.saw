@@ -24,8 +24,8 @@ import std.task.{yield_now}
 
 func fetch_guard() -> Vector<String>? {
     var v = Vector<String>()
-    v.push("a")
-    v.push("b")
+    try! v.push("a")
+    try! v.push("b")
     yield_now()
     move v
 }
@@ -37,9 +37,9 @@ extension Load: ExplicitCopy {}
 
 func fetch_match() -> Load {
     var v = Vector<String>()
-    v.push("x")
-    v.push("y")
-    v.push("z")
+    try! v.push("x")
+    try! v.push("y")
+    try! v.push("z")
     yield_now()
     Load.Ready(files: move v)
 }

@@ -92,12 +92,12 @@ func t1_driven() {
 // t2 — Copy tier: the payload is an `Arc`, so the release is a refcount
 // drop and a missing one keeps the `Res` alive forever.
 func t2_plain() {
-    var opt: Arc<Res>? = Arc<Res>(value: res("t2p"))
+    var opt: Arc<Res>? = try! Arc<Res>(value: res("t2p"))
     if let v = move opt { print("t2 in {v.strong_count()}") }
 }
 
 func t2_driven() {
-    var opt: Arc<Res>? = Arc<Res>(value: res("t2d"))
+    var opt: Arc<Res>? = try! Arc<Res>(value: res("t2d"))
     yield_now()
     if let v = move opt { print("t2 in {v.strong_count()}") }
 }
@@ -159,12 +159,12 @@ func t5_driven() {
 // binding is a second reference the place rule retained; releasing the binding
 // as if it had been handed the value would free what `opt` still points at.
 func t6_plain() {
-    let opt: Arc<Res>? = Arc<Res>(value: res("t6p"))
+    let opt: Arc<Res>? = try! Arc<Res>(value: res("t6p"))
     if let v = opt { print("t6 in {v.strong_count()}") }
 }
 
 func t6_driven() {
-    let opt: Arc<Res>? = Arc<Res>(value: res("t6d"))
+    let opt: Arc<Res>? = try! Arc<Res>(value: res("t6d"))
     yield_now()
     if let v = opt { print("t6 in {v.strong_count()}") }
 }

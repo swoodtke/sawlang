@@ -193,9 +193,9 @@ func check_lock_entry() {
 
 func check_manifest() {
     var deps = Vector<LockEntry>()
-    deps.push(LockEntry(name: "toml", version: "0.1.0", source: "path",
+    try! deps.push(LockEntry(name: "toml", version: "0.1.0", source: "path",
                         loc: "libs/toml", rev: ""))
-    deps.push(LockEntry(name: "semver", version: "2.0.0", source: "git",
+    try! deps.push(LockEntry(name: "semver", version: "2.0.0", source: "git",
                         loc: "https://example.invalid/semver", rev: "abc123"))
     let m = Manifest(track: Track.Release, port: 8080, tag: None,
                      deps: move deps, lo: -7i8, hi: 200u8)
@@ -243,7 +243,7 @@ func check_one_item() {
             return
         }
     }
-    blob.push(2u8)
+    try! blob.push(2u8)
     match CborDecoder.open(bytes: move blob) {
         case Ok(_) -> print("a second value was accepted"),
         case Err(e) -> print("a second value in the same blob: {}", e)

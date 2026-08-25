@@ -54,11 +54,11 @@ func main() {
     print("locals: {a == b}")
 
     var v = Vector<Tag>()
-    v.push(Tag(id: 1))
+    try! v.push(Tag(id: 1))
     var w = Vector<Tag>()
-    w.push(Tag(id: 1))
+    try! w.push(Tag(id: 1))
     var big = Vector<Tag>()
-    big.push(Tag(id: 9))
+    try! big.push(Tag(id: 9))
 
     print("left place: {v[0] == b}")
     print("right place: {a == w[0]}")
@@ -74,10 +74,10 @@ func main() {
 
     var bags = Vector<Bag>()
     var items: Vector<Int> = [7]
-    bags.push(Bag(items: move items))
+    try! bags.push(Bag(items: move items))
     var others = Vector<Bag>()
     var more: Vector<Int> = [7]
-    others.push(Bag(items: move more))
+    try! others.push(Bag(items: move more))
     print("explicit copy tier: {bags[0] == others[0]}")
 
     // The control: a Copy-tier element reads for free and keeps the ordinary

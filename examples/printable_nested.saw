@@ -9,22 +9,22 @@
 struct Point { x: Int, y: Int }
 extension Point: Printable {
     func format(&self, into: &var StringBuilder) {
-        into.append("(")
-        into.append(self.x)
-        into.append(", ")
-        into.append(self.y)
-        into.append(")")
+        try! into.append("(")
+        try! into.append(self.x)
+        try! into.append(", ")
+        try! into.append(self.y)
+        try! into.append(")")
     }
 }
 
 struct Line { a: Point, b: Point }
 extension Line: Printable {
     func format(&self, into: &var StringBuilder) {
-        into.append("Line[")
+        try! into.append("Line[")
         self.a.format(into: &var into)
-        into.append(" -> ")
+        try! into.append(" -> ")
         self.b.format(into: &var into)
-        into.append("]")
+        try! into.append("]")
     }
 }
 

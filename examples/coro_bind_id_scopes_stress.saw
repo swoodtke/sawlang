@@ -32,7 +32,7 @@ func fast(n: Int) sync -> Int { return n }
 
 struct Boom { code: Int }
 extension Boom: Printable {
-    func format(&self, into: &var StringBuilder) { into.append("boom") }
+    func format(&self, into: &var StringBuilder) { try! into.append("boom") }
 }
 extension Boom: Error {}
 

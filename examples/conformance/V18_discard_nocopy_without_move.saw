@@ -6,7 +6,7 @@
 // EXPECT-ERROR-CONTAINS: cannot copy value of type `Box<Int, GlobalAllocator>` which implements NoCopy
 
 func main() {
-    let b = Box<Int>.make(1)
+    let b = try! Box<Int>.make(1)
     let _ = b
     print(1)
 }

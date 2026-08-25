@@ -22,15 +22,15 @@ extension AK: Hashable { func hash(&self, h: &var Hasher) { self.id.hash(&var h)
 
 func exercise(probe: &Arc<Int>) {
     var s = Set<AK>()
-    let _ = s.insert(AK(id: 1, rc: probe.copy()))      // strong 1->2
-    let _ = s.insert(AK(id: 2, rc: probe.copy()))      // strong 2->3
+    let _ = try! s.insert(AK(id: 1, rc: probe.copy()))      // strong 1->2
+    let _ = try! s.insert(AK(id: 2, rc: probe.copy()))      // strong 2->3
     print(probe.strong_count())                         // 3
 
     let _ = s.contains(AK(id: 1, rc: probe.copy()))     // probe balanced
     let _ = s.contains(AK(id: 9, rc: probe.copy()))     // absent, balanced
     print(probe.strong_count())                         // 3
 
-    let _ = s.insert(AK(id: 1, rc: probe.copy()))       // dup collapses
+    let _ = try! s.insert(AK(id: 1, rc: probe.copy()))       // dup collapses
     print(probe.strong_count())                         // 3
 
     let _ = s.remove(AK(id: 2, rc: probe.copy()))       // id 2 leaves
@@ -39,7 +39,7 @@ func exercise(probe: &Arc<Int>) {
 }   // set deinit drops the remaining key -> back to just `probe`
 
 func main() {
-    let probe = Arc<Int>(value: 0)
+    let probe = try! Arc<Int>(value: 0)
     exercise(&probe)
     print(probe.strong_count())                         // 1 — set fully torn down
 }

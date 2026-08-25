@@ -20,18 +20,18 @@ struct Stats {
 
 func main() {
     var v = Vector<Int>()
-    v.push(10)
-    v.push(20)
-    v.push(30)
+    try! v.push(10)
+    try! v.push(20)
+    try! v.push(30)
 
     // map Int -> Int, then sum via each
-    let doubled = v.map<Int> { $0 * 2 }
+    let doubled = try! v.map<Int>({ $0 * 2 })
     var s1 = 0
     doubled.each { [&var s1] in s1 += $0 }
     print(s1)   // 20+40+60 = 120
 
     // map Int -> String (crossing type families)
-    let labels = v.map<String> { "n={$0}" }
+    let labels = try! v.map<String>({ "n={$0}" })
     print(labels.get(0)!)   // n=10
     print(labels.get(2)!)   // n=30
 

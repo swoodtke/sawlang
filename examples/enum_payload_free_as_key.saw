@@ -18,9 +18,9 @@ enum Color { case Red, case Green, case Blue }
 func main() {
     // Set element, built by insertion.
     var seen = Set<Color>()
-    seen.insert(Color.Red)
-    seen.insert(Color.Green)
-    seen.insert(Color.Red)          // duplicate: the tag compares equal
+    try! seen.insert(Color.Red)
+    try! seen.insert(Color.Green)
+    try! seen.insert(Color.Red)          // duplicate: the tag compares equal
     print(seen.len())
     print(seen.contains(Color.Green))
     print(seen.contains(Color.Blue))
@@ -38,6 +38,6 @@ func main() {
 
     // Map key, written after the fact.
     var tally = Map<Color, Int>()
-    tally.insert(Color.Blue, 7)
+    try! tally.insert(Color.Blue, 7)
     print(tally.contains_key(Color.Blue))
 }

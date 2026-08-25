@@ -11,9 +11,9 @@
 
 func main() {
     var m = Map<Int, Int>()
-    m.insert(1, 10)
-    m.insert(2, 20)
-    m.insert(3, 30)
+    try! m.insert(1, 10)
+    try! m.insert(2, 20)
+    try! m.insert(3, 30)
 
     var ksum = 0
     var vsum = 0

@@ -25,9 +25,9 @@ static STARVED_MS: UInt64 = 400
 
 func capture_child() -> String {
     var c = Command(program: "/bin/sh")
-    c.arg("-c")
-    c.arg("sleep 1; echo done")
-    if let out = c.output() {
+    try! c.arg("-c")
+    try! c.arg("sleep 1; echo done")
+    if let out = try! c.output() {
         return out.stdout.trim()
     }
     "<no output>"

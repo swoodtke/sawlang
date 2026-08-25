@@ -24,7 +24,7 @@ func dropper(p: &Arc<Int>) {
 }
 
 func main() {
-    let p = Arc<Int>(value: 0)   // strong 1
+    let p = try! Arc<Int>(value: 0)   // strong 1
     mover(&p)
     print(p.strong_count())      // 1
     dropper(&p)

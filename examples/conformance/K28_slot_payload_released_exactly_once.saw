@@ -88,7 +88,7 @@ func dropped_occupied() {
 // retains and the caller's own handle stays live. Nothing about the slot
 // changes the tier's arithmetic.
 func implicitcopy_tier() {
-    let a = Arc<Res>(value: res("a"))
+    let a = try! Arc<Res>(value: res("a"))
     var s = Slot<Arc<Res>>.empty()
     s.put(a)
     print("inside {s.value().strong_count()}")

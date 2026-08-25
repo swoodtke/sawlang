@@ -23,7 +23,7 @@
 import std.channel.{Channel}
 
 func main() {
-    let ch = Channel<Int>()
+    let ch = try! Channel<Int>()
     try! ch.send(1)
     try! ch.close()
 

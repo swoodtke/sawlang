@@ -15,7 +15,7 @@ extension Bag: NoCopy {}
 extension Bag {
     public init() -> Bag {
         var v = Vector<Cell>()
-        v.push(Cell(n: 5))
+        try! v.push(Cell(n: 5))
         Bag(cells: move v)
     }
 

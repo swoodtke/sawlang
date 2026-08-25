@@ -13,15 +13,15 @@ func main() {
 
     // Map visitor (each_value) + snapshot (keys, sorted).
     var m = Map<String, Int>()
-    m.insert("a", 1)
-    m.insert("b", 2)
-    m.insert("c", 3)
+    try! m.insert("a", 1)
+    try! m.insert("b", 2)
+    try! m.insert("c", 3)
 
     var sum = 0
     m.each_value { [&var sum] v in sum = sum + v }
     assert(sum == 6, "each_value should sum to 6")
 
-    var ks = m.keys()
+    var ks = try! m.keys()
     ks.sort()
     assert(ks.len() == 3, "three keys")
     guard let first = ks.get(0) else { panic("expected a first key") }

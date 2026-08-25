@@ -16,9 +16,9 @@
 func main() {
     var s = Set<Int>()
     if s.is_empty() { print(1) } else { print(0) }   // 1
-    if s.insert(1) { print(1) } else { print(0) }    // 1 (new)
-    if s.insert(2) { print(1) } else { print(0) }    // 1 (new)
-    if s.insert(1) { print(1) } else { print(0) }    // 0 (dup)
+    if try! s.insert(1) { print(1) } else { print(0) }    // 1 (new)
+    if try! s.insert(2) { print(1) } else { print(0) }    // 1 (new)
+    if try! s.insert(1) { print(1) } else { print(0) }    // 0 (dup)
     print(s.len())                                   // 2
     if s.contains(1) { print(1) } else { print(0) }  // 1
     if s.contains(9) { print(1) } else { print(0) }  // 0

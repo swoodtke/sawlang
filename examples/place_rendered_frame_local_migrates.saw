@@ -25,12 +25,12 @@ extension Res: NoCopy {
 }
 extension Res: Printable {
     func to_string(&self) -> String { "Res({self.id})" }
-    func format(&self, into: &var StringBuilder) { into.append(self.to_string()) }
+    func format(&self, into: &var StringBuilder) { try! into.append(self.to_string()) }
 }
 
 struct BadInput { detail: String }
 extension BadInput: Printable {
-    func format(&self, into: &var StringBuilder) { into.append(self.detail) }
+    func format(&self, into: &var StringBuilder) { try! into.append(self.detail) }
 }
 extension BadInput: Error {}
 

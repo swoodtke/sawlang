@@ -26,16 +26,16 @@ import std.env.{Env}
 // the shell prints the value whole and expands nothing inside it.
 func child_prints(read_name: String, set_name: String, set_value: String) -> String {
     var script = StringBuilder()
-    script.append("printf %s \"$")
-    script.append(read_name)
-    script.append("\"")
+    try! script.append("printf %s \"$")
+    try! script.append(read_name)
+    try! script.append("\"")
 
     var c = Command(program: "/bin/sh")
-    c.arg("-c")
-    c.arg(script.build())
-    c.env(set_name, set_value)
+    try! c.arg("-c")
+    try! c.arg(script.build())
+    try! c.env(set_name, set_value)
 
-    if let r = c.output() {
+    if let r = try! c.output() {
         "[{r.stdout}]"
     } else {
         "<spawn failed>"
@@ -49,11 +49,11 @@ func main() {
     // Two calls for one name REPLACE, so the last one wins and the child never
     // sees the variable twice.
     var twice = Command(program: "/bin/sh")
-    twice.arg("-c")
-    twice.arg("printf %s \"$SAW_ENV_B\"")
-    twice.env("SAW_ENV_B", "first")
-    twice.env("SAW_ENV_B", "last")
-    if let r = twice.output() {
+    try! twice.arg("-c")
+    try! twice.arg("printf %s \"$SAW_ENV_B\"")
+    try! twice.env("SAW_ENV_B", "first")
+    try! twice.env("SAW_ENV_B", "last")
+    if let r = try! twice.output() {
         print("[{r.stdout}]")
     } else {
         print("<spawn failed>")

@@ -22,7 +22,7 @@ func use_map() {
     var i = 0
     while i < 20 {
         let v = Val(id: i)
-        m.insert(i, move v)          // grows across cap 8/16/32
+        try! m.insert(i, move v)          // grows across cap 8/16/32
         i = i + 1
     }
     print(m.len())                    // 20

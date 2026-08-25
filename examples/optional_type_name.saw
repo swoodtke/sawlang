@@ -42,8 +42,8 @@ func main() {
     var v = Vector<Int?>()
     let five: Int? = 5
     let gone: Int? = None
-    v.push(five)
-    v.push(gone)
+    try! v.push(five)
+    try! v.push(gone)
     print("nested {describe(v.get(0))}")
     print("nested {describe(v.get(1))}")
     print("nested {describe(v.get(9))}")

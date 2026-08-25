@@ -47,9 +47,9 @@ func main() {
 
     print(handle(Wrap<Int>(v: 8)))    // 8  first generic overload
     var v = Vector<Int>()
-    v.push(1)
-    v.push(2)
-    v.push(3)
+    try! v.push(1)
+    try! v.push(2)
+    try! v.push(3)
     print(handle(move v))             // 3  second generic overload
 
     print(put(item: 4))               // 4  label selects overload 1

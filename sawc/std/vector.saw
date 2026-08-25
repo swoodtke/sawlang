@@ -8,8 +8,10 @@
 //! reach it through `with_ref`, or take it out with `swap_out` or `pop`.
 //!
 //! `Vector` is ExplicitCopy: every transfer needs `move v` or `v.copy()`.
-//! Operations that cannot report failure panic when the allocator refuses, and
-//! each has a `try_` twin returning `Result<_, AllocError>` instead.
+//! Every operation that can run out of memory REPORTS it —
+//! `Result<_, AllocError>`, all-or-nothing (design 234). `copy()` is the one
+//! exception and panics instead: it is the `ExplicitCopy` hook, so its
+//! signature belongs to the trait.
 
 // =============================================================================
 // FFI declarations for memory management
@@ -68,35 +70,20 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
 
     // Regression guard: this used to hand back an EMPTY vector on refusal, so a
     // caller that asked to reserve a megabyte and got nothing carried on as if
-    // it had succeeded (design 123, infallible tier).
-    /// Creates an empty vector with room for `capacity` elements. Panics if the
-    /// allocator refuses the request; `try_with_capacity` is the twin that
-    /// reports the failure instead.
-    public init(capacity: Int) unsafe -> Vector<T, A> {
+    // it had succeeded (design 123, infallible tier). It then PANICKED, with
+    // `try_with_capacity` beside it as the reporting twin; design 234 retires
+    // that split — the constructor reports, and there is one of it.
+    /// Creates an empty vector with room for `capacity` elements, reporting
+    /// `Err(AllocError)` when the allocator refuses. A non-positive `capacity`
+    /// returns an empty vector without allocating.
+    public init(capacity: Int) unsafe -> Result<Vector<T, A>, AllocError> {
         if capacity <= 0 {
-            Vector<T, A>(buffer: None, length: 0, capacity: 0)
-        } else {
-            let byte_size = capacity * sizeof<T>()
-            if let raw_ptr = A().alloc(byte_size, alignof<T>()) {
-                let typed_ptr = raw_ptr as UnsafePointer<T>
-                Vector<T, A>(buffer: typed_ptr, length: 0, capacity: capacity)
-            } else {
-                panic("Vector(capacity:): allocation failed")
-            }
+            return Vector<T, A>(buffer: None, length: 0, capacity: 0)
         }
-    }
-
-    /// Creates an empty vector with capacity for `n` elements. If allocation fails,
-    /// returns `Err(AllocError)` containing the failed request's byte size and
-    /// alignment. A non-positive `n` returns an empty vector without an allocation.
-    public static func try_with_capacity(n: Int) unsafe -> Result<Vector<T, A>, AllocError> {
-        if n <= 0 {
-            return Vector<T, A>()
-        }
-        let byte_size = n * sizeof<T>()
+        let byte_size = capacity * sizeof<T>()
         if let raw_ptr = A().alloc(byte_size, alignof<T>()) {
             let typed_ptr = raw_ptr as UnsafePointer<T>
-            return Vector<T, A>(buffer: typed_ptr, length: 0, capacity: n)
+            return Vector<T, A>(buffer: typed_ptr, length: 0, capacity: capacity)
         }
         // Allocator returned None -> surface the failure with size context.
         return AllocError(size: byte_size, align: alignof<T>())
@@ -236,13 +223,16 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     // failure, so the placement write below landed one element PAST the buffer
     // and `length` advanced past `capacity`. Every later `get`, iteration and the
     // final `deinit` then read and freed out of bounds, from fully safe code with
-    // no diagnostic. The panic above is what closes it — do not soften it.
-    /// Appends `value` to the end. Panics if the buffer must grow and the
-    /// allocator refuses; `try_push` is the twin that reports the failure, and
-    /// `try_reserve` is how you make a later `push` allocation-free.
-    public func push(&var self, value: T) unsafe {
-        if not self._reserve(self.length + 1) {
-            panic("Vector.push: allocation failed")
+    // no diagnostic. The early return below is what closes it — do not soften it.
+    /// Appends `value` to the end, reporting `Err(AllocError)` when the buffer
+    /// must grow and the allocator refuses. On error the vector is unchanged and
+    /// `value` is destroyed; `reserve` is how you make a later `push`
+    /// allocation-free, and how you keep `value` alive across a refusal.
+    public func push(&var self, value: T) unsafe -> Result<Void, AllocError> {
+        let wanted = self.length + 1
+        if not self._reserve(wanted) {
+            let bytes = self._grow_target(wanted) * sizeof<T>()
+            return AllocError(size: bytes, align: alignof<T>())
         }
         // Add the element. `buf[self.length] = value` is the PLACEMENT-MOVE
         // primitive (see LANGUAGE_SPEC "Placement writes"): the slot at
@@ -255,26 +245,6 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
         if let buf = self.buffer {
             buf[self.length] = value
             self.length = self.length + 1
-        } else {
-            // Unreachable: a successful `_reserve` leaves capacity >= 1, which
-            // this type's invariant pairs with a live buffer. Panicking beats
-            // the silent element-on-the-floor drop this branch used to be.
-            panic("Vector.push: buffer is empty")
-        }
-    }
-
-    /// Appends `value` to the vector, returning `Err(AllocError)` if allocation
-    /// fails. On error, the vector remains unchanged and `value` is destroyed. Use
-    /// `try_reserve` if `value` must survive a failed push.
-    public func try_push(&var self, value: T) unsafe -> Result<Void, AllocError> {
-        let wanted = self.length + 1
-        if not self._reserve(wanted) {
-            let bytes = self._grow_target(wanted) * sizeof<T>()
-            return AllocError(size: bytes, align: alignof<T>())
-        }
-        if let buf = self.buffer {
-            buf[self.length] = value
-            self.length = self.length + 1
         }
         return
     }
@@ -283,7 +253,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     /// allocator is exhausted. A successful call ensures the next `additional`
     /// pushes will not fail due to allocation errors. Capacity is never reduced and
     /// non-positive `additional` values are no-ops.
-    public func try_reserve(&var self, additional: Int) -> Result<Void, AllocError> {
+    public func reserve(&var self, additional: Int) -> Result<Void, AllocError> {
         let wanted = self.length + additional
         if not self._reserve(wanted) {
             let bytes = self._grow_target(wanted) * sizeof<T>()
@@ -501,14 +471,29 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
 extension Vector<T: ExplicitCopy, A: Allocator = GlobalAllocator>: ExplicitCopy {
     // Regression guard: this used to return a SHORTER vector on refusal, so a
     // "copy" could silently be missing elements (design 123, infallible tier).
+    //
+    // THE ONE PLACE DESIGN 234 LEAVES A PANIC IN A NAMED OPERATION (§5,
+    // conformance row A17): `copy` is the `ExplicitCopy` HOOK, so its signature
+    // is the trait's and the compiler emits calls to it — a `Result` return
+    // would have to change the trait, and design 219's contract says the hook is
+    // infallible. The panics therefore stay, spelled by hand so they still NAME
+    // the method rather than reading `try! failed` out of a std file the caller
+    // never opened. `try_copy` is the reporting spelling; DF-257b records that
+    // its prefix is the one §4 could not retire.
     /// Duplicates the vector and every element through the same allocator `A`.
     /// Panics if the allocator refuses; `try_copy` reports the failure instead.
     public func copy(&self) unsafe -> Vector<T, A> {
-        var result = Vector<T, A>(capacity: self.capacity)
+        var result = match Vector<T, A>(capacity: self.capacity) {
+            case Ok(v) -> move v,
+            case Err(e) -> panic("Vector.copy: {}", e)
+        }
         var i = 0
         while i < self.length {
             if let buf = self.buffer {
-                result.push(buf[i].copy())
+                match result.push(buf[i].copy()) {
+                    case Ok(_) -> {},
+                    case Err(e) -> panic("Vector.copy: {}", e)
+                }
             }
             i = i + 1
         }
@@ -524,11 +509,14 @@ extension Vector<T: ExplicitCopy, A: Allocator = GlobalAllocator> {
     /// returns either a complete copy or an error, never a partial vector.
     public func try_copy(&self) unsafe -> Result<Vector<T, A>, AllocError> {
         var result = Vector<T, A>()
-        let _ = try result.try_reserve(self.length)
+        let _ = try result.reserve(self.length)
         var i = 0
         while i < self.length {
             if let buf = self.buffer {
-                result.push(buf[i].copy())
+                // The reserve above bought the whole buffer, so no push here can
+                // allocate — `try` is the honest spelling anyway, and costs a
+                // branch on an already-successful tag.
+                let _ = try result.push(buf[i].copy())
             }
             i = i + 1
         }
@@ -586,23 +574,25 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     // into the result (exactly one placement per element, never a silent copy),
     // and the result is `move`d out. Since design 216 the INPUT element carries
     // none either — `transform` borrows it.
-    // Panics on allocator exhaustion, through `push` (design 123, infallible
-    // tier). It used to drop transformed values on the floor and hand back a
-    // short result vector.
+    // REPORTS allocator exhaustion (design 234; it panicked through `push`
+    // under design 123, and before that dropped transformed values on the floor
+    // and handed back a short result vector). The error is the leaf `AllocError`
+    // — `map` has exactly one failure mode of its own, so §1's narrowest-type
+    // rule applies and there is no compound to build.
     /// Applies `transform` to each element to return a new `Vector<U>`, where the
     /// output type `U` must be explicitly specified at the call site. The element
-    /// is lent to `transform` as a `&T`, so no copy bound is required of `T`. The
-    /// function panics on allocator exhaustion.
-    public func map<U>(&self, transform: (&T) -> U) unsafe -> Vector<U, A> {
+    /// is lent to `transform` as a `&T`, so no copy bound is required of `T`.
+    /// Reports `Err(AllocError)` when the result vector cannot grow.
+    public func map<U>(&self, transform: (&T) -> U) unsafe -> Result<Vector<U, A>, AllocError> {
         var result = Vector<U, A>()
         var i = 0
         while i < self.length {
             if let buf = self.buffer {
-                result.push(transform(&buf[i]))
+                let _ = try result.push(transform(&buf[i]))
             }
             i = i + 1
         }
-        move result
+        return move result
     }
 
     // Left fold: thread an accumulator of METHOD-level generic type `Acc`

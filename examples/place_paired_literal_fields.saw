@@ -30,7 +30,7 @@ extension Holder: NoCopy {}
 extension Holder {
     init() -> Holder {
         var v: Vector<Cell> = []
-        v.push(Cell(n: 7, tag: "pos"))
+        try! v.push(Cell(n: 7, tag: "pos"))
         Holder(cells: move v)
     }
 

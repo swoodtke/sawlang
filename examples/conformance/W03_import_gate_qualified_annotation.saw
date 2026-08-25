@@ -37,9 +37,9 @@ func let_pos() -> Int {
 
 func main() {
     var d = data.Data()
-    d.push(65)
-    d.push(66)
-    d.push(67)
+    try! d.push(65)
+    try! d.push(66)
+    try! d.push(67)
     print(takes(&d))
     if let _ = gives(1) { print("some") } else { print("none") }
     print(let_pos())

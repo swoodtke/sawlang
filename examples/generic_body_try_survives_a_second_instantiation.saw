@@ -1,0 +1,55 @@
+// XFAIL: DF-257c a propagating `try` inside a GENERIC body is resolved once and
+// reused across monomorphizations, so the SECOND instantiation extracts through
+// the first's `Result` type and codegen emits IR that does not verify.
+//
+// PRE-EXISTING and nothing to do with fallible constructors: the callee here is
+// a static factory, so this shape has been writable since Result generics
+// landed. Design 234 found it because the flip multiplies exactly this — a
+// generic container body calling a now-fallible allocation and propagating it.
+//
+// ONE instantiation compiles and runs. Adding the second is the whole delta:
+//
+//   internal compiler error at std/alloc.saw:20:9 (ReturnStatement):
+//     Type of #1 arg mismatch: i8** != {i1, i8*}*
+//
+// The two `Result<Cell<U>, AllocError>` instantiations share an LLVM layout
+// whenever their payloads do, and `_generate_try_expr` falls back to matching a
+// registered `Result$…` enum BY LLVM TYPE when the annotation does not name one
+// — a fallback its own comment records as ambiguous. What the fix owes is the
+// per-instantiation annotation, not a better guess at the fallback.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 9
+
+struct Cell<T> {
+    v: T
+}
+
+extension Cell<T> {
+    static func make(seed: T) -> Result<Cell<T>, AllocError> {
+        return Cell<T>(v: seed)
+    }
+}
+
+struct Holder<U> {
+    tag: Int
+}
+
+extension Holder<U> {
+    func build(&self, x: U) -> Result<Int, AllocError> {
+        let c = try Cell<U>.make(seed: x)
+        return self.tag
+    }
+}
+
+func main() {
+    let h = Holder<Int>(tag: 7)
+    print("{try! h.build(3)}")
+
+    // The second instantiation of `build`. Alone, either one compiles.
+    let h2 = Holder<String>(tag: 9)
+    let n2 = try! h2.build("s")
+    print("{n2}")
+}

@@ -106,28 +106,37 @@ extension FixedStringBuilder<N> {
         N
     }
 
+    // THE FOUR APPENDS BELOW KEEP A VOID SIGNATURE, deliberately, and design 234
+    // is the reason rather than an exception to it: a `FixedStringBuilder` wraps
+    // a FIXED-mode `StringBuilder`, and fixed storage has no allocator to refuse
+    // it — content that does not fit is CUT and marked, which `is_truncated()`
+    // reports. There is no allocation here to report, so a `Result` return would
+    // name a failure that cannot happen. The `try!` is the assertion of that: it
+    // is unreachable, and if the fixed/growable distinction ever leaks it says so
+    // loudly instead of silently dropping the write.
+
     /// Appends the bytes of `s`, cutting and marking if they do not fit.
     public func append(&var self, s: String) unsafe {
         self._aim()
-        self.builder.append(s)
+        try! self.builder.append(s)
     }
 
     /// Appends the decimal rendering of `value`.
     public func append(&var self, value: Int) unsafe {
         self._aim()
-        self.builder.append(value)
+        try! self.builder.append(value)
     }
 
     /// Appends the decimal rendering of `value`.
     public func append(&var self, value: UInt) unsafe {
         self._aim()
-        self.builder.append(value)
+        try! self.builder.append(value)
     }
 
     /// Appends one byte.
     public func append_char(&var self, c: Int8) unsafe {
         self._aim()
-        self.builder.append_char(c)
+        try! self.builder.append_char(c)
     }
 
     /// The number of bytes written so far.

@@ -2,37 +2,44 @@
 //!
 //! ## What happens when the allocator says no
 //!
-//! Every allocating operation in the standard library answers that question
-//! one of two ways, and the name tells you which.
-//!
-//! An operation with an infallible signature — `Vector.push`, `Box.make`,
-//! `StringBuilder.append`, `Map.insert`, a constructor — **panics** on
-//! allocation failure. It never truncates, never returns a plausible
-//! substitute value, and never hands back an object that has quietly stopped
-//! working. In the freestanding profile the panic reaches `__saw_rt_panic`,
-//! so a kernel picks the policy (oops, kill the task, reboot).
-//!
-//! Every such operation has a `try_`-prefixed twin that returns
-//! `Result<_, AllocError>` instead: `try_push`, `try_make`,
-//! `try_with_capacity`, `try_insert`, `try_append`. That is the surface for
-//! code that handles exhaustion locally rather than dying of it, and it is
-//! the surface a freestanding or kernel caller is expected to use. `try_`
-//! never partially applies its operation — on `Err` the container is exactly
-//! as it was.
+//! It tells you. Every allocating operation in the standard library returns
+//! `Result<_, AllocError>` — `Vector.push`, `Box.make`, `StringBuilder.append`,
+//! `Map.insert`, `Vector(capacity:)` and the rest of the constructors — and the
+//! error carries the size and alignment of the request that was refused, so an
+//! out-of-memory site stays loggable with context.
 //!
 //! ```saw
 //! var frames = Vector<Frame, FrameSlab>()
-//! match frames.try_push(Frame(id: 1)) {
+//! match frames.push(Frame(id: 1)) {
 //!     case Ok(_) -> print("queued"),
 //!     case Err(e) -> print("out of frame memory: {e}")
 //! }
 //! ```
 //!
+//! `try!` is the spelling for code that would rather die than handle it, and it
+//! panics NAMING the error. Nothing truncates, returns a plausible substitute,
+//! or hands back an object that has quietly stopped working; and no operation
+//! partially applies itself — on `Err` the container is exactly as it was.
+//!
+//! Design 234 retired the two-tier arrangement this file used to describe: an
+//! infallible operation that panicked, with a `try_`-prefixed twin beside it
+//! that reported. The twins are gone and the prefix now means one thing,
+//! NON-BLOCKING (`try_receive`, `try_lock`).
+//!
+//! THREE PLACES STILL PANIC, each because the report has nowhere to go:
+//!
+//! - the allocations the COMPILER inserts that no source construct names —
+//!   string interpolation, an escaping closure's captured environment, a
+//!   coroutine frame — where there is no expression to hang a `try` on.
+//!   `--no-hidden-alloc` is the opt-out for code that cannot accept that;
+//! - `copy()`, the `ExplicitCopy` hook, whose signature belongs to the trait;
+//! - `Data`'s subscript, whose copy-on-write separation shares a body with the
+//!   bounds check (`detached()` is the preflight that reports instead).
+//!
 //! A type parameterized by its allocator (`Vector<T, A>`, `Box<T, A>`,
-//! `Map<K, V, A>`, `Set<T, A>`) is the freestanding toolkit, and the `try_`
-//! tier is its primary surface. Types with no allocator parameter — `String`,
-//! `StringBuilder`, `Data`, `Arc`, `Mutex`, `Channel` — allocate through
-//! `GlobalAllocator`.
+//! `Map<K, V, A>`, `Set<T, A>`) is the freestanding toolkit. Types with no
+//! allocator parameter — `String`, `StringBuilder`, `Data`, `Arc`, `Mutex`,
+//! `Channel` — allocate through `GlobalAllocator`.
 
 // Allocator trait, GlobalAllocator allocator, and AllocError
 // Part of the Saw standard library — design 19 §4, brief 28 (stage 3)
@@ -123,10 +130,10 @@ public struct AllocError {
 
 extension AllocError: Error {
     public func format(&self, into: &var StringBuilder) {
-        into.append("allocation of ")
-        into.append(self.size)
-        into.append(" bytes (align ")
-        into.append(self.align)
-        into.append(") failed")
+        try! into.append("allocation of ")
+        try! into.append(self.size)
+        try! into.append(" bytes (align ")
+        try! into.append(self.align)
+        try! into.append(") failed")
     }
 }

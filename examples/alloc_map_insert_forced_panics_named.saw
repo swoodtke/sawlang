@@ -1,11 +1,11 @@
-// Design 123: `Map.insert` is the infallible tier — its `V?` return means "was
-// there a previous value", so it has nowhere to report an allocator refusal and
-// panics instead. Before this it dropped the key and value on the floor,
-// incremented `count` anyway, and returned `None` as if the insert had
-// succeeded: the map then reported `len() == N` while `get()` answered None for
-// every one of those keys.
+// design 234: the operation REPORTS a refused allocation, so the only way to
+// meet it as a panic is to ask for one — `try!`. That is the corpus's own
+// migration spelling, and this file is the pin that taking it stays LOUD and
+// still says which allocation ran out (DF-245b renders the error after the
+// fixed text). Design 123's method-named panic is what this replaced.
+//
 // EXPECT: panic
-// EXPECT-PANIC-CONTAINS: Map.insert: allocation failed
+// EXPECT-PANIC-CONTAINS: try! failed: allocation of
 
 static BUDGET: Atomic<Int> = Atomic(64)
 
@@ -28,12 +28,12 @@ func main() {
     var m = Map<Int, Int, FailAlloc>()
     var i = 0
     while i < 6 {
-        m.insert(i, i * 10)
+        try! m.insert(i, i * 10)
         i = i + 1
     }
     print(m.len())          // 6 — the load factor tips on the next one
 
     BUDGET.store(0)
-    m.insert(7, 70)         // rehash denied -> panic
+    try! m.insert(7, 70)         // rehash denied -> panic
     print(m.len())
 }

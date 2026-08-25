@@ -31,20 +31,20 @@ extension NullAlloc: Allocator {
 
 func main() {
     // Success (GlobalAllocator, Int payload): Ok, value() reads 7.
-    match Box<Int>.try_make(7) {
+    match Box<Int>.make(7) {
         case Ok(b) -> print(b.value()),   // 7
         case Err(e) -> print(e.size)
     }
 
     // Failure (NullAlloc, Deinit payload): the value is cleanly deinit'd inside
     // try_make's scope exit ("gone 2"), then Err carries size = sizeof(Res) = 8.
-    match Box<Res, NullAlloc>.try_make(Res(id: 2)) {
+    match Box<Res, NullAlloc>.make(Res(id: 2)) {
         case Ok(b) -> print(b.peek()),
         case Err(e) -> print(e.size)      // gone 2, then 8
     }
 
     // AllocError is Printable (design 123), so an OOM can be logged directly.
-    match Box<Res, NullAlloc>.try_make(Res(id: 3)) {
+    match Box<Res, NullAlloc>.make(Res(id: 3)) {
         case Ok(b) -> print(b.peek()),
         case Err(e) -> print("{e}")
     }

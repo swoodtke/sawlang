@@ -24,7 +24,7 @@ func serve(listener: TcpListener, n: Int) -> Int {
             if chunk.len() == 0 {
                 reading = false
             } else {
-                req.append(move chunk)
+                try! req.append(move chunk)
                 if (try! req.to_string()).contains("\r\n\r\n") {
                     reading = false
                 }
@@ -50,7 +50,7 @@ func client_twice(port: Int) -> Int {
             if chunk.len() == 0 {
                 reading = false
             } else {
-                resp.append(move chunk)
+                try! resp.append(move chunk)
                 if (try! resp.to_string()).contains("hello") {
                     reading = false
                 }

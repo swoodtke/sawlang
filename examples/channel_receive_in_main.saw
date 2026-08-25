@@ -39,7 +39,7 @@ func take_one(ch: Channel<Int>) -> Int {
 }
 
 func main() {
-    var ch = Channel<Int>()
+    var ch = try! Channel<Int>()
     var group = TaskGroup()
 
     let _ = group.spawn(producer(ch, 7))

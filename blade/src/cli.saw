@@ -60,11 +60,11 @@ func scan_args(args: &Vector<String>, start: Int, value_flags: &Set<String>) -> 
         if let a = args.get(i) {
             if value_flags.contains(a) {
                 i = i + 1
-                let _ = flags.insert(a, args.get(i) ?? "")
+                let _ = try! flags.insert(a, args.get(i) ?? "")
             } else if a.starts_with("--") {
-                let _ = flags.insert(a, "")
+                let _ = try! flags.insert(a, "")
             } else {
-                positional.push(a)
+                let _ = try! positional.push(a)
             }
         }
         i = i + 1
@@ -84,7 +84,7 @@ extension Cli: ExplicitCopy {}
 extension Cli {
     // Parse command line arguments into a Cli struct
     public static func parse() -> Result<Cli, ParseError> {
-        let args = Env.args()
+        let args = try! Env.args()
 
         if args.len() < 2 {
             return Cli(command: BladeCommand.Help)
@@ -95,13 +95,13 @@ extension Cli {
         }
 
         if cmd.equals("build") {
-            let value_flags = Set<String>.of("--target")
+            let value_flags = try! Set<String>.of("--target")
             let scanned = scan_args(&args, 2, &value_flags)
             let force = scanned.flags.contains_key("--force")
             let target = scanned.flags.get("--target") ?? ""
             Cli(command: BladeCommand.Build(force: force, target: target))
         } else if cmd.equals("clean") {
-            let value_flags = Set<String>.of("--target")
+            let value_flags = try! Set<String>.of("--target")
             let scanned = scan_args(&args, 2, &value_flags)
             let target = scanned.flags.get("--target") ?? ""
             Cli(command: BladeCommand.Clean(target: target))
@@ -113,7 +113,7 @@ extension Cli {
             var i = 2
             while i < args.len() {
                 if let arg = args.get(i) {
-                    run_args.push(arg)
+                    let _ = try! run_args.push(arg)
                 }
                 i = i + 1
             }

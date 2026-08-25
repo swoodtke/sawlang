@@ -43,13 +43,13 @@ extension Res: NoCopy {
 // which is why both ids print before the line that reports the length.
 func driven_row() -> Int {
     var wave = Vector<Res>()
-    wave.push(Res(id: 4))
-    wave.push(Res(id: 5))
+    try! wave.push(Res(id: 4))
+    try! wave.push(Res(id: 5))
     var pending = Vector<Res>()
     yield_now()
     while wave.len() > 0 {
         if let h = wave.pop() {
-            pending.push(move h)
+            try! pending.push(move h)
         }
     }
     pending.len()
@@ -61,7 +61,7 @@ func direct_row() {
     var s = Slot<Vector<Res>>.empty()
     s.put(Vector<Res>())
     let h = Res(id: 1)
-    s.value().push(move h)
+    try! s.value().push(move h)
     print("direct len {s.value().len()}")
     s.clear()
 }
@@ -70,11 +70,11 @@ func binding_row() {
     var s = Slot<Vector<Res>>.empty()
     s.put(Vector<Res>())
     var wave = Vector<Res>()
-    wave.push(Res(id: 2))
-    wave.push(Res(id: 3))
+    try! wave.push(Res(id: 2))
+    try! wave.push(Res(id: 3))
     while wave.len() > 0 {
         if let h = wave.pop() {
-            s.value().push(move h)
+            try! s.value().push(move h)
         }
     }
     print("binding len {s.value().len()}")

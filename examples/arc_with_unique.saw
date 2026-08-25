@@ -33,7 +33,7 @@ extension Res: NoCopy {
 }
 
 func main() {
-    var solo = Arc<Counter>(value: Counter(n: 0))
+    var solo = try! Arc<Counter>(value: Counter(n: 0))
 
     // Unique: the body runs and its own result comes back.
     print("unique -> {solo.with_unique({ c in c.bump()  c.n }) ?? -1}")
@@ -53,17 +53,17 @@ func main() {
 
     // The `None` arm is the caller's cue: clone, then write to the clone. This
     // is exactly what `Data`'s mutations do.
-    var mine = Arc<Counter>(value: Counter(n: theirs.value()))
+    var mine = try! Arc<Counter>(value: Counter(n: theirs.value()))
     let _ = mine.with_unique({ c in c.bump() })
     print("clone-and-write: mine {mine.value()}, theirs {theirs.value()}")
 
     // The gate borrows rather than retains, so asking does not itself share.
-    var lone = Arc<Counter>(value: Counter(n: 0))
+    var lone = try! Arc<Counter>(value: Counter(n: 0))
     let _ = lone.with_unique({ c in c.bump() })
     let _ = lone.with_unique({ c in c.bump() })
     print("no double count: strong {lone.strong_count()}")
 
     // A NoCopy payload releases once, through Arc's ordinary two-phase drop.
-    var res = Arc<Res>(value: Res(tag: 7))
+    var res = try! Arc<Res>(value: Res(tag: 7))
     let _ = res.with_unique({ r in r.tag })
 }

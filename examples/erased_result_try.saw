@@ -11,15 +11,15 @@
 struct ParseErr { code: Int }
 extension ParseErr: Error {
     func format(&self, into: &var StringBuilder) {
-        into.append("parse#")
-        into.append(self.code)
+        try! into.append("parse#")
+        try! into.append(self.code)
     }
 }
 struct IoErr { n: Int }
 extension IoErr: Error {
     func format(&self, into: &var StringBuilder) {
-        into.append("io#")
-        into.append(self.n)
+        try! into.append("io#")
+        try! into.append(self.n)
     }
 }
 

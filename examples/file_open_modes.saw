@@ -21,7 +21,7 @@ import std.path.{Path}
 import std.directory.{Directory}
 
 func write_to(f: &File, text: String) {
-    match f.write(text.to_data()) {
+    match f.write(try! text.to_data()) {
         case Ok(_) -> {},
         case Err(e) -> print("write failed: {e}")
     }

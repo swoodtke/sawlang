@@ -28,8 +28,8 @@ func main() {
     print("annotation {has_elapsed(origin())}")
 
     var v: Vector<data.Data> = []
-    v.push(data.Data())          // constructor through the qualifier
-    v.push(data.Data())
+    try! v.push(data.Data())          // constructor through the qualifier
+    try! v.push(data.Data())
     print("generic {count(&v)}")
 
     // Static-method chain: qualifier -> type -> static method.
@@ -40,7 +40,7 @@ func main() {
     task.yield_now()
 
     var bytes = data.Data()
-    bytes.push(7)
+    try! bytes.push(7)
     print("callhead {first_byte(&bytes)}")
 
     // A qualified type nested inside another composite.

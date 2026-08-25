@@ -121,7 +121,7 @@ func hex_digit(n: Int) -> String { "0123456789abcdef".substring(n, n + 1) }
 // A one-byte String from an unsigned byte value.
 func char_str(u: Int) -> String {
     var sb = StringBuilder()
-    sb.append_char(to_i8(u))
+    try! sb.append_char(to_i8(u))
     sb.build()
 }
 
@@ -446,17 +446,17 @@ public func escape_text(s: String) -> String {
     var i = 0
     while i < n {
         let u = ubyte(&s, i)
-        if u == B_BACKSLASH { out.append("\\\\") }
-        else if u == B_NL { out.append("\\n") }
-        else if u == B_TAB { out.append("\\t") }
-        else if u == B_CR { out.append("\\r") }
-        else if u == 0 { out.append("\\0") }
+        if u == B_BACKSLASH { try! out.append("\\\\") }
+        else if u == B_NL { try! out.append("\\n") }
+        else if u == B_TAB { try! out.append("\\t") }
+        else if u == B_CR { try! out.append("\\r") }
+        else if u == 0 { try! out.append("\\0") }
         else if u < B_SPACE || u == B_DEL {
-            out.append("\\x")
-            out.append(hex_digit(u / 16))
-            out.append(hex_digit(u % 16))
+            try! out.append("\\x")
+            try! out.append(hex_digit(u / 16))
+            try! out.append(hex_digit(u % 16))
         }
-        else { out.append_char(to_i8(u)) }
+        else { try! out.append_char(to_i8(u)) }
         i = i + 1
     }
     out.build()
@@ -467,16 +467,16 @@ public func escape_text(s: String) -> String {
 // `INT<TAB>1:1<TAB>255<TAB>u8`); every other token stops at the escaped text.
 public func format_token(t: &Token) -> String {
     var out = StringBuilder()
-    out.append(kind_name(t.kind))
-    out.append("\t")
-    out.append(t.line)
-    out.append(":")
-    out.append(t.col)
-    out.append("\t")
-    out.append(escape_text(t.value))
+    try! out.append(kind_name(t.kind))
+    try! out.append("\t")
+    try! out.append(t.line)
+    try! out.append(":")
+    try! out.append(t.col)
+    try! out.append("\t")
+    try! out.append(escape_text(t.value))
     if let sfx = t.suffix {
-        out.append("\t")
-        out.append(sfx)
+        try! out.append("\t")
+        try! out.append(sfx)
     }
     out.build()
 }
@@ -487,26 +487,26 @@ public func format_token(t: &Token) -> String {
 // shape; `tools/lexdiff.py --docs` diffs the two over the corpus.
 public func format_doc(d: &DocComment) -> String {
     var out = StringBuilder()
-    out.append("DOC\t")
-    out.append(d.line)
-    out.append(":")
-    out.append(d.col)
-    out.append("\t")
-    out.append(d.kind)
-    out.append("\t")
-    out.append(escape_text(d.text))
+    try! out.append("DOC\t")
+    try! out.append(d.line)
+    try! out.append(":")
+    try! out.append(d.col)
+    try! out.append("\t")
+    try! out.append(d.kind)
+    try! out.append("\t")
+    try! out.append(escape_text(d.text))
     out.build()
 }
 
 // One canonical error record: ERROR<TAB>line:col<TAB>message.
 public func format_error(e: &LexError) -> String {
     var out = StringBuilder()
-    out.append("ERROR\t")
-    out.append(e.line)
-    out.append(":")
-    out.append(e.col)
-    out.append("\t")
-    out.append(e.message)
+    try! out.append("ERROR\t")
+    try! out.append(e.line)
+    try! out.append(":")
+    try! out.append(e.col)
+    try! out.append("\t")
+    try! out.append(e.message)
     out.build()
 }
 
@@ -641,14 +641,14 @@ extension Lexer {
                 }
                 var text = StringBuilder()
                 while self.peek() != -1 && self.peek() != B_NL {
-                    text.append_char(to_i8(self.advance()))
+                    try! text.append_char(to_i8(self.advance()))
                 }
                 var body = text.build()
                 if body.len() > 0 && ubyte(&body, body.len() - 1) == B_CR {
                     body = body.substring(0, body.len() - 1)   // strip trailing CR
                 }
                 let kind = if is_module { "module" } else { "doc" }
-                docs.push(DocComment(kind: kind, text: body, line: start_line, col: start_col))
+                try! docs.push(DocComment(kind: kind, text: body, line: start_line, col: start_col))
                 return
             }
             while self.peek() != -1 && self.peek() != B_NL {
@@ -670,7 +670,7 @@ extension Lexer {
         var ok = true
         while self.peek() != -1 && self.peek() != B_RBRACE {
             let d = self.advance()
-            hex.append_char(to_i8(d))
+            try! hex.append_char(to_i8(d))
             count = count + 1
             if not is_hex(d) { ok = false }
         }
@@ -720,19 +720,19 @@ extension Lexer {
             if self.peek() == B_BACKSLASH {
                 let _ = self.advance()
                 let ch = self.advance()
-                if ch == B_LO_N { out.append_char(to_i8(B_NL)) }
-                else if ch == B_LO_T { out.append_char(to_i8(B_TAB)) }
-                else if ch == B_LO_R { out.append_char(to_i8(B_CR)) }
-                else if ch == B_D0 { out.append_char(to_i8(0)) }
-                else if ch == B_QUOTE { out.append_char(to_i8(B_QUOTE)) }
-                else if ch == B_BACKSLASH { out.append_char(to_i8(B_BACKSLASH)) }
+                if ch == B_LO_N { try! out.append_char(to_i8(B_NL)) }
+                else if ch == B_LO_T { try! out.append_char(to_i8(B_TAB)) }
+                else if ch == B_LO_R { try! out.append_char(to_i8(B_CR)) }
+                else if ch == B_D0 { try! out.append_char(to_i8(0)) }
+                else if ch == B_QUOTE { try! out.append_char(to_i8(B_QUOTE)) }
+                else if ch == B_BACKSLASH { try! out.append_char(to_i8(B_BACKSLASH)) }
                 else if ch == B_LBRACE {
-                    out.append_char(to_i8(B_MARKER))
-                    out.append_char(to_i8(B_LBRACE))
+                    try! out.append_char(to_i8(B_MARKER))
+                    try! out.append_char(to_i8(B_LBRACE))
                 }
                 else if ch == B_RBRACE {
-                    out.append_char(to_i8(B_MARKER))
-                    out.append_char(to_i8(B_RBRACE))
+                    try! out.append_char(to_i8(B_MARKER))
+                    try! out.append_char(to_i8(B_RBRACE))
                 }
                 else if ch == B_LO_U {
                     try self.read_unicode_escape(&var out)
@@ -748,20 +748,20 @@ extension Lexer {
                     interp_line = open_line
                     interp_col = open_col
                 }
-                out.append_char(to_i8(self.advance()))  // keep '{'
+                try! out.append_char(to_i8(self.advance()))  // keep '{'
                 var depth = 1
                 while self.peek() != -1 && depth > 0 {
                     let c = self.peek()
                     if c == B_LBRACE { depth = depth + 1 }
                     else if c == B_RBRACE { depth = depth - 1 }
-                    out.append_char(to_i8(self.advance()))
+                    try! out.append_char(to_i8(self.advance()))
                 }
                 if depth > 0 {
                     // This interpolation ran to EOF without a closing `}`.
                     return self.err_at("unterminated interpolation in string literal, opened at this `\{` (write `\\\{` for a literal brace)", open_line, open_col)
                 }
             } else {
-                out.append_char(to_i8(self.advance()))
+                try! out.append_char(to_i8(self.advance()))
             }
         }
 
@@ -791,12 +791,12 @@ extension Lexer {
         var j = self.pos + 1
         var digits = StringBuilder()
         while j < self.slen && is_digit(ubyte(&self.src, j)) {
-            digits.append_char(to_i8(ubyte(&self.src, j)))
+            try! digits.append_char(to_i8(ubyte(&self.src, j)))
             j = j + 1
         }
         var cand = StringBuilder()
-        cand.append_char(to_i8(ch))
-        cand.append(digits.build())
+        try! cand.append_char(to_i8(ch))
+        try! cand.append(digits.build())
         let cand_str = cand.build()
         if suffix_width(cand_str) == 0 {
             return None
@@ -828,7 +828,7 @@ extension Lexer {
         if tuple_index {
             var digits = StringBuilder()
             while is_digit(self.peek()) {
-                digits.append_char(to_i8(self.advance()))
+                try! digits.append_char(to_i8(self.advance()))
             }
             let index_str = digits.build()
             if not literal_fits(index_str, 10, 64) {
@@ -848,7 +848,7 @@ extension Lexer {
             var digits = StringBuilder()
             while in_base_set(self.peek(), base) {
                 let d = self.advance()
-                if d != B_UNDERSCORE { digits.append_char(to_i8(d)) }
+                if d != B_UNDERSCORE { try! digits.append_char(to_i8(d)) }
             }
             let digit_str = digits.build()
             if digit_str.is_empty() {
@@ -865,9 +865,9 @@ extension Lexer {
                 }
             }
             var vb = StringBuilder()
-            vb.append("0")
-            vb.append(prefix_str)
-            vb.append(digit_str)
+            try! vb.append("0")
+            try! vb.append(prefix_str)
+            try! vb.append(digit_str)
             return Token(kind: TokenKind.IntLit, value: vb.build(), line: start_line, col: start_col, suffix: suffix)
         }
 
@@ -878,7 +878,7 @@ extension Lexer {
         while going {
             let c = self.peek()
             if is_digit(c) {
-                val.append_char(to_i8(self.advance()))
+                try! val.append_char(to_i8(self.advance()))
             } else if c == B_DOT {
                 // Design 161, the LOOKAHEAD rule: a `.` continues the float only when
                 // a DIGIT follows it. Anything else ends the number and leaves the dot
@@ -889,7 +889,7 @@ extension Lexer {
                     going = false
                 } else {
                     is_float = true
-                    val.append_char(to_i8(self.advance()))
+                    try! val.append_char(to_i8(self.advance()))
                 }
             } else if c == B_UNDERSCORE {
                 let _ = self.advance()      // strip underscore separators
@@ -920,7 +920,7 @@ extension Lexer {
         let _ = self.advance()  // consume '#'
         var name = StringBuilder()
         while is_alnum(self.peek()) || self.peek() == B_UNDERSCORE {
-            name.append_char(to_i8(self.advance()))
+            try! name.append_char(to_i8(self.advance()))
         }
         let name_str = name.build()
         if name_str.is_empty() {
@@ -940,7 +940,7 @@ extension Lexer {
         let start_col = self.col
         var sb = StringBuilder()
         while is_alnum(self.peek()) || self.peek() == B_UNDERSCORE {
-            sb.append_char(to_i8(self.advance()))
+            try! sb.append_char(to_i8(self.advance()))
         }
         let value = sb.build()
         Token(kind: keyword_kind(value), value: value, line: start_line, col: start_col, suffix: None)
@@ -954,9 +954,9 @@ extension Lexer {
             return self.err("Expected number after `$` for shorthand closure parameter")
         }
         var num = StringBuilder()
-        num.append_char(to_i8(B_DOLLAR))
+        try! num.append_char(to_i8(B_DOLLAR))
         while is_digit(self.peek()) {
-            num.append_char(to_i8(self.advance()))
+            try! num.append_char(to_i8(self.advance()))
         }
         Token(kind: TokenKind.DollarParam, value: num.build(), line: start_line, col: start_col, suffix: None)
     }
@@ -974,206 +974,206 @@ extension Lexer {
             let ch = self.peek()
 
             if ch == B_NL {
-                tokens.push(self.tok(TokenKind.Newline, "\n"))
+                try! tokens.push(self.tok(TokenKind.Newline, "\n"))
                 let _ = self.advance()
             } else if ch == B_QUOTE {
-                tokens.push(try self.read_string())
+                try! tokens.push(try self.read_string())
             } else if is_digit(ch) {
                 // Design 161: one-token lookback. Digits right after a member-access
                 // `.` are a tuple index, not the start of a float.
                 let after_dot = tokens.len() > 0 && tokens[tokens.len() - 1].kind == TokenKind.Dot
-                tokens.push(try self.read_number(after_dot))
+                try! tokens.push(try self.read_number(after_dot))
             } else if is_alpha(ch) || ch == B_UNDERSCORE {
-                tokens.push(self.read_identifier())
+                try! tokens.push(self.read_identifier())
             } else if ch == B_PLUS {
                 if self.peek1() == B_EQ {
-                    tokens.push(self.tok(TokenKind.PlusAssign, "+="))
+                    try! tokens.push(self.tok(TokenKind.PlusAssign, "+="))
                     self.advance2()
                 } else {
-                    tokens.push(self.tok(TokenKind.Plus, "+"))
+                    try! tokens.push(self.tok(TokenKind.Plus, "+"))
                     let _ = self.advance()
                 }
             } else if ch == B_MINUS {
                 if self.peek1() == B_GT {
-                    tokens.push(self.tok(TokenKind.Arrow, "->"))
+                    try! tokens.push(self.tok(TokenKind.Arrow, "->"))
                     self.advance2()
                 } else if self.peek1() == B_EQ {
-                    tokens.push(self.tok(TokenKind.MinusAssign, "-="))
+                    try! tokens.push(self.tok(TokenKind.MinusAssign, "-="))
                     self.advance2()
                 } else {
-                    tokens.push(self.tok(TokenKind.Minus, "-"))
+                    try! tokens.push(self.tok(TokenKind.Minus, "-"))
                     let _ = self.advance()
                 }
             } else if ch == B_STAR {
                 if self.peek1() == B_EQ {
-                    tokens.push(self.tok(TokenKind.StarAssign, "*="))
+                    try! tokens.push(self.tok(TokenKind.StarAssign, "*="))
                     self.advance2()
                 } else {
-                    tokens.push(self.tok(TokenKind.Star, "*"))
+                    try! tokens.push(self.tok(TokenKind.Star, "*"))
                     let _ = self.advance()
                 }
             } else if ch == B_SLASH {
                 if self.peek1() == B_SLASH {
                     self.skip_comment(&var docs)
                 } else if self.peek1() == B_EQ {
-                    tokens.push(self.tok(TokenKind.SlashAssign, "/="))
+                    try! tokens.push(self.tok(TokenKind.SlashAssign, "/="))
                     self.advance2()
                 } else {
-                    tokens.push(self.tok(TokenKind.Slash, "/"))
+                    try! tokens.push(self.tok(TokenKind.Slash, "/"))
                     let _ = self.advance()
                 }
             } else if ch == B_PERCENT {
                 if self.peek1() == B_EQ {
-                    tokens.push(self.tok(TokenKind.PercentAssign, "%="))
+                    try! tokens.push(self.tok(TokenKind.PercentAssign, "%="))
                     self.advance2()
                 } else {
-                    tokens.push(self.tok(TokenKind.Percent, "%"))
+                    try! tokens.push(self.tok(TokenKind.Percent, "%"))
                     let _ = self.advance()
                 }
             } else if ch == B_AMP {
                 if self.peek1() == B_AMP {
-                    tokens.push(self.tok(TokenKind.And, "&&"))
+                    try! tokens.push(self.tok(TokenKind.And, "&&"))
                     self.advance2()
                 } else if self.peek1() == B_PLUS {
-                    tokens.push(self.tok(TokenKind.WrapAdd, "&+"))
+                    try! tokens.push(self.tok(TokenKind.WrapAdd, "&+"))
                     self.advance2()
                 } else if self.peek1() == B_MINUS {
-                    tokens.push(self.tok(TokenKind.WrapSub, "&-"))
+                    try! tokens.push(self.tok(TokenKind.WrapSub, "&-"))
                     self.advance2()
                 } else if self.peek1() == B_STAR {
-                    tokens.push(self.tok(TokenKind.WrapMul, "&*"))
+                    try! tokens.push(self.tok(TokenKind.WrapMul, "&*"))
                     self.advance2()
                 } else if self.peek1() == B_EQ {
-                    tokens.push(self.tok(TokenKind.AmpAssign, "&="))
+                    try! tokens.push(self.tok(TokenKind.AmpAssign, "&="))
                     self.advance2()
                 } else {
-                    tokens.push(self.tok(TokenKind.Ampersand, "&"))
+                    try! tokens.push(self.tok(TokenKind.Ampersand, "&"))
                     let _ = self.advance()
                 }
             } else if ch == B_PIPE {
                 if self.peek1() == B_PIPE {
-                    tokens.push(self.tok(TokenKind.Or, "||"))
+                    try! tokens.push(self.tok(TokenKind.Or, "||"))
                     self.advance2()
                 } else if self.peek1() == B_EQ {
-                    tokens.push(self.tok(TokenKind.PipeAssign, "|="))
+                    try! tokens.push(self.tok(TokenKind.PipeAssign, "|="))
                     self.advance2()
                 } else {
-                    tokens.push(self.tok(TokenKind.Pipe, "|"))
+                    try! tokens.push(self.tok(TokenKind.Pipe, "|"))
                     let _ = self.advance()
                 }
             } else if ch == B_CARET {
                 if self.peek1() == B_EQ {
-                    tokens.push(self.tok(TokenKind.CaretAssign, "^="))
+                    try! tokens.push(self.tok(TokenKind.CaretAssign, "^="))
                     self.advance2()
                 } else {
-                    tokens.push(self.tok(TokenKind.Caret, "^"))
+                    try! tokens.push(self.tok(TokenKind.Caret, "^"))
                     let _ = self.advance()
                 }
             } else if ch == B_TILDE {
-                tokens.push(self.tok(TokenKind.Tilde, "~"))
+                try! tokens.push(self.tok(TokenKind.Tilde, "~"))
                 let _ = self.advance()
             } else if ch == B_EQ {
                 if self.peek1() == B_EQ {
-                    tokens.push(self.tok(TokenKind.Eq, "=="))
+                    try! tokens.push(self.tok(TokenKind.Eq, "=="))
                     self.advance2()
                 } else {
-                    tokens.push(self.tok(TokenKind.Assign, "="))
+                    try! tokens.push(self.tok(TokenKind.Assign, "="))
                     let _ = self.advance()
                 }
             } else if ch == B_EXCLAIM {
                 if self.peek1() == B_EQ {
-                    tokens.push(self.tok(TokenKind.Neq, "!="))
+                    try! tokens.push(self.tok(TokenKind.Neq, "!="))
                     self.advance2()
                 } else {
-                    tokens.push(self.tok(TokenKind.Exclaim, "!"))
+                    try! tokens.push(self.tok(TokenKind.Exclaim, "!"))
                     let _ = self.advance()
                 }
             } else if ch == B_QUESTION {
                 if self.peek1() == B_QUESTION {
-                    tokens.push(self.tok(TokenKind.DoubleQuestion, "??"))
+                    try! tokens.push(self.tok(TokenKind.DoubleQuestion, "??"))
                     self.advance2()
                 } else if self.peek1() == B_DOT {
-                    tokens.push(self.tok(TokenKind.QuestionDot, "?."))
+                    try! tokens.push(self.tok(TokenKind.QuestionDot, "?."))
                     self.advance2()
                 } else {
-                    tokens.push(self.tok(TokenKind.Question, "?"))
+                    try! tokens.push(self.tok(TokenKind.Question, "?"))
                     let _ = self.advance()
                 }
             } else if ch == B_LT {
                 if self.peek1() == B_LT && self.peek2() == B_EQ {
-                    tokens.push(self.tok(TokenKind.ShlAssign, "<<="))
+                    try! tokens.push(self.tok(TokenKind.ShlAssign, "<<="))
                     self.advance3()
                 } else if self.peek1() == B_EQ {
-                    tokens.push(self.tok(TokenKind.Lte, "<="))
+                    try! tokens.push(self.tok(TokenKind.Lte, "<="))
                     self.advance2()
                 } else {
-                    tokens.push(self.tok(TokenKind.Lt, "<"))
+                    try! tokens.push(self.tok(TokenKind.Lt, "<"))
                     let _ = self.advance()
                 }
             } else if ch == B_GT {
                 if self.peek1() == B_GT && self.peek2() == B_EQ {
-                    tokens.push(self.tok(TokenKind.ShrAssign, ">>="))
+                    try! tokens.push(self.tok(TokenKind.ShrAssign, ">>="))
                     self.advance3()
                 } else if self.peek1() == B_EQ {
-                    tokens.push(self.tok(TokenKind.Gte, ">="))
+                    try! tokens.push(self.tok(TokenKind.Gte, ">="))
                     self.advance2()
                 } else {
-                    tokens.push(self.tok(TokenKind.Gt, ">"))
+                    try! tokens.push(self.tok(TokenKind.Gt, ">"))
                     let _ = self.advance()
                 }
             } else if ch == B_LPAREN {
-                tokens.push(self.tok(TokenKind.LParen, "("))
+                try! tokens.push(self.tok(TokenKind.LParen, "("))
                 let _ = self.advance()
             } else if ch == B_RPAREN {
-                tokens.push(self.tok(TokenKind.RParen, ")"))
+                try! tokens.push(self.tok(TokenKind.RParen, ")"))
                 let _ = self.advance()
             } else if ch == B_LBRACE {
-                tokens.push(self.tok(TokenKind.LBrace, char_str(B_LBRACE)))
+                try! tokens.push(self.tok(TokenKind.LBrace, char_str(B_LBRACE)))
                 let _ = self.advance()
             } else if ch == B_RBRACE {
-                tokens.push(self.tok(TokenKind.RBrace, char_str(B_RBRACE)))
+                try! tokens.push(self.tok(TokenKind.RBrace, char_str(B_RBRACE)))
                 let _ = self.advance()
             } else if ch == B_LBRACKET {
-                tokens.push(self.tok(TokenKind.LBracket, "["))
+                try! tokens.push(self.tok(TokenKind.LBracket, "["))
                 let _ = self.advance()
             } else if ch == B_RBRACKET {
-                tokens.push(self.tok(TokenKind.RBracket, "]"))
+                try! tokens.push(self.tok(TokenKind.RBracket, "]"))
                 let _ = self.advance()
             } else if ch == B_SEMI {
-                tokens.push(self.tok(TokenKind.Semicolon, ";"))
+                try! tokens.push(self.tok(TokenKind.Semicolon, ";"))
                 let _ = self.advance()
             } else if ch == B_COMMA {
-                tokens.push(self.tok(TokenKind.Comma, ","))
+                try! tokens.push(self.tok(TokenKind.Comma, ","))
                 let _ = self.advance()
             } else if ch == B_COLON {
-                tokens.push(self.tok(TokenKind.Colon, ":"))
+                try! tokens.push(self.tok(TokenKind.Colon, ":"))
                 let _ = self.advance()
             } else if ch == B_DOT {
                 if self.peek1() == B_DOT && self.peek2() == B_DOT {
-                    tokens.push(self.tok(TokenKind.Ellipsis, "..."))
+                    try! tokens.push(self.tok(TokenKind.Ellipsis, "..."))
                     self.advance3()
                 } else if self.peek1() == B_DOT && self.peek2() == B_EQ {
-                    tokens.push(self.tok(TokenKind.DotDotEq, "..="))
+                    try! tokens.push(self.tok(TokenKind.DotDotEq, "..="))
                     self.advance3()
                 } else if self.peek1() == B_DOT {
-                    tokens.push(self.tok(TokenKind.DotDot, ".."))
+                    try! tokens.push(self.tok(TokenKind.DotDot, ".."))
                     self.advance2()
                 } else {
-                    tokens.push(self.tok(TokenKind.Dot, "."))
+                    try! tokens.push(self.tok(TokenKind.Dot, "."))
                     let _ = self.advance()
                 }
             } else if ch == B_AT {
-                tokens.push(self.tok(TokenKind.At, "@"))
+                try! tokens.push(self.tok(TokenKind.At, "@"))
                 let _ = self.advance()
             } else if ch == B_HASH {
-                tokens.push(try self.read_hash_directive())
+                try! tokens.push(try self.read_hash_directive())
             } else if ch == B_DOLLAR {
-                tokens.push(try self.read_dollar())
+                try! tokens.push(try self.read_dollar())
             } else {
                 return self.err("Unexpected character")
             }
         }
-        tokens.push(self.tok(TokenKind.Eof, ""))
+        try! tokens.push(self.tok(TokenKind.Eof, ""))
         move tokens
     }
 

@@ -19,9 +19,9 @@ import std.process.{Command}
 // shell word-splitting, expansion or extra command shows up in the output.
 func echoed(argument: String) -> String {
     var c = Command(program: "/bin/echo")
-    c.arg("-n")
-    c.arg(argument)
-    if let r = c.output() {
+    try! c.arg("-n")
+    try! c.arg(argument)
+    if let r = try! c.output() {
         "[{r.stdout}]"
     } else {
         "<spawn failed>"
@@ -36,10 +36,10 @@ func main() {
 
     // And an argument count sanity check: one `arg` call is one argv element.
     var c = Command(program: "/bin/echo")
-    c.arg("-n")
-    c.arg("one")
+    try! c.arg("-n")
+    try! c.arg("one")
     assert(c.arg_count() == 2, "arg_count counts argv elements")
-    if let r = c.output() {
+    if let r = try! c.output() {
         print("[{r.stdout}]")
     } else {
         print("<spawn failed>")

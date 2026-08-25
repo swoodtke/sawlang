@@ -45,10 +45,10 @@ struct Flaky { n: Int, tag: String }
 
 extension Flaky: Printable {
     func format(&self, into: &var StringBuilder) {
-        into.append("flaky ")
-        into.append(self.tag)
-        into.append("/")
-        into.append(self.n)
+        try! into.append("flaky ")
+        try! into.append(self.tag)
+        try! into.append("/")
+        try! into.append(self.n)
     }
 }
 

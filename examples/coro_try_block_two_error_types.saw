@@ -18,7 +18,7 @@ import std.task.*
 struct Flaky { n: Int }
 
 extension Flaky: Printable {
-    func format(&self, into: &var StringBuilder) { into.append("flaky") }
+    func format(&self, into: &var StringBuilder) { try! into.append("flaky") }
 }
 
 extension Flaky: Error {}
@@ -26,7 +26,7 @@ extension Flaky: Error {}
 struct Other { m: Int }
 
 extension Other: Printable {
-    func format(&self, into: &var StringBuilder) { into.append("other") }
+    func format(&self, into: &var StringBuilder) { try! into.append("other") }
 }
 
 extension Other: Error {}

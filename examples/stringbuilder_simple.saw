@@ -11,12 +11,12 @@ func main() {
     var sb = StringBuilder()
     print(sb.len())  // 0
 
-    sb.append("Hello")
+    try! sb.append("Hello")
     print(sb.len())  // 5
     print(sb.as_str())  // Hello
 
-    sb.append(", ")
-    sb.append("World!")
+    try! sb.append(", ")
+    try! sb.append("World!")
     print(sb.len())  // 13
     print(sb.as_str())  // Hello, World!
 }

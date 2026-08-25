@@ -26,8 +26,8 @@ func fs_main() unsafe {
     check_unsigned("arena_starts_empty", fsrt.arena_used(), 0)
 
     var values = Vector<Int>()
-    values.push(11)
-    values.push(31)
+    try! values.push(11)
+    try! values.push(31)
     check_value("vector_length", values.len(), 2)
     check_value("vector_sum", values[0] + values[1], 42)
 
@@ -42,7 +42,7 @@ func fs_main() unsafe {
     var more = Vector<Int>()
     var i = 0
     while i < 64 {
-        more.push(i)
+        try! more.push(i)
         i = i + 1
     }
     check_value("second_vector_length", more.len(), 64)

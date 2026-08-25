@@ -22,8 +22,8 @@ func hex(d: &Data) -> String {
         let v = (d.get(i) ?? 0u8) as Int
         let hi = v >> 4
         let lo = v & 15
-        b.append(digits.substring(hi, hi + 1))
-        b.append(digits.substring(lo, lo + 1))
+        try! b.append(digits.substring(hi, hi + 1))
+        try! b.append(digits.substring(lo, lo + 1))
         i = i + 1
     }
     b.build()

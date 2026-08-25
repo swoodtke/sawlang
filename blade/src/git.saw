@@ -48,9 +48,9 @@ extension GitTags {
         if i >= 0 {
             self.revs.set(i, rev)
         } else {
-            self.versions.push(version)
-            self.tags.push(tag)
-            self.revs.push(rev)
+            try! self.versions.push(version)
+            try! self.tags.push(tag)
+            try! self.revs.push(rev)
         }
     }
 }
@@ -61,7 +61,7 @@ extension GitTags {
 
 // True if `s` is a bare MAJOR.MINOR.PATCH of non-negative integers.
 func looks_like_version(s: String) -> Bool {
-    let parts = s.split(".")
+    let parts = try! s.split(".")
     if parts.len() != 3 {
         return false
     }
@@ -110,13 +110,13 @@ func tag_version(tag: String) -> String {
 //   <sha>\trefs/tags/v1.2.0^{}   (peeled: sha is the commit the tag points at)
 public func parse_ls_remote(output: String) -> GitTags {
     var tags = GitTags()
-    let lines = output.split("\n")
+    let lines = try! output.split("\n")
     for line in lines.iter() {
         let trimmed = line.trim()
         if trimmed.is_empty() {
             continue
         }
-        let fields = trimmed.split("\t")
+        let fields = try! trimmed.split("\t")
         if fields.len() < 2 {
             continue
         }
@@ -141,10 +141,10 @@ public func parse_ls_remote(output: String) -> GitTags {
 // `git ls-remote --tags <url>` -> parsed candidates, or None if git fails.
 public func ls_remote_tags(url: String) -> GitTags? {
     var cmd = Command(program: "git")
-    cmd.arg("ls-remote")
-    cmd.arg("--tags")
-    cmd.arg(url)
-    guard let out = cmd.output() else {
+    try! cmd.arg("ls-remote")
+    try! cmd.arg("--tags")
+    try! cmd.arg(url)
+    guard let out = try! cmd.output() else {
         return None
     }
     if not out.success() {
@@ -156,13 +156,13 @@ public func ls_remote_tags(url: String) -> GitTags? {
 // Shallow-clone a specific tag into `dir`. True on success.
 public func clone_tag(url: String, tag: String, dir: String) -> Bool {
     var cmd = Command(program: "git")
-    cmd.arg("clone")
-    cmd.arg("--depth")
-    cmd.arg("1")
-    cmd.arg("--branch")
-    cmd.arg(tag)
-    cmd.arg(url)
-    cmd.arg(dir)
+    try! cmd.arg("clone")
+    try! cmd.arg("--depth")
+    try! cmd.arg("1")
+    try! cmd.arg("--branch")
+    try! cmd.arg(tag)
+    try! cmd.arg(url)
+    try! cmd.arg(dir)
     match cmd.run() {
         case Ok(code) -> code == (0 as Int32),
         case Err(_) -> false
@@ -174,9 +174,9 @@ public func clone_tag(url: String, tag: String, dir: String) -> Bool {
 // arbitrary rev; the checkout pins the exact commit the lock recorded.
 public func checkout_rev(url: String, rev: String, dir: String) -> Bool {
     var clone = Command(program: "git")
-    clone.arg("clone")
-    clone.arg(url)
-    clone.arg(dir)
+    try! clone.arg("clone")
+    try! clone.arg(url)
+    try! clone.arg(dir)
     let clone_ok = match clone.run() {
         case Ok(code) -> code == (0 as Int32),
         case Err(_) -> false
@@ -185,11 +185,11 @@ public func checkout_rev(url: String, rev: String, dir: String) -> Bool {
         return false
     }
     var co = Command(program: "git")
-    co.arg("-C")
-    co.arg(dir)
-    co.arg("checkout")
-    co.arg("--quiet")
-    co.arg(rev)
+    try! co.arg("-C")
+    try! co.arg(dir)
+    try! co.arg("checkout")
+    try! co.arg("--quiet")
+    try! co.arg(rev)
     match co.run() {
         case Ok(code) -> code == (0 as Int32),
         case Err(_) -> false

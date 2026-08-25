@@ -11,9 +11,9 @@
 // 20
 func main() {
     var v = Vector<Int>()
-    v.push(10)
-    v.push(20)
-    v.push(30)
+    try! v.push(10)
+    try! v.push(20)
+    try! v.push(30)
 
     v.swap(0, 2)
     if let a = v.get(0) { print(a) }   // 30

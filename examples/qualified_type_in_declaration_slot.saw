@@ -45,8 +45,8 @@ extension Holder: NoCopy {}
 
 func main() {
     var d = data.Data()
-    d.push(65)
-    d.push(66)
+    try! d.push(65)
+    try! d.push(66)
     let h = Holder(d: move d)
     print(h.d.len())
 }

@@ -23,8 +23,8 @@ func consume(inbox: Channel<Int>) -> Int {
 }
 
 func main() {
-    let inbox = Channel<Int>()
-    var workers = TaskGroup(threads: 2)
+    let inbox = try! Channel<Int>()
+    var workers = try! TaskGroup(threads: 2)
     let c = workers.spawn(consume(inbox.copy()))
     let f = workers.spawn(feed(inbox.copy(), 9))
     let got = c.join()

@@ -31,8 +31,8 @@
 
 func build(n: Int) -> String {
     var b = StringBuilder()
-    b.append("val-")
-    b.append(n)
+    try! b.append("val-")
+    try! b.append(n)
     b.build()
 }
 

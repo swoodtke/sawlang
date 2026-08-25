@@ -26,7 +26,7 @@ func run(a: Arc<Res>) -> Int {
 }
 
 func build() {
-    let a = Arc<Res>(value: Res(id: 7))   // strong = 1
+    let a = try! Arc<Res>(value: Res(id: 7))   // strong = 1
     let k1 = a.copy()                      // strong = 2
     let k2 = a.copy()                      // strong = 3
     let r = __saw_drive(run(move a))           // frame owns the moved ref, drops it: 3 -> 2

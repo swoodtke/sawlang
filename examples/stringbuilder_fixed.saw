@@ -21,7 +21,7 @@
 
 func overrun(p: UnsafePointer<Int8>) unsafe {
     var b = StringBuilder(bytes: p, capacity: 16)
-    b.append("abcdefghijklmnop")
+    try! b.append("abcdefghijklmnop")
     print(b.build())
     print(b.is_truncated())
     print(b.len())
@@ -31,7 +31,7 @@ func cut_on_scalar(p: UnsafePointer<Int8>) unsafe {
     var b = StringBuilder(bytes: p, capacity: 16)
     // 11 ASCII bytes then a 3-byte scalar: cutting at 12 would split the scalar,
     // so the cut backs up to 11 and the marker follows.
-    b.append("aaaaaaaaaaa\u{20AC}")
+    try! b.append("aaaaaaaaaaa\u{20AC}")
     print(b.build())
     print(b.len())
 }
@@ -42,8 +42,8 @@ func main() unsafe {
     let p = (&store) as UnsafePointer<Int8>
 
     var fits = StringBuilder(bytes: p, capacity: 16)
-    fits.append("n = ")
-    fits.append(42)
+    try! fits.append("n = ")
+    try! fits.append(42)
     print(fits.build())
     print(fits.is_truncated())
     print(fits.len())

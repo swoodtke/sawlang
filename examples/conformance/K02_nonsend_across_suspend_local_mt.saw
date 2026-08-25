@@ -19,13 +19,13 @@ import std.task.*
 
 func work(n: Int) -> Int {
     var v = Vector<() sync -> Int>()
-    v.push({ 1 })
+    try! v.push({ 1 })
     yield_now()
     v.len() + n
 }
 
 func main() {
-    var group = TaskGroup(threads: 2)
+    var group = try! TaskGroup(threads: 2)
     let h = group.spawn(work(1))
     print(h.join())
 }

@@ -21,11 +21,11 @@
 struct Point { x: Int, y: Int }
 extension Point: Printable {
     func format(&self, into: &var StringBuilder) {
-        into.append("(")
-        into.append(self.x)
-        into.append(", ")
-        into.append(self.y)
-        into.append(")")
+        try! into.append("(")
+        try! into.append(self.x)
+        try! into.append(", ")
+        try! into.append(self.y)
+        try! into.append(")")
     }
 }
 
@@ -51,6 +51,6 @@ func main() {
     __saw_rt_alloc_deny_after(-1)
 
     var v = Vector<Int>()
-    v.push(1)
+    try! v.push(1)
     print("disarmed, heap works again")
 }

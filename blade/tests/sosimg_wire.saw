@@ -46,7 +46,7 @@ extension Data {
     }
 
     func emit8(&var self, v: UInt) {
-        self.push((v & 0xFF) as UInt8)
+        try! self.push((v & 0xFF) as UInt8)
     }
 
     func emit16(&var self, v: UInt) {
@@ -108,7 +108,7 @@ func emit_ident(elf: &var Data, class_byte: UInt) {
 /// and a 4-byte `.bss` tail (p_memsz > p_filesz), which is the shape that makes
 /// the sosimg `mem_len` field earn its place.
 func minimal_elf32() -> Data {
-    var elf = Data(capacity: 128)
+    var elf = try! Data(capacity: 128)
     emit_ident(&var elf, 1)                     // ELFCLASS32
 
     elf.emit16(ET_EXEC)
@@ -152,7 +152,7 @@ func minimal_elf32() -> Data {
 /// `entry` is a parameter so one builder serves both the ordinary case and the
 /// out-of-range case below.
 func minimal_elf64(entry: UInt) -> Data {
-    var elf = Data(capacity: 192)
+    var elf = try! Data(capacity: 192)
     emit_ident(&var elf, 2)                     // ELFCLASS64
 
     elf.emit16(ET_EXEC)
@@ -365,10 +365,10 @@ func check_shared_predicates() {
 func check_rejects_non_elf() {
     // The emitter refuses input that is not a little-endian ELF rather than
     // producing an image out of nonsense.
-    var junk = Data(capacity: 128)
+    var junk = try! Data(capacity: 128)
     var i = 0
     while i < 128 {
-        junk.push(0u8)
+        try! junk.push(0u8)
         i = i + 1
     }
     match elf_to_sosimg(&junk, 0, SosimgArch.Riscv32) {

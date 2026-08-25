@@ -22,7 +22,7 @@ extension Item: NoCopy {
 extension Item {
     init(n: String) -> Item {
         var v = Vector<Int>()
-        v.push(41)
+        try! v.push(41)
         Item(name: n, payload: move v)
     }
 }
@@ -51,7 +51,7 @@ extension Box2 {
 
 func main() {
     var b = Box2()
-    b.items.push(Item(n: "one"))
+    try! b.items.push(Item(n: "one"))
     if let first = b.find("one") { print(first.payload.len()) }
     if let second = b.find("one") { print(second.payload.len()) }
 }

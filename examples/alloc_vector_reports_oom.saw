@@ -35,14 +35,14 @@ func main() {
     var v = Vector<Int, FailAlloc>()
     var i = 0
     while i < 4 {
-        v.push(i)
+        try! v.push(i)
         i = i + 1
     }
     print(v.len())                       // 4
 
     // try_push: the grow is refused, the error carries the exact request
     // (capacity 4 -> 8 elements of 8 bytes), and the vector is untouched.
-    match v.try_push(99) {
+    match v.push(99) {
         case Ok(_) -> print("pushed"),
         case Err(e) -> print("push denied: {e}")
     }
@@ -50,7 +50,7 @@ func main() {
     print(v.get(3)!)                     // 3 — content untouched by the refusal
 
     // try_reserve: same refusal, reported before anything is written.
-    match v.try_reserve(100) {
+    match v.reserve(100) {
         case Ok(_) -> print("reserved"),
         case Err(_) -> print("reserve denied")
     }
@@ -65,7 +65,7 @@ func main() {
     // With budget restored the same calls succeed.
     BUDGET.store(8)
     print("budget restored")
-    match v.try_push(99) {
+    match v.push(99) {
         case Ok(_) -> print(v.len()),    // 5
         case Err(_) -> print("push denied")
     }

@@ -37,9 +37,9 @@ func main() {
     let a: Res? = Res(id: 1)
     let b: Res? = None
     let c: Res? = Res(id: 2)
-    v.push(move a)
-    v.push(move b)
-    v.push(move c)
+    try! v.push(move a)
+    try! v.push(move b)
+    try! v.push(move c)
     print("len {v.len()}")
     print("-- dropping vector")
     let _ = move v
@@ -60,7 +60,7 @@ func main() {
     // reads stay valid after the vector is gone.
     var s = Vector<String?>()
     let text: String? = "alpha"
-    s.push(text)
+    try! s.push(text)
     let r1 = s[0] ?? "none"
     let r2 = s[0] ?? "none"
     print("r1 {r1}")
@@ -72,7 +72,7 @@ func main() {
     // Same through the `get` conditional lend, peeling both layers.
     var w = Vector<String?>()
     let other: String? = "beta"
-    w.push(other)
+    try! w.push(other)
     var held = "none"
     if let inner = w.get(0) { held = inner ?? "none" }
     let _ = move w

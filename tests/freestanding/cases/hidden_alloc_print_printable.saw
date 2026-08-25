@@ -15,8 +15,8 @@ struct Tag {
 
 extension Tag: Printable {
     func format(&self, into: &var StringBuilder) {
-        into.append("tag ")
-        into.append(self.id)
+        try! into.append("tag ")
+        try! into.append(self.id)
     }
 }
 

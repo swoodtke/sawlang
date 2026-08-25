@@ -41,8 +41,8 @@ func main() {
     print(g.o.n)
 
     var v = Vector<Slot>()
-    v.push(Slot.Filled(n: 3))
-    v.push(Slot.Empty)
+    try! v.push(Slot.Filled(n: 3))
+    try! v.push(Slot.Empty)
     var i = 0
     while i < v.len() {
         match v[i] {

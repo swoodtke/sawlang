@@ -27,7 +27,7 @@ func main() {
     print(v.len())      // 0
 
     let r = R(id: 42)
-    v.push(move r)      // move a NoCopy element in
+    try! v.push(move r)      // move a NoCopy element in
     print(v.len())      // 1
 
     // pop returns the element back out (also move-only, no copy required)

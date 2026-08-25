@@ -40,6 +40,6 @@ func main() {
 
     // The unsigned arm reaches the range the signed one cannot represent.
     var b = StringBuilder()
-    b.append(UInt.max)
+    try! b.append(UInt.max)
     print(b.build())
 }

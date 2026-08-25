@@ -131,8 +131,8 @@ extension Log {
 
 func main() {
     var t = Table(slots: Vector<Slot>())
-    t.slots.push(Slot.Filled(key: 1, res: Res(name: "a")))
-    t.slots.push(Slot.Empty)
+    try! t.slots.push(Slot.Filled(key: 1, res: Res(name: "a")))
+    try! t.slots.push(Slot.Empty)
 
     // A move-only payload, borrowed twice: neither read copies it, so neither
     // drops it.
@@ -160,7 +160,7 @@ func main() {
 
     print("-- a Copy payload reads out as a value")
     var l = Log(notes: Vector<Note>())
-    l.notes.push(Note.Text(body: "hello"))
+    try! l.notes.push(Note.Text(body: "hello"))
     let held = l.at(0)!
     print(held)
     print(l.at(0)!)
@@ -169,12 +169,12 @@ func main() {
 
     print("-- a diverging arm beside a lending one")
     var d = Dense(slots: Vector<Slot>())
-    d.slots.push(Slot.Filled(key: 2, res: Res(name: "7")))
+    try! d.slots.push(Slot.Filled(key: 2, res: Res(name: "7")))
     print(d.at(0).label())
 
     print("-- an epilogue inside the lending arm")
     var counted = Counted(slots: Vector<Slot>(), reads: 0)
-    counted.slots.push(Slot.Filled(key: 3, res: Res(name: "8")))
+    try! counted.slots.push(Slot.Filled(key: 3, res: Res(name: "8")))
     print(counted.at(0)!.label())
 
     print("-- teardown")

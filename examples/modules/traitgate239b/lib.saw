@@ -29,8 +29,8 @@ extension ByteSink: Sink {
 /// Three bytes, so a caller can exercise `Sink` without naming `Data` at all.
 public func sample() -> data.Data {
     var d = data.Data()
-    d.push(1 as UInt8)
-    d.push(2 as UInt8)
-    d.push(3 as UInt8)
+    try! d.push(1 as UInt8)
+    try! d.push(2 as UInt8)
+    try! d.push(3 as UInt8)
     move d
 }

@@ -34,9 +34,9 @@ func main() {
     let a: Int? = 1
     let b: Int? = None
     let c: Int? = 3
-    v.push(a)
-    v.push(b)
-    v.push(c)
+    try! v.push(a)
+    try! v.push(b)
+    try! v.push(c)
     print("len {v.len()}")
 
     // `get` is the conditional lend: the outer layer is presence of the SLOT.
@@ -66,7 +66,7 @@ func main() {
     print("iter sum {seen}")
 
     v.each({ x in print("each {x ?? -1}") })
-    let doubled = v.map({ x in (x ?? 0) * 2 })
+    let doubled = try! v.map({ x in (x ?? 0) * 2 })
     print("map0 {doubled[0]}")
     print("fold {v.fold(0, { acc, x in acc + (x ?? 0) })}")
 

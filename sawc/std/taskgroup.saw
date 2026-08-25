@@ -671,6 +671,24 @@ struct __ResumeOutcome {
     wake: Int
 }
 
+// design 234 §5, the executor's side of the hidden-allocation boundary. The
+// scheduler's own bookkeeping — a task slot, a worker handle, a freed slot —
+// is grown underneath `group.spawn { }`, which is a FORM rather than a call: it
+// has no expression a `try` could sit on and no error channel to report
+// through, exactly like an interpolation or a coroutine frame. So a refused
+// growth panics, and this is the ONE place that decides how it reads. Naming
+// the operation matters here: the caller wrote `spawn`, not `Vector.push`, and
+// the message is the only thing that tells them which allocation ran out.
+//
+// ENTRY POINTS: `__place` (the parallel slot arrays), `__start_crew` (the
+// worker handles), `__recycle` (the free list).
+func __exec_alloc_or_fault(r: Result<Void, AllocError>, what: String) unsafe {
+    match r {
+        case Ok(_) -> {},
+        case Err(e) -> panic("{}: {}", what, e)
+    }
+}
+
 extension TaskGroup {
     public init() -> TaskGroup {
         let t = Vector<Box<any Resumable>?>()
@@ -697,7 +715,7 @@ extension TaskGroup {
     /// count of one or the default constructor runs a single-threaded engine
     /// without locks, while two or more threads spawn a worker pool and require
     /// frames crossing between workers to be `Send`.
-    public init(threads: Int) unsafe -> TaskGroup {
+    public init(threads: Int) unsafe -> Result<TaskGroup, AllocError> {
         let t = Vector<Box<any Resumable>?>()
         let c = Vector<Box<any __TaskCell>?>()
         let d = Vector<Bool>()
@@ -733,10 +751,13 @@ extension TaskGroup {
                 lk = block
                 cv = block + 64
             } else {
-                panic("TaskGroup(threads:): allocation failed")
+                // design 234: the refusal is the caller's to see. Nothing has
+                // been installed yet, so an `Err` here leaves no half-built
+                // group behind — the vectors above own no storage.
+                return AllocError(size: 128, align: 16)
             }
         }
-        TaskGroup(tasks: move t, cells: move c, done: move d, remaining: move r, active: move a, gen: move gn, free: move fr, pin: move pn, frame_desc: move fd, frame_addr: move fa, workers: w, lock: lk, cond: cv, started: false, stopping: false, crew: move cw, next: 0, registered: false, bt_next: 0, bt_linked: false)
+        return TaskGroup(tasks: move t, cells: move c, done: move d, remaining: move r, active: move a, gen: move gn, free: move fr, pin: move pn, frame_desc: move fd, frame_addr: move fa, workers: w, lock: lk, cond: cv, started: false, stopping: false, crew: move cw, next: 0, registered: false, bt_next: 0, bt_linked: false)
     }
 
     // The number of task slots this group currently holds (design 134): live
@@ -836,15 +857,16 @@ extension TaskGroup {
         }
         if slot < 0 {
             slot = self.tasks.len()
-            self.tasks.push(None)
-            self.cells.push(None)
-            self.done.push(false)
-            self.remaining.push(0)
-            self.active.push(false)
-            self.gen.push(1)     // generation 1: 0 names no task
-            self.pin.push(false)
-            self.frame_desc.push(-1)
-            self.frame_addr.push(0)
+            __exec_alloc_or_fault(self.tasks.push(None), "TaskGroup.spawn")
+            __exec_alloc_or_fault(self.cells.push(None), "TaskGroup.spawn")
+            __exec_alloc_or_fault(self.done.push(false), "TaskGroup.spawn")
+            __exec_alloc_or_fault(self.remaining.push(0), "TaskGroup.spawn")
+            __exec_alloc_or_fault(self.active.push(false), "TaskGroup.spawn")
+            // generation 1: 0 names no task
+            __exec_alloc_or_fault(self.gen.push(1), "TaskGroup.spawn")
+            __exec_alloc_or_fault(self.pin.push(false), "TaskGroup.spawn")
+            __exec_alloc_or_fault(self.frame_desc.push(-1), "TaskGroup.spawn")
+            __exec_alloc_or_fault(self.frame_addr.push(0), "TaskGroup.spawn")
         }
         self.tasks.set(slot, move t)
         self.cells.set(slot, move c)
@@ -876,7 +898,7 @@ extension TaskGroup {
             // report is most needed for. `__shutdown_crew` puts the count back
             // ahead of the join that will drop it, so the pair stays balanced.
             __saw_exec_thread_task_ended()
-            self.crew.push(move t)
+            __exec_alloc_or_fault(self.crew.push(move t), "TaskGroup(threads:)")
             i = i + 1
         }
     }
@@ -941,7 +963,10 @@ extension TaskGroup {
             return
         }
         self.cells.set(slot, None)
-        self.free.push(slot)
+        // The free list never exceeds the slot count, so this push has been
+        // reserved for by the growth that made the slot; the fault is here for
+        // the same reason the growth's is.
+        __exec_alloc_or_fault(self.free.push(slot), "TaskGroup slot recycle")
     }
 
     // `cancel_addr()` handed a peer this slot's raw cancel-word address, so the
@@ -2536,8 +2561,9 @@ func __saw_bg_group() unsafe -> UnsafePointer<TaskGroup> {
         GlobalAllocator().dealloc(raw, size, align)
         return __saw_bg_addr.load() as UnsafePointer<TaskGroup>
     }
-    // design 123: an infallible surface panics naming its method. There is no
-    // `try_` twin here because `Task.spawn` is a language form, not a call.
+    // design 234 §5: `Task.spawn` is a language FORM, not a call, so there is no
+    // expression a `try` could sit on and nothing to report through. The panic
+    // names the operation the author wrote.
     panic("Task.spawn: the background task group could not be allocated")
 }
 

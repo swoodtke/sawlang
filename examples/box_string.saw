@@ -11,7 +11,7 @@
 // done
 
 func main() {
-    let b = Box<String>.make("hello")
+    let b = try! Box<String>.make("hello")
     let s = b.value()       // retain-copy of the payload String
     print(s.len())          // 5
     let t = b.value()       // second independent retain-copy
@@ -20,7 +20,7 @@ func main() {
     // Balance stress: make/read/drop a Box<String> many times.
     var i = 0
     while i < 2000 {
-        let bb = Box<String>.make("xyz")
+        let bb = try! Box<String>.make("xyz")
         let c = bb.value()
         i = i + 1
         // bb and c both die each iteration; refcount returns to baseline.

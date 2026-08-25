@@ -15,26 +15,26 @@ func expect_err(s: String, line: Int, col: Int, why: String) {
 func main() {
     // Unterminated string: quote + "abc" runs to EOF (col past the last byte).
     var us = StringBuilder()
-    us.append_char(34 as Int8)      // "
-    us.append("abc")
+    try! us.append_char(34 as Int8)      // "
+    try! us.append("abc")
     expect_err(us.build(), 1, 5, "unterminated string")
 
     // Unbalanced interpolation `{`: a stray brace opens an interpolation that
     // never closes; reported AT the brace, not at EOF (design 119 / DF-116d).
     // The string is `"a {b` — the `{` is at column 4.
     var interp = StringBuilder()
-    interp.append_char(34 as Int8)      // "
-    interp.append("a ")
-    interp.append_char(123 as Int8)     // {
-    interp.append("b")                  // no closing } or "
+    try! interp.append_char(34 as Int8)      // "
+    try! interp.append("a ")
+    try! interp.append_char(123 as Int8)     // {
+    try! interp.append("b")                  // no closing } or "
     expect_err(interp.build(), 1, 4, "unterminated interpolation at the brace")
 
     // Unknown escape `\q`: error at the escaped char position.
     var be = StringBuilder()
-    be.append_char(34 as Int8)      // "
-    be.append_char(92 as Int8)      // backslash
-    be.append_char(113 as Int8)     // q
-    be.append_char(34 as Int8)      // "
+    try! be.append_char(34 as Int8)      // "
+    try! be.append_char(92 as Int8)      // backslash
+    try! be.append_char(113 as Int8)     // q
+    try! be.append_char(34 as Int8)      // "
     expect_err(be.build(), 1, 4, "unknown escape")
 
     // Stray `#name`: unknown directive, anchored at the `#`.
@@ -54,7 +54,7 @@ func main() {
 
     // Unexpected character (backtick is not in the grammar).
     var bt = StringBuilder()
-    bt.append_char(96 as Int8)      // `
+    try! bt.append_char(96 as Int8)      // `
     expect_err(bt.build(), 1, 1, "unexpected char")
 
     print("errors: ok")

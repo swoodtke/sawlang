@@ -13,8 +13,8 @@
 struct ParseErr { code: Int }
 extension ParseErr: Error {
     func format(&self, into: &var StringBuilder) {
-        into.append("parse error ")
-        into.append(self.code)
+        try! into.append("parse error ")
+        try! into.append(self.code)
     }
 }
 

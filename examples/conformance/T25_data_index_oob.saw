@@ -8,7 +8,7 @@
 import std.data.*
 func main() {
     var d = Data()
-    d.push(1)
+    try! d.push(1)
     var i = 9
     print(d[i])
 }

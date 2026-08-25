@@ -22,6 +22,6 @@ func main() {
     print("{n}")
 
     var sb = StringBuilder()
-    sb.append(value: 90210)
+    try! sb.append(value: 90210)
     print(sb.build())
 }

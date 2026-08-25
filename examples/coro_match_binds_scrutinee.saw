@@ -23,10 +23,10 @@ enum WorkerMode { case Idle, case Busy(load: Int) }
 extension WorkerMode: Printable {
     func format(&self, into: &var StringBuilder) {
         match self {
-            case Idle -> into.append("idle"),
+            case Idle -> try! into.append("idle"),
             case Busy(load) -> {
-                into.append("alive ")
-                into.append(load)
+                try! into.append("alive ")
+                try! into.append(load)
             }
         }
     }

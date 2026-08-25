@@ -25,8 +25,8 @@ func add(shared: Arc<Mutex<Int>>, n: Int) -> Int {
 }
 
 func main() {
-    let shared = Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
-    var group = TaskGroup(threads: 2)
+    let shared = try! Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
+    var group = try! TaskGroup(threads: 2)
     let a = group.spawn(add(shared.copy(), 1))
     let b = group.spawn(add(shared.copy(), 2))
     let c = group.spawn(add(shared.copy(), 3))

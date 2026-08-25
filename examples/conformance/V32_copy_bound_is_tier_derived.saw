@@ -39,7 +39,7 @@ func main() {
 
     // A declared retain-hook type on the same tier.
     print("str {take_copy<String>("hi")}")
-    let a = take_implicit<Arc<Int>>(Arc<Int>(value: 5))
+    let a = take_implicit<Arc<Int>>(try! Arc<Int>(value: 5))
     print("arc {a.strong_count()}")
 
     // A composite joins its parts and stays on the tier.

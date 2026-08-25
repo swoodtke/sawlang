@@ -21,7 +21,7 @@
 
 struct Bad { code: Int }
 extension Bad: Error {
-    func format(&self, into: &var StringBuilder) { into.append("bad") }
+    func format(&self, into: &var StringBuilder) { try! into.append("bad") }
 }
 
 func eq<T: Equatable>(a: T, b: T) -> Bool { a == b }
@@ -49,11 +49,11 @@ func main() {
     print("operator eq {a == b}")
 
     var v = Vector<Int?>()
-    match v.try_push(n) {
+    match v.push(n) {
         case Ok(_) -> print("try_push none ok"),
         case Err(e) -> print("try_push err {e}")
     }
-    match v.try_push(a) {
+    match v.push(a) {
         case Ok(_) -> print("try_push some ok"),
         case Err(e) -> print("try_push err {e}")
     }

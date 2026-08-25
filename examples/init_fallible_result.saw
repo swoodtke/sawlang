@@ -22,10 +22,12 @@ enum RangeError { case TooLow(seen: Int), case TooHigh(seen: Int) }
 extension RangeError: Printable {
     func format(&self, into: &var StringBuilder) {
         match self {
-            case TooLow(seen) -> { into.append("reading ")  into.append(seen)
-                                   into.append(" is out of range") },
-            case TooHigh(seen) -> { into.append("reading ")  into.append(seen)
-                                    into.append(" is out of range") }
+            case TooLow(seen) -> { try! into.append("reading ")
+                                   try! into.append(seen)
+                                   try! into.append(" is out of range") },
+            case TooHigh(seen) -> { try! into.append("reading ")
+                                    try! into.append(seen)
+                                    try! into.append(" is out of range") }
         }
     }
 }
@@ -73,7 +75,7 @@ enum Domain { case Range(e: RangeError) }
 extension Domain: Printable {
     func format(&self, into: &var StringBuilder) {
         match self {
-            case Range(e) -> { into.append("range: ")  e.format(into: &var into) }
+            case Range(e) -> { try! into.append("range: ")  e.format(into: &var into) }
         }
     }
 }

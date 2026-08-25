@@ -11,7 +11,7 @@ func main() {
     print(v.len())  // 0
 
     // Push one element
-    v.push(10)
+    try! v.push(10)
     print(v.len())  // 1
 
     // Get element

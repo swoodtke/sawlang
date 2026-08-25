@@ -14,13 +14,13 @@ enum Status {
 struct Report { s: Status }
 extension Report: Printable {
     func format(&self, into: &var StringBuilder) {
-        into.append("status: ")
+        try! into.append("status: ")
         match self.s {
-            case Ready -> into.append("Ready"),
+            case Ready -> try! into.append("Ready"),
             case Failed(c) -> {
-                into.append("Failed(code=")
-                into.append(c)
-                into.append(")")
+                try! into.append("Failed(code=")
+                try! into.append(c)
+                try! into.append(")")
             }
         }
     }

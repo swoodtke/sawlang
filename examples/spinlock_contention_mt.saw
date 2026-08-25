@@ -37,7 +37,7 @@ func contribute(n: Int) -> Int {
 }
 
 func main() {
-    var group = TaskGroup(threads: 4)
+    var group = try! TaskGroup(threads: 4)
     let a = group.spawn(contribute(250))
     let b = group.spawn(contribute(250))
     let c = group.spawn(contribute(250))

@@ -89,7 +89,7 @@ func main() {
 
     print("-- struct-with-enum in a vector")
     var v = Vector<Direct>()
-    v.push(Direct(slot: Slot.Filled(res: Res(name: "in-vector"))))
+    try! v.push(Direct(slot: Slot.Filled(res: Res(name: "in-vector"))))
     let _ = move v
 
     print("-- no declared conformance anywhere")
@@ -106,7 +106,7 @@ func main() {
     var bare = Slot.Filled(res: Res(name: "bare-local"))
     let _ = move bare
     var ev = Vector<Slot>()
-    ev.push(Slot.Filled(res: Res(name: "vector-element")))
+    try! ev.push(Slot.Filled(res: Res(name: "vector-element")))
     let _ = move ev
 
     print("-- done")

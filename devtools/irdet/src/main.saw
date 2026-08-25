@@ -250,23 +250,23 @@ func parse_options(argv: &Vector<String>) -> Options? {
 /// git could not answer.
 func tracked_examples() -> Vector<String>? {
     var c = Command(program: "git")
-    c.arg("ls-files")
-    c.arg("examples/*.saw")
-    guard let listed = c.output() else {
+    try! c.arg("ls-files")
+    try! c.arg("examples/*.saw")
+    guard let listed = try! c.output() else {
         return None
     }
     if not listed.success() {
         return None
     }
 
-    let lines = listed.stdout.split("\n")
+    let lines = try! listed.stdout.split("\n")
     var files = Vector<String>()
     var i = 0
     while i < lines.len() {
         if let line = lines.get(i) {
             let trimmed = line.trim()
             if not trimmed.is_empty() {
-                files.push(trimmed)
+                try! files.push(trimmed)
             }
         }
         i = i + 1
@@ -282,14 +282,14 @@ func read_file_list(path: String) -> Vector<String>? {
     guard let text = read_text(path) else {
         return None
     }
-    let lines = text.split("\n")
+    let lines = try! text.split("\n")
     var files = Vector<String>()
     var i = 0
     while i < lines.len() {
         if let line = lines.get(i) {
             let trimmed = line.trim()
             if not trimmed.is_empty() {
-                files.push(trimmed)
+                try! files.push(trimmed)
             }
         }
         i = i + 1
@@ -356,7 +356,7 @@ func sample(files: &Vector<String>, count: Int) -> Vector<String> {
         var i = 0
         while i < total {
             if let f = files.get(i) {
-                picked.push(f)
+                try! picked.push(f)
             }
             i = i + 1
         }
@@ -365,7 +365,7 @@ func sample(files: &Vector<String>, count: Int) -> Vector<String> {
     var k = 0
     while k < count {
         if let f = files.get(k * total / count) {
-            picked.push(f)
+            try! picked.push(f)
         }
         k = k + 1
     }
@@ -377,13 +377,13 @@ func sample(files: &Vector<String>, count: Int) -> Vector<String> {
 func scratch_base(rel: String, seed: String, task_id: Int) -> String {
     let stem = Path(s: rel).stem() ?? "unnamed"
     var out = StringBuilder()
-    out.append(scratch_dir())
-    out.append("/")
-    out.append(task_id)
-    out.append("_s")
-    out.append(seed)
-    out.append("_")
-    out.append(stem)
+    try! out.append(scratch_dir())
+    try! out.append("/")
+    try! out.append(task_id)
+    try! out.append("_s")
+    try! out.append(seed)
+    try! out.append("_")
+    try! out.append(stem)
     out.build()
 }
 
@@ -392,8 +392,8 @@ func scratch_base(rel: String, seed: String, task_id: Int) -> String {
 func emit_ir(rel: String, seed: String, task_id: Int, python: String) -> Data? {
     let base = scratch_base(rel, seed, task_id)
     var name = StringBuilder()
-    name.append(base)
-    name.append(".ll")
+    try! name.append(base)
+    try! name.append(".ll")
     let ll = Path(s: name.build())
 
     // A stale file from an interrupted run must not be mistaken for this one's.
@@ -402,20 +402,20 @@ func emit_ir(rel: String, seed: String, task_id: Int, python: String) -> Data? {
     }
 
     var c = Command(program: python)
-    c.arg(sawc_path())
-    c.arg(rel)
-    c.arg("--emit-ir")
-    c.arg("-o")
-    c.arg(base)
+    try! c.arg(sawc_path())
+    try! c.arg(rel)
+    try! c.arg("--emit-ir")
+    try! c.arg("-o")
+    try! c.arg(base)
     // The whole point of the harness: the two compiles differ ONLY in how
     // Python seeds its string hashing.
-    c.env("PYTHONHASHSEED", seed)
+    try! c.env("PYTHONHASHSEED", seed)
     // Some of these compiles are expected to fail — that is what a skip IS — and
     // their diagnostics are not ours to print, so they go into the capture with
     // stdout and are dropped with it.
     c.merge_stderr()
 
-    guard let done = c.output() else {
+    guard let done = try! c.output() else {
         return None
     }
     if not done.success() {
@@ -482,8 +482,8 @@ struct ManifestEntry {
 /// always a bare run-directory name, never a further symlink).
 func resolve_last_run_dir() -> String? {
     var c = Command(program: "readlink")
-    c.arg(".build/test_runner_last")
-    guard let done = c.output() else {
+    try! c.arg(".build/test_runner_last")
+    guard let done = try! c.output() else {
         return None
     }
     if not done.success() {
@@ -494,8 +494,8 @@ func resolve_last_run_dir() -> String? {
         return None
     }
     var out = StringBuilder()
-    out.append(".build/")
-    out.append(target)
+    try! out.append(".build/")
+    try! out.append(target)
     out.build()
 }
 
@@ -505,24 +505,24 @@ func resolve_last_run_dir() -> String? {
 /// infrastructure, never a hard requirement (D4).
 func read_manifest(run_dir: String) -> Map<String, ManifestEntry>? {
     var path = StringBuilder()
-    path.append(run_dir)
-    path.append("/manifest.tsv")
+    try! path.append(run_dir)
+    try! path.append("/manifest.tsv")
     guard let text = read_text(path.build()) else {
         return None
     }
     var entries = Map<String, ManifestEntry>()
-    let lines = text.split("\n")
+    let lines = try! text.split("\n")
     var i = 0
     while i < lines.len() {
         if let line = lines.get(i) {
             let trimmed = line.trim()
             if not trimmed.is_empty() && not trimmed.starts_with("#") {
-                let parts = trimmed.split("\t")
+                let parts = try! trimmed.split("\t")
                 if parts.len() == 4 {
                     if let rel_path = parts.get(0) {
                         if let seed = parts.get(1) {
                             if let ll_name = parts.get(2) {
-                                entries.insert(rel_path,
+                                try! entries.insert(rel_path,
                                     ManifestEntry(seed: seed, ll_name: ll_name))
                             }
                         }
@@ -584,9 +584,9 @@ func check_one_compile_both(index: Int, rel: String, python: String) -> Check {
 func check_one_reuse(index: Int, rel: String, entry: ManifestEntry,
                      run_dir: String, python: String) -> Check {
     var artifact_path = StringBuilder()
-    artifact_path.append(run_dir)
-    artifact_path.append("/")
-    artifact_path.append(entry.ll_name)
+    try! artifact_path.append(run_dir)
+    try! artifact_path.append("/")
+    try! artifact_path.append(entry.ll_name)
     guard let artifact = read_data_file(artifact_path.build()) else {
         // The manifest named an artifact that is not actually there —
         // fall back rather than trusting a dangling entry.
@@ -664,13 +664,13 @@ func json_escaped(s: String) -> String {
 /// written in sorted order, matching what the Python tool emitted.
 func append_record(path: String, rel: String, result: &Check) {
     var line = StringBuilder()
-    line.append("\{\"detail\": \"")
-    line.append(json_escaped(result.detail))
-    line.append("\", \"kind\": \"file\", \"path\": \"")
-    line.append(json_escaped(rel))
-    line.append("\", \"status\": \"")
-    line.append(result.verdict.wire_name())
-    line.append("\"\}\n")
+    try! line.append("\{\"detail\": \"")
+    try! line.append(json_escaped(result.detail))
+    try! line.append("\", \"kind\": \"file\", \"path\": \"")
+    try! line.append(json_escaped(rel))
+    try! line.append("\", \"status\": \"")
+    try! line.append(result.verdict.wire_name())
+    try! line.append("\"\}\n")
 
     var f = match File.open_append(Path(s: path)) {
         case Ok(handle) -> move handle,
@@ -679,14 +679,14 @@ func append_record(path: String, rel: String, result: &Check) {
             return
         }
     }
-    match f.write(line.build().to_data()) {
+    match f.write(try! line.build().to_data()) {
         case Ok(_) -> {},
         case Err(e) -> print("irdet: cannot write {path}: {e}")
     }
 }
 
 func main() -> Int {
-    let argv = Env.args()
+    let argv = try! Env.args()
     guard let opts = parse_options(&argv) else {
         return EXIT_USAGE
     }
@@ -715,7 +715,7 @@ func main() -> Int {
         while i < tracked.len() {
             if let rel = tracked.get(i) {
                 if not is_negative_test(rel) {
-                    candidates.push(rel)
+                    try! candidates.push(rel)
                 }
             }
             i = i + 1
@@ -776,7 +776,7 @@ func main() -> Int {
     // (DF-182f: the full corpus put the machine at loadavg >700). Joining
     // each wave before spawning the next bounds the children in flight to
     // the number the flag always promised.
-    var group = TaskGroup(threads: opts.jobs)
+    var group = try! TaskGroup(threads: opts.jobs)
     var checked = 0
     var skipped = 0
     var mismatched = 0
@@ -801,7 +801,7 @@ func main() -> Int {
             }
             let h = group.spawn(
                 check_one(index + w, rel, entry, manifest_run_dir, opts.python))
-            wave.push(move h)
+            try! wave.push(move h)
             w = w + 1
         }
 
@@ -813,7 +813,7 @@ func main() -> Int {
         var pending = Vector<Task<Check>>()
         while wave.len() > 0 {
             if let h = wave.pop() {
-                pending.push(move h)
+                try! pending.push(move h)
             }
         }
 

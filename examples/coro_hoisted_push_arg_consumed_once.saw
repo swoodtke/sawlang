@@ -39,7 +39,7 @@ func mk(n: Int) -> Res {
 
 func push_argument() {
     var v = Vector<Res>()
-    v.push(mk(52))
+    try! v.push(mk(52))
     print("len={v.len()}")
 }
 

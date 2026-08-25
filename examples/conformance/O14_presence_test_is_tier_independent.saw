@@ -125,14 +125,14 @@ func main() {
 
     // ---- spelling 3: conditional lends ------------------------------------
     var cn = Vector<Res>()
-    cn.push(Res(id: 3))
+    try! cn.push(Res(id: 3))
     var ce = Vector<Vector<Int>>()
     let ce_elems: Vector<Int> = [3]
-    ce.push(move ce_elems)
+    try! ce.push(move ce_elems)
     var cs = Vector<String>()
-    cs.push("s")
+    try! cs.push("s")
     var ci = Vector<Int>()
-    ci.push(4)
+    try! ci.push(4)
     print("cond nocopy={cond_nocopy(&cn, 0)} explicit={cond_vec(&ce, 0)} implicit={cond_str(&cs, 0)} trivial={cond_int(&ci, 0)}")
     print("cond absent nocopy={cond_nocopy(&cn, 9)} trivial={cond_int(&ci, 9)}")
 }

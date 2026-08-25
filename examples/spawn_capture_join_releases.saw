@@ -54,7 +54,7 @@ func main() {
     print("doubled {c.join()} tripled {d.join()}")
 
     for i in 0..3 {
-        let h = group.spawn(run({ [&var log] in log.push(i)  log.len() }))
+        let h = group.spawn(run({ [&var log] in try! log.push(i)  log.len() }))
         print("iteration {i} len {h.join()}")
     }
     print("log len {log.len()}")

@@ -31,28 +31,28 @@ extension Set<T: Hashable + Equatable, A: Allocator = GlobalAllocator> {
     }
 
     // A single-element set. The element is moved in.
-    public static func of(value: T) -> Set<T, A> {
+    public static func of(value: T) -> Result<Set<T, A>, AllocError> {
         var s = Set<T, A>()
-        s.insert(move value)
-        move s
+        let _ = try s.insert(move value)
+        return move s
     }
 
     // Build a set from a Vector, CONSUMING it (the vector is moved in and its
     // elements are drained one by one — works even for NoCopy elements, since
     // `pop` moves each element out). Duplicate elements collapse (last drained
     // wins the slot, but they are equal, so the set simply de-duplicates).
-    public init(from: Vector<T, A>) -> Set<T, A> {
+    public init(from: Vector<T, A>) -> Result<Set<T, A>, AllocError> {
         var v = move from
         var s = Set<T, A>()
         var draining = true
         while draining {
             if let e = v.pop() {
-                s.insert(move e)
+                let _ = try s.insert(move e)
             } else {
                 draining = false
             }
         }
-        move s
+        return move s
     }
 
     // Number of elements.
@@ -71,26 +71,17 @@ extension Set<T: Hashable + Equatable, A: Allocator = GlobalAllocator> {
 
     /// Inserts `value`, returning whether it was NEWLY inserted.
     ///
-    /// `false` means it was already a member — the one question this `Bool`
-    /// answers. Panics if the table must be rehashed and the allocator refuses
-    /// (design 123, infallible tier); it used to drop the element, count it
-    /// anyway and still return `true`, so the set reported `len() == 1` for an
-    /// element `contains` could not find. `try_insert` reports that instead.
-    public func insert(&var self, value: T) -> Bool {
-        // Map.insert returns the previous value (Some) if the key existed.
-        if let prev = self.map.insert(move value, SetMark()) {
-            false
-        } else {
-            true
-        }
-    }
-
-    /// Inserts `value`, reporting allocator exhaustion as `Err(AllocError)`.
+    /// Inserts `value`, answering whether it was NEWLY inserted.
     ///
-    /// `Ok(true)` means newly inserted, `Ok(false)` already a member. The set is
-    /// untouched on `Err`; `value` is consumed either way.
-    public func try_insert(&var self, value: T) -> Result<Bool, AllocError> {
-        if let prev = try self.map.try_insert(move value, SetMark()) {
+    /// `Ok(false)` means it was already a member — the one question this `Bool`
+    /// answers. Reports `Err(AllocError)` when the table must be rehashed and
+    /// the allocator refuses; the set is untouched then, and `value` is consumed
+    /// either way. Under design 123 this panicked, and before that it dropped
+    /// the element, counted it anyway and still answered `true`, so the set
+    /// reported `len() == 1` for an element `contains` could not find.
+    public func insert(&var self, value: T) -> Result<Bool, AllocError> {
+        // Map.insert answers the previous value (Some) if the key existed.
+        if let prev = try self.map.insert(move value, SetMark()) {
             return false
         }
         return true
@@ -127,70 +118,102 @@ extension Set<T: Hashable + Equatable, A: Allocator = GlobalAllocator> {
 // which is not expressible yet, same limit as design 57's snapshots.)
 extension Set<T: Hashable + Equatable + Copy, A: Allocator = GlobalAllocator> {
     // A fresh Vector of all elements (copies), in unspecified (table) order.
-    public func to_vector(&self) -> Vector<T, A> {
-        self.map.keys()
+    // Every method in this block BUILDS something, so every one of them reports
+    // a refused allocation (design 234) — including the two predicates, which
+    // answer a `Bool` but have to snapshot to compute it.
+    //
+    // THE SNAPSHOT IS PEELED WITH A `match`, NOT A `try`, THROUGHOUT THIS BLOCK
+    // (DF-257c). Its Ok payload is `Vector<T, A>`, which differs per
+    // instantiation while every instantiation shares one LLVM layout — exactly
+    // the shape a `try` in a generic body resolves once and then reuses. The
+    // `try`s that remain here peel `Result<Bool, AllocError>`, whose payload is
+    // the same type in every instantiation and so cannot be confused with a
+    // sibling. All of these revert to `try` when DF-257c closes.
+    public func to_vector(&self) -> Result<Vector<T, A>, AllocError> {
+        match self.map.keys() {
+            case Ok(v) -> { return move v },
+            case Err(e) -> { return e }
+        }
     }
 
     // A NEW set containing every element of self OR other.
-    public func union(&self, other: &Set<T, A>) -> Set<T, A> {
+    public func union(&self, other: &Set<T, A>) -> Result<Set<T, A>, AllocError> {
         var result = Set<T, A>()
-        let a = self.to_vector()
+        let a = match self.to_vector() {
+            case Ok(v) -> move v,
+            case Err(e) -> { return e }
+        }
         for e in a.iter() {
-            let _ = result.insert(e)
+            let _ = try result.insert(e)
         }
-        let b = other.to_vector()
+        let b = match other.to_vector() {
+            case Ok(v) -> move v,
+            case Err(e) -> { return e }
+        }
         for e in b.iter() {
-            let _ = result.insert(e)
+            let _ = try result.insert(e)
         }
-        move result
+        return move result
     }
 
     // A NEW set containing every element in BOTH self and other.
-    public func intersection(&self, other: &Set<T, A>) -> Set<T, A> {
+    public func intersection(&self, other: &Set<T, A>) -> Result<Set<T, A>, AllocError> {
         var result = Set<T, A>()
-        let a = self.to_vector()
+        let a = match self.to_vector() {
+            case Ok(v) -> move v,
+            case Err(e) -> { return e }
+        }
         for e in a.iter() {
             if other.contains(e.copy()) {
-                let _ = result.insert(e)
+                let _ = try result.insert(e)
             }
         }
-        move result
+        return move result
     }
 
     // A NEW set of the elements in self that are NOT in other.
-    public func difference(&self, other: &Set<T, A>) -> Set<T, A> {
+    public func difference(&self, other: &Set<T, A>) -> Result<Set<T, A>, AllocError> {
         var result = Set<T, A>()
-        let a = self.to_vector()
+        let a = match self.to_vector() {
+            case Ok(v) -> move v,
+            case Err(e) -> { return e }
+        }
         for e in a.iter() {
             if not other.contains(e.copy()) {
-                let _ = result.insert(e)
+                let _ = try result.insert(e)
             }
         }
-        move result
+        return move result
     }
 
     // Whether every element of self is also in other.
-    public func is_subset(&self, other: &Set<T, A>) -> Bool {
-        let a = self.to_vector()
+    public func is_subset(&self, other: &Set<T, A>) -> Result<Bool, AllocError> {
+        let a = match self.to_vector() {
+            case Ok(v) -> move v,
+            case Err(e) -> { return e }
+        }
         var ok = true
         for e in a.iter() {
             if not other.contains(e) {
                 ok = false
             }
         }
-        ok
+        return ok
     }
 
     // Whether self contains every element of other (the dual of is_subset).
-    public func is_superset(&self, other: &Set<T, A>) -> Bool {
-        let b = other.to_vector()
+    public func is_superset(&self, other: &Set<T, A>) -> Result<Bool, AllocError> {
+        let b = match other.to_vector() {
+            case Ok(v) -> move v,
+            case Err(e) -> { return e }
+        }
         var ok = true
         for e in b.iter() {
             if not self.contains(e) {
                 ok = false
             }
         }
-        ok
+        return ok
     }
 }
 

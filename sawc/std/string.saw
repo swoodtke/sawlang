@@ -438,16 +438,18 @@ extension String {
         None
     }
 
-    // Split the string by a separator, returning a Vector of substrings
-    public func split(&self, separator: String) -> Vector<String> {
+    // Split the string by a separator, returning a Vector of substrings. The
+    // Vector is built, so a refused allocation is reported (design 234); the
+    // SUBSTRINGS themselves are refcounted views and cost no allocation.
+    public func split(&self, separator: String) -> Result<Vector<String>, AllocError> {
         var result = Vector<String>()
         let self_len = self.len()
         let sep_len = separator.len()
 
         if sep_len == 0 || self_len == 0 {
             // Empty separator or empty string - return single element
-            result.push(self)
-            result
+            let _ = try result.push(self)
+            return move result
         } else {
             var start = 0
             var i = 0
@@ -466,7 +468,7 @@ extension String {
                 if matches {
                     // Found separator - extract substring from start to i
                     let part = self._substring(start, i - start)
-                    result.push(part)
+                    let _ = try result.push(part)
                     start = i + sep_len
                     i = start
                 } else {
@@ -476,9 +478,9 @@ extension String {
 
             // Add the remaining part after the last separator
             let remaining = self._substring(start, self_len - start)
-            result.push(remaining)
+            let _ = try result.push(remaining)
 
-            result
+            return move result
         }
     }
 
@@ -488,14 +490,14 @@ extension String {
     // negative; the `UInt8` these become is the SAME BIT PATTERN, not a
     // converted value, which is why the reinterpret is spelled out (design
     // 170 — a checked `as` would panic on the first byte >= 0x80).
-    public func to_data(&self) -> Data {
+    public func to_data(&self) -> Result<Data, AllocError> {
         var data = Data()
         var i = 0
         while i < self.len() {
-            data.push(UInt8.from(truncating: self.byte_at(i)))
+            let _ = try data.push(UInt8.from(truncating: self.byte_at(i)))
             i = i + 1
         }
-        move data
+        return move data
     }
 
     // =========================================================================
@@ -1029,8 +1031,8 @@ public struct Utf8Error {
 // this necessary — a byte buffer that fails to decode has to travel.
 extension Utf8Error: Error {
     public func format(&self, into: &var StringBuilder) {
-        into.append("invalid UTF-8 at byte offset ")
-        into.append(self.offset)
+        try! into.append("invalid UTF-8 at byte offset ")
+        try! into.append(self.offset)
     }
 }
 

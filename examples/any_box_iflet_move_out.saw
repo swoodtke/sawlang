@@ -16,11 +16,11 @@ extension Circle: Shape { func area(&self) -> Int { self.r } }
 
 func main() {
     var q = Vector<Box<any Shape>>()
-    q.push(Box<any Shape>.make(Circle(r: 7)))
+    try! q.push(Box<any Shape>.make(Circle(r: 7)))
     print(q.len())              // 1
     if var b = q.pop() {
         print(b.area())         // 7
-        q.push(move b)          // move the erased box back out of the binding
+        try! q.push(move b)          // move the erased box back out of the binding
     }
     print(q.len())              // 1 (round-tripped, no double free)
 }

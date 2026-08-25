@@ -83,7 +83,7 @@ extension Res: NoCopy {
 struct Bad { code: Int }
 
 extension Bad: Printable {
-    func format(&self, into: &var StringBuilder) { into.append("bad{self.code}") }
+    func format(&self, into: &var StringBuilder) { try! into.append("bad{self.code}") }
 }
 
 extension Bad: Error {}

@@ -17,13 +17,13 @@
 
 func rendered(value: Int) -> String {
     var b = StringBuilder()
-    b.append(value)
+    try! b.append(value)
     b.build()
 }
 
 func rendered_unsigned(value: UInt) -> String {
     var b = StringBuilder()
-    b.append(value)
+    try! b.append(value)
     b.build()
 }
 
@@ -39,9 +39,9 @@ func main() {
 
     // The signed and unsigned overloads coexist on one builder.
     var b = StringBuilder()
-    b.append("v=")
-    b.append(-1)
-    b.append("|u=")
-    b.append(1u64 as UInt)
+    try! b.append("v=")
+    try! b.append(-1)
+    try! b.append("|u=")
+    try! b.append(1u64 as UInt)
     print(b.build())
 }

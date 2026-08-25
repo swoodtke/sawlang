@@ -30,8 +30,8 @@ func main() {
     let some: Int? = 5
     let none: Int? = None
     var v = Vector<Int?>()
-    v.push(some)
-    v.push(none)
+    try! v.push(some)
+    try! v.push(none)
 
     report("some", v.get(0))
     report("none", v.get(1))

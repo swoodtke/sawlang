@@ -10,11 +10,11 @@
 struct Slab { id: Int, gen: Int }
 extension Slab: Printable {
     func format(&self, into: &var StringBuilder) {
-        into.append("slab (")
-        into.append(self.id)
-        into.append(", ")
-        into.append(self.gen)
-        into.append(")")
+        try! into.append("slab (")
+        try! into.append(self.id)
+        try! into.append(", ")
+        try! into.append(self.gen)
+        try! into.append(")")
     }
 }
 

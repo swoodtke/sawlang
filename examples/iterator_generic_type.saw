@@ -8,7 +8,7 @@
 func main() {
     // Test 1: Method call on iterator variable with let binding
     let s = "a,b"
-    let parts = s.split(",")
+    let parts = try! s.split(",")
     for part in parts.iter() {
         let len = part.len()
         print(len)
@@ -16,7 +16,7 @@ func main() {
 
     // Test 2: Chained method calls on iterator variable
     let s2 = "  hello  ,  world  "
-    let parts2 = s2.split(",")
+    let parts2 = try! s2.split(",")
     for part in parts2.iter() {
         let trimmed = part.trim()
         print(trimmed)

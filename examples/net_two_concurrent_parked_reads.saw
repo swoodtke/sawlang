@@ -21,7 +21,7 @@ func reader(stream: TcpStream, want: String) -> Int {
         if chunk.len() == 0 {
             reading = false
         } else {
-            got.append(move chunk)
+            try! got.append(move chunk)
             if (try! got.to_string()).contains(want) {
                 reading = false
             }

@@ -10,6 +10,6 @@ struct Handle {
 }
 
 func main() {
-    let ch = Channel<Handle>()
+    let ch = try! Channel<Handle>()
     let _c = ch
 }

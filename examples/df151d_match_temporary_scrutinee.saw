@@ -58,7 +58,7 @@ extension Res: NoCopy {
 
 func res(tag: Int) -> Arc<Res> {
     LIVE.fetch_add(1)
-    Arc<Res>(value: Res(name: "res-{tag}"))
+    try! Arc<Res>(value: Res(name: "res-{tag}"))
 }
 
 enum Slot {

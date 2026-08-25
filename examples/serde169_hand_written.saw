@@ -62,14 +62,14 @@ extension ByteEncoder: Encoder {
         if v < 0 || v > 65535 {
             return EncodeError(fault: EncodeFault.Unsupported)
         }
-        self.out.push(TAG_INT)
-        self.out.push(((v >> 8) & 255) as UInt8)
-        self.out.push((v & 255) as UInt8)
+        try! self.out.push(TAG_INT)
+        try! self.out.push(((v >> 8) & 255) as UInt8)
+        try! self.out.push((v & 255) as UInt8)
         return
     }
 
     func write_bool(&var self, v: Bool) sync -> Result<Void, EncodeError> {
-        self.out.push(if v { TAG_TRUE } else { TAG_FALSE })
+        try! self.out.push(if v { TAG_TRUE } else { TAG_FALSE })
         return
     }
 
@@ -78,15 +78,15 @@ extension ByteEncoder: Encoder {
     }
 
     func write_text(&var self, v: String) sync -> Result<Void, EncodeError> {
-        self.out.push(TAG_TEXT)
-        let bytes = v.to_data()
+        try! self.out.push(TAG_TEXT)
+        let bytes = try! v.to_data()
         if bytes.len() > 255 {
             return EncodeError(fault: EncodeFault.BufferFull)
         }
-        self.out.push(bytes.len() as UInt8)
+        try! self.out.push(bytes.len() as UInt8)
         var i = 0
         while i < bytes.len() {
-            self.out.push(bytes[i])
+            try! self.out.push(bytes[i])
             i = i + 1
         }
         return
@@ -101,8 +101,8 @@ extension ByteEncoder: Encoder {
     }
 
     func begin_array(&var self, count: Int) sync -> Result<Void, EncodeError> {
-        self.out.push(TAG_ARRAY)
-        self.out.push(count as UInt8)
+        try! self.out.push(TAG_ARRAY)
+        try! self.out.push(count as UInt8)
         return
     }
 
@@ -180,7 +180,7 @@ extension ByteDecoder: Decoder {
         var i = 0
         while i < (n as Int) {
             let byte = try self.next()
-            b.append_char(byte as Int8)
+            try! b.append_char(byte as Int8)
             i = i + 1
         }
         return b.build()

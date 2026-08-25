@@ -18,7 +18,7 @@ import std.data
 // No local in sight: `data` is the module.
 func one() -> data.Data {
     var d = data.Data()
-    d.push(65)
+    try! d.push(65)
     move d
 }
 
@@ -30,7 +30,7 @@ func main() {
 
     // The local wins, and takes no shadowing error for it.
     var data = one()
-    data.push(66)
+    try! data.push(66)
     print("local {data.len()}")
 
     // Still the local inside a narrower scope.

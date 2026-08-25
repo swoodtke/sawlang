@@ -15,11 +15,11 @@
 import std.data.*
 
 func main() {
-    var d = Data(capacity: 8)
-    d.push(10)
-    d.push(20)
-    d.push(30)
-    d.push(40)
+    var d = try! Data(capacity: 8)
+    try! d.push(10)
+    try! d.push(20)
+    try! d.push(30)
+    try! d.push(40)
 
     // ---- a slice is a RETAIN: O(1), no bytes copied ----
     var s = d.slice(1, 3)!
@@ -28,21 +28,21 @@ func main() {
 
     // ---- THE INVERSION: `set` through shared storage no longer writes
     // through. Before design 165 this assertion read 99.
-    d.set(1, 99)
+    try! d.set(1, 99)
     assert(d.get(1)! == 99, "d[1] {} not 99", d.get(1)!)
     assert(s.get(0)! == 20, "the slice saw d's set: {} not 20", s.get(0)!)
 
     // ---- and the other direction: writing the SLICE cannot reach `d` ----
-    s.set(0, 77)
+    try! s.set(0, 77)
     assert(s.get(0)! == 77, "s[0] {} not 77", s.get(0)!)
     assert(d.get(1)! == 99, "d saw the slice's set: {} not 99", d.get(1)!)
 
     // ---- `push` and `append` were already isolated; they still are ----
-    var base = Data(capacity: 4)
-    base.push(1)
-    base.push(2)
+    var base = try! Data(capacity: 4)
+    try! base.push(1)
+    try! base.push(2)
     var sibling = base.copy()          // a retain — the bytes are shared
-    base.push(3)
+    try! base.push(3)
     append_tail(&var sibling)
     assert(base.len() == 3, "base len {} not 3", base.len())
     assert(sibling.len() == 4, "sibling len {} not 4", sibling.len())
@@ -51,29 +51,29 @@ func main() {
 
     // ---- the gate's UNIQUE half: a sole owner writes in place, so the
     // buffer it already has is not reallocated ----
-    var solo = Data(capacity: 16)
-    solo.push(1)
+    var solo = try! Data(capacity: 16)
+    try! solo.push(1)
     let before = solo.capacity()
-    solo.push(2)
-    solo.set(0, 9)
+    try! solo.push(2)
+    try! solo.set(0, 9)
     assert(solo.capacity() == before, "unique mutation reallocated: {} then {}",
            before, solo.capacity())
     assert(solo.get(0)! == 9, "solo[0] {} not 9", solo.get(0)!)
 
     // ---- the gate's SHARED half: separating gives the writer its own
     // buffer, sized to what it holds, so the sibling's stays intact ----
-    var wide = Data(capacity: 64)
-    wide.push(5)
+    var wide = try! Data(capacity: 64)
+    try! wide.push(5)
     let held = wide.copy()
-    wide.push(6)                       // separates here
+    try! wide.push(6)                       // separates here
     assert(wide.len() == 2, "wide len {} not 2", wide.len())
     assert(held.len() == 1, "held len {} not 1", held.len())
     assert(held.get(0)! == 5, "held[0] {} not 5", held.get(0)!)
 
     // ---- `d[i]` is the same gate in place form ----
-    var placed = Data(capacity: 4)
-    placed.push(1)
-    placed.push(2)
+    var placed = try! Data(capacity: 4)
+    try! placed.push(1)
+    try! placed.push(2)
     let watcher = placed.copy()
     placed[0] = 42
     placed[1] += 1
@@ -84,14 +84,14 @@ func main() {
 
     // ---- `detached()` is the eager spelling: it sizes to len(), so a small
     // window stops pinning the big buffer it was cut from ----
-    var big = Data(capacity: 1024)
+    var big = try! Data(capacity: 1024)
     var i = 0
     while i < 100 {
-        big.push(i as UInt8)
+        try! big.push(i as UInt8)
         i = i + 1
     }
     let window = big.slice(10, 13)!
-    let own = window.detached()
+    let own = try! window.detached()
     assert(own.len() == 3, "detached len {} not 3", own.len())
     assert(own.get(0)! == 10, "detached[0] {} not 10 (offset ignored?)", own.get(0)!)
     assert(own.capacity() == 3, "detached capacity {} not 3", own.capacity())
@@ -102,6 +102,6 @@ func main() {
 // Appending through a `&var Data` takes the same gate as a direct call —
 // design 106 forwarding does not open a hole in it.
 func append_tail(into: &var Data) {
-    into.push(8)
-    into.push(9)
+    try! into.push(8)
+    try! into.push(9)
 }

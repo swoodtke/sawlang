@@ -12,9 +12,9 @@
 // gamma padding cccccccccccccccccccccccc
 func main() {
     var v = Vector<String>()
-    v.push("alpha padding aaaaaaaaaaaaaaaaaaaaaaaa")
-    v.push("beta padding bbbbbbbbbbbbbbbbbbbbbbbbbb")
-    v.push("gamma padding cccccccccccccccccccccccc")
+    try! v.push("alpha padding aaaaaaaaaaaaaaaaaaaaaaaa")
+    try! v.push("beta padding bbbbbbbbbbbbbbbbbbbbbbbbbb")
+    try! v.push("gamma padding cccccccccccccccccccccccc")
 
     v.swap(0, 2)
     if let a = v.get(0) { print(a) }   // gamma

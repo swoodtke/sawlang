@@ -24,10 +24,10 @@ import pair247b.*
 func main() {
     // A gated std type, the filing's first axis.
     var a: Data = Data()
-    a.push(1 as UInt8)
+    try! a.push(1 as UInt8)
     var b: data.Data = move a
-    b.push(2 as UInt8)
-    b.push(3 as UInt8)
+    try! b.push(2 as UInt8)
+    try! b.push(3 as UInt8)
     print("std {b.len()}")
 
     // A COMPILER-EMITTED std type, the filing's second axis, with the generic

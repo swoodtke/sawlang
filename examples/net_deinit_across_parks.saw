@@ -71,7 +71,7 @@ func client(fd: Int) -> Int {
 
 func run() {
     let pair = tcp_socketpair()
-    let a = Arc<Res>(value: Res(id: 7))    // strong = 1
+    let a = try! Arc<Res>(value: Res(id: 7))    // strong = 1
     let k1 = a.copy()                       // strong = 2
     var group = TaskGroup()
     let hs = group.spawn(worker(pair.0, move a))   // frame owns a's ref

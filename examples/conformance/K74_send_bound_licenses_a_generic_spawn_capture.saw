@@ -63,7 +63,7 @@ func cap_optional<T: Send + Sized>(o: T?) -> Int {
 
 func main() {
     print("bare {cap_bare(Payload(n: 1))}")
-    let p = Arc<Payload>(value: Payload(n: 2))
+    let p = try! Arc<Payload>(value: Payload(n: 2))
     print("arc {cap_arc(move p)}")
     let v: Vector<Int> = [1, 2, 3]
     print("vector {cap_vector(move v)}")

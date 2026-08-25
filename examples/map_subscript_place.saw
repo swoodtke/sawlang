@@ -49,7 +49,7 @@ func main() {
     // below copy nothing and the single `deinit` at teardown is the proof.
     print("-- a move-only value, borrowed")
     var m = Map<String, Res>()
-    let _ = m.insert("a", Res(id: 1))
+    let _ = try! m.insert("a", Res(id: 1))
     print(m["a"]!.id_of())
     print(m["a"]!.id_of())
     m["a"]!.bump()
@@ -64,14 +64,14 @@ func main() {
     // out of the same `&self` declaration, and the write lands in the slot.
     print("-- a struct value, written in place")
     var c = Map<String, Counter>()
-    let _ = c.insert("k", Counter(n: 10))
+    let _ = try! c.insert("k", Counter(n: 10))
     c["k"]!.n += 5
     print(c["k"]!.n)
     print((c["nope"] ?? Counter(n: -1)).n)
 
     print("-- a Copy value, read out as a value")
     var s = Map<String, String>()
-    let _ = s.insert("x", "hello")
+    let _ = try! s.insert("x", "hello")
     let held = s["x"]!
     print(held)
     print(s["x"]!)
@@ -83,10 +83,10 @@ func main() {
     print("-- a Vector value, grown in place")
     var g = Map<String, Vector<Int>>()
     var v = Vector<Int>()
-    v.push(1)
-    let _ = g.insert("v", move v)
-    g["v"]!.push(2)
-    g["v"]!.push(3)
+    try! v.push(1)
+    let _ = try! g.insert("v", move v)
+    try! g["v"]!.push(2)
+    try! g["v"]!.push(3)
     print(g["v"]!.len())
     print(g["v"]!.fold(0, { acc, n in acc + n }))
 

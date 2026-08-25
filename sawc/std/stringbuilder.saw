@@ -62,21 +62,17 @@ extension StringBuilder {
                       truncated: false)
     }
 
-    /// Creates an empty builder with room for `capacity` bytes.
-    ///
-    /// Panics if the allocator refuses the request (design 123, infallible
-    /// tier); `try_with_capacity` reports the failure instead.
-    public init(capacity: Int) unsafe -> StringBuilder {
+    /// Creates an empty builder with room for `capacity` bytes, reporting
+    /// allocator exhaustion as `Err(AllocError)`.
+    public init(capacity: Int) unsafe -> Result<StringBuilder, AllocError> {
         if capacity <= 0 {
-            StringBuilder()
-        } else {
-            if let ptr = GlobalAllocator().alloc(capacity, 1) {
-                StringBuilder(buffer: ptr, length: 0, capacity: capacity,
-                              fixed: false, truncated: false)
-            } else {
-                panic("StringBuilder(capacity:): allocation failed")
-            }
+            return StringBuilder()
         }
+        if let ptr = GlobalAllocator().alloc(capacity, 1) {
+            return StringBuilder(buffer: ptr, length: 0, capacity: capacity,
+                                 fixed: false, truncated: false)
+        }
+        return AllocError(size: capacity, align: 1)
     }
 
     /// Creates a builder over caller-provided storage that never allocates.
@@ -104,19 +100,6 @@ extension StringBuilder {
         bytes[0] = 0
         StringBuilder(buffer: bytes, length: 0, capacity: capacity, fixed: true,
                       truncated: false)
-    }
-
-    /// Creates an empty builder with room for `n` bytes, reporting allocator
-    /// exhaustion as `Err(AllocError)`.
-    public static func try_with_capacity(n: Int) unsafe -> Result<StringBuilder, AllocError> {
-        if n <= 0 {
-            return StringBuilder()
-        }
-        if let ptr = GlobalAllocator().alloc(n, 1) {
-            return StringBuilder(buffer: ptr, length: 0, capacity: n,
-                                 fixed: false, truncated: false)
-        }
-        return AllocError(size: n, align: 1)
     }
 
     /// Points a FIXED builder at `bytes`, keeping its length and truncation.
@@ -160,33 +143,11 @@ extension StringBuilder {
     /// Appends the bytes of `s`.
     ///
     /// Length comes from the O(1) header, not a strlen scan, so interior NUL
-    /// bytes are preserved and no libc call is made. Panics if the buffer must
-    /// grow and the allocator refuses (design 123, infallible tier); the
-    /// refused grow used to leave `capacity` short and the copy below then wrote
-    /// past the end of the buffer. `try_append` reports the failure instead.
-    public func append(&var self, s: String) {
-        let s_len = s.len()
-
-        if s_len == 0 {
-            return
-        }
-
-        // +1 for the null terminator.
-        if not self._reserve(self.length + s_len + 1) {
-            if self.fixed {
-                self._overflow(s, s_len)
-                return
-            }
-            panic("StringBuilder.append: allocation failed")
-        }
-        self._place(s, s_len)
-    }
-
-    /// Appends the bytes of `s`, reporting allocator exhaustion as
-    /// `Err(AllocError)`.
-    ///
-    /// The builder is unchanged on `Err` — no partial append.
-    public func try_append(&var self, s: String) -> Result<Void, AllocError> {
+    /// bytes are preserved and no libc call is made. Reports allocator
+    /// exhaustion as `Err(AllocError)`; the builder is unchanged then — no
+    /// partial append. (The refused grow used to leave `capacity` short and the
+    /// copy below then wrote past the end of the buffer.)
+    public func append(&var self, s: String) -> Result<Void, AllocError> {
         let s_len = s.len()
         if s_len == 0 {
             return
@@ -207,8 +168,8 @@ extension StringBuilder {
     }
 
     // Internal: copy `s_len` bytes of `s` into the (already reserved) buffer
-    // and re-terminate. Shared by `append` and `try_append` so the two tiers
-    // cannot drift.
+    // and re-terminate. Split out from `append` so the placement rule lives in
+    // one place; it used to be shared with the retired `try_append` twin.
     func _place(&var self, s: String, s_len: Int) unsafe {
         if let buf = self.buffer {
             var i = 0
@@ -231,9 +192,9 @@ extension StringBuilder {
     /// allocation in the middle of the one formatting path that has to survive
     /// allocator exhaustion. The digits are emitted most-significant-first by
     /// repeated division instead, so nothing is staged anywhere.
-    public func append(&var self, value: Int) {
+    public func append(&var self, value: Int) -> Result<Void, AllocError> {
         if value < 0 {
-            self.append_char(MINUS_SIGN)
+            let _ = try self.append_char(MINUS_SIGN)
         }
         // The magnitude is carried on the NEGATIVE side: `0 - Int.min` overflows
         // but `Int.min` itself is representable, so every Int works here. `/`
@@ -248,9 +209,10 @@ extension StringBuilder {
         }
         while scale > 0 {
             let digit = 0 - ((n / scale) % 10)
-            self.append_char(self._scalar_byte(ASCII_ZERO + digit))
+            let _ = try self.append_char(self._scalar_byte(ASCII_ZERO + digit))
             scale = scale / 10
         }
+        return
     }
 
     /// Appends the decimal rendering of `value`.
@@ -258,7 +220,7 @@ extension StringBuilder {
     /// The unsigned twin of `append(value: Int)`, and equally allocation-free.
     /// It exists so an unsigned field renders across its whole range: the signed
     /// overload cannot represent anything above `Int.max`.
-    public func append(&var self, value: UInt) {
+    public func append(&var self, value: UInt) -> Result<Void, AllocError> {
         var scale: UInt = 1
         var probe = value
         while probe >= 10 {
@@ -267,29 +229,14 @@ extension StringBuilder {
         }
         while scale > 0 {
             let digit = (value / scale) % 10
-            self.append_char(self._scalar_byte(ASCII_ZERO + (digit as Int)))
+            let _ = try self.append_char(self._scalar_byte(ASCII_ZERO + (digit as Int)))
             scale = scale / 10
         }
-    }
-
-    /// Appends one byte.
-    ///
-    /// Panics if the buffer must grow and the allocator refuses (design 123,
-    /// infallible tier); `try_append_char` reports the failure instead.
-    public func append_char(&var self, c: Int8) {
-        // +1 for the byte, +1 for the null terminator.
-        if not self._reserve(self.length + 2) {
-            if self.fixed {
-                self._mark_truncated()
-                return
-            }
-            panic("StringBuilder.append_char: allocation failed")
-        }
-        self._place_char(c)
+        return
     }
 
     /// Appends one byte, reporting allocator exhaustion as `Err(AllocError)`.
-    public func try_append_char(&var self, c: Int8) -> Result<Void, AllocError> {
+    public func append_char(&var self, c: Int8) -> Result<Void, AllocError> {
         let needed = self.length + 2
         if not self._reserve(needed) {
             if self.fixed {
@@ -377,10 +324,12 @@ extension StringBuilder {
     // shifts are *64 (6 bits), *4096 (12), *262144 (18).
     //
     // The `None` answers exactly one question — "is that a scalar value?" — and
-    // never doubles as an out-of-memory report: appending goes through
-    // `append_char`, so allocator exhaustion panics (design 123, infallible
-    // tier) rather than colliding with the invalid-scalar answer.
-    public func append_scalar(&var self, scalar: Int) -> Int? {
+    // never doubles as an out-of-memory report: the two answers ride separate
+    // channels, `Ok(None)` for "not a scalar" and `Err(AllocError)` for the
+    // allocator (design 234 §1, the same peeling `try_receive` uses). Design 123
+    // kept them apart by panicking on the second, which cost the caller the
+    // report entirely.
+    public func append_scalar(&var self, scalar: Int) -> Result<Int?, AllocError> {
         if scalar < 0 || scalar > 1114111 {
             return None
         }
@@ -388,24 +337,24 @@ extension StringBuilder {
             return None                 // UTF-16 surrogate: not a scalar value
         }
         if scalar < 128 {
-            self.append_char(self._scalar_byte(scalar))
+            let _ = try self.append_char(self._scalar_byte(scalar))
             return 1
         }
         if scalar < 2048 {
-            self.append_char(self._scalar_byte(192 + scalar / 64))
-            self.append_char(self._scalar_byte(128 + scalar % 64))
+            let _ = try self.append_char(self._scalar_byte(192 + scalar / 64))
+            let _ = try self.append_char(self._scalar_byte(128 + scalar % 64))
             return 2
         }
         if scalar < 65536 {
-            self.append_char(self._scalar_byte(224 + scalar / 4096))
-            self.append_char(self._scalar_byte(128 + (scalar / 64) % 64))
-            self.append_char(self._scalar_byte(128 + scalar % 64))
+            let _ = try self.append_char(self._scalar_byte(224 + scalar / 4096))
+            let _ = try self.append_char(self._scalar_byte(128 + (scalar / 64) % 64))
+            let _ = try self.append_char(self._scalar_byte(128 + scalar % 64))
             return 3
         }
-        self.append_char(self._scalar_byte(240 + scalar / 262144))
-        self.append_char(self._scalar_byte(128 + (scalar / 4096) % 64))
-        self.append_char(self._scalar_byte(128 + (scalar / 64) % 64))
-        self.append_char(self._scalar_byte(128 + scalar % 64))
+        let _ = try self.append_char(self._scalar_byte(240 + scalar / 262144))
+        let _ = try self.append_char(self._scalar_byte(128 + (scalar / 4096) % 64))
+        let _ = try self.append_char(self._scalar_byte(128 + (scalar / 64) % 64))
+        let _ = try self.append_char(self._scalar_byte(128 + scalar % 64))
         return 4
     }
 

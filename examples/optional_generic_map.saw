@@ -24,8 +24,8 @@ func main() {
     var m = Map<String, Int?>()
     let a: Int? = 1
     let n: Int? = None
-    let _ = m.insert("a", a)
-    let _ = m.insert("n", n)
+    let _ = try! m.insert("a", a)
+    let _ = try! m.insert("n", n)
     print("len {m.len()}")
 
     if let e = m["a"] { print("a {e ?? -1}") } else { print("a absent") }
@@ -41,7 +41,7 @@ func main() {
     let outer = m["zz"] ?? fallback
     print("outer coalesce {outer ?? -1}")
 
-    print("values len {m.values().len()}")
+    print("values len {(try! m.values()).len()}")
 
     var sum = 0
     m.each_value({ [&var sum] v in sum = sum + (v ?? 1000) })

@@ -15,7 +15,7 @@ func work() -> Int {
 }
 
 func main() -> Int {
-    var g = TaskGroup(threads: 2)
+    var g = try! TaskGroup(threads: 2)
     let h = g.spawn(work())
     print("joined {h.join()}")
     7

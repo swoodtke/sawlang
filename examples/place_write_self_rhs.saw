@@ -22,7 +22,7 @@ extension Counter: NoCopy {}
 extension Counter {
     init() -> Counter {
         var marks = Vector<Int>()
-        marks.push(0)
+        try! marks.push(0)
         Counter(marks: move marks, tick: 5)
     }
 

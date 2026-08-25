@@ -38,10 +38,10 @@ func fill(v: &var Vector<Int>, n: Int) -> Int {
     var i = 0
     while i < n {
         if cancelled() {
-            v.push(-1)
+            try! v.push(-1)
             return v.len()
         }
-        v.push(i)
+        try! v.push(i)
         yield_now()
         i = i + 1
     }

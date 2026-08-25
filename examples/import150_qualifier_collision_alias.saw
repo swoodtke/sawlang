@@ -9,8 +9,8 @@ import data as userdata
 
 func main() {
     var d = data.Data()
-    d.push(1)
-    d.push(2)
+    try! d.push(1)
+    try! d.push(2)
     print("std {d.len()}")
     print("user {userdata.tripled(14)}")
 }

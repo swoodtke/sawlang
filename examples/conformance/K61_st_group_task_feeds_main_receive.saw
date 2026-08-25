@@ -19,7 +19,7 @@ func feed(inbox: Channel<Int>, v: Int) {
 }
 
 func main() {
-    let inbox = Channel<Int>()
+    let inbox = try! Channel<Int>()
     var cooperative = TaskGroup()
     let h = cooperative.spawn(feed(inbox.copy(), 3))
     let got = try! inbox.receive()

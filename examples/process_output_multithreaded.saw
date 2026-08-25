@@ -19,15 +19,15 @@ import std.process.*
 
 func capture(word: String) -> String {
     var c = Command(program: "/bin/echo")
-    c.arg(word)
-    if let out = c.output() {
+    try! c.arg(word)
+    if let out = try! c.output() {
         return out.stdout.trim()
     }
     "<no output>"
 }
 
 func main() {
-    var group = TaskGroup(threads: 2)
+    var group = try! TaskGroup(threads: 2)
     let a = group.spawn(capture("alpha"))
     let b = group.spawn(capture("beta"))
     print("first: {}", a.join())

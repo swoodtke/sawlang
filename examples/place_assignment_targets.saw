@@ -46,8 +46,8 @@ func main() {
 
     // 2. A NAMED accessor as a target, whole value and then a field of it.
     var slots = Vector<Cell>()
-    slots.push(Cell(value: 1))
-    slots.push(Cell(value: 2))
+    try! slots.push(Cell(value: 1))
+    try! slots.push(Cell(value: 2))
     var c = Carrier(slots: move slots)
     c.slot(1) = Cell(value: 99)
     print("named {c.slot(1).value}")
@@ -65,7 +65,7 @@ func main() {
 
         // 4. The same through a named lend, and the short-circuit skipping the RHS.
         var v = Vector<Cell>()
-        v.push(Cell(value: 1))
+        try! v.push(Cell(value: 1))
         v.get(0)?.value = 8
         print("named chain {v[0].value}")
         v.get(9)?.value = loud(3)

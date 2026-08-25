@@ -66,12 +66,12 @@ extension Tag: Copy {}
 
 func mk_tag(id: Int) -> Tag {
     print("NEW t{id}")
-    Tag(cell: Arc<Res>(value: Res(name: "t{id}")))
+    Tag(cell: try! Arc<Res>(value: Res(name: "t{id}")))
 }
 
 func derive_tag(x: Tag) -> Tag {
     print("NEW d{x.cell.label()}")
-    Tag(cell: Arc<Res>(value: Res(name: "d{x.cell.label()}")))
+    Tag(cell: try! Arc<Res>(value: Res(name: "d{x.cell.label()}")))
 }
 
 // The control: never transformed, so never renamed.

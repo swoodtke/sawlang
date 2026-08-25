@@ -45,7 +45,7 @@ func apply(step: &Step, to: &Int) -> Int {
 
 func main() {
     var reg = Registry(slot: Handle(7), ids: [])
-    reg.ids.push(Handle(3))
+    try! reg.ids.push(Handle(3))
     print("handle {reg.first() as Int}")
 
     let tripled = Step.Scale(f: { n: &Int in n * 3 })

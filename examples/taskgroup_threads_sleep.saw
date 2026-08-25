@@ -16,7 +16,7 @@ func napper(nap: Duration, val: Int) -> Int {
 }
 
 func main() {
-    var group = TaskGroup(threads: 3)
+    var group = try! TaskGroup(threads: 3)
     let a = group.spawn(napper(Duration.ms(5), 1))
     let b = group.spawn(napper(Duration.ms(10), 2))
     let c = group.spawn(napper(Duration.ms(15), 3))

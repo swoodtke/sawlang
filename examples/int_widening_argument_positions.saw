@@ -71,6 +71,6 @@ func main() {
     // 10. and an argument reached through a Vector, whose element slot is the
     // callee's parameter
     var v: Vector<Int> = []
-    v.push(u)
+    try! v.push(u)
     print(v[0])
 }

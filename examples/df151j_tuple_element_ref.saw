@@ -48,7 +48,7 @@ func both_mutable(x: &var Int, y: &var Int) -> Int {
     x * 10 + y
 }
 
-func grow(v: &var Vector<Int>) { v.push(7) }
+func grow(v: &var Vector<Int>) { try! v.push(7) }
 
 // A `&var` callee's write reaches the tuple's own element.
 func mutate_through_ref() -> Int {

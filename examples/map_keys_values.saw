@@ -12,18 +12,18 @@
 
 func main() {
     var m = Map<Int, Int>()
-    m.insert(3, 30)
-    m.insert(1, 10)
-    m.insert(2, 20)
+    try! m.insert(3, 30)
+    try! m.insert(1, 10)
+    try! m.insert(2, 20)
 
-    var ks = m.keys()
+    var ks = try! m.keys()
     ks.sort()
     for k in ks.iter() {
         print(k)      // 1, 2, 3 (sorted)
     }
 
     // values() snapshot, summed (order-independent).
-    let vs = m.values()
+    let vs = try! m.values()
     var total = 0
     for v in vs.iter() {
         total = total + v

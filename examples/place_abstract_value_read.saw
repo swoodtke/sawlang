@@ -65,7 +65,7 @@ extension Holder<K: Copy> {
 
 func main() {
     var h = Holder<Res>()
-    h.slots.push(Slot<Res>.Occupied(key: Res(name: "a")))
+    try! h.slots.push(Slot<Res>.Occupied(key: Res(name: "a")))
 
     print("-- value read: one copy, one drop")
     print("{h.tag_at(0)}")

@@ -51,7 +51,7 @@ extension Bag: ExplicitCopy {}
 
 func grow(b: Bag) -> Bag {
     var v = b.v.copy()
-    v.push(9)
+    try! v.push(9)
     Bag(v: move v)
 }
 

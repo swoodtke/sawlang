@@ -22,7 +22,7 @@ func main() {
     let _ = m.insert("y", 7)
 
     var v = Vector<Int?>()
-    v.push(3)
+    try! v.push(3)
 
     print("len {m.len() + v.len()}")
     if let inner = m["y"] {

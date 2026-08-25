@@ -162,8 +162,8 @@ func site_array(n: Int) {
 func site_vector(n: Int) {
     var v: Vector<P> = []
     let a = P(name: "vec-{n}")
-    v.push(a)
-    v.push(a)
+    try! v.push(a)
+    try! v.push(a)
     let got = v[0].name
     print("vector {got} {a.name} {v.len()}")
 }
@@ -203,7 +203,7 @@ func balance_inner(w: Wrap) -> Int {
 }
 
 func balance_struct() {
-    let arc = Arc<Res>(value: Res(id: 1))
+    let arc = try! Arc<Res>(value: Res(id: 1))
     let alone = arc.strong_count()
     let h = Holder.Full(tag: arc)
     let w = Wrap(h: h)
@@ -222,7 +222,7 @@ func holder_inner(h: Holder) -> Int {
 }
 
 func balance_enum() {
-    let arc = Arc<Res>(value: Res(id: 2))
+    let arc = try! Arc<Res>(value: Res(id: 2))
     let alone = arc.strong_count()
     let h = Holder.Full(tag: arc)
     let held = arc.strong_count()

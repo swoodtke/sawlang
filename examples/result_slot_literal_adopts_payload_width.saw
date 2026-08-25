@@ -42,7 +42,7 @@
 
 struct Bad { code: Int }
 extension Bad: Printable {
-    func format(&self, into: &var StringBuilder) { into.append("bad") }
+    func format(&self, into: &var StringBuilder) { try! into.append("bad") }
 }
 extension Bad: Error {}
 

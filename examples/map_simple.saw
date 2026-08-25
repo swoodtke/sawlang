@@ -15,7 +15,7 @@ func main() {
     print(m.len())  // 0
 
     // Insert one element
-    m.insert(1, 100)
+    try! m.insert(1, 100)
     print(m.len())  // 1
 
     // Get element
@@ -24,7 +24,7 @@ func main() {
     }
 
     // Insert another
-    m.insert(2, 200)
+    try! m.insert(2, 200)
     print(m.len())  // 2
 
     // Get second element
@@ -37,7 +37,7 @@ func main() {
     print(m.len())  // 1
 
     // Update existing key
-    m.insert(2, 300)
+    try! m.insert(2, 300)
     if let v = m.get(2) {
         print(v)  // 300
     }

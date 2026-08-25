@@ -28,12 +28,12 @@ extension TomlError {
 // erased into a `Box<any Error>` and propagated with `try` across error kinds.
 extension TomlError: Error {
     public func format(&self, into: &var StringBuilder) {
-        into.append("TOML parse error: ")
-        into.append(self.message)
+        try! into.append("TOML parse error: ")
+        try! into.append(self.message)
         if self.line > 0 {
-            into.append(" (line ")
-            into.append(self.line)
-            into.append(")")
+            try! into.append(" (line ")
+            try! into.append(self.line)
+            try! into.append(")")
         }
     }
 }
@@ -91,7 +91,7 @@ extension TomlTable {
 
     // Add an inner scalar pair.
     public func add(&var self, k: String, v: String) {
-        self.values.push(TomlValue(key: k, value: v))
+        try! self.values.push(TomlValue(key: k, value: v))
     }
 }
 
@@ -124,12 +124,12 @@ extension TomlSection {
 
     // Add a scalar value to this section
     public func add(&var self, key: String, value: String) {
-        self.values.push(TomlValue(key: key, value: value))
+        try! self.values.push(TomlValue(key: key, value: value))
     }
 
     // Add an inline-table value to this section.
     public func add_table(&var self, table: TomlTable) {
-        self.tables.push(move table)
+        try! self.tables.push(move table)
     }
 
     // Internal: the index of the inline table named `key`, or None. `lend` may
@@ -179,12 +179,12 @@ extension TomlSection {
         var out = Vector<String>()
         var i = 0
         while i < self.values.len() {
-            out.push(self.values[i].key)
+            try! out.push(self.values[i].key)
             i = i + 1
         }
         var j = 0
         while j < self.tables.len() {
-            out.push(self.tables[j].key)
+            try! out.push(self.tables[j].key)
             j = j + 1
         }
         move out
@@ -211,7 +211,7 @@ func parse_inline_table(key: String, raw: String) -> TomlTable {
     if inner.is_empty() {
         return move table
     }
-    let parts = inner.split(",")
+    let parts = try! inner.split(",")
     for part in parts.iter() {
         let frag = part.trim()
         if frag.is_empty() {
@@ -247,7 +247,7 @@ extension TomlDoc {
         var doc = TomlDoc()
         var current_section = TomlSection(section_name: "")
 
-        let lines = content.split("\n")
+        let lines = try! content.split("\n")
         var line_num = 0
 
         for line in lines.iter() {
@@ -263,7 +263,7 @@ extension TomlDoc {
             if trimmed.starts_with("[") && trimmed.ends_with("]") {
                 // Save previous section if it has a name
                 if not current_section.name.is_empty() {
-                    doc.sections.push(move current_section)
+                    try! doc.sections.push(move current_section)
                 }
                 // Start new section - extract name between [ and ]
                 let name = trimmed.substring(1, trimmed.len() - 1)
@@ -298,7 +298,7 @@ extension TomlDoc {
         // Don't forget the last section
         let has_content = current_section.values.len() > 0 || current_section.tables.len() > 0
         if not current_section.name.is_empty() || has_content {
-            doc.sections.push(move current_section)
+            try! doc.sections.push(move current_section)
         }
 
         move doc
@@ -310,7 +310,7 @@ extension TomlDoc {
         var out = Vector<String>()
         var i = 0
         while i < self.sections.len() {
-            out.push(self.sections[i].name)
+            try! out.push(self.sections[i].name)
             i = i + 1
         }
         move out

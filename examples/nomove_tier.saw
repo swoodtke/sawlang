@@ -72,6 +72,6 @@ func main() {
     rig.anchor.bump()
     print("nested {rig.anchor.get()}")
 
-    let crate = Crate(pinned: Box<Anchor>.make(Anchor(n: 5)))
+    let crate = Crate(pinned: try! Box<Anchor>.make(Anchor(n: 5)))
     print("relocated {consume(move crate)}")
 }

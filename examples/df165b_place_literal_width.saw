@@ -22,16 +22,16 @@ import std.data.*
 func main() {
     // A Vector place: the shape that ICEd.
     var v: Vector<UInt8> = Vector<UInt8>()
-    v.push(0 as UInt8)
-    v.push(0 as UInt8)
+    try! v.push(0 as UInt8)
+    try! v.push(0 as UInt8)
     v[0] = 7            // bare literal, adopts UInt8
     v[1] = 9u8          // suffixed literal still exact
     print("vector {v[0]} {v[1]}")
 
     // A Data place: same lowering, same rule.
-    var d = Data(capacity: 4)
-    d.push(0)
-    d.push(1)
+    var d = try! Data(capacity: 4)
+    try! d.push(0)
+    try! d.push(1)
     d[0] = 42
     d[1] += 2
     print("data {d[0]} {d[1]}")
@@ -44,8 +44,8 @@ func main() {
 
     // Wider fixed widths take the same path.
     var w: Vector<Int32> = Vector<Int32>()
-    w.push(0i32)
-    w.push(0i32)
+    try! w.push(0i32)
+    try! w.push(0i32)
     w[0] = 1000
     w[1] = 70000
     print("wide {w[0]} {w[1]}")

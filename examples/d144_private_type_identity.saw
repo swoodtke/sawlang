@@ -64,8 +64,8 @@ func main() {
 
     // Vector<Header> instantiates once per element type.
     var v: Vector<Header> = []
-    v.push(Header(n: 1, m: 2, o: 3))
-    v.push(Header(n: 4, m: 5, o: 3))
+    try! v.push(Header(n: 1, m: 2, o: 3))
+    try! v.push(Header(n: 4, m: 5, o: 3))
     var total = 0
     var i = 0
     while i < v.len() {

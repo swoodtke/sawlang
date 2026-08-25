@@ -18,11 +18,11 @@ struct Refusal {
 
 extension Refusal: Printable {
     func format(&self, into: &var StringBuilder) {
-        into.append("allocation of ")
-        into.append(self.size)
-        into.append(" bytes (align ")
-        into.append(self.align)
-        into.append(") failed")
+        try! into.append("allocation of ")
+        try! into.append(self.size)
+        try! into.append(" bytes (align ")
+        try! into.append(self.align)
+        try! into.append(") failed")
     }
 }
 

@@ -10,8 +10,8 @@
 
 func main() {
     var v = Vector<Int>()
-    v.push(10)
-    v.push(20)
+    try! v.push(10)
+    try! v.push(20)
 
     var w = v.copy()      // deep copy - independent buffer
     w.set(0, 99)          // mutate the copy only

@@ -31,10 +31,10 @@ func nested(depth: Int) -> Data {
     var d = Data()
     var i = 0
     while i < depth {
-        d.push(ARRAY_OF_ONE)
+        try! d.push(ARRAY_OF_ONE)
         i = i + 1
     }
-    d.push(UNSIGNED_ZERO)
+    try! d.push(UNSIGNED_ZERO)
     move d
 }
 
@@ -92,10 +92,10 @@ func check_items() {
     // A short blob declaring a huge array. The count is refused at the head, so
     // nothing is ever reserved for items the blob could not hold.
     var huge = Data()
-    huge.push(ARRAY_UINT32_COUNT)
+    try! huge.push(ARRAY_UINT32_COUNT)
     var k = 0
     while k < 4 {
-        huge.push(ALL_ONES)
+        try! huge.push(ALL_ONES)
         k = k + 1
     }
     report("5 bytes declaring 4294967295 items",
@@ -151,7 +151,7 @@ func check_bytes_item() {
     var j = 0
     while j < 2 {
         match dec.read_byte() {
-            case Ok(b) -> text.append_char(Int8.from(truncating: b)),
+            case Ok(b) -> try! text.append_char(Int8.from(truncating: b)),
             case Err(e) -> {
                 print("read_byte failed: {}", e)
                 return

@@ -89,7 +89,7 @@ extension LockData {
     }
 
     public func add(&var self, entry: LockEntry) {
-        self.entries.push(entry)
+        try! self.entries.push(entry)
     }
 
     public func index_of(&self, name: String) -> Int {
@@ -141,15 +141,15 @@ public func manifest_deps_hash(m: Manifest) -> String {
             case PathDep(dir) -> dir,
             case GitDep(url) -> url
         }
-        entries.push("{d.name}|{kind}|{loc}|{d.version}")
+        try! entries.push("{d.name}|{kind}|{loc}|{d.version}")
         i = i + 1
     }
     entries.sort()
 
     var b = StringBuilder()
     for e in entries.iter() {
-        b.append(e)
-        b.append("\n")
+        try! b.append(e)
+        try! b.append("\n")
     }
     let h = hash_str(b.build())
     "{h}"
@@ -165,34 +165,34 @@ public func serialize(res: &Resolution, manifest_hash: String) -> String {
     var names = Vector<String>()
     var i = 0
     while i < res.len() {
-        names.push(res.name(i))
+        try! names.push(res.name(i))
         i = i + 1
     }
     names.sort()
 
     var b = StringBuilder()
-    b.append("[lock]\n")
-    b.append("manifest_hash = \"")
-    b.append(manifest_hash)
-    b.append("\"\n")
+    try! b.append("[lock]\n")
+    try! b.append("manifest_hash = \"")
+    try! b.append(manifest_hash)
+    try! b.append("\"\n")
 
     for n in names.iter() {
         let idx = res.index_of(n)
-        b.append("\n[pkg.")
-        b.append(n)
-        b.append("]\n")
-        b.append("version = \"")
-        b.append(res.version(idx))
-        b.append("\"\n")
-        b.append("source = \"")
-        b.append(res.kind(idx))
-        b.append("\"\n")
-        b.append("loc = \"")
-        b.append(res.declared(idx))  // portable declared source, not the abs dir
-        b.append("\"\n")
-        b.append("rev = \"")
-        b.append(res.rev(idx))
-        b.append("\"\n")
+        try! b.append("\n[pkg.")
+        try! b.append(n)
+        try! b.append("]\n")
+        try! b.append("version = \"")
+        try! b.append(res.version(idx))
+        try! b.append("\"\n")
+        try! b.append("source = \"")
+        try! b.append(res.kind(idx))
+        try! b.append("\"\n")
+        try! b.append("loc = \"")
+        try! b.append(res.declared(idx))  // portable declared source, not the abs dir
+        try! b.append("\"\n")
+        try! b.append("rev = \"")
+        try! b.append(res.rev(idx))
+        try! b.append("\"\n")
     }
     b.build()
 }
@@ -209,7 +209,7 @@ public func write_lock(res: &Resolution, manifest_hash: String, path: Path) -> B
     }
     // The write half used to be discarded, so a lock file that failed halfway
     // still reported success (design 132 unit G).
-    match f.write(text.to_data()) {
+    match f.write(try! text.to_data()) {
         case Ok(_) -> true,
         case Err(e) -> {
             print("warning: could not write {path.as_str()}: {e}")

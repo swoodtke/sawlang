@@ -30,7 +30,7 @@ extension Item: NoCopy {
 extension Item {
     init(n: String) -> Item {
         var v = Vector<Int>()
-        v.push(1)
+        try! v.push(1)
         Item(name: n, payload: move v)
     }
 }
@@ -40,7 +40,7 @@ func main() {
     var cur = Item(n: "a")
     var i = 0
     while i < 2 {
-        sink.push(move cur)
+        try! sink.push(move cur)
         cur = Item(n: "b{i}")
         i = i + 1
     }

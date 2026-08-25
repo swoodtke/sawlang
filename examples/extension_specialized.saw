@@ -5,9 +5,9 @@
 
 func main() {
     var v = Vector<String>()
-    v.push("hello")
-    v.push("world")
-    v.push("test")
+    try! v.push("hello")
+    try! v.push("world")
+    try! v.push("test")
 
     let joined = v.join(",")
     print(joined)

@@ -7,8 +7,12 @@
 // "could not launch process", a different failure from the one that happened.
 //
 // File.read/File.write and Directory.current each folded allocator exhaustion
-// into the same `None` their syscall failures use. All of them panic now, so
-// the `None`/`Err` each of these APIs returns has exactly one meaning again.
+// into the same `None` their syscall failures use. Design 123 made all of them
+// panic, so the `None`/`Err` each API returns had exactly one meaning again;
+// design 234 gives the refusal a value to be — `File.read`/`File.write` and
+// `Directory.list` answer `IoErrorKind.ResourcesExhausted`, and `Command.output`
+// peels the two apart as `Result<CommandOutput?, AllocError>`, `Ok(None)`
+// keeping its old "the child could not be run" meaning.
 //
 // This test asserts the correct answers still come back with allocation
 // available; the panic paths need a real out-of-memory condition in a child
@@ -24,8 +28,8 @@ import std.directory.*
 
 func main() {
     var c = Command(program: "/bin/echo")
-    c.arg("hello from a child")
-    if let out = c.output() {
+    try! c.arg("hello from a child")
+    if let out = try! c.output() {
         print(out.stdout.trim())        // hello from a child
         print(out.exit_code)            // 0
     }

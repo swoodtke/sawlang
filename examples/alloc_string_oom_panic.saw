@@ -18,7 +18,7 @@ extern "C" {
 
 func main() {
     var b = StringBuilder()
-    b.append("saw")
+    try! b.append("saw")
     // The builder's own buffer is allocated; deny the String `build()` mints.
     __saw_rt_alloc_deny_after(0)
     print(b.build())

@@ -28,7 +28,7 @@ extension Carrier: NoCopy {}
 extension Carrier {
     public init() -> Carrier {
         var v = Vector<Hidden>()
-        v.push(Hidden(n: 3))
+        try! v.push(Hidden(n: 3))
         Carrier(slot: Hidden(n: 7), cells: move v)
     }
 

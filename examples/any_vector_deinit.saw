@@ -20,9 +20,9 @@ extension Res: NoCopy {
 
 func main() {
     var shapes = Vector<Box<any Shape>>()
-    shapes.push(Box<any Shape>.make(Res(id: 1)))
-    shapes.push(Box<any Shape>.make(Res(id: 2)))
-    shapes.push(Box<any Shape>.make(Res(id: 3)))
+    try! shapes.push(Box<any Shape>.make(Res(id: 1)))
+    try! shapes.push(Box<any Shape>.make(Res(id: 2)))
+    try! shapes.push(Box<any Shape>.make(Res(id: 3)))
 
     if let b = shapes.pop() {
         print(b.area())   // 3

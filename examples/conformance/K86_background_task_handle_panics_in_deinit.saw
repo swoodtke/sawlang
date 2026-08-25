@@ -44,6 +44,6 @@ func main() {
 
     var keeper = Keeper(held: Vector<Task<Int>>())
     let escaped = Task.spawn(work(2))
-    keeper.held.push(move escaped)
+    try! keeper.held.push(move escaped)
     print("about to drop the keeper")
 }

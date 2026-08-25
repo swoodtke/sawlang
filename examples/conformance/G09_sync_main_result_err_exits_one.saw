@@ -13,8 +13,8 @@ struct Missing { shelf: Int }
 
 extension Missing: Printable {
     func format(&self, into: &var StringBuilder) {
-        into.append("no such shelf: ")
-        into.append(self.shelf)
+        try! into.append("no such shelf: ")
+        try! into.append(self.shelf)
     }
 }
 

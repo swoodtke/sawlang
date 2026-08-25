@@ -99,13 +99,13 @@ func main() {
     let ra = a.join()
     let rb = b.join()
 
-    let ch = Channel<Int>()
+    let ch = try! Channel<Int>()
     let w = g.spawn(drain(ch.copy()))
     let f = g.spawn(feed_run(ch.copy()))
     let rc = w.join()
     f.join()
 
-    let mch = Channel<Int>()
+    let mch = try! Channel<Int>()
     let m = g.spawn(drain_method(Src(ch: mch.copy())))
     let f2 = g.spawn(feed_two(mch.copy()))
     let rm = m.join()

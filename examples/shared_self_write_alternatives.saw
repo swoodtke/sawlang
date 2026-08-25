@@ -40,8 +40,8 @@ extension Grid {
 
 func main() {
     var cells = Vector<Int>()
-    cells.push(10)
-    cells.push(7)
+    try! cells.push(10)
+    try! cells.push(7)
     var g = Grid(cells: move cells, reads: 0)
 
     g.put(0, v: 40)

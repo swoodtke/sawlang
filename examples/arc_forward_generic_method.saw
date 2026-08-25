@@ -44,15 +44,15 @@ func run<R>(cell: Arc<Cell<Int>>, body: (Int) sync -> R) -> R {
 }
 
 func main() {
-    let ints = Arc<Cell<Int>>(value: Cell<Int>(value: 21))
+    let ints = try! Arc<Cell<Int>>(value: Cell<Int>(value: 21))
     print(ints.apply({ n in n * 2 }))            // inferred R = Int
     print(ints.apply<String>({ n in "v{n}" }))   // explicit R = String
 
-    let words = Arc<Cell<String>>(value: Cell<String>(value: "hello"))
+    let words = try! Arc<Cell<String>>(value: Cell<String>(value: "hello"))
     print(words.apply({ s in s.len() }))
     print(words.apply({ s in s.to_uppercase() }))
 
-    let tag = Box<Tag>.make(Tag(name: "saw"))
+    let tag = try! Box<Tag>.make(Tag(name: "saw"))
     print(tag.map({ s in s.len() }))
     print(tag.map({ s in "tag={s}" }))
 

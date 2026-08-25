@@ -122,6 +122,40 @@ public struct CborEncoder {
 
 extension CborEncoder: NoCopy {}
 
+// design 234: the buffer reports its own refusal now, and this file's two
+// domains each already have a word for it — `BufferFull` on the way out,
+// `TooLarge` on the way in. These map the leaf onto the domain rather than
+// re-enumerating it, which is what §1's "carry the leaf, never restate it"
+// asks of a compound that is a STRUCT rather than an enum (so the `try(as ...)`
+// routing clause, which names an enum case, does not apply here).
+//
+// FREE functions, not methods: the argument is a `&var self` call on a field,
+// and a `&self` receiver beside it would be an exclusivity violation.
+func __cbor_encoded(r: Result<Void, AllocError>) sync -> Result<Void, EncodeError> {
+    match r {
+        case Ok(_) -> {},
+        case Err(_) -> { return EncodeError(fault: EncodeFault.BufferFull) }
+    }
+    return
+}
+
+// The value-carrying twin of `__cbor_encoded`, for a build that hands back what
+// it built (`String.to_data`).
+func __cbor_encoded_data(r: Result<Data, AllocError>) sync -> Result<Data, EncodeError> {
+    match r {
+        case Ok(d) -> { return move d },
+        case Err(_) -> { return EncodeError(fault: EncodeFault.BufferFull) }
+    }
+}
+
+func __cbor_scanned(r: Result<Void, AllocError>) sync -> Result<Void, DecodeError> {
+    match r {
+        case Ok(_) -> {},
+        case Err(_) -> { return DecodeError(offset: 0, fault: DecodeFault.TooLarge) }
+    }
+    return
+}
+
 extension CborEncoder {
     /// A new encoder over an empty buffer.
     ///
@@ -150,9 +184,9 @@ extension CborEncoder {
     }
 
     // Grow the buffer by `n` bytes up front so the pushes that follow cannot
-    // fail. Allocator refusal is a fault, not a panic (design 123's `try_` tier).
+    // fail. Allocator refusal is a fault, not a panic.
     func reserve(&var self, n: Int) sync -> Result<Void, EncodeError> {
-        match self.out.try_reserve(n) {
+        match self.out.reserve(n) {
             case Ok(_) -> {},
             case Err(_) -> { return EncodeError(fault: EncodeFault.BufferFull) }
         }
@@ -185,7 +219,7 @@ extension CborEncoder {
         }
         try self.reserve(1 + width)
         if width == 0 {
-            self.out.push(base | (arg as UInt8))
+            let _ = try __cbor_encoded(self.out.push(base | (arg as UInt8)))
             return
         }
         var info = INFO_UINT8
@@ -196,10 +230,10 @@ extension CborEncoder {
         } else if width == 8 {
             info = INFO_UINT64
         }
-        self.out.push(base | info)
+        let _ = try __cbor_encoded(self.out.push(base | info))
         var i = width - 1
         while i >= 0 {
-            self.out.push(((arg >> (i * 8)) & BYTE_MASK) as UInt8)
+            let _ = try __cbor_encoded(self.out.push(((arg >> (i * 8)) & BYTE_MASK) as UInt8))
             i = i - 1
         }
         return
@@ -294,13 +328,14 @@ extension CborEncoder {
         }
         // Room for the level BEFORE the head goes out, so a refused allocation
         // is a fault rather than a panic and leaves no half-written item.
-        match self.levels.try_reserve(1) {
+        match self.levels.reserve(1) {
             case Ok(_) -> {},
             case Err(_) -> { return EncodeError(fault: EncodeFault.BufferFull) }
         }
         try self.write_head(major, count as UInt)
-        self.levels.push(CborLevel(remaining: owed, is_map: is_map, start: at,
-                                   key_start: -1, key_end: -1))
+        let _ = try __cbor_encoded(
+            self.levels.push(CborLevel(remaining: owed, is_map: is_map, start: at,
+                                       key_start: -1, key_end: -1)))
         return
     }
 }
@@ -344,11 +379,11 @@ extension CborEncoder: Encoder {
     func write_text(&var self, v: String) sync -> Result<Void, EncodeError> {
         try self.check_ready()
         let at = self.out.len()
-        let raw = v.to_data()
+        let raw = try __cbor_encoded_data(v.to_data())
         let n = raw.len()
         try self.write_head(CborMajor.Text, n as UInt)
         try self.reserve(n)
-        self.out.append(move raw)
+        let _ = try __cbor_encoded(self.out.append(move raw))
         return self.item_done(at)
     }
 
@@ -372,7 +407,7 @@ extension CborEncoder: Encoder {
         if self.bytes_left <= 0 {
             return EncodeError(fault: EncodeFault.CountMismatch)
         }
-        self.out.push(b)
+        let _ = try __cbor_encoded(self.out.push(b))
         self.bytes_left = self.bytes_left - 1
         if self.bytes_left == 0 {
             return self.item_done(self.bytes_start)
@@ -479,7 +514,7 @@ extension CborDecoder {
         self.rewind()
         var stack = Vector<Int>()
         try self.reserve_stack_int(&var stack)
-        stack.push(1)
+        let _ = try __cbor_encoded(stack.push(1))
         while stack.len() > 0 {
             let last = stack.len() - 1
             let rem = stack[last]
@@ -517,14 +552,14 @@ extension CborDecoder {
                     let n = try self.container_count(h)
                     try to.begin_array(n)
                     if n > 0 {
-                        stack.push(n)
+                        let _ = try __cbor_encoded(stack.push(n))
                     }
                 },
                 case Map -> {
                     let n = try self.container_count(h)
                     try to.begin_map(n)
                     if n > 0 {
-                        stack.push(n * 2)
+                        let _ = try __cbor_encoded(stack.push(n * 2))
                     }
                 },
                 case Simple -> {
@@ -548,7 +583,7 @@ extension CborDecoder {
     // Size a work stack once, so no later push can meet a refusal. The scan and
     // every walk over validated bytes is bounded by `max_depth`.
     func reserve_stack_int(&self, stack: &var Vector<Int>) sync -> Result<Void, DecodeError> {
-        match stack.try_reserve(self.max_depth + 1) {
+        match stack.reserve(self.max_depth + 1) {
             case Ok(_) -> {},
             case Err(_) -> { return DecodeError(offset: 0, fault: DecodeFault.TooLarge) }
         }
@@ -556,7 +591,7 @@ extension CborDecoder {
     }
 
     func reserve_stack_frame(&self, stack: &var Vector<CborScanFrame>) sync -> Result<Void, DecodeError> {
-        match stack.try_reserve(self.max_depth + 1) {
+        match stack.reserve(self.max_depth + 1) {
             case Ok(_) -> {},
             case Err(_) -> { return DecodeError(offset: 0, fault: DecodeFault.TooLarge) }
         }
@@ -843,8 +878,9 @@ extension CborDecoder {
         if stack.len() > self.max_depth {
             return DecodeError(offset: h.start, fault: DecodeFault.TooDeep)
         }
-        stack.push(CborScanFrame(remaining: owed, is_map: is_map, start: h.start,
-                                 key_start: -1, key_end: -1))
+        let _ = try __cbor_scanned(
+            stack.push(CborScanFrame(remaining: owed, is_map: is_map, start: h.start,
+                                     key_start: -1, key_end: -1)))
         return
     }
 
@@ -858,8 +894,9 @@ extension CborDecoder {
         }
         var stack = Vector<CborScanFrame>()
         try self.reserve_stack_frame(&var stack)
-        stack.push(CborScanFrame(remaining: 1, is_map: false, start: 0,
-                                 key_start: -1, key_end: -1))
+        let _ = try __cbor_scanned(
+            stack.push(CborScanFrame(remaining: 1, is_map: false, start: 0,
+                                     key_start: -1, key_end: -1)))
         var items = 0
         while stack.len() > 0 {
             let last = stack.len() - 1
@@ -1044,7 +1081,7 @@ extension CborDecoder: Decoder {
         try self.check_ready()
         var stack = Vector<Int>()
         try self.reserve_stack_int(&var stack)
-        stack.push(1)
+        let _ = try __cbor_scanned(stack.push(1))
         while stack.len() > 0 {
             let last = stack.len() - 1
             let rem = stack[last]
@@ -1060,12 +1097,12 @@ extension CborDecoder: Decoder {
             } else if h.major == CborMajor.Array {
                 let n = try self.container_count(h)
                 if n > 0 {
-                    stack.push(n)
+                    let _ = try __cbor_scanned(stack.push(n))
                 }
             } else if h.major == CborMajor.Map {
                 let n = try self.container_count(h)
                 if n > 0 {
-                    stack.push(n * 2)
+                    let _ = try __cbor_scanned(stack.push(n * 2))
                 }
             } else if h.major == CborMajor.Tag {
                 return DecodeError(offset: h.start, fault: DecodeFault.Unsupported)

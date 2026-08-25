@@ -18,9 +18,9 @@ func idle(n: Int) -> Int {
 }
 
 func main() {
-    let inbox = Channel<Int>()
+    let inbox = try! Channel<Int>()
     try! inbox.send(2)
-    var workers = TaskGroup(threads: 2)
+    var workers = try! TaskGroup(threads: 2)
     let h = workers.spawn(idle(1))
     let got = try! inbox.receive()
     let _ = h.join()

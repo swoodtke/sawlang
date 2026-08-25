@@ -54,7 +54,7 @@ func feed_all(items: &Vector<Item>, into: &var Sink) {
 
 func main() {
     var items = Vector<Item>()
-    items.push(Item(code: "a", weight: 3))
+    try! items.push(Item(code: "a", weight: 3))
     var sink = Sink(n: 0)
 
     items[0].feed(into: &var sink)
@@ -83,8 +83,8 @@ func main() {
     // names the enclosing `sink` inside it.
     var rows: Vector<Vector<Item>> = []
     var inner = Vector<Item>()
-    inner.push(Item(code: "b", weight: 1))
-    rows.push(move inner)
+    try! inner.push(Item(code: "b", weight: 1))
+    try! rows.push(move inner)
     print("deep chain: {rows[0][0].plus(sink.read())}")
 
     // A whole-element write whose RHS names an enclosing local.

@@ -21,15 +21,15 @@ func main() {
     // Each of these LAUNCHES, so run() yields Ok(code); `try!` unwraps the exit
     // code (design 92/94: run() -> Result).
     var crash = Command(program: "/bin/sh")
-    crash.arg("-c")
-    crash.arg("kill -ABRT $$")
+    try! crash.arg("-c")
+    try! crash.arg("kill -ABRT $$")
     let crashed = try! crash.run()
     let signal_nonzero = crashed != (0 as Int32)
     print("signal death nonzero: {signal_nonzero}")
 
     var three = Command(program: "/bin/sh")
-    three.arg("-c")
-    three.arg("exit 3")
+    try! three.arg("-c")
+    try! three.arg("exit 3")
     let normal_ok = (try! three.run()) == (3 as Int32)
     print("normal exit 3 preserved: {normal_ok}")
 

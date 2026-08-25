@@ -13,9 +13,9 @@
 func main() {
     // Mixed append(String) and append(Int) overloads (design 55).
     var sb = StringBuilder()
-    sb.append("count=")
-    sb.append(42)
-    sb.append(" done")
+    try! sb.append("count=")
+    try! sb.append(42)
+    try! sb.append(" done")
     print(sb.len())        // 6 + 2 + 5 = 13
     print(sb.build())      // count=42 done
 
@@ -25,7 +25,7 @@ func main() {
     var i = 0
     var expected_sum = 0
     while i < 100 {
-        g.append(i)
+        try! g.append(i)
         expected_sum = expected_sum + i
         i = i + 1
     }

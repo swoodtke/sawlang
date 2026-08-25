@@ -136,26 +136,26 @@ extension Duration: Printable {
         if ns >= NANOS_PER_SEC {
             let whole = ns / NANOS_PER_SEC
             let frac = (ns % NANOS_PER_SEC) / (NANOS_PER_SEC / CENTIS_PER_SEC)
-            into.append(whole as UInt)
-            into.append(".")
+            try! into.append(whole as UInt)
+            try! into.append(".")
             if frac < (10 as UInt64) {
-                into.append("0")
+                try! into.append("0")
             }
-            into.append(frac as UInt)
-            into.append("s")
+            try! into.append(frac as UInt)
+            try! into.append("s")
             return
         }
         if ns >= NANOS_PER_MILLI {
-            into.append((ns / NANOS_PER_MILLI) as UInt)
-            into.append("ms")
+            try! into.append((ns / NANOS_PER_MILLI) as UInt)
+            try! into.append("ms")
             return
         }
         if ns >= NANOS_PER_MICRO {
-            into.append((ns / NANOS_PER_MICRO) as UInt)
-            into.append("us")
+            try! into.append((ns / NANOS_PER_MICRO) as UInt)
+            try! into.append("us")
             return
         }
-        into.append(ns as UInt)
-        into.append("ns")
+        try! into.append(ns as UInt)
+        try! into.append("ns")
     }
 }

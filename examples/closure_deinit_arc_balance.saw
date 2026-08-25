@@ -16,7 +16,7 @@ extension Res: NoCopy {
 }
 
 func main() {
-    let a = Arc<Res>(value: Res(id: 5))
+    let a = try! Arc<Res>(value: Res(id: 5))
     print(a.strong_count())        // 1
     let f = { a.strong_count() }   // plain capture retains -> strong 2
     print(f())                     // 2

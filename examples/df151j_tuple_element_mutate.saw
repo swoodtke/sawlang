@@ -48,7 +48,7 @@ struct Holder { pair: (Vector<Int>, Int) }
 extension Holder: NoCopy {}
 
 extension Holder {
-    func grow(&var self, x: Int) { self.pair.0.push(x) }
+    func grow(&var self, x: Int) { try! self.pair.0.push(x) }
     func count(&self) -> Int { self.pair.0.len() }
 }
 
@@ -56,9 +56,9 @@ extension Holder {
 // tuple's own vector. Before the fix this printed 1 — the push went nowhere.
 func filed_repro() -> Int {
     var v: Vector<Int> = Vector<Int>()
-    v.push(1)
+    try! v.push(1)
     var t = (move v, 7)
-    t.0.push(99)
+    try! t.0.push(99)
     t.0.len()
 }
 
@@ -67,8 +67,8 @@ func filed_repro() -> Int {
 // is a distinct failure and a distinct fix.
 func named_tuple_spelling() -> Int {
     var pair = (x: Vector<Int>(), y: 0)
-    pair.x.push(5)
-    pair.x.push(6)
+    try! pair.x.push(5)
+    try! pair.x.push(6)
     pair.x.len()
 }
 
@@ -76,9 +76,9 @@ func named_tuple_spelling() -> Int {
 // tuple's, and the vector is grown where it sits.
 func nested_tuple() -> Int {
     var t = ((1, Vector<Int>()), 2)
-    t.0.1.push(7)
-    t.0.1.push(8)
-    t.0.1.push(9)
+    try! t.0.1.push(7)
+    try! t.0.1.push(8)
+    try! t.0.1.push(9)
     t.0.1.len()
 }
 
@@ -95,8 +95,8 @@ func struct_method_receiver() -> Int {
 // field access, and the two hops compose into one address.
 func tuple_field_of_struct() -> Int {
     var h = Holder(pair: (Vector<Int>(), 0))
-    h.pair.0.push(1)
-    h.pair.0.push(2)
+    try! h.pair.0.push(1)
+    try! h.pair.0.push(2)
     h.pair.0.len()
 }
 
@@ -126,11 +126,11 @@ func tuple_in_array() -> Int {
 // receiver held across a park.
 func across_suspend() -> Int {
     var t = (Vector<Int>(), 0)
-    t.0.push(1)
+    try! t.0.push(1)
     yield_now()
-    t.0.push(2)
+    try! t.0.push(2)
     yield_now()
-    t.0.push(3)
+    try! t.0.push(3)
     t.0.len()
 }
 
@@ -138,11 +138,11 @@ func across_suspend() -> Int {
 // consumed whole, and the elements still arrive owned.
 func destructuring_unchanged() -> Int {
     var v: Vector<Int> = Vector<Int>()
-    v.push(1)
+    try! v.push(1)
     var t = (move v, 2)
-    t.0.push(9)
+    try! t.0.push(9)
     var (a, b) = move t
-    a.push(9)
+    try! a.push(9)
     a.len() * 10 + b
 }
 

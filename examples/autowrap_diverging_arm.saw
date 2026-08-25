@@ -41,7 +41,7 @@
 struct Oops { m: String }
 
 extension Oops: Error {
-    func format(&self, into: &var StringBuilder) { into.append(self.m) }
+    func format(&self, into: &var StringBuilder) { try! into.append(self.m) }
 }
 
 func source(flag: Bool) -> Result<Int, Oops> {

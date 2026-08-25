@@ -6,35 +6,34 @@
 // "kernel idiom". Box is NoCopy: transferring it is a `move`, and its single
 // heap `T` is released exactly once on deinit.
 //
-// FACTORY SURFACE (design 42 item 1, "report the surface chosen"): the two
-// constructors are STATIC METHODS on Box, reached through the brief-28
-// static-factory path — `Box<T>.make(v)` and `Box<T>.try_make(v)`. Static methods
+// FACTORY SURFACE (design 42 item 1, "report the surface chosen"): the
+// constructor is a STATIC METHOD on Box, reached through the brief-28
+// static-factory path — `Box<T>.make(v)`. Static methods
 // on the generic struct were chosen over free `MakeBox`/`MakeBoxOr` functions
 // because the struct's own type arguments (and their `A = GlobalAllocator` default) are
-// supplied and defaulted at the call site by the same generics machinery Vector's
-// `try_with_capacity` already uses, with no free-function type-inference gap.
-// `make` IS the D4-pinned infallible `MakeBox`; `try_make` is the fallible
-// `MakeBoxOr` (design 123 renamed it from `make_or`: the fallible tier is spelled
-// `try_` everywhere in std, with no second spelling).
+// supplied and defaulted at the call site by the same generics machinery
+// `Vector(capacity:)` already uses, with no free-function type-inference gap.
+// `make` IS the D4-pinned `MakeBox`; design 123's fallible twin `try_make`
+// retired into it (design 234 — one operation, and it reports).
 //
-// There is no `init(value:)`: allocation is a fallible action, and the three-tier
-// failure model (design 19) wants that split visible — `make` panics on OOM
-// (infallible tier), `try_make` returns `Err` (fallible tier). A memberwise
-// `Box(ptr:)` still exists (used internally) but is a raw wrapper, not the API.
+// There is no `init(value:)`: `make` is a static because the allocator type
+// parameter is named at the call site (`Box<T, TaskSlab>.make(...)`), not
+// because construction is special. A memberwise `Box(ptr:)` still exists (used
+// internally) but is a raw wrapper, not the API.
 
 public struct Box<T, A: Allocator = GlobalAllocator> {
-    // Points directly at the heap `T`. Always valid in a live Box: `make` panics
-    // rather than construct a null Box, and `try_make` returns `Err` without
-    // constructing one, so no inert/None state exists.
+    // Points directly at the heap `T`. Always valid in a live Box: `make`
+    // returns `Err` without constructing one, so no inert/None state exists.
     ptr: UnsafePointer<T>
 }
 
 extension Box<T, A: Allocator = GlobalAllocator> {
-    /// Allocates one `T` through `A` and moves `value` into it.
+    /// Allocates one `T` through `A` and moves `value` into it, reporting
+    /// allocator exhaustion as `Err(AllocError)`.
     ///
-    /// Panics if the allocator refuses the request. This is the infallible
-    /// tier; `try_make` is the twin that reports the failure instead.
-    public static func make(value: T) unsafe -> Box<T, A> {
+    /// On the failure path `value` is not moved anywhere, so it deinits at
+    /// scope exit: the value is destroyed cleanly, never leaked.
+    public static func make(value: T) unsafe -> Result<Box<T, A>, AllocError> {
         let size = sizeof<T>()
         let align = alignof<T>()
         if let raw = A().alloc(size, align) {
@@ -43,27 +42,6 @@ extension Box<T, A: Allocator = GlobalAllocator> {
             // uninitialized, freshly-allocated chunk, so this store bitwise-moves
             // `value` in and does NOT release any prior occupant. `value` is
             // consumed by the value-transfer checkpoint.
-            ptr[0] = move value
-            return Box<T, A>(ptr: ptr)
-        }
-        // Allocation failed: the infallible tier panics deterministically via the
-        // `panic(...)` builtin (design 49 item 1), which routes through the
-        // __saw_rt_panic seam — a kernel's handler decides the policy (oops /
-        // kill-task / reboot). `panic` returns Never, so control never continues
-        // past it and no return value is needed on this path.
-        panic("Box.make: allocation failed")
-    }
-
-    /// Allocates one `T` through `A` and moves `value` into it, reporting
-    /// allocator exhaustion as `Err(AllocError)`.
-    ///
-    /// On the failure path `value` is not moved anywhere, so it deinits at
-    /// scope exit: the value is destroyed cleanly, never leaked.
-    public static func try_make(value: T) unsafe -> Result<Box<T, A>, AllocError> {
-        let size = sizeof<T>()
-        let align = alignof<T>()
-        if let raw = A().alloc(size, align) {
-            let ptr = raw as UnsafePointer<T>
             ptr[0] = move value
             return Box<T, A>(ptr: ptr)
         }

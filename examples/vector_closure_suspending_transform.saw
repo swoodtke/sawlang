@@ -40,12 +40,12 @@ func slow_add(a: Int, b: Int) -> Int {
 
 func traverse() -> Int {
     var v = Vector<Int>()
-    v.push(10)
-    v.push(20)
-    v.push(30)
+    try! v.push(10)
+    try! v.push(20)
+    try! v.push(30)
 
     // A suspending transform.
-    let doubled = v.map<Int>({ n in slow_double(n) })
+    let doubled = try! v.map<Int>({ n in slow_double(n) })
     doubled.each({ d in slow_show(d) })
 
     // A suspending `each` body, with a borrow capture across the suspension.

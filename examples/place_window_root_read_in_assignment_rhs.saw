@@ -40,9 +40,9 @@ extension Holder {
 
 func main() {
     var v = Vector<Cell>()
-    v.push(Cell(n: 1))
-    v.push(Cell(n: 2))
-    v.push(Cell(n: 3))
+    try! v.push(Cell(n: 1))
+    try! v.push(Cell(n: 2))
+    try! v.push(Cell(n: 3))
 
     // The subscript target, whole-field write.
     v[0].n = v.len()
@@ -68,7 +68,7 @@ func main() {
     // A field-hop target: the window is on `hs` and the write lands two hops
     // in, which does not change where the right-hand side runs.
     var hs = Vector<Holder>()
-    hs.push(Holder(cell: Cell(n: 0), tag: 7))
+    try! hs.push(Holder(cell: Cell(n: 0), tag: 7))
     hs[0].cell.n = hs.len() + 1
     print("field hop {hs[0].cell.n}")
 
@@ -79,7 +79,7 @@ func main() {
 
     // Control: a right-hand side rooted somewhere else is left where it is.
     var w = Vector<Cell>()
-    w.push(Cell(n: 5))
+    try! w.push(Cell(n: 5))
     v[1].n = w[0].n
     print("disjoint roots {v[1].show()}")
 }

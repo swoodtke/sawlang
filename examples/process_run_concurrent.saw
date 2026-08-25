@@ -23,7 +23,7 @@ static STARVED_MS: UInt64 = 400
 
 func run_child() -> Int {
     var c = Command(program: "/bin/sleep")
-    c.arg("1")
+    try! c.arg("1")
     match c.run() {
         case Ok(code) -> code as Int,
         case Err(_) -> -1

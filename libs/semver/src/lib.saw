@@ -25,8 +25,8 @@ extension SemverError {
 
 extension SemverError: Error {
     public func format(&self, into: &var StringBuilder) {
-        into.append("semver error: ")
-        into.append(self.message)
+        try! into.append("semver error: ")
+        try! into.append(self.message)
     }
 }
 
@@ -48,11 +48,11 @@ extension Version: Comparable {}
 
 extension Version: Printable {
     public func format(&self, into: &var StringBuilder) {
-        into.append(self.major)
-        into.append(".")
-        into.append(self.minor)
-        into.append(".")
-        into.append(self.patch)
+        try! into.append(self.major)
+        try! into.append(".")
+        try! into.append(self.minor)
+        try! into.append(".")
+        try! into.append(self.patch)
     }
 }
 
@@ -65,7 +65,7 @@ public func parse_version(s: String) -> Result<Version, SemverError> {
         return SemverError(msg: "build metadata is not supported yet: {s}")
     }
 
-    let parts = s.split(".")
+    let parts = try! s.split(".")
     if parts.len() != 3 {
         return SemverError(msg: "expected MAJOR.MINOR.PATCH, got: {s}")
     }
@@ -161,10 +161,10 @@ extension VersionReq: Printable {
     public func format(&self, into: &var StringBuilder) {
         match self.kind {
             case Exact -> {},
-            case Caret -> into.append("^"),
-            case Tilde -> into.append("~"),
-            case AtLeast -> into.append(">=")
+            case Caret -> try! into.append("^"),
+            case Tilde -> try! into.append("~"),
+            case AtLeast -> try! into.append(">=")
         }
-        into.append(self.version.to_string())
+        try! into.append(self.version.to_string())
     }
 }

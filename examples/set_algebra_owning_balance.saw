@@ -18,16 +18,16 @@ extension AK: Hashable { func hash(&self, h: &var Hasher) { self.id.hash(&var h)
 
 func exercise(probe: &Arc<Int>) {
     var a = Set<AK>()
-    let _ = a.insert(AK(id: 1, rc: probe.copy()))
-    let _ = a.insert(AK(id: 2, rc: probe.copy()))
+    let _ = try! a.insert(AK(id: 1, rc: probe.copy()))
+    let _ = try! a.insert(AK(id: 2, rc: probe.copy()))
     var b = Set<AK>()
-    let _ = b.insert(AK(id: 2, rc: probe.copy()))
-    let _ = b.insert(AK(id: 3, rc: probe.copy()))
+    let _ = try! b.insert(AK(id: 2, rc: probe.copy()))
+    let _ = try! b.insert(AK(id: 3, rc: probe.copy()))
     print(probe.strong_count())          // 5 (probe + 4 stored)
 
-    let u = a.union(&b)                   // {1,2,3}
-    let i = a.intersection(&b)            // {2}
-    let d = a.difference(&b)              // {1}
+    let u = try! a.union(&b)                   // {1,2,3}
+    let i = try! a.intersection(&b)            // {2}
+    let d = try! a.difference(&b)              // {1}
     print(u.len())                        // 3
     print(i.len())                        // 1
     print(d.len())                        // 1
@@ -35,7 +35,7 @@ func exercise(probe: &Arc<Int>) {
 }   // u, i, d, a, b all drop here
 
 func main() {
-    let probe = Arc<Int>(value: 0)
+    let probe = try! Arc<Int>(value: 0)
     exercise(&probe)
     print(probe.strong_count())           // 1 — fully torn down, no leak
 }

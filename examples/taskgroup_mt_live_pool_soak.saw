@@ -85,13 +85,13 @@ func drain(out: Channel<Int>) unsafe -> Int {
 }
 
 func main() {
-    let work = Channel<Int>()
-    let out = Channel<Int>()
-    var pool = TaskGroup(threads: 4)
+    let work = try! Channel<Int>()
+    let out = try! Channel<Int>()
+    var pool = try! TaskGroup(threads: 4)
 
     var producers = Vector<VoidTask>()
     for _ in 0..PRODUCERS {
-        producers.push(pool.spawn(produce(work.copy())))
+        try! producers.push(pool.spawn(produce(work.copy())))
     }
     let left = pool.spawn(consume(work.copy(), out.copy()))
     let right = pool.spawn(consume(work.copy(), out.copy()))

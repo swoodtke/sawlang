@@ -39,7 +39,7 @@ extension Res: NoCopy {
 struct Holder { fn: () -> Int }
 
 func main() {
-    let a = Arc<Res>(value: Res(id: 5))
+    let a = try! Arc<Res>(value: Res(id: 5))
     print(a.strong_count())              // 1
     let h = Holder(fn: { a.strong_count() })  // env retains a -> strong 2
     let h2 = h                           // struct copy: env refcount 2, Arc shared

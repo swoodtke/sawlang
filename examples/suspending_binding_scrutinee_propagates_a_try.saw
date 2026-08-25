@@ -42,8 +42,8 @@ import std.task.*
 struct AllocFail { size: Int }
 extension AllocFail: Printable {
     func format(&self, into: &var StringBuilder) {
-        into.append("A")
-        into.append(self.size)
+        try! into.append("A")
+        try! into.append(self.size)
     }
 }
 extension AllocFail: Error {}

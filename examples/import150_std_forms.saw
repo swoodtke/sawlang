@@ -26,9 +26,9 @@ import std.time as clock
 func main() {
     // Whole module: the qualifier is the only spelling.
     var d = data.Data()
-    d.push(1)
-    d.push(2)
-    d.push(3)
+    try! d.push(1)
+    try! d.push(2)
+    try! d.push(3)
     print("qualified {d.len()}")
 
     // Glob: `Path` is bare, no qualifier needed.

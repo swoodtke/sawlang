@@ -9,8 +9,8 @@ struct DbErr { code: Int }
 
 extension DbErr: Printable {
     func format(&self, into: &var StringBuilder) {
-        into.append("db#")
-        into.append(self.code)
+        try! into.append("db#")
+        try! into.append(self.code)
     }
 }
 

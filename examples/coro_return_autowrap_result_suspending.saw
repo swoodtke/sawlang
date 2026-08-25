@@ -25,8 +25,8 @@ import std.task.{yield_now}
 struct Bad { code: Int }
 extension Bad: Printable {
     func format(&self, into: &var StringBuilder) {
-        into.append("bad ")
-        into.append(value: self.code)
+        try! into.append("bad ")
+        try! into.append(value: self.code)
     }
 }
 extension Bad: Error {}

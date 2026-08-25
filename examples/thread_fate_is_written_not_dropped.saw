@@ -23,7 +23,7 @@ func waitForIt(shared: Arc<Mutex<Int>>) {
 }
 
 func main() {
-    let shared = Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
+    let shared = try! Arc<Mutex<Int>>(value: Mutex<Int>(value: 0))
     waitForIt(shared)
     shared.lock { &var c in
         print(c)   // 42, deterministic (the task finished at the join)

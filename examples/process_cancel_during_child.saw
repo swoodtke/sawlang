@@ -35,7 +35,7 @@ extension Res: NoCopy { func deinit(&var self) { DEINITS.fetch_add(1) } }
 func child_waiter(start: Instant) {
     let _held = Res(id: 1)
     var c = Command(program: "/bin/sleep")
-    c.arg("1")
+    try! c.arg("1")
     match c.run() {
         case Ok(code) -> print("child exited {code} — the wait was never cancelled"),
         case Err(e) -> {

@@ -159,13 +159,13 @@ enum Triple { case Trip(a: Tag, b: Tag, c: Tag) }
 
 func mk_tag(id: Int) -> Tag {
     print("NEW t{id}")
-    Tag(cell: Arc<Res>(value: Res(name: "t{id}")))
+    Tag(cell: try! Arc<Res>(value: Res(name: "t{id}")))
 }
 
 func mk_tag_s(id: Int) -> Tag {
     yield_now()
     print("NEW t{id}")
-    Tag(cell: Arc<Res>(value: Res(name: "t{id}")))
+    Tag(cell: try! Arc<Res>(value: Res(name: "t{id}")))
 }
 
 // ---- all_discarded: the shape that diverged ------------------------------

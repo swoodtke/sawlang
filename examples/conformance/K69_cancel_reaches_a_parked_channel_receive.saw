@@ -48,7 +48,7 @@ func consume(orders: Channel<Int>) -> Int {
 
 func main() {
     var g = TaskGroup()
-    let orders = Channel<Int>()
+    let orders = try! Channel<Int>()
     try! orders.send(10)
     try! orders.send(20)
     let h = g.spawn(consume(orders.copy()))

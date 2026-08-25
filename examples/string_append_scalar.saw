@@ -27,14 +27,14 @@
 // Bytes appended for `scalar`, or -1 if invalid.
 func nbytes(scalar: Int) -> Int {
     var sb = StringBuilder()
-    if let n = sb.append_scalar(scalar) { n } else { -1 }
+    if let n = try! sb.append_scalar(scalar) { n } else { -1 }
 }
 
 // Encode then decode back through chars(): true iff the single scalar survives
 // intact and the built byte length matches the reported count.
 func roundtrip(scalar: Int) -> Bool {
     var sb = StringBuilder()
-    if let n = sb.append_scalar(scalar) {
+    if let n = try! sb.append_scalar(scalar) {
         let s = sb.build()
         if s.len() != n { return false }
         var got = -1
@@ -51,7 +51,7 @@ func roundtrip(scalar: Int) -> Bool {
 
 func is_none(scalar: Int) -> Bool {
     var sb = StringBuilder()
-    if let _ = sb.append_scalar(scalar) { false } else { true }
+    if let _ = try! sb.append_scalar(scalar) { false } else { true }
 }
 
 func main() {
@@ -73,7 +73,7 @@ func main() {
 
     // 0x80 encodes to the two bytes 0xC2 0x80.
     var sb = StringBuilder()
-    let _ = sb.append_scalar(128)
+    let _ = try! sb.append_scalar(128)
     let s = sb.build()
     let b0 = (s.byte_at(0) as Int) & 255
     let b1 = (s.byte_at(1) as Int) & 255

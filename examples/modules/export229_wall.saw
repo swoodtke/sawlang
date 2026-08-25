@@ -15,6 +15,6 @@ public func wall_make(n: Int) -> Frame {
     // The module's own view of its imports is untouched by design 229.
     let w: Widget = leaf_make(n: n)
     var d = data.Data()
-    d.push(1)
+    try! d.push(1)
     Frame(size: w.n + d.len())
 }

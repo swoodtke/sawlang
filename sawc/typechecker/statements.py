@@ -18,7 +18,7 @@ from ast_nodes import (
     Identifier, MemberAccess, ArrayIndex, TupleIndex, MoveExpr, IntLiteral,
     ForceUnwrap, BindOptional, OptionalEvalExpr,
     FunctionCall, StructInit, SelfExpr, ClosureExpr,
-    IfExpr, IfLetExpr, MatchExpr, MethodCall,
+    IfExpr, IfLetExpr, MatchExpr, MethodCall, TryExpr,
     SawType, TypeKind,
     ResultOkWrap, ResultErrWrap, OptionalWrap,
     WildcardPattern, BindingPattern, TuplePattern,
@@ -1821,12 +1821,35 @@ class StatementsMixin:
         """True if `value` is a `TaskGroup(threads: ...)` construction (design 75).
         The `threads:` label is the opt-in to multi-threaded execution. A custom
         init call resolves to a `StructInit` (`[resolved: init(threads)]`); a raw
-        `FunctionCall` form is handled too for robustness."""
+        `FunctionCall` form is handled too for robustness.
+
+        design 234: the construction is now FALLIBLE, so every in-tree spelling
+        of it is `try! TaskGroup(threads: N)` — and a shape test that cannot see
+        through the `try` would have turned the Send-on-frames gate silently OFF
+        at every multi-threaded group in the language. Unwrapping first is what
+        keeps the gate keyed on what the author wrote rather than on how the
+        result is consumed."""
+        value = self._unwrap_try(value)
         if isinstance(value, StructInit) and value.struct_name == "TaskGroup":
             return any(fi[0] == "threads" for fi in (value.field_inits or []))
         if isinstance(value, FunctionCall) and value.name == "TaskGroup":
             return any(a.name == "threads" for a in value.arguments)
         return False
+
+    def _unwrap_try(self, value):
+        """The expression under any number of `try`/`try!`/`try?` wrappers.
+
+        For the SHAPE tests that ask what an initializer IS rather than what it
+        types as. Design 234 made allocating constructors fallible, so a
+        construction now routinely arrives wrapped, and a test that matches on
+        the node kind has to look past the wrapper or quietly stop matching.
+
+        ENTRY POINTS: `_is_multithreaded_taskgroup_init` (the design-75 gate).
+        A second shape test on an initializer belongs here rather than beside
+        it."""
+        while isinstance(value, TryExpr):
+            value = value.expr
+        return value
 
     def _check_guard_let_statement(self, stmt: GuardLetStatement):
         """Check a guard let/var statement for optional binding."""

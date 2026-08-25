@@ -24,7 +24,7 @@ func main() {
 
     // The allocator now refuses every request. A growable Vector confirms it
     // refuses, and the panic that follows still says what went wrong.
-    match Vector<Int>.try_with_capacity(4) {
+    match Vector<Int>(capacity: 4) {
         case Ok(_) -> panic("denial seam did not take effect"),
         case Err(_) -> {}
     }

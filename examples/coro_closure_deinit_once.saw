@@ -18,7 +18,7 @@ extension Res: NoCopy {
 }
 
 func run() -> Int {
-    let box = Arc<Res>(value: Res(id: 7))      // Arc frame-local
+    let box = try! Arc<Res>(value: Res(id: 7))      // Arc frame-local
     let f: () -> Int = { box.strong_count() }  // closure captures it (env retain)
     __saw_suspend()
     box.strong_count() + f()                   // 2 (frame + env) + 2 = 4

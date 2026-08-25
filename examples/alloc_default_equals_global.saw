@@ -23,17 +23,17 @@ func total(v: Vector<Int>) -> Int {
 func main() {
     // Written with the default omitted.
     var a = Vector<Int>()
-    a.push(1)
+    try! a.push(1)
 
     // Written with the allocator spelled out — SAME type as `a`.
     var b = Vector<Int, GlobalAllocator>()
-    b.push(2)
+    try! b.push(2)
 
     print(total(move a))   // 1  — Vector<Int> accepted
     print(total(move b))   // 2  — Vector<Int, GlobalAllocator> accepted where Vector<Int> expected
 
     // And a fresh default-form vector behaves the same.
     var c = Vector<Int>()
-    c.push(3)
+    try! c.push(3)
     print(total(move c))   // 3
 }

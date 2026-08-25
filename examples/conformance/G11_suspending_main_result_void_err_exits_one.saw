@@ -17,7 +17,7 @@ import std.task.{yield_now}
 struct Unreadable { errno: Int }
 
 extension Unreadable: Printable {
-    func format(&self, into: &var StringBuilder) { into.append("config unreadable") }
+    func format(&self, into: &var StringBuilder) { try! into.append("config unreadable") }
 }
 
 extension Unreadable: Error {}

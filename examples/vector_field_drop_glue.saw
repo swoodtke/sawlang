@@ -36,7 +36,7 @@ extension Item: NoCopy {
 extension Item {
     init(n: String) -> Item {
         var v = Vector<Int>()
-        v.push(41)
+        try! v.push(41)
         Item(name: n, payload: move v)
     }
 }
@@ -53,8 +53,8 @@ extension Crate: NoCopy {}
 
 func build() -> Holder {
     var v = Vector<Item>()
-    v.push(Item(n: "one"))
-    v.push(Item(n: "two"))
+    try! v.push(Item(n: "one"))
+    try! v.push(Item(n: "two"))
     Holder(items: move v)
 }
 
@@ -71,7 +71,7 @@ func main() {
     print("-- holder goes")
     let _ = move h
 
-    let crate = Crate(held: Box<Item>.make(Item(n: "boxed")))
+    let crate = Crate(held: try! Box<Item>.make(Item(n: "boxed")))
     print("-- box field goes")
     let _ = move crate
 

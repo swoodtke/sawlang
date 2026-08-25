@@ -32,7 +32,7 @@ enum Holder {
 @synthesize extension Holder: Copy {}
 
 func main() {
-    let h = Holder.Full(a: Arc<Res>(value: Res(id: 9)))
+    let h = Holder.Full(a: try! Arc<Res>(value: Res(id: 9)))
     match h {
         case Full(a) -> { print("first") },
         case Nothing -> { print("none") }

@@ -37,10 +37,10 @@ func same_bytes(a: &Data, b: &Data) sync -> Bool {
 }
 
 func build() -> Data {
-    var d = Data(capacity: 4)
-    d.push(10)
-    d.push(20)
-    d.push(30)
+    var d = try! Data(capacity: 4)
+    try! d.push(10)
+    try! d.push(20)
+    try! d.push(30)
     d
 }
 

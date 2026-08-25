@@ -32,7 +32,7 @@ func consume(orders: Channel<Int>) -> Int {
 
 func main() {
     var g = TaskGroup()
-    let orders = Channel<Int>()
+    let orders = try! Channel<Int>()
     let h = g.spawn(consume(orders.copy()))
     print("waiting")
     print("never reached {}", h.join())

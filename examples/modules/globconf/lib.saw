@@ -32,7 +32,7 @@ extension Bag {
 
 public func make_bag() -> Bag {
     var b = Bag()
-    b.items.push(3)
-    b.items.push(4)
+    try! b.items.push(3)
+    try! b.items.push(4)
     move b
 }

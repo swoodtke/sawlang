@@ -9,7 +9,7 @@
 
 import std.channel.{Channel}
 func main() {
-    let ch = Channel<Int>()
+    let ch = try! Channel<Int>()
 
     // The producer captures a retained handle to the same queue.
     var producer = Thread.spawn { [ch] in

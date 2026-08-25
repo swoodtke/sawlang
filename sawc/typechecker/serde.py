@@ -132,6 +132,21 @@ class SerdeMixin:
         line, col = self._ln(at)
         return TryExpr(expr=call, variant="propagate", line=line, column=col)
 
+    def _force_expr(self, call, at):
+        """`try! <call>` — for a synthesized call whose error this body cannot
+        carry (design 234 §5).
+
+        The derived `deserialize` returns `Result<Self, DecodeError>`, and the
+        only fallible call the DERIVATION itself makes is the vector `push`
+        below, whose error is an `AllocError`. Routing it would mean naming
+        `DecodeError`'s construction in code synthesized into the USER's module,
+        where std.serde's fault vocabulary may not be imported at all. So the
+        refusal panics, NAMING the error (DF-245b) — the same answer the
+        collection literal's synthesized `push` gives, for the same reason: the
+        author wrote no expression a `try` could sit on."""
+        line, col = self._ln(at)
+        return TryExpr(expr=call, variant="force", line=line, column=col)
+
     def _call(self, obj, name, args, at):
         line, col = self._ln(at)
         return MethodCall(object=obj, method_name=name, arguments=args,
@@ -562,9 +577,11 @@ class SerdeMixin:
             raise SerdeDerivationError(f"has element type `{elem}` which {err.reason}")
         item_stmts = list(item_stmts) + [
             ExpressionStatement(
-                expression=self._call(
-                    self._ident(name, at), "push",
-                    [self._arg(MoveExpr(variable=item, line=line, column=col))],
+                expression=self._force_expr(
+                    self._call(
+                        self._ident(name, at), "push",
+                        [self._arg(MoveExpr(variable=item, line=line, column=col))],
+                        at),
                     at),
                 line=line, column=col)]
         return [

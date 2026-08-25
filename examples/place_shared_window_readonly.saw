@@ -51,7 +51,7 @@ extension Bag {
 
 func lights() -> Vector<Light> {
     var v = Vector<Light>()
-    v.push(Light.Red)
+    try! v.push(Light.Red)
     move v
 }
 

@@ -26,7 +26,7 @@ struct Cfg { v: Int }
 struct Oops { m: String }
 
 extension Oops: Error {
-    func format(&self, into: &var StringBuilder) { into.append(self.m) }
+    func format(&self, into: &var StringBuilder) { try! into.append(self.m) }
 }
 
 // Explicit returns, both directions plus the error arm.

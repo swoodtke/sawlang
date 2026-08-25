@@ -24,11 +24,11 @@ extension Val: NoCopy {
 func exercise() {
     var m = Map<Int, Val>()
     let a = Val(id: 10)
-    m.insert(1, move a)
+    try! m.insert(1, move a)
     let b = Val(id: 20)
-    m.insert(2, move b)
+    try! m.insert(2, move b)
     let c = Val(id: 30)
-    m.insert(3, move c)
+    try! m.insert(3, move c)
 
     if let got = m.remove(1) {         // moves Val(10) out of the map
         print(got.id)                  // 10

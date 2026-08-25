@@ -29,7 +29,7 @@ enum Msg {
 }
 
 func main() {
-    let shared = Arc<Int>(value: 99)          // strong 1
+    let shared = try! Arc<Int>(value: 99)          // strong 1
     let m = Msg.Data(p: Payload(tag: 7, handle: shared.copy()))  // strong 2
     print(shared.strong_count())              // 2
     match m {                                 // borrows m (Copy tier)

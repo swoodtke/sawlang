@@ -9,14 +9,14 @@ import std.data.*
 
 func main() {
     var d = Data()
-    d.push(10 as UInt8)
-    d.push(20 as UInt8)
-    d.set(0, 99 as UInt8)
+    try! d.push(10 as UInt8)
+    try! d.push(20 as UInt8)
+    try! d.set(0, 99 as UInt8)
     print(d.get(0)!)             // 99 — in range still writes
     if let _ = d.get(9) {
         print("unreachable")
     } else {
         print("none")            // `get` stays get-shaped
     }
-    d.set(9, 7 as UInt8)         // past the end -> panic
+    try! d.set(9, 7 as UInt8)         // past the end -> panic
 }

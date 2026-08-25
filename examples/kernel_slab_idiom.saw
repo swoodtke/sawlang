@@ -41,15 +41,15 @@ type JobBox = Box<Job, JobSlab>
 // Fill the 4-chunk slab, hold the boxes, then hit exhaustion. Returns the
 // exhaustion sentinel; b1..b4 drop at scope exit, returning their chunks.
 func fill_and_exhaust() -> Int {
-    let b1 = Box<Job, JobSlab>.make(Job(id: 1, priority: 10))
-    let b2 = Box<Job, JobSlab>.make(Job(id: 2, priority: 20))
-    let b3 = Box<Job, JobSlab>.make(Job(id: 3, priority: 30))
-    let b4 = Box<Job, JobSlab>.make(Job(id: 4, priority: 40))
+    let b1 = try! Box<Job, JobSlab>.make(Job(id: 1, priority: 10))
+    let b2 = try! Box<Job, JobSlab>.make(Job(id: 2, priority: 20))
+    let b3 = try! Box<Job, JobSlab>.make(Job(id: 3, priority: 30))
+    let b4 = try! Box<Job, JobSlab>.make(Job(id: 4, priority: 40))
     print(b1.tid())   // 1  — forwarded read
     print(b4.tid())   // 4
 
     // 5th allocation: the slab is full -> the fallible factory returns Err.
-    match Box<Job, JobSlab>.try_make(Job(id: 5, priority: 50)) {
+    match Box<Job, JobSlab>.make(Job(id: 5, priority: 50)) {
         case Ok(bad) -> bad.tid(),
         case Err(e) -> 999
     }
@@ -61,6 +61,6 @@ func main() {
 
     // The four chunks were reclaimed at scope death, so a fresh allocation over
     // JobSlab now succeeds.
-    let again = Box<Job, JobSlab>.make(Job(id: 6, priority: 60))
+    let again = try! Box<Job, JobSlab>.make(Job(id: 6, priority: 60))
     print(again.tid())          // 6
 }

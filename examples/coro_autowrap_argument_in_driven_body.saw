@@ -35,8 +35,8 @@ import std.task.{yield_now}
 struct Bad { code: Int }
 extension Bad: Printable {
     func format(&self, into: &var StringBuilder) {
-        into.append("bad ")
-        into.append(value: self.code)
+        try! into.append("bad ")
+        try! into.append(value: self.code)
     }
 }
 extension Bad: Error {}
@@ -127,7 +127,7 @@ func enum_payload() {
 
 // DF-224c as filed: a GENERIC parameter instantiated to an optional.
 func channel_send() {
-    let ch = Channel<Int?>()
+    let ch = try! Channel<Int?>()
     try! ch.send(s(14))
     let got = try! ch.receive()
     print("channel {got ?? -1}")

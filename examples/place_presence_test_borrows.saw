@@ -70,7 +70,7 @@ func name_at(slots: &Vector<Slot>, i: Int) -> String {
 
 func main() {
     var slots = Vector<Slot>()
-    slots.push(Slot.Occupied(key: Res(name: "a")))
+    try! slots.push(Slot.Occupied(key: Res(name: "a")))
 
     print("-- match, no arm binds")
     print("{tag_at(&slots, 0)}")
@@ -84,7 +84,7 @@ func main() {
     // no payload — the release below is the vector above, one element, once.
     print("-- if let _ presence")
     var empties = Vector<Slot>()
-    empties.push(Slot.Empty)
+    try! empties.push(Slot.Empty)
     let probe = Probe(slots: move empties)
     if let _ = probe.at(0) {
         print("present")

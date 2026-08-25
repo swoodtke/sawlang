@@ -26,7 +26,7 @@ import std.channel.{Channel}
 enum Boom { case Bad }
 
 extension Boom: Printable {
-    func format(&self, into: &var StringBuilder) { into.append("bad") }
+    func format(&self, into: &var StringBuilder) { try! into.append("bad") }
 }
 
 extension Boom: Error {}
@@ -115,32 +115,32 @@ func main() {
     let rb = b.join()
 
     let three: Int? = 3
-    let och = Channel<Int?>()
+    let och = try! Channel<Int?>()
     let w1 = g.spawn(iflet_head(och.copy()))
     let f1 = g.spawn(feed_opt(och.copy(), three))
     let r1 = w1.join()
     f1.join()
 
     let five: Int? = 5
-    let och2 = Channel<Int?>()
+    let och2 = try! Channel<Int?>()
     let w2 = g.spawn(guardlet_head(och2.copy()))
     let f2 = g.spawn(feed_opt(och2.copy(), five))
     let r2 = w2.join()
     f2.join()
 
-    let rch = Channel<Result<Int, Boom>>()
+    let rch = try! Channel<Result<Int, Boom>>()
     let w3 = g.spawn(try_head(rch.copy()))
     let f3 = g.spawn(feed_res(rch.copy(), mk_res(26)))
     let r3 = w3.join()
     f3.join()
 
-    let rch2 = Channel<Int>()
+    let rch2 = try! Channel<Int>()
     let w4 = g.spawn(trycatch_head(rch2.copy()))
     let f4 = g.spawn(feed_int(rch2.copy(), 11))
     let r4 = w4.join()
     f4.join()
 
-    let rch3 = Channel<Int>()
+    let rch3 = try! Channel<Int>()
     let w5 = g.spawn(tryopt_head(rch3.copy()))
     let f5 = g.spawn(feed_int(rch3.copy(), 13))
     let r5 = w5.join()

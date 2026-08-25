@@ -57,7 +57,7 @@ func vector_names(kind: String) -> Vector<String> {
         if let ext = entries[i].ext() {
             if ext.equals("cbor") {
                 if let stem = entries[i].stem() {
-                    out.push(stem)
+                    try! out.push(stem)
                 }
             }
         }
@@ -85,12 +85,12 @@ func same_bytes(a: &Data, b: &Data) -> Bool {
 // heavier dependency than this gate needs; the sidecars are machine-written
 // with one `"key": "value"` per line.
 func json_string_field(text: String, key: String) -> String? {
-    let parts = text.split("\"{key}\": \"")
+    let parts = try! text.split("\"{key}\": \"")
     if parts.len() < 2 {
         return None
     }
     let tail = parts.get(1) ?? ""
-    let pieces = tail.split("\"")
+    let pieces = try! tail.split("\"")
     pieces.get(0)
 }
 

@@ -6,8 +6,8 @@ public struct DepAlloc { public size: Int }
 
 extension DepAlloc: Printable {
     public func format(&self, into: &var StringBuilder) {
-        into.append("dep alloc ")
-        into.append(self.size)
+        try! into.append("dep alloc ")
+        try! into.append(self.size)
     }
 }
 
@@ -22,7 +22,7 @@ extension DepError: Printable {
     public func format(&self, into: &var StringBuilder) {
         match self {
             case Alloc(e) -> e.format(into: &var into),
-            case Empty -> into.append("dep empty")
+            case Empty -> try! into.append("dep empty")
         }
     }
 }

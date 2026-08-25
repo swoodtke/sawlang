@@ -44,7 +44,7 @@ func main() {
     if let value = b.join() { print("st none {value}") } else { print("st none absent") }
 
     // Multi-threaded: the result travels worker -> main across the join barrier.
-    var mt = TaskGroup(threads: 2)
+    var mt = try! TaskGroup(threads: 2)
     let h1 = mt.spawn(double_or_none(5))
     let h2 = mt.spawn(double_or_none(10))
     let h3 = mt.spawn(double_or_none(-2))

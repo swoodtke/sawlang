@@ -27,13 +27,13 @@ extension LoudAlloc: Allocator {
 func main() {
     // GlobalAllocator-backed vector: alloc/dealloc are silent.
     var g = Vector<Int>()
-    g.push(1)          // grow through GlobalAllocator — no print
-    g.push(2)
+    try! g.push(1)          // grow through GlobalAllocator — no print
+    try! g.push(2)
     print(g.len())     // 2
 
     // LoudAlloc-backed vector: grow prints, deinit prints.
     var v = Vector<Int, LoudAlloc>()
-    v.push(10)         // grow (cap 0 -> 4): "alloc 32"
+    try! v.push(10)         // grow (cap 0 -> 4): "alloc 32"
     print(v.len())     // 1
 
     // Scope end (LIFO): v deinits first -> "dealloc 32" (LoudAlloc); then g

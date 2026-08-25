@@ -8,7 +8,7 @@ func recs(s: String) -> Vector<String> {
         case Ok(r) -> {
             var i = 0
             while i < r.docs.len() {
-                if let d = r.docs.get(i) { out.push(format_doc(&d)) }
+                if let d = r.docs.get(i) { try! out.push(format_doc(&d)) }
                 i = i + 1
             }
         },
@@ -28,8 +28,8 @@ func kinds(s: String) -> String {
         case Ok(ts) -> {
             var i = 0
             while i < ts.len() {
-                if let t = ts.get(i) { out.append(format_token(&t)) }
-                out.append("|")
+                if let t = ts.get(i) { try! out.append(format_token(&t)) }
+                try! out.append("|")
                 i = i + 1
             }
         },

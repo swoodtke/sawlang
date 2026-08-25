@@ -64,18 +64,18 @@ func sum_nested(rows: Vector<Vector<Int>>) -> Int {
 }
 
 func main() {
-    var g = TaskGroup(threads: 2)
+    var g = try! TaskGroup(threads: 2)
 
     let v: Vector<Int> = [1, 2, 3]
     let m: Map<String, Int> = {"a": 1, "b": 2, "c": 3}
     let s: Set<Int> = {7, 8, 9}
     var d = Data()
-    d.push(1)
-    d.push(2)
-    d.push(3)
-    d.push(4)
+    try! d.push(1)
+    try! d.push(2)
+    try! d.push(3)
+    try! d.push(4)
     var b = StringBuilder()
-    b.append("hello")
+    try! b.append("hello")
     let rows: Vector<Vector<Int>> = [[1, 2], [3, 4], [5, 6]]
 
     let hv = g.spawn(sum_vector(move v))

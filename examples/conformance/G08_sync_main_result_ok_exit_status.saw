@@ -11,7 +11,7 @@
 enum Oops { case Bad }
 
 extension Oops: Printable {
-    func format(&self, into: &var StringBuilder) { into.append("bad") }
+    func format(&self, into: &var StringBuilder) { try! into.append("bad") }
 }
 
 extension Oops: Error {}

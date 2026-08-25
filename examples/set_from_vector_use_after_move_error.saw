@@ -6,7 +6,7 @@
 func main() {
     var src = Vector<Int>()
     src.push(1)
-    let s = Set<Int>(from: move src)
+    let s = try! Set<Int>(from: move src)
     print(src.len())   // src was moved into the set — rejected
     print(s.len())
 }

@@ -31,7 +31,7 @@ extension Deep: ExplicitCopy {
         var out = Vector<Int>()
         var i = 0
         while i < self.items.len() {
-            out.push(self.items[i])
+            try! out.push(self.items[i])
             i += 1
         }
         Deep(items: move out)

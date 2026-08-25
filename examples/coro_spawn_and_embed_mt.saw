@@ -21,7 +21,7 @@ func caller(n: Int) -> Int {
 }
 
 func main() {
-    var group = TaskGroup(threads: 2)
+    var group = try! TaskGroup(threads: 2)
     var sum = 0
     var i = 0
     while i < 4 {

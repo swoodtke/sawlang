@@ -32,7 +32,7 @@ func exercise(probe: &Arc<Int>) {
 }   // map deinit drops the "a" value -> back to just `probe`
 
 func main() {
-    let probe = Arc<Int>(value: 0)
+    let probe = try! Arc<Int>(value: 0)
     exercise(&probe)
     print(probe.strong_count())                // 1
 }

@@ -30,8 +30,8 @@ func main() {
     print("str {s.0} {s.1}")
 
     var v = Vector<Int>()
-    v.push(1)
-    v.push(2)
+    try! v.push(1)
+    try! v.push(2)
     let pair = twice<Vector<Int>>(&v)
     print("vec {pair.0.len()} {pair.1.len()}")
 

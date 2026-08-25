@@ -30,17 +30,17 @@ func scalars(s: String) -> Int {
 
 func main() {
     var good = Data()
-    good.push(104 as UInt8)   // 'h'
-    good.push(105 as UInt8)   // 'i'
+    try! good.push(104 as UInt8)   // 'h'
+    try! good.push(105 as UInt8)   // 'i'
     match good.to_string() {
         case Ok(s) -> print("{s} {s.len()} {scalars(s)}"),
         case Err(e) -> print("unexpected err at {e.offset}")
     }
 
     var bad = Data()
-    bad.push(104 as UInt8)    // 'h'
-    bad.push(200 as UInt8)    // 0xC8: a lead byte with no continuation
-    bad.push(105 as UInt8)    // 'i'
+    try! bad.push(104 as UInt8)    // 'h'
+    try! bad.push(200 as UInt8)    // 0xC8: a lead byte with no continuation
+    try! bad.push(105 as UInt8)    // 'i'
     match bad.to_string() {
         case Ok(s) -> print("unexpectedly decoded {s.len()} bytes"),
         case Err(e) -> print("err at {e.offset}")

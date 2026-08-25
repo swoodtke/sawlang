@@ -60,7 +60,7 @@ func make_one(tag: String) -> Res {
 
 func make_arc(tag: String) -> Arc<Res> {
     yield_now()
-    Arc<Res>(value: res(tag))
+    try! Arc<Res>(value: res(tag))
 }
 
 // A NoCopy result: built in the task, delivered through the cell, owned by the

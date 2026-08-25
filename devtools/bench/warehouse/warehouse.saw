@@ -156,8 +156,8 @@ extension Sim {
             let py = self.rng.below(W)
             let dx = self.rng.below(W)
             let dy = self.rng.below(W)
-            self.orders.push(Order(px: px, py: py, dx: dx, dy: dy))
-            self.pending.push(self.orders.len() - 1)
+            try! self.orders.push(Order(px: px, py: py, dx: dx, dy: dy))
+            try! self.pending.push(self.orders.len() - 1)
         }
         self.assign_pending()
         for i in 0..ROBOTS {
@@ -172,7 +172,7 @@ func main() {
     for i in 0..ROBOTS {
         let x = rng.below(W)
         let y = rng.below(W)
-        robots.push(Robot(x: x, y: y, battery: BATTERY_CAP, delivered: 0,
+        try! robots.push(Robot(x: x, y: y, battery: BATTERY_CAP, delivered: 0,
                           mission: Mission.Idle))
     }
     var sim = Sim(robots: move robots, orders: Vector<Order>(),

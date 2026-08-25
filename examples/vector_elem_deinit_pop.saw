@@ -29,8 +29,8 @@ extension R: NoCopy {
 
 func main() {
     var v = Vector<R>()
-    v.push(R(id: 1))
-    v.push(R(id: 2))
+    try! v.push(R(id: 1))
+    try! v.push(R(id: 2))
     let popped = v.pop()!
     print(popped.id)
     print(50)

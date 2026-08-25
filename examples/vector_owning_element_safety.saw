@@ -25,8 +25,8 @@ extension Res: NoCopy {
 // and releases the loop variable at the end of each iteration.
 func iter_balance(probe: &Arc<Int>) {
     var v = Vector<Arc<Int>>()
-    v.push(probe.copy())
-    v.push(probe.copy())
+    try! v.push(probe.copy())
+    try! v.push(probe.copy())
     print(probe.strong_count())        // 3 = probe + 2 stored
     var seen = 0
     for a in v.iter() {
@@ -39,13 +39,13 @@ func iter_balance(probe: &Arc<Int>) {
 // `set` over a live slot releases the element it replaces.
 func set_releases() {
     var v = Vector<Res>()
-    v.push(Res(name: "old"))
+    try! v.push(Res(name: "old"))
     v.set(0, Res(name: "new"))         // "old" dies HERE
     print("end of set scope")
 }
 
 func main() {
-    let probe = Arc<Int>(value: 0)
+    let probe = try! Arc<Int>(value: 0)
     iter_balance(&probe)
     set_releases()                     // "new" dies at the vector's drop
     print(probe.strong_count())        // 1 — every stored copy was released

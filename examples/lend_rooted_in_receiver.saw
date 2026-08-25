@@ -61,9 +61,9 @@ extension Board {
 
 func main() {
     var cells: Vector<Cell> = []
-    cells.push(Cell(n: 10))
+    try! cells.push(Cell(n: 10))
     var slots: Vector<Slot> = []
-    slots.push(Slot.Filled(c: Cell(n: 30)))
+    try! slots.push(Slot.Filled(c: Cell(n: 30)))
     var b = Board(a: Cell(n: 1), cells: move cells, slots: move slots)
 
     b.head().n += 7
@@ -80,7 +80,7 @@ func main() {
     print("vector={v[0]}")
 
     var d = Data()
-    d.push(1)
+    try! d.push(1)
     d[0] = 9
     print("data={d[0]}")
 }

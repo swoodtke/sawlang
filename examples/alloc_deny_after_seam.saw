@@ -22,7 +22,7 @@ extern "C" {
 }
 
 func try_capacity() -> Bool {
-    match Vector<Int>.try_with_capacity(4) {
+    match Vector<Int>(capacity: 4) {
         case Ok(_) -> true,
         case Err(_) -> false
     }
@@ -53,7 +53,7 @@ func main() {
     var v = Vector<Int>()
     var i = 0
     while i < 8 {
-        v.push(i)
+        try! v.push(i)
         i = i + 1
     }
     print(v.len())

@@ -74,7 +74,7 @@ func write_new_file(path: Path, content: String) -> Bool {
             return false
         }
     }
-    match f.write(content.to_data()) {
+    match f.write(try! content.to_data()) {
         case Ok(_) -> true,
         case Err(e) -> {
             print("Error: Could not write {path.as_str()}: {e}")

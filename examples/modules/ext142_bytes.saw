@@ -6,8 +6,8 @@ import std.data.*
 
 public func make_bytes() -> Data {
     var d = Data()
-    d.push(0x12u8)
-    d.push(0x34u8)
-    d.push(0x56u8)
+    try! d.push(0x12u8)
+    try! d.push(0x34u8)
+    try! d.push(0x56u8)
     move d
 }

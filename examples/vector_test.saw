@@ -19,9 +19,9 @@ func main() {
     print(v.len())  // 0
 
     // Push some elements
-    v.push(10)
-    v.push(20)
-    v.push(30)
+    try! v.push(10)
+    try! v.push(20)
+    try! v.push(30)
     print(v.len())  // 3
 
     // Get elements

@@ -31,7 +31,7 @@ func mt_worker(scale: Int) -> Int {
 }
 
 func main() {
-    var group = TaskGroup(threads: 4)
+    var group = try! TaskGroup(threads: 4)
     let h1 = group.spawn(mt_worker(1))
     let h2 = group.spawn(mt_worker(2))
     let h3 = group.spawn(mt_worker(3))

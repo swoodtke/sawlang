@@ -40,7 +40,7 @@ func feed_all(items: &Vector<Item>, into: &var Sink) {
 
 func main() {
     var items = Vector<Item>()
-    items.push(Item(code: "a"))
+    try! items.push(Item(code: "a"))
     var s = Sink(n: 0)
 
     feed_all(&items, &var s)

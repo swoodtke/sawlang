@@ -49,7 +49,7 @@ extension Res: NoCopy {
 struct Bin { held: Vector<Res> }
 extension Bin: NoCopy {}
 extension Bin {
-    func take(&var self, r: Res) { self.held.push(move r) }
+    func take(&var self, r: Res) { try! self.held.push(move r) }
     func count(&self) -> Int { self.held.len() }
 }
 
@@ -105,7 +105,7 @@ func absent_row() {
 // 4. `with_var_ref`: an exclusive element borrow whose body moves a local in.
 func with_var_ref_row() {
     var bins = Vector<Bin>()
-    bins.push(Bin(held: Vector<Res>()))
+    try! bins.push(Bin(held: Vector<Res>()))
     let h = Res(id: 4)
     bins.with_var_ref(0) { [move h] b in b.take(r: move h) }
     print("with_var_ref {bins.with_ref(0) { b in b.count() }}")
@@ -114,7 +114,7 @@ func with_var_ref_row() {
 // 5. `with_ref`: a SHARED element borrow whose body moves a local OUT.
 func with_ref_row() {
     var bins = Vector<Bin>()
-    bins.push(Bin(held: Vector<Res>()))
+    try! bins.push(Bin(held: Vector<Res>()))
     let h = Res(id: 5)
     let n = bins.with_ref(0) { [move h] b in
         sink(r: move h)
@@ -154,7 +154,7 @@ extension Deep: ExplicitCopy {
         var out = Vector<Int>()
         var i = 0
         while i < self.items.len() {
-            out.push(self.items[i])
+            try! out.push(self.items[i])
             i += 1
         }
         Deep(items: move out, tag: self.tag)
@@ -171,7 +171,7 @@ extension Shallow: Copy {
 struct DeepBin { held: Vector<Deep> }
 extension DeepBin: NoCopy {}
 extension DeepBin {
-    func take(&var self, d: Deep) { self.held.push(move d) }
+    func take(&var self, d: Deep) { try! self.held.push(move d) }
     func count(&self) -> Int { self.held.len() }
 }
 struct DeepBag { slot: DeepBin }
@@ -183,7 +183,7 @@ extension DeepBag {
 struct ShallowBin { held: Vector<Shallow> }
 extension ShallowBin: NoCopy {}
 extension ShallowBin {
-    func take(&var self, s: Shallow) { self.held.push(move s) }
+    func take(&var self, s: Shallow) { try! self.held.push(move s) }
     func count(&self) -> Int { self.held.len() }
 }
 struct ShallowBag { slot: ShallowBin }
@@ -195,7 +195,7 @@ extension ShallowBag {
 func explicit_tier_row() {
     var bag = DeepBag(slot: DeepBin(held: Vector<Deep>()))
     var buf = Vector<Int>()
-    buf.push(7)
+    try! buf.push(7)
     let d = Deep(items: move buf, tag: 9)
     bag.at().take(d: move d)
     print("explicit {bag.at().count()}")

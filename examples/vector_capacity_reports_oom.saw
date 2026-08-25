@@ -1,7 +1,8 @@
-// Fallible allocation factory exercising the three-tier failure model
-// (design 28 item 5 / design 19 tier 2). `Vector.try_with_capacity` returns
-// Result<Vector<T>, AllocError>: on success an owned vector, on allocator
-// exhaustion an Err carrying the failed request's size/align context.
+// Conformance row A04 — `Vector(capacity:)` is a FALLIBLE CONSTRUCTOR
+// (design 234, over DF-245a's `Result<Self, E>` init form): on success an owned
+// vector, on allocator exhaustion an `Err` carrying the failed request's
+// size/align context. It was `Vector.try_with_capacity` beside a panicking
+// `Vector(capacity:)` until the flip retired the pair into one constructor.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // ok
@@ -12,12 +13,12 @@
 
 func main() {
     // Success path: allocate capacity, fill it, use it.
-    match Vector<Int>.try_with_capacity(4) {
+    match Vector<Int>(capacity: 4) {
         case Ok(v) -> {
             var vec = move v
-            vec.push(10)
-            vec.push(20)
-            vec.push(30)
+            try! vec.push(10)
+            try! vec.push(20)
+            try! vec.push(30)
             print("ok")
             print(vec.len())     // 3
         },
@@ -28,7 +29,7 @@ func main() {
     // which is below Int64 max (no multiply overflow) yet far beyond what the
     // hosted allocator can satisfy, so malloc returns NULL -> GlobalAllocator.alloc
     // yields None -> the factory returns Err(AllocError) with size context.
-    match Vector<Int>.try_with_capacity(1000000000000000000) {
+    match Vector<Int>(capacity: 1000000000000000000) {
         case Ok(v) -> {
             let vec = move v
             print("unexpected-ok")

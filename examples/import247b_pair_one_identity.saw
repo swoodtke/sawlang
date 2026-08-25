@@ -41,9 +41,9 @@ func construction() -> Int {
 // GENERIC ARGUMENT — a bare element pushed into a qualified container, and back.
 func generic_argument() -> Int {
     var v: Vector<pair247b.Widget> = []
-    v.push(Widget(count: 3))
+    try! v.push(Widget(count: 3))
     var w: Vector<Widget> = []
-    w.push(pair247b.Widget(count: 4))
+    try! w.push(pair247b.Widget(count: 4))
     v[0].count() + w[0].count()
 }
 

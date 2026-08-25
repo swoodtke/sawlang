@@ -32,8 +32,8 @@ func main() {
     let none: Int? = None
 
     var v = Vector<Int?>()
-    v.push(some)
-    v.push(none)
+    try! v.push(some)
+    try! v.push(none)
 
     if let inner = v.get(0) {
         if let value = inner { print("vector present-some {value}") } else { print("vector present-some inner-absent") }

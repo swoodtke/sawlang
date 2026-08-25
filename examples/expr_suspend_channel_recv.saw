@@ -23,7 +23,7 @@ func producer(ch: Channel<Int>) -> Int {
 }
 
 func main() {
-    let ch = Channel<Int>()
+    let ch = try! Channel<Int>()
     var group = TaskGroup()
     let c = group.spawn(consumer(ch))
     let p = group.spawn(producer(ch))

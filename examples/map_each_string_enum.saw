@@ -16,9 +16,9 @@ enum Color {
 
 func main() {
     var m = Map<String, Color>()
-    m.insert("a", Color.Red)
-    m.insert("b", Color.Green)
-    m.insert("c", Color.Red)
+    try! m.insert("a", Color.Red)
+    try! m.insert("b", Color.Green)
+    try! m.insert("c", Color.Red)
 
     // Count Red values (order-independent).
     var reds = 0

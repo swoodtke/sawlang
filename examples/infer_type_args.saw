@@ -60,11 +60,11 @@ func main() {
 
     // Vector.map / Vector.fold without explicit type args
     var v = Vector<Int>()
-    v.push(1)
-    v.push(2)
-    v.push(3)
+    try! v.push(1)
+    try! v.push(2)
+    try! v.push(3)
     print(v.fold(0) { $0 + $1 })         // 6
-    print(v.map({ "n={$0}" }).get(0)!)   // n=1
+    print((try! v.map({ "n={$0}" })).get(0)!)   // n=1
 
     // defaults + inference interplay: A inferred = Int, B defaults to Bool
     print(tagged(42))                    // 42

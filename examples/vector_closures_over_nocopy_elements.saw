@@ -41,15 +41,15 @@ extension Job {
 
 func main() {
     var jobs = Vector<Job>()
-    jobs.push(Job(name: "alpha"))
-    jobs.push(Job(name: "beta"))
-    jobs.push(Job(name: "gamma"))
+    try! jobs.push(Job(name: "alpha"))
+    try! jobs.push(Job(name: "beta"))
+    try! jobs.push(Job(name: "gamma"))
 
     // each: the element arrives as `&Job`, method calls work through it.
     jobs.each { j in print("each: {j.name}") }
 
     // map: a NoCopy element transformed into an owned Vector<String>.
-    let labels = jobs.map<String> { j in j.label() }
+    let labels = try! jobs.map<String>({ j in j.label() })
     labels.each { l in print("map: {l}") }
 
     // fold: the accumulator is threaded by value, the element by reference.

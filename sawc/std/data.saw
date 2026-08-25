@@ -7,12 +7,20 @@
 //! and it is why `Data` is `Copy`: a copy costs a refcount bump.
 //!
 //! ```saw
-//! var a = Data(capacity: 4)
-//! a.push(1)
-//! var b = a            // a retain; both windows see the same byte
-//! b.push(2)            // b is shared, so it separates here
-//! print("{a.len()} {b.len()}")   // 1 2
+//! var a = try! Data(capacity: 4)
+//! let _ = try! a.push(1)
+//! var b = a                     // a retain; both windows see the same byte
+//! let _ = try! b.push(2)        // b is shared, so it separates here
+//! print("{a.len()} {b.len()}")  // 1 2
 //! ```
+//!
+//! Every operation that can run out of memory REPORTS it (design 234) —
+//! `Result<_, AllocError>`, all-or-nothing. The one exception is the subscript
+//! `d[i] = v`, whose copy-on-write separation panics: it shares a body with the
+//! bounds check, and splitting one of the two failures out as a value would make
+//! `d[i]` mean two different things by which failure it met. `detached()` is the
+//! preflight that attempts the same allocation where a refusal has somewhere to
+//! go.
 //!
 //! Every mutation takes the same uniqueness gate, so there is no operation that
 //! writes through to a sibling and no rule to remember about which ones do. It
@@ -144,24 +152,12 @@ extension Data {
         Data(storage: None, offset: 0, length: 0)
     }
 
-    /// An empty buffer with room for `capacity` bytes.
-    ///
-    /// Panics if the allocator refuses the request (design 123, infallible
-    /// tier); `try_with_capacity` reports the failure instead.
-    public init(capacity: Int) -> Data {
+    /// An empty buffer with room for `capacity` bytes, reporting allocator
+    /// exhaustion as `Err(AllocError)`.
+    public init(capacity: Int) -> Result<Data, AllocError> {
         var data = Data(storage: None, offset: 0, length: 0)
         if not data._make_ready(capacity) {
-            panic("Data(capacity:): allocation failed")
-        }
-        move data
-    }
-
-    /// An empty buffer with room for `n` bytes, reporting allocator exhaustion
-    /// as `Err(AllocError)`.
-    public static func try_with_capacity(n: Int) -> Result<Data, AllocError> {
-        var data = Data(storage: None, offset: 0, length: 0)
-        if not data._make_ready(n) {
-            return AllocError(size: data._grow_target(n), align: 1)
+            return AllocError(size: data._grow_target(capacity), align: 1)
         }
         return move data
     }
@@ -249,29 +245,16 @@ extension Data {
     /// If the storage is shared this separates it first, so the write lands on
     /// this `Data` and no sibling sees it. That is a BEHAVIOR CHANGE ratified
     /// with design 165: `set` used to write THROUGH to every holder while
-    /// `push` and `append` copied first. Panics if the separation needs the
-    /// allocator and the allocator refuses (design 123, infallible tier);
-    /// `try_set` reports that instead.
-    public func set(&var self, index: Int, value: UInt8) {
-        if index < 0 || index >= self.length {
-            panic("Data.set: index out of range: {} (len {})", index, self.length)
-        }
-        if not self._make_ready(self.length) {
-            panic("Data.set: allocation failed")
-        }
-        self._store_at(index, value)
-    }
-
-    /// Writes `value` at `index`, reporting allocator exhaustion as
-    /// `Err(AllocError)`.
+    /// `push` and `append` copied first.
     ///
     /// Only the copy-on-write separation can fail, so on shared storage this is
     /// all-or-nothing: an `Err` leaves both this `Data` and its siblings exactly
-    /// as they were. An out-of-range `index` still panics — the fallible tier is
-    /// about the allocator, not about bounds (design 130's accessor rule).
-    public func try_set(&var self, index: Int, value: UInt8) -> Result<Void, AllocError> {
+    /// as they were. An out-of-range `index` still panics — the reporting tier is
+    /// about the allocator, not about bounds (design 130's accessor rule, and
+    /// design 234 §5's fault line).
+    public func set(&var self, index: Int, value: UInt8) -> Result<Void, AllocError> {
         if index < 0 || index >= self.length {
-            panic("Data.try_set: index out of range: {} (len {})", index, self.length)
+            panic("Data.set: index out of range: {} (len {})", index, self.length)
         }
         if not self._make_ready(self.length) {
             return AllocError(size: self._grow_target(self.length), align: 1)
@@ -287,20 +270,9 @@ extension Data {
     /// Appends one byte.
     ///
     /// Separates shared storage first, so a sibling's bytes are never touched.
-    /// Panics if the allocator refuses (design 123, infallible tier);
-    /// `try_push` reports the failure.
-    public func push(&var self, value: UInt8) {
-        if not self._make_ready(self.length + 1) {
-            panic("Data.push: allocation failed")
-        }
-        self._store_at(self.length, value)
-        self.length = self.length + 1
-    }
-
-    /// Appends one byte, reporting allocator exhaustion as `Err(AllocError)`.
-    ///
-    /// The buffer is unchanged on `Err`.
-    public func try_push(&var self, value: UInt8) -> Result<Void, AllocError> {
+    /// Reports allocator exhaustion as `Err(AllocError)`; the buffer is
+    /// unchanged then.
+    public func push(&var self, value: UInt8) -> Result<Void, AllocError> {
         let wanted = self.length + 1
         if not self._make_ready(wanted) {
             return AllocError(size: self._grow_target(wanted), align: 1)
@@ -315,7 +287,7 @@ extension Data {
     ///
     /// On `Ok` this `Data` solely owns a buffer with that much room, so the
     /// next `additional` pushes cannot allocate and cannot fail.
-    public func try_reserve(&var self, additional: Int) -> Result<Void, AllocError> {
+    public func reserve(&var self, additional: Int) -> Result<Void, AllocError> {
         let wanted = self.length + additional
         if not self._make_ready(wanted) {
             return AllocError(size: self._grow_target(wanted), align: 1)
@@ -352,23 +324,9 @@ extension Data {
     /// storage shared, so the separation happens before the copy and reads a
     /// buffer nothing is writing.
     ///
-    /// Panics if the allocator refuses (design 123, infallible tier);
-    /// `try_append` reports the failure.
-    public func append(&var self, other: Data) {
-        if other.length == 0 {
-            return
-        }
-        if not self._make_ready(self.length + other.length) {
-            panic("Data.append: allocation failed")
-        }
-        self._place_data(&other)
-    }
-
-    /// Appends every byte of `other`, reporting allocator exhaustion as
-    /// `Err(AllocError)`.
-    ///
-    /// This buffer is unchanged on `Err` — no partial append.
-    public func try_append(&var self, other: Data) -> Result<Void, AllocError> {
+    /// Reports allocator exhaustion as `Err(AllocError)`; this buffer is
+    /// unchanged then — no partial append.
+    public func append(&var self, other: Data) -> Result<Void, AllocError> {
         if other.length == 0 {
             return
         }
@@ -385,21 +343,9 @@ extension Data {
     /// The pointer-typed signature is the design-130 visible marker: callers in
     /// the unsafe domain (std.net's socket read path) fill a `Data` from a stack
     /// buffer with no per-byte overhead. `src` and `len` must describe `len`
-    /// valid bytes. Panics if the allocator refuses (design 123, infallible
-    /// tier); `try_append_bytes` reports the failure.
-    public func append_bytes(&var self, src: UnsafePointer<Int8>, len: Int) unsafe {
-        if len <= 0 {
-            return
-        }
-        if not self._make_ready(self.length + len) {
-            panic("Data.append_bytes: allocation failed")
-        }
-        self._place_bytes(src, len)
-    }
-
-    /// The fallible twin of `append_bytes` (design 123). The buffer is
-    /// unchanged on `Err`.
-    public func try_append_bytes(&var self, src: UnsafePointer<Int8>, len: Int) unsafe -> Result<Void, AllocError> {
+    /// valid bytes. Reports allocator exhaustion as `Err(AllocError)`; the
+    /// buffer is unchanged then.
+    public func append_bytes(&var self, src: UnsafePointer<Int8>, len: Int) unsafe -> Result<Void, AllocError> {
         if len <= 0 {
             return
         }
@@ -459,20 +405,14 @@ extension Data {
     /// write, and it sizes the new buffer to `len()` — so a small slice stops
     /// pinning the large buffer it was cut from.
     ///
-    /// Panics if the allocator refuses (design 123, infallible tier);
-    /// `try_detached` reports the failure.
-    public func detached(&self) -> Data {
-        match self.try_detached() {
-            case Ok(fresh) -> move fresh,
-            case Err(_) -> panic("Data.detached: allocation failed")
-        }
-    }
-
-    /// An independent buffer holding exactly these bytes, reporting allocator
-    /// exhaustion as `Err(AllocError)`.
+    /// Reports allocator exhaustion as `Err(AllocError)`. All-or-nothing: an
+    /// `Err` allocates nothing and leaves this `Data` alone.
     ///
-    /// All-or-nothing: an `Err` allocates nothing and leaves this `Data` alone.
-    public func try_detached(&self) unsafe -> Result<Data, AllocError> {
+    /// It is also the PREFLIGHT for `d[i] = v` on shared storage: the subscript's
+    /// own separation panics (design 234 §5 keeps it under the accessor rule it
+    /// shares a body with), and `detached()` is where that same allocation has
+    /// somewhere to report to.
+    public func detached(&self) unsafe -> Result<Data, AllocError> {
         if self.length == 0 {
             return Data()
         }
@@ -481,7 +421,7 @@ extension Data {
         }
         var fresh = move raw
         fresh.absorb(0, self.byte_ptr(), self.length)
-        match Arc<DataBuf>.try_make(value: move fresh) {
+        match Arc<DataBuf>(value: move fresh) {
             case Ok(owner) -> {
                 return Data(storage: move owner, offset: 0, length: self.length)
             },
@@ -597,7 +537,7 @@ extension Data {
         if self.length > 0 {
             fresh.absorb(0, self.byte_ptr(), self.length)
         }
-        match Arc<DataBuf>.try_make(value: move fresh) {
+        match Arc<DataBuf>(value: move fresh) {
             case Ok(owner) -> {
                 // Installing the new storage releases the old one, which frees
                 // it when this was the last window onto it.

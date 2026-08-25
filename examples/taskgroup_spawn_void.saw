@@ -27,7 +27,7 @@ func single_threaded() {
 }
 
 func multi_threaded() {
-    var group = TaskGroup(threads: 2)
+    var group = try! TaskGroup(threads: 2)
     let h0 = group.spawn(bump(20))
     let h1 = group.spawn(bump(30))
     h0.join()

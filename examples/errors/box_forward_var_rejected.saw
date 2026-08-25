@@ -10,6 +10,6 @@ extension Counter {
 }
 
 func main() {
-    let b = Box<Counter>.make(Counter(n: 0))
+    let b = try! Box<Counter>.make(Counter(n: 0))
     b.bump()   // rejected: &var self forwarding through Box
 }

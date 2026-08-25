@@ -45,8 +45,8 @@ public struct EncodeError {
 
 extension EncodeError: Printable {
     func format(&self, into: &var StringBuilder) {
-        into.append("encode error: ")
-        into.append(self.fault.describe())
+        try! into.append("encode error: ")
+        try! into.append(self.fault.describe())
     }
 }
 
@@ -100,10 +100,10 @@ public struct DecodeError {
 
 extension DecodeError: Printable {
     func format(&self, into: &var StringBuilder) {
-        into.append("decode error at byte ")
-        into.append(self.offset)
-        into.append(": ")
-        into.append(self.fault.describe())
+        try! into.append("decode error at byte ")
+        try! into.append(self.offset)
+        try! into.append(": ")
+        try! into.append(self.fault.describe())
     }
 }
 

@@ -94,6 +94,8 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-256b — the thread control block is DEALLOCATED at a size std computes by hand, and the two do not agree with the one codegen allocated (entry below, filed Aug 25 by design 242 unit 3b; PRE-EXISTING and inert on both hosted allocators, which free by pointer)
 - DF-257a — the two construction checkers SELECT an init differently, so an init with a defaulted parameter resolves at the bare spelling and is `no matching initializer` at the module-qualified one (entry below, filed Aug 25 by design 234 unit 3's hazard sweep; PRE-EXISTING, probe-refuted in both directions)
 - DF-257b — design 234 §5 keeps the `copy()` hook infallible, which leaves `Vector.try_copy` as the one alloc `try_` twin the flip cannot retire; owes a naming ruling (entry below, filed Aug 25 by design 234 unit 3)
+- DF-257c — a propagating `try` inside a GENERIC body is resolved once and reused across monomorphizations, so the SECOND instantiation extracts through the first's `Result` type and codegen emits unverifiable IR (entry below, filed Aug 25 by design 234 unit 3; PRE-EXISTING, minimal repro needs no `init`). Pinned XFAIL
+- DF-257d — the `$0` closure shorthand is invisible to the implicit-parameter scan inside a `try` operand, so the closure infers arity 0 (entry below, filed Aug 25 by design 234 unit 3; PRE-EXISTING). Pinned XFAIL; the flip meets it because `try!` is the corpus migration spelling
 
 - ~~DF-225a~~ — CLOSED Aug 22 (branch `diag-batch`, commit 6): the five join the ordinary duplicate-declaration rule — same LLVM signature unifies (so `printf` is callable), a different one is a clean refusal. The sweep probed every compiler-declared symbol and found the five are exactly the ones std does not also declare. Entry below, under DF-225a-f
 - ~~DF-225d~~ — CLOSED Aug 22 (branch `diag-batch`, commit 7): the three copies of "which names are primitives" became ONE table, so `self` inside a primitive extension is that primitive again. The sweep found the class is wider than the filing — arithmetic, comparison and `Bool`/`UInt` too, all ten design 176 added. Entry below, under DF-225a-f
@@ -1093,6 +1095,89 @@ HELD at 3 for now: unit 3 left `try_copy`'s NAME alone and flipped only its body
 else in std spells the prefix for allocation. Conformance row A17 pins the
 boundary that creates this — `Vector.copy()` still panics on refusal — so the
 residue is visible from the ledger rather than only from here. [219, 234]
+
+## DF-257c — a propagating `try` inside a GENERIC body is resolved ONCE and
+## reused across monomorphizations (filed Aug 25 by design 234 unit 3;
+## PRE-EXISTING)
+
+```saw
+extension Cell<T> {
+    static func make(seed: T) -> Result<Cell<T>, AllocError> { return Cell<T>(v: seed) }
+}
+extension Holder<U> {
+    func build(&self, x: U) -> Result<Int, AllocError> {
+        let c = try Cell<U>.make(seed: x)      // <- the one `try`
+        return self.tag
+    }
+}
+func main() {
+    let h  = Holder<Int>(tag: 7)     print("{try! h.build(3)}")
+    let h2 = Holder<String>(tag: 9)  let n2 = try! h2.build("s")  print("{n2}")
+}
+// internal compiler error at std/alloc.saw:20:9 (ReturnStatement):
+//   Type of #1 arg mismatch: i8** != {i1, i8*}*
+```
+
+EITHER instantiation ALONE compiles and runs; the second is the whole delta.
+No `init` is involved — the callee above is a static factory — so the shape has
+been writable since Result generics landed and this predates DF-245a.
+
+MECHANISM (obligation 4): `_generate_try_expr` prefers the typechecker's
+`expr.result_enum_type` annotation and FALLS BACK to matching a registered
+`Result$…` enum BY LLVM TYPE, a fallback whose own comment
+(`sawc/codegen/results.py:38-58`) records that distinct instantiations share
+layouts and that the match is therefore ambiguous. In a generic body the
+annotation names the TEMPLATE's Result, so the second monomorphization reaches
+the fallback and takes whichever same-layout instantiation was registered first
+— the first one. The extraction then reads a payload of the wrong type, which
+surfaces as an IR-verifier failure when the two payloads differ enough and would
+be a silent miscompile when they do not. The fix owes the PER-INSTANTIATION
+annotation (substituted at monomorphization like every other `SawType` on the
+node), not a cleverer fallback; the fallback should arguably become a refusal
+once nothing needs it.
+
+TWO FACES, both found by design 234's flip and both this mechanism: the probe
+above, and `Map.insert`'s `return try self.insert(...)` recursion, which reached
+for `Result<Arc<DataBuf>, AllocError>` (`Can only insert {i1, i64} at [0] in
+{{i1, i64}}: got %"Arc$1$DataBuf$m$std_data"`) in any program that used a `Map`
+and a `Data` at once — a same-layout sibling the flip had just created.
+
+WHAT DESIGN 234 DID ABOUT IT. Nothing structural: the flip multiplies this shape
+(a generic container body propagating a now-fallible allocation), but every site
+it needed has an equivalent spelling that resolves at the call — `Map.insert`
+returns the recursive call directly instead of peeling and re-wrapping it, and
+`Map.keys`/`values` spell `Vector<K, A>()` + `match … reserve` instead of
+`try Vector<K, A>(capacity:)`. Both carry the citation at the line, so the
+spelling is not mistaken for taste and both revert when this closes. Pin:
+`examples/generic_body_try_survives_a_second_instantiation.saw` (XFAIL). [234, 92]
+
+## DF-257d — the `$0` SHORTHAND is invisible to the implicit-parameter scan
+## inside a `try` operand (filed Aug 25 by design 234 unit 3; PRE-EXISTING)
+
+```saw
+func fallible(n: Int) -> Result<Int, AllocError> { return n * 2 }
+func run(body: (Int) -> Void) { body(21) }
+
+run({ print("plain {$0}") })                      // fine
+run({ print("forced {try! fallible($0)}") })      // undefined variable `$0`
+// error: argument `body` expects `(Int) -> Void` but got `() -> Void`
+```
+
+MECHANISM (obligation 4): the walk that counts a closure's shorthand parameters
+— what turns `{ $0 * 2 }` into a one-argument closure — does not descend into a
+`TryExpr`'s operand, so a `$0` under `try`/`try!`/`try?` is neither counted nor
+bound. The closure is then built with NO parameters and refused at the argument
+position, with a second error at the `$0` itself. The control in the pin is the
+same `$0` with no `try` around it, so the `try` is the whole delta. The other
+expression forms that WRAP an operand are the siblings a fix should sweep
+(`move`, a cast, `?.`) — each is a node the same walk has to enter.
+
+WHY DESIGN 234 MET IT: `try!` is the corpus's migration spelling and `$0`
+closures are everywhere, so `v.each { [&var out] in out.push($0 * 2) }` becomes
+`v.each { [&var out] in try! out.push($0 * 2) }` and the shorthand disappears.
+Two corpus sites take the named-parameter spelling meanwhile
+(`{ [&var out] n in try! out.push(n * 2) }`), each citing this entry. Pin:
+`examples/closure_shorthand_parameter_inside_a_try.saw` (XFAIL). [234, 19]
 
 ## Design 242 — the Thread/Task split (AUTHORED + fully RULED Aug 22; IN
 ## FLIGHT on branch `design-242`)

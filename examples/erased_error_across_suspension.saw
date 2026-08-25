@@ -19,9 +19,9 @@ struct MyErr { code: Int }
 
 extension MyErr: Printable {
     func format(&self, into: &var StringBuilder) {
-        into.append("MyErr(")
-        into.append(self.code)
-        into.append(")")
+        try! into.append("MyErr(")
+        try! into.append(self.code)
+        try! into.append(")")
     }
 }
 

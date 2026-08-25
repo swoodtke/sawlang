@@ -84,9 +84,9 @@ func mt_watcher(gate: Channel<Int>, ready: Channel<Int>) -> Int {
 }
 
 func main() {
-    var g = TaskGroup(threads: 2)
-    let gate = Channel<Int>()
-    let ready = Channel<Int>()
+    var g = try! TaskGroup(threads: 2)
+    let gate = try! Channel<Int>()
+    let ready = try! Channel<Int>()
     let a = g.spawn(mt_worker(6, gate.copy(), ready.copy()))
     let b = g.spawn(mt_watcher(gate.copy(), ready.copy()))
     print("watcher {}", b.join())
