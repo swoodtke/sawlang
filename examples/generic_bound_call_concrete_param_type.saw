@@ -3,14 +3,13 @@
 // associated type and no `Self`, so `Int` is what it means at every
 // instantiation — there is nothing abstract to defer.
 //
-// Today the generic-bound call path checks argument COUNT and reference
+// The generic-bound call path used to check argument COUNT and reference
 // SPELLING and nothing else, so a `String` handed to an `Int` parameter
-// type-checks and reaches codegen, where it is an internal compiler error
+// type-checked and reached codegen, where it was an internal compiler error
 // (`Type of #2 arg mismatch: i64 != i8*`) rather than a diagnostic. The
-// deferral exists because a trait signature MAY name associated types; the
-// mechanism does not ask whether this one does.
-// XFAIL: DF-239b a fully concrete parameter type is unchecked on the
-// generic-bound call path, so a mismatch is an ICE at codegen
+// deferral existed because a trait signature MAY name associated types; the
+// mechanism did not ask whether this one does. DF-239b: it asks now, against
+// the signature resolved in the module that DECLARED it.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: argument `n` expects `Int` but got `String`
 

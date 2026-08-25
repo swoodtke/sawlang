@@ -1,0 +1,23 @@
+// DF-239b, the other half of the cross-module case: the check RUNS over here,
+// against a parameter type this module could not have resolved for itself.
+//
+// `traitgate239b.Sink.take` takes a `&data.Data`. This file never imports
+// `std.data`, so it cannot name `Data` — but handing the requirement a
+// `&String` is still a mistake, and it is now a diagnostic at the call rather
+// than `Type of #2 arg mismatch` at codegen. The message names the type the
+// DECLARING module meant, which is the fact the author needs.
+// COMPILE-FLAGS: --module-path traitgate239b={TESTDIR}/modules/traitgate239b
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: argument `bytes` expects `&Data` but got `&String`
+
+import traitgate239b
+
+func drive<T: traitgate239b.Sink>(s: &T, text: &String) -> Int {
+    s.take(&text)
+}
+
+func main() {
+    let sink = traitgate239b.ByteSink(start: 10)
+    let text = "hello"
+    print(drive(&sink, &text))
+}

@@ -57,6 +57,7 @@ for sawos; "238 before more M3 work" is absolute.
 - ~~DF-238b~~ — CLOSED Aug 22 (branch `diag-batch`, commit 2): an integer renders at its own width now, through the new `_fmt_int_fn` funnel; the freestanding pin lost its XFAIL and grew to four rows. The sweep also fixed the checked-CAST panic, which truncated the same way. Entry below
 - ~~DF-238c~~ — CLOSED Aug 22 (branch `diag-batch`, commit 3): a conformance query now walks the GLOB sources beside the qualifier bindings, through the new `coherence_search_namespaces` funnel. The sweep found a SECOND FACE at the same funnel — a declared `UnsafeSend`/`UnsafeSync` was lost the same way. Both pins flipped; conformance row B23. Entry below
 - DF-239b — RULED Aug 24 (user): DECLARATION-TIME RESOLUTION — a trait requirement's parameter types resolve at registration IN THE DECLARING MODULE'S context (design 194's provenance rule; design 241's `_register_trait` funnel entry already resolves them for the undefined check — the fix STORES the result as design-144 identities on `TraitMethodSymbol`), and the deep check then covers every parameter whose stored type names no `Self`/associated type. This is the ruled "migrate rules into abstract bound vocabulary" direction from 218 unit 1.5 — the abstract error at the generic's own line stays the better error post-1.5. DISPATCHED Aug 24 (branch `resolution-wording`). Entry below, beside DF-239a
+- ~~DF-239b~~ — CLOSED Aug 24 (branch `resolution-wording`, commit 2): a requirement's signature is resolved at `_register_trait` in the declaring module and stored on `TraitMethodSymbol`; the generic-bound call path checks every parameter that names nothing abstract once `Self` is substituted. Pin flipped, five tests added, the cross-module gated case verified in both directions, two auto-wrap/literal-adoption ICEs closed along the way. DF-169e (a static requirement on a type parameter) stays open and is named in the entry. Original ruling: DECLARATION-TIME RESOLUTION — a trait requirement's parameter types resolve at registration IN THE DECLARING MODULE'S context (design 194's provenance rule; design 241's `_register_trait` funnel entry already resolves them for the undefined check — the fix STORES the result as design-144 identities on `TraitMethodSymbol`), and the deep check then covers every parameter whose stored type names no `Self`/associated type. This is the ruled "migrate rules into abstract bound vocabulary" direction from 218 unit 1.5 — the abstract error at the generic's own line stays the better error post-1.5. Joins the pending dispatch group. Entry below, beside DF-239a
 - ~~DF-232g RESIDUE~~ — CLOSED Aug 22 (branch `diag-batch`, commit 5): `Expression` declares a `source_file` annotation, stamped by a walk beside the length fold's, so a codegen-raised length refusal names its file. Entry below
 - DF-226b/c — FuncPointer v1 gaps (entries below, under design 226)
 - DF-225o — reemit divergence under load (entry below)
@@ -99,8 +100,9 @@ batch, 225h Aug 20; 225a, 225d and 225f closed Aug 22 by `diag-batch` — their
 closure notes live in the DF-225a-f entry below, which has nothing open left
 inside it now and travels whole.)
 
-## DF-239b — a fully CONCRETE parameter type is unchecked on the
-## generic-bound call path (filed Aug 20, DF-239a's sweep)
+## ~~DF-239b — a fully CONCRETE parameter type is unchecked on the
+## generic-bound call path~~ (filed Aug 20, DF-239a's sweep) — **FIXED Aug 24**
+## on branch `resolution-wording`, commit 2, by DECLARATION-TIME RESOLUTION
 
 The residue of DF-239a's mechanism. `_check_type_param_method_call` defers
 deep argument typing because a trait signature MAY name an associated type;
@@ -116,6 +118,59 @@ parameter types are stored raw, and resolving one at a foreign call site runs
 the design-194 prelude gate against the wrong module. Wants a resolution
 strategy, hence its own entry. PIN:
 `examples/generic_bound_call_concrete_param_type.saw` (XFAIL). [239]
+
+**FIXED Aug 24** (branch `resolution-wording`, commit 2). `_register_trait` —
+design 241 unit 1's fifth funnel entry, which already GATED the requirement's
+written types and threw the answer away — now RESOLVES them and keeps the
+result: `TraitMethodSymbol.resolved_param_types` / `resolved_return_type`
+(design-144 identities) plus `abstract_type_names`, the set that stays abstract
+at every call site. `_check_type_param_method_call` then substitutes `Self` to
+the receiver's own type parameter and, for every parameter whose result names
+nothing in that set, runs the ORDINARY argument check — `_apply_literal_
+expected_type`, `_try_existential_arg_coercion`, `_arg_type_ok`, the same
+message and the same `_int_conversion_hint` the instance-method path uses.
+WHY DECLARATION TIME IS THE WHOLE FIX: resolving the spelling at the CALL runs
+the prelude gate against the caller's module, so a trait declaring
+`take(&self, bytes: &data.Data)` would be uncallable from any module that never
+wrote `import std.data` — the error naming a type the author never mentioned.
+Registration runs in the declaring module (and fourth of four passes, so
+same-module names are registered); the gate's per-position dedup means passing
+through `_resolve_type` there reports nothing twice.
+MECHANISM (obligation 4): "a call form with no argument-compatibility loop".
+The MATRIX, all probed: a CONCRETE parameter (the pin), a `Self` parameter
+(decidable — becomes `&T`, and the message says `&T` not `&Self`), an
+ASSOCIATED-TYPE parameter (deferred, and must stay so), a MIXED signature with
+all three plus out-of-order LABELS, and the cross-module gated pair in both
+directions. Two abstract sources the matrix does NOT need rows for, because the
+parser refuses both spellings: a trait cannot declare type parameters
+(`trait Holder<E>` is a parse error) and neither can a requirement
+(`func pick<R>(...)`). `abstract_type_names` collects them anyway, so the day
+either lands the decidability test is already right.
+TWO SECOND FACES the sweep turned up, both ICEs and both fixed by running the
+real machinery rather than by new rules: an auto-WRAP at an `Int?` parameter
+(`Type of #2 arg mismatch: {i1, i64} != i64`, verified against the branch point
+by stash) and design 87/205's literal ADOPTION at a `UInt8` parameter.
+FUNNEL (obligation 1): `_bound_call_param_slots` is now the ONE
+argument -> parameter mapping on this path, shared by the new type check and
+DF-239a's reference-spelling check — two rules judging per-parameter properties
+of the same argument had grown two copies of the label mapping. The type check
+also DEFERS to the spelling check where the two would both fire (a missing or
+surplus `&`), so one mistake still draws one diagnostic.
+ADJACENT, NOT CLOSED: a `static` requirement is still not callable on a type
+parameter (`T.make(...)` is `undefined variable \`T\``) — DF-169e, recorded in
+`std/cbor.saw` beside the `decode<T: Deserialize>` it blocks. That is why
+`_bound_call_param_slots`' `off == 0` branch is unreachable from this call form
+today; it is kept because the helper's contract covers both receiver shapes.
+PIN FLIPPED: `examples/generic_bound_call_concrete_param_type.saw` (XPASS).
+FIVE tests added: `generic_bound_call_self_param_type.saw`,
+`generic_bound_call_associated_param_defers.saw`,
+`generic_bound_call_mixed_signature_error.saw`,
+`generic_bound_call_decidable_param_conversions.saw`, and the cross-module pair
+`generic_bound_call_cross_module_gated_param{,_mismatch}.saw` over the new
+fixture `examples/modules/traitgate239b/`.
+CONFORMANCE: no row owed, the same disposition DF-239a took — this completes a
+TYPE CHECK (an ICE becomes a diagnostic) and changes no safety guarantee the
+ledger states.
 
 ## DF-247a — a function that is a `group.spawn` ROOT is `undefined function`
 ## at every OTHER call of it in the same module (filed Aug 22 by design 242

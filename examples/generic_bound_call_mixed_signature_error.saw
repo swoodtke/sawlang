@@ -1,0 +1,54 @@
+// DF-239b: decidability is per PARAMETER, not per requirement — and the
+// per-argument mapping is the LABELLED one where labels are written.
+//
+// `at(index: Int, item: Item, peer: &Self)` mixes all three kinds in one
+// signature. `index` is concrete and checked; `item` names the associated type
+// and is deferred; `peer` becomes `&T` and is checked. Both calls below write
+// labels out of declaration order, so the mapping — shared with DF-239a's
+// reference-spelling check through `_bound_call_param_slots` — is what picks
+// the parameter each argument is judged against.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: argument `index` expects `Int` but got `String`
+// EXPECT-ERROR-CONTAINS: argument `peer` expects `&T` but got `&Ledger`
+// The associated-type slot is never judged, whatever is handed to it.
+// EXPECT-ERROR-ABSENT: argument `item`
+// EXPECT-ERROR-CONTAINS: 2 error(s) generated
+
+trait Mixed {
+    type Item
+    func at(&self, index: Int, item: Item, peer: &Self) -> Int
+}
+
+struct Row { n: Int }
+extension Row: Mixed {
+    type Item = String
+    func at(&self, index: Int, item: String, peer: &Row) -> Int {
+        self.n + index + item.len() + peer.n
+    }
+}
+
+struct Ledger { n: Int }
+extension Ledger: Mixed {
+    type Item = Int
+    func at(&self, index: Int, item: Int, peer: &Ledger) -> Int {
+        self.n + index + item + peer.n
+    }
+}
+
+// Legal: labels out of order, every argument at the right type.
+func ordered<T: Mixed>(r: &T, other: &T) -> Int {
+    r.at(peer: &other, index: 1, item: "text")
+}
+
+// Illegal in two slots at once; the third is undecidable and stays unjudged.
+func scrambled<T: Mixed>(r: &T, wrong: &Ledger) -> Int {
+    r.at(peer: &wrong, index: "nope", item: "text")
+}
+
+func main() {
+    let a = Row(n: 1)
+    let b = Row(n: 2)
+    let l = Ledger(n: 3)
+    print(ordered(&a, &b))
+    print(scrambled(&a, &l))
+}

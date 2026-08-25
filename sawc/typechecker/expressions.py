@@ -8372,14 +8372,20 @@ class ExpressionsMixin:
         type and therefore stays abstract. Provided by no bound: a compile error
         naming the method and the bounds (an unbounded `T` names an empty set).
 
-        Deep argument-type compatibility is *deferred*: a trait method signature
-        may mention associated types or the trait's own type parameters, which
-        stay abstract in this body, so a concrete-vs-abstract comparison here
-        would produce false positives. Argument *count* is decidable and checked.
+        Deep argument-type compatibility used to be deferred WHOLESALE: a trait
+        method signature MAY mention associated types or the trait's own type
+        parameters, and nothing asked whether THIS one does. DF-239b closes
+        that: the requirement's signature is resolved at REGISTRATION, in the
+        module that declares it, and every parameter whose resolved type names
+        nothing abstract — after `Self` is substituted to the receiver's own
+        type parameter — takes the ordinary argument check here. What is left
+        deferred is what is genuinely undecidable in this body: a parameter
+        naming an associated type, a trait type parameter, or the
+        requirement's own generic.
 
-        THREE things are decidable and ARE checked, because each is a SPELLING
-        question rather than a typing one — true at every instantiation whatever
-        `T` turns out to be. This is the one call form in the language with no
+        FOUR things are checked. Each of the first three is a SPELLING question
+        rather than a typing one — true at every instantiation whatever `T`
+        turns out to be. This is the one call form in the language with no
         argument-compatibility loop, so anything it skips reaches codegen, where
         a mismatch is an ICE rather than a diagnostic (DF-239a):
 
@@ -8390,10 +8396,21 @@ class ExpressionsMixin:
             one refuses it. `&` is written at the call site in Saw (design 34's
             mirroring rule), so this needs no substitution and no resolution:
             the declared type's own kind answers it.
+          - the argument's TYPE, for every DECIDABLE parameter
+            (`_bound_call_expected_type`) — DF-239b. It runs where the ordinary
+            method path's does, over the same `_arg_type_ok` predicate and with
+            the same literal-adoption stamp ahead of it, so `a.concrete("hi")`
+            against `func concrete(&self, n: Int)` is a diagnostic at the call
+            rather than `Type of #2 arg mismatch: i64 != i8*` at codegen.
 
-        Deep typing is still deferred, and a mismatch there still reaches
-        codegen — DF-239b, pinned by
-        `examples/generic_bound_call_concrete_param_type.saw`.
+        WHY RESOLUTION HAD TO MOVE (the reason this was its own finding rather
+        than DF-239a's last cell): the declared types are raw spellings, and
+        resolving one HERE runs design 194's prelude gate against the caller's
+        module. A trait declared in a module that imports `std.data` and takes a
+        `data.Data` would then be uncallable from a module that does not — the
+        error naming a type the caller never wrote. Declaration-time resolution
+        is what makes the check safe across modules; see
+        `TraitMethodSymbol.resolved_param_types`.
 
         A trait method has no analyzable body, so it contributes no suspend edge
         — a conservative non-suspending leaf, matching how opaque/imported
@@ -8421,11 +8438,50 @@ class ExpressionsMixin:
                     f"but {len(expr.arguments)} were given",
                     expr.line, expr.column
                 )
-            for arg in expr.arguments:
+            # DF-239b: the expected type per argument, where the requirement's
+            # resolved signature makes one decidable. `None` everywhere is the
+            # pre-DF-239b behaviour and is what an unresolved symbol, an
+            # unmappable label list or a genuinely abstract parameter gets.
+            slots = (self._bound_call_param_slots(expr, method_sym)
+                     if arity_ok else None)
+            off, mapping = slots if slots is not None else (0, [])
+            for i, arg in enumerate(expr.arguments):
+                param = mapping[i] if i < len(mapping) else None
+                expected = (None if param is None else
+                            self._bound_call_expected_type(
+                                method_sym, param + off, obj_type))
                 if isinstance(arg.value, ClosureExpr):
-                    self._check_closure(arg.value, None, as_call_argument=True)
-                else:
-                    self._check_expression(arg.value)
+                    self._check_closure(arg.value, expected,
+                                        as_call_argument=True)
+                    continue
+                if expected is not None:
+                    # Design 87/205's literal adoption, ahead of the check, on
+                    # the same terms as the ordinary method path: a bare `1` at
+                    # a `UInt8` parameter is that parameter's literal, not a
+                    # platform `Int` being narrowed.
+                    self._apply_literal_expected_type(arg.value, expected)
+                arg_type = self._check_expression(arg.value)
+                if expected is None or arg_type is None:
+                    continue
+                if self._try_existential_arg_coercion(arg, arg_type, expected):
+                    continue
+                if ((expected.kind == TypeKind.REFERENCE)
+                        != isinstance(arg.value, ReferenceExpr)):
+                    # A missing or surplus `&` is `_check_bound_arg_reference_
+                    # spelling`'s to report, and its message carries the fixit.
+                    # One mistake, one diagnostic: the type mismatch this also
+                    # produces is the same fact said worse.
+                    continue
+                if not self._arg_type_ok(arg.value, arg_type, expected):
+                    name = (method_sym.param_names[param]
+                            if param < len(method_sym.param_names)
+                            else str(i + 1))
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"argument `{name}` expects `{expected}` but got "
+                        f"`{arg_type}`",
+                        arg.value.line, arg.value.column,
+                        hint=self._int_conversion_hint(arg_type, expected))
             if arity_ok:
                 self._check_bound_arg_reference_spelling(
                     expr, obj_type, method_sym)
@@ -8480,6 +8536,99 @@ class ExpressionsMixin:
         )
         return None
 
+    def _bound_call_param_slots(self, expr: MethodCall, method_sym):
+        """Which DECLARED parameter each argument fills, or None.
+
+        THE ONE argument -> parameter mapping on the generic-bound call path
+        (obligation 1). ENTRY POINTS: `_check_type_param_method_call`'s deep
+        type check (DF-239b) and `_check_bound_arg_reference_spelling`'s
+        reference-spelling check (DF-239a). Both judge a per-parameter property
+        of an argument, and two copies of "which parameter is this" would drift
+        the moment labels grew a rule.
+
+        Returns `(off, mapping)`: `off` is the `self` placeholder's width in
+        `param_types` (1 for a receiver requirement, 0 for a `static` one), and
+        `mapping[i]` indexes `param_names` for argument `i`. `None` means the
+        mapping cannot be established — an unrecognized label is somebody else's
+        diagnostic, and judging the call at guessed positions would pile a wrong
+        error on top of a right one.
+        """
+        param_types = list(method_sym.param_types or [])
+        param_names = list(method_sym.param_names or [])
+        off = len(param_types) - len(param_names)
+        if off < 0:
+            return None
+        # Labels map by name (design 66).
+        if self._call_has_labels(expr):
+            mapping = []
+            for arg in expr.arguments:
+                label = getattr(arg, 'name', None)
+                if label is None or label not in param_names:
+                    return None
+                mapping.append(param_names.index(label))
+            return off, mapping
+        return off, list(range(len(expr.arguments)))
+
+    def _bound_call_expected_type(self, method_sym, slot: int,
+                                  obj_type: SawType):
+        """The parameter type at `slot` if it is DECIDABLE in this body, else
+        None (DF-239b).
+
+        TWO steps, and the order matters:
+
+          1. take the DECLARATION-TIME resolution (`resolved_param_types`),
+             never the raw spelling — the raw one means whatever the DECLARING
+             module's imports say, and re-resolving it here would ask the
+             caller's namespace a question about someone else's module;
+          2. substitute `Self` to the receiver's own type parameter, then refuse
+             the parameter if what is left names anything abstract — an
+             associated type, a trait type parameter, the requirement's own
+             generic (`abstract_type_names` carries all three, collected where
+             they are known).
+
+        After step 2 a surviving type is one that means the same thing at every
+        instantiation: `Int` is `Int`, and `&Self` has become `&T`, which the
+        body can compare against because `T` is its own parameter. `T` itself is
+        NOT abstract for this purpose — it is the very type the receiver has.
+
+        A symbol with no declaration-time resolution (the shallow
+        `register_module_from_ast` path builds those) answers None for every
+        slot, which is exactly the deferral this call form had before.
+        """
+        resolved = method_sym.resolved_param_types
+        if not resolved or slot < 0 or slot >= len(resolved):
+            return None
+        declared = resolved[slot]
+        if declared is None:
+            return None
+        substituted = self._substitute_self_type(declared, obj_type) or declared
+        if self._type_names_any(substituted, method_sym.abstract_type_names):
+            return None
+        return substituted
+
+    def _type_names_any(self, t, names, depth: int = 0) -> bool:
+        """Whether `t` mentions any name in `names`, at any depth.
+
+        The abstractness test behind `_bound_call_expected_type`. Every slot a
+        name can sit in is walked, because `Vector<Item>` and `(Int, Item)` are
+        as abstract as a bare `Item` and neither is visible at the root.
+        """
+        if t is None or not names or depth > 16:
+            return False
+        for slot in ('struct_name', 'enum_name', 'type_param_name',
+                     'existential_trait'):
+            value = getattr(t, slot, None)
+            if value and value.split('.')[-1] in names:
+                return True
+        for child in (t.inner_type, t.array_element_type, t.func_return_type):
+            if self._type_names_any(child, names, depth + 1):
+                return True
+        for group in (t.type_args, t.element_types, t.param_types):
+            for child in (group or []):
+                if self._type_names_any(child, names, depth + 1):
+                    return True
+        return False
+
     def _check_bound_arg_reference_spelling(self, expr: MethodCall,
                                             obj_type: SawType,
                                             method_sym) -> None:
@@ -8516,23 +8665,10 @@ class ExpressionsMixin:
         """
         param_types = list(method_sym.param_types or [])
         param_names = list(method_sym.param_names or [])
-        # `param_types` carries a VOID placeholder for a `self` receiver and none
-        # for a static requirement; the difference in length is the offset.
-        off = len(param_types) - len(param_names)
-        if off < 0:
+        slots = self._bound_call_param_slots(expr, method_sym)
+        if slots is None:
             return
-        # Labels map by name (design 66); an unrecognized label is somebody
-        # else's diagnostic, so the whole call is left alone rather than judged
-        # at guessed positions.
-        if self._call_has_labels(expr):
-            mapping = []
-            for arg in expr.arguments:
-                label = getattr(arg, 'name', None)
-                if label is None or label not in param_names:
-                    return
-                mapping.append(param_names.index(label))
-        else:
-            mapping = list(range(len(expr.arguments)))
+        off, mapping = slots
         for i, arg in enumerate(expr.arguments):
             p = mapping[i] + off
             if p >= len(param_types):

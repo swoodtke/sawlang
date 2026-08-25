@@ -190,6 +190,29 @@ class TraitMethodSymbol:
     # method declares a `{ ... }` default, else None. Carried so a conformer that
     # omits the method can synthesize a per-conformer Method from this body.
     ast_node: Optional[Any] = None
+    # DECLARATION-TIME RESOLUTION (DF-239b). `param_types`/`return_type` above
+    # are stored RAW — the author's spelling — and a raw `data.Data` or a bare
+    # `Config` means whatever the DECLARING module's imports say it means. These
+    # are the same signature resolved once, at `_register_trait`, in that
+    # module's own context, carrying design-144 identities.
+    #
+    # A foreign call site could not have done this for itself: resolving a
+    # requirement's parameter at the call site runs design 194's prelude gate
+    # against the WRONG module, so a trait whose module imports a gated type is
+    # unusable from a module that does not. That is what kept the deep argument
+    # check deferred (DF-239a's residue), and resolving here is what unblocks it.
+    #
+    # `None` means "not resolved" — the shallow `register_module_from_ast` path
+    # builds symbols without it — and every consumer falls back to deferral,
+    # which is the pre-DF-239b behaviour.
+    resolved_param_types: Optional[List[Optional[SawType]]] = None
+    resolved_return_type: Optional[SawType] = None
+    # The names in this requirement's signature that stay ABSTRACT at every call
+    # site: the trait's associated types (own and inherited), the trait's own
+    # type parameters, and the requirement's own. A parameter whose resolved type
+    # names none of them (after `Self` is substituted to the receiver) is
+    # DECIDABLE and gets the ordinary argument check.
+    abstract_type_names: FrozenSet[str] = frozenset()
 
 
 @dataclass

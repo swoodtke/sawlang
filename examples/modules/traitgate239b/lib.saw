@@ -1,0 +1,36 @@
+//! DF-239b's load-bearing case: a trait whose REQUIREMENT names a gated std
+//! type through the qualifier THIS module imports.
+//!
+//! `data.Data` means something here because this file wrote `import std.data`.
+//! A caller of `<T: Sink>` need not have written it — and design 194's prelude
+//! gate would refuse the spelling if anyone tried to resolve it over there —
+//! so the requirement's signature is resolved once, HERE, at registration.
+
+import std.data
+
+public trait Sink {
+    func take(&self, bytes: &data.Data) -> Int
+}
+
+public struct ByteSink {
+    seen: Int
+}
+
+extension ByteSink: Sink {
+    public init(start: Int) -> ByteSink {
+        ByteSink(seen: start)
+    }
+
+    public func take(&self, bytes: &data.Data) -> Int {
+        self.seen + bytes.len()
+    }
+}
+
+/// Three bytes, so a caller can exercise `Sink` without naming `Data` at all.
+public func sample() -> data.Data {
+    var d = data.Data()
+    d.push(1 as UInt8)
+    d.push(2 as UInt8)
+    d.push(3 as UInt8)
+    move d
+}

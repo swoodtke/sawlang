@@ -1,0 +1,47 @@
+// DF-239b: a `Self` parameter is DECIDABLE on the generic-bound call path once
+// `Self` is substituted to the receiver's own type parameter.
+//
+// `merge(&self, other: &Self)` means `&T` in a `<T: Mergeable>` body — the same
+// thing at every instantiation — so `a.merge(&b)` with two `&T`s is fine and
+// `a.merge(&s)` with a concrete `&Sack` is not. Before, neither was checked and
+// the second reached codegen as `Type of #2 arg mismatch`.
+//
+// The message says `&T`, the reader's own parameter, not `&Self`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: argument `other` expects `&T` but got `&Sack`
+// The legal half must stay silent, and the illegal one must not ALSO draw the
+// reference-spelling refusal (`&s` is spelled correctly; only its type is wrong).
+// EXPECT-ERROR-CONTAINS: 1 error(s) generated
+// EXPECT-ERROR-ABSENT: the borrow is not written
+
+trait Mergeable {
+    func merge(&self, other: &Self) -> Int
+}
+
+struct Bag { n: Int }
+extension Bag: Mergeable {
+    func merge(&self, other: &Bag) -> Int { self.n + other.n }
+}
+
+struct Sack { n: Int }
+extension Sack: Mergeable {
+    func merge(&self, other: &Sack) -> Int { self.n * other.n }
+}
+
+// Legal: both sides are the same `T`, so this half compiles clean.
+func agree<T: Mergeable>(a: &T, b: &T) -> Int {
+    a.merge(&b)
+}
+
+// Illegal: `&Sack` is not `&T`.
+func disagree<T: Mergeable>(a: &T, s: &Sack) -> Int {
+    a.merge(&s)
+}
+
+func main() {
+    let x = Bag(n: 3)
+    let y = Bag(n: 4)
+    let s = Sack(n: 5)
+    print(agree(&x, &y))
+    print(disagree(&x, &s))
+}

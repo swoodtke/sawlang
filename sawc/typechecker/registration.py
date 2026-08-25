@@ -805,10 +805,43 @@ class RegistrationMixin:
                     param_names.append(param.name)
                     param_types.append(param.type)
 
+            # DF-239b: DECLARATION-TIME RESOLUTION. The gate walk above already
+            # asks "does this name denote a type HERE"; the answer was thrown
+            # away, and the deep argument check on the generic-bound call path
+            # was deferred for want of it. Resolve the same slots now — this is
+            # the module that DECLARES the requirement, so its imports are the
+            # ones the spelling was written against — and keep the result beside
+            # the raw types. A call site in another module then reads a resolved
+            # identity instead of trying to resolve a foreign spelling against
+            # its own namespace, which is what design 194's provenance rule
+            # forbids (`data.Data` in the declaring module's signature is not
+            # `data.Data` in a caller that never imported `std.data`).
+            #
+            # Resolution runs AFTER this module's structs, enums and aliases are
+            # registered (the trait pass is fourth of four), so a same-module
+            # name resolves; the gate's report is deduplicated per written
+            # position, so passing through `_resolve_type` here reports nothing
+            # twice. A name that stays abstract — `Self`, an associated type, a
+            # type parameter — resolves to itself and is EXCLUDED by
+            # `abstract_type_names` rather than by the resolution failing.
+            resolved_param_types = []
+            for param in method.parameters:
+                if param.name == "self":
+                    resolved_param_types.append(SawType(TypeKind.VOID))
+                elif param.type is None:
+                    resolved_param_types.append(None)
+                else:
+                    resolved_param_types.append(self._resolve_type(param.type))
+            resolved_return_type = (self._resolve_type(method.return_type)
+                                    if method.return_type is not None else None)
+
             methods[method.name] = TraitMethodSymbol(
                 name=method.name,
                 param_types=param_types,
                 return_type=method.return_type,
+                resolved_param_types=resolved_param_types,
+                resolved_return_type=resolved_return_type,
+                abstract_type_names=frozenset(_method_scope),
                 param_names=param_names,
                 self_mutable=method.self_mutable,
                 self_is_reference=method.self_is_reference,
