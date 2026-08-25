@@ -297,21 +297,22 @@ class _PlaceUses:
         value to hand back, so `__R` is Void and the assignment itself becomes
         the window body.
 
-        UNLESS the right-hand side opens a window on the SAME ROOT (DF-218j).
-        `h.at().n = h.at().n + 10` is two windows on one `h`, and the assignment
-        already says in which order they run: design 193 fixed the RHS as the
-        first thing an assignment evaluates. So the honest lowering is two
-        STATEMENTS, not two nested windows — the read's window closes before the
-        write's opens, which is the "two windows in separate statements" shape
-        design 188 has always accepted. Nesting them instead put the second
-        access to `h` inside the first's closure, where it was a by-value
-        capture and answered with ``cannot copy value of type `Holder` `` — the
-        wrong noun for the wrong rule, and the ONE window control
-        (`h.at().n += 10`) compiled beside it.
+        UNLESS the right-hand side NAMES THE SAME ROOT (DF-218j, widened by
+        DF-248a). `h.at().n = h.at().n + 10` is two windows on one `h`, and
+        `v[0].n = v.len()` is a window and a plain `&self` read of its root; the
+        assignment already says in which order the two sides run, since design
+        193 fixed the RHS as the first thing it evaluates. So the honest
+        lowering is two STATEMENTS, not a nested one — the RHS finishes before
+        the write's window opens, which is the "two accesses in separate
+        statements" shape design 188 has always accepted. Nesting instead put
+        the second access to the root inside the first's closure, where it was a
+        by-value capture and answered with ``cannot copy value of type
+        `Holder` `` — the wrong noun for the wrong rule, and the ONE window
+        control (`h.at().n += 10`) compiled beside it.
         """
         place = self._chain_head(stmt.target)
         hoist = None
-        if place is not None and self._rhs_reenters_root(stmt.value, place):
+        if place is not None and self._rhs_names_root(stmt.value, place):
             hoist_name = self._fresh_hoist()
             hoist = LetStatement(
                 name=hoist_name, type_annotation=None,
@@ -338,10 +339,10 @@ class _PlaceUses:
 
     def _hoist_chain_assign_rhs(self, node):
         """The `let` a chain assignment's right-hand side is hoisted into when it
-        opens a window on the head's own root, or None. `node.value` is swapped
-        for the binding in place."""
+        names the head's own root, or None. `node.value` is swapped for the
+        binding in place."""
         head = self._chain_assign_head(node)
-        if head is None or not self._rhs_reenters_root(node.value, head[0]):
+        if head is None or not self._rhs_names_root(node.value, head[0]):
             return None
         hoist_name = self._fresh_hoist()
         hoist = LetStatement(
@@ -352,15 +353,27 @@ class _PlaceUses:
                                 column=node.value.column)
         return hoist
 
-    def _rhs_reenters_root(self, value, place) -> bool:
-        """Does `value` open a window on the ROOT the target's place is rooted
-        at? (DF-218j — the one condition the hoist above turns on.)
+    def _rhs_names_root(self, value, place) -> bool:
+        """Does `value` NAME the root the target's place is rooted at? (DF-218j
+        and DF-248a — the one condition both hoists above turn on.)
 
-        Narrow on purpose. Two windows on two DIFFERENT roots nest happily —
-        that is a window beside a shared read of a disjoint path, which design
-        188's accept side already names — and hoisting those too would move a
-        temporary's death from the window's close to the block's end for every
-        `v[0] = w[1]` in the corpus, to fix nothing.
+        DF-218j asked the narrower question, "does the right-hand side open a
+        WINDOW on that root", because that was the shape it had. The rule is the
+        same for a plain READ of the root (`v[0].n = v.len()`, DF-248a): an
+        assignment already says in which order its two sides run — design 193
+        fixed the right-hand side as the first thing it evaluates — so hoisting
+        anything that reaches the root out of the window is semantics-preserving
+        by that rule, whether the reach is a window or a `&self` call.
+
+        Narrow on purpose, still. A right-hand side that names some OTHER root
+        is left where it is: two windows on two different roots nest happily,
+        and hoisting those too would move a temporary's death from the window's
+        close to the block's end for every `v[0] = w[1]` in the corpus, to fix
+        nothing.
+
+        The refusal this does NOT lift is every other in-window naming of the
+        root — an argument, a body read — where there is no documented order to
+        hoist along (`_place_window_root_capture_error` carries that half).
         """
         root = self._access_root(self._place_receiver(place))
         if root is None or value is None:
@@ -374,6 +387,10 @@ class _PlaceUses:
             seen.add(id(node))
             if is_place(node) and self._access_root(
                     self._place_receiver(node)) == root:
+                return True
+            if isinstance(node, Identifier) and node.name == root:
+                return True
+            if isinstance(node, SelfExpr) and root == "self":
                 return True
             stack.extend(child_nodes(node))
         return False

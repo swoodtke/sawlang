@@ -626,6 +626,16 @@ var u = w.copy()       // explicit duplicate
   ROOT, so `v.push(x)` inside a window is a compile error (invalidation-proof
   by the Law of Exclusivity, not by a closure scope) and so is swapping two
   elements through two windows (`v.swap(i, j)` is the method for that).
+  **THE ONE POSITION THAT MAY NAME THE ROOT IS AN ASSIGNMENT'S RHS** — `v[0].n =
+  v.len()`, `h.at().n = h.count()`, and even `v[0].n = v.pop()!.n`, because a
+  right-hand side is defined to run BEFORE its target, so the compiler lifts it
+  out of the window and the two accesses become two statements (DF-218j, widened
+  to plain reads by DF-248a). Everywhere else the root stays refused —
+  `v[0].bump(by: v.len())`, `print("{v.len()} {v[0]}")`, `v[0] == v[1]` — because
+  an argument and a body read run AFTER the accessor's prologue and lifting one
+  would reorder the program; write the `let` yourself there. The diagnostic
+  (``cannot read `v` from inside a place window opened on it``) spells the
+  asymmetry out, since nothing on the page distinguishes the two.
   **TWO BY-REFERENCE ACCESSES TO ONE ROOT IN ONE CALL, at least one a place,
   are an EXCLUSIVITY ERROR on every copy tier (design 188)** — two windows
   (`setboth(&var p.at(0), &var p.at(1))`) or a window beside a `&var` of its
@@ -3320,7 +3330,8 @@ construct in the owner and lend `&driver` down.
   anything else in it is inside the window — an `assert` condition naming the
   place's own root (`assert(v[0].n == 1, "{}", v[0])`) wants a `let` of its own
   first, and so does the two-places-ONE-container comparison `v[0] == v[1]`
-  (DF-248a).
+  (DF-248a). The error there TEACHES the split, because the assignment shape one
+  line up compiles.
 - **A pattern that BINDS NOTHING is a presence test, not a read** (design 146).
   `if let _ = doc.section(name)`, `guard let _ = ...`, and a `match` arm like
   `case Empty` or `case Occupied(_)` look at the discriminant through the

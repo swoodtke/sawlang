@@ -33,7 +33,7 @@ is scheduled and in what order is the whole of what they say.
 
 - Design 234 — the fallibility flip (designs/234-fallibility-flip.md) — units 0-2, 4, 5 + channel sub-unit LANDED Aug 22; UNIT 3 RULED Aug 24 (user): PATH 1 — ~~fix DF-245a FIRST~~ **DF-245a LANDED Aug 24** (branch `df-245a-fallible-init`: fallible `init` is expressible; an `init` may declare ONLY `Self`/the receiver or `Result<Self, E>`, nothing else — no `Self?`, refused at the declaration; entry below), so unit 3 may now flip the constructors in place and is UNBLOCKED, THEN the flip as ratified (no factory migration). Migration protocol RATIFIED: examples/tests take `try!` mechanically (failure-path tests get real matches, flagged by name); sawc/std per-site with a propagate bias (`try!` inside std re-creates the panic tier); blade/devtools/tools/selfhost per-site, propagate bias, irdet+bench their own careful commit; every non-mechanical site listed in the landing section (the 205 precedent). Execution: DF-245a brief-let, then unit 3 as one dispatch
 - Design 242 — the Thread/Task split (designs/242-thread-task-split.md) — units 0-1 LANDED Aug 22; UNITS 2 + 4(part) + 5 LANDED Aug 24 (branch `design-242-b`: the consumption funnel per-path, 9a's storage discharge keyed on a hand-written-deinit root, 9b's panic on the two THREAD handles, the blocking-permitted sync context via a second fixpoint, docs; conformance K78-K84; the 9b probe corrected the census — three corpus sites migrated). UNIT 3 RULED Aug 24 (user, ruling 10 in the brief): the CALL form is the Task engine's primitive; the brace form is SUGAR with an EXPLICIT-CAPTURE-LIST requirement UNIFORM across Thread.spawn/Task.spawn/group.spawn braces (the list IS the parameter list; implicit captures = teaching error; ~42-site Thread-brace migration rides). Trailing-brace syntax briefed as design 243, BACKLOGGED. Unit 3 redisptaches when the deferred-move branch lands (capture-machinery overlap); detach()'s `__saw_rt_*` seam gets lead-spec'd in the redispatch prompt. One finding filed: DF-252a (FuncPointer called by name in a driven body, pinned XFAIL)
-- ~~Place-window xfail family~~ — LANDED Aug 22 (branch `place-window-fixes`): DF-169h/DF-218i(+248d)/DF-218j closed, DF-232n pin resolved as superseded-by-ruling. ~~DF-218h~~ — CLOSED Aug 24 (branch `deferred-move`, commit 1) to the ruling: a non-escaping closure's `move` capture transfers WHEN THE BODY RUNS. DF-248a rides the same branch. Entries below
+- ~~Place-window xfail family~~ — LANDED Aug 22 (branch `place-window-fixes`): DF-169h/DF-218i(+248d)/DF-218j closed, DF-232n pin resolved as superseded-by-ruling. ~~DF-218h~~ and ~~DF-248a~~ — CLOSED Aug 24 (branch `deferred-move`, one commit each) to their rulings: a non-escaping closure's `move` capture transfers WHEN THE BODY RUNS, and an assignment's RHS may read the target's own root while every other in-window naming keeps its refusal behind teaching text. One finding filed: DF-255a (the ESCAPING half of the capture double free, pinned XFAIL). Entries below
 - ~~Diagnostics/codegen small batch~~ — LANDED Aug 22-23 (branch `diag-batch`, seven commits, nothing stopped): DF-245b, DF-238b (+ the checked-cast twin), DF-238c (+ a second face at the thread-assertion funnel, conformance B23), DF-243a (four operator families + the sos abi un-suffixing, byte-identical), DF-243b+DF-232g residue, DF-225a, DF-225d (self usable as its own type on all ten primitives), DF-225f ridden. One finding filed: DF-249a (bounds panic omits index+length — wording decision held). xfails -2, none added
 - ~~Transform typing batch~~ — ALL THREE LANDED Aug 22 (branch `transform-typing`, one commit each, after 242 units 0-1 integrated): DF-245c (a bare `None`'s payload type now outlives the second typecheck pass), DF-245d (a propagating `try` in a container HEAD — the sweep widened the rule from the binding forms), DF-244b (the bare `None` tail, through design 234's ladder). Two XFAIL pins flipped (suite xfails 7 -> 5), two new passing tests added (DF-244b had no pin: `result_optional_none_tail_types_itself.saw` plus the refusal `errors/result_none_tail_needs_an_optional_ok.saw`). Two findings filed: DF-250a, DF-250b. Entries below
 - Design 218 unit 1.5 — monomorphization becomes a pre-codegen transform (RULED Aug 13; SCHEDULED Aug 24, user: MOVED UP, BEFORE the 238 split — the migration lands under the full in-tree gate battery and the sawos pin starts life post-1.5). Process per the 218 ruling: a FABLE SPEC AGENT authors the census first (every `_ensure_monomorphized_*` call site, the instance-re-check design, error attribution, the per-(template, type-args) cache), lead reviews, user rules, Opus implements. Expected closures ride it: DF-217i/j/k, S1 row p08a, plausibly DF-247a. Brief section: designs/218-enforcement-architecture.md unit 1.5
@@ -75,8 +75,13 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-247a — a function that is a `group.spawn` ROOT is `undefined function` at every other call of it in the same module (entry below, filed by design 242 unit 0's census; PRE-EXISTING, stash-verified). The fix owes the ROOT MATRIX its mechanism reaches, not the one probed cell
 - DF-247b — RULED Aug 24 (user), as a DESIGN 150 AMENDMENT with two halves: (1) a QUALIFIER is bound ONLY by the whole-module form (`import std.data`, renamed by `as`); the selective and glob forms bind exactly their named/bare surface and NO qualifier — the former bonus-qualifier reach becomes a refusal with the fixit naming the whole-module line (an undocumented dependency was exactly what 150's own braces idiom exists to prevent); (2) same-module combinations (`import std.data` + `.{Data}` or `.*`) become LEGAL and complementary, and with both imported the bare and qualified spellings are ONE TYPE in EVERY position (annotation, construction, generic arg, `&any` bound, extension lookup, conformance coherence) — pinned by a position matrix, since the pair is newly legal and DF-247b's fresh-identity mechanism could lurk on it. Obligation-2 census owed (any in-tree qualifier use whose only import is selective/glob gets its explicit whole-module line). DISPATCHED Aug 24 (branch `resolution-wording`, with DF-239b + DF-249a). Entry below
 - DF-249a — RULED Aug 24 (user): YES to both, ONE wording family — every bounds/range panic (compiler traps AND std's hand-written accessor prologues) spells `<what>: index out of range: <i> (len <n>)` (range/slice variants spell both bounds); free via the design-137 format machinery, alloc-free everywhere. Arithmetic traps (overflow/shift/div-zero) deliberately EXCLUDED from v1 (operand-format questions, marginal value) — recorded, not forgotten. Mechanical sweep + pinned-string updates; DISPATCHED Aug 24 (branch `resolution-wording`). Entry below
+<<<<<<< HEAD
 - ~~DF-246a~~ — CLOSED Aug 24 (branch `harness-doctrine`, commit 1): the three ruled rules are TESTING.md's "Waiting in a multi-threaded test", with the park-on-controlled-gate idiom as its worked example, and BOTH members of the class are rewritten to it — each 10/10 byte-identical in isolation AND at loadavg 34, where the backtrace one also dropped from 3.9s per run to 0.01s. Entry below
 - DF-248a — RULED Aug 24 (user): NO carve-out to the Law. The ASSIGNMENT-RHS face (`v[0].n = v.len()`) LEGALIZES via the design-193/DF-218j hoist (RHS-first is the documented order, so hoisting the read ahead of the target's window is semantics-preserving by rule); every OTHER in-window naming of the root (arguments, body reads) keeps its refusal, because the hoist there would run the read ahead of the accessor's PROLOGUE — an observable reorder of documented sequence. USER REQUIREMENT: the refusal carries TEACHING TEXT explaining the asymmetry (the two shapes look identical to an uninformed reader — the error must say WHY the assignment form works and this one doesn't, and give the one-line `let` hoist as the fix). HOLDS with DF-218h until design-242-b lands, then dispatches. Entry below
+=======
+- DF-246a — RULED Aug 24 (user), the MT-TEST DOCTRINE, three rules: (1) a fixed sleep is NEVER a synchronizer (it may pace a poll loop, never establish state); (2) the awaited state must be STABLE once reached (workers park on gates the TEST controls — a channel nobody sends on, an Atomic the observer flips); (3) observe by POLLING the observation itself until the stable state appears, a generous deadline bounding only genuine breakage. No synchronized `dump_tasks` twin — its unsync character is a recorded feature. Execution: TESTING.md section (the three rules + the park-on-controlled-gate idiom), both flaky tests rewritten, DF-246a closes. DISPATCHED Aug 24 (branch `harness-doctrine`, with DF-248c). Entry below
+- ~~DF-248a~~ — CLOSED Aug 24 (branch `deferred-move`, commit 2) to the ruling: the hoist widened from a window-opening RHS to any read of the root, and every other in-window naming keeps its refusal behind the teaching text. Entry below
+>>>>>>> e4863e6b (DF-248a: an assignment's RHS may read the target's own root, and the refusal elsewhere says why)
 - DF-248b RESIDUE — a HAND-WRITTEN closure nested inside another still captures the outer one's `&var` PARAMETER by value, so a write through it is silently lost; the place-window half closed Aug 22. Entry below, pinned XFAIL; wants a borrow marker on `VariableInfo`
 - DF-248c RESIDUE (the XFAIL-CHARACTER face) — an XFAIL that starts failing for a WORSE reason than the one cited is still invisible to every gate; it wants the `XFAIL-EXPECT: error`/`output` discriminator the entry names, in the RUNNER, not in a lint. The CITATION face closed Aug 24 (branch `harness-doctrine`, commit 2) as the `citations` battery lane, `tools/check_citations.py`: done-file membership is closure full stop, a todo.md entry's status decides the rest, and an OPEN entry WINS over every closure — which is what keeps a partly-closed finding's pin (DF-218w, DF-248b, and this entry itself) from being flagged. Undecidable rows are info, never failures. The lane also carries the COMMITTED-CONFLICT-MARKER check the lead's Aug-24 incident asked for (three blocks found on main, repaired at e414a8fb; one had sat in todo.md since Aug 22) — same blind spot, same lane: nothing gates the files nothing compiles. Clean on the current tree (4 citations all open, 0 markers); the historical DF-232n row and the INDEX.md nested block are its negative controls. Entry below
 - DF-250a — a COLLECTION LITERAL does not shape through a `Result`'s Ok payload, where the bare `-> Vector<Int>` twin compiles (entry below, filed by DF-245c's sweep; PRE-EXISTING and spawn-independent). The fix is a third peel beside DF-226e's and DF-140d's, at one funnel
@@ -4089,7 +4094,10 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   remaining half as the window's own PARAMETER rather than an enclosing local.
   A window closure's parameter is bound under its REFERENCE type (the
   `place_shared_window` path), so the synthesis can see it and spells the
-  borrow. Row: `examples/place_window_nested_writes_land.saw`.
+  borrow. Row: `examples/place_window_nested_writes_land.saw`. DF-218h's landing
+  moved that arm AHEAD of the moved-name arm, so a reference the body `move`s
+  takes the borrow mode and its own "cannot move out of reference" refusal
+  instead of falling into the plain capture this finding is about.
   STILL OPEN, the hand-written face, and it is open because the checker cannot
   SEE it: a closure's `&var c` parameter is bound under its INNER type with a
   mutability flag, so `outer_scope.lookup("c")` is indistinguishable from an
@@ -4099,7 +4107,37 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   are the shapes that hand out a `&var` closure parameter in std).
   PIN: `examples/closure_nested_ref_param_capture.saw` (XFAIL)
 
-- **DF-248a (BOGUS-REFUSAL, BOUNDED; filed Aug 22 by DF-169h's fix) — a window
+- **DF-248a — CLOSED (Aug 24, `deferred-move`): an assignment's RHS may read the
+  target's own root; every other in-window naming of it keeps its refusal, and
+  the refusal now teaches which is which.** The ruling, both halves.
+  LEGALIZED BY ORDER, not by a carve-out: `place_uses`'s DF-218j hoist asked
+  "does the right-hand side open a WINDOW on this root" because that was the
+  shape it had; the rule it rides on is design 193's evaluation ORDER, which
+  says nothing about windows. `_rhs_reenters_root` became `_rhs_names_root` and
+  answers for a plain read too, so `v[0].n = v.len()` lowers to the `let` + write
+  pair — the overlap REMOVED, not permitted, exactly as DF-218j's did. One
+  predicate, both entry points (`_assignment` and `_hoist_chain_assign_rhs`).
+  A consequence worth stating: `v[0].n = v.pop()!.n` now compiles and is
+  well-defined — the pop finishes before the window opens, so the invalidation
+  the old note called out cannot happen in that spelling.
+  REFUSED, WITH THE ASYMMETRY SPELLED OUT: every other position runs AFTER the
+  accessor's prologue, so there is no documented order to lift along.
+  `_place_window_root_capture_error` is the one site (matching the one exclusion
+  in `_synthesize_place_window_captures` that produces the case), and it replaces
+  the copy-tier noun — which named a container the program never copies — with
+  the reason: what a window's extent is, the `let` that fixes it, that the
+  ASSIGNMENT shape one line up compiles and why, and why that lift is not
+  available here. Scoped to the tiers that already refused; a Copy-tier root
+  captures by value with no diagnostic, and turning that into an error would be a
+  new refusal rather than better words.
+  ROWS: `examples/place_window_root_read_in_assignment_rhs.saw` (subscript,
+  compound, named accessor over a NoCopy root, the optional-chain spelling, a
+  field-hop target, the pop shape, and the disjoint-roots control that must NOT
+  hoist) and `examples/errors/place_window_root_read_teaches_the_asymmetry.saw`
+  (argument, interpolation operand, comparison, `assert` condition — all four
+  reported in one compile). Conformance P21; P18's note re-pointed.
+  Original finding follows.
+  **(BOGUS-REFUSAL, BOUNDED; filed Aug 22 by DF-169h's fix) — a window
   body may not name the window's own ROOT, even for a read that invalidates
   nothing.** `v[0].n = v.len()` is ``cannot copy value of type `Vector<Cell>`
   which implements ExplicitCopy``, anchored at the subscript, and so are the

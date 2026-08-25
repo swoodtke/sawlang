@@ -11682,6 +11682,53 @@ class ExpressionsMixin:
                                      line=expr.line, column=expr.column))
         expr.capture_specs = specs
 
+    def _place_window_root_capture_error(self, expr, cap_name, ctype) -> bool:
+        """DF-248a: the window body names the window's OWN ROOT. Reported here,
+        or False when this is not that case.
+
+        THE ONE SITE for the refusal, matching the one exclusion in
+        `_synthesize_place_window_captures` that produces it: the root stays a
+        plain capture, so the copy tier answers for it, and at a refusing tier
+        that answer names a container the program never copies.
+
+        The refusal itself is design 188's and stands — borrowing the root would
+        put a second access to it inside the open window, and `v[0].n = v.pop()!`
+        is the invalidation the rule exists for. What is reported is the reason,
+        because the shape one line up compiles: an ASSIGNMENT's right-hand side
+        is defined to run before its target (design 193), so `place_uses` hoists
+        a root-naming RHS out of the window and the two accesses become two
+        statements. No other position has an order to hoist along — an argument
+        and a body read both run after the accessor's PROLOGUE, and moving them
+        ahead of it would reorder documented sequence. So the fix is the author's
+        `let`, and the diagnostic says which of the two shapes they are looking
+        at and why the compiler will not write that `let` for them.
+
+        Scoped to the tiers that REFUSE. A Copy-tier root captures by value with
+        no diagnostic at all today, and turning that into an error would be a new
+        refusal rather than better words for an existing one.
+        """
+        if not getattr(expr, 'is_place_window', False):
+            return False
+        if ctype is None or cap_name != getattr(expr, 'place_window_root', None):
+            return False
+        if self.namespace.copy_tier(ctype) not in ('nocopy', 'explicit'):
+            return False
+        self._error(
+            ErrorKind.EXCLUSIVITY_VIOLATION,
+            f"cannot read `{cap_name}` from inside a place window opened on it",
+            expr.line, expr.column,
+            hint=(f"a window's extent is the whole expression that asks for the "
+                  f"borrow, so this read sits between the accessor's prologue "
+                  f"and its epilogue. Lift it above the statement and name the "
+                  f"binding here — `let n = {cap_name}.len()` is the shape. An "
+                  f"ASSIGNMENT is the one position that needs no rewrite: "
+                  f"`{cap_name}[0].n = {cap_name}.len()` compiles, because a "
+                  f"right-hand side is defined to run before its target, so the "
+                  f"compiler lifts it out of the window for you. Here it "
+                  f"cannot: the read would move ahead of the accessor's "
+                  f"prologue, which changes the order the program runs in"))
+        return True
+
     def _check_closure(self, expr: ClosureExpr, expected_type: Optional[SawType] = None,
                         as_call_argument: bool = False,
                         force_escape: bool = False) -> Optional[SawType]:
@@ -12186,6 +12233,12 @@ class ExpressionsMixin:
                         f"implements NoCopy",
                         expr.line, expr.column,
                         hint="use `move {}` to transfer ownership".format(cap_name))
+                continue
+            # The window's own ROOT, named from inside the window (DF-248a).
+            # The copy tier is what refuses it today, and its noun is wrong
+            # twice: the program copies no container, and the reader is looking
+            # at a shape that COMPILES one line up as an assignment.
+            if self._place_window_root_capture_error(expr, cap_name, ctype):
                 continue
             # Plain capture: an escaping env must own its captures, so move-only
             # types are rejected; a non-escaping stack env borrows the frame, so

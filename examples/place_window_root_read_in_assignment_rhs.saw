@@ -1,0 +1,85 @@
+// An assignment's right-hand side may read the target's own root.
+//
+// `v[0].n = v.len()` is a window on `v` and a plain `&self` read of `v`, and
+// an assignment already says in which order its two sides run: the right-hand
+// side is evaluated first. So the lowering lifts a root-naming right-hand side
+// into a `let` ahead of the write, and the two accesses become two statements —
+// the shape design 188 has always accepted. Nothing is permitted that was not:
+// the overlap is removed rather than allowed, which is why the ARGUMENT and
+// body-read faces of the same expression stay refused
+// (`errors/place_window_root_read_teaches_the_asymmetry.saw`).
+//
+// DF-218j lifted a right-hand side that opened its own WINDOW on the root;
+// DF-248a widened the question to any read of it, because the rule the lift
+// rides on is about ORDER, not about windows.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// subscript 3
+// compound 6
+// named accessor 2
+// chain 1
+// field hop 2
+// after pop 3 len 2
+// disjoint roots 5
+
+struct Cell { n: Int }
+
+@synthesize
+extension Cell: ExplicitCopy {}
+
+extension Cell {
+    func show(&self) -> Int { self.n }
+}
+
+struct Holder { cell: Cell, tag: Int }
+extension Holder: NoCopy {}
+extension Holder {
+    func at(&self) borrows -> Cell { lend self.cell }
+    func count(&self) -> Int { self.tag }
+}
+
+func main() {
+    var v = Vector<Cell>()
+    v.push(Cell(n: 1))
+    v.push(Cell(n: 2))
+    v.push(Cell(n: 3))
+
+    // The subscript target, whole-field write.
+    v[0].n = v.len()
+    print("subscript {v[0].show()}")
+
+    // A COMPOUND assignment: the target is read and written, and the
+    // right-hand side still runs first.
+    v[0].n += v.len()
+    print("compound {v[0].show()}")
+
+    // A NAMED accessor as the target, over a MOVE-ONLY root — the tier that
+    // made the old refusal loudest, since nothing here copies a `Holder`.
+    var h = Holder(cell: Cell(n: 0), tag: 2)
+    h.at().n = h.count()
+    print("named accessor {h.at().show()}")
+
+    // The optional-chain spelling, hoisted at the statement.
+    var m = Map<String, Cell>()
+    let _ = m.insert("a", Cell(n: 0))
+    m["a"]?.n = m.len()
+    print("chain {m["a"]!.show()}")
+
+    // A field-hop target: the window is on `hs` and the write lands two hops
+    // in, which does not change where the right-hand side runs.
+    var hs = Vector<Holder>()
+    hs.push(Holder(cell: Cell(n: 0), tag: 7))
+    hs[0].cell.n = hs.len() + 1
+    print("field hop {hs[0].cell.n}")
+
+    // The right-hand side may even INVALIDATE the target's index, because it
+    // finishes before the window opens: this pops, then writes.
+    v[0].n = v.pop()!.n
+    print("after pop {v[0].show()} len {v.len()}")
+
+    // Control: a right-hand side rooted somewhere else is left where it is.
+    var w = Vector<Cell>()
+    w.push(Cell(n: 5))
+    v[1].n = w[0].n
+    print("disjoint roots {v[1].show()}")
+}

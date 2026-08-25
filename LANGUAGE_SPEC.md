@@ -3790,8 +3790,26 @@ while i < entries.len() {
 The one name that is not borrowed is the **root of the place itself**. A window
 already holds that root — exclusively, if the use site writes — so reaching it a
 second time from inside the extent is the aliasing the Law of Exclusivity
-refuses, and `v[0].n = v.pop()!` is precisely the invalidation that rule exists
-for. Bind what you need from the root before the window opens.
+refuses. Bind what you need from the root before the window opens:
+
+```saw
+let n = v.len()
+v[0].bump(by: n)        // `v[0].bump(by: v.len())` is refused
+```
+
+An **assignment** is the one position that needs no such line. Its right-hand
+side is defined to run before its target, so a right-hand side that names the
+target's own root is lifted out of the window and the two accesses become two
+statements:
+
+```saw
+v[0].n = v.len()        // compiles: the read finishes, then the window opens
+v[0].n = v.pop()!.n     // and so does this, for the same reason
+```
+
+That order is not available anywhere else. An argument and a body read both run
+after the accessor's prologue, so lifting one would change the order the program
+runs in; the diagnostic there names the asymmetry and gives the `let`.
 
 #### Conditional lends (`borrows -> T?`)
 

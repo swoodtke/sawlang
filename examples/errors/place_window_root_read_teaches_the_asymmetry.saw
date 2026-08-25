@@ -1,0 +1,51 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot read `v` from inside a place window opened on it
+// EXPECT-ERROR-CONTAINS: An ASSIGNMENT is the one position that needs no rewrite
+// EXPECT-ERROR-CONTAINS: the read would move ahead of the accessor's prologue
+//
+// DF-248a's refusal half. A window body may not name the window's own root:
+// borrowing it would put a second access to the root inside the open window,
+// which is what design 188 refuses in one call, and `v[0].n = v.pop()!` is the
+// invalidation that rule exists for.
+//
+// The ASSIGNMENT face of the same shape compiles
+// (`place_window_root_read_in_assignment_rhs.saw`), because a right-hand side
+// is defined to run before its target and the lowering lifts it out of the
+// window. Nothing on the page tells the two apart, so the diagnostic does: it
+// says which shape the author is looking at, why the other one works, and that
+// the fix here is a `let` above the statement.
+//
+// The three positions are the ones the borrow-classified slots add — an
+// argument, an interpolation operand beside the place, and a comparison whose
+// second operand names the first's root — plus the `assert` shape, where the
+// condition sits inside the message's window.
+
+struct Res { id: Int }
+extension Res: NoCopy {}
+extension Res: Printable {
+    func format(&self, into: &var StringBuilder) { into.append("Res({self.id})") }
+}
+extension Res: Equatable {
+    func equals(&self, other: &Res) -> Bool { self.id == other.id }
+}
+extension Res {
+    func bump(&var self, by: Int) { self.id = self.id + by }
+}
+
+func main() {
+    var v = Vector<Res>()
+    v.push(Res(id: 1))
+    v.push(Res(id: 2))
+
+    // An ARGUMENT naming the root: it runs after the accessor's prologue.
+    v[0].bump(by: v.len())
+
+    // A rendering operand beside the place, inside the same window.
+    print("{v.len()} {v[0]}")
+
+    // The comparison's second operand names the first's root.
+    print("{v[0] == v[1]}")
+
+    // `assert`'s condition is inside the message's window.
+    assert(v[0].id == 1, "{}", v[0])
+}
