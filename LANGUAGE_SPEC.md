@@ -4051,11 +4051,16 @@ try! d.push(9u8)
 d[0] = 0u8                       // panicking place, same rules
 ```
 
-`Data.[]` differs from `Vector.[]` in one way: its receiver is `&var self`, so
-every use of it borrows the receiver exclusively and `d` must be a `var`. That
-is copy-on-write asking for the only receiver that can separate shared storage
-before lending a place a caller might write to (see [Data](#data)); `d.get(i)`
-is the shared read that never separates.
+`Data.[]` differs from `Vector.[]` in one way, and it is inside the body rather
+than in the declaration. Copy-on-write has to separate shared storage before
+lending a place a caller might write to, and must not separate for a read, so
+the accessor is declared `&self` and puts the separation behind
+[`#lend_var`](#lend_var-a-body-that-knows-its-flavor): the gate sits in the
+exclusive specialization and is absent from the shared one. A read therefore
+works on a `let` root, a `&Data` parameter, or a slice several `Data`s share; a
+write opens an exclusive window, so it needs a `var` root, and the first write
+on shared bytes copies (see [Data](#data)). `d.get(i)` is the `None`-returning
+twin, nothing more.
 
 Both panic out of range, on design 130's accessor-rule terms. `Vector.get(i)` is
 the `None`-returning twin of `v[i]` and the same lowering — a conditional lend:
