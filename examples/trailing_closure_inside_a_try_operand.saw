@@ -1,0 +1,63 @@
+// A TRAILING closure is an argument of the call it follows, inside a `try`
+// operand exactly as outside one. Today it is not: `parse_try_expression`
+// clears `allow_trailing_closure` for the whole operand, so the `{` becomes a
+// separate closure literal and the call collapses to a field access.
+//
+// XFAIL: DF-259c — a trailing closure is not recognized inside a `try`/`try!`/
+// `try?` operand, so `try! v.map { ... }` is `struct `Vector` has no field
+// `map``. The parenthesized argument is the workaround the corpus and the docs
+// use meanwhile.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 1
+// 1
+
+struct Job { name: String }
+extension Job: NoCopy {}
+
+extension Job {
+    func label(&self) -> String { self.name }
+}
+
+func fresh() -> Vector<Job> {
+    var v = Vector<Job>()
+    try! v.push(Job(name: "alpha"))
+    move v
+}
+
+// The CONTROL: the same call with the closure parenthesized. This compiles
+// today, which is what makes the trailing form's refusal a parser gap rather
+// than a rule about `try`.
+func parenthesized() -> Int {
+    let jobs = fresh()
+    let labels = try! jobs.map<String>({ j in j.label() })
+    return labels.len()
+}
+
+// The three cells: one per `try` variant, each with a trailing closure.
+func forced() -> Int {
+    let jobs = fresh()
+    let labels = try! jobs.map { j in j.label() }
+    return labels.len()
+}
+
+func optional_variant() -> Int {
+    let jobs = fresh()
+    let labels = try? jobs.map { j in j.label() }
+    return labels!.len()
+}
+
+func propagating() -> Result<Int, AllocError> {
+    let jobs = fresh()
+    let labels = try jobs.map { j in j.label() }
+    return labels.len()
+}
+
+func main() {
+    print(parenthesized())
+    print(forced())
+    print(optional_variant())
+    print(try! propagating())
+}

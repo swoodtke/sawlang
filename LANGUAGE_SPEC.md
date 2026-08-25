@@ -5722,9 +5722,15 @@ var jobs = Vector<Job>()        // Job is NoCopy
 try! jobs.push(Job(name: "alpha"))
 
 jobs.each { j in print(j.name) }            // borrows the element
-let labels = try! jobs.map<String> { j in j.label() }   // map allocates, so it reports
+let labels = try! jobs.map<String>({ j in j.label() })  // map allocates, so it reports
 let total  = jobs.fold<Int>(0) { acc, j in acc + j.name.len() }
 ```
+
+`map`'s closure is written inside the parentheses rather than trailing it,
+because a trailing closure is not recognized inside a `try` operand today —
+`try! jobs.map { … }` reads the `{` as a separate closure and the call as a
+field access (DF-259c). `each` and `fold` are unaffected: neither allocates,
+so neither needs the `try!`.
 
 Reading a `&T` binding yields the value, so `{ $0 * 2 }` and `{ $0.to_string() }`
 are written exactly as before. What the reference spelling changes is
@@ -6337,7 +6343,7 @@ Observable rules:
   ```saw
   func drain(ch: Channel<Int>, tally: Channel<Int>) -> Int {
       var served = 0
-      while try! ch.receive() > 0 {       // the condition suspends, once per iteration
+      while (try! ch.receive()) > 0 {     // the condition suspends, once per iteration
           served += try! tally.receive()  // a compound assignment's RHS suspends
       }
       return try! ch.receive()            // and so does a `return` of a receive

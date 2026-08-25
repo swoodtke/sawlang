@@ -2235,8 +2235,11 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   construct evaluates outside all of its blocks: an `if`/`while` CONDITION, a
   `for` RANGE (either endpoint), a `match` SCRUTINEE, an `if let`/`guard let`
   SUBJECT, and an `&&`/`||` RHS inside any of them. A `while` condition suspends
-  once per ITERATION, where it is written, so `while try! ch.receive() > 0 { … }`
-  drains a channel and a `continue` re-evaluates it. A compound assignment's RHS
+  once per ITERATION, where it is written, so `while (try! ch.receive()) > 0 { … }`
+  drains a channel and a `continue` re-evaluates it. PARENTHESIZE it: `try!`
+  binds looser than a comparison, so the bare spelling is `try! (recv() > 0)`
+  and the clean error is ``cannot compare `Result<Int, ChannelError>` with
+  `Int` ``. A compound assignment's RHS
   (`n += slow()`, and its chained spelling `x?.n += slow()`) and a
   `return try! ch.receive()` take the same rewrite. (The `try!` is design 230's:
   a receive answers `Result<T, ChannelError>`, and a `try!` subject is itself one

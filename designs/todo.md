@@ -73,6 +73,7 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-257d — the `$0` closure shorthand is invisible to the implicit-parameter scan inside a `try` operand, so the closure infers arity 0 (entry below, filed Aug 25 by design 234 unit 3; PRE-EXISTING). Pinned XFAIL; the flip meets it because `try!` is the corpus migration spelling
 - DF-259a — `Box<any Trait>.make` sits outside design 234's flip, so one method name has two fallibilities and the erased one panics with a bare `allocation failed` (entry below, filed Aug 25 by the design-138 doc-sync sweep). This IS the 234 census's `existentials.py:402` hold, which never became a tracker entry — it owes the user ruling that brief deferred
 - DF-259b — a reserved word in any declaration-name position gives a bare "Expected X name" that never says the word is reserved; five slots, one shared report (entry below, filed Aug 25 by the design-138 doc-sync sweep; PRE-EXISTING). Diagnostic-only, so no XFAIL pin
+- DF-259c — a TRAILING closure is not recognized inside a `try`/`try!`/`try?` operand, so `try! v.map { … }` collapses to a field access; the parenthesized argument is the workaround (entry below, filed Aug 25 by the design-138 doc-sync sweep; PRE-EXISTING, and the 234 flip is what makes it reachable from ordinary code). Pinned XFAIL, three cells and one control
 
 
 ## DF-247a — a function that is a `group.spawn` ROOT is `undefined function`
@@ -546,6 +547,46 @@ wording is wrong, so there is no XPASS flip for a pin to validate.
 FOUND BY: `LANGUAGE_SPEC.md`'s qualified-import example declared
 `case None` and had never compiled; fixed in the same sweep (the variant is
 `Nothing` now). [138]
+
+## DF-259c — a TRAILING closure is not recognized inside a `try` operand, so
+## `try! v.map { … }` is a field access (filed Aug 25 by the design-138
+## doc-sync sweep; PRE-EXISTING). Pinned XFAIL
+
+```saw
+let a = jobs.map { j in j.label() }                 // fine
+let b = try! jobs.map<String>({ j in j.label() })   // fine — parenthesized
+let c = try! jobs.map { j in j.label() }
+// error: struct `Vector` has no field `map`     hint: available fields: buffer, length, capacity
+// error: closure literal is never called: `{ ... }` in statement position …
+```
+
+MECHANISM (obligation 4): `parse_try_expression`
+(`sawc/parser/expressions.py:1352`) saves `allow_trailing_closure`, sets it to
+False, and parses the WHOLE operand under it — the comment says "so `{` doesn't
+get consumed as a trailing closure", protecting the inline
+`try <expr> catch { … }` form. The suppression is correct in principle and too
+wide in extent: a `{` that opens a catch block is always preceded by the `catch`
+KEYWORD, so the two forms are distinguishable by one token of lookahead and
+nothing about a trailing closure is actually ambiguous with a catch. What the
+flag costs is every trailing closure anywhere in the operand.
+
+THE MATRIX, probed (`examples/trailing_closure_inside_a_try_operand.saw`): all
+three variants fail — `try!`, `try?` and the propagating `try` — and the
+parenthesized argument is the control that compiles in each. `try!` DOES take an
+inline `catch` at HEAD (probed), so the suppression is not `try`-only and cannot
+be narrowed by variant; it has to be narrowed by POSITION.
+
+THE SIBLINGS that mechanism reaches, probed and CORRECT: `if`/`while`/`for`
+conditions and ranges, `guard`, a `match` scrutinee, an `if let`/`guard let`
+subject, and a `match` arm's guard all clear the same flag, and in every one of
+those the following `{` really is the construct's own block, with no keyword
+between. The `try` operand is the only site where a keyword separates the two
+readings, which is why it is the only one that is wrong.
+
+FOUND BY: `LANGUAGE_SPEC.md`'s Vector-closure-methods block, whose `map` line
+needed a `try!` after design 234 and could then no longer be written with the
+trailing closure the block exists to show. The doc uses the parenthesized
+spelling and says why, citing this entry. [234, 216, 129]
 
 ## Design 238 — the sawos split (AUTHORED Aug 19, FOUR RULINGS same day;
 ## QUEUED after the sos riders batch, BEFORE the M3 ladder)
