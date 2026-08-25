@@ -6794,9 +6794,10 @@ let _ = producer.join()
 
 #### No implicit fates
 
-The result of `Thread.spawn { ... }` must reach `join()` on every path out of
-the scope that binds it. Both discard spellings are compile errors, including
-the `let _ =` that discards a `Result`:
+The result of `Thread.spawn { ... }` must reach `join()` or `detach()` on every
+path out of the scope that binds it, and the result of `Task.spawn(...)` must
+reach `join()`, `detach()` or `cancel()`. Both discard spellings are compile
+errors, including the `let _ =` that discards a `Result`:
 
 ```saw
 Thread.spawn { crunch(n) }
@@ -6857,14 +6858,79 @@ panic at task.saw:150: Thread was dropped without being joined or detached —
 process
 ```
 
-`detach()` — the daemon-thread fate, where the thread is given to the process
-and its values deinit if it completes — is named by the diagnostics and is not
-implemented yet. Until it is, `join()` is the only fate a handle can reach.
-
 The handle used to JOIN on drop instead. That made `let _ = Thread.spawn { ... }`
 — the natural way to guess at fire-and-forget — a sequential call plus the cost
 of a thread, and it made every exit edge of a function holding a handle a
 blocking edge, error paths included.
+
+#### `detach()`: the fate that does not wait
+
+`detach()` is the second fate, on both engines. It consumes the handle and
+gives the work to the process. Nothing will join it, so its result is given up:
+
+```saw
+var worker = Thread.spawn { [job] in compress(job) }
+worker.detach()                  // the handle is consumed here
+
+let background = Task.spawn(reindex(catalog))
+background.detach()
+```
+
+Saying so is the point. Discarding a `Result` takes `let _ =` because throwing
+a failure away should be visible where it happens, and `detach()` is the same
+statement about a whole unit of work: the value is dropped at one named place
+rather than outliving the program in a slot nobody reads.
+
+What each engine promises differs, and the difference is the engines'.
+
+A DETACHED THREAD keeps running. Values it owns deinit when it completes, on
+its own thread. If it is still running at process exit the operating system
+terminates it wherever it has got to, and nothing it holds is released — the
+same boundary a never-completed coroutine frame has, where process death drops
+nothing. A thread you need to have finished is a thread you join.
+
+A DETACHED TASK keeps running on the cooperative scheduler, and its result is
+dropped when it completes rather than kept for a join that will never come:
+
+```saw
+func measure(id: Int) -> Report { ... }
+
+let handle = Task.spawn(measure(7))
+handle.detach()
+// the Report is built, and dropped, when the task finishes
+```
+
+At `main`'s return the background group cancels every member still live and
+joins them (below), so a detached task ends there if it has not ended sooner.
+
+`group.spawn` handles take no `detach()`. A group task may borrow from the
+frame that spawned it, and the group's scope is what releases that borrow, so
+"give it to the process" has no meaning for one — drop the handle instead, or
+spawn with `Task.spawn` when the task genuinely outlives its spawner. Calling
+`detach()` on a group handle panics.
+
+#### The spawn brace's capture list
+
+A spawn brace captures nothing implicitly. The capture list is the body's
+parameter list: each entry transfers at the spawn, by value, at its own copy
+tier, and `[move x]` is how a move-only value goes.
+
+```saw
+let count = 3
+var t = Thread.spawn { crunch(count) }
+// error: a spawned brace captures nothing implicitly, and this body names
+//        `count`
+// hint: name what crosses in the capture list —
+//       `Thread.spawn { [count] in ... }`. The list IS the body's parameter
+//       list ...
+
+var t = Thread.spawn { [count] in crunch(count) }   // fine
+```
+
+Ordinary closures are unaffected: their captures are read at the same frame by
+the same thread, and there is no boundary to spell. What the rule buys is that
+everything crossing a concurrency boundary is written at the crossing, where
+the reader of a spawn site is looking.
 
 #### The thread body
 
@@ -7007,6 +7073,96 @@ func job() -> Int {
 }
 // let h = group.spawn(job());  h.cancel();  print(h.join())
 ```
+
+#### Background tasks: `Task.spawn`
+
+`Task.spawn(work(n))` starts a cooperative task without a group. It hands back
+the same `Task<T>` / `VoidTask` that `group.spawn` does, and the task rides the
+same ambient scheduler:
+
+```saw
+import std.task.*
+
+func square(n: Int) -> Int {
+    yield_now()
+    n * n
+}
+
+func main() {
+    let squared = Task.spawn(square(6))
+    print(squared.join())        // 36
+}
+```
+
+It takes a CALL to a named function, not a brace, and for the reason the
+cooperative engine exists: a coroutine frame is built for a named function, and
+a background task's whole point is that it can suspend.
+
+THE GROUP IT SPAWNS INTO is one the program never declares. It is built on the
+first `Task.spawn` in the process and never before, so a program that spawns no
+background task pays one zero word for it. There is no multi-threaded flavour:
+`TaskGroup(threads: N)` is how parallelism is asked for.
+
+AT `main`'s RETURN that group cancels every member still live, joins them, and
+exits. Cancel first, because a background task is exactly the kind that loops
+forever and there is nobody left to ask it to stop; join after, because a
+cancelled task reaches its own completion through ordinary control flow, and
+that is where the values it owns are released:
+
+```saw
+func serve(id: Int) {
+    let conn = open(id)
+    while true {
+        if cancelled() { return }    // `conn` deinits here, on the way out
+        yield_now()
+    }
+}
+
+func main() {
+    let worker = Task.spawn(serve(1))
+    worker.detach()
+    print("main is finished")
+}
+// main is finished
+// (then: the task is cancelled, runs its cancel path, and `conn` closes)
+```
+
+A SYNC `main` never yields, so its background tasks first run at that exit join
+— by which time they are already cancelled. That is the cooperative model being
+itself rather than a special case: a task runs when something cedes to it, and a
+`main` that never suspends never does. Give the tasks a `yield_now()`, or join
+them, or spawn them from a suspending `main`.
+
+BORROWS ARE REFUSED AT THE FORM. A `&`/`&var` argument of the spawned call, and
+a borrow capture in a closure inside it, are both clean errors:
+
+```saw
+var buffer: Vector<Int> = []
+let filler = Task.spawn(fill(&var buffer, 3))
+// error: `Task.spawn` accepts no borrows: `&var buffer` is an argument of the
+//        spawned call
+```
+
+A group's scope is what ends such a borrow (see *The borrow's extent is the
+task's life*), and a background task has no scope: it may be detached, and it
+ends at `main`'s return rather than at a scope its root outlives. Spawn into a
+`TaskGroup`, or hand the task an owned value, an `Arc` or a `Channel`.
+
+THE HANDLE IS MUST-CONSUME, on the same terms `Thread.spawn`'s is (*No implicit
+fates*, above): `join()`, `detach()` or `cancel()` on every path, both discard
+spellings refused. `group.spawn` handles are exempt — the group is a declared
+consumer — and that exemption is what makes the accept-loop idiom work. One
+that escapes the check and reaches its destructor unconsumed panics:
+
+```
+panic at taskgroup.saw:1802: Task was dropped without being joined, detached or
+cancelled — `join()` waits for it and takes its result, `detach()` hands it to
+the process, `cancel()` asks it to stop
+```
+
+`Task.spawn` needs a `main` to close its group at, so the freestanding profile
+refuses it and names the spelling that works there: a `TaskGroup` the author
+declares, whose scope says where the tasks end.
 
 #### A group is a scope, and cannot be moved
 
@@ -7457,12 +7613,21 @@ be released until that join, which is why the frame keeps its storage until then
 which one you are on.** `Thread.spawn`/`Thread<T>`/`Channel.recv` run on the
 **OS-thread** engine: `Thread.spawn` starts an OS thread, its body is a `sync`
 context that may block on FFI, and `Thread.join()`/`Channel.recv()` block the
-calling thread. `TaskGroup`/`Task<T>`/`Channel.receive` run on the
+calling thread. `Task.spawn`/`TaskGroup`/`Task<T>`/`Channel.receive` run on the
 **single-threaded cooperative executor** (above), where a body suspends and a
 join drives the group; a suspending `main` runs there too. The call site's
 namespace says which machine it is on, and the two behave differently enough
 that reading it matters: one blocks and one suspends, and a handle's obligations
-differ (a `Thread<T>` must be consumed; a group's `Task<T>` may be dropped).
+differ (a `Thread<T>` and a `Task.spawn` `Task<T>` must be consumed; a group's
+`Task<T>` may be dropped).
+
+Reach for them in this order. `TaskGroup` by default: structured, one thread,
+deterministic interleaving, and the scope says where the tasks end.
+`Task.spawn` when a task genuinely outlives the frame that started it and no
+scope fits. `TaskGroup(threads: N)` when the work is CPU-parallel and every
+frame is `Send`. `Thread.spawn` when one thread must BLOCK — a long or
+thread-phobic C call — which is the one thing the cooperative engine has no
+answer for.
 
 Do not mix the two engines for one task. `Channel.recv` from a cooperative task
 is the worst version of it: the block is unbounded and the thread it stops is
@@ -9514,9 +9679,9 @@ need one of the three [import forms](#imports).
 
 Concurrency has no module of its own beyond those: it is colorless, with no
 `async`/`await`. The NAMESPACE is the engine.
-`Thread.spawn { ... } -> Thread<T>` is the OS-thread engine and
-`group.spawn(f(args)) -> Task<T>` the cooperative one; see
-[§6 Concurrency](#6-concurrency) for the real API.
+`Thread.spawn { ... } -> Thread<T>` is the OS-thread engine;
+`group.spawn(f(args))` and `Task.spawn(f(args))`, both `-> Task<T>`, are the
+cooperative one. See [§6 Concurrency](#6-concurrency) for the real API.
 
 `Iterator`, `Equatable`, `Comparable`, `Hashable`, `Printable`, `Error`, `Send`
 and `Sync` are prelude traits declared in `builtin.saw`, not module contents.

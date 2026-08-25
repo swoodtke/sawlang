@@ -192,3 +192,101 @@ An MT background singleton (`threads: N`) — later opt-in with its Send
 obligations. `detach()` on group handles (ruling 6). Any deprecation-alias
 period. Changing `Channel.recv`/`receive` naming (already correctly split
 per engine; unit 5 documents the pairing).
+
+## Landing — unit 3 (Aug 25, branch `design-242-c`)
+
+Three commits, each gated. What each one decided, since the mechanisms are not
+recoverable from the diff.
+
+### 3a — `Task.spawn`, the background singleton, the handle's fate
+
+**The singleton's storage was the whole problem.** A `TaskGroup` is `NoMove`
+precisely because it is a scope whose address its members hold, so there is no
+way to BUILD one and then put it somewhere: `Box.make` moves, an assignment
+through a pointer moves, and a `static` is refused three times over (a static
+may not own a resource; `None` is not a const-init form; an optional field is
+not zero-initable — and `Vector`'s fields belong to `std.vector`, so a const
+literal could not be written even where the first three allowed it). What
+resolves it is a fact rather than a workaround: an ALL-ZERO `TaskGroup` already
+IS a valid empty single-threaded group — every `Vector` field is `{None, 0, 0}`,
+`workers` is 0 (the ST engine, `< 2`), the lock and cond are absent and every
+flag is clear. So `__saw_bg_group()` allocates the bytes, zeroes them, and the
+group exists; the publish is `__saw_host_reactor`'s create-then-CAS, and the
+group is process-lifetime like the reactor instance.
+
+**The exit hook did not exist and had to be built.** There is no at-exit hook in
+the language or the runtime — no `atexit`, no `global_ctors`, no teardown seam —
+and a SYNC `main` is emitted verbatim, so there was no existing place to append
+to either. `_wrap_main_for_background` renames whatever `main` the transform
+ended up with (the user's own body, or the entry executor the pass just
+synthesized) to `__saw_program_main` and puts a wrapper over it. A wrapper
+rather than an appended statement, because the close must run on every edge out
+of the program and a mid-`main` `return` is one of them; design 221's four
+return shapes all forward through one binding, and codegen's C-entry treatment
+keys on the NAME `main`, so it lands on the wrapper.
+
+**The 9b fault keys on PROVENANCE.** `Task<T>`/`VoidTask` gained `background`
+(set by `__bgspawn_<f>`) and `fate_ptr` (addressing a new `__fated` word in the
+group-owned cell). Keying on the TYPE was not available: ruling 6 lets every
+`group.spawn` handle drop, and a type-keyed check would fire on the accept-loop
+idiom. The fate word lives in the CELL rather than the handle because a handle
+may outlive its task by any amount and `deinit` runs long after the frame is
+gone; it is WRITTEN only for a background handle, whose slot is PINNED at birth
+so the cell survives — a group handle's cell is released the moment its slot
+recycles, and writing there is a use-after-free. That is not theoretical: the
+first cut wrote unconditionally and `taskgroup_slot_reuse_mt` died of SIGBUS.
+
+**Rider, DF-256a**, exposed by the background form and fixed here: a GENERIC
+struct's own fields were invisible to codegen's type-registration topological
+sort, so a `Task<Int>` field contributed the name `Task` and stopped — while
+registering the container asks `_ensure_monomorphized_struct` to build the
+instantiation right there, needing `Task<T>`'s `UnsafePointer<TaskGroup>`
+already registered. Every program until now happened to have a `TaskGroup` of
+its own to order it.
+
+### 3b — `Thread.detach()` and `__saw_rt_thread_detach`
+
+The problem `detach()` has and `join()` does not: after a detach nobody joins,
+so nobody frees the control block, and the two parties who could (the detacher
+and the thread's own exit path) run concurrently. The handshake is a word both
+can reach, which is why the seam takes the BLOCK where `__saw_rt_thread_join`
+takes the handle.
+
+The block gained a `state` word seeded with its own SIZE. The detacher
+exchanges 0 in and frees if a negative comes back; the thread's exit exchanges
+`-size` in and frees if 0 comes back. Exactly one side frees, no lock, no wait,
+and the size travels in the word so the seam can call `__saw_rt_dealloc`
+without knowing `T`. Recorded in rt/ABI.md as an ADDITIVE amendment on design
+234's `__saw_rt_last_raw_code` precedent, with the one frozen word spelled out.
+Both races probed directly, plus 400 detaches under `MallocScribble`.
+
+### 3c — the spawn brace's capture list
+
+`_check_spawn_brace_captures`, one funnel, one entry point today
+(`Thread.spawn { ... }`). The migration re-ran the census rather than trusting
+unit 0's: 54 real brace sites, 27 capturing implicitly (26 in `examples/`, 1 in
+`sawc/std/taskgroup.saw`), 2 already listed, 25 capturing nothing.
+
+### NOT LANDED, and why
+
+**The cooperative brace sugar** — `Task.spawn { [x] in ... }` and
+`group.spawn { [x] in ... }` — is the one part of ruling 10 still open. The
+rule it would be checked by is in place and its funnel names the entry point
+that will register; what is missing is the LIFT.
+
+The obstacle is the lifted function's RETURN TYPE. A Saw function with no
+declared return type is `Void` (probed: `func f() { 5 }` then `print(f())` is
+``cannot print value of type `Void` ``), so the lift cannot defer the question
+to the ordinary function checker, and the type is not known until the body is
+checked. The two ways out both have a shape worth deciding rather than picking:
+check a deepcopy of the body in a sandbox to learn the type and build the real
+function from the original (design 70's pristine-template machinery exists for
+exactly this and is not free), or give a synthesized declaration a
+deferred-return-type mechanism. Doing it in the transform instead does not
+work: the effect graph and `_spawn_roots` are the typechecker's, and the lifted
+body's suspension is what the frame is built from.
+
+Ruling 10's other v1 fence — refusing an enclosing TYPE parameter named by a
+brace body — belongs with the lift and not before it: without a lift a type
+parameter in a `Thread.spawn` body is fine, because the closure is compiled
+inside its enclosing generic.

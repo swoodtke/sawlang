@@ -1676,13 +1676,16 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   ```saw
   var t = Thread.spawn { [n] in crunch(n) }   // Thread<Int>; join() BLOCKS this thread
   let h = group.spawn(crunch(n))       // Task<Int>;   join() drives the group
+  let b = Task.spawn(crunch(n))        // Task<Int>;   same engine, no group
   ```
   A `Void` body gives `VoidThread` / `VoidTask` respectively.
   **REACH FOR THEM IN THIS ORDER**: `TaskGroup` by default (structured, one
-  thread, deterministic interleaving); `TaskGroup(threads: N)` when the work is
-  CPU-parallel and every frame is `Send`; `Thread.spawn` only when one thread
-  must BLOCK — a long or thread-phobic C call — which is the one thing the
-  cooperative engine has no answer for.
+  thread, deterministic interleaving, and the scope says where the tasks end);
+  `Task.spawn` when a task genuinely OUTLIVES the frame that started it and no
+  scope fits; `TaskGroup(threads: N)` when the work is CPU-parallel and every
+  frame is `Send`; `Thread.spawn` only when one thread must BLOCK — a long or
+  thread-phobic C call — which is the one thing the cooperative engine has no
+  answer for.
   Don't mix engines per task. `Channel.recv` from a task is the worst version
   of mixing them: the block is unbounded and the thread it stops
   is the EXECUTOR's, so every sibling stops too — including the task that would
@@ -1691,31 +1694,88 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   The bare `spawn { … }` is GONE: it named neither engine, read like the
   cooperative one and started an OS thread. Writing one is a clean error naming
   both spellings, so code that still has it predates Aug 22.
-- **A THREAD'S FATE IS WRITTEN, NEVER DROPPED (design 242 rulings 5/9a/9b).**
-  A `Thread.spawn` handle must reach `join()` on EVERY path out of its scope.
-  Both discard spellings are compile errors — the bare statement AND the
-  `let _ =` that design 151 blesses for a `Result` — and so is a `return` that
-  leaves the handle unconsumed:
+- **A SPAWNED UNIT'S FATE IS WRITTEN, NEVER DROPPED (design 242 rulings
+  5/9a/9b).** A `Thread.spawn` handle must reach `join()` or `detach()` on
+  EVERY path out of its scope, and a `Task.spawn` handle `join()`, `detach()`
+  or `cancel()`. Both discard spellings are compile errors — the bare statement
+  AND the `let _ =` that design 151 blesses for a `Result` — and so is a
+  `return` that leaves the handle unconsumed:
   ```saw
   Thread.spawn { [n] in crunch(n) }              // error: ... must be consumed
   var t = Thread.spawn { [n] in crunch(n) }
   if urgent { let _ = t.join() }          // error: not consumed on this path
   Thread.spawn { [n] in crunch(n) }.join()       // the wait-here spelling: fine
   ```
-  Two things discharge it besides a written `join()`. A move into STORAGE whose
+  Two things discharge it besides a written consume. A move into STORAGE whose
   owner declares a hand-written `deinit` (`self.workers.push(move t)` inside a
   `Pool` that joins them in its own deinit) — which is how a pool outlives the
   function that starts it. And `group.spawn`, whose handles carry NO obligation
   at all: a group is a declared consumer, so the accept-loop idiom
   (`while true { group.spawn(handle(accept())) }`) is untouched, and a bound
-  group handle may simply be dropped.
+  group handle may simply be dropped. That exemption follows the SPAWN FORM,
+  not the type — a `group.spawn` `Task<T>` and a `Task.spawn` `Task<T>` are one
+  type with two obligations.
   The storage rule asks only that the owner DECLARE a deinit, not that it
-  actually join — an owner that forgets meets the runtime backstop:
-  `panic at task.saw:150: Thread was dropped without being joined or detached`.
+  actually consume — an owner that forgets meets the runtime backstop:
+  `panic at task.saw:150: Thread was dropped without being joined or detached`,
+  and its `Task` twin.
   GOTCHA for older code: the handle used to JOIN on drop, so
   `let _ = spawn { … }` was a sequential call plus thread overhead and every
   exit edge of a function holding one was a blocking edge. A build that accepts
   an unjoined handle predates Aug 24.
+- **`detach()` IS THE SECOND FATE, ON BOTH ENGINES (design 242 ruling 4).** It
+  consumes the handle and gives the work to the process; nothing will join it,
+  so its result is given up. Saying so is the point — it is the `let _ =` of a
+  whole unit of work, at one named place instead of a value quietly outliving
+  the program.
+  ```saw
+  var worker = Thread.spawn { [job] in compress(job) }
+  worker.detach()
+  let background = Task.spawn(reindex(catalog))
+  background.detach()
+  ```
+  What each engine promises differs. A detached THREAD keeps running; values it
+  owns deinit if it completes, and at process exit the OS terminates it
+  wherever it got to and nothing it holds is released (the same boundary a
+  never-completed frame has). A detached TASK keeps running on the scheduler
+  and its result drops at ITS completion rather than being kept for a join.
+  A `group.spawn` handle takes NO `detach()` — a group task may borrow from its
+  spawner and the group's scope is what releases that borrow, so calling it
+  there panics. Drop the handle, or use `Task.spawn`.
+- **`Task.spawn(work(n))` IS THE COOPERATIVE ENGINE WITHOUT A GROUP (design 242
+  ruling 3).** Same scheduler, same `Task<T>`/`VoidTask`, no declaration:
+  ```saw
+  let squared = Task.spawn(square(6))
+  print(squared.join())
+  ```
+  It takes a CALL to a named function, not a brace: a coroutine frame is built
+  for a named function, and a background task's whole point is that it can
+  suspend. The group it spawns into is built on the FIRST `Task.spawn` in the
+  process and never before. At `main`'s return it CANCELS every task still
+  live, joins them, and exits — cancel first because a background task is the
+  kind that loops forever with nobody left to stop it, join after because a
+  cancelled task reaches completion through ordinary control flow and that is
+  where its values are released.
+  GOTCHA: a SYNC `main` never yields, so its background tasks first run at that
+  exit join, already cancelled. Give them a `yield_now()`, join them, or spawn
+  from a suspending `main`.
+  BORROWS ARE REFUSED AT THE FORM (ruling 7) — a `&`/`&var` argument of the
+  spawned call and a borrow capture inside it are both clean errors, because
+  there is no scope to end the borrow at. Spawn into a `TaskGroup`, or hand the
+  task an owned value, an `Arc` or a `Channel`. Freestanding refuses
+  `Task.spawn` outright: there is no `main` to close the group at.
+- **A SPAWNED BRACE CAPTURES NOTHING IMPLICITLY (design 242 ruling 10).** The
+  capture list IS the body's parameter list: each entry transfers at the spawn,
+  by value, at its own copy tier, and `[move x]` is how a move-only value goes.
+  ```saw
+  var t = Thread.spawn { crunch(count) }
+  // error: a spawned brace captures nothing implicitly, and this body names `count`
+  var t = Thread.spawn { [count] in crunch(count) }   // fine
+  ```
+  Ordinary closures are untouched — their captures are read at the same frame
+  by the same thread, and there is no boundary to spell. Before Aug 25 the list
+  was strictly ADDITIVE (`{ [a] in a + b }` compiled and captured `b` plain),
+  so a build that accepts an unlisted capture at a spawn brace predates it.
 - **A `Thread.spawn` BODY IS `sync`, AND MAY BLOCK ON FFI (design 242 rulings
   8/9).** A spawned thread runs no executor, so a suspension there has nothing
   to resume it: `Thread.spawn { yield_now()  7 }` is a clean error naming
@@ -2546,7 +2606,8 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
   `Serialize`/`Deserialize` + `Encoder`/`Decoder`/`EncodeError`/`DecodeError`
   (std.serde — design 169),
   `print`/`panic`/`assert`/`sizeof`/`alignof`/`static_assert`, `TaskGroup`/
-  `sleep`/`spawn`/`cancelled`, `StringBuilder`, `Duration` (std.duration —
+  `Task<T>`/`VoidTask`/`sleep`/`cancelled` (`Thread.spawn`/`Task.spawn` are
+  FORMS, not importable names), `StringBuilder`, `Duration` (std.duration —
   design 180; `sleep` takes one, so gating it would gate `sleep`).
   `Atomic<Int>` is prelude-bare too — a `builtin.saw` primitive, not a
   module, so there is nothing to import (it sat in NEITHER list until a

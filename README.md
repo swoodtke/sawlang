@@ -411,12 +411,37 @@ func main() {
 
 A thread's body is a `sync` context, since a spawned thread runs no executor;
 a `blocking` extern is the one suspension source it may reach, which is the
-reason to spawn one. And a thread's fate is written, never inferred: the
-handle must reach `join()` on every path, so neither a bare
-`Thread.spawn { ... }` statement nor a `let _ =` compiles. Reach for the
-cooperative engine first — `TaskGroup` for structured concurrency,
-`TaskGroup(threads: N)` for parallelism — and for `Thread.spawn` when one
-thread must block.
+reason to spawn one. And a spawned brace captures nothing implicitly: the
+capture list is the body's parameter list, so everything crossing to the
+thread is written at the crossing (`Thread.spawn { [job] in compress(job) }`).
+
+A unit of concurrent work has a written fate, never an inferred one. The
+handle must reach `join()` or `detach()` on every path, so neither a bare
+`Thread.spawn { ... }` statement nor a `let _ =` compiles. `detach()` gives
+the work to the process and gives up its result — the same statement `let _ =`
+makes about a `Result`, at the scale of a whole task.
+
+A cooperative task can outlive its spawner too, without a group:
+
+```saw
+func reindex(catalog: Catalog) -> Int { ... }
+
+func main() {
+    let indexing = Task.spawn(reindex(catalog))
+    serve_requests()
+    print("indexed {indexing.join()} entries")
+}
+```
+
+`Task.spawn` runs on the same cooperative scheduler, in a group the program
+never declares. At `main`'s return that group cancels every task still live
+and joins it, so a detached background task ends there and the values it owns
+are released on the way out.
+
+Reach for them in this order: `TaskGroup` for structured concurrency,
+`Task.spawn` when a task genuinely outlives its spawner,
+`TaskGroup(threads: N)` for parallelism, and `Thread.spawn` when one thread
+must block.
 
 See [Concurrency](LANGUAGE_SPEC.md#6-concurrency),
 [Tasks and Channels](LANGUAGE_SPEC.md#tasks-and-channels), and

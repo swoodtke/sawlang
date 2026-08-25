@@ -32,7 +32,7 @@ is scheduled and in what order is the whole of what they say.
 ## [QUEUE] — scheduled, in order (user-approved)
 
 - Design 234 — the fallibility flip (designs/234-fallibility-flip.md) — units 0-2, 4, 5 + channel sub-unit LANDED Aug 22; UNIT 3 RULED Aug 24 (user): PATH 1 — ~~fix DF-245a FIRST~~ **DF-245a LANDED Aug 24** (branch `df-245a-fallible-init`: fallible `init` is expressible; an `init` may declare ONLY `Self`/the receiver or `Result<Self, E>`, nothing else — no `Self?`, refused at the declaration; entry below), so unit 3 may now flip the constructors in place and is UNBLOCKED, THEN the flip as ratified (no factory migration). Migration protocol RATIFIED: examples/tests take `try!` mechanically (failure-path tests get real matches, flagged by name); sawc/std per-site with a propagate bias (`try!` inside std re-creates the panic tier); blade/devtools/tools/selfhost per-site, propagate bias, irdet+bench their own careful commit; every non-mechanical site listed in the landing section (the 205 precedent). Execution: DF-245a brief-let, then unit 3 as one dispatch
-- Design 242 — the Thread/Task split (designs/242-thread-task-split.md) — units 0-1 LANDED Aug 22; UNITS 2 + 4(part) + 5 LANDED Aug 24 (branch `design-242-b`: the consumption funnel per-path, 9a's storage discharge keyed on a hand-written-deinit root, 9b's panic on the two THREAD handles, the blocking-permitted sync context via a second fixpoint, docs; conformance K78-K84; the 9b probe corrected the census — three corpus sites migrated). UNIT 3 RULED Aug 24 (user, ruling 10 in the brief): the CALL form is the Task engine's primitive; the brace form is SUGAR with an EXPLICIT-CAPTURE-LIST requirement UNIFORM across Thread.spawn/Task.spawn/group.spawn braces (the list IS the parameter list; implicit captures = teaching error; ~42-site Thread-brace migration rides). Trailing-brace syntax briefed as design 243, BACKLOGGED. Unit 3 redisptaches when the deferred-move branch lands (capture-machinery overlap); detach()'s `__saw_rt_*` seam gets lead-spec'd in the redispatch prompt. One finding filed: DF-252a (FuncPointer called by name in a driven body, pinned XFAIL)
+- Design 242 — the Thread/Task split (designs/242-thread-task-split.md) — units 0-1 LANDED Aug 22; UNITS 2 + 4(part) + 5 LANDED Aug 24 (branch `design-242-b`: the consumption funnel per-path, 9a's storage discharge keyed on a hand-written-deinit root, 9b's panic on the two THREAD handles, the blocking-permitted sync context via a second fixpoint, docs; conformance K78-K84; the 9b probe corrected the census — three corpus sites migrated). UNIT 3 RULED Aug 24 (user, ruling 10 in the brief): the CALL form is the Task engine's primitive; the brace form is SUGAR with an EXPLICIT-CAPTURE-LIST requirement UNIFORM across Thread.spawn/Task.spawn/group.spawn braces (the list IS the parameter list; implicit captures = teaching error; ~42-site Thread-brace migration rides). Trailing-brace syntax briefed as design 243, BACKLOGGED. UNIT 3 LANDED Aug 25 (branch `design-242-c`, three commits): `Task.spawn` + the background singleton + the exit cancel-then-join, the cooperative must-consume with its PROVENANCE-keyed 9b fault, `detach()` on both engines (one additive seam `__saw_rt_thread_detach`), and the spawn brace's capture list with the 27-site migration; conformance K85-K91. ONE PART OPEN — the cooperative BRACE sugar (`Task.spawn { }` / `group.spawn { }`), blocked on the lifted function's return type; the brief's landing section has the analysis. Findings: DF-252a (FuncPointer called by name in a driven body, pinned XFAIL), DF-256a (fixed), DF-256b (open)
 - ~~Place-window xfail family~~ — LANDED Aug 22 (branch `place-window-fixes`): DF-169h/DF-218i(+248d)/DF-218j closed, DF-232n pin resolved as superseded-by-ruling. ~~DF-218h~~ and ~~DF-248a~~ — CLOSED Aug 24 (branch `deferred-move`, one commit each) to their rulings: a non-escaping closure's `move` capture transfers WHEN THE BODY RUNS, and an assignment's RHS may read the target's own root while every other in-window naming keeps its refusal behind teaching text. One finding filed: DF-255a (the ESCAPING half of the capture double free, pinned XFAIL). Entries below
 - ~~Diagnostics/codegen small batch~~ — LANDED Aug 22-23 (branch `diag-batch`, seven commits, nothing stopped): DF-245b, DF-238b (+ the checked-cast twin), DF-238c (+ a second face at the thread-assertion funnel, conformance B23), DF-243a (four operator families + the sos abi un-suffixing, byte-identical), DF-243b+DF-232g residue, DF-225a, DF-225d (self usable as its own type on all ten primitives), DF-225f ridden. One finding filed: DF-249a (bounds panic omits index+length — wording decision held). xfails -2, none added
 - ~~Transform typing batch~~ — ALL THREE LANDED Aug 22 (branch `transform-typing`, one commit each, after 242 units 0-1 integrated): DF-245c (a bare `None`'s payload type now outlives the second typecheck pass), DF-245d (a propagating `try` in a container HEAD — the sweep widened the rule from the binding forms), DF-244b (the bare `None` tail, through design 234's ladder). Two XFAIL pins flipped (suite xfails 7 -> 5), two new passing tests added (DF-244b had no pin: `result_optional_none_tail_types_itself.saw` plus the refusal `errors/result_none_tail_needs_an_optional_ok.saw`). Two findings filed: DF-250a, DF-250b. Entries below
@@ -91,6 +91,7 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-251c — DF-216h's extension-parameter RENAME does not reach an `init`'s parameters at the construction site, so `Pair<Int>(three: 11)` under `extension Pair<U>` is refused; the METHOD half works. Entry below, with the mechanism and the data the fix needs
 - DF-251d — an `init` BODY that suspends is an internal compiler error; the coro transform scans init bodies but a construction is a `StructInit`, not a `MethodCall`, so nothing can name the frame. Entry below; either transform it or refuse it at the declaration
 - DF-252a — calling a `FuncPointer` value BY NAME inside a driven body is an internal compiler error (entry below, filed by design 242 unit 4; PRE-EXISTING, and invisible until ruling 8 refused the vacuous test that claimed to cover it). Pinned XFAIL, seven-cell matrix with three green controls
+- DF-256b — the thread control block is DEALLOCATED at a size std computes by hand, and the two do not agree with the one codegen allocated (entry below, filed Aug 25 by design 242 unit 3b; PRE-EXISTING and inert on both hosted allocators, which free by pointer)
 
 - ~~DF-225a~~ — CLOSED Aug 22 (branch `diag-batch`, commit 6): the five join the ordinary duplicate-declaration rule — same LLVM signature unifies (so `printf` is callable), a different one is a clean refusal. The sweep probed every compiler-declared symbol and found the five are exactly the ones std does not also declare. Entry below, under DF-225a-f
 - ~~DF-225d~~ — CLOSED Aug 22 (branch `diag-batch`, commit 7): the three copies of "which names are primitives" became ONE table, so `self` inside a primitive extension is that primitive again. The sweep found the class is wider than the filing — arithmetic, comparison and `Bool`/`UInt` too, all ten design 176 added. Entry below, under DF-225a-f
@@ -957,6 +958,69 @@ whose type is CALLABLE", which today means `TypeKind.FUNCTION` or a
 rather than with design 242. Pinned XFAIL:
 `examples/funcpointer_call_in_a_driven_body.saw`. [226, 242]
 
+## DF-256a — a GENERIC struct's own fields are invisible to codegen's
+## type-registration order (filed + FIXED Aug 25 by design 242 unit 3a)
+
+```saw
+func work(n: Int) -> Int { yield_now()  n * 2 }
+func main() -> Int {
+    let a = Task.spawn(work(3))   // `a` lives across the suspension below,
+    yield_now()                   //   so `__Frame_main` holds a `Task<Int>`
+    a.join()
+}
+// internal compiler error: Undefined struct: TaskGroup
+```
+
+MECHANISM. `_register_types_in_order` (`codegen/core.py`) topologically sorts
+the program's types before registering them, and builds the graph over
+NON-GENERIC declarations only — a template has no layout, so `if
+struct.type_params: continue`. A field of type `Task<Int>` therefore
+contributed the name `Task` and stopped. But registering the CONTAINER asks
+`_ensure_monomorphized_struct` to build the instantiation right there, and
+`Task<T>`'s `group_ptr: UnsafePointer<TaskGroup>` needs `TaskGroup` registered
+first. The edge exists and the graph could not see it.
+
+Pre-existing, and invisible until now for a mundane reason: every program that
+put a `Task<T>` in a frame also had a `TaskGroup` of its own, which ordered
+`TaskGroup` for it. `Task.spawn` is the first spawn form with no group in
+sight. It is the same class of failure design 33's array-element arm fixed (its
+comment records the identical symptom, "Undefined struct", nondeterministic
+under hash order) — a dependency edge the walk did not follow.
+
+FIXED here: `get_deps` reaches THROUGH a generic name into the template's own
+fields, guarded against a self-referential template. Substitution is not
+needed — a field typed by a type PARAMETER names no registered type, and one
+typed by a concrete struct names the same struct at every instantiation.
+SIBLINGS the mechanism reaches, now covered by the same widening: any
+non-generic struct whose field instantiates a generic that holds a concrete
+struct, in either direction of declaration order. [33, 242]
+
+## DF-256b — the thread control block's DEALLOCATION SIZE is computed by hand
+## in std and disagrees with the one codegen allocated (filed Aug 25 by
+## design 242 unit 3b; PRE-EXISTING)
+
+Spawn codegen allocates `_abi_size({ i8* tid, i8* env, word state, T result })`
+and `Thread<T>.join` frees with the hand-written `24 + sizeof<T>()`
+(`std/task.saw`); `VoidThread.join` frees with a bare literal. The two agree
+only when `T` needs no padding: for a `Void` body the real ABI size is 32 (a
+1-byte placeholder rounded to the block's 8-byte alignment) against the
+literal's 24, and for a `T` whose alignment exceeds the word the arithmetic
+misses the padding LLVM inserts. The pre-242 numbers had the same shape (16 vs
+a real 24), so this is not new — unit 3b moved both constants and left the
+approximation exactly as it found it.
+
+INERT ON BOTH HOSTED ALLOCATORS, which is why it has never been seen:
+`__saw_rt_dealloc` is `free()` there and the size argument is ignored. It is
+NOT inert for a freestanding runtime with a sized-free allocator, which is the
+profile the seam's size argument exists for at all.
+
+The fix wants the size to stop being computed twice. The block already carries
+it — unit 3b's handshake word holds the block's own size until one of the two
+parties takes it — so `join` could read it rather than recompute it, which
+would also make the `Void` and non-`Void` paths one. That reading is what
+`__saw_rt_thread_detach`'s C body already does. Not pinned: an XFAIL wants a
+behaviour that differs, and on both hosted allocators nothing does. [123, 242]
+
 ## Design 242 — the Thread/Task split (AUTHORED + fully RULED Aug 22; IN
 ## FLIGHT on branch `design-242`)
 
@@ -1034,32 +1098,31 @@ are law. Status by unit:
   the gradient in its concurrency section. The spec says in one sentence that
   `detach()` is named by the diagnostics and not implemented yet, which is the
   honest state until unit 4c lands.
-- **Units 3, 4c — OPEN.** Deviations and blockers, all recorded here:
-  - `detach()` is NOT implemented. Unit 2's diagnostics NAME it, as the
-    brief's own unit ordering intends. Its honest implementation is a
-    control-block ownership handoff between the detacher and the trampoline
-    (an atomic exchange on a state word, whoever loses frees and drops the
-    result) plus a `pthread_detach`, i.e. a control-block LAYOUT change and a
-    NEW `__saw_rt_*` seam in a document `rt/ABI.md` freezes. Both of those are
-    decisions rather than code, so they are left to the user.
-  - 9b's deinit panic landed on `Thread<T>`/`VoidThread` ONLY. On the
-    cooperative side every handle alive today comes from `group.spawn` and is
-    free to drop (ruling 6), so a `Task<T>`/`VoidTask` panic would fire on
-    nothing; the must-consume BIT it needs cannot be written through today's
-    `join(&self)` receiver either, so it belongs with `Task.spawn`.
-  - **RULING NEEDED before unit 3: what does `Task.spawn` TAKE?** The brief
-    writes the BRACE form (`Task.spawn { } -> Task<T>`, rulings 3 and 7), and
-    a brace body cannot suspend: the coroutine transform builds a frame for a
-    named function, and `group.spawn` accordingly requires a direct call to
-    one (`_check_taskgroup_spawn`, "expects a direct call to a free
-    function"). A closure is never transformed — which is exactly what unit
-    0's probe found on the thread side and what ruling 8 now refuses. So the
-    brace form gives a Task engine whose bodies cannot suspend, which is the
-    engine's whole point. Two things point at the CALL form
-    `Task.spawn(work(3))`: it is the spelling the cooperative engine already
-    has, and ruling 7 itself speaks of "no `&`/`&var` ARGUMENTS" at
-    `Task.spawn`, which a brace form does not have. The agent did not pick —
-    this is a user-facing API spelling, and getting it wrong wastes the unit.
+- **Unit 3 — LANDED (branch `design-242-c`, three commits), except the
+  cooperative BRACE sugar.** Rulings 3, 4, 5/6/9b on the cooperative side, 7
+  and 10's capture-list half. The brief's landing section is the record of
+  every mechanism; the summary is that `Task.spawn(work(n))` is the call form
+  ruling 10 named, the background group is an all-zero heap `TaskGroup`
+  published by CAS and closed by a synthesized `main` wrapper, the 9b fault
+  keys on a PROVENANCE bit rather than on the handle type, `detach()` landed on
+  both engines (the thread side on one additive seam,
+  `__saw_rt_thread_detach`), and a spawned brace now captures nothing
+  implicitly. Conformance rows K85-K91. Suite 2206 / 5 xfail (unchanged),
+  freestanding 31, sos 80, corodiff + abidoc + citations clean.
+  - **STILL OPEN, ruling 10's other half:** the brace sugar for the two
+    cooperative forms (`Task.spawn { [x] in ... }`,
+    `group.spawn { [x] in ... }`). The blocker is the lifted function's RETURN
+    TYPE — a Saw function with no declared return type is `Void`, so the lift
+    cannot defer the question to the ordinary function checker, and the answer
+    is not known until the body is checked. The two ways out (a sandboxed
+    deepcopy check on design 70's pristine-template model, or a
+    deferred-return-type mechanism for a synthesized declaration) are a shape
+    to decide rather than to pick; the brief's landing section has the analysis
+    and the probe. Ruling 10's enclosing-TYPE-parameter refusal belongs with
+    the lift and not before it.
+  - Two findings: DF-256a (a generic struct's fields invisible to codegen's
+    type-order sort — FIXED here, it blocked the unit) and DF-256b (the thread
+    control block's deallocation SIZE, pre-existing, open; entry below).
 - **The widest edge of 9a's approximation, recorded for a possible tightening.**
   The discharge asks whether the destination path's ROOT type declares a
   hand-written `deinit`. std's `Vector` declares one, so `v.push(move t)` into
