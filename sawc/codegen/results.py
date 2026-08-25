@@ -130,6 +130,33 @@ class ResultsMixin:
         `Printable` conformance, which `E` is not bounded to have — keeps the
         bare text. Nothing is guessed about a type that never said how it reads.
         """
+        self._emit_forced_result_panic(result_val, result_enum_name,
+                                       "try! failed", expr.line, expr.column)
+
+    def _emit_forced_result_panic(self, result_val, result_enum_name: str,
+                                  what: str, line: int, column: int):
+        """Panic out of a FORCED `Result` that met an `Err`, naming the error.
+
+        The rendering half of DF-245b, shared by every site that consumes a
+        `Result` it cannot hand on. ENTRY POINTS (obligation 1 — this is the one
+        chokepoint, and these are all of them):
+
+          * `_emit_try_force_panic` — the `try!` a caller wrote (`what` is
+            `try! failed`);
+          * `_force_synthesized_result` — a call the COMPILER synthesized, which
+            has no expression a `try` could sit on (`what` names the construct).
+
+        The error is rendered after `what` through the SAME stack-scratch walk
+        `panic("...{}", e)` uses (`_render_argument` -> design 137), so the
+        alloc-free and denied-allocator paths keep working and an erased
+        `Box<any Error>` renders through its vtable. The scratch lands in THIS
+        block, not the entry block: it ends in `unreachable`, so a function that
+        merely contains one pays no frame bytes for the message.
+
+        An error type the format walk cannot render — a struct or enum with no
+        `Printable` conformance, which `E` is not bounded to have — keeps the
+        bare text. Nothing is guessed about a type that never said how it reads.
+        """
         _, _, variant_info = self.enum_types[result_enum_name]
         err_params = variant_info["Err"]
         err_type = err_params[0][1] if err_params else None
@@ -137,17 +164,88 @@ class ResultsMixin:
             self.namespace.is_printable(err_type)
             or self._is_builtin_interp_type(err_type))
         if not renderable:
-            self._emit_panic("try! failed", line=expr.line)
+            self._emit_panic(what, line=line)
             return
 
         err_value = self._extract_result_err_value(result_val, result_enum_name)
         rendered = PreparedValue(value=err_value, resolved_type=err_type,
-                                 line=expr.line, column=expr.column)
+                                 line=line, column=column)
         prefix_ptr, prefix_len = self._raw_bytes_ptr(
-            self._panic_location_prefix(expr.line) + "try! failed: ")
+            self._panic_location_prefix(line) + what + ": ")
         self._emit_runtime_panic(
             [(prefix_ptr, prefix_len),
              self._render_argument(rendered, in_entry=False)])
+
+    def _synthesized_result_enum(self, value, ok_saw):
+        """The registered `Result$…` enum a COMPILER-SYNTHESIZED call returned,
+        or `None` when the call returned something else.
+
+        A synthesized call has no AST node the typechecker annotated, so the
+        instantiation cannot be read off `expr.result_enum_type` the way
+        `_generate_try_expr` reads it. It is recovered from the LLVM layout and
+        DISAMBIGUATED by the Ok payload's spelling — which the caller knows by
+        construction — because same-layout instantiations are exactly what a
+        layout match alone cannot separate (`Result<Int, Int>` and
+        `Result<String, E>` are both `{ i32, [8 x i8] }`).
+
+        `ok_saw` is `None` for a `Result<Void, E>` (design 92: a dataless Ok arm).
+
+        ENTRY POINTS: `_build_collection_literal` — the per-element
+        `push`/`insert` of a vector/map/set literal (design 54), which is the
+        only synthesized call site design 234's flip reaches. A second entry
+        belongs here rather than beside it.
+        """
+        candidates = []
+        for name, (llvm_type, _tags, info) in self.enum_types.items():
+            if not name.startswith("Result$") or llvm_type != value.type:
+                continue
+            if "Ok" not in info or "Err" not in info:
+                continue
+            candidates.append((name, info))
+        if not candidates:
+            return None
+
+        if ok_saw is None:
+            exact = [n for n, i in candidates if self._is_void_payload(i["Ok"])]
+        else:
+            want = str(ok_saw)
+            exact = [n for n, i in candidates
+                     if len(i["Ok"]) == 1 and str(i["Ok"][0][1]) == want]
+        if len(exact) == 1:
+            return exact[0]
+        # Ambiguous or absent: the Ok half cannot be trusted, so neither is the
+        # forced extraction. Reported rather than guessed.
+        return None
+
+    def _force_synthesized_result(self, result_val, result_enum_name: str,
+                                  what: str, line: int, column: int):
+        """Consume a synthesized call's `Result`: yield the Ok value, panic on Err.
+
+        design 234 §5 — a site with no expression to hang a `try` on cannot
+        report a failure, so it panics, and the panic says what the `Result`
+        said. That is the whole difference from the tier this replaces: design
+        123's `panic("Vector.push: allocation failed")` named the method and
+        nothing about the request, while this renders the `AllocError` the call
+        actually produced.
+
+        ENTRY POINTS: `_build_collection_literal`.
+        """
+        func = self.builder.function
+        ok_bb = func.append_basic_block(name="synth_ok")
+        panic_bb = func.append_basic_block(name="synth_panic")
+
+        _, variant_tags, _ = self.enum_types[result_enum_name]
+        tag = self.builder.extract_value(result_val, 0, name="synth_tag")
+        ok_tag = ir.Constant(ir.IntType(32), variant_tags["Ok"])
+        is_ok = self.builder.icmp_unsigned('==', tag, ok_tag, name="synth_is_ok")
+        self.builder.cbranch(is_ok, ok_bb, panic_bb)
+
+        self.builder.position_at_end(panic_bb)
+        self._emit_forced_result_panic(result_val, result_enum_name, what,
+                                       line, column)
+
+        self.builder.position_at_end(ok_bb)
+        return self._extract_result_ok_value(result_val, result_enum_name)
 
     def _generate_try_optional(self, result_val, is_ok, expr: TryExpr, result_enum_name: str):
         """Generate code for try? (convert Result<T, E> to T?)."""

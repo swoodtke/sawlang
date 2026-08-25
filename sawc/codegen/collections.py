@@ -59,7 +59,8 @@ class CollectionsMixin:
         return self.builder.extract_value(tuple_val, expr.index)
 
     def _build_collection_literal(self, container_type, expr, method_name,
-                                  insert_arg_lists, discard_saw_type=None):
+                                  insert_arg_lists, discard_saw_type=None,
+                                  element_ok_type=None):
         """Shared lowering for map / set / vector literals (design 54): construct
         the container, then call `method_name` (insert/push) once per element in
         source order, and yield the finished value.
@@ -73,7 +74,17 @@ class CollectionsMixin:
         `discard_saw_type` is the type of each call's discarded return value
         (Map.insert returns the shadowed old value `V?`); when it needs cleanup,
         the return is dropped like a discarded call result so a duplicate-key map
-        literal with owning values does not leak the shadowed value."""
+        literal with owning values does not leak the shadowed value.
+
+        `element_ok_type` is that same value's type once design 234's flip makes
+        the element op return `Result<_, AllocError>` — `None` for `push`, whose
+        Ok arm is `Void`. A LITERAL cannot report a refused allocation: the
+        `push`/`insert` calls below are synthesized, so there is no expression a
+        `try` could sit on, which is §5's hidden-allocation boundary reached from
+        the other side. The Result is FORCED here and the panic names the error
+        (conformance row A16). The container's own nullary `init` allocates
+        nothing for any of the three types, so the construction above it stays a
+        plain value."""
         ct = container_type
         if ct is not None and self.type_param_context:
             ct = ct.substitute(self.type_param_context)
@@ -111,6 +122,20 @@ class CollectionsMixin:
                     arguments=[Argument(value=a, name=None) for a in arg_list],
                     line=expr.line, column=expr.column)
                 res = self._generate_expression(mc)
+                # design 234: the element op reports a refused allocation now.
+                # Force it here — a synthesized call has nowhere to propagate to
+                # — and panic naming the error (row A16). Inert while the op
+                # still returns its bare value.
+                if res is not None:
+                    ok_saw = (element_ok_type.substitute(self.type_param_context)
+                              if (element_ok_type is not None
+                                  and self.type_param_context)
+                              else element_ok_type)
+                    enum_name = self._synthesized_result_enum(res, ok_saw)
+                    if enum_name is not None:
+                        res = self._force_synthesized_result(
+                            res, enum_name, "collection literal",
+                            expr.line, expr.column)
                 # Drop an owning discarded return (Map.insert's shadowed `V?` on a
                 # duplicate key) so it is not leaked — same as a discarded call
                 # result at statement end.
@@ -138,13 +163,17 @@ class CollectionsMixin:
             discard = SawType(TypeKind.OPTIONAL, inner_type=sub.type_args[1])
         return self._build_collection_literal(
             ct, expr, "insert", [[k, v] for (k, v) in expr.entries],
-            discard_saw_type=discard)
+            discard_saw_type=discard, element_ok_type=discard)
 
     def _generate_set_literal(self, expr: SetLiteral):
         """Lower a set literal `{a, b, ...}` (design 54)."""
         ct = expr.resolved_type
+        # `Set.insert` answers whether the value was newly added, so its Ok arm
+        # is `Bool` once design 234 makes it fallible — the key that tells its
+        # `Result` apart from a same-layout one.
         return self._build_collection_literal(
-            ct, expr, "insert", [[e] for e in expr.elements])
+            ct, expr, "insert", [[e] for e in expr.elements],
+            element_ok_type=SawType(TypeKind.BOOL))
 
     def _generate_array_literal(self, expr: ArrayLiteral):
         """Generate code for array literal.
@@ -153,8 +182,12 @@ class CollectionsMixin:
         type, build a Vector (per-element push) instead of a fixed-size array."""
         vec_ct = expr.vector_container_type
         if vec_ct is not None:
+            # `Vector.push` answers nothing, so its Ok arm is `Void` once design
+            # 234 makes it fallible — `element_ok_type=None` is that, not an
+            # omission (design 92: a dataless Ok arm carries the tag only).
             return self._build_collection_literal(
-                vec_ct, expr, "push", [[e] for e in expr.elements])
+                vec_ct, expr, "push", [[e] for e in expr.elements],
+                element_ok_type=None)
 
         if expr.repeat_count is not None:
             return self._generate_repeat_literal(expr)
