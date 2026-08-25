@@ -2,7 +2,9 @@
 // silent no-op, so a caller with a bad index got an unswapped vector and no way
 // to find out.
 // EXPECT: panic
-// EXPECT-PANIC-CONTAINS: Vector.swap: index out of range
+// DF-249a: the two indices are checked separately, so the message names the
+// one that is out of range (99) rather than the pair.
+// EXPECT-PANIC-CONTAINS: Vector.swap: index out of range: 99 (len 3)
 
 func main() {
     var v: Vector<Int> = [10, 20, 30]

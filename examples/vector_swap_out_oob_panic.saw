@@ -4,7 +4,7 @@
 // method corrupted the heap and returned normally. Proven on main with a
 // 2-element `Vector<Int>`: `swap_out(99, 7)` wrote 7 past the end and exited 0.
 // EXPECT: panic
-// EXPECT-PANIC-CONTAINS: Vector.swap_out: index out of range
+// EXPECT-PANIC-CONTAINS: Vector.swap_out: index out of range: 99 (len 2)
 
 func main() {
     var v: Vector<Int> = [10, 20]

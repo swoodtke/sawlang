@@ -3696,7 +3696,7 @@ for the exclusive one.
 extension Data {
     public func [](&self, index: Int) unsafe borrows -> UInt8 {
         if index < 0 || index >= self.length {
-            panic("Data.[]: index out of range")
+            panic("Data.[]: index out of range: {} (len {})", index, self.length)
         }
         if #lend_var {
             if not self._make_ready(self.length) {   // the copy-on-write gate
@@ -5358,11 +5358,12 @@ is what keeps "a raw-backed enum value is always a declared case" true.
   **compile error** ("index out of range"), mirroring the tuple-index check.
 - **Fixed-array indexing with a *dynamic* index** is **bounds-checked at
   runtime** (design 63): `0 <= i < N` (folded to one unsigned compare, so a
-  negative index is caught too); an out-of-range index panics "index out of
-  range". ALWAYS ON, every profile, no disable flag (the same posture as integer
-  overflow). An in-range constant index is folded away; raw-pointer /
-  `UnsafeMemory` indexing is the explicit unchecked escape. Read and write paths
-  are both checked.
+  negative index is caught too); an out-of-range index panics
+  "array: index out of range: `i` (len `N`)" — the bounds-panic wording family,
+  see "The accessor rule". ALWAYS ON, every profile, no disable flag (the same
+  posture as integer overflow). An in-range constant index is folded away;
+  raw-pointer / `UnsafeMemory` indexing is the explicit unchecked escape. Read
+  and write paths are both checked.
 - **Tuple indexing** past the tuple's arity is a compile error.
 
 ### Equality (`Equatable`)
@@ -10242,6 +10243,32 @@ through `UnsafePointer`. An out-of-range index **panics** for a direct accessor
 `None`/`Err` for a `get`-shaped one (`Vector.get`, `Data.get`, `Data.slice`). Never a silent
 no-op, never a clamp to a plausible-looking result, and never a status flag a
 caller can ignore.
+
+**The wording family.** Every bounds panic in the language spells the same
+sentence — the compiler's own fixed-array trap and every hand-written accessor
+prologue in the standard library alike:
+
+```
+<what>: index out of range: <i> (len <n>)
+```
+
+so `v[5]` on a three-element vector is
+`panic at v.saw:9: Vector.[]: index out of range: 5 (len 3)`, and `a[i]` on a
+`[Int; 3]` is `array: index out of range: 5 (len 3)`. A range or slice accessor
+spells both bounds: `String.substring: range out of range: 5..2 (len 5)`. The
+index is reported at its own signedness, so a negative one reads `-1` rather
+than the huge unsigned value the check folds it to.
+
+Both numbers are already in hand where the check fails, and the message is
+assembled through the allocation-free format path (the `{}` arguments of
+"Format arguments", not interpolation) — so a bounds panic reports itself under
+an exhausted allocator, in the freestanding profile, and in a kernel. Write your
+own accessor's panic the same way:
+`panic("Bag.[]: index out of range: {} (len {})", i, self.len())`.
+
+Arithmetic traps — integer overflow, a shift count out of range, division by
+zero — are deliberately *not* in this family: they report a condition rather
+than an index into something with a length, and they keep their fixed text.
 
 For scoped, no-copy access to a container element (including a `NoCopy` one)
 without minting a raw pointer at all, use `Vector.with_ref`/`with_var_ref`: a

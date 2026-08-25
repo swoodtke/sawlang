@@ -215,7 +215,7 @@ extension Data {
     /// proved `length > 0`, so the storage it reads through exists.
     public func [](&self, index: Int) unsafe borrows -> UInt8 {
         if index < 0 || index >= self.length {
-            panic("Data.[]: index out of range")
+            panic("Data.[]: index out of range: {} (len {})", index, self.length)
         }
         if #lend_var {
             if not self._make_ready(self.length) {
@@ -254,7 +254,7 @@ extension Data {
     /// `try_set` reports that instead.
     public func set(&var self, index: Int, value: UInt8) {
         if index < 0 || index >= self.length {
-            panic("Data.set: index out of range")
+            panic("Data.set: index out of range: {} (len {})", index, self.length)
         }
         if not self._make_ready(self.length) {
             panic("Data.set: allocation failed")
@@ -271,7 +271,7 @@ extension Data {
     /// about the allocator, not about bounds (design 130's accessor rule).
     public func try_set(&var self, index: Int, value: UInt8) -> Result<Void, AllocError> {
         if index < 0 || index >= self.length {
-            panic("Data.try_set: index out of range")
+            panic("Data.try_set: index out of range: {} (len {})", index, self.length)
         }
         if not self._make_ready(self.length) {
             return AllocError(size: self._grow_target(self.length), align: 1)

@@ -1,0 +1,21 @@
+// DF-249a, the bounds-panic wording family: `FixedBuf.get` panics out of range
+// with the index and the length, and the length here is the CONST GENERIC `N` —
+// a value the message reads straight out of the type, which is the one row where
+// the length is not a field or a `len()` call.
+//
+// `--no-hidden-alloc` is the point of pinning this one: the family renders
+// through design 137's `{}` format arguments (stack scratch), never through
+// interpolation, so a bounds panic still reports itself where there is no
+// allocator — which is exactly where `FixedBuf` is meant to be used.
+// COMPILE-FLAGS: --no-hidden-alloc
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: FixedBuf.get: index out of range: 11 (len 8)
+
+import std.fixedbuf.{FixedBuf}
+
+func main() {
+    var b = FixedBuf<8>()
+    b.set(0, 65 as Int8)
+    print(b.get(0) as Int)      // 65 — in range, fine
+    print(b.get(11) as Int)     // past the end -> panic
+}

@@ -3,7 +3,7 @@
 // signal, and `value` is consumed by the call either way, so the element it was
 // handed was dropped on the floor.
 // EXPECT: panic
-// EXPECT-PANIC-CONTAINS: Vector.set: index out of range
+// EXPECT-PANIC-CONTAINS: Vector.set: index out of range: 99 (len 2)
 
 func main() {
     var v: Vector<Int> = [10, 20]

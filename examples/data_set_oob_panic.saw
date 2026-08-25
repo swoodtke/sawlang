@@ -3,7 +3,7 @@
 // caller carried on — the ignorable-sentinel shape design 92 rules out. `get`
 // keeps its `None`-returning shape; only the direct setter panics.
 // EXPECT: panic
-// EXPECT-PANIC-CONTAINS: Data.set: index out of range
+// EXPECT-PANIC-CONTAINS: Data.set: index out of range: 9 (len 2)
 
 import std.data.*
 

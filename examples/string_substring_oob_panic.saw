@@ -3,7 +3,9 @@
 // string and `"hello".substring(5, 2)` returned `""` — so a caller could not
 // distinguish a bug from a legitimately empty slice.
 // EXPECT: panic
-// EXPECT-PANIC-CONTAINS: String.substring: range out of bounds
+// DF-249a: a RANGE accessor spells both bounds, so the message shows the whole
+// range that was asked for beside the length it had to fit in.
+// EXPECT-PANIC-CONTAINS: String.substring: range out of range: -9..99 (len 5)
 
 func main() {
     print("hello".substring(1, 3))    // "el" — in range

@@ -4,7 +4,7 @@
 // no clamp, no silent no-op. The existing bounds pins are fixed arrays and
 // `Vector.set`/`swap`; the subscript itself had none.
 // EXPECT: panic
-// EXPECT-PANIC-CONTAINS: Vector.[]: index out of range
+// EXPECT-PANIC-CONTAINS: Vector.[]: index out of range: 5 (len 3)
 
 func main() {
     var v: Vector<Int> = [1, 2, 3]

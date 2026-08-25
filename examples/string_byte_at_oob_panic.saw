@@ -3,7 +3,7 @@
 // unsafe (`"hello".byte_at(99)` returned a value that was not even in Int8's
 // range). An out-of-range index now panics like every other indexing operation.
 // EXPECT: panic
-// EXPECT-PANIC-CONTAINS: String.byte_at: index out of range
+// EXPECT-PANIC-CONTAINS: String.byte_at: index out of range: 99 (len 5)
 
 func main() {
     let s = "hello"

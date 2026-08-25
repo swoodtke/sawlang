@@ -2,7 +2,9 @@
 // string. `"hello".substring(5, 2)` used to clamp to `""`, colliding with the
 // legitimate `substring(2, 2)`.
 // EXPECT: panic
-// EXPECT-PANIC-CONTAINS: String.substring: range out of bounds
+// DF-249a: both bounds are spelled, which is what makes the REVERSED case
+// legible — `5..2` is visibly backwards where "range out of bounds" was not.
+// EXPECT-PANIC-CONTAINS: String.substring: range out of range: 5..2 (len 5)
 
 func main() {
     print("hello".substring(2, 2))    // "" — empty, and legal

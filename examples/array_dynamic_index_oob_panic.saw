@@ -1,7 +1,8 @@
 // Design 63 T1b: a dynamic index equal to the length N is out of range and
-// panics "index out of range" (always on, no disable flag).
+// panics (always on, no disable flag). DF-249a: the message carries the index
+// and the length, both of which the trap already had in hand.
 // EXPECT: panic
-// EXPECT-PANIC-CONTAINS: index out of range
+// EXPECT-PANIC-CONTAINS: array: index out of range: 3 (len 3)
 
 func main() {
     let arr = [10, 20, 30]

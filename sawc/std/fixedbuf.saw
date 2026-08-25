@@ -47,7 +47,7 @@ extension FixedBuf<N> {
     /// Reads the byte at `i`. Panics if `i` is out of range.
     public func get(&self, i: Int) -> Int8 {
         if i < 0 || i >= N {
-            panic("FixedBuf.get: index out of range")
+            panic("FixedBuf.get: index out of range: {} (len {})", i, N)
         }
         self.data[i]
     }
@@ -55,7 +55,7 @@ extension FixedBuf<N> {
     /// Writes `b` at `i`. Panics if `i` is out of range.
     public func set(&var self, i: Int, b: Int8) {
         if i < 0 || i >= N {
-            panic("FixedBuf.set: index out of range")
+            panic("FixedBuf.set: index out of range: {} (len {})", i, N)
         }
         self.data[i] = b
     }

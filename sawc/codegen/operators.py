@@ -292,6 +292,28 @@ class OperatorsMixin:
         dynamic indices, and the optimizer folds it away where it can prove the
         index in range (hot-loop tests stay clean). Raw-pointer / UnsafeMemory
         indexing is deliberately NOT routed here (the explicit unsafe escape).
+
+        DF-249a — THE BOUNDS-PANIC WORDING FAMILY. The message is
+        `<what>: index out of range: <i> (len <n>)`, the one shape every
+        bounds/range panic in the language spells: this trap (`<what>` is
+        `array`, the only name a fixed array has) and std's hand-written
+        accessor prologues (`Vector.[]`, `Data.set`, `String.byte_at`, …), which
+        write the same text with `panic("...: index out of range: {} (len {})",
+        i, n)`. Both numbers are in hand at the trap and neither used to be
+        printed: the index is the value just compared, the length is the
+        constant it was compared against. Rendered through design 137's
+        alloc-free format path, the same one the checked cast and `try!` use, so
+        the message costs no allocation on any profile.
+
+        The index is rendered at its OWN signedness rather than the unsigned
+        reading the compare folds it to, so `a[-1]` says `-1` rather than
+        18446744073709551615 — the compare's trick is an implementation detail
+        and the author's value is what is actionable.
+
+        ARITHMETIC traps are deliberately NOT in this family (ruled Aug 24,
+        v1): overflow, shift range and division by zero report a CONDITION over
+        operands whose formatting is its own question, and they keep their
+        fixed text.
         """
         if isinstance(index_expr, IntLiteral):
             return
@@ -304,8 +326,14 @@ class OperatorsMixin:
         cont_bb = func.append_basic_block(name="idx_cont")
         self.builder.cbranch(oob, panic_bb, cont_bb)
         self.builder.position_at_end(panic_bb)
-        self._emit_panic("index out of range",
-                         line=index_expr.line)
+        prefix = self._panic_location_prefix(
+            index_expr.line or self._di_current_line())
+        self._emit_runtime_panic([
+            self._raw_bytes_ptr(f"{prefix}array: index out of range: "),
+            self._render_int_value(
+                index_val, not self._int_is_signed(index_expr), in_entry=False),
+            self._raw_bytes_ptr(f" (len {count})"),
+        ])
         self.builder.position_at_end(cont_bb)
 
     def _generate_binary_op(self, expr: BinaryOp):

@@ -126,7 +126,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     /// Panics if `index` is outside `0..<len()`. `get` is the `None`-returning twin.
     public func [](&self, index: Int) unsafe borrows -> T {
         if index < 0 || index >= self.length {
-            panic("Vector.[]: index out of range")
+            panic("Vector.[]: index out of range: {} (len {})", index, self.length)
         }
         if let buf = self.buffer {
             lend buf[index]
@@ -192,7 +192,8 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     /// `sync`. Panics if `index` is outside `0..<len()`.
     public func with_var_ref<R>(&var self, index: Int, body: (&var T) sync -> R) unsafe -> R {
         if index < 0 || index >= self.length {
-            panic("Vector.with_var_ref: index out of range")
+            panic("Vector.with_var_ref: index out of range: {} (len {})",
+                  index, self.length)
         }
         if let buf = self.buffer {
             body(&var buf[index])
@@ -205,7 +206,8 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     /// `&T`. Bounds-checked on the same terms.
     public func with_ref<R>(&self, index: Int, body: (&T) sync -> R) unsafe -> R {
         if index < 0 || index >= self.length {
-            panic("Vector.with_ref: index out of range")
+            panic("Vector.with_ref: index out of range: {} (len {})",
+                  index, self.length)
         }
         if let buf = self.buffer {
             body(&buf[index])
@@ -225,7 +227,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     /// `index` is outside `0..<len()`; `value` is consumed either way.
     public func set(&var self, index: Int, value: T) unsafe {
         if index < 0 || index >= self.length {
-            panic("Vector.set: index out of range")
+            panic("Vector.set: index out of range: {} (len {})", index, self.length)
         }
         let _ = self.swap_out(index, value)
     }
@@ -345,8 +347,14 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
         // Out of range panics (design 130's accessor rule). This was a silent
         // no-op, which meant a caller with a bad index got an unswapped vector
         // and no signal — the "silently does less than the name promises" case.
-        if i < 0 || i >= self.length || j < 0 || j >= self.length {
-            panic("Vector.swap: index out of range")
+        // The two indices are checked SEPARATELY so the message can name the one
+        // that is wrong (DF-249a's wording family reports the offending index,
+        // and a joint check has two candidates and no way to choose).
+        if i < 0 || i >= self.length {
+            panic("Vector.swap: index out of range: {} (len {})", i, self.length)
+        }
+        if j < 0 || j >= self.length {
+            panic("Vector.swap: index out of range: {} (len {})", j, self.length)
         }
         if let buf = self.buffer {
             let size = sizeof<T>()
@@ -377,7 +385,8 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     /// returned value. This function panics if the index is out of bounds.
     public func swap_out(&var self, index: Int, value: T) unsafe -> T {
         if index < 0 || index >= self.length {
-            panic("Vector.swap_out: index out of range")
+            panic("Vector.swap_out: index out of range: {} (len {})",
+                  index, self.length)
         }
         if let buf = self.buffer {
             // Both halves of the exchange spell their transfer (design 219 unit

@@ -3,7 +3,7 @@
 // `Data` is a safe type, so its subscript is checked like `Vector`'s. The
 // existing pin is `Data.set`.
 // EXPECT: panic
-// EXPECT-PANIC-CONTAINS: Data.[]: index out of range
+// EXPECT-PANIC-CONTAINS: Data.[]: index out of range: 9 (len 1)
 
 import std.data.*
 func main() {

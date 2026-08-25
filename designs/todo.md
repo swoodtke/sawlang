@@ -77,6 +77,9 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-249a — RULED Aug 24 (user): YES to both, ONE wording family — every bounds/range panic (compiler traps AND std's hand-written accessor prologues) spells `<what>: index out of range: <i> (len <n>)` (range/slice variants spell both bounds); free via the design-137 format machinery, alloc-free everywhere. Arithmetic traps (overflow/shift/div-zero) deliberately EXCLUDED from v1 (operand-format questions, marginal value) — recorded, not forgotten. Mechanical sweep + pinned-string updates; DISPATCHED Aug 24 (branch `resolution-wording`). Entry below
 - ~~DF-246a~~ — CLOSED Aug 24 (branch `harness-doctrine`, commit 1): the three ruled rules are TESTING.md's "Waiting in a multi-threaded test", with the park-on-controlled-gate idiom as its worked example, and BOTH members of the class are rewritten to it — each 10/10 byte-identical in isolation AND at loadavg 34, where the backtrace one also dropped from 3.9s per run to 0.01s. Entry below
 - ~~DF-248a~~ — CLOSED Aug 24 (branch `deferred-move`, commit 2) to the ruling: the hoist widened from a window-opening RHS to any read of the root, and every other in-window naming keeps its refusal behind the teaching text. Entry below
+- ~~DF-249a~~ — CLOSED Aug 24 (branch `resolution-wording`, commit 1): one funnel (`_emit_array_bounds_check`, 8 call sites) plus 13 std prologues all spell `<what>: index out of range: <i> (len <n>)`; the range variant spells both bounds; `Vector.swap` split its joint check so the message can name the guilty index; the negative index reports at its own signedness. 18 pins updated, one added (`fixedbuf_get_oob_panic.saw`, const-generic length under `--no-hidden-alloc`). Arithmetic traps excluded per the ruling, recorded in the spec. Entry below
+- DF-246a — RULED Aug 24 (user), the MT-TEST DOCTRINE, three rules: (1) a fixed sleep is NEVER a synchronizer (it may pace a poll loop, never establish state); (2) the awaited state must be STABLE once reached (workers park on gates the TEST controls — a channel nobody sends on, an Atomic the observer flips); (3) observe by POLLING the observation itself until the stable state appears, a generous deadline bounding only genuine breakage. No synchronized `dump_tasks` twin — its unsync character is a recorded feature. Execution: TESTING.md section (the three rules + the park-on-controlled-gate idiom), both flaky tests rewritten, DF-246a closes. Rides the DF-218h/247b/248a dispatch or the next harness batch. Entry below
+- DF-248a — RULED Aug 24 (user): NO carve-out to the Law. The ASSIGNMENT-RHS face (`v[0].n = v.len()`) LEGALIZES via the design-193/DF-218j hoist (RHS-first is the documented order, so hoisting the read ahead of the target's window is semantics-preserving by rule); every OTHER in-window naming of the root (arguments, body reads) keeps its refusal, because the hoist there would run the read ahead of the accessor's PROLOGUE — an observable reorder of documented sequence. USER REQUIREMENT: the refusal carries TEACHING TEXT explaining the asymmetry (the two shapes look identical to an uninformed reader — the error must say WHY the assignment form works and this one doesn't, and give the one-line `let` hoist as the fix). QUEUED for dispatch with DF-218h + DF-247b. Entry below
 - DF-248b RESIDUE — a HAND-WRITTEN closure nested inside another still captures the outer one's `&var` PARAMETER by value, so a write through it is silently lost; the place-window half closed Aug 22. Entry below, pinned XFAIL; wants a borrow marker on `VariableInfo`
 - DF-248c RESIDUE (the XFAIL-CHARACTER face) — an XFAIL that starts failing for a WORSE reason than the one cited is still invisible to every gate; it wants the `XFAIL-EXPECT: error`/`output` discriminator the entry names, in the RUNNER, not in a lint. The CITATION face closed Aug 24 (branch `harness-doctrine`, commit 2) as the `citations` battery lane, `tools/check_citations.py`: done-file membership is closure full stop, a todo.md entry's status decides the rest, and an OPEN entry WINS over every closure — which is what keeps a partly-closed finding's pin (DF-218w, DF-248b, and this entry itself) from being flagged. Undecidable rows are info, never failures. The lane also carries the COMMITTED-CONFLICT-MARKER check the lead's Aug-24 incident asked for (three blocks found on main, repaired at e414a8fb; one had sat in todo.md since Aug 22) — same blind spot, same lane: nothing gates the files nothing compiles. Clean on the current tree (4 citations all open, 0 markers); the historical DF-232n row and the INDEX.md nested block are its negative controls. Entry below
 - DF-250a — a COLLECTION LITERAL does not shape through a `Result`'s Ok payload, where the bare `-> Vector<Int>` twin compiles (entry below, filed by DF-245c's sweep; PRE-EXISTING and spawn-independent). The fix is a third peel beside DF-226e's and DF-140d's, at one funnel
@@ -508,8 +511,10 @@ and the saw-lang skill all carry the new message.
 CONFORMANCE: no row owed — this is diagnostic quality on an already-trapping
 path, not a safety guarantee (what `try!` DOES on an `Err` is unchanged).
 
-## DF-249a — the FIXED-ARRAY bounds panic holds the index and the length and
-## prints neither (filed Aug 22, DF-245b's sweep)
+## ~~DF-249a — the FIXED-ARRAY bounds panic holds the index and the length and
+## prints neither~~ (filed Aug 22, DF-245b's sweep) — **FIXED Aug 24** on branch
+## `resolution-wording`, commit 1, as the whole WORDING FAMILY the ruling asked
+## for
 
 `a[i]` out of range on a `[Int; 4]` is `panic at f.saw:9: index out of range`,
 and the two numbers that would make it actionable are both in hand at the trap:
@@ -527,6 +532,49 @@ belongs in the message at all, and whether std's own hand-written accessor
 panics (`Vector.[]: index out of range`, authored in Saw) should follow. [122,
 170, 63]
 
+**FIXED Aug 24** (branch `resolution-wording`, commit 1). ONE WORDING FAMILY,
+`<what>: index out of range: <i> (len <n>)`, spelled by every bounds panic in
+the language; a range/slice accessor spells both bounds
+(`String.substring: range out of range: 5..2 (len 5)`). The compiler trap is
+`array: index out of range: 7 (len 4)` — `array` is the only name a fixed array
+has, and the `<what>:` slot stays uniform rather than growing a second shape for
+the one non-method site.
+MECHANISM (obligation 4): "a bounds check that HAS both numbers and reports
+neither", which is exactly DF-245b's mechanism one position over. The census is
+the funnel plus the prologues, and it is closed: ONE compiler funnel,
+`_emit_array_bounds_check` (8 call sites — read, write, compound write, `swap`'s
+two indices, the pointee-region arms), and THIRTEEN std prologues —
+`Vector.[]`/`with_ref`/`with_var_ref`/`set`/`swap`(×2)/`swap_out`,
+`Data.[]`/`set`/`try_set`, `String.byte_at`/`substring`, `FixedBuf.get`/`set`.
+`Vector.swap` was the one shape the wording did not fit: a joint `i or j` check
+has two candidates and no way to name the guilty one, so the two indices are
+checked separately now. `get`-shaped accessors are untouched by construction —
+they return `None`/`Err` and raise nothing.
+The index is rendered at its OWN signedness, not the unsigned reading the
+compare folds it to, so `a[-1]` says `-1` rather than 18446744073709551615.
+ALLOC-FREE by construction, not by a second copy of the rule: the compiler side
+goes through `_emit_runtime_panic` + `_render_int_value(in_entry=False)` — the
+same three lines the checked cast and DF-245b's `try!` use — and the std side
+through design 137's `{}` panic arguments, never interpolation.
+ARITHMETIC TRAPS EXCLUDED (ruled): overflow, shift range and division by zero
+report a CONDITION rather than an index into something with a length, and keep
+their fixed text. Recorded in `_emit_array_bounds_check`'s docstring and in the
+spec's accessor-rule section, which is where the family is documented.
+PINS: 18 updated to assert the full new message (they were `-CONTAINS` prefixes
+that would have passed unchanged — updating them is what makes the payload
+tested), plus one new file `examples/fixedbuf_get_oob_panic.saw`: the const
+generic `N` as the length, under `--no-hidden-alloc`, which pins the alloc-free
+claim where it matters. Spec's accessor-rule section gained the family (with the
+arithmetic exclusion), the runtime-semantics array bullet and the `#lend_var`
+example follow it, and the saw-lang skill teaches the house wording for a
+hand-written accessor.
+CONFORMANCE: no row owed — diagnostic quality on an already-trapping path, the
+same disposition DF-245b recorded. Rows T10/T11/T25 keep their guarantee and
+had their expected text updated in place.
+
+## DF-245c — ONE SPAWNED TASK ANYWHERE stops every `return None` at a
+## `-> Result<T?, E>` from typing, in functions that task never calls
+=======
 ## ~~DF-245c — ONE SPAWNED TASK ANYWHERE stops every `return None` at a
 ## `-> Result<T?, E>` from typing, in functions that task never calls~~ —
 ## **FIXED Aug 22** on branch `transform-typing`, commit 1

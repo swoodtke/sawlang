@@ -707,7 +707,9 @@ var u = w.copy()       // explicit duplicate
   not separate for a read:
   ```saw
   public func [](&self, index: Int) unsafe borrows -> UInt8 {
-      if index < 0 || index >= self.length { panic("Data.[]: index out of range") }
+      if index < 0 || index >= self.length {
+          panic("Data.[]: index out of range: {} (len {})", index, self.length)
+      }
       if #lend_var {                      // the exclusive copy only
           if not self._make_ready(self.length) { panic("Data.[]: allocation failed") }
       }
@@ -2973,6 +2975,11 @@ accessor PANICS out of range (`Vector.set`/`swap`/`swap_out`/`with_ref`/
 `with_var_ref`, `Data.set`, `String.byte_at`/`substring`); a `get`-shaped one
 returns `None`/`Err` (`Vector.get`, `Data.get`, `Data.slice`). Never a silent
 no-op, never a clamp, never an ignorable status flag (`Data.set` returned one).
+**Write your own accessor's panic in the house wording** (DF-249a):
+`panic("Bag.[]: index out of range: {} (len {})", i, self.len())` — the family is
+`<what>: index out of range: <i> (len <n>)`, with a range accessor spelling both
+bounds (`range out of range: {}..{} (len {})`). Design 137's `{}` arguments, not
+interpolation, so the message costs no allocation and works freestanding.
 For scoped no-copy element access use `Vector.with_ref`/`with_var_ref` (a
 non-escaping `&T`/`&var T` borrow, invalidation-proof) — this REPLACED `ref_at`.
 **MMIO driver idiom (blessed, design 112 — use for EVERY memory-mapped

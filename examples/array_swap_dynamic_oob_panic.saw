@@ -1,7 +1,7 @@
 // Design 72 M1: a dynamic `swap` index out of range panics at runtime (the same
 // always-on bounds check as `a[i]`).
 // EXPECT: panic
-// EXPECT-PANIC-CONTAINS: index out of range
+// EXPECT-PANIC-CONTAINS: array: index out of range: 9 (len 3)
 func main() {
     var a = [1, 2, 3]
     var k = 9

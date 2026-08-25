@@ -3,7 +3,7 @@
 // A negative index is out of range like any other: the check is one unsigned
 // comparison, not two signed ones.
 // EXPECT: panic
-// EXPECT-PANIC-CONTAINS: Vector.[]: index out of range
+// EXPECT-PANIC-CONTAINS: Vector.[]: index out of range: -1 (len 3)
 
 func main() {
     var v: Vector<Int> = [1, 2, 3]

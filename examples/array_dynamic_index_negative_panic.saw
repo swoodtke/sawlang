@@ -1,7 +1,9 @@
 // Design 63 T1b: a negative dynamic index is caught by the same unsigned
 // compare (a negative reinterpreted as unsigned is enormous).
+// DF-249a: and it is REPORTED at its own signedness — the unsigned reading is
+// how the compare is folded, not what the author wrote.
 // EXPECT: panic
-// EXPECT-PANIC-CONTAINS: index out of range
+// EXPECT-PANIC-CONTAINS: array: index out of range: -1 (len 3)
 
 func main() {
     let arr = [10, 20, 30]

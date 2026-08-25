@@ -1,7 +1,7 @@
 // Design 63 T1b: the compound-assignment path (`arr[i] += v`) is bounds
 // checked too.
 // EXPECT: panic
-// EXPECT-PANIC-CONTAINS: index out of range
+// EXPECT-PANIC-CONTAINS: array: index out of range: 4 (len 3)
 
 func main() {
     var arr = [10, 20, 30]
