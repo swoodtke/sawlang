@@ -361,7 +361,17 @@ class StatementsMixin:
                 expected_return = substituted_return
                 method.return_type = expected_return
         if method.is_init:
-            expected_return = self_type
+            # ENTRY POINT 2 of `_init_declared_return` (DF-245a): the BODY side.
+            # Silent — the declaration was judged at registration, and the
+            # receiver spelling this side wants is its own (`self_type`, the
+            # argument-free one; see the funnel's docstring).
+            _verdict, _declared = self._init_declared_return(
+                method, self_type, written_self_type, report=False)
+            # 'refused' keeps the AUTHOR's own type, so the body is judged
+            # against the signature it was written for and the declaration's
+            # refusal is the only diagnostic about it.
+            expected_return = (_declared if _verdict in ('result', 'refused')
+                               else self_type)
 
         # design 130 trigger rule (3). `self` is deliberately NOT counted: a
         # struct holding an unsafe FIELD is itself a safe type (rule 4), so

@@ -15,6 +15,7 @@
 // EXPECT-ERROR-CONTAINS: function `defaulted` is public, but the default of type parameter `T` names `Hidden`, which is private
 // EXPECT-ERROR-CONTAINS: method `Exposed.peek` is public, but the return type names `Hidden`, which is private
 // EXPECT-ERROR-CONTAINS: init `Exposed.init` is public, but parameter `seed` names `Hidden`, which is private
+// EXPECT-ERROR-CONTAINS: init `Exposed.init` is public, but the return type names `Hidden`, which is private
 // EXPECT-ERROR-CONTAINS: static method `Exposed.blank` is public, but the return type names `Hidden`, which is private
 // EXPECT-ERROR-CONTAINS: field `slot` of `Exposed` is public, but its type names `Hidden`, which is private
 // EXPECT-ERROR-CONTAINS: enum `Tagged` is public, but payload `h` of case `One` names `Hidden`, which is private
@@ -88,6 +89,14 @@ public func defaulted<T = Hidden>(x: Int) -> Int {
 extension Exposed {
     public init(seed: Hidden) -> Exposed {
         Exposed(slot: seed, inner: Hidden(n: 0))
+    }
+
+    // DF-245a: an `init`'s RETURN is a position too, now that it can name
+    // something besides the receiver. The receiver half stays inert — the cap
+    // is the receiver's own tier, so `-> Exposed` can never out-reach it — and
+    // what this row catches is the `E` a fallible init publishes.
+    public init(mark: Int) -> Result<Exposed, Hidden> {
+        Exposed(slot: Hidden(n: 0), inner: Hidden(n: mark))
     }
 
     public static func blank() -> Hidden {

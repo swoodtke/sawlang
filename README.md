@@ -194,6 +194,25 @@ Optionals and every other type stay freely discardable. The rule is about
 failures, and a `Result` a caller may always ignore should not have been a
 `Result`.
 
+A constructor can fail the same way. An `init` declares either the type it
+builds or `Result<Type, E>`, and the construction then carries the `Result`:
+
+```saw
+extension Config {
+    init(budget: Int, ceiling: Int) -> Result<Config, ConfigError> {
+        if budget > ceiling { return ConfigError.TooLarge(bytes: budget) }
+        return Config(budget: budget)
+    }
+}
+
+let cfg = try Config(budget: n, ceiling: 4096)
+```
+
+`Config(budget:ceiling:)` has type `Result<Config, ConfigError>`, so `try`,
+`try!`, `try?`, `match`, the routing clause and the discard rule all apply with
+nothing extra written. An optional return is refused: a failed creation has a
+cause, and `None` throws it away.
+
 The standard library always names its error type. An operation with one failure
 mode returns that failure — `push` reports the allocator and nothing else — and
 an operation whose sources genuinely mix returns an enum with a case per source,

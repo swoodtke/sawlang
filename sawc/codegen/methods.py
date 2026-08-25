@@ -467,11 +467,13 @@ class MethodsMixin:
                 self.builder.ret(self._coerce_ret_value(
                     result, getattr(method.body, 'final_expr', None)))
             else:
-                # Error: init must return a struct
-                # For now, return a default struct value
-                struct_type, _ = self.struct_types[struct_name]
-                default = ir.Constant(struct_type, ir.Undefined)
-                self.builder.ret(default)
+                # Error: init must produce a value. Sized from the DECLARED
+                # signature rather than from the struct layout (DF-245a) — a
+                # fallible init's function returns its `Result`, and a struct
+                # constant there would not verify.
+                self.builder.ret(
+                    ir.Constant(llvm_func.function_type.return_type,
+                                ir.Undefined))
 
         # Restore previous return type
         self.current_return_type = old_return_type

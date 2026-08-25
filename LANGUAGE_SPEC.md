@@ -2515,12 +2515,71 @@ extension Pair<U> {                                  // U is Pair's A
 
 Repeating the type's own names is the clearer spelling and the usual one.
 
+#### What an `init` may return
+
+An `init` declares one of exactly two return types, and the compiler checks
+which:
+
+- **the receiver** — `Self`, the receiver written out (`Wrap<T>` inside
+  `extension Wrap<T>`), or no return clause at all. `Point(magnitude: 5.0)`
+  then has type `Point`.
+- **`Result<Receiver, E>`** — the fallible constructor. `Config(path: p)` then
+  has type `Result<Config, ConfigError>`, and composes with `try`, `try!`,
+  `try?`, `match`, the `try(as ...)` routing clause and
+  [Discarding a Result](#discarding-a-result) with nothing extra written.
+
+```saw
+enum ConfigError { case Missing, case TooLarge(bytes: Int) }
+// ... Printable + Error conformances ...
+
+struct Config { budget: Int }
+
+extension Config {
+    init(budget: Int, ceiling: Int) -> Result<Config, ConfigError> {
+        if budget == 0 { return ConfigError.Missing }
+        if budget > ceiling { return ConfigError.TooLarge(bytes: budget) }
+        return Config(budget: budget)
+    }
+}
+
+func load(budget: Int) -> Result<Int, ConfigError> {
+    let cfg = try Config(budget: budget, ceiling: 4096)
+    return cfg.budget
+}
+```
+
+The body is checked the way any `Result`-returning body is: a receiver value
+becomes `Ok`, an error value becomes `Err`, and the tail expression follows the
+same rule a `return` does, so neither variant is written by hand.
+
+Anything else is a compile error at the declaration, naming both legal forms.
+An OPTIONAL return is refused on its own terms:
+
+```saw
+extension Config {
+    init(budget: Int) -> Config? { ... }
+}
+// error: `init` may not return an optional — an optional creation encodes as
+//        `Result<Config, E>`, because a `None` names no cause
+// hint: write `-> Result<Config, E>` naming the error the absence meant, and
+//       return that error where the `None` was
+```
+
+A constructor that fails has a reason, and `None` discards it. That is the same
+never-hide-errors rule [Error Handling](#5-error-handling) states for every
+other operation.
+
+Limit: an `init` body may not suspend. A suspending call inside one is an
+internal compiler error today rather than a diagnostic; compute the value in a
+suspending function and hand it to an ordinary `init`.
+
 **Key Features:**
 - Methods use `&self` (shared reference) or `&var self` (exclusive reference).
   Both receivers are borrows and the sigil says so; a bare `var self` is a
   compile error pointing at `&var self`
 - A method with no receiver is declared `static` (below)
-- Custom `init` methods return the struct type
+- A custom `init` returns the receiver, or `Result<Receiver, E>` when it can
+  fail
 - Multiple `init` methods distinguished by parameter names
 - Mutable methods receive a reference for efficient mutation
 - Field assignment needs `&var self`: `self.field = value` in a `&self` method

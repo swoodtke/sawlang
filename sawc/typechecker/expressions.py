@@ -7188,7 +7188,35 @@ class ExpressionsMixin:
                 init_param_names.append(field_name)
             self._check_call_exclusivity(init_values, init_param_types,
                                          param_names=init_param_names)
-        return SawType(TypeKind.STRUCT, struct_name=expr.struct_name, type_args=expr.type_args, symbol=struct_info)
+        built = SawType(TypeKind.STRUCT, struct_name=expr.struct_name,
+                        type_args=expr.type_args, symbol=struct_info)
+        return self._init_call_type(
+            matching_inits[0] if not matches_fields else None,
+            built, type_mapping)
+
+    def _init_call_type(self, method_info, built, type_mapping=None):
+        """The type a `T(args...)` CONSTRUCTION hands back — DF-245a.
+
+        The receiver, unless the `init` that matched declares the fallible form,
+        in which case it is that `Result<T, E>` and the construction composes
+        with `try`/`try!`/`try?`/`match`, the routing clause and design 151's
+        discard rule with nothing else written. `_init_declared_return` has
+        already refused every other declared return, so there are only these
+        two answers to pick between.
+
+        TWO POSITIONS — the matrix this rule quantifies over, since a
+        construction is written in exactly two ways:
+          1. `_check_struct_init`        — the bare `T(...)`
+          2. `_check_module_struct_init` — the qualified `mod.T(...)`
+        A memberwise literal passes `None` here: it runs no `init` at all, so it
+        can only ever build the receiver.
+        """
+        if method_info is None:
+            return built
+        declared = getattr(method_info, 'return_type', None)
+        if declared is None or not declared.is_result():
+            return built
+        return declared.substitute(type_mapping) if type_mapping else declared
 
     def _check_none_literal(self, expr: NoneLiteral) -> Optional[SawType]:
         """Check None literal - returns a special 'None' type that can unify with any T?.
@@ -10438,7 +10466,9 @@ class ExpressionsMixin:
                 init_param_types.append(expected_type)
             self._check_call_exclusivity(init_values, init_param_types)
 
-        return SawType(TypeKind.STRUCT, struct_name=identity, symbol=struct_sym)
+        return self._init_call_type(
+            matching_inits[0] if not matches_fields else None,
+            SawType(TypeKind.STRUCT, struct_name=identity, symbol=struct_sym))
 
     def _check_static_method_call(self, expr: MethodCall, struct_name: str,
                                    struct_info, method_info) -> Optional[SawType]:

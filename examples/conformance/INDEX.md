@@ -6,7 +6,7 @@ either a file in this directory or an existing `examples/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
-**453 rows: 346 carry a file here, 107 are covered elsewhere** (recounted Aug 16
+**454 rows: 347 carry a file here, 107 are covered elsewhere** (recounted Aug 16
 from the table itself — the audit-era "121 here, 198 elsewhere" had gone stale
 across the briefs listed below). (The audit's 247 plus
 the rows later briefs added: W02-W05, design 194 unit 4; W06-W19, design 195
@@ -32,8 +32,9 @@ matrix; K70-K73, design 218 unit 2's scope-end migration and its two
 emission residues; K74, DF-219c's bound-aware spawn capture audit; K75,
 DF-218v's try/catch error edge — K74/K75 renumbered from K72/K73 at
 integration, where the two Aug-21 branches collided; K76, DF-218x's
-optional-binding branch scope, K77, DF-218y's discard order, and B23,
-DF-238c's orphan-rule coherence across import forms.)
+optional-binding branch scope, K77, DF-218y's discard order, B23,
+DF-238c's orphan-rule coherence across import forms, and A02, DF-245a's
+`init` declared-return rule.)
 
 ## How to read it
 
@@ -690,11 +691,14 @@ policy. The tier had ZERO conformance rows before this brief: design 123 landed
 ahead of the suite, and design 191's audit predates the flip. Rows land WITH the
 sub-unit that flips their type, because a row can only assert one of the two
 behaviors and the corpus has to agree with it — so this section grows through
-unit 3 rather than arriving whole.
+unit 3 rather than arriving whole. A02 is the exception to that shape: it is a
+DECLARATION rule rather than a flipped signature, so it lands with the brief-let
+that makes a fallible constructor expressible at all.
 
 | Row | Checks | Covered by | Ruling |
 |-----|--------|------------|--------|
 | A01 | a refused `Channel.send` reports the allocator as a VALUE — nothing panicked, nothing queued, nothing swallowed | `alloc_channel_send_reports_oom.saw` | 234 — supersedes design 123's panic, and DQ-230b's `try_send` twin with it |
+| A02 | an `init`'s DECLARED return is checked against its receiver; the fallible form is `Result<Self, E>` and nothing else | `A02_init_declared_return_is_checked.saw` | DF-245a (ruled Aug 24) — the prerequisite for unit 3. Any other declared return was silently TWO types, surfacing as an unverifiable LLVM module rather than a diagnostic; `Self?` is refused on its own terms, since a `None` names no cause |
 
 ## Cross-cutting soundness smoke
 

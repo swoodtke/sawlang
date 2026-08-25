@@ -1,0 +1,35 @@
+// DF-245a's SECOND construction position: `mod.T(args)`.
+//
+// A construction is written in exactly two ways and they are checked by two
+// different functions — `_check_struct_init` for the bare `T(...)` and
+// `_check_module_struct_init` for the qualified one. Both had the constructed
+// type hardcoded to the receiver, so a rule that read the declared return at
+// only one of them would leave the other typing a fallible construction as its
+// bare receiver. This is the row that keeps them together.
+// COMPILE-FLAGS: --module-path init245a_fallible={TESTDIR}/modules/init245a_fallible
+// EXPECT: success
+// EXPECT-OUTPUT:
+// qualified ok: 9
+// qualified err: too small
+// try across the module line: 21
+
+import init245a_fallible
+
+func triple(size: Int) -> Result<Int, init245a_fallible.GadgetError> {
+    let g = try init245a_fallible.Gadget(size: size)
+    return g.n
+}
+
+func main() {
+    match init245a_fallible.Gadget(size: 3) {
+        case Ok(g) -> print("qualified ok: {}", g.n),
+        case Err(e) -> print("qualified ok: unexpected {}", e)
+    }
+
+    match init245a_fallible.Gadget(size: -1) {
+        case Ok(g) -> print("qualified err: unexpected {}", g.n),
+        case Err(e) -> print("qualified err: {}", e)
+    }
+
+    print("try across the module line: {}", try! triple(7))
+}

@@ -1893,6 +1893,151 @@ class RegistrationMixin:
         return resolved
 
     @staticmethod
+    def _nominal_name(t):
+        """The bare NAME of a nominal type, or None for anything else."""
+        if t is None:
+            return None
+        if t.kind == TypeKind.STRUCT:
+            return t.struct_name
+        if t.kind == TypeKind.ENUM:
+            return t.enum_name
+        return None
+
+    def _init_return_names_receiver(self, candidate, self_type, written_self):
+        """Whether `candidate` NAMES an `init`'s receiver.
+
+        The NAME must match; the type ARGUMENTS are compared only where both
+        sides spell them, on their rendered form. Both halves of that are
+        deliberate. The compiler has two receiver answers and they disagree
+        about arguments on purpose (DF-216r): `_ext_self_type` is
+        argument-free, `_ext_written_self_type` applies the extension to its own
+        parameters — but it BAILS OUT to the argument-free spelling for a
+        specialized extension and for a CONST parameter, and std's
+        `extension FixedBuf<N>` writes `init() -> FixedBuf<N>` by hand. So where
+        the compiler declines to spell the receiver's arguments it cannot hold
+        the declaration to them either. Where it does spell them it is the
+        authority, which keeps `-> Pair<Int>` inside `extension Pair<A>` refused
+        — a declared return the call site would silently disagree with, which is
+        the shape DF-245a filed.
+        """
+        if candidate is None:
+            return False
+        if candidate.kind == TypeKind.SELF:
+            return True
+        name = self._nominal_name(candidate)
+        if name is None:
+            return False
+        receivers = ([written_self]
+                     if (written_self is not None
+                         and getattr(written_self, 'type_args', None))
+                     else [written_self, self_type])
+        for receiver in receivers:
+            if self._nominal_name(receiver) != name:
+                continue
+            recv_args = getattr(receiver, 'type_args', None) or []
+            cand_args = getattr(candidate, 'type_args', None) or []
+            if not recv_args or not cand_args:
+                return True
+            if (len(recv_args) == len(cand_args)
+                    and all(str(a) == str(b)
+                            for a, b in zip(cand_args, recv_args))):
+                return True
+        return False
+
+    def _init_declared_return(self, method, self_type, written_self, report):
+        """THE `init` DECLARED-RETURN FUNNEL (DF-245a) — the one place that reads
+        what an `init` writes after its `->`.
+
+        An `init` may declare exactly two things (user ruling, Aug 24):
+
+          * THE RECEIVER — `Self`, the receiver written out (`Pair<A>` inside
+            `extension Pair<A>`), or no return clause at all, which is the
+            historical implicit form. `T(args)` types as `T`.
+          * `Result<Receiver, E>` — the FALLIBLE constructor. `T(args)` types as
+            `Result<T, E>`, so it composes with `try`/`try!`/`try?`/`match`, the
+            routing clause and design 151's discard error, and the BODY
+            auto-wraps through `_autowrap_into_result` exactly as a
+            Result-returning function's body does.
+
+        Everything else is refused HERE, at the declaration, naming the two legal
+        forms. An OPTIONAL gets its own wording: an optional creation encodes as
+        a `Result`, because a `None` names no cause — the never-hide-errors
+        doctrine, at a constructor.
+
+        RETURNS a `(verdict, type)` pair — `('receiver', None)`,
+        `('result', <the resolved Result>)`, or `('refused', <what the author
+        actually wrote, resolved>)`. The receiver's own SPELLING is the caller's
+        business and the two callers disagree about it on purpose (DF-216r
+        again), so settling that here would be wrong. A REFUSED declaration
+        hands back the author's own type so the body can be checked against the
+        signature it was written for: the declaration is already wrong and said
+        so once, and re-judging the body against a receiver it never claimed
+        would print a second error about the same mistake.
+
+        ENTRY POINTS — the two consumers of an `init`'s signature, whose
+        disagreement is precisely what DF-245a filed (the call side derived the
+        constructed type from the receiver and ignored the written return; the
+        body side checked `return` against the written one; nothing reconciled
+        them, so a wrong return type was two types and an unverifiable module):
+          1. `register_extension` — the DECLARATION side, which registers the
+             symbol every `T(...)` resolves against. REPORTS.
+          2. `_check_method`      — the BODY side, which checks the tail and
+             every `return` against it. Silent: the declaration has already been
+             judged, and reporting at both would double every diagnostic.
+        There is no third site. An enum extension refuses `init` outright
+        (design 145) and a trait has no `init` requirement, so an extension
+        member is the only place an `init` is ever written.
+        """
+        declared = getattr(method, 'return_type', None)
+        # No return clause at all, or the bare `Self` keyword: the receiver.
+        if declared is None or declared.kind in (TypeKind.VOID, TypeKind.SELF):
+            return ('receiver', None)
+        resolved = self._substitute_self_type(
+            self._resolve_type(declared), written_self)
+        if self._init_return_names_receiver(resolved, self_type, written_self):
+            return ('receiver', None)
+        ok_payload = resolved.unwrap_result_ok() if resolved.is_result() else None
+        if ok_payload is not None and self._init_return_names_receiver(
+                ok_payload, self_type, written_self):
+            return ('result', resolved)
+        if not report:
+            return ('refused', resolved)
+
+        receiver_txt = str(written_self if written_self is not None else self_type)
+        two_forms = (f"`-> {receiver_txt}` (or `-> Self`) for an initializer "
+                     f"that cannot fail, or `-> Result<{receiver_txt}, E>` for "
+                     f"one that can")
+        if resolved.is_optional():
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`init` may not return an optional — an optional creation "
+                f"encodes as `Result<{receiver_txt}, E>`, because a `None` "
+                f"names no cause",
+                method.line, method.column,
+                hint=f"write `-> Result<{receiver_txt}, E>` naming the error "
+                     f"the absence meant, and return that error where the "
+                     f"`None` was"
+            )
+        elif ok_payload is not None:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"the `Ok` payload of an `init`'s `Result` must be the receiver "
+                f"`{receiver_txt}`, but this one is `{ok_payload}`",
+                method.line, method.column,
+                hint=f"an `init` builds its own type — write {two_forms}"
+            )
+        else:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`init` returns `{resolved}`, which is neither the receiver "
+                f"`{receiver_txt}` nor `Result<{receiver_txt}, E>` — an `init` "
+                f"may declare only those two",
+                method.line, method.column,
+                hint=f"write {two_forms}"
+            )
+        return ('refused', resolved)
+
+    @staticmethod
     def ext_param_aliases(ext_type_params, declared_type_params):
         """The shared definition — see `ast_nodes.ext_param_aliases`. Kept as a
         method because the typechecker's three readers spell it `self.`; the
@@ -3012,12 +3157,23 @@ class RegistrationMixin:
             # For init methods, override return type to be the struct type
             # For non-init methods, resolve Self in return type
             return_type = method.return_type
-            if return_type.kind == TypeKind.SELF:
+            if method.is_init:
+                # ENTRY POINT 1 of `_init_declared_return` (DF-245a): the
+                # DECLARATION side. Answered before the `Self` test below,
+                # because `Self` is one of the receiver spellings the funnel
+                # judges and `Result<Self, E>` is one it accepts.
+                _verdict, _declared = self._init_declared_return(
+                    method, self_type, written_self, report=True)
+                if _verdict == 'result':
+                    return_type = _declared
+                elif return_type.kind == TypeKind.SELF:
+                    return_type = written_self
+                else:
+                    # An `init`'s return is the RECEIVER's spelling, not a
+                    # written one — untouched by DF-216r.
+                    return_type = self_type
+            elif return_type.kind == TypeKind.SELF:
                 return_type = written_self
-            elif method.is_init:
-                # An `init`'s return is the RECEIVER's spelling, not a written
-                # one — untouched by DF-216r.
-                return_type = self_type
             else:
                 # Resolve enum types (e.g., Result<T, E>) that are parsed as
                 # STRUCT, then substitute a NESTED `Self`: the root-only test

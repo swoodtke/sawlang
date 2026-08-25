@@ -1,0 +1,108 @@
+// DF-245a, the SHAPE matrix: a fallible `init` on every receiver an `init` can
+// have. Each row is a separate lowering — a plain extension declares its
+// prototype in `_declare_extension_methods`, a generic or const-generic one in
+// `_declare_monomorphized_method`, and both had the receiver's layout hardcoded
+// as the return type.
+//
+// Rows: a plain struct; a GENERIC struct (`Wrap<T>`, whose `Result<Wrap<T>, E>`
+// has to be lowered at the instantiation, not at the template); a CONST-generic
+// struct (`Ring<N>`, whose receiver the compiler declines to spell with its
+// argument, so the declaration is held to the base name only); a DEFAULT
+// parameter; and two LABEL-distinguished overloads (design 55), which is what
+// makes an `init`'s symbol carry its parameter names.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// plain: 5
+// generic Int: 3 7
+// generic String: hi 1
+// const generic: 2 of 8
+// const generic err: does not fit 8
+// default param: 4 7
+// overload from: 5
+// overload text: 3
+// overload err: empty
+
+enum MakeError { case DoesNotFit(cap: Int), case Empty }
+
+extension MakeError: Printable {
+    func format(&self, into: &var StringBuilder) {
+        match self {
+            case DoesNotFit(cap) -> { into.append("does not fit ")
+                                      into.append(cap) },
+            case Empty -> into.append("empty")
+        }
+    }
+}
+
+extension MakeError: Error {}
+
+struct Plain { v: Int }
+
+extension Plain {
+    init(v0: Int) -> Result<Plain, MakeError> { Plain(v: v0) }
+}
+
+struct Wrap<T> { item: T, tag: Int }
+
+extension Wrap<T> {
+    // The `mark` default fills in from the parameter list, exactly as it does
+    // for an infallible init: the call shape is resolved before the return type
+    // is ever consulted.
+    init(payload: T, mark: Int = 7) -> Result<Wrap<T>, MakeError> {
+        if mark < 0 { return MakeError.Empty }
+        return Wrap<T>(item: payload, tag: mark)
+    }
+}
+
+struct Ring<const N: Int> { used: Int }
+
+extension Ring<N> {
+    init(fill: Int) -> Result<Ring<N>, MakeError> {
+        if fill > N { return MakeError.DoesNotFit(cap: N) }
+        return Ring<N>(used: fill)
+    }
+}
+
+struct Label { v: Int }
+
+extension Label {
+    init(from: Int) -> Result<Label, MakeError> { Label(v: from) }
+
+    init(text: String) -> Result<Label, MakeError> {
+        if text.len() == 0 { return MakeError.Empty }
+        return Label(v: text.len())
+    }
+}
+
+func main() {
+    let p = try! Plain(v0: 5)
+    print("plain: {}", p.v)
+
+    let wi = try! Wrap<Int>(payload: 3, mark: 7)
+    print("generic Int: {} {}", wi.item, wi.tag)
+
+    let ws = try! Wrap<String>(payload: "hi", mark: 1)
+    print("generic String: {} {}", ws.item, ws.tag)
+
+    let r = try! Ring<8>(fill: 2)
+    print("const generic: {} of 8", r.used)
+
+    match Ring<8>(fill: 9) {
+        case Ok(x) -> print("const generic err: unexpected {}", x.used),
+        case Err(e) -> print("const generic err: {}", e)
+    }
+
+    let d = try! Wrap<Int>(payload: 4)
+    print("default param: {} {}", d.item, d.tag)
+
+    let a = try! Label(from: 5)
+    print("overload from: {}", a.v)
+
+    let b = try! Label(text: "abc")
+    print("overload text: {}", b.v)
+
+    match Label(text: "") {
+        case Ok(l) -> print("overload err: unexpected {}", l.v),
+        case Err(e) -> print("overload err: {}", e)
+    }
+}

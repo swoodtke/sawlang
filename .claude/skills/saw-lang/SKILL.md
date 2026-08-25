@@ -19,6 +19,10 @@ f(5)  f(5, 3)  f(5, b: 3)  // labels optional; required only on ambiguity
 struct Point { x: Int, y: Int }
 extension Point { func mag(&self) -> Int { self.x * self.x } }
 extension Point { init(m: Int) -> Point { Point(x: m, y: m) } }
+                           // an `init` declares the RECEIVER (`Self`, the
+                           // receiver written out, or NO clause) or
+                           // `Result<Receiver, E>` — nothing else, and never
+                           // an optional. See "A FALLIBLE `init`" in Errors
 extension Point { static func origin() -> Point { Point(x: 0, y: 0) } }
                            // `static` is REQUIRED on a receiver-less method
                            // (design 236) and the call is on the TYPE. A
@@ -973,6 +977,34 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   for a caller that does not care which error arrived. There is NO stdlib-wide
   errno-style enum, ever: its defining property is that every signature lies.
   Crossing between tiers is WRITTEN — `try(as LocalError.Alloc) f()`.
+- **A FALLIBLE `init` IS `-> Result<Self, E>`, and that is the ONLY fallible
+  form** (DF-245a, ruled + landed Aug 24). An `init` declares the RECEIVER —
+  `Self`, the receiver written out (`Wrap<T>` inside `extension Wrap<T>`), or no
+  return clause at all — or `Result<Receiver, E>`. The construction then carries
+  the Result, so nothing at the call site is special:
+  ```saw
+  extension Config {
+      init(budget: Int, ceiling: Int) -> Result<Config, ConfigError> {
+          if budget == 0 { return ConfigError.Missing }
+          if budget > ceiling { return ConfigError.TooLarge(bytes: budget) }
+          return Config(budget: budget)      // Ok, by the ordinary auto-wrap
+      }
+  }
+  let cfg = try Config(budget: n, ceiling: 4096)     // …or try! / try? / match
+  let _ = Config(budget: n, ceiling: 4096)           // design 151 applies too
+  ```
+  The BODY is an ordinary Result body: a receiver value is `Ok`, an error value
+  is `Err`, tail and `return` alike. Works on a generic receiver, a
+  const-generic one, with default parameters, and across label-distinguished
+  overloads. **NOT `-> Self?`** — refused at the declaration, because a `None`
+  names no cause; the fixit points at the Result. Any other return type
+  (`-> Int`, another struct, a `Result` whose Ok is not the receiver) is refused
+  there too. Before Aug 24 every one of those was ACCEPTED and then miscompiled:
+  the call site typed the construction as the receiver whatever was written, so
+  a wrong return type was two types and the program died with an internal
+  compiler error about LLVM IR. Two limits: an `init` body may not suspend (an
+  ICE today, DF-251d), and a RENAMED generic extension's init parameters do not
+  substitute at the call site (DF-251c).
 - **`try!` PANICS WITH THE ERROR IT WAS HANDED** (DF-245b, Aug 22):
   `panic at FILE:LINE: try! failed: allocation of 64 bytes (align 8) failed`.
   The rendering is the alloc-free format path, so it survives an exhausted

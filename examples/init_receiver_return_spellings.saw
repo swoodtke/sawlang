@@ -1,0 +1,63 @@
+// THE CONTROL for DF-245a: every way of writing "this `init` returns its
+// receiver" still means what it always meant, and the call site still types as
+// the receiver.
+//
+// The new rule reads an `init`'s declared return; these are the spellings it
+// must keep accepting. `Self`, the receiver written out, the receiver written
+// out WITH its own type arguments (a generic extension), a CONST-generic
+// receiver — whose arguments the compiler declines to spell for itself, so the
+// declaration is held only to the name — and no return clause at all, which is
+// the historical implicit form.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// Self: 7
+// spelled receiver: 9
+// generic, own params: 4 hi
+// generic, Self: 5 yo
+// const generic: 16
+// no return clause: 25
+
+struct Plain { v: Int }
+
+extension Plain {
+    init(a: Int) -> Self { Plain(v: a) }
+    init(b: Int) -> Plain { Plain(v: b) }
+
+    // No return clause: the receiver, implicitly. This is the ONE form the
+    // corpus never writes, and it has to keep working.
+    init(c: Int) { Plain(v: c * c) }
+}
+
+struct Pair<A> { first: Int, second: A }
+
+extension Pair<A> {
+    init(one: Int, tail: A) -> Pair<A> { Pair<A>(first: one, second: tail) }
+    init(two: Int, rest: A) -> Self { Pair<A>(first: two, second: rest) }
+}
+
+// NOT covered here: a RENAMED generic extension's init (`extension Pair<U> {
+// init(three: U) -> Pair<U> }`). The receiver SPELLING is accepted — no
+// declaration error — but the construction is refused at the call site with
+// ``parameter `three` expects type `U` but got `Int` ``, because DF-216h's
+// rename substitution reaches a method's parameters and not an init's. That is
+// DF-251c, and it predates DF-245a.
+
+struct Ring<const N: Int> { used: Int }
+
+extension Ring<N> {
+    init(fill: Int) -> Ring<N> { Ring<N>(used: fill * N) }
+}
+
+func main() {
+    print("Self: {}", Plain(a: 7).v)
+    print("spelled receiver: {}", Plain(b: 9).v)
+
+    let pa = Pair<String>(one: 4, tail: "hi")
+    print("generic, own params: {} {}", pa.first, pa.second)
+
+    let pb = Pair<String>(two: 5, rest: "yo")
+    print("generic, Self: {} {}", pb.first, pb.second)
+
+    print("const generic: {}", Ring<8>(fill: 2).used)
+    print("no return clause: {}", Plain(c: 5).v)
+}

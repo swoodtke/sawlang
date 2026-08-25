@@ -2801,9 +2801,10 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                 if extension.struct_name == "String":
                     raise ValueError("Cannot define init methods on String")
                 param_types = [self._get_llvm_type(p.type) for p in method.parameters]
-                # Return type is the struct being initialized
+                # Return type is the struct being initialized — or, for the
+                # fallible form, the `Result` it declares (DF-245a).
                 struct_type, _ = self.struct_types[extension.struct_name]
-                return_type = struct_type
+                return_type = self._init_llvm_return_type(method, struct_type)
             elif method.is_static:
                 # Static methods have no self parameter
                 param_types = [self._get_llvm_type(p.type) for p in method.parameters]

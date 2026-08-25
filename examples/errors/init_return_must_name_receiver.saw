@@ -1,0 +1,29 @@
+// DF-245a: an `init` that declares neither the receiver nor
+// `Result<Receiver, E>` is refused AT THE DECLARATION, naming both legal forms.
+//
+// This used to be accepted. The two consumers of an `init`'s signature then
+// disagreed silently: the CALL side derived the constructed type from the
+// receiver and ignored what was written, the BODY side checked `return` against
+// what was written, and codegen emitted a module that did not verify —
+// ``value doesn't match function result type '%Other = type { i64 }' /
+// ret i64 %"seed.2"``, an internal compiler error about IR, for a program whose
+// real problem is one line of its own source.
+//
+// One error, not two: a refused declaration is judged against the signature its
+// author wrote, so the body is not also reported for failing to build a
+// receiver it never claimed to build.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `init` returns `Int`, which is neither the receiver `Other` nor `Result<Other, E>`
+// EXPECT-ERROR-CONTAINS: an `init` may declare only those two
+// EXPECT-ERROR-CONTAINS: write `-> Other` (or `-> Self`) for an initializer that cannot fail, or `-> Result<Other, E>` for one that can
+
+struct Other { m: Int }
+
+extension Other {
+    init(seed: Int) -> Int { seed }
+}
+
+func main() {
+    let o = Other(seed: 7)
+    print("{o.m}")
+}

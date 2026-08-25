@@ -93,6 +93,10 @@ class SignatureVisibilityMixin:
         ("extension method parameter",        "positions: `Exposed.init`"),
         ("extension method return",           "positions: `Exposed.peek`, "
                                               "`Exposed.blank`"),
+        # DF-245a: an `init`'s return was skipped while it could only ever name
+        # the receiver. The fallible form names an ERROR type beside it.
+        ("extension init return",             "positions: `Exposed.init`'s "
+                                              "`Result<Exposed, Hidden>`"),
         ("extension method lent place",       "conformance/B22: `Carrier.at`"),
         ("extension generic bound/default",   "private_in_public_extension_"
                                               "surface_error"),
@@ -357,7 +361,15 @@ class SignatureVisibilityMixin:
                 if place is not None:
                     yield (place, "the type it lends", what_decl, reach,
                            pos[0], pos[1], src)
-                elif not getattr(method, 'is_init', False):
+                else:
+                    # An `init` is on this list too, since DF-245a. Its declared
+                    # return used to be the RECEIVER and nothing else, so judging
+                    # it could only restate the cap — but the fallible form names
+                    # an ERROR type beside the receiver, and a `public init(...)
+                    # -> Result<Exposed, Hidden>` would hand every caller a value
+                    # whose failure they cannot name. The receiver form stays
+                    # inert exactly as it was: `cap` is the receiver's own tier,
+                    # so a return naming the receiver can never out-reach it.
                     yield (getattr(method, 'return_type', None),
                            "the return type", what_decl, reach,
                            pos[0], pos[1], src)

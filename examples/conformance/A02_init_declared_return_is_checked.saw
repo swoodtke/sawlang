@@ -1,0 +1,53 @@
+// Conformance row A02 — an `init`'s DECLARED return type is CHECKED against its
+// receiver, and the only fallible form is `Result<Self, E>`.
+//
+// The guarantee: a constructor declaration cannot say one thing to its callers
+// and another to its own body. Before DF-245a it could — the written return
+// type was read by the BODY check and discarded by the CALL check, so any
+// return type that was not the receiver was silently two types, and the
+// disagreement surfaced as an unverifiable LLVM module (an internal compiler
+// error naming IR the author never wrote) rather than as a diagnostic. That is
+// silent-miscompile territory, which is what puts this row here.
+//
+// The row asserts the REFUSAL side at all three shapes a wrong declaration can
+// take, in one compile, so a gap at any of them is a diff here:
+//   1. a return type that is not nominally the receiver at all
+//   2. an OPTIONAL — ruled out on its own terms (user, Aug 24): an optional
+//      creation encodes as `Result`, because a `None` names no cause
+//   3. a `Result` whose `Ok` payload is some other type
+// The ACCEPT side is `examples/init_fallible_result.saw` (the fallible form end
+// to end) and `examples/init_receiver_return_spellings.saw` (every receiver
+// spelling, unchanged).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `init` returns `Int`, which is neither the receiver `Alpha` nor `Result<Alpha, E>`
+// EXPECT-ERROR-CONTAINS: `init` may not return an optional
+// EXPECT-ERROR-CONTAINS: an optional creation encodes as `Result<Beta, E>`
+// EXPECT-ERROR-CONTAINS: the `Ok` payload of an `init`'s `Result` must be the receiver `Gamma`, but this one is `Alpha`
+
+struct Fault { code: Int }
+
+extension Fault: Printable {
+    func format(&self, into: &var StringBuilder) { into.append("fault") }
+}
+
+extension Fault: Error {}
+
+struct Alpha { a: Int }
+struct Beta { b: Int }
+struct Gamma { c: Int }
+
+extension Alpha {
+    init(seed: Int) -> Int { seed }
+}
+
+extension Beta {
+    init(seed: Int) -> Beta? { Beta(b: seed) }
+}
+
+extension Gamma {
+    init(seed: Int) -> Result<Alpha, Fault> { Alpha(a: seed) }
+}
+
+func main() {
+    print("unreachable")
+}

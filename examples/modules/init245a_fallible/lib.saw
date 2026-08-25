@@ -1,0 +1,19 @@
+//! A dependency whose constructor is fallible — the far side of DF-245a's
+//! module-qualified construction position.
+
+public enum GadgetError { case TooSmall }
+
+extension GadgetError: Printable {
+    func format(&self, into: &var StringBuilder) { into.append("too small") }
+}
+
+extension GadgetError: Error {}
+
+public struct Gadget { public n: Int }
+
+extension Gadget {
+    public init(size: Int) -> Result<Gadget, GadgetError> {
+        if size < 0 { return GadgetError.TooSmall }
+        return Gadget(n: size * 3)
+    }
+}

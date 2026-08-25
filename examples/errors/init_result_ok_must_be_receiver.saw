@@ -1,0 +1,27 @@
+// DF-245a: the fallible form's `Ok` payload must be the RECEIVER. An `init`
+// builds its own type — `Result<SomethingElse, E>` is the same disagreement
+// between the call site and the body that a bare foreign return type is, only
+// wearing the legal form's clothes.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: the `Ok` payload of an `init`'s `Result` must be the receiver `Third`, but this one is `Foreign`
+// EXPECT-ERROR-CONTAINS: an `init` builds its own type
+
+struct Bad { code: Int }
+
+extension Bad: Printable {
+    func format(&self, into: &var StringBuilder) { into.append("bad") }
+}
+
+extension Bad: Error {}
+
+struct Foreign { k: Int }
+
+struct Third { t: Int }
+
+extension Third {
+    init(seed: Int) -> Result<Foreign, Bad> { Foreign(k: seed) }
+}
+
+func main() {
+    print("unreachable")
+}

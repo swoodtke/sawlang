@@ -702,7 +702,11 @@ class GenericsMixin:
                     substituted = self._substitute_saw_type(p.type, type_mapping)
                     param_types.append(self._get_llvm_type(substituted))
                 struct_type, _ = self.struct_types[mangled_struct_name]
-                return_type = struct_type
+                # DF-245a: the fallible form lowers its declared `Result` at
+                # THIS instantiation, so `Result<Wrap<T>, E>` becomes
+                # `Result<Wrap<Int>, E>` rather than a template type.
+                return_type = self._init_llvm_return_type(
+                    method, struct_type, type_mapping)
             else:
                 param_types = []
                 for i, p in enumerate(method.parameters):
@@ -1066,14 +1070,16 @@ class GenericsMixin:
         # Generate init body
         result = self._generate_block(method.body)
 
-        # Return the result (should be a struct)
+        # Return the result (the receiver, or the `Result` a fallible `init`
+        # declares — sized from the SIGNATURE, per DF-245a).
         if not self.builder.block.is_terminated:
             if result is not None:
                 self.builder.ret(self._coerce_ret_value(
                     result, getattr(method.body, 'final_expr', None)))
             else:
-                struct_type, _ = self.struct_types[struct_name]
-                self.builder.ret(ir.Constant(struct_type, ir.Undefined))
+                self.builder.ret(
+                    ir.Constant(llvm_func.function_type.return_type,
+                                ir.Undefined))
 
         # Restore context
         self.current_return_type = old_return_type

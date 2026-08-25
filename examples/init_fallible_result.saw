@@ -1,0 +1,126 @@
+// DF-245a: an `init` may declare `Result<Self, E>`, and the construction then
+// composes with every spelling that consumes a Result — this is the machinery
+// design 234 unit 3 needs before a std constructor can flip.
+//
+// The CALL SITE is what changed: `Gauge(reading: n)` types as
+// `Result<Gauge, RangeError>`, not as `Gauge`. The BODY is unchanged in kind —
+// it auto-wraps through the same ladder a Result-returning function's body uses,
+// so the tail and every `return` pick Ok or Err by which payload the value fits.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// try!: 12
+// match Ok: 6
+// match Err: reading 400 is out of range
+// propagating try: 20
+// routed: range: reading -1 is out of range
+// try?: absent
+// bare tail Ok: 2
+// moved-out NoCopy receiver: 3
+
+enum RangeError { case TooLow(seen: Int), case TooHigh(seen: Int) }
+
+extension RangeError: Printable {
+    func format(&self, into: &var StringBuilder) {
+        match self {
+            case TooLow(seen) -> { into.append("reading ")  into.append(seen)
+                                   into.append(" is out of range") },
+            case TooHigh(seen) -> { into.append("reading ")  into.append(seen)
+                                    into.append(" is out of range") }
+        }
+    }
+}
+
+extension RangeError: Error {}
+
+struct Gauge { scaled: Int }
+
+extension Gauge {
+    init(reading: Int) -> Result<Gauge, RangeError> {
+        if reading < 0 { return RangeError.TooLow(seen: reading) }
+        if reading > 100 { return RangeError.TooHigh(seen: reading) }
+        return Gauge(scaled: reading * 2)
+    }
+
+    // The BARE TAIL: a `Gauge` value at a `Result<Gauge, _>` return wraps Ok
+    // with nothing written, which is entry point 2 of `_autowrap_into_result`.
+    init(unit: Int) -> Result<Gauge, RangeError> { Gauge(scaled: unit) }
+}
+
+// A NoCopy receiver: the Ok payload is moved out of the Result exactly once.
+struct Handle { id: Int }
+extension Handle: NoCopy {}
+
+struct Owner { h: Handle }
+extension Owner: NoCopy {}
+
+extension Owner {
+    init(id: Int) -> Result<Owner, RangeError> {
+        if id < 0 { return RangeError.TooLow(seen: id) }
+        return Owner(h: Handle(id: id))
+    }
+}
+
+// A `try` PROPAGATES an init's failure out of the enclosing function.
+func doubled(reading: Int) -> Result<Int, RangeError> {
+    let g = try Gauge(reading: reading)
+    return g.scaled
+}
+
+// …and the ROUTING clause converts it into a domain enum on the way (design 234
+// §3), because a construction is an ordinary `try` subject.
+enum Domain { case Range(e: RangeError) }
+
+extension Domain: Printable {
+    func format(&self, into: &var StringBuilder) {
+        match self {
+            case Range(e) -> { into.append("range: ")  e.format(into: &var into) }
+        }
+    }
+}
+
+extension Domain: Error {}
+
+func routed(reading: Int) -> Result<Int, Domain> {
+    let g = try(as Domain.Range) Gauge(reading: reading)
+    return g.scaled
+}
+
+func main() {
+    // GOTCHA worth pinning: a postfix `.field` binds tighter than `try!`, so
+    // `try! Gauge(reading: 6).scaled` projects off the RESULT. Bind first.
+    let forced = try! Gauge(reading: 6)
+    print("try!: {}", forced.scaled)
+
+    match Gauge(reading: 3) {
+        case Ok(g) -> print("match Ok: {}", g.scaled),
+        case Err(e) -> print("match Ok: unexpected {}", e)
+    }
+
+    match Gauge(reading: 400) {
+        case Ok(g) -> print("match Err: unexpected {}", g.scaled),
+        case Err(e) -> print("match Err: {}", e)
+    }
+
+    print("propagating try: {}", try! doubled(reading: 10))
+
+    match routed(reading: -1) {
+        case Ok(n) -> print("routed: unexpected {}", n),
+        case Err(e) -> print("routed: {}", e)
+    }
+
+    // `try?` folds the failure into an absence.
+    if let g = try? Gauge(reading: 900) {
+        print("try?: unexpected {}", g.scaled)
+    } else {
+        print("try?: absent")
+    }
+
+    let tailed = try! Gauge(unit: 2)
+    print("bare tail Ok: {}", tailed.scaled)
+
+    let owner = try! Owner(id: 3)
+    print("moved-out NoCopy receiver: {}", owner.h.id)
+
+    // Design 151: the failure may be discarded, but only where it is written.
+    let _ = Gauge(reading: 7)
+}

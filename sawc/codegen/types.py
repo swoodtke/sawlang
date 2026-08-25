@@ -71,6 +71,33 @@ class TypesMixin:
             return ir.VoidType(), True
         return self._get_llvm_type(saw_return_type), False
 
+    def _init_llvm_return_type(self, method, struct_llvm_type,
+                               type_mapping=None):
+        """The LLVM return type of an `init` — DF-245a.
+
+        An `init` returns its RECEIVER, or `Result<Receiver, E>` when it is the
+        fallible form; the typechecker's `_init_declared_return` has already
+        refused everything else, so this only has to tell the two apart. Before
+        DF-245a both prototype sites hardcoded the receiver's layout and read
+        the written annotation nowhere, which is why a wrong declared return
+        reached LLVM as a module that did not verify.
+
+        THE FUNNEL, obligation 1. The two sites that build an `init`'s prototype
+        are its only entry points:
+          - `_declare_extension_methods` (core.py)    — a non-generic extension.
+          - `_declare_monomorphized_method` (generics.py) — the specialized twin,
+            which passes its `type_mapping` so a `Result<Holder<T>, E>` lowers at
+            the instantiation rather than at the template.
+        The BODY sites read `llvm_func.function_type.return_type` instead, so
+        they follow whatever this decided with nothing to keep in step.
+        """
+        declared = getattr(method, 'return_type', None)
+        if declared is None or not declared.is_result():
+            return struct_llvm_type
+        if type_mapping:
+            declared = self._substitute_saw_type(declared, type_mapping)
+        return self._get_llvm_type(declared)
+
     @staticmethod
     def _mark_noreturn(llvm_func, is_never: bool):
         """Attach `noreturn` when the declaration is the `-> Never` shape. The

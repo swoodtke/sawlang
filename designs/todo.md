@@ -31,7 +31,7 @@ is scheduled and in what order is the whole of what they say.
 
 ## [QUEUE] — scheduled, in order (user-approved)
 
-- Design 234 — the fallibility flip (designs/234-fallibility-flip.md) — units 0-2, 4, 5 + channel sub-unit LANDED Aug 22; UNIT 3 RULED Aug 24 (user): PATH 1 — fix DF-245a FIRST (fallible `init` becomes expressible; an `init` may declare ONLY `Self` or `Result<Self, E>`, nothing else — no `Self?`, an optional creation encodes as Result, refused at the declaration), THEN the flip as ratified (no factory migration). Migration protocol RATIFIED: examples/tests take `try!` mechanically (failure-path tests get real matches, flagged by name); sawc/std per-site with a propagate bias (`try!` inside std re-creates the panic tier); blade/devtools/tools/selfhost per-site, propagate bias, irdet+bench their own careful commit; every non-mechanical site listed in the landing section (the 205 precedent). Execution: DF-245a brief-let, then unit 3 as one dispatch
+- Design 234 — the fallibility flip (designs/234-fallibility-flip.md) — units 0-2, 4, 5 + channel sub-unit LANDED Aug 22; UNIT 3 RULED Aug 24 (user): PATH 1 — ~~fix DF-245a FIRST~~ **DF-245a LANDED Aug 24** (branch `df-245a-fallible-init`: fallible `init` is expressible; an `init` may declare ONLY `Self`/the receiver or `Result<Self, E>`, nothing else — no `Self?`, refused at the declaration; entry below), so unit 3 may now flip the constructors in place and is UNBLOCKED, THEN the flip as ratified (no factory migration). Migration protocol RATIFIED: examples/tests take `try!` mechanically (failure-path tests get real matches, flagged by name); sawc/std per-site with a propagate bias (`try!` inside std re-creates the panic tier); blade/devtools/tools/selfhost per-site, propagate bias, irdet+bench their own careful commit; every non-mechanical site listed in the landing section (the 205 precedent). Execution: DF-245a brief-let, then unit 3 as one dispatch
 - Design 242 — the Thread/Task split (designs/242-thread-task-split.md) — UNITS 0-1 LANDED Aug 22 (branch `design-242`: the renames, the docs, the compiler-emitted `Thread` identity carve-out; old spellings error with fixits; xfails unchanged). UNITS 2-5 RULED Aug 24 (user, rulings 9a/9b in the brief): shape (a) — a move into storage whose owner consumes in its own Deinit discharges the obligation (v1: hand-written-deinit approximation, checked field-obligation named future work) — plus the RUNTIME BACKSTOP: an unconsumed handle PANICS in its deinit, retiring every implicit fate. DISPATCHED Aug 24 (branch `design-242-b`). Two findings filed: DF-247a (a spawn root is undefined at its other same-module call sites), DF-247b (glob import splits the qualified and bare spellings into two types — wants a ruling)
 - ~~Place-window xfail family~~ — LANDED Aug 22 (branch `place-window-fixes`): DF-169h/DF-218i(+248d)/DF-218j closed, DF-232n pin resolved as superseded-by-ruling. DF-218h stopped for a ruling, now RULED Aug 24 (user): DEFERRED MOVE — a non-escaping closure's `move` capture transfers ownership WHEN THE BODY RUNS (env holds a pointer; the body takes the value and clears the caller's drop flag at run time), so a conditional lend's absent path leaks nothing and the executed path frees once; a Slot-based spelling is an acceptable implementation strategy. The rule is uniform for non-escaping closures (direct-call shapes swept, not window-special). QUEUED for dispatch at the next free slot. Entry below
 - ~~Diagnostics/codegen small batch~~ — LANDED Aug 22-23 (branch `diag-batch`, seven commits, nothing stopped): DF-245b, DF-238b (+ the checked-cast twin), DF-238c (+ a second face at the thread-assertion funnel, conformance B23), DF-243a (four operator families + the sos abi un-suffixing, byte-identical), DF-243b+DF-232g residue, DF-225a, DF-225d (self usable as its own type on all ten primitives), DF-225f ridden. One finding filed: DF-249a (bounds panic omits index+length — wording decision held). xfails -2, none added
@@ -80,6 +80,9 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-248c — SCHEDULED Aug 24 (user): the stale-citation lint LANE rides with DF-246a's doctrine work (an XFAIL/known-ledger row citing a CLOSED DF becomes a gate failure — checked against the tracker's closed set; the fix direction is in the entry below). Entry below
 - DF-250a — a COLLECTION LITERAL does not shape through a `Result`'s Ok payload, where the bare `-> Vector<Int>` twin compiles (entry below, filed by DF-245c's sweep; PRE-EXISTING and spawn-independent). The fix is a third peel beside DF-226e's and DF-140d's, at one funnel
 - DF-250b — a `??` whose DEFAULT is a bare `None` at a NON-optional peeled type is an LLVM ICE where the documented behaviour is a clean refusal (entry below, filed by DF-245c's sweep; PRE-EXISTING). Wants the refusal first, the funnel guard beside it
+- DF-251b — a GENERIC extension's `init` registers no param cleanups (an un-moved owning param leaks), populates no `variable_types` and sets no ICE breadcrumb, where the non-generic twin does all three. Entry below, filed by DF-251a's fix; one function, three faces
+- DF-251c — DF-216h's extension-parameter RENAME does not reach an `init`'s parameters at the construction site, so `Pair<Int>(three: 11)` under `extension Pair<U>` is refused; the METHOD half works. Entry below, with the mechanism and the data the fix needs
+- DF-251d — an `init` BODY that suspends is an internal compiler error; the coro transform scans init bodies but a construction is a `StructInit`, not a `MethodCall`, so nothing can name the frame. Entry below; either transform it or refuse it at the declaration
 
 - ~~DF-225a~~ — CLOSED Aug 22 (branch `diag-batch`, commit 6): the five join the ordinary duplicate-declaration rule — same LLVM signature unifies (so `printf` is callable), a different one is a clean refusal. The sweep probed every compiler-declared symbol and found the five are exactly the ones std does not also declare. Entry below, under DF-225a-f
 - ~~DF-225d~~ — CLOSED Aug 22 (branch `diag-batch`, commit 7): the three copies of "which names are primitives" became ONE table, so `self` inside a primitive extension is that primitive again. The sweep found the class is wider than the filing — arithmetic, comparison and `Bool`/`UInt` too, all ten design 176 added. Entry below, under DF-225a-f
@@ -245,6 +248,7 @@ moves.
 ## DF-245a — an `init`'s DECLARED return type is never checked against the
 ## receiver, so a wrong one is an ICE (found while probing design 234 unit 3's
 ## constructor question)
+## — CLOSED Aug 24 (branch `df-245a-fallible-init`, commit 2)
 
 An `init` may be declared with ANY return type. The declaration is accepted, the
 CALL is typed as the receiver regardless, and codegen then emits IR that does
@@ -288,6 +292,60 @@ declaring `init(...) -> Result<T, E>`. So unit 3's allocating constructors —
 shape their `try_` twins already have and turns "retire the prefix" into
 "delete the `init`, rename the twin". That is a public-API change at 194 call
 sites (counted below), not a signature tweak. [234]
+
+RULED Aug 24 (user) and LANDED the same day, WIDER than the fix shape above: an
+`init` may declare `Self`/the receiver (today's meaning) OR `Result<Self, E>`,
+and nothing else. No `Self?` — an optional creation encodes as Result, since a
+`None` names no cause — refused at the declaration with a fixit naming the
+Result form. So a constructor CAN be made fallible after all, and unit 3 keeps
+its `init`s instead of migrating 194 call sites to static factories; the two
+paragraphs above are superseded on that point and kept as the record of why the
+question was asked.
+
+WHAT LANDED. ONE funnel, `_init_declared_return`
+(sawc/typechecker/registration.py), whose docstring names its two entry points —
+the DECLARATION side (`register_extension`, which reports) and the BODY side
+(`_check_method`, silent). It answers `('receiver', None)` /
+`('result', <type>)` / `('refused', <what the author wrote>)`; the receiver's
+SPELLING stays each caller's own, because the two disagree on purpose (DF-216r).
+A refused declaration is judged against the author's own type so the body is not
+reported a second time for the same mistake. Argument comparison is by rendered
+spelling and only where BOTH sides spell their arguments — `_ext_written_self_type`
+bails out to the argument-free form for a CONST parameter, and std's
+`extension FixedBuf<N>` writes `init() -> FixedBuf<N>` by hand.
+The CALL SITE reads the matched init's registered return through
+`_init_call_type`, at both construction positions (`_check_struct_init` and
+`_check_module_struct_init`). CODEGEN lowers the declared return through
+`_init_llvm_return_type`, at both prototype sites (`_declare_extension_methods`
+and `_declare_monomorphized_method`), and both init body generators size their
+undefined-fallback from the signature rather than the struct layout.
+The SIGVIS hole the sweep found is closed with it: design 193's position matrix
+SKIPPED an init's return (it could only name the receiver, so judging it only
+restated the cap), and the fallible form names an `E` beside it — a
+`public init(...) -> Result<Exposed, Hidden>` published a private error type
+with no diagnostic. New row in `SIGNATURE_VISIBILITY_POSITIONS` + a row in
+`examples/private_in_public_positions_error.saw`.
+END TO END, probe-verified: `try!`, `try?`, a propagating `try`, `match
+Ok/Err`, the `try(as ...)` routing clause, design 151's discard error, a NoCopy
+receiver, a generic receiver, a const-generic receiver, default parameters, and
+label-distinguished overloads. Conformance row A02. Tests:
+`examples/init_fallible_result.saw`, `init_fallible_result_shapes.saw`,
+`init_fallible_result_module_qualified.saw` (the second construction position),
+`init_receiver_return_spellings.saw` (the control — every receiver spelling,
+including the no-clause form nothing in the corpus writes), and three refusals
+under `examples/errors/`. Zero in-tree migrations: all 118 `init` declarations
+already name their receiver.
+
+FOR UNIT 3, two things the sweep turned up that a flip will meet.
+`codegen/collections.py` SYNTHESIZES a no-argument init CALL for a collection
+literal (`resolved_init_params = []`) and takes the returned value as the
+container, so flipping a container's nullary `init` needs that site taught
+first. And the two construction checkers select an init differently —
+`_check_struct_init` accepts a subset plus defaults (design 53),
+`_check_module_struct_init` demands an exact set — so a fallible init with
+defaults resolves at the bare spelling and not the qualified one.
+Four findings filed: DF-251a (FIXED here, commit 1), DF-251b, DF-251c, DF-251d
+(the suspending-`init` boundary this brief was asked to record). [234]
 
 ## DF-251a — a GENERIC extension's `init` body inherited the PREVIOUS
 ## function's cleanup state, so an unrelated `String_deinit` landed in it
@@ -796,7 +854,9 @@ against the tree, both recorded in the brief's landing section:
   `Data.try_with_capacity`, `Data.try_reserve`, `StringBuilder.try_with_capacity`)
   under a heading that says four. And each `try_with_capacity` DOES have a
   panicking partner, just not a method one: `Vector(capacity:)` / `Data(capacity:)`
-  are INITS, which is the constructor question DF-245a below now answers.
+  are INITS, which is the constructor question DF-245a below now answers — and
+  since Aug 24 the answer is that an `init` MAY return `Result<Self, E>`, so
+  those two flip in place instead of becoming static factories.
 
 **THE COUNT UNIT 0's MATRIX NEVER TOOK, and unit 3's real size**: the matrix
 counts the 56 twin CALL sites and the 24 std alloc-panic sites, but not the
