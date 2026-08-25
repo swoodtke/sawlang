@@ -1,6 +1,20 @@
 # Design 218c — unit 1.5: monomorphization becomes a pre-codegen transform (spec)
 
-**Status: SPEC AUTHORED (Aug 25 2026), awaiting lead review + user ruling.**
+**Status: SPEC AUTHORED (Aug 25 2026); LEAD-RATIFIED same night under the
+user's overnight authorization ("continue through 218/1.5, normal rules" —
+Aug 24) — all six section-8 questions resolved AS RECOMMENDED, none touching
+a user ruling: (1) COLLECT instance errors (architecture-independent, the
+fallback recorded); (2) `--emit-ast`/`--ids`/astdiff see the PARSED
+pre-monomorphization AST — applies the recorded 218 authored-form contract,
+astdiff untouched, `--emit-mono-ast` future work; (3) the freestanding /
+`--no-hidden-alloc` gates do NOT re-run per instance — design 135's
+source-construct semantics, with the per-rule skip list defaulting future
+tier-dependent rules to running; (4) DF-258a pins XFAIL at stage 0 and flips
+at stage 4 — 1.5 is the next dispatch, so an interim refusal would be
+built-then-deleted; the restore-the-refusal fallback stands IF the queue
+slips; (5) DF-247a gets its own small dispatch after 1.5; (6) the
+instantiation depth limit is 64 per chain — it refuses only what today
+HANGS (DF-258b). Implementation dispatches after the 234 flip integrates.**
 Charter: design 218 unit 1.5 (RULED Aug 13; SCHEDULED Aug 24, moved ahead of
 the 238 split so the migration lands under the full in-tree battery). Process
 per the 218 ruling and the 218a/218b precedent: this spec documents the exact
