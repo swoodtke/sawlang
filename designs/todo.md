@@ -71,6 +71,8 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-257b — design 234 §5 keeps the `copy()` hook infallible, which leaves `Vector.try_copy` as the one alloc `try_` twin the flip cannot retire; owes a naming ruling (entry below, filed Aug 25 by design 234 unit 3)
 - DF-257c — a propagating `try` inside a GENERIC body is resolved once and reused across monomorphizations, so the SECOND instantiation extracts through the first's `Result` type and codegen emits unverifiable IR (entry below, filed Aug 25 by design 234 unit 3; PRE-EXISTING, minimal repro needs no `init`). Pinned XFAIL
 - DF-257d — the `$0` closure shorthand is invisible to the implicit-parameter scan inside a `try` operand, so the closure infers arity 0 (entry below, filed Aug 25 by design 234 unit 3; PRE-EXISTING). Pinned XFAIL; the flip meets it because `try!` is the corpus migration spelling
+- DF-259a — `Box<any Trait>.make` sits outside design 234's flip, so one method name has two fallibilities and the erased one panics with a bare `allocation failed` (entry below, filed Aug 25 by the design-138 doc-sync sweep). This IS the 234 census's `existentials.py:402` hold, which never became a tracker entry — it owes the user ruling that brief deferred
+- DF-259b — a reserved word in any declaration-name position gives a bare "Expected X name" that never says the word is reserved; five slots, one shared report (entry below, filed Aug 25 by the design-138 doc-sync sweep; PRE-EXISTING). Diagnostic-only, so no XFAIL pin
 
 
 ## DF-247a — a function that is a `group.spawn` ROOT is `undefined function`
@@ -463,6 +465,87 @@ closures are everywhere, so `v.each { [&var out] in out.push($0 * 2) }` becomes
 Two corpus sites take the named-parameter spelling meanwhile
 (`{ [&var out] n in try! out.push(n * 2) }`), each citing this entry. Pin:
 `examples/closure_shorthand_parameter_inside_a_try.saw` (XFAIL). [234, 19]
+
+## DF-259a — `Box<any Trait>.make` is outside design 234's flip, so ONE method
+## name has two fallibilities (filed Aug 25 by the design-138 doc-sync sweep;
+## the 234 census HELD this site for a ruling that never reached the tracker)
+
+```saw
+func typed()  -> Result<Box<Circle>, AllocError> { Box<Circle>.make(Circle(r: 2)) }
+func erased() -> Box<any Shape>                  { Box<any Shape>.make(Circle(r: 2)) }
+```
+
+Both compile. The typed factory reports its refusal, as design 234 §1 says every
+allocating std operation does; the erased one hands back the box and panics on
+refusal with a bare `allocation failed` — no method name, no size, no align, so
+it is the one allocation panic in the tree that says less than design 122's
+format rule asks and less than the `AllocError` it replaced carried.
+
+MECHANISM (obligation 4): the erased construction is COMPILER-SYNTHESIZED, not
+resolved. `_check_erased_box_make` (`sawc/typechecker/expressions.py:8990`)
+BUILDS the result type by hand — `SawType(STRUCT, "Box", [existential, alloc])` —
+instead of reading `Box.make`'s declared signature, and codegen's counterpart
+(`sawc/codegen/existentials.py:401`) emits the failure arm as a panic whose
+comment still says "(`Box<T>.make` parity)" — the parity that moved out from
+under it on Aug 25. A signature-level flip is invisible to any construction the
+typechecker types for itself.
+
+THE SIBLINGS that mechanism reaches, probed: a collection literal (design 234
+unit 3.1 taught it to consume the `Result`, and its panic NAMES itself —
+`collection literal: allocation of N bytes (align M) failed`); the erased-error
+auto-wrap into `Box<any Error>` (a documented boundary, LANGUAGE_SPEC "Where a
+refusal still panics"); the coroutine frame, the spawned task's control block
+and an escaping closure's environment (the same documented list,
+`--no-hidden-alloc` being the opt-out). Four of the five are written down. This
+is the fifth and is not, which is why a reader of that list believes
+`Box<any Shape>.make` reports.
+
+RESIDUE beside it: the path still refuses `Box<any Trait>.try_make` by name
+("use `Box<any Trait>.make(...)` — the fallible erased factory is deferred"),
+naming a method design 234 retired, in a message whose premise is now backwards.
+
+NOT A DOC EDIT. Design 234's census row for `existentials.py:402` reads "its
+stated rationale is `Box<T>.make` parity; that parity moves under unit 3, so
+this site needs a ruling the brief does not give — HELD for the user". The hold
+was never lifted and never became a tracker entry when the 234 entry moved to
+the done file, so this entry is the hold, restated where it can be found. The
+docs were left describing HEAD (no `try!` on the erased spelling). No XFAIL pin
+either — the ruling decides whether today's behaviour is the bug. [234, 51]
+
+## DF-259b — a RESERVED WORD in any declaration-name position gives a bare
+## "Expected X name" that never says the word is reserved (filed Aug 25 by the
+## design-138 doc-sync sweep; PRE-EXISTING)
+
+```saw
+enum Chosen { case Picked(n: Int), case None }   // Parse error: Expected variant name
+struct None { n: Int }                            // Parse error: Expected struct name
+func None() -> Int { 1 }                          // Parse error: Expected function name
+struct Box2 { None: Int }                         // Parse error: Expected field name
+enum G { case true, case Other }                  // Parse error: Expected variant name
+```
+
+Each refusal is correct and each is unreadable: nothing in it says `None` (or
+`true`) is a keyword rather than a misspelling, and none offers the one-word
+fix. An author writing an optional-shaped enum meets the first line and has
+nothing to go on.
+
+MECHANISM (obligation 4): every declaration-name slot asks the parser for an
+IDENT token and reports `Expected <thing> name` when it does not get one. A
+reserved word lexes as its own token, so it fails that test exactly as a `{` or
+a number would, and the message is the same for all three. This is a CLASS, not
+a `None` problem — the five lines above are five different slots reached by one
+rule, and the fix belongs at the shared "expected an identifier here" report,
+which can see the token it actually got and say "`None` is a keyword".
+
+WHAT IS NOT AFFECTED, probed: `Some`, `Ok`, `Err`, `Any`, `True`, `Falsey`,
+`Self2` and `Move2` are ordinary identifiers and compile in every one of those
+slots, so the reserved set really is small and the diagnostic is the whole
+finding. No XFAIL pin: the refusal is the intended behaviour and only its
+wording is wrong, so there is no XPASS flip for a pin to validate.
+
+FOUND BY: `LANGUAGE_SPEC.md`'s qualified-import example declared
+`case None` and had never compiled; fixed in the same sweep (the variant is
+`Nothing` now). [138]
 
 ## Design 238 — the sawos split (AUTHORED Aug 19, FOUR RULINGS same day;
 ## QUEUED after the sos riders batch, BEFORE the M3 ladder)
