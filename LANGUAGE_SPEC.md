@@ -6782,7 +6782,7 @@ let result = worker.join()       // Thread<Int>: NoCopy. The join is required â€
 
 // Channels: Copy handles onto a shared queue
 let ch = Channel<Int>()          // Channel<T: Send>
-var producer = Thread.spawn {
+var producer = Thread.spawn { [ch] in
     try! ch.send(42)             // send/receive/close report through Result
     true
 }
@@ -6892,7 +6892,7 @@ here to park. An ordinary `sync` body still refuses the same call.
 extern "C" {
     blocking func compress(src: UnsafePointer<Int8>, n: Int) -> Int
 }
-var t = Thread.spawn { compress(buf, len) }   // blocks this thread, on purpose
+var t = Thread.spawn { [buf, len] in compress(buf, len) }   // blocks on purpose
 let bytes = t.join()
 ```
 

@@ -9,7 +9,7 @@ trait Sized {
 }
 
 func fan_unbounded<T: Sized>(v: T) -> Int {
-    var t = Thread.spawn { v.size() }
+    var t = Thread.spawn { [v] in v.size() }
     return t.join()
 }
 

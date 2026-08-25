@@ -22,7 +22,7 @@ func make_raw(n: &var Int) unsafe -> Raw {
 
 func main() {
     var n = 7
-    var t = Thread.spawn { make_raw(&var n) }
+    var t = Thread.spawn { [n] in make_raw(&var n) }
     let r = t.join()
     print("unreachable")
 }

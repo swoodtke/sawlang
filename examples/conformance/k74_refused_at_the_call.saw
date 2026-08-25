@@ -20,7 +20,7 @@ extension Cell {
 
 func fan_arc<T: Send + Sync>(a: Arc<T>) -> Int {
     let a1 = a.copy()
-    var t = Thread.spawn { a1.strong_count() }
+    var t = Thread.spawn { [a1] in a1.strong_count() }
     return t.join()
 }
 

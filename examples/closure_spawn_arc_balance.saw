@@ -19,7 +19,7 @@ extension Res: NoCopy {
 func main() {
     let a = Arc<Res>(value: Res(id: 7))
     print(a.strong_count())          // 1
-    var t = Thread.spawn {
+    var t = Thread.spawn { [a] in
         a.strong_count()             // env retains a -> strong 2 while the task lives
     }
     let r = t.join()

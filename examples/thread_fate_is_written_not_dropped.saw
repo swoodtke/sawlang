@@ -11,7 +11,7 @@
 
 import std.mutex.{Mutex}
 func waitForIt(shared: Arc<Mutex<Int>>) {
-    var t = Thread.spawn {
+    var t = Thread.spawn { [shared] in
         shared.lock { &var c in
             c = c + 42
             true
@@ -31,7 +31,7 @@ func main() {
     }
     // The blessed chained spelling: the handle is consumed where it is made,
     // so it never reaches a binding and owes nothing further.
-    Thread.spawn {
+    Thread.spawn { [shared] in
         shared.lock { &var c in
             c = c + 42
             true

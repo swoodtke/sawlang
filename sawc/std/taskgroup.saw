@@ -865,7 +865,7 @@ extension TaskGroup {
         let addr = (&self) as UnsafePointer<TaskGroup> as Int
         var i = 0
         while i < self.workers {
-            var t = Thread.spawn { __saw_exec_worker(addr) }
+            var t = Thread.spawn { [addr] in __saw_exec_worker(addr) }
             // design 230 unit B: an executor WORKER is not a user task, so it is
             // taken back out of the thread-engine live count spawn codegen just
             // added it to. The count answers "could a `spawn {}` BODY still run

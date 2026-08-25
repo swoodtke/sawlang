@@ -1674,7 +1674,7 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   `receive` parks — so the call site's namespace is what says which one you are
   on:
   ```saw
-  var t = Thread.spawn { crunch(n) }   // Thread<Int>; join() BLOCKS this thread
+  var t = Thread.spawn { [n] in crunch(n) }   // Thread<Int>; join() BLOCKS this thread
   let h = group.spawn(crunch(n))       // Task<Int>;   join() drives the group
   ```
   A `Void` body gives `VoidThread` / `VoidTask` respectively.
@@ -1697,10 +1697,10 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   `let _ =` that design 151 blesses for a `Result` — and so is a `return` that
   leaves the handle unconsumed:
   ```saw
-  Thread.spawn { crunch(n) }              // error: ... must be consumed
-  var t = Thread.spawn { crunch(n) }
+  Thread.spawn { [n] in crunch(n) }              // error: ... must be consumed
+  var t = Thread.spawn { [n] in crunch(n) }
   if urgent { let _ = t.join() }          // error: not consumed on this path
-  Thread.spawn { crunch(n) }.join()       // the wait-here spelling: fine
+  Thread.spawn { [n] in crunch(n) }.join()       // the wait-here spelling: fine
   ```
   Two things discharge it besides a written `join()`. A move into STORAGE whose
   owner declares a hand-written `deinit` (`self.workers.push(move t)` inside a

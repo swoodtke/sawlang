@@ -12,7 +12,7 @@ func main() {
     let ch = Channel<Int>()
 
     // The producer captures a retained handle to the same queue.
-    var producer = Thread.spawn {
+    var producer = Thread.spawn { [ch] in
         var i = 1
         while i <= 100 {
             try! ch.send(i)

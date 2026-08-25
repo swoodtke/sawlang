@@ -11,7 +11,7 @@ func square(n: Int) -> Int {
 
 func main() {
     let base = 9
-    var t = Thread.spawn {
+    var t = Thread.spawn { [base] in
         square(base)
     }
     let r = t.join()

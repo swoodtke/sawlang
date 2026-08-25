@@ -10,7 +10,7 @@ struct Handle {
 
 func main() {
     let h = Handle(raw: 0 as UnsafePointer<Int8>)
-    var t = Thread.spawn {
+    var t = Thread.spawn { [h] in
         h.raw
     }
     let _r = t.join()

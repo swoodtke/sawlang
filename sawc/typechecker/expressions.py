@@ -2146,6 +2146,7 @@ class ExpressionsMixin:
         # silent no-op (unit 0's probe). Blocking the thread on FFI is the
         # headline reason to spawn one, so that one source stays legal.
         self._effect_mark_thread_spawn_body(closure)
+        self._check_spawn_brace_captures(closure, "Thread.spawn")
         result_type = SawType(TypeKind.VOID)
         if ctype is not None and ctype.kind == TypeKind.FUNCTION:
             result_type = ctype.func_return_type or SawType(TypeKind.VOID)
@@ -2213,6 +2214,56 @@ class ExpressionsMixin:
         self._mint_spawn_obligation(expr, f"Thread<{result_type}>", "Thread.spawn")
         return SawType(TypeKind.STRUCT, struct_name=THREAD_STRUCT_NAME,
                        type_args=[result_type])
+
+    def _check_spawn_brace_captures(self, closure, form: str) -> None:
+        """A SPAWNED BRACE CAPTURES NOTHING IMPLICITLY (design 242 ruling 10).
+
+        The capture list of a spawn brace IS its parameter list: each entry
+        transfers at the spawn, by value, at its own copy tier, and `[move x]`
+        is legal. So an enclosing binding the body names and the list does not
+        is a value crossing a concurrency boundary with nothing at the crossing
+        to say so — which is the one thing the reader of a spawn site most needs
+        spelled out, and the reason this is a rule rather than a convenience.
+        An ordinary closure is untouched: its captures are read at the same
+        frame by the same thread, and there is no boundary.
+
+        THE FUNNEL (obligation 1). The rule quantifies over "every spawn form
+        that takes a brace", and every one of them asks here rather than
+        re-deriving the set. Entry points, all of them:
+          * `_check_spawn` — `Thread.spawn { ... }`.
+        (`Task.spawn { }` and `group.spawn { }` are the two ruling 10 names
+        beside it. Both are refused at the argument today — the cooperative
+        engines take a direct call to a named function, because a closure body
+        gets no coroutine frame and a cooperative task's whole point is that it
+        can suspend — so neither has a brace to check YET. The sugar that gives
+        them one lifts the body into a hidden named function and routes it
+        through the call form; when it lands it registers here, and the list it
+        checks is the same list, with borrow entries additionally legal at
+        `group.spawn` per ruling 6.)
+
+        `closure.captures` is the body-scan set `_analyze_closure_captures`
+        computed, with listed-but-unseen names appended (`_check_closure`), so
+        the implicit set is exactly what the scan found and the list does not
+        name.
+        """
+        listed = {spec.name for spec in (getattr(closure, 'capture_specs', None) or [])}
+        implicit = [name for name in (closure.captures or []) if name not in listed]
+        if not implicit:
+            return
+        shown = ", ".join(f"`{n}`" for n in implicit)
+        example = ", ".join(implicit)
+        self._error(
+            ErrorKind.TYPE_MISMATCH,
+            f"a spawned brace captures nothing implicitly, and this body names "
+            f"{shown}",
+            closure.line, closure.column,
+            hint=f"name what crosses in the capture list — "
+                 f"`{form} {{ [{example}] in ... }}`. The list IS the body's "
+                 f"parameter list: each entry transfers at the spawn, by value, "
+                 f"at its own copy tier, and `[move x]` is how a move-only "
+                 f"value goes. Everything that crosses a concurrency boundary "
+                 f"is spelled at the crossing"
+        )
 
     def _reject_never_task_body(self, subject: str, consequence: str, result_type,
                                 line: int, column: int) -> bool:

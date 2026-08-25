@@ -65,7 +65,7 @@ func main() {
     // 2 — the sender is a thread-engine task, invisible to every run queue.
     let ch2 = Channel<Int>()
     let feeder = ch2.copy()
-    var t = Thread.spawn {
+    var t = Thread.spawn { [feeder] in
         let _ = spin(3000000)
         try! feeder.send(2)
     }
