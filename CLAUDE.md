@@ -185,7 +185,8 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   an untracked scratch file each session rewrote from this prose:
   ```bash
   SAW_PYTHON=/path/to/main/.venv/bin/python tools/battery.sh   # from a worktree
-  tools/battery.sh --quick        # skips reemit/irdet/gmgate/bootstrap/sos
+  tools/battery.sh --quick        # skips the slow six (reemit/irdet/gmgate/
+                                  # bootstrap/sos/freestanding)
   tools/battery.sh suite fuzz     # named stages
   tools/battery.sh --list
   ```
@@ -197,12 +198,13 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   `fuzz` (`sawfuzz --quick`), `corodiff` (`--quick`), `bench` (the warehouse
   benchmark — checksums GATE, timing report-only; devtools/bench/ +
   TESTING.md), `selfhostlex` (the selfhost lexer's own tests — the one tree
-  the Aug-10 coverage sweep found NO stage ran), then the slow five
+  the Aug-10 coverage sweep found NO stage ran), then the slow six
   `reemit` (design 221 A2: TWO compiles in ONE process, byte-comparing the
   unopt IR, the OPTIMIZED IR and the object — the optimized IR is the
   artifact DF-220a moved and the only one nothing checked),
   `irdet` (`--all`, whole corpus), `gmgate` (both lanes), `bootstrap`,
-  `sos`. Every stage RUNS even after one fails; the exit code is the
+  `sos`, `freestanding` (the design-238-unit-1 feature suite under QEMU,
+  both arches). Every stage RUNS even after one fails; the exit code is the
   number of failing stages. Adding a lane means editing `STAGES`.
   Coverage map (Aug-10 sweep): blade/tests + libs/*/tests are
   typechecked+run by `bootstrap` ONLY (so `--quick` skips them);
@@ -407,9 +409,19 @@ platform-width Int, bounds/overflow/shift checks always on,
 redefinition and for-loop vars via the mentions-rule (100, 107).
 Colorless concurrency: coroutine transform + one ambient cooperative
 scheduler (89-b/c: live accept-loop servers work; op-budget fairness
-backstop) + TaskGroup (MT via `threads: N`, Send-checked) + channels +
+backstop) + TaskGroup (MT via `threads: N`, Send-checked, fallible
+constructor since 234) + channels +
 precise reactor wakeup (91) + cancel wakes even an io-parked task
-(102) + `extern blocking` calls RUN via thread offload (103);
+(102) + `extern blocking` calls RUN via thread offload (103). The
+Thread/Task SPLIT (242, Aug 22-25): the namespace is the engine —
+`Thread.spawn { }` is OS threads and blocking (`Thread<T>`/`VoidThread`,
+body is `sync`, may call blocking externs), `Task.spawn(call())` is the
+cooperative engine without a group (`Task<T>`/`VoidTask`, background
+singleton, exit cancel-then-join); every non-group handle's FATE is
+written (`join`/`detach`/`cancel` — discard is a compile error, backed
+by a provenance-keyed drop panic), `detach()` exists on both engines,
+a spawned brace captures NOTHING implicitly (the capture list IS the
+parameter list), and the bare `spawn { }` is GONE;
 suspending calls embed at any nesting depth / control-flow position
 or error cleanly — never silently block (96, 101, 104) — and, since 120,
 in any EXPRESSION position too (chains, args, receivers, operands,
@@ -427,19 +439,27 @@ private-by-default outside the defining module (std under the gate
 too — design 82 makes each std FILE its own module). Prelude
 discipline (design 82): only a curated core is auto-visible
 (primitives, Vector/Map/Set, Optional/Result/Box/Arc/Allocator, the
-trait vocabulary, the builtins + concurrency primitives,
-StringBuilder); File/Data/Channel/Mutex/SpinLock/net/IoError/Utf8Error/
-process/env/time/fixedbuf (FixedBuf/FixedStringBuilder) — and `yield_now`
-(std.task, design 114; the cooperative-yield
+trait vocabulary incl. serde's Serialize/Deserialize/Encoder/Decoder,
+the builtins + concurrency primitives — TaskGroup/`Task<T>`/VoidTask/
+sleep/cancelled/Atomic, with `Thread.spawn`/`Task.spawn` as FORMS, not
+importable names — StringBuilder, Duration); File/Data/Channel/Mutex/
+SpinLock (std.spinlock)/Once (std.once)/slab (std.slab)/net (IoError/
+IoErrorKind)/Utf8Error/process/env/time (Instant)/fixedbuf (FixedBuf/
+FixedStringBuilder)/cbor (CborEncoder/CborDecoder)/std.compiler.frame
+(Slot/UnsafeRef/Poll/Resumable) — and `yield_now` + `dump_tasks`
+(std.task, designs 114/158; the cooperative-yield
 wrapper over the now stdlib-internal intrinsic) — need an import — so a
 user type named `IoError`/`File` no longer collides. Imports are
 RUST-STYLE and uniform across std and user modules (design 150, which
 deleted design 82 Part B's std bare-exposure special case): `import
 std.file` binds the last segment as a QUALIFIER and exposes nothing bare
-(`file.File`, `time.Instant.now()`, `let d: time.Duration`, `&any
+(`file.File`, `time.Instant.now()`, `let t: time.Instant`, `&any
 mod.Trait`, `<T: mod.Trait>` — every position a name appears);
 `import std.file.*` is the bare opt-in; `import std.file.{A, B as C}`
-selects bare AND binds the qualifier. `as` renames the qualifier.
+selects exactly those names bare and binds NO qualifier (DF-247b, Aug 24:
+each form binds exactly what it names — write the whole-module line too
+when you want both; the pair is complementary, not a collision). `as`
+renames the qualifier.
 Qualifier bindings are WEAK — locals -> module decls -> imported bare
 names -> qualifiers last — so a local `data`/`path`/`time` shadows one
 lexically with no error, and the member-lookup failure names the
@@ -473,20 +493,25 @@ no-ops, no clamps, no ignorable status flags.
 `Vector.with_ref`/`with_var_ref` (scoped, invalidation-proof element borrow)
 replaced `ref_at`. The Aug-5 batch (122-131): every runtime-check panic
 carries `panic at FILE:LINE:` (122); ONE allocator-failure policy —
-infallible ops panic naming their method, `try_` twins return
-`Result<_, AllocError>` all-or-nothing (123); TaskGroup teardown is EAGER —
+every allocating std op returns `Result<_, AllocError>` all-or-nothing,
+design 123's panic tier and its `try_` twins RETIRED by design 234
+(Aug 25: constructors fallible via `Result<Self, E>` inits, `try_` now
+means NON-BLOCKING only, `Vector.try_copy` the lone survivor pending
+DF-257b's naming ruling; the five documented panic boundaries are
+compiler-inserted allocations, collection literals, `copy()`, `Data`'s
+CoW subscript, and the String layer); TaskGroup teardown is EAGER —
 a group is a scope, task-owned values deinit at task completion via a
 synthesized frame `__release` (124); the op budget charges LOOP BACKEDGES in
 task bodies so pure-compute spinners cannot starve siblings (sync callees
 exempt — the speed escape hatch; 127); structural Deinit is IMPLICIT and
 every DECLARED empty-conformance derivation (Equatable/Comparable/Hashable/
-ExplicitCopy/ImplicitCopy) is gated on `@synthesize`; `var self` receivers
+Copy/ExplicitCopy) is gated on `@synthesize`; `var self` receivers
 rejected (128); newlines are insignificant inside `()`/`[]`/committed
 generic `<>` with trailing commas in the first two, unclosed brackets error
 at the OPENER (129); payload reads are policy-driven PLACES — `o!`/`??`/
-`if let` follow the payload's copy policy (ImplicitCopy retains;
+`if let` follow the payload's copy policy (the Copy tier retains;
 ExplicitCopy/NoCopy demand `move o!` on a local, `o!.copy()`, or
-`Optional.take(&var self)` — the field-safe move-out `TaskHandle.join` now
+`Optional.take(&var self)` — the field-safe move-out `Task.join` now
 uses); `Deinit` is NON-declarable — a copy-policy conformance carries any
 hand-written deinit body, which PREFIXES the synthesized field drops (131).
 Doc comments (121):
@@ -525,8 +550,9 @@ position, exempt from Sync, triggers 130's rule at every touching function),
 all-zero static costs no image bytes, and `[package] runtime = true` lets a
 package BE the runtime with each seam checked against rt/ABI.md. Discarding a
 `Result` is a COMPILE ERROR in every implicit-discard position — `let _ =` is
-the explicit out, Result only (151). The automatic ImplicitCopy TIER: a
-struct/enum whose owning members are all trivial/ImplicitCopy IS ImplicitCopy
+the explicit out, Result only (151). The automatic Copy TIER (named
+ImplicitCopy before design 219 unified the silently-copyable tier): a
+struct/enum whose owning members are all trivial/Copy IS Copy
 with no declaration owed, copies retaining each member (139 wrappers carry the
 tier they wrap; 159 fixed the missing retain). A tuple index never eats a
 following `.`, so `t.0.name` and `t.0.1` work and a float literal needs a
