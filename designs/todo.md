@@ -31,7 +31,7 @@ is scheduled and in what order is the whole of what they say.
 
 ## [QUEUE] — scheduled, in order (user-approved)
 
-- Design 234 — the fallibility flip (designs/234-fallibility-flip.md) — units 0-2, 4, 5 + channel sub-unit LANDED Aug 22; UNIT 3 RULED Aug 24 (user): PATH 1 — ~~fix DF-245a FIRST~~ **DF-245a LANDED Aug 24** (branch `df-245a-fallible-init`: fallible `init` is expressible; an `init` may declare ONLY `Self`/the receiver or `Result<Self, E>`, nothing else — no `Self?`, refused at the declaration; entry below), so unit 3 may now flip the constructors in place and is UNBLOCKED, THEN the flip as ratified (no factory migration). Migration protocol RATIFIED: examples/tests take `try!` mechanically (failure-path tests get real matches, flagged by name); sawc/std per-site with a propagate bias (`try!` inside std re-creates the panic tier); blade/devtools/tools/selfhost per-site, propagate bias, irdet+bench their own careful commit; every non-mechanical site listed in the landing section (the 205 precedent). Execution: DF-245a brief-let, then unit 3 as one dispatch
+- ~~Design 234 — the fallibility flip~~ — **COMPLETE Aug 25**, units 0-5 all landed (unit 3 on branch `design-234-c`, four gated commits: conformance rows first, the two hazards, the flip, the edge rows + docs). Every allocating std op returns `Result<_, AllocError>`; 18 of the 20 twins retired into the operation they doubled and two renamed; the constructors flipped IN PLACE over DF-245a. The flip's own consumer sweep caught the Send-on-frames gate turning itself OFF at every `TaskGroup(threads:)` because its shape test could not see through the new `try!`. Findings DF-257a-d. Entry below. Original ruling and protocol kept here: (designs/234-fallibility-flip.md) — units 0-2, 4, 5 + channel sub-unit LANDED Aug 22; UNIT 3 RULED Aug 24 (user): PATH 1 — ~~fix DF-245a FIRST~~ **DF-245a LANDED Aug 24** (branch `df-245a-fallible-init`: fallible `init` is expressible; an `init` may declare ONLY `Self`/the receiver or `Result<Self, E>`, nothing else — no `Self?`, refused at the declaration; entry below), so unit 3 may now flip the constructors in place and is UNBLOCKED, THEN the flip as ratified (no factory migration). Migration protocol RATIFIED: examples/tests take `try!` mechanically (failure-path tests get real matches, flagged by name); sawc/std per-site with a propagate bias (`try!` inside std re-creates the panic tier); blade/devtools/tools/selfhost per-site, propagate bias, irdet+bench their own careful commit; every non-mechanical site listed in the landing section (the 205 precedent). Execution: DF-245a brief-let, then unit 3 as one dispatch
 - Design 242 — the Thread/Task split (designs/242-thread-task-split.md) — units 0-1 LANDED Aug 22; UNITS 2 + 4(part) + 5 LANDED Aug 24 (branch `design-242-b`: the consumption funnel per-path, 9a's storage discharge keyed on a hand-written-deinit root, 9b's panic on the two THREAD handles, the blocking-permitted sync context via a second fixpoint, docs; conformance K78-K84; the 9b probe corrected the census — three corpus sites migrated). UNIT 3 RULED Aug 24 (user, ruling 10 in the brief): the CALL form is the Task engine's primitive; the brace form is SUGAR with an EXPLICIT-CAPTURE-LIST requirement UNIFORM across Thread.spawn/Task.spawn/group.spawn braces (the list IS the parameter list; implicit captures = teaching error; ~42-site Thread-brace migration rides). Trailing-brace syntax briefed as design 243, BACKLOGGED. UNIT 3 LANDED Aug 25 (branch `design-242-c`, three commits): `Task.spawn` + the background singleton + the exit cancel-then-join, the cooperative must-consume with its PROVENANCE-keyed 9b fault, `detach()` on both engines (one additive seam `__saw_rt_thread_detach`), and the spawn brace's capture list with the 27-site migration; conformance K85-K91. ONE PART OPEN — the cooperative BRACE sugar (`Task.spawn { }` / `group.spawn { }`), blocked on the lifted function's return type; the brief's landing section has the analysis. Findings: DF-252a (FuncPointer called by name in a driven body, pinned XFAIL), DF-256a (fixed), DF-256b (open)
 - ~~Place-window xfail family~~ — LANDED Aug 22 (branch `place-window-fixes`): DF-169h/DF-218i(+248d)/DF-218j closed, DF-232n pin resolved as superseded-by-ruling. ~~DF-218h~~ and ~~DF-248a~~ — CLOSED Aug 24 (branch `deferred-move`, one commit each) to their rulings: a non-escaping closure's `move` capture transfers WHEN THE BODY RUNS, and an assignment's RHS may read the target's own root while every other in-window naming keeps its refusal behind teaching text. One finding filed: DF-255a (the ESCAPING half of the capture double free, pinned XFAIL). Entries below
 - ~~Diagnostics/codegen small batch~~ — LANDED Aug 22-23 (branch `diag-batch`, seven commits, nothing stopped): DF-245b, DF-238b (+ the checked-cast twin), DF-238c (+ a second face at the thread-assertion funnel, conformance B23), DF-243a (four operator families + the sos abi un-suffixing, byte-identical), DF-243b+DF-232g residue, DF-225a, DF-225d (self usable as its own type on all ten primitives), DF-225f ridden. One finding filed: DF-249a (bounds panic omits index+length — wording decision held). xfails -2, none added
@@ -96,6 +96,7 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-257b — design 234 §5 keeps the `copy()` hook infallible, which leaves `Vector.try_copy` as the one alloc `try_` twin the flip cannot retire; owes a naming ruling (entry below, filed Aug 25 by design 234 unit 3)
 - DF-257c — a propagating `try` inside a GENERIC body is resolved once and reused across monomorphizations, so the SECOND instantiation extracts through the first's `Result` type and codegen emits unverifiable IR (entry below, filed Aug 25 by design 234 unit 3; PRE-EXISTING, minimal repro needs no `init`). Pinned XFAIL
 - DF-257d — the `$0` closure shorthand is invisible to the implicit-parameter scan inside a `try` operand, so the closure infers arity 0 (entry below, filed Aug 25 by design 234 unit 3; PRE-EXISTING). Pinned XFAIL; the flip meets it because `try!` is the corpus migration spelling
+- ~~DF-257e~~ — CLOSED Aug 25 (branch `design-234-c`, commit 4): conformance K90 pinned a THREAD RACE through order-checked `EXPECT-OUTPUT-CONTAINS` directives, against its own header. Rewritten to DF-246a's doctrine (a gate the test controls, then poll the observation); entry below
 
 - ~~DF-225a~~ — CLOSED Aug 22 (branch `diag-batch`, commit 6): the five join the ordinary duplicate-declaration rule — same LLVM signature unifies (so `printf` is callable), a different one is a clean refusal. The sweep probed every compiler-declared symbol and found the five are exactly the ones std does not also declare. Entry below, under DF-225a-f
 - ~~DF-225d~~ — CLOSED Aug 22 (branch `diag-batch`, commit 7): the three copies of "which names are primitives" became ONE table, so `self` inside a primitive extension is that primitive again. The sweep found the class is wider than the filing — arithmetic, comparison and `Bool`/`UInt` too, all ten design 176 added. Entry below, under DF-225a-f
@@ -1179,6 +1180,42 @@ Two corpus sites take the named-parameter spelling meanwhile
 (`{ [&var out] n in try! out.push(n * 2) }`), each citing this entry. Pin:
 `examples/closure_shorthand_parameter_inside_a_try.saw` (XFAIL). [234, 19]
 
+## ~~DF-257e — conformance K90 pinned a THREAD RACE, through directives its own
+## header said must not pin one~~ (filed + FIXED Aug 25 by design 234 unit 3;
+## PRE-EXISTING, from design 242 unit 3b)
+
+`examples/conformance/K90_thread_detach_is_a_fate.saw` asserts five lines with
+`EXPECT-OUTPUT-CONTAINS`, two of which are printed by DETACHED OS THREADS. Its
+header says so out loud — "their order against `detached`/`chained` is not a
+property of the language and must not be pinned as one" — but design 158 made
+`EXPECT-OUTPUT-CONTAINS` ORDER-CHECKED, each match starting where the last one
+ended, because order is half of what a structured dump asserts. So the file
+pinned exactly the order it declared unpinnable, and passed only while the
+spawner happened to win both races. It lost one here, on an unrelated branch,
+with a 35-second suite run:
+
+```
+detached / chained / ticket 2 released / ticket 1 released / main is finished
+```
+
+MECHANISM (obligation 4): an order-checked directive over output whose order is
+a race. The siblings are every other MT test that reaches for CONTAINS — the
+class DF-246a already ruled on, whose three rules this file breaks two of (a
+fixed 150ms `sleep` as the synchronizer, and no polling of the observation).
+
+FIXED to that doctrine: both threads park on a `GO` gate the test controls
+(a SPIN, not a sleep — a spawned thread runs no executor, so a suspension there
+is a compile error), main opens it after its own printing, and then POLLS a
+`RELEASED` counter with a 5-second ceiling that bounds genuine breakage only.
+The two releases print the same text, so which thread finishes first cannot
+decide anything; two identical directives still require two occurrences, because
+the cursor moves past each match. Verified green on five consecutive runs.
+
+WORTH KEEPING AS A RULE: a CONTAINS directive is an ORDER assertion. A test that
+wants an unordered set of lines has to make the ORDER deterministic — there is
+no unordered spelling, and adding one would weaken every structured-dump pin
+that depends on the ordering. [158, 242, 246]
+
 ## Design 242 — the Thread/Task split (AUTHORED + fully RULED Aug 22; IN
 ## FLIGHT on branch `design-242`)
 
@@ -1388,6 +1425,31 @@ every one of them a compile error the moment `push`/`append`/`insert` return a
 (`try!` / `try` / `let _ =`), and which one is a decision the brief does not
 make — `try!` reproduces today's behavior visibly, `let _ =` would hide the
 failure the flip exists to surface. [234]
+
+- **unit 3 — THE FLIP, COMPLETE** (branch `design-234-c`, four commits, Aug 25).
+  Design 123's panic tier is retired; every allocating std op returns
+  `Result<_, AllocError>`; 18 of the 20 twins retired into the operation they
+  doubled, two renamed (`Vector.reserve`, `Data.reserve`), and the constructors
+  flipped IN PLACE over DF-245a rather than becoming factories. The brief's
+  landing section carries the 20-row twin table, the two hazards' resolutions,
+  and the per-tree list of every non-mechanical site with its chosen spelling
+  (the 205 precedent). Conformance A03-A17 plus Z01's re-read. ONE
+  silent-unsoundness save: the Send-on-frames gate keys on the SHAPE of a
+  group's initializer and could not see through the `try!` every
+  `TaskGroup(threads:)` now needs, so it turned itself off everywhere — a
+  `_unwrap_try` funnel fixes it and the five pinned Send refusals are back.
+  Findings: DF-257a (recorded, not reached), DF-257b (owes a naming ruling),
+  DF-257c and DF-257d (both PRE-EXISTING, both pinned XFAIL). Gates: suite
+  2220/6 xfailed, freestanding both arches, citations, bootstrap, selfhostlex,
+  bench, irdet --all, sos both arches.
+- **unit 5 — docs closeout, COMPLETE** with unit 3: LANGUAGE_SPEC's "Allocation
+  failure" rewritten around the one tier with a "Where a refusal still panics"
+  subsection, the twin table deleted, the `Data`/`StringBuilder`/`Box`/slab
+  sections de-twinned; the saw-lang skill's allocation section rewritten;
+  README's allocation bullet and error-doctrine section carry the one-tier
+  sentence.
+
+**DESIGN 234 IS COMPLETE** — units 0-5 all landed. [234]
 
 ## Design 238 — the sawos split (AUTHORED Aug 19, FOUR RULINGS same day;
 ## QUEUED after the sos riders batch, BEFORE the M3 ladder)

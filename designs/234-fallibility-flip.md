@@ -610,6 +610,177 @@ family is **20**, not 19 (its table lists 20 rows under a heading saying 19), an
 **FIVE** twins have no infallible partner method, not four (its paragraph names
 five under a heading saying four).
 
+## Unit 3 — THE FLIP, complete (Aug 25, branch `design-234-c`)
+
+Four commits, each gated. What follows is the landing plus the review surface
+the ratified protocol asks for: every non-mechanical site with its chosen
+spelling.
+
+### The twin table, all 20 rows
+
+| twin | fate |
+|---|---|
+| `Vector.try_push` | RETIRED into `push` |
+| `Vector.try_reserve` | RENAMED `reserve` (no infallible partner) |
+| `Vector.try_with_capacity` | RETIRED into `Vector(capacity:)`, now fallible |
+| `Vector.try_copy` | KEPT — DF-257b; `copy()` is the `ExplicitCopy` hook |
+| `Data.try_push` | RETIRED into `push` |
+| `Data.try_set` | RETIRED into `set` |
+| `Data.try_append` | RETIRED into `append` |
+| `Data.try_append_bytes` | RETIRED into `append_bytes` |
+| `Data.try_reserve` | RENAMED `reserve` |
+| `Data.try_with_capacity` | RETIRED into `Data(capacity:)` |
+| `Data.try_detached` | RETIRED into `detached` |
+| `StringBuilder.try_append` | RETIRED into `append` |
+| `StringBuilder.try_append_char` | RETIRED into `append_char` |
+| `StringBuilder.try_with_capacity` | RETIRED into `StringBuilder(capacity:)` |
+| `Map.try_insert` | RETIRED into `insert` |
+| `Set.try_insert` | RETIRED into `insert` |
+| `Box.try_make` | RETIRED into `make` |
+| `Arc.try_make` | RETIRED into `Arc(value:)` |
+| `Channel.try_make` | RETIRED into `Channel()` |
+| `Channel.try_send` | retired with unit 3's channel sub-unit (Aug 22) |
+
+The FIVE with no infallible partner method turn out to be two renames and three
+retirements into a constructor: `Vector.try_reserve` and `Data.try_reserve` had
+nothing to merge with; the three `try_with_capacity`s merged into the `init`
+DF-245a made expressible. Unit 0's "a rename, not a merge" reading was right
+about the shape and wrong about the count once the constructors could flip.
+
+### The two hazards
+
+**(a) The collection literal.** The filing was about the container's nullary
+`init`; that half does not bite (`Vector()`, `Map()` and `Set()` allocate
+nothing). The real hazard is the per-element synthesized `push`/`insert`, which
+has no expression a `try` could sit on — §5's boundary reached from the other
+side. `_build_collection_literal` forces the `Result` and panics naming the
+error, through one funnel (`_force_synthesized_result` over
+`_emit_forced_result_panic`, which `try!` shares). Conformance A16.
+
+That teaching landed inert in commit 3.1 and did NOT fire when the flip arrived:
+the instantiation lookup keyed on the LLVM layout plus the Ok payload's
+spelling, and an ordinary program has three `Result` instantiations sharing
+`{ i32, [16 x i8] }` with a `Void` Ok. The literal dropped every refusal
+silently, and the whole battery stayed green. A16 is what caught it; the fix
+adds the Err payload's spelling as a second key. Recorded because the lesson is
+the row, not the bug: a teaching commit with no test is a teaching commit that
+can be wrong for two commits running.
+
+**(b) The two construction checkers.** RECORDED, not reconciled — DF-257a, with
+both directions probe-refuted. `_check_struct_init` matches an init by
+subset-plus-defaults, `_check_module_struct_init` by set equality, so a
+defaulted parameter resolves bare and is `no matching initializer` qualified.
+The fallible form makes it worse (a second, misleading error at the caller's
+`try`), but the flip does not reach it: no constructor it touches has a default,
+and the one std init that does never becomes fallible.
+
+### The non-mechanical sites
+
+Everything in `examples/` and the package `tests/` took `try!` mechanically off
+design 151's own diagnostics. These are the rest, per tree.
+
+**std, the reporting side.** `Vector.map`, `Map.keys`/`values`, `Set.to_vector`
+and the whole set algebra (`union`/`intersection`/`difference`/`is_subset`/
+`is_superset`), `String.split`/`to_data`, `Env.args`, `Command.arg`/`env` all
+flip to `Result<_, AllocError>`: each BUILDS a container, so each carries the
+refusal out. `Command.output` becomes `Result<CommandOutput?, AllocError>` —
+`Ok(None)` keeps its old "the child could not be run or the wait was cancelled"
+meaning and the allocator gets a channel of its own, which is §4's peel applied
+to a non-channel. `StringBuilder.append_scalar` becomes
+`Result<Int?, AllocError>` for exactly the same reason: `Ok(None)` still means
+"not a scalar value".
+
+**std, the mapping side.** `File.read`/`write` and `Directory.list` answer
+`IoError.of(syscall:kind:)` with `ResourcesExhausted` — the domain already had
+the word, so §1's carry-the-leaf rule maps rather than re-enumerates.
+`net_read_once` folds a refused grow into `NET_NO_SCRATCH`, the third answer its
+own scratch failure already had, and the read loops turn that into the same
+`ResourcesExhausted`. `TcpStream.write(s: String)` does the same for its
+staging buffer. `cbor.saw` maps onto `EncodeFault.BufferFull` and
+`DecodeFault.TooLarge` through two FREE helpers (`__cbor_encoded`,
+`__cbor_scanned`, plus a value-carrying `__cbor_encoded_data`) — free rather
+than methods because the argument is a `&var self` call on a field and a
+`&self` receiver beside it is an exclusivity violation.
+
+**std, the forcing side.** Three families, each with a structural reason:
+
+- `Vector.copy()` — the `ExplicitCopy` hook. Panics BY HAND, naming the method,
+  rather than through `try!`, so the message does not read `try! failed` out of
+  a std file the caller never opened. Conformance A17, DF-257b.
+- every `format(&self, into: &var StringBuilder)` body (36 in std) — the
+  trait's signature carries no error channel, and the path it serves has to work
+  with the allocator refusing everything, which is why design 137 gave it FIXED
+  storage where an overrun truncates and no `AllocError` exists.
+  `FixedStringBuilder`'s four appends and `net.saw`'s `resolve_error` are the
+  same shape.
+- the executor — `TaskGroup`'s slot growth, worker handles and free list, all
+  through one `__exec_alloc_or_fault`, because `group.spawn { }` is a FORM.
+  `Task.spawn`'s background group already panicked for this reason.
+- `@synthesize`d `Deserialize` forces its vector `push` (`_force_expr` in
+  `typechecker/serde.py`): routing would mean naming `DecodeError`'s
+  construction in code synthesized into the USER's module, where std.serde's
+  fault vocabulary may not be imported at all.
+
+**Three std sites spell `match` where `try` would read better**, each citing
+DF-257c at the line: `Map.insert`'s recursive tail, and the reservation in
+`Map.keys`/`values`. They revert when that closes.
+
+**blade + libs** (~200 sites): `try!` at the leaves, `try` kept wherever a
+Result was already flowing. `libs/toml`'s builder methods (`add`, `add_table`)
+and `libs/semver`'s format bodies force; flipping toml's builder API is its own
+change and is NOT done here. FLAGGED: the mechanical force pass initially
+converted three PRE-EXISTING propagations in `resolver.saw` (`visit` twice,
+`validate`) into `try!`, which turned a dependency cycle from a reported error
+into an abort — caught by blade's own `resolver_cycle`/`conflict`/
+`two_sources` tests, restored, and worth naming because a blunt
+`let _ = try` -> `try!` sweep is exactly how a propagation quietly becomes a
+crash.
+
+**devtools** (~55) and **selfhost** (~190): `try!` throughout. A devtool that
+runs out of memory should die loudly, and selfhost's `LexError` has no
+allocation case — giving it one is that tree's own change.
+
+**sos + freestanding** (6 sites): `try!`, including the `SosStatus` format body.
+
+### The silent-unsoundness save
+
+`_is_multithreaded_taskgroup_init` decides whether a group turns on the
+Send-on-frames gate by matching the SHAPE of its initializer. Every
+`TaskGroup(threads: N)` in the language is now written
+`try! TaskGroup(threads: N)`, and the shape test could not see through the
+`try` — so the gate turned itself off at every multi-threaded group and five
+pinned Send refusals started compiling. `_unwrap_try` is the funnel the test
+asks first; its docstring names its entry point, and a second shape test on an
+initializer belongs there rather than beside it. This is what obligation 2's
+consumer sweep is FOR: the sweep names who relies on the old behaviour, and a
+syntactic shape test relies on it in a way no type checks.
+
+### Findings
+
+- **DF-257a** — the two construction checkers select an init differently
+  (recorded; the flip does not reach it).
+- **DF-257b** — §5's infallible `copy()` hook leaves one alloc `try_` twin the
+  flip cannot retire. Three ways out, all needing a naming ruling; held at
+  "keep the name", with A17 pinning the boundary that creates it.
+- **DF-257c** — a propagating `try` in a GENERIC body is resolved once and
+  reused across monomorphizations. PRE-EXISTING; the minimal repro needs no
+  `init`. Pinned XFAIL.
+- **DF-257d** — the `$0` shorthand is invisible to the implicit-parameter scan
+  inside a `try` operand. PRE-EXISTING. Pinned XFAIL.
+
+### Conformance
+
+A03-A12 (one row per op family that reports) and A13-A17 (the edges: the
+retired prefix's absence, and the four places §5 keeps a panic). Z01 RE-READ —
+its closure body now has two things it could be refused for, so the covering
+test spells `try!` and the exclusivity refusal is the only one left standing.
+
+### Gates
+
+suite 2220 passed / 6 xfailed (xfail delta +2, both new DF pins), freestanding
+both arches, citations (6 open, 0 stale), bootstrap stage0-2, selfhostlex,
+bench, `irdet --all` (1376 examples, 0 mismatches), sos both arches.
+
 ## Unit 4 — the non-blocking family (Aug 22)
 
 `try_receive` is `-> Result<T?, ChannelError>` per §4: `Ok(Some(v))` a message,
@@ -681,6 +852,15 @@ changes behavior; both are now stated where a reader meets them:
   met; `try_detached()` is the preflight that attempts the allocation where a
   failure has somewhere to go.
 
-NOT landable, because each describes unit 3's end state: marking design 123's
-sections superseded, and removing the `try_` twin table (18 of the 20 twins are
-still there).
+NOT landable at the time, because each described unit 3's end state: marking
+design 123's sections superseded, and removing the `try_` twin table.
+
+CLOSED Aug 25 with unit 3. LANGUAGE_SPEC's "Allocation failure" is rewritten
+around the one tier: the twin table is gone, the operation list replaces it, and
+a "Where a refusal still panics" subsection names the five (compiler-inserted
+allocations, the collection literal, `copy()`, `Data`'s subscript, the `String`
+layer with `Printable.format` beside it). The `Data`, `StringBuilder`, `Box` and
+slab sections lost their twin references; the `Arc`/`Box` example is the flipped
+spelling and compiles as shown. The saw-lang skill's allocation section is
+rewritten the same way, and README gains the one-tier sentence in the
+allocation bullet and in the error-doctrine section.

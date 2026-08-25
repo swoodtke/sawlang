@@ -34,7 +34,9 @@ see [TESTING.md](TESTING.md).
   bitwise copy or a refcount bump. No assignment is secretly O(n). Duplicating
   a `Vector` is a visible `.copy()`. `sawc --no-hidden-alloc` turns this into a
   check: every allocation must be named by code you wrote, and the compiler
-  allocating on its own authority is a compile error.
+  allocating on its own authority is a compile error. An allocation that fails
+  is reported, not survived: `push`, `insert`, `append` and the allocating
+  constructors return `Result<_, AllocError>`.
 - **Destruction is deterministic.** Values are destroyed last-in-first-out as
   they leave scope, and the `deinit` is written for you from the type's fields.
   A suspending function is no exception: a local that lives across a suspension
@@ -213,10 +215,16 @@ let cfg = try Config(budget: n, ceiling: 4096)
 nothing extra written. An optional return is refused: a failed creation has a
 cause, and `None` throws it away.
 
-The standard library always names its error type. An operation with one failure
-mode returns that failure — `push` reports the allocator and nothing else — and
-an operation whose sources genuinely mix returns an enum with a case per source,
-each carrying the underlying error rather than restating it:
+The standard library always names its error type, and every operation that can
+run out of memory has one: `push`, `insert`, `append`, `Box.make`,
+`Vector(capacity:)` and the rest return `Result<_, AllocError>`, all-or-nothing,
+with the refused request's size and alignment in the error. There is no
+panicking twin and no `try_`-prefixed one — `try!` is how a caller says it would
+rather die than handle the refusal, and it panics naming the error.
+
+An operation with one failure mode returns that failure. One whose sources
+genuinely mix returns an enum with a case per source, each carrying the
+underlying error rather than restating it:
 
 ```saw
 public enum ChannelError {

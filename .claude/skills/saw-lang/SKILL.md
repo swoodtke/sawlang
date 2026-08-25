@@ -366,9 +366,10 @@ works but is no longer required anywhere. Three things to know:
   shared storage while `push`/`append` copied first; it no longer does. A byte
   set through a slice-sharing `Data` is invisible to the slice.
 - **`slice()` is O(1)** (a retain, narrower window) and `copy()` is lazy;
-  `detached()`/`try_detached()` are the EAGER spelling, sized to `len()`, for
-  when a small slice would otherwise pin a large buffer. (`try_copy` is gone —
-  `try_detached` is it, under a name that says which one can run out of memory.)
+  `detached()` is the EAGER spelling, sized to `len()`, for when a small slice
+  would otherwise pin a large buffer. It reports a refused allocation —
+  `Result<Data, AllocError>` — which is what makes it the preflight for a write
+  through `d[i]`.
 - **`d[i]` READS free and WRITES with a gate** (design 179). The accessor is
   `&self`, so a read works on a `let`, a `&Data` param, or a slice several
   `Data`s share, and separates nothing; a write opens an exclusive window, so it
@@ -1046,7 +1047,7 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   allocation failure without allocating, so the erasure panics — name your error
   type if you must not meet it. And `Data.[]`'s copy-on-write SEPARATION: the
   accessor rule governs a direct indexed accessor, so `d[i]` panics; the
-  Result-returning preflight is `try_detached()`, which separates the buffer
+  Result-returning preflight is `detached()`, which separates the buffer
   where a failure has somewhere to go.
 - `trait Error: Printable {}` — conform via `extension E: Error {
   func format(&self, into: &var StringBuilder) {...} }`.
@@ -1242,8 +1243,10 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   `append(value: UInt)` render digits directly (no intermediate String), and
   forwarding to a field's own `format` (`self.n.format(into: &var into)`) is
   alloc-free too since design 135 — either spelling is safe in a body. In fixed
-  mode `try_append`/`try_append_char` never return `Err`: nothing refused them,
-  and truncation is reported by the marker, not by a fake `AllocError`.
+  mode `append`/`append_char` never return `Err`: nothing refused them, and
+  truncation is reported by the marker, not by a fake `AllocError`. That is why
+  a `format` body spells `try!` — the storage it writes into cannot refuse, and
+  the trait's signature leaves no error channel anyway.
 - FAILABLE-RETURNS-RESULT (design 92, non-negotiable): a fallible op SURFACES
   its failure — `Result<T, IoError/…>` (caller must handle/`try`), or `T?` for an
   uninteresting/expected absence. NEVER a `Void` return that drops the error, and
@@ -2710,46 +2713,55 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
   caller can hold and cannot NAME — which used to compile on the value path and
   fail on the PLACE path with an unrelated `__window` type mismatch.
 
-## Allocation failure (design 123 — one policy, two tiers)
-An **infallible signature PANICS** on allocator exhaustion, naming its method
-(`panic at vector.saw:180: Vector.push: allocation failed`) and routing through
-`__saw_rt_panic` so a kernel picks the policy. That is `push`/`append`/`insert`/
-`send`/`Box.make`/`String.to_uppercase`/`Path.join` and EVERY constructor
-(`Vector(capacity:)`, `Data(capacity:)`, `Arc(value:)`, `Mutex(value:)`,
-`Channel()`, `TaskGroup(threads:)`), plus the compiler's own two sites (a
-spawned task's control block, an escaping closure's env).
+## Allocation failure (design 234 — one tier, and it reports)
+**Every allocating std operation returns `Result<_, AllocError>`.** One spelling
+per operation; the signature says whether it can fail. That is
+`push`/`append`/`append_char`/`insert`/`reserve`/`set`/`detached`/`map`/
+`keys`/`values`/`Box.make`/`String.split`/`String.to_data`/`Env.args`/
+`Command.arg`/`env`/`output`, and the constructors `Vector(capacity:)`,
+`Data(capacity:)`, `StringBuilder(capacity:)`, `Arc(value:)`, `Channel()`,
+`TaskGroup(threads:)` (a fallible `init` returns `Result<Self, E>` — DF-245a —
+so the CALL keeps its spelling and gains one word). `Mutex(value:)` allocates
+nothing and is not in the list.
 
-Each has a **`try_` twin returning `Result<_, AllocError>`** — the fallible tier,
-and the PRIMARY surface for allocator-parameterized types (`Vector<T, A>`,
-`Box<T, A>`, `Map<K, V, A>`, `Set<T, A>`): `try_with_capacity`, `try_push`,
-`try_reserve`, `try_copy`, `try_make`, `try_append`, `try_append_char`,
-`try_append_bytes`, `try_insert`. `try_` is the ONE spelling (design
-123 renamed `Box.make_or` -> `try_make`; `Channel.try_receive` is unrelated — a
-non-blocking poll, and since design 234 §4 the prefix means THAT and nothing
-else: the non-blocking variant of an operation that could otherwise block,
-shaped `Result<T?, E>` where `Ok(None)` is "nothing yet", or a plain `T?` where
-there is no error path at all (`SpinLock.try_lock`, `Once.try_get`)). **`Channel.send` LEFT this policy with design 234** and is
-where the whole tier is going: it reports BOTH failures as values in one error
-type — `Err(Closed)` and `Err(Alloc(e))`, the second carrying the `AllocError`
-— and `try_send` RETIRED with the split (it existed because `send`'s one error
-slot was already spent on `Closed`, so the allocator had nowhere to go but a
-panic, and `try_send` was the mirror image; neither could carry the other's
-failure, which is what DQ-230b asked). `try! ch.send(v)` is a
-pre-234 `send` and `ch.send(v)` handled is the new shape; a call to `try_send`
-means the code predates Aug 22. A `try_` op is ALL-OR-NOTHING: on `Err`
-the container is untouched, every element still in it. Its argument is consumed
-either way — `try_reserve` FIRST when the value must survive a refusal.
-`AllocError` carries the refused `size`/`align` and is `Error + Printable`
+**Design 123's panic tier and its `try_` twins are GONE.** `try_push`,
+`try_insert`, `try_append`, `try_make`, `try_with_capacity`, `try_send` and the
+rest name no method; a call to one means the code predates Aug 25.
+`Vector.try_copy` is the ONE survivor, because `copy()` is the `ExplicitCopy`
+hook and its signature belongs to the trait (DF-257b holds the naming ruling).
+`try_` otherwise means NON-BLOCKING and nothing else: the poll variant of an
+operation that could block, shaped `Result<T?, E>` where `Ok(None)` is "nothing
+yet" (`Channel.try_receive`), or a plain `T?` where there is no error path at
+all (`SpinLock.try_lock`, `Once.try_get`).
+
+`try!` is the migration spelling and the fail-fast one; it panics NAMING the
+error (`try! failed: allocation of 32 bytes (align 8) failed`), so it says more
+than the tier it replaced did. An op is ALL-OR-NOTHING: on `Err` the container
+is untouched, every element still in it. Its argument is consumed either way —
+`reserve` FIRST when the value must survive a refusal. `AllocError` carries the
+refused `size`/`align` and is `Error + Printable`
 (`"{e}"` -> `allocation of 64 bytes (align 8) failed`).
 ```saw
-match frames.try_push(Frame(id: 1)) {
+match frames.push(Frame(id: 1)) {
     case Ok(_) -> print("queued"),
     case Err(e) -> print("out of frame memory: {e}")
 }
 ```
-`String` has NO fallible tier — every producer returns a plain `String`, so the
-one allocator behind them panics (covers `to_uppercase`/`replace`/`trim`/
-`substring`/`join`/`StringBuilder.build`/`Path.join`/`String.fromBytes`).
+`Channel.send` is the COMPOUND shape: `Err(Closed)` and `Err(Alloc(e))` in one
+error type, the generic case carrying the leaf rather than re-enumerating it.
+Share case names, never wrapper enums.
+
+FIVE PLACES STILL PANIC, each because the report has nowhere to go: the
+allocations the compiler inserts that no source construct names (interpolation,
+an escaping closure's env, a coroutine frame, a spawned task's control block —
+`--no-hidden-alloc` is the opt-out); a COLLECTION LITERAL, whose `push` calls
+are synthesized (`collection literal: allocation of N bytes (align M) failed`);
+`copy()`; `Data`'s subscript on shared storage (`detached()` is the preflight
+that reports); and the whole `String` layer, since every producer returns a
+plain `String` (`to_uppercase`/`replace`/`trim`/`substring`/`join`/
+`StringBuilder.build`/`Path.join`/`String.fromBytes`). `Printable.format` sits
+with the String layer — its signature is the trait's and it writes into FIXED
+storage that refuses nothing, so a `format` body spells `try!`.
 Nothing degrades: no truncated container, no `Ok("")` from a validating
 constructor, no un-joined path, no dropped message, and no inert object
 (`Arc`/`Mutex`/`Channel` used to construct one and no longer can). `Mutex.get()`
@@ -2795,7 +2807,7 @@ slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
   - **`Mutex<T>`** (`import std.mutex.{Mutex}`, HOSTED) — the same shape
     where a waiter should SLEEP rather than spin. Since design 186 it is
     one inline word (`os_unfair_lock` / futex), allocates nothing, has no
-    `deinit` and no `try_make`, and zero is unlocked — so `static
+    `deinit` and an INFALLIBLE constructor, and zero is unlocked — so `static
     REGISTRY: Mutex<Int>` works with no initializer exactly as `SpinLock`
     does. Blocks the calling THREAD; not reentrant.
   - **`Once<T>`** (`import std.once.*`) — state COMPUTED once at a moment

@@ -1070,7 +1070,7 @@ is shared and immutable, `Vector` is uniquely owned and mutable, `Data` is
 shared until written.
 
 - **The uniqueness gate.** Every mutation — `push`, `append`, `append_bytes`,
-  `set`, `try_set`, a write through `d[i]`, and the reservations behind them —
+  `set`, a write through `d[i]`, and the reservations behind them —
   takes the same test: sole owner, write in place; shared, copy the live bytes
   into a fresh buffer and write there. The mechanism is
   `Arc.with_unique(body:)`, which runs its body on a `&var` borrow of the
@@ -1084,8 +1084,8 @@ shared until written.
 - **`copy()` is lazy; `detached()` is eager.** `copy()` is the `Copy`
   retain and cannot fail. `detached()` materializes the bytes into a buffer
   sized to `len()`, which is what to reach for when a small slice would
-  otherwise keep a large buffer alive; it panics if the allocator refuses, and
-  `try_detached()` reports that as `Err(AllocError)`.
+  otherwise keep a large buffer alive; it reports a refused allocation as
+  `Err(AllocError)`.
 - **`capacity()` reports what fits before the next allocation.** For a sole
   owner of a whole buffer that is the buffer's capacity. For shared storage, or
   a slice that starts partway in, the next write separates the bytes, so the
@@ -1105,8 +1105,10 @@ shared until written.
   `Data`, so an iterator outliving the binding it came from still reads live
   bytes.
 
-Out of range, `set`/`try_set`/`d[i]` panic and `get`/`slice` answer
-`None` — design 130's accessor rule, the same split `Vector` uses.
+Out of range, `set`/`d[i]` panic and `get`/`slice` answer
+`None` — design 130's accessor rule, the same split `Vector` uses. A refused
+ALLOCATION is a different question and rides a different channel: `set` reports
+it, `d[i]` panics (see [Allocation failure](#allocation-failure)).
 
 ### Source-location literals
 
@@ -2289,11 +2291,12 @@ extension Other: Printable {
 `append(value: Int)` and `append(value: UInt)` render digits directly, with no
 intermediate `String`. Forwarding to a builtin's own `format` —
 `self.n.format(into: &var into)` — is allocation-free too, so either spelling of
-a field is safe inside a `format` body. In fixed mode `try_append` and
-`try_append_char` never
+a field is safe inside a `format` body. In fixed mode `append` and
+`append_char` never
 report `Err`: there is no allocator to refuse them, and truncation is reported
 by the marker and `is_truncated()` rather than by an `AllocError` naming a
-failure that did not happen.
+failure that did not happen. That is why a `format` body may spell `try!` — the
+storage it writes into cannot refuse.
 
 #### `Error` and erased Results
 
@@ -3716,7 +3719,7 @@ signals out-of-range by panicking, and the copy-on-write separation is part of
 the same unconditional lend. Splitting one of its two failures out as a value
 and leaving the other a panic would make `d[i]` mean two different things by
 which failure it met. A caller that must not meet it preflights instead:
-`try_detached()` performs the separation and returns `Result<Data, AllocError>`,
+`detached()` performs the separation and returns `Result<Data, AllocError>`,
 so the allocation is attempted where a failure has somewhere to go, and the
 writes that follow find the buffer already unique.
 
@@ -4108,14 +4111,17 @@ is the one shared-ownership primitive. `Arc` is `Copy + Deinit`
 exactly once), built on the same machinery as `String`.
 
 ```saw
-// Atomic reference counting (thread-safe shared ownership)
-let shared = Arc<Payload>(value: Payload(id: 7))
+// Atomic reference counting (thread-safe shared ownership). The control block
+// is an allocation, so the constructor reports; `try!` says this caller would
+// rather die than handle a refusal.
+let shared = try! Arc<Payload>(value: Payload(id: 7))
 let shared2 = shared          // copy() called, strong count increases
 print(shared2.strong_count()) // 2
 
 // Box<T, A>: owned heap allocation without sharing (NoCopy — move to transfer).
-// Static factories: `.make` (panics on OOM) and `.try_make` (fallible).
-let boxed = Box<Int>.make(42)
+// `make` is a static because the allocator type argument is named at the call
+// site, not because construction is special.
+let boxed = try! Box<Int>.make(42)
 print(boxed.value())          // 42
 ```
 
@@ -10726,10 +10732,10 @@ var v = Vector<Int, MySlab>()   // grow/deinit route through MySlab; A().alloc i
 
 `Vector<Int, MySlab>` is a **distinct type** from `Vector<Int>`; a value of one
 cannot be passed where the other is expected. Deinit frees through the vector's
-own `A`, so allocations never cross heaps. A fallible factory such as
-`Vector.try_with_capacity(n) -> Result<Vector<T, A>, AllocError>` surfaces
-allocation failure to the caller (tier 2 of the three-tier failure model) with
-`size`/`align` context, instead of the default infallible APIs' panic.
+own `A`, so allocations never cross heaps. `Vector(capacity:)` and every other
+allocating operation surface a refusal to the caller as
+`Err(AllocError)` with `size`/`align` context — see
+[Allocation failure](#allocation-failure).
 
 Paper 19 §4's allocator model is now landed end to end: module-level `static`
 declarations (design 41) and **per-type slab allocators** (design 42) both ship.
@@ -10738,74 +10744,105 @@ default allocator), which paper 19 keeps for when kernel code justifies it.
 
 ### Allocation failure
 
-**Status: implemented (design 123).** Every allocating operation in the standard
-library answers "the allocator said no" one of two ways, and the name tells you
-which.
-
-An operation with an **infallible signature** panics. `Vector.push`,
-`StringBuilder.append`, `Data.push`, `Map.insert`, `Set.insert`,
-`Channel.send`, `Box.make`, `String.to_uppercase`, `Path.join`, and every
-constructor — `Vector(capacity:)`, `Data(capacity:)`, `Arc(value:)`,
-`Mutex(value:)`, `Channel()`, `TaskGroup(threads:)` — are in this tier. The
-panic carries the method's name (`panic at vector.saw:180: Vector.push:
-allocation failed`) and routes through the `__saw_rt_panic` seam, so a kernel
-picks the policy: oops, kill the task, reboot. The compiler's own allocations
-follow the same rule — a spawned task's control block and an escaping closure's
-heap environment panic rather than storing through a null.
-
-The message reaches you because panic messages are assembled in stack scratch
-(see [Panic messages allocate
-nothing](#panic-messages-allocate-nothing)). An allocator that has refused
-everything still reports which method it refused.
-
-Every such operation has a **`try_`-prefixed twin** returning
-`Result<_, AllocError>`:
-
-| Type | Infallible | Fallible |
-|---|---|---|
-| `Vector` | `init(capacity:)`, `push`, `copy` | `try_with_capacity`, `try_push`, `try_reserve`, `try_copy` |
-| `Box` | `make` | `try_make` |
-| `StringBuilder` | `init(capacity:)`, `append`, `append_char` | `try_with_capacity`, `try_append`, `try_append_char` |
-| `Data` | `init(capacity:)`, `push`, `append`, `append_bytes`, `set`, `detached` | `try_with_capacity`, `try_push`, `try_append`, `try_append_bytes`, `try_reserve`, `try_set`, `try_detached` |
-| `Map` / `Set` | `insert` | `try_insert` |
-| `Arc` / `Mutex` | `init(value:)` | `try_make` |
-| `Channel` | `init()` | `try_make` |
-
-**`Channel.send` has left this table** (design 234). It reports BOTH of its
-failures as values in one error type — `Err(Closed)` for a closed channel and
-`Err(Alloc(e))` for a refused queue node, the second carrying the `AllocError`
-itself. `try_send` retired with the split: it existed because `send` had one
-error slot already spent on `Closed`, so the allocator's refusal had nowhere to
-go but a panic, and `try_send` was the mirror image (allocator as a value, a
-closed channel as a panic). Neither could carry the other's failure, which is
-what DQ-230b asked about. One send, one error type, both sources in it.
-
-A `try_` operation is **all-or-nothing**: on `Err` the container is exactly as it
-was, with every element still in it. The `AllocError` carries the byte `size` and
-`align` of the request that was refused, and conforms to `Error` and `Printable`,
-so it interpolates into a log line and boxes at a `Result<T, Box<any Error>>`
-boundary like any other error.
+**Status: implemented (design 234, superseding design 123's two-tier policy).**
+Every allocating operation in the standard library returns
+`Result<_, AllocError>`. There is one spelling per operation, and the signature
+says whether it can fail.
 
 ```saw
 var frames = Vector<Frame, FrameSlab>()
-match frames.try_push(Frame(id: 1)) {
+match frames.push(Frame(id: 1)) {
     case Ok(_) -> print("queued"),
     case Err(e) -> print("out of frame memory: {e}")
 }
 // prints e.g. out of frame memory: allocation of 64 bytes (align 8) failed
 ```
 
-A type parameterized by its allocator (`Vector<T, A>`, `Box<T, A>`,
-`Map<K, V, A>`, `Set<T, A>`) is the freestanding toolkit, and the `try_` tier is
-its primary surface. Types with no allocator parameter — `String`,
-`StringBuilder`, `Data`, `Arc`, `Mutex`, `Channel` — allocate through
-`GlobalAllocator`.
+The operations are `Vector.push`/`reserve`/`map`, `Map.insert`/`keys`/`values`,
+`Set.insert` and its algebra, `Data.push`/`set`/`append`/`append_bytes`/
+`reserve`/`detached`, `StringBuilder.append`/`append_char`/`append_scalar`,
+`Box.make`, `String.split`/`to_data`, `Env.args`, `Command.arg`/`env`/`output`,
+and the constructors `Vector(capacity:)`, `Data(capacity:)`,
+`StringBuilder(capacity:)`, `Arc(value:)`, `Channel()` and
+`TaskGroup(threads:)`. A constructor reports through the `Result<Self, E>` init
+form, so the call keeps its spelling and the caller gains one word.
+`Mutex(value:)` is not in the list: it allocates nothing.
 
-`String` has no fallible tier at all: every producer of one returns a plain
-`String`, so there is nowhere to put a failure. The single allocator behind them
-panics, which covers `to_uppercase`, `to_lowercase`, `replace`, `trim`,
-`substring`, `Vector<String>.join`, `StringBuilder.build`, `Path.join` and
-`String.fromBytes` in one place.
+Each is **all-or-nothing**: on `Err` the container is exactly as it was, with
+every element still in it. The `AllocError` carries the byte `size` and `align`
+of the request that was refused and conforms to `Error` and `Printable`, so it
+interpolates into a log line and boxes at a `Result<T, Box<any Error>>` boundary
+like any other error.
+
+`try!` is the spelling for code that would rather die than handle the refusal.
+It panics naming the error, which is more than the tier it replaced could say:
+
+```saw
+var v = Vector<Int>()
+try! v.push(1)   // on refusal: try! failed: allocation of 32 bytes (align 8) failed
+```
+
+Panic messages are assembled in stack scratch (see [Panic messages allocate
+nothing](#panic-messages-allocate-nothing)), so an allocator that has refused
+everything still reports what it refused. The panic routes through the
+`__saw_rt_panic` seam, so a kernel picks the policy: oops, kill the task,
+reboot.
+
+The `try_` prefix now means one thing, **non-blocking**: `Channel.try_receive`,
+`SpinLock.try_lock`, `Once.try_get`. The allocation twins it also used to mean
+(`try_push`, `try_insert`, `try_append`, `try_make`, `try_with_capacity` and the
+rest) are gone; the operation each one doubled reports.
+
+**`Channel.send` shows the compound shape.** It reports BOTH of its
+failures as values in one error type — `Err(Closed)` for a closed channel and
+`Err(Alloc(e))` for a refused queue node, the second carrying the `AllocError`
+itself. `try_send` retired with the split: it existed because `send` had one
+error slot already spent on `Closed`, so the allocator's refusal had nowhere to
+go but a panic, and `try_send` was the mirror image (allocator as a value, a
+closed channel as a panic). Neither could carry the other's failure, which is
+what DQ-230b asked about. One send, one error type, both sources in it. That is
+the general rule for a domain error: the compound carries the leaf rather than
+re-enumerating its vocabulary.
+
+#### Where a refusal still panics
+
+Five places, each because the report has nowhere to go.
+
+**The allocations the compiler inserts that no source construct names** — string
+interpolation, an escaping closure's captured environment, a coroutine frame, a
+spawned task's control block. There is no expression to hang a `try` on.
+`--no-hidden-alloc` rejects them at compile time for code that cannot accept a
+panic there.
+
+**A collection literal.** `[a, b, c]` lowers to a container plus one synthesized
+`push` per element, and a synthesized call is the same case one level down. The
+literal forces the `Result` and panics naming the error:
+`collection literal: allocation of 64 bytes (align 8) failed`.
+
+**`copy()`.** Its signature belongs to `ExplicitCopy` and the compiler emits
+calls to it, so it cannot return a `Result`. `Vector.copy()` panics naming the
+method; `Vector.try_copy()` is the reporting spelling for a duplicate, and the
+one place the retired prefix survives.
+
+**`Data`'s subscript.** Writing through `d[i]` on shared storage separates the
+bytes first, and that allocation shares a body with the bounds check. Splitting
+one of the two failures out as a value would make `d[i]` mean two different
+things by which failure it met. `detached()` attempts the same allocation where
+a refusal has somewhere to go, so it is the preflight.
+
+**`String`.** Every producer returns a plain `String`, so there is nowhere to
+put a failure: `to_uppercase`, `to_lowercase`, `replace`, `trim`, `substring`,
+`Vector<String>.join`, `StringBuilder.build`, `Path.join` and `String.fromBytes`
+all panic through the one allocator behind them. `Printable.format` is on the
+same footing — its signature is the trait's, and the path it serves (panic and
+assert assembly, `print("{}", x)`) is the one that has to work with the
+allocator refusing everything, which is why it writes into fixed storage where
+an overrun truncates and no `AllocError` exists at all.
+
+A type parameterized by its allocator (`Vector<T, A>`, `Box<T, A>`,
+`Map<K, V, A>`, `Set<T, A>`) is the freestanding toolkit. Types with no
+allocator parameter — `String`, `StringBuilder`, `Data`, `Arc`, `Mutex`,
+`Channel` — allocate through `GlobalAllocator`.
 
 What none of these do is degrade. There is no truncated `Vector`, no
 `Ok("")` from a validating constructor, no un-joined path returned from `join`,
@@ -10913,21 +10950,20 @@ per-type slab (the design-19 §4 "kernel idiom"). `Box` is **NoCopy** — it is
 `move`d, never silently duplicated — and its single heap `T` is released exactly
 once on deinit.
 
-The two constructors are **static factory methods** (allocation is fallible, so
-it is not hidden behind `init`):
+The constructor is a **static factory method**, because the allocator type
+argument is named at the call site (`Box<Job, JobSlab>.make(...)`):
 
 ```saw
-let a = Box<Int>.make(42)          // MakeBox — infallible; PANICS on OOM
-                                   //   (three-tier model, infallible tier)
-match Box<Int>.try_make(42) {       // fallible tier
+match Box<Int>.make(42) {
     case Ok(b)  -> print(b.value())
     case Err(e) -> print(e.size)   // AllocError with size/align context
 }
 ```
 
-On the `try_make` failure path the value is cleanly `deinit`'d at scope exit
-(never leaked). `make` places the value with the placement-move primitive
-(`ptr[0] = move value`) and, on allocator failure, panics. Payload access:
+On the failure path the value is cleanly `deinit`'d at scope exit (never
+leaked): `make` places it with the placement-move primitive
+(`ptr[0] = move value`) only once the allocation succeeded, so a refusal leaves
+it unmoved. Payload access:
 
 - `value()` returns a copy of the payload (bounded `T: ExplicitCopy`).
 - **Method forwarding** (like `Arc`): a `&self` method on the payload
@@ -10963,8 +10999,8 @@ type JobBox = Box<Job, JobSlab>          // the kernel idiom
 
 The region reaches the slab as `(&STATIC) as UnsafePointer<Int8>` — a reference,
 cast to a raw pointer, over a bare-declared (writable `.bss`) static. `alloc`
-returns `None` on exhaustion (feeding the three-tier model: `make` panics on it,
-`try_make` returns `Err`); `dealloc` pushes the chunk back onto the free-list.
+returns `None` on exhaustion, which is what `Box.make` turns into
+`Err(AllocError)`; `dealloc` pushes the chunk back onto the free-list.
 The chunk size must be ≥ 8 bytes (a freed chunk stores the free-list link in its
 own first word) and ≥ the payload. The CAS loops are lock-free; classic ABA is
 possible and accepted at this stage (documented in `std/slab.saw`).
