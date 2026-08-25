@@ -13,7 +13,8 @@ below.
 ## Core syntax
 ```saw
 let x = 42                 // immutable binding (must initialize)
-var n = 0; n += 1          // mutable
+var n = 0                  // mutable
+n += 1                     // …and there are NO semicolons: a newline ends it
 func f(a: Int, b: Int = 2) -> Int { a * b }   // default param (trailing)
 f(5)  f(5, 3)  f(5, b: 3)  // labels optional; required only on ambiguity
 struct Point { x: Int, y: Int }
@@ -910,7 +911,7 @@ let rows: Vector<Result<Int, String>> = [1, 2]   // …and every declared slot
 // is the one ambiguity, and it is a compile error — spell the variant then.
 try! f()   try? f()   try f() catch { fallback }
 try(as LocalError.Alloc) alloc(4096)     // ROUTE the error channel (design 234)
-try { let a = try f(); let b = try g() } catch {
+try { let a = try f()  let b = try g() } catch {
     match error { case ParseError(e) -> ..., case IoError(e) -> ... }
 }   // multi-type: error is an ephemeral union (can't escape the catch)
 func load() -> Result<Cfg, Box<any Error>> {   // erased: any error type
@@ -1556,7 +1557,7 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
 ```saw
 import std.task.*                                 // design 114: `yield_now` lives here
                                                   // (`import std.task` -> task.yield_now())
-func work(n: Int) -> Int { yield_now(); n * n }  // any call may suspend
+func work(n: Int) -> Int { yield_now()  n * n }  // any call may suspend
 func main() {
     var group = TaskGroup()
     let a = group.spawn(work(3))
@@ -1566,7 +1567,8 @@ sleep(Duration.ms(200))     // cooperative; sync is the CHECKED negative effect
 try! ch.receive()           // cooperative receive -> Result<T, ChannelError>
 try! ch.send(1)             // ...and so do send/close (blocking twin: recv)
 let _ = ch.close()          // the producer says it is finished; idempotent
-handle.cancel(); if cancelled() { ... }   // cooperative cancellation
+handle.cancel()             // cooperative cancellation; the task checks
+if cancelled() { ... }      //   `cancelled()` where it chooses to
 dump_tasks()                // every live task's logical backtrace (std.task)
 ```
 - **`dump_tasks()` prints where every live task is PARKED (design 158)** —

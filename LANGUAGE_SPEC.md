@@ -4253,31 +4253,45 @@ is how reference counting is written in ordinary Saw, and its cost lands at
 sites the source does not name, so it must be cheap:
 
 ```saw
-struct Arc<T> {
-    ptr: *ArcInner<T>  // Points to { refcount: Int, value: T }
-}
+unsafe static var STRONG: Int = 0
 
-extension Arc<T>: Copy {
-    func copy(&self) -> Arc<T> {
-        self.ptr.refcount += 1
-        Arc(ptr: self.ptr)
-    }
+struct Ticket { id: Int }
 
-    func deinit(&var self) {
-        self.ptr.refcount -= 1
-        if self.ptr.refcount == 0 {
-            self.ptr.value.deinit()
-            free(self.ptr)
-        }
+extension Ticket {
+    static func issue(id: Int) unsafe -> Ticket {
+        STRONG = STRONG + 1
+        Ticket(id: id)
     }
 }
 
-// Usage
-let a = makeArc(42)  // refcount = 1
-let b = a            // copy() called, refcount = 2
-// end of scope: b.deinit() → refcount = 1
-// end of scope: a.deinit() → refcount = 0, freed
+extension Ticket: Copy {
+    func copy(&self) unsafe -> Ticket {     // retain: the hook
+        STRONG = STRONG + 1
+        Ticket(id: self.id)
+    }
+    func deinit(&var self) unsafe {         // release: its pair
+        STRONG = STRONG - 1
+    }
+}
+
+func hold(t: &Ticket) unsafe {
+    let b = t              // the compiler calls copy(): a retain
+    print(STRONG)          // 2
+}                          // b's deinit runs here: the release
+
+func main() unsafe {
+    let a = Ticket.issue(id: 42)
+    print(STRONG)          // 1
+    hold(&a)
+    print(STRONG)          // 1 again
+}
 ```
+
+The `deinit` sits inside the `Copy` conformance rather than beside it, because
+`Deinit` is the policy hierarchy's base and is never declared on its own (see
+[The Deinit trait](#the-deinit-trait)). `std.arc` is this shape with the count
+in the heap block and the increments atomic; `String`, `Data` and an escaping
+closure's environment are the same hook again.
 
 #### The ExplicitCopy trait (owning types that duplicate)
 
@@ -9381,7 +9395,7 @@ func describe(s: &any shapes.Named) -> String { s.label() }
 func widest<T: shapes.Named>(t: &T) -> String { t.label() }
 
 struct Scene { backdrop: shapes.Circle }
-enum Chosen { case Picked(s: shapes.Circle), case None }
+enum Chosen { case Picked(s: shapes.Circle), case Nothing }
 type Outline = shapes.Circle
 ```
 
