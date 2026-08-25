@@ -994,11 +994,14 @@ language with no `move` discipline — `greet(s)` does not consume `s`.
   holds its OWN retain on the source string, so iterating a temporary
   (`for c in makeString().chars()`) is safe.
 - **Encoding a scalar** (`designs/119`). `StringBuilder.append_scalar(scalar:
-  Int) -> Int?` is the inverse of `chars()`: it UTF-8-encodes one Unicode scalar
-  and appends it, returning the byte count (1..4). An invalid scalar — negative,
-  a UTF-16 surrogate (`0xD800..0xDFFF`), or greater than `0x10FFFF` — returns
-  `None` and appends nothing (never a silent drop). Because `chars()` yields only
-  valid scalars, an encode/decode round-trip is the identity on that domain.
+  Int) -> Result<Int?, AllocError>` is the inverse of `chars()`: it UTF-8-encodes
+  one Unicode scalar and appends it, answering the byte count (1..4). An invalid
+  scalar — negative, a UTF-16 surrogate (`0xD800..0xDFFF`), or greater than
+  `0x10FFFF` — is `Ok(None)` and appends nothing (never a silent drop). The two
+  answers ride separate channels on purpose: `Ok(None)` says "not a scalar
+  value" and `Err(AllocError)` says the builder could not grow, so neither can be
+  mistaken for the other. Because `chars()` yields only valid scalars, an
+  encode/decode round-trip is the identity on that domain.
 - **FFI: `withCString`.** `s.withCString { ptr in ... }` hands a closure an
   `UnsafePointer<Int8>` to the string's NUL-terminated bytes, valid for the
   duration of the call. The payload is already NUL-terminated, so the pointer is
@@ -1008,10 +1011,12 @@ language with no `move` discipline — `greet(s)` does not consume `s`.
   cannot leak. The closure returns `Void`; a result is produced by
   borrow-capturing an enclosing variable
   (`s.withCString { [&var n] ptr in n = strlen(ptr) }`).
-- **Splitting**: `split(separator: String) -> Vector<String>` divides on every
-  occurrence of `separator` (content comparison, same as literal patterns);
-  adjacent separators yield empty pieces, and a string with no separator is a
-  one-element vector. The README has always named it; this is its signature.
+- **Splitting**: `split(separator: String) -> Result<Vector<String>, AllocError>`
+  divides on every occurrence of `separator` (content comparison, same as literal
+  patterns); adjacent separators yield empty pieces, and a string with no
+  separator is a one-element vector. It builds that vector, so it reports a
+  refusal like every other allocating operation ([Allocation
+  failure](#allocation-failure)).
 - **Number parsing** (`designs/57`, `designs/119`). Optional-returning methods
   parse the **whole** string (no trimming — the caller trims with `trim`;
   empty → `None`; any trailing/leading junk → `None`). Parse failure is *data*,
@@ -5763,9 +5768,10 @@ Vector-backed linear-scan `Map` was **retired** in design 54; there is now one
 
 - Power-of-two capacity (bucket = `hash & (cap-1)`); grows (doubling + rehash)
   once the live-load factor would exceed 3/4.
-- `init()`, `len`, `is_empty`, `insert(key, value) -> V?` (returns the old value
-  on update), `contains_key(key) -> Bool`, `remove(key) -> V?`. Works with `Int`
-  and `String` keys (and any `Hashable + Equatable` key).
+- `init()`, `len`, `is_empty`,
+  `insert(key, value) -> Result<V?, AllocError>` (the `Ok` payload is the old
+  value on update), `contains_key(key) -> Bool`, `remove(key) -> V?`. Works with
+  `Int` and `String` keys (and any `Hashable + Equatable` key).
 - **`m[k]` and `m.get(k)` are ONE accessor under two names** — a conditional lend
   of the stored value (`borrows -> V?`; see [Places](#places-borrows-and-lend)).
   Both name the value where it sits, both open no window at all for an absent
@@ -5798,15 +5804,18 @@ hash implementation to trust. `Set` is **NoCopy**; order is **UNSPECIFIED**
 Map **key** rule: they must be copyable-with-retain (trivial/POD, `Copy`,
 or `ExplicitCopy`) — a NoCopy / move-only-Deinit element is a compile error.
 
-- Core: `insert(v) -> Bool` (true iff newly inserted), `remove(v) -> Bool`,
-  `contains(v) -> Bool`, `len()`, `is_empty()`, `each(body: (T) -> Void)`
-  (non-escaping visitor; mutating the set inside its own `each` is a static
-  Law-of-Exclusivity error), `to_vector() -> Vector<T, A>` (`T: Copy`),
-  `Set(from: Vector<T, A>)` (consumes/drains the vector; NoCopy-safe),
-  `Set.of(v)` (single-element factory).
-- Algebra (all borrow `&other`, return a NEW set / `Bool`; bounded
-  `T: Copy` — even membership-only ops read each element by value):
-  `union`, `intersection`, `difference`, `is_subset`, `is_superset`.
+- Core: `insert(v) -> Result<Bool, AllocError>` (the `Ok` payload is true iff
+  newly inserted), `remove(v) -> Bool`, `contains(v) -> Bool`, `len()`,
+  `is_empty()`, `each(body: (T) -> Void)` (non-escaping visitor; mutating the set
+  inside its own `each` is a static Law-of-Exclusivity error),
+  `to_vector() -> Result<Vector<T, A>, AllocError>` (`T: Copy`),
+  `Set(from: Vector<T, A>) -> Result<Set<T, A>, AllocError>` (consumes/drains the
+  vector; NoCopy-safe), `Set.of(v)` (single-element factory, same shape).
+- Algebra (all borrow `&other`, all bounded `T: Copy` — even membership-only ops
+  read each element by value): `union`, `intersection` and `difference` build a
+  NEW set, `is_subset` and `is_superset` answer a `Bool`, and every one of the
+  five reports through `Result<_, AllocError>` because each builds a table to
+  work in.
 
 **Iteration** (`designs/57`). Saw's no-escape references mean an iterator object
 cannot borrow the map, so iteration is not an Iterator-over-a-borrow. Two forms:
@@ -5819,10 +5828,11 @@ cannot borrow the map, so iteration is not an Iterator-over-a-borrow. Two forms:
   UNSPECIFIED** (table/bucket order, not insertion order) — sort a `keys()`
   snapshot for deterministic output. Mutating the map inside its own visitor is a
   static Law-of-Exclusivity error (iterator invalidation caught at compile time).
-- **Snapshots** (the convenience, built on the visitors): `keys() -> Vector<K, A>`
-  (bounded `K: Copy`) and `values() -> Vector<V, A>` (bounded `V: Copy`). There is
-  no `entries()` in v1 (a tuple-of-copies has containment wrinkles the visitors
-  already cover).
+- **Snapshots** (the convenience, built on the visitors):
+  `keys() -> Result<Vector<K, A>, AllocError>` (bounded `K: Copy`) and
+  `values() -> Result<Vector<V, A>, AllocError>` (bounded `V: Copy`) — each
+  allocates the snapshot, so each reports. There is no `entries()` in v1 (a
+  tuple-of-copies has containment wrinkles the visitors already cover).
 
 ### Numeric methods (`Int` / `Float`)
 
