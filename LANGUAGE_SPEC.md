@@ -697,7 +697,7 @@ termination:
 
 ```saw
 while let record = try? reader.next_record() {
-    index.insert(record)
+    try! index.insert(record)
 }
 ```
 
@@ -1058,10 +1058,10 @@ needs an import.
 ```saw
 import std.data.*
 
-var a = Data(capacity: 4)
-a.push(1)
+var a = try! Data(capacity: 4)
+try! a.push(1)
 var b = a              // a retain: no bytes copied
-b.push(2)              // b is shared here, so it separates first
+try! b.push(2)         // b is shared here, so it separates first
 print("{a.len()} {b.len()}")     // prints: 1 2
 ```
 
@@ -1210,16 +1210,16 @@ let second = nested.0.1             // 2 — two index hops, not the float 0.1
 
 // A tuple index is a PLACE, not a copy — the same storage a struct field names
 // (DF-151j). Reach the element through it:
-func grow(v: &var Vector<Int>) { v.push(7) }
+func grow(v: &var Vector<Int>) { try! v.push(7) }
 
 var t = (Vector<Int>(), 0)
-t.0.push(1)                         // grows the tuple's own vector
+try! t.0.push(1)                    // grows the tuple's own vector
 t.1 += 1                            // compound assignment on the element
 t.0 = Vector<Int>()                 // whole-element write; the old element
                                     // deinits exactly once
 grow(&var t.0)                      // lends the element slot
 var pair = (x: Vector<Int>(), y: 0)
-pair.x.push(2)                      // the named spelling reaches the same slot
+try! pair.x.push(2)                 // the named spelling reaches the same slot
 
 // Mutability is the root's: `let t = (v, 7)` rejects every line above, the way
 // `let h` rejects `h.v.push(x)`.
@@ -1492,7 +1492,7 @@ enum Holder {
 }
 @synthesize extension Holder: Copy {}
 
-let h = Holder.Full(a: Arc<Res>(value: Res(id: 9)))
+let h = Holder.Full(a: try! Arc<Res>(value: Res(id: 9)))
 match h { case Full(a) -> first(a), case Nothing -> {} }
 match h { case Full(a) -> second(a), case Nothing -> {} }
 // the payload is released once, when `h`'s scope ends
@@ -1535,9 +1535,9 @@ an error type:
 ```saw
 extension SysError: Printable {
     func format(&self, into: &var StringBuilder) {
-        into.append("SysError(")
-        into.append(self.describe())
-        into.append(")")
+        try! into.append("SysError(")
+        try! into.append(self.describe())
+        try! into.append(")")
     }
 }
 
@@ -2063,8 +2063,8 @@ func describe(shape: &any Shape) -> Int {
 // down (payload deinit + dealloc, driven by the vtable) exactly once.
 func total_area() -> Int {
     var shapes = Vector<Box<any Shape>>()
-    shapes.push(Box<any Shape>.make(Circle(r: 2)))
-    shapes.push(Box<any Shape>.make(Square(s: 3)))
+    try! shapes.push(Box<any Shape>.make(Circle(r: 2)))
+    try! shapes.push(Box<any Shape>.make(Square(s: 3)))
     var total = 0
     var n = shapes.len()
     while n > 0 {
@@ -2167,22 +2167,22 @@ trait Printable {
 struct Point { x: Int, y: Int }
 extension Point: Printable {
     func format(&self, into: &var StringBuilder) {
-        into.append("(")
-        into.append(self.x)     // append(Int) overload
-        into.append(", ")
-        into.append(self.y)
-        into.append(")")
+        try! into.append("(")
+        try! into.append(self.x)     // append(Int) overload
+        try! into.append(", ")
+        try! into.append(self.y)
+        try! into.append(")")
     }
 }
 // A Printable field is streamed into the SAME builder (no intermediate Strings):
 struct Line { a: Point, b: Point }
 extension Line: Printable {
     func format(&self, into: &var StringBuilder) {
-        into.append("Line[")
+        try! into.append("Line[")
         self.a.format(into: &var into)   // forward the shared builder
-        into.append(" -> ")
+        try! into.append(" -> ")
         self.b.format(into: &var into)
-        into.append("]")
+        try! into.append("]")
     }
 }
 
@@ -2258,8 +2258,8 @@ stamped in its place, so a shortened result says it was shortened.
 var store: [Int8; 32] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 var b = StringBuilder(bytes: (&store) as UnsafePointer<Int8>, capacity: 32)
-b.append("n = ")
-b.append(42)
+try! b.append("n = ")
+try! b.append(42)
 print(b.build())          // n = 42
 print(b.is_truncated())   // false
 ```
@@ -2276,14 +2276,14 @@ written. `append` calls are allocation-free; `"{...}"` interpolation inside a
 ```saw
 extension Point: Printable {
     func format(&self, into: &var StringBuilder) {
-        into.append("(")        // allocation-free
-        into.append(self.x)
-        into.append(")")
+        try! into.append("(")        // allocation-free
+        try! into.append(self.x)
+        try! into.append(")")
     }
 }
 extension Other: Printable {
     func format(&self, into: &var StringBuilder) {
-        into.append("({self.x})")   // builds a String first
+        try! into.append("({self.x})")   // builds a String first
     }
 }
 ```
@@ -2329,8 +2329,8 @@ format(...) {...} }` (format is inherited from `Printable`), or a split
 struct ParseErr { code: Int }
 extension ParseErr: Error {
     func format(&self, into: &var StringBuilder) {
-        into.append("parse error ")
-        into.append(self.code)
+        try! into.append("parse error ")
+        try! into.append(self.code)
     }
 }
 
@@ -2857,7 +2857,7 @@ let a = 42
 let b = a
 
 // ExplicitCopy (e.g. Vector): transfer needs `move`, duplication needs .copy()
-var v = Vector<Int>(capacity: 4)
+var v = try! Vector<Int>(capacity: 4)
 var w = move v            // ownership transferred; v no longer valid
 var u = w.copy()          // explicit, independent duplicate (its own buffer)
 
@@ -3009,7 +3009,7 @@ var v: Vector<Int> = [1, 2]
 let t = (move v, 7)
 
 var (a, n) = t.copy()   // ok: `a` is an independent buffer
-a.push(3)               // t.0 still holds 2 elements
+try! a.push(3)          // t.0 still holds 2 elements
 ```
 
 **Enums declare a policy too.** An enum carrying an `ExplicitCopy` or `NoCopy`
@@ -4046,8 +4046,8 @@ v[0].count += 1                  // exclusive window
 v[0] = Entry(count: 0)           // whole-element write; the old one deinits once
 f(&var v[0])                     // the window spans the call
 
-var d = Data(capacity: 1)
-d.push(9u8)
+var d = try! Data(capacity: 1)
+try! d.push(9u8)
 d[0] = 0u8                       // panicking place, same rules
 ```
 
@@ -5695,10 +5695,10 @@ traverses like any other:
 
 ```saw
 var jobs = Vector<Job>()        // Job is NoCopy
-jobs.push(Job(name: "alpha"))
+try! jobs.push(Job(name: "alpha"))
 
 jobs.each { j in print(j.name) }            // borrows the element
-let labels = jobs.map<String> { j in j.label() }
+let labels = try! jobs.map<String> { j in j.label() }   // map allocates, so it reports
 let total  = jobs.fold<Int>(0) { acc, j in acc + j.name.len() }
 ```
 
@@ -5937,7 +5937,7 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
 
   ```saw
   let h = Res(id: 1)
-  slots[0].push(move h)     // `h` is the container's now
+  try! slots[0].push(move h)     // `h` is the container's now
   ```
 
   Running one such body twice panics rather than taking a value that has already
@@ -6787,7 +6787,7 @@ let result = worker.join()       // Thread<Int>: NoCopy. The join is required �
                                  // dropping the handle is a compile error
 
 // Channels: Copy handles onto a shared queue
-let ch = Channel<Int>()          // Channel<T: Send>
+let ch = try! Channel<Int>()     // Channel<T: Send>; the queue allocates
 var producer = Thread.spawn { [ch] in
     try! ch.send(42)             // send/receive/close report through Result
     true
@@ -6843,7 +6843,7 @@ extension Pool {
         var i = 0
         while i < count {
             var t = Thread.spawn { serve() }
-            self.workers.push(move t)     // discharged: `Pool` declares a deinit
+            try! self.workers.push(move t)   // discharged: `Pool` declares a deinit
             i = i + 1
         }
     }
@@ -7047,8 +7047,8 @@ func square(n: Int) -> Int {
     n * n
 }
 func parallel() -> Int {
-    var group = TaskGroup(threads: 4)     // 4 workers; `TaskGroup(threads: 1)` and
-    let a = group.spawn(square(3))        //   `TaskGroup()` stay single-threaded
+    var group = try! TaskGroup(threads: 4)  // 4 workers; `TaskGroup(threads: 1)` and
+    let a = group.spawn(square(3))         //   `TaskGroup()` stay single-threaded
     let b = group.spawn(square(5))
     return a.join() + b.join()            // 9 + 25 = 34 (order not observable)
 }
@@ -7241,7 +7241,7 @@ the frame cannot cross to a worker thread; the capture is refused for the same
 reason one indirection out (a closure is not `Send` either):
 
 ```saw
-var group = TaskGroup(threads: 2)
+var group = try! TaskGroup(threads: 2)
 let h = group.spawn(bump(&var n))
 // error: cannot spawn `bump` into a multi-threaded `TaskGroup(threads: ...)`:
 //        parameter `n` of type `&var Int` is not `Send` …
@@ -7287,7 +7287,7 @@ worker filling a caller's buffer looks like:
 func fill(v: &var Vector<Int>, n: Int) -> Int {
     var i = 0
     while i < n {
-        v.push(i)
+        try! v.push(i)
         yield_now()
         i = i + 1
     }
@@ -7315,7 +7315,7 @@ slot — silently, exit 0.
 ```saw
 var buf: Vector<Int> = [1, 2, 3]
 var group = TaskGroup()
-let h = group.spawn(run({ [&var buf] in buf.push(9)  buf.len() }))
+let h = group.spawn(run({ [&var buf] in try! buf.push(9)  buf.len() }))
 let taken = consume(move buf)
 // error: cannot `move` `buf` while a spawned task borrows it: the task spawned
 //        at line 3 holds `&var buf` until `h.join()` releases it
@@ -7812,8 +7812,8 @@ func record(shared: Arc<Mutex<SampleBuffer>>, sample: UInt8) {
 }
 
 func main() {
-    let shared = Arc<Mutex<SampleBuffer>>(value: Mutex<SampleBuffer>(value: SampleBuffer()))
-    var workers = TaskGroup(threads: 2)
+    let shared = try! Arc<Mutex<SampleBuffer>>(value: Mutex<SampleBuffer>(value: SampleBuffer()))
+    var workers = try! TaskGroup(threads: 2)
     let left = workers.spawn(record(shared.copy(), 3))
     let right = workers.spawn(record(shared.copy(), 4))
     left.join()
@@ -7889,7 +7889,7 @@ func claim(rounds: Int) -> Int {
 }
 
 func main() {
-    var workers = TaskGroup(threads: 2)
+    var workers = try! TaskGroup(threads: 2)
     let left = workers.spawn(claim(100))
     let right = workers.spawn(claim(100))
     print("claimed {} chunks", left.join() + right.join())
@@ -7966,7 +7966,7 @@ func feed(inbox: Channel<Request>, sample: UInt8) {
 
 func main() {
     var buf = SampleBuffer()           // owned here, shared with nobody
-    let inbox = Channel<Request>()
+    let inbox = try! Channel<Request>()
     var senders = TaskGroup()
     let left = senders.spawn(feed(inbox.copy(), 3))
     let right = senders.spawn(feed(inbox.copy(), 4))
@@ -7994,12 +7994,12 @@ The senders can be on other threads. Change the one word and the program is a
 ```saw
 func main() {
     var buf = SampleBuffer()           // still owned here, still shared with nobody
-    let inbox = Channel<Request>()
-    var senders = TaskGroup(threads: 2)
+    let inbox = try! Channel<Request>()
+    var senders = try! TaskGroup(threads: 2)
     let left = senders.spawn(feed(inbox.copy(), 3))
     let right = senders.spawn(feed(inbox.copy(), 4))
     for _ in 0..2 {
-        let request = inbox.receive()  // arrives from a worker thread
+        let request = try! inbox.receive()   // arrives from a worker thread
         match request {
             case Record(sample) -> buf.push(sample)
         }
@@ -9156,9 +9156,9 @@ wherever the type and the trait both are.
 // In the module that defines Reading — the type's owner.
 extension Reading: Printable {
     public func format(&self, into: &var StringBuilder) {
-        into.append("Reading(")
-        into.append(self.raw)
-        into.append(")")
+        try! into.append("Reading(")
+        try! into.append(self.raw)
+        try! into.append(")")
     }
 }
 
@@ -9356,7 +9356,7 @@ func since(t: time.Instant) -> Duration { t.elapsed() }  // annotation
 func main() {
     let started = time.Instant.now()                     // static method
     var buffer: Vector<data.Data> = []                   // generic argument
-    buffer.push(data.Data())                             // constructor
+    try! buffer.push(data.Data())                        // constructor
     print("{since(started).as_micros()}")
 }
 ```
@@ -9508,7 +9508,7 @@ func fresh() -> data.Data { data.Data() }      // `data` is the module here
 
 func main() {
     var data = fresh()                          // the local wins from here
-    data.push(65)
+    try! data.push(65)
     print("{data.len()}")                       // a method call, not a module access
     print("{fresh().len()}")                    // the module again, inside `fresh`
 }
