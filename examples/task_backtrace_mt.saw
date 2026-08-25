@@ -6,47 +6,89 @@
 // MT dump would silently show nothing, which is worse than no dump at all.
 //
 // The MT walk is unsynchronized by design — a worker may be resuming a frame
-// while this reads it — so the margins here are wide on purpose: the watcher
-// gives the pool 150ms to have claimed and parked the other task, and that task
-// stays parked for four seconds.
+// while this reads it — and that stays a feature. What the TEST owes is the
+// other half: looking at a moment it chose rather than at a moment the clock
+// chose (DF-246a; TESTING.md "Waiting in a multi-threaded test"). Until then the
+// watcher slept a 150ms "wide on purpose" margin and assumed the pool had by
+// then claimed and parked the worker — a race the margin only hid, and under
+// load the dump honestly reported `1 live`.
+//
+// The three rules, as this test spells them:
+//   1. no sleep establishes anything — the 1ms tick below only paces the poll;
+//   2. the worker parks on a gate THE TEST OWNS. `gate` is a channel nothing
+//      sends on until the watcher has finished dumping, so once the worker is
+//      parked it STAYS parked — the observation can never be late;
+//   3. the watcher waits for the worker's own arrival report and bounds the
+//      wait with a deadline generous enough that only real breakage reaches it.
+//
+// The `yield_now()` ahead of the dump is a pin, not a wait: a running task's row
+// names its LAST suspension point, and a poll loop that may turn once or a
+// thousand times does not have one to name (it reports line 0). The yield gives
+// the watcher's own row a line this file can assert.
 // EXPECT: success
 // EXPECT-OUTPUT-CONTAINS: saw tasks: 2 live (unsynchronized snapshot)
-// EXPECT-OUTPUT-CONTAINS:   task group 1 slot 0 gen 1 sleeping
-// EXPECT-OUTPUT-CONTAINS:     at task_backtrace_mt.saw:26 in mt_leaf
-// EXPECT-OUTPUT-CONTAINS:     at task_backtrace_mt.saw:31 in mt_middle
-// EXPECT-OUTPUT-CONTAINS:     at task_backtrace_mt.saw:36 in mt_worker
+// EXPECT-OUTPUT-CONTAINS:   task group 1 slot 0 gen 1 channel-parked
+// EXPECT-OUTPUT-CONTAINS:     at task_backtrace_mt.saw:50 in mt_leaf
+// EXPECT-OUTPUT-CONTAINS:     at task_backtrace_mt.saw:55 in mt_middle
+// EXPECT-OUTPUT-CONTAINS:     at task_backtrace_mt.saw:60 in mt_worker
 // EXPECT-OUTPUT-CONTAINS:   task group 1 slot 1 gen 1 running
-// EXPECT-OUTPUT-CONTAINS:     at task_backtrace_mt.saw:41 in mt_watcher
+// EXPECT-OUTPUT-CONTAINS:     at task_backtrace_mt.saw:78 in mt_watcher
 // EXPECT-OUTPUT-CONTAINS: watcher 0
 // EXPECT-OUTPUT-CONTAINS: worker 13
 
-import std.task.{dump_tasks}
+import std.task.{dump_tasks, yield_now}
+import std.channel.{Channel}
 
-func mt_leaf(n: Int) -> Int {
-    sleep(Duration.secs(4))
+// The poll's pacing and its bound. The tick paces and decides nothing; the
+// deadline is ~10s, well inside the runner's own 30s runtime limit, so it fires
+// only when the worker genuinely never arrives.
+static POLL_TICK_MS: UInt64 = 1
+static POLL_DEADLINE_TICKS: Int = 10000
+
+func mt_leaf(n: Int, gate: Channel<Int>, ready: Channel<Int>) -> Int {
+    try! ready.send(1)
+    let _ = gate.receive()
     n * 2
 }
 
-func mt_middle(n: Int) -> Int {
-    let r = mt_leaf(n)
+func mt_middle(n: Int, gate: Channel<Int>, ready: Channel<Int>) -> Int {
+    let r = mt_leaf(n, gate, ready)
     r + 1
 }
 
-func mt_worker(seed: Int) -> Int {
-    let n = mt_middle(seed)
+func mt_worker(seed: Int, gate: Channel<Int>, ready: Channel<Int>) -> Int {
+    let n = mt_middle(seed, gate, ready)
     n
 }
 
-func mt_watcher() -> Int {
-    sleep(Duration.ms(150))
+func mt_watcher(gate: Channel<Int>, ready: Channel<Int>) -> Int {
+    var at_gate = false
+    var ticks = 0
+    while not at_gate {
+        sleep(Duration.ms(POLL_TICK_MS))
+        match ready.try_receive() {
+            case Ok(arrival) -> { at_gate = arrival.is_some() },
+            case Err(e) -> { panic("mt_watcher: the ready channel failed: {}", e.describe()) }
+        }
+        ticks = ticks + 1
+        if ticks > POLL_DEADLINE_TICKS {
+            panic("mt_watcher: the worker never reached the gate")
+        }
+    }
+    yield_now()
     dump_tasks()
+    // Only now may the worker move again — which is what makes the state the
+    // dump just read a state that could not have changed under it.
+    let _ = gate.close()
     0
 }
 
 func main() {
     var g = TaskGroup(threads: 2)
-    let a = g.spawn(mt_worker(6))
-    let b = g.spawn(mt_watcher())
+    let gate = Channel<Int>()
+    let ready = Channel<Int>()
+    let a = g.spawn(mt_worker(6, gate.copy(), ready.copy()))
+    let b = g.spawn(mt_watcher(gate.copy(), ready.copy()))
     print("watcher {}", b.join())
     print("worker {}", a.join())
 }

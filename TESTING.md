@@ -147,6 +147,105 @@ All tests **must** have explicit directives:
 
 Tests without these directives will fail with a clear error message.
 
+### Waiting in a multi-threaded test
+
+A test over a `threads: N` group has to wait for something another thread did,
+and the tempting way to write that wait is a sleep wide enough to *obviously*
+cover it. That is what `examples/task_backtrace_mt.saw` did — a 150ms margin its
+own header called "wide on purpose" — and it cost an agent a whole battery
+re-run when a second agent's load pushed the pool's startup past it (DF-246a).
+Wide is not the same as synchronized.
+
+Three rules, ruled Aug 24. They bind every test that waits on another thread.
+
+**1. A fixed sleep is never a synchronizer.** It may PACE a poll loop; it may
+never establish state. A `sleep(Duration.ms(50))` followed by code that assumes
+the peer has drained a channel is a race the sleep hides rather than a wait: the
+assumption is written nowhere, so nothing checks it, and the failure arrives
+weeks later as a mysterious red cell on somebody else's branch.
+
+**2. The awaited state must be STABLE once reached.** Wait for something that,
+once true, STAYS true until the test itself changes it. In practice that means
+the peer parks on a gate THE TEST OWNS — a channel nothing sends on until after
+the observation, an `Atomic` the observer flips — never on a timer, whose window
+closes on its own schedule. A stable state makes the observation impossible to
+be LATE for, which is half the race gone.
+
+**3. Observe by POLLING the observation itself, under a generous deadline.**
+Poll the thing the test is about to assert on — the peer's own progress report,
+the total it publishes, the value it sends back — until the stable state
+appears. The deadline is there to bound genuine breakage, not to time the wait:
+make it seconds where the real wait is microseconds, and fail loudly (a `panic`
+naming what never arrived) rather than hanging into the runner's 30s kill.
+
+**There is no synchronized `dump_tasks` twin, and there will not be one.** The
+MT walk being unsynchronized is a recorded feature of design 158 — a worker may
+be resuming a frame while the walk reads it, and the dump's own header says so.
+What a test owes is the other half: looking at a moment IT chose.
+
+#### The idiom: park on a gate the test controls
+
+```saw
+import std.channel.{Channel}
+
+// The tick paces the poll and decides nothing; the deadline is ~10s, well
+// inside the runner's 30s runtime limit, so only real breakage reaches it.
+static POLL_TICK_MS: UInt64 = 1
+static POLL_DEADLINE_TICKS: Int = 10000
+
+// The worker announces its arrival, then parks on a gate nothing sends on until
+// the observation is over — so once it is parked it STAYS parked (rule 2).
+func worker(gate: Channel<Int>, ready: Channel<Int>) -> Int {
+    try! ready.send(1)
+    let _ = gate.receive()
+    7
+}
+
+// The observer waits for the ARRIVAL, not for the clock (rules 1 and 3).
+func observer(gate: Channel<Int>, ready: Channel<Int>) -> Int {
+    var arrived = false
+    var ticks = 0
+    while not arrived {
+        sleep(Duration.ms(POLL_TICK_MS))
+        match ready.try_receive() {
+            case Ok(report) -> { arrived = report.is_some() },
+            case Err(e) -> { panic("the ready channel failed: {}", e.describe()) }
+        }
+        ticks = ticks + 1
+        if ticks > POLL_DEADLINE_TICKS {
+            panic("the worker never reached the gate")
+        }
+    }
+    observe()
+    let _ = gate.close()      // only NOW may the worker move again
+    0
+}
+```
+
+`Channel.try_receive` is the poll primitive: `Ok(Some(v))` a report,
+`Ok(None)` nothing yet, `Err(Closed)` a peer that will never report. An
+`Atomic<Int>` in a `static` reads the same way when the report carries no value.
+
+What the idiom does NOT give you is a proof that the peer has finished parking:
+no userland test can observe a peer's park, and between the arrival report and
+the park sit a handful of instructions. What it changes is the SHAPE of the
+remaining window. The old margin raced against pool startup — hundreds of
+milliseconds under load, which is what it lost to; this races a few instructions
+of user code against a whole poll period, and the state on the other side is
+permanent rather than a four-second window that also expires. Both rewritten
+tests (`examples/task_backtrace_mt.saw`, `examples/channel_receive_cancel_mt.saw`)
+run byte-identically 10/10 in isolation and 10/10 at loadavg 34, and the
+backtrace one went from 3.9s per run to 0.01s along the way: waiting on state is
+faster than waiting on a margin, every time.
+
+One wrinkle particular to backtrace tests: a RUNNING task's dump row names its
+last suspension point, and a poll loop that may turn once or a thousand times
+does not have one to name — it reports line 0. A `yield_now()` immediately ahead
+of the observation gives the observer's own row a line the test can pin.
+
+And the standing rule this sits on top of: assert MT behaviour on counts, sums
+and final states, never on interleaving.
+
 ## Examples
 
 ### Example 1: Simple Success Test

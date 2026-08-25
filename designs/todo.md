@@ -75,7 +75,7 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-247a — a function that is a `group.spawn` ROOT is `undefined function` at every other call of it in the same module (entry below, filed by design 242 unit 0's census; PRE-EXISTING, stash-verified). The fix owes the ROOT MATRIX its mechanism reaches, not the one probed cell
 - DF-247b — RULED Aug 24 (user), as a DESIGN 150 AMENDMENT with two halves: (1) a QUALIFIER is bound ONLY by the whole-module form (`import std.data`, renamed by `as`); the selective and glob forms bind exactly their named/bare surface and NO qualifier — the former bonus-qualifier reach becomes a refusal with the fixit naming the whole-module line (an undocumented dependency was exactly what 150's own braces idiom exists to prevent); (2) same-module combinations (`import std.data` + `.{Data}` or `.*`) become LEGAL and complementary, and with both imported the bare and qualified spellings are ONE TYPE in EVERY position (annotation, construction, generic arg, `&any` bound, extension lookup, conformance coherence) — pinned by a position matrix, since the pair is newly legal and DF-247b's fresh-identity mechanism could lurk on it. Obligation-2 census owed (any in-tree qualifier use whose only import is selective/glob gets its explicit whole-module line). DISPATCHED Aug 24 (branch `resolution-wording`, with DF-239b + DF-249a). Entry below
 - DF-249a — RULED Aug 24 (user): YES to both, ONE wording family — every bounds/range panic (compiler traps AND std's hand-written accessor prologues) spells `<what>: index out of range: <i> (len <n>)` (range/slice variants spell both bounds); free via the design-137 format machinery, alloc-free everywhere. Arithmetic traps (overflow/shift/div-zero) deliberately EXCLUDED from v1 (operand-format questions, marginal value) — recorded, not forgotten. Mechanical sweep + pinned-string updates; DISPATCHED Aug 24 (branch `resolution-wording`). Entry below
-- DF-246a — RULED Aug 24 (user), the MT-TEST DOCTRINE, three rules: (1) a fixed sleep is NEVER a synchronizer (it may pace a poll loop, never establish state); (2) the awaited state must be STABLE once reached (workers park on gates the TEST controls — a channel nobody sends on, an Atomic the observer flips); (3) observe by POLLING the observation itself until the stable state appears, a generous deadline bounding only genuine breakage. No synchronized `dump_tasks` twin — its unsync character is a recorded feature. Execution: TESTING.md section (the three rules + the park-on-controlled-gate idiom), both flaky tests rewritten, DF-246a closes. DISPATCHED Aug 24 (branch `harness-doctrine`, with DF-248c). Entry below
+- ~~DF-246a~~ — CLOSED Aug 24 (branch `harness-doctrine`, commit 1): the three ruled rules are TESTING.md's "Waiting in a multi-threaded test", with the park-on-controlled-gate idiom as its worked example, and BOTH members of the class are rewritten to it — each 10/10 byte-identical in isolation AND at loadavg 34, where the backtrace one also dropped from 3.9s per run to 0.01s. Entry below
 - DF-248a — RULED Aug 24 (user): NO carve-out to the Law. The ASSIGNMENT-RHS face (`v[0].n = v.len()`) LEGALIZES via the design-193/DF-218j hoist (RHS-first is the documented order, so hoisting the read ahead of the target's window is semantics-preserving by rule); every OTHER in-window naming of the root (arguments, body reads) keeps its refusal, because the hoist there would run the read ahead of the accessor's PROLOGUE — an observable reorder of documented sequence. USER REQUIREMENT: the refusal carries TEACHING TEXT explaining the asymmetry (the two shapes look identical to an uninformed reader — the error must say WHY the assignment form works and this one doesn't, and give the one-line `let` hoist as the fix). HOLDS with DF-218h until design-242-b lands, then dispatches. Entry below
 - DF-248b RESIDUE — a HAND-WRITTEN closure nested inside another still captures the outer one's `&var` PARAMETER by value, so a write through it is silently lost; the place-window half closed Aug 22. Entry below, pinned XFAIL; wants a borrow marker on `VariableInfo`
 - DF-248c — SCHEDULED Aug 24 (user): the stale-citation lint LANE rides with DF-246a's doctrine work (an XFAIL/known-ledger row citing a CLOSED DF becomes a gate failure — checked against the tracker's closed set; the fix direction is in the entry below). DISPATCHED Aug 24 (branch `harness-doctrine`). Entry below
@@ -3887,8 +3887,36 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   broken EDGE), LANGUAGE_SPEC's `Deinit` scope-exit paragraph, and
   `sawc/codegen/README.md`'s loop-stack note.
 
-- **DF-246a (FLAKY GATE LANE, PRE-EXISTING; found Aug 22 by `df-218xy`'s
-  terminal battery)** — `examples/task_backtrace_mt.saw` fails under machine
+- **DF-246a — CLOSED (Aug 24, branch `harness-doctrine`, commit 1): a test
+  waits on STATE, never on the clock.** The three ruled rules are a TESTING.md
+  section of their own ("Waiting in a multi-threaded test"), with the
+  park-on-a-controlled-gate idiom as its worked example and the
+  `Channel.try_receive` poll spelled out. BOTH members of the class are rewritten
+  to it. `task_backtrace_mt.saw`: the worker announces its arrival on a `ready`
+  channel and parks on a `gate` channel NOTHING sends on until the dump is over
+  (so the parked state is permanent, not a four-second window), and the watcher
+  polls the arrival report with a 1ms tick and a ~10s deadline that panics rather
+  than hangs; the dump now reads `channel-parked`, which is the same assertion
+  under the gate the test owns. `channel_receive_cancel_mt.saw`: the consumer
+  publishes its running total on a `progress` channel and main polls that until
+  it reads 30, so the cancel lands on a consumer that has provably handled both
+  orders (and the loop-top cancel check makes the pre-park instant give the same
+  answer, which is what keeps the assertion deterministic either way).
+  WHAT THE DOCTRINE CANNOT BUY, recorded in the section: no userland test can
+  observe a peer's park, so a handful of instructions still sit between the
+  arrival report and the park. What changed is the shape of the window — the old
+  margin raced POOL STARTUP (hundreds of ms under load, which is what it lost
+  to), this races a few instructions against a whole poll period, with a
+  permanent state on the far side. Evidence: each test 10/10 byte-identical in
+  isolation and 10/10 at loadavg 34 (40 spinners), and the backtrace test fell
+  from 3.9s per run to 0.01s — waiting on state is faster than waiting on a
+  margin. One incidental finding worth keeping: a RUNNING task's dump row names
+  its last suspension point, and a poll loop that may turn once or a thousand
+  times reports line 0, so the watcher takes a `yield_now()` immediately ahead of
+  the dump purely to give its own row a pinnable line. NO synchronized
+  `dump_tasks` twin was added, per the ruling.
+  ORIGINAL FINDING (FLAKY GATE LANE, PRE-EXISTING; found Aug 22 by `df-218xy`'s
+  terminal battery) — `examples/task_backtrace_mt.saw` fails under machine
   LOAD, which costs an agent a full battery re-run to tell from a real
   regression. Observed once in a battery that ran beside a second agent
   (`saw tasks: 1 live` where the row expects `2 live`; only the watcher's slot
