@@ -1664,6 +1664,13 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             ("__saw_rt_thread_spawn",
              ir.FunctionType(word, [start_ty, i8ptr])),
             ("__saw_rt_thread_join", ir.FunctionType(void, [word])),
+            # design 242 ruling 4: the daemon-thread fate. ADDITIVE — one new
+            # symbol beside the two above, no existing signature moved (the
+            # design-234 `__saw_rt_last_raw_code` precedent). It takes the
+            # CONTROL BLOCK, not the handle, because it does two things: it
+            # detaches the OS thread, and it takes over the block's ownership
+            # handshake with the thread's own exit path (rt/ABI.md).
+            ("__saw_rt_thread_detach", ir.FunctionType(void, [i8ptr])),
         ]
         for name, fty in decls:
             fn = ir.Function(self.module, fty, name=name)

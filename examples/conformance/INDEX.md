@@ -35,9 +35,9 @@ integration, where the two Aug-21 branches collided; K76, DF-218x's
 optional-binding branch scope, K77, DF-218y's discard order, B23,
 DF-238c's orphan-rule coherence across import forms, A02, DF-245a's `init`
 declared-return rule, K78-K82, design 242 unit 2's no-implicit-fates rules,
-K83-K84, its unit 4 thread-body rules, and K85-K89, its unit 3 background
+K83-K84, its unit 4 thread-body rules, and K85-K90, its unit 3 background
 engine — the `Task.spawn` obligation, its provenance-keyed fault, the exit
-cancel-then-join, the borrow ban at the form, and `detach`.)
+cancel-then-join, the borrow ban at the form, and `detach` on both engines.)
 
 ## How to read it
 
@@ -515,6 +515,7 @@ Claim source: spec 6 *Send and Sync* + *Cooperative tasks*; designs 75, 88, 103,
 | K87 | at `main`'s return the background group cancels every live member, joins, and their values deinit on the cancel path | `K87_background_group_cancels_then_joins_at_exit.saw` | 242 ruling 3 — the background group has no scope and no owner, so nothing in the program says where its tasks end and this rule is what says it. Both halves of the order are load-bearing: CANCEL first because a background task is exactly the kind that loops forever with nobody left to stop it, JOIN after because deterministic destruction is the promise and a cancelled task reaches completion through normal control flow. The `released` lines are the row — abandonment would leak every one of them, silently |
 | K88 | `Task.spawn` accepts no borrows, at both the ARGUMENT and the CAPTURE spelling | `K88_background_spawn_takes_no_borrows.saw` | 242 ruling 7 — design 189 makes a spawn borrow's extent the task's life and `join()` its release point, and a background task has neither: it may be detached, and it is cancelled at exit rather than joined at a scope its root outlives. Enforcing at the FORM is also what keeps the checker out of tracing a handle's provenance to decide whether a `detach()` is legal. Both spellings, because `_spawn_borrow_sources` is the one funnel that knows them |
 | K89 | `Task<T>.detach()` gives the task to the process and DECLARES its result dropped, at the task's own completion | `K89_detach_gives_up_the_result.saw` | 242 ruling 4, cooperative half — `detach()` is the moral `let _ =`, which is what makes never-hide-errors hold for a fire-and-forget task: the value is thrown away at one named place rather than quietly outliving the program in a cell nobody reads. Scheduler-side only — no thread, no seam, no new ABI. The row pins WHEN: the drop lands at the task's completion, not at the exit close |
+| K90 | `Thread<T>.detach()` discharges the obligation, and a detached thread's values deinit if it completes | `K90_thread_detach_is_a_fate.saw` | 242 ruling 4, thread half — the daemon thread, and the other side of K78/K79's refusals: `detach()` satisfies ruling 5 at a bound handle and at the chained spelling alike, and no `deinit` fault follows because a fate WAS written. What it does not promise is process exit: the OS terminates a live detached thread wherever it got to, the same documented boundary a never-completed coroutine frame has (218b ruling 3). The ordering is CONTAINS-checked on purpose — two OS threads race the spawner, and that order is not a property of the language |
 
 ## Visibility and module boundaries
 

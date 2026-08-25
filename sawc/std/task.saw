@@ -22,11 +22,14 @@
 // control block.
 //
 // Control block (allocated by spawn codegen), laid out as:
-//     { pthread_t tid (8 bytes), i8* env, T result }
+//     { pthread_t tid (8 bytes), i8* env, word state, T result }
 // The pthread_t lives at byte 0 (design 117: spawn codegen stores the handle
 // __saw_rt_thread_spawn returns there; join loads it and passes it by value to
-// __saw_rt_thread_join), the closure's heap environment pointer at byte 8, and
-// the task's result at byte 16 (written by the trampoline after the body returns).
+// __saw_rt_thread_join), the closure's heap environment pointer at byte 8, the
+// design-242 ownership handshake word at byte 16 (which `join` never touches —
+// a joined thread was never detached, so the joiner is the block's only owner),
+// and the task's result at byte 24 (written by the trampoline after the body
+// returns). rt/ABI.md's `__saw_rt_thread_detach` entry freezes the state word.
 //
 // Structured by default: a thread's lifetime is a value's lifetime, and design
 // 242 ruling 5 makes the way it ends something the author writes. The engine
@@ -41,6 +44,9 @@
 extern "C" {
     // design 117: join an OS thread by its handle value (pthread_t word).
     func __saw_rt_thread_join(handle: Int)
+    // design 242 ruling 4: detach the thread whose CONTROL BLOCK this is, and
+    // hand the block's ownership to that thread's own exit path (rt/ABI.md).
+    func __saw_rt_thread_detach(ctrl: UnsafePointer<Int8>)
 }
 
 // =============================================================================
@@ -113,15 +119,41 @@ extension Thread<T> {
                 // is joined — so the quiescent report may stop counting it as
                 // something this process could still run.
                 __saw_exec_thread_task_ended()
-                let result_ptr = (h + 16) as UnsafePointer<T>
+                let result_ptr = (h + 24) as UnsafePointer<T>
                 // The control block is freed on the next line, so the result's
                 // ownership leaves it here (design 219 unit A2).
                 let result = move result_ptr[0]
-                GlobalAllocator().dealloc(h, 16 + sizeof<T>(), 16)
+                GlobalAllocator().dealloc(h, 24 + sizeof<T>(), 16)
                 self.joined = true
                 result
             } else {
                 panic("Thread.join: thread has no result handle")
+            }
+        }
+    }
+
+    /// Gives the thread to the process and gives up its result.
+    ///
+    /// The thread keeps running: values it owns deinit if it completes, and at
+    /// process exit the operating system terminates it wherever it has got to —
+    /// the same boundary a never-completed coroutine frame has, where process
+    /// death drops nothing. Nothing may join it afterwards, so its result is
+    /// discarded when it finishes. Detaching a second time, or detaching a
+    /// thread already joined, panics.
+    public func detach(&var self) unsafe {
+        if self.joined {
+            panic("Thread.detach: this thread's fate was already written")
+        } else {
+            if let h = self.handle {
+                // design 230 unit B: the body may still run, but nothing in this
+                // process will ever observe its result, so it stops counting
+                // toward "could something still publish a value" exactly as a
+                // join does.
+                __saw_exec_thread_task_ended()
+                __saw_rt_thread_detach(h)
+                self.joined = true
+            } else {
+                panic("Thread.detach: thread has no control block")
             }
         }
     }
@@ -189,10 +221,26 @@ extension VoidThread {
             if let h = self.handle {
                 PosixThread(handle: (h as UnsafePointer<Int>)[0]).join()
                 __saw_exec_thread_task_ended()
-                GlobalAllocator().dealloc(h, 16, 16)
+                GlobalAllocator().dealloc(h, 24, 16)
                 self.joined = true
             } else {
                 panic("VoidThread.join: thread has no control block")
+            }
+        }
+    }
+
+    /// Gives the thread to the process. See `Thread.detach` for the whole
+    /// story; there is no result to give up here.
+    public func detach(&var self) unsafe {
+        if self.joined {
+            panic("VoidThread.detach: this thread's fate was already written")
+        } else {
+            if let h = self.handle {
+                __saw_exec_thread_task_ended()
+                __saw_rt_thread_detach(h)
+                self.joined = true
+            } else {
+                panic("VoidThread.detach: thread has no control block")
             }
         }
     }

@@ -1,0 +1,63 @@
+// Conformance row K90 — `Thread<T>.detach()` is a fate: it discharges the
+// must-consume obligation, and the values the thread owns deinit if it completes
+//
+// design 242 ruling 4, the thread half. `detach()` is the daemon thread: the
+// handle is consumed here and now, and the thread runs on. Two claims, and the
+// file checks both.
+//
+// FIRST, the static one: `detach()` satisfies ruling 5 exactly as `join()`
+// does — at a bound handle, and at the chained spelling where nothing is bound
+// at all — and no `deinit` fault follows, because the handle's fate WAS
+// written. K78/K79 are the refusals this is the other side of.
+//
+// SECOND, the runtime one: a detached thread that COMPLETES releases what it
+// owns, on its own thread, at its own end. What it does not get is a promise
+// about process exit — the OS terminates a live detached thread wherever it has
+// got to, which is the same documented boundary a never-completed coroutine
+// frame has (218b ruling 3: process death drops nothing). So this file gives
+// the threads time to finish before main returns, and says so.
+//
+// The four lines are checked by CONTAINS rather than as a block: two OS
+// threads race with the spawner, so their order against `detached`/`chained` is
+// not a property of the language and must not be pinned as one.
+//
+// EXPECT: success
+// EXPECT-OUTPUT-CONTAINS: detached
+// EXPECT-OUTPUT-CONTAINS: chained
+// EXPECT-OUTPUT-CONTAINS: ticket 1 released
+// EXPECT-OUTPUT-CONTAINS: ticket 2 released
+// EXPECT-OUTPUT-CONTAINS: main is finished
+
+import std.task.*
+
+struct Ticket {
+    id: Int
+}
+
+extension Ticket: NoCopy {
+    func deinit(&var self) {
+        print("ticket {self.id} released")
+    }
+}
+
+func hold(id: Int) {
+    let ticket = Ticket(id: id)
+    // The ticket dies here, on the spawned thread, when the body returns.
+}
+
+func main() {
+    var first = Thread.spawn { hold(1) }
+    first.detach()
+    print("detached")
+
+    // The chained spelling: `detach()` consumes the handle where it is made,
+    // exactly as `Thread.spawn { ... }.join()` does.
+    Thread.spawn { hold(2) }.detach()
+    print("chained")
+
+    // Both threads are given room to finish. A detached thread still live at
+    // process exit is terminated by the OS and drops nothing — that boundary is
+    // the point of `detach()`, not an accident of this test.
+    sleep(Duration.ms(150))
+    print("main is finished")
+}

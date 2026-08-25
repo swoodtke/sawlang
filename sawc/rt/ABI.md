@@ -674,6 +674,61 @@ function pointer).
 `pthread_join((pthread_t)handle, NULL)` — join by the handle VALUE. Saw body
 (`rt/common/pthread.saw`).
 
+### `__saw_rt_thread_detach(ctrl: i8*) -> void`
+`pthread_detach` on the thread whose control block is `ctrl`, and the handoff of
+that block's OWNERSHIP to the thread's own exit path. C shim (DF-113b's reason
+plus one of its own — see below). Design 242 ruling 4: the daemon-thread fate,
+where the values a thread owns deinit if it completes and the OS terminates it
+at process exit.
+
+**This is ADDITIVE, on design 234's `__saw_rt_last_raw_code` precedent** (user
+ruling Aug 22, recorded above at that seam): one new symbol beside the two
+consolidated by design 117, and **no existing signature moves**. So
+`runtime_abi.py`'s arity/width check and `make abidoc`'s symbol-set check see
+exactly what they saw before, and a runtime that implements the v2 thread
+surface keeps implementing it unchanged.
+
+**Why it takes the BLOCK and not the handle.** Its twin `__saw_rt_thread_join`
+takes the handle by value, and symmetry would say this should too. It cannot,
+because detaching is two jobs rather than one: the OS thread must be detached,
+AND somebody must eventually free the control block — and after a detach there
+is no join left to do it. The two parties who could are the detacher and the
+thread's own exit path, they run concurrently, and exactly one must free. That
+handshake needs a word both can reach, which means the block.
+
+**The handshake, frozen.** The control block is
+`{ pthread_t tid, i8* env, word state, T result }` — spawn codegen owns that
+layout and this document freezes exactly ONE word of it, `state`, at offset
+`2 * sizeof(void*)`. Spawn codegen seeds it with the block's own SIZE (a
+positive number) before the thread exists. Then:
+
+| party | exchange | what a returned value means |
+|-------|----------|-----------------------------|
+| this seam | `prev = xchg(state, 0)` | `prev > 0` — the thread is still running and its exit will free the block. `prev < 0` — the thread already finished and left `-size`; **free it here**, `size = -prev` |
+| the thread's exit path (the per-spawn trampoline, after the result is stored and the env released) | `prev = xchg(state, -size)` | `prev == 0` — the detacher already ran; **free it there**. Otherwise the detacher has not run and will |
+
+Both exchanges are acquire-release. Exactly one side frees, always, with no lock
+and no wait. **The size travels IN the word** so this seam can call
+`__saw_rt_dealloc` without knowing `T` — the block's layout is the compiler's,
+and the seam learns one word of it and nothing else.
+
+`join` never touches `state`: a joined thread was never detached, so the joiner
+is the block's only owner and frees it the way it always did.
+
+**Why C.** DF-113b's reason (the block's first slot holds a `pthread_t`, which
+Saw has no type for) plus one of this seam's own: the handshake is an ATOMIC
+EXCHANGE over raw memory, and Saw's atomics are a TYPE (`Atomic<Int>`) rather
+than an operation a pointer can carry.
+
+**SOS / freestanding.** A runtime with no threads implements neither this seam
+nor `__saw_rt_thread_spawn`/`_join`, and owes nothing: the ruled answer is to
+REFUSE rather than to no-op, because a silent no-op would leak the control block
+of every detached thread and would tell a caller its thread was detached when no
+thread exists. `sos/rt/common` has no thread surface at all, so a `Thread.spawn`
+there fails at link with the spawn seam missing long before a `detach` could be
+reached — which is that refusal, arrived at by the same route the rest of the
+thread surface already takes.
+
 ### `__saw_rt_pthread_mutex_init_default(m: i8*) -> void`
 `pthread_mutex_init(m, NULL)`. Saw reserves a conservative slot (<= 64 bytes).
 
@@ -790,6 +845,7 @@ Changes since v2, additive but for the one removal noted:
 | 187    | `__saw_rt_proc_wait` **REMOVED**: its last caller (`Command.output`) went cooperative, so the v1 blocking reap has none. A runtime that still exports it is harmless; one that does not is complete |
 | DF-215a | SysError tags 17-21 (`HostUnreachable`/`NetUnreachable`/`TimedOut`/`HostDown`/`NetDown`) — the five off-loopback errnos the map omitted. No symbol, no signature, no renumbering; see the tag table above |
 | 234 | `__saw_rt_last_raw_code` — the raw platform code beside the tag, stamped by `__saw_rt_last_syserror` and read by std's `IoError`. Additive: one new symbol, no existing signature moved. AMENDS the "Pin deviation" paragraph without overturning either of its grounds; see that seam's entry |
+| 242 | `__saw_rt_thread_detach` — `pthread_detach` plus the control block's ownership handshake with the thread's own exit path. Additive on the 234 precedent: one new symbol, no existing signature moved. It is the one seam that takes the control BLOCK rather than a handle, and it freezes exactly one word of that block's layout (`state`, at `2 * sizeof(void*)`); see its entry |
 
 ## The compiler → executor entry-point boundary (design 118, stage 1: map + carve)
 

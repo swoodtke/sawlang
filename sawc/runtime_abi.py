@@ -105,6 +105,14 @@ RUNTIME_ABI_SYMBOLS = frozenset({
     # Threads (design 21; consolidated to spawn/join by design 117)
     "__saw_rt_thread_spawn",
     "__saw_rt_thread_join",
+    # design 242 ruling 4: the daemon-thread fate. ADDITIVE on the design-234
+    # `__saw_rt_last_raw_code` precedent — one new symbol, no existing signature
+    # moved, so the arity/width check below and `make abidoc`'s symbol-set check
+    # see what they saw before. It takes the control BLOCK rather than the
+    # handle, because it does two jobs at once (`pthread_detach`, and the block's
+    # ownership handshake with the thread's own exit path); rt/ABI.md's entry
+    # freezes the one word of layout that costs.
+    "__saw_rt_thread_detach",
     "__saw_rt_pthread_mutex_init_default",
     "__saw_rt_pthread_cond_init_default",
     # The one-word lock behind the inline `Mutex<T>` (design 186). Zero means

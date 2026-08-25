@@ -2349,8 +2349,30 @@ class CallsMixin:
         # come from the generator's side table, not from the AST node).
         closure_fn, env_val, env_dtor = self.closure_values[closure_expr.node_id]
 
-        # Control block: { pthread_t tid (i8*), i8* env, T result }.
-        cb_ty = ir.LiteralStructType([i8ptr, i8ptr, slot_llvm])
+        # Control block: { pthread_t tid (i8*), i8* env, word state, T result }.
+        #
+        # design 242 ruling 4 added `state`, and it is the block's OWNERSHIP
+        # HANDSHAKE, not a flag. A detached thread has no join to free the
+        # block, so the two parties — the detacher and the thread's own exit
+        # path — race to be last, and exactly one of them must free. The word
+        # holds the block's SIZE while both are live, and each party takes it
+        # with one atomic exchange:
+        #
+        #   detach:      prev = xchg(state, 0)         prev < 0 -> the thread
+        #                                              already finished and
+        #                                              left -size behind; free
+        #                                              it (size = -prev).
+        #   thread exit: prev = xchg(state, -size)     prev == 0 -> the detacher
+        #                                              already ran; free it.
+        #
+        # Whoever loses sees the other's mark and frees; whoever wins sees the
+        # size it wrote at spawn and does nothing. The SIZE travels IN the word
+        # so the runtime can free without knowing `T` (the block's layout is the
+        # compiler's, and the seam must not learn it beyond this one word).
+        # `join` never touches it: a joined thread was never detached, so the
+        # joiner is the only owner and frees the way it always did.
+        state_ty = self.int_type
+        cb_ty = ir.LiteralStructType([i8ptr, i8ptr, state_ty, slot_llvm])
         cb_size = self._abi_size(cb_ty)
         # `_alloc_or_panic` uses the target word type for the seam's size/align
         # (design 47: they are i32 on riscv32, so a hardcoded i64 ICEs there)
@@ -2364,10 +2386,17 @@ class CallsMixin:
             cb, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 1)],
             name="task_env_slot")
         self.builder.store(env_val, env_slot)
+        # Seed the handshake word with the block's size, BEFORE the thread that
+        # will exchange against it exists.
+        self.builder.store(
+            ir.Constant(state_ty, cb_size),
+            self.builder.gep(
+                cb, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 2)],
+                name="task_state_slot"))
 
         # Emit the trampoline and launch the thread.
         tramp = self._generate_spawn_trampoline(
-            cb_ty, result_llvm, closure_fn, env_dtor, result_is_void)
+            cb_ty, result_llvm, closure_fn, env_dtor, result_is_void, cb_size)
         tid_slot = self.builder.gep(
             cb, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 0)],
             name="task_tid_slot")
@@ -2418,7 +2447,7 @@ class CallsMixin:
         return task_val
 
     def _generate_spawn_trampoline(self, cb_ty, result_llvm, closure_fn, env_dtor,
-                                   result_is_void=False):
+                                   result_is_void=False, cb_size=0):
         """Emit the `i8*(i8*)` pthread start routine for one spawn site.
 
         Loads the env from the control block, runs the closure body, stores the
@@ -2426,6 +2455,11 @@ class CallsMixin:
         captured values, then free) on the task thread — exactly once, after the
         body returns. Returns NULL as the pthread result (results travel via the
         control block slot, not pthread's return channel).
+
+        design 242 ruling 4: it also ends the block's ownership handshake. See
+        `_generate_spawn` for the whole encoding; this is the thread's half —
+        exchange `-size` into the state word, and free the block when the
+        detacher's 0 comes back, because then nobody else will.
         """
         i8ptr = ir.IntType(8).as_pointer()
         fn_ty = self.pthread_tramp_type  # i8*(i8*)
@@ -2449,7 +2483,7 @@ class CallsMixin:
         else:
             result = b.call(closure_fn, [env], name="body_result")
             b.store(result,
-                    b.gep(cb, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 2)]))
+                    b.gep(cb, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 3)]))
         # The task frame owns the closure's +1 reference (design 73): releasing it
         # on the task thread is THE release — atomic decrement of the env refcount,
         # and at zero the dtor (captures teardown + block free), exactly once. The
@@ -2458,6 +2492,22 @@ class CallsMixin:
         if env_dtor is not None:
             # self.builder is already `b` here; the release helper emits into it.
             self._emit_closure_env_release(env, env_dtor)
+        # design 242 ruling 4: the thread's half of the ownership handshake,
+        # LAST — after the result is stored and the env is released, so a
+        # detacher that frees the block on the other side of this exchange
+        # cannot free it out from under either.
+        state_ty = self.int_type
+        state_slot = b.gep(
+            cb, [ir.Constant(ir.IntType(32), 0), ir.Constant(ir.IntType(32), 2)],
+            name="state_slot")
+        prev = b.atomic_rmw("xchg", state_slot,
+                            ir.Constant(state_ty, -cb_size), "acq_rel")
+        detached = b.icmp_signed("==", prev, ir.Constant(state_ty, 0),
+                                 name="was_detached")
+        with b.if_then(detached):
+            b.call(self.functions["__saw_rt_dealloc"],
+                   [tramp.args[0], ir.Constant(state_ty, cb_size),
+                    ir.Constant(state_ty, 16)])
         b.ret(ir.Constant(i8ptr, None))
         self.builder = saved_builder
         return tramp

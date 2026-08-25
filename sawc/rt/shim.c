@@ -22,6 +22,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <pthread.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -172,6 +173,42 @@ long __saw_rt_thread_spawn(void *(*entry)(void *), void *env) {
     pthread_t t;
     pthread_create(&t, NULL, entry, env);
     return (long)t;
+}
+
+/* ---- design 242 ruling 4: the daemon-thread fate -----------------------
+ * `Thread<T>.detach()`. C for the same DF-113b reason as its spawn twin plus
+ * one of its own: the block's ownership handshake is an ATOMIC EXCHANGE on a
+ * word inside a caller-owned allocation, and Saw has no atomic operation over
+ * raw memory (`Atomic<Int>` is a TYPE, and the block is not one).
+ *
+ * `ctrl` is the thread control block. Two things happen, in this order:
+ *
+ *   1. `pthread_detach` on the handle in the block's first slot, so the OS
+ *      reclaims the thread's own resources when it exits — nobody will join it.
+ *   2. The block's ownership passes to the thread's exit path. The word at
+ *      `+2 words` holds the block's SIZE while both parties are live; exchange
+ *      0 into it, and if what comes back is NEGATIVE the thread already
+ *      finished and left `-size` behind, so nobody else will free the block and
+ *      this call does. Otherwise the thread is still running and ITS exit sees
+ *      the 0 and frees. Exactly one side frees, always, with no lock and no
+ *      wait — the size travels in the word precisely so this body can free
+ *      without knowing `T`.
+ *
+ * The layout knowledge here is one word deep and is frozen in rt/ABI.md
+ * alongside the seam; spawn codegen writes the other end
+ * (`_generate_spawn` / `_generate_spawn_trampoline` in sawc/codegen/calls.py). */
+void __saw_rt_dealloc(void *ptr, size_t size, size_t align);
+
+void __saw_rt_thread_detach(void *ctrl) {
+    unsigned char *cb = (unsigned char *)ctrl;
+    pthread_t t;
+    memcpy(&t, cb, sizeof(pthread_t));
+    pthread_detach(t);
+    long *state = (long *)(void *)(cb + 2 * sizeof(void *));
+    long prev = __atomic_exchange_n(state, (long)0, __ATOMIC_ACQ_REL);
+    if (prev < 0) {
+        __saw_rt_dealloc(ctrl, (size_t)(-prev), 16);
+    }
 }
 
 /* ---- DF-113c: no variadic extern ---------------------------------------
