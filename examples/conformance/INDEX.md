@@ -38,7 +38,9 @@ declared-return rule, K78-K82, design 242 unit 2's no-implicit-fates rules,
 K83-K84, its unit 4 thread-body rules, and K85-K91, its unit 3 background
 engine — the `Task.spawn` obligation, its provenance-keyed fault, the exit
 cancel-then-join, the borrow ban at the form, `detach` on both engines, and the
-spawn brace's explicit capture list.)
+spawn brace's explicit capture list; and A01 plus A03-A17, design 234 unit 3's
+allocator-failure tier — one row per op family that now reports, and five for
+the edges the flip deliberately does not cross.)
 
 ## How to read it
 
@@ -710,17 +712,40 @@ Claim source: spec 3 *Never — the type of an expression that does not return*;
 
 Claim source: design 234 §1/§5 (the flip), superseding design 123's two-tier
 policy. The tier had ZERO conformance rows before this brief: design 123 landed
-ahead of the suite, and design 191's audit predates the flip. Rows land WITH the
-sub-unit that flips their type, because a row can only assert one of the two
-behaviors and the corpus has to agree with it — so this section grows through
-unit 3 rather than arriving whole. A02 is the exception to that shape: it is a
-DECLARATION rule rather than a flipped signature, so it lands with the brief-let
-that makes a fallible constructor expressible at all.
+ahead of the suite, and design 191's audit predates the flip. A02 is the odd one
+out in kind: it is a DECLARATION rule rather than a flipped signature, so it
+landed with the brief-let that makes a fallible constructor expressible at all.
+
+The table below is the WHOLE tier, written before the flip that makes it true
+(obligation 3). Rows A03-A12 state the same claim once per op family — a refused
+allocation is a VALUE the caller receives, and the container it was refused for
+is exactly as it was. Rows A13-A17 state the tier's EDGES, which matter as much:
+three places §5 rules the panic STAYS, and the one place the retired prefix must
+now be absent. Every row names its covering test here, ahead of the code: a row
+can only assert one of the two behaviors, so the test itself lands with the
+sub-unit that flips its type and the corpus that agrees with it. Writing the
+whole table first is what makes a dropped guarantee visible — the alternative
+grows the section one landed row at a time and can never show what is missing.
 
 | Row | Checks | Covered by | Ruling |
 |-----|--------|------------|--------|
 | A01 | a refused `Channel.send` reports the allocator as a VALUE — nothing panicked, nothing queued, nothing swallowed | `alloc_channel_send_reports_oom.saw` | 234 — supersedes design 123's panic, and DQ-230b's `try_send` twin with it |
 | A02 | an `init`'s DECLARED return is checked against its receiver; the fallible form is `Result<Self, E>` and nothing else | `A02_init_declared_return_is_checked.saw` | DF-245a (ruled Aug 24) — the prerequisite for unit 3. Any other declared return was silently TWO types, surfacing as an unverifiable LLVM module rather than a diagnostic; `Self?` is refused on its own terms, since a `None` names no cause |
+| A03 | a refused `Vector.push` reports as a value; the vector's length is unchanged and nothing lands past the buffer | `alloc_vector_push_reports_oom.saw` | 234 §1 — the RS-1 heap overflow is what earned design 123's panic; the flip keeps the guarantee and hands the cause to the caller instead |
+| A04 | a refused `Vector(capacity:)` reports as a value — the fallible `init` in place, not a factory | `alloc_vector_capacity_reports_oom.saw` | 234 §1 + DF-245a — `Result<Self, E>` is the only fallible init form, so A02's rule is what this row consumes |
+| A05 | `Vector.reserve` (the retired `try_reserve`, un-prefixed) reports, and a successful one makes the next pushes allocation-free | `alloc_vector_reserve_reports_oom.saw` | 234 §4 — one of the FIVE twins with no infallible partner, so retiring the prefix renames a sole method rather than merging a pair |
+| A06 | a refused `Map.insert` reports; the table is untouched — every key that was in it still is | `alloc_map_insert_reports_oom.saw` | 234 §1 — all-or-nothing, which the panic could never state because it never returned |
+| A07 | a refused `Set.insert` reports; the set is untouched | `alloc_set_insert_reports_oom.saw` | 234 §1 |
+| A08 | a refused `Data.push` / `Data.append` reports; the bytes already in it are unchanged | `alloc_data_reports_oom.saw` | 234 §1 |
+| A09 | a refused `Data(capacity:)` reports as a value | `alloc_data_reports_oom.saw` | 234 §1 + DF-245a |
+| A10 | a refused `StringBuilder.append` / `append_char` reports; the builder is unchanged | `alloc_stringbuilder_reports_oom.saw` | 234 §1 |
+| A11 | a refused `Box.make` / `Arc(value:)` reports, and the payload handed to it is destroyed exactly once | `alloc_box_arc_reports_oom.saw` | 234 §1 — the refusal path owns a value it never stored, so "reports" and "does not leak" are one guarantee here |
+| A12 | a refused `Channel()` / `TaskGroup(threads:)` reports as a value | `alloc_channel_taskgroup_reports_oom.saw` | 234 §1 + DF-245a |
+| A13 | the alloc `try_` twins are GONE: `try_push` names no method, and `try_` means non-blocking and nothing else | `errors/alloc_try_twins_are_retired.saw` | 234 §4 — the prefix carried two unrelated meanings; a retirement nothing checks is a retirement that grows back |
+| A14 | BOUNDARY — the HIDDEN String allocation still panics, and `--no-hidden-alloc` is still its opt-out | `alloc_string_oom_panic.saw` | 234 §5 — an interpolation has no expression to hang a `try` on, so the panic is the honest report rather than a leftover |
+| A15 | BOUNDARY — `Data.[]`'s copy-on-write separation still panics, under the accessor rule it shares a body with | `alloc_data_reports_oom.saw` | 234 §5, ruled Aug 22 — splitting one of the two failures out as a value would make `d[i]` mean two different things by which failure it met; `try_detached()` is the preflight |
+| A16 | BOUNDARY — a COLLECTION LITERAL cannot report, so its synthesized element insert forces the `Result` and panics NAMING the error | `alloc_collection_literal_panics_named.saw` | 234 §5 by analogy (flagged for ruling) — `[a, b, c]` lowers to a container plus synthesized `push`/`insert` calls, and a synthesized call is exactly a site with no expression to hang a `try` on |
+| A17 | BOUNDARY — `copy()`, the ExplicitCopy hook, stays infallible, so `Vector.copy()` still panics on refusal | `alloc_vector_copy_panics.saw` | 234 §5 + design 219 — the hook's signature is the trait's, and the compiler inserts calls to it; DF-257b records the `try_copy` residue this leaves |
 
 ## Cross-cutting soundness smoke
 
@@ -728,7 +753,7 @@ Claim source: behavioral, not error-message — no single claim section
 
 | Row | Checks | Covered by | Ruling |
 |-----|--------|------------|--------|
-| Z01 | reallocating push inside a `with_var_ref` element borrow | `errors/with_var_ref_invalidation.saw` |  |
+| Z01 | reallocating push inside a `with_var_ref` element borrow | `errors/with_var_ref_invalidation.saw` | 234 RE-READ — the flip gives the closure body a SECOND thing to be refused for (design 151's discard of `push`'s new `Result`), and a row that passes for the wrong reason is a row that stopped testing. The covering test spells `try!` so the discard is consumed and the exclusivity refusal is the only one left standing |
 | Z02 | two `remove`s of one NoCopy Map value (double-free smoke) | `map_owning_remove_overwrite.saw` |  |
 | Z03 | replacing the whole container while a place window on it is open | `Z03_replace_container_during_window.saw` |  |
 | Z04 | a shared window read leaves a `let` root unmutated | `place_shared_window_readonly.saw` |  |

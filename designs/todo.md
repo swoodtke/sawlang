@@ -92,6 +92,8 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-251d — an `init` BODY that suspends is an internal compiler error; the coro transform scans init bodies but a construction is a `StructInit`, not a `MethodCall`, so nothing can name the frame. Entry below; either transform it or refuse it at the declaration
 - DF-252a — calling a `FuncPointer` value BY NAME inside a driven body is an internal compiler error (entry below, filed by design 242 unit 4; PRE-EXISTING, and invisible until ruling 8 refused the vacuous test that claimed to cover it). Pinned XFAIL, seven-cell matrix with three green controls
 - DF-256b — the thread control block is DEALLOCATED at a size std computes by hand, and the two do not agree with the one codegen allocated (entry below, filed Aug 25 by design 242 unit 3b; PRE-EXISTING and inert on both hosted allocators, which free by pointer)
+- DF-257a — the two construction checkers SELECT an init differently, so an init with a defaulted parameter resolves at the bare spelling and is `no matching initializer` at the module-qualified one (entry below, filed Aug 25 by design 234 unit 3's hazard sweep; PRE-EXISTING, probe-refuted in both directions)
+- DF-257b — design 234 §5 keeps the `copy()` hook infallible, which leaves `Vector.try_copy` as the one alloc `try_` twin the flip cannot retire; owes a naming ruling (entry below, filed Aug 25 by design 234 unit 3)
 
 - ~~DF-225a~~ — CLOSED Aug 22 (branch `diag-batch`, commit 6): the five join the ordinary duplicate-declaration rule — same LLVM signature unifies (so `printf` is callable), a different one is a clean refusal. The sweep probed every compiler-declared symbol and found the five are exactly the ones std does not also declare. Entry below, under DF-225a-f
 - ~~DF-225d~~ — CLOSED Aug 22 (branch `diag-batch`, commit 7): the three copies of "which names are primitives" became ONE table, so `self` inside a primitive extension is that primitive again. The sweep found the class is wider than the filing — arithmetic, comparison and `Bool`/`UInt` too, all ten design 176 added. Entry below, under DF-225a-f
@@ -1020,6 +1022,77 @@ parties takes it — so `join` could read it rather than recompute it, which
 would also make the `Void` and non-`Void` paths one. That reading is what
 `__saw_rt_thread_detach`'s C body already does. Not pinned: an XFAIL wants a
 behaviour that differs, and on both hosted allocators nothing does. [123, 242]
+
+## DF-257a — the two construction checkers SELECT an init differently, so a
+## DEFAULTED parameter resolves at the bare spelling and not the qualified one
+## (filed Aug 25 by design 234 unit 3's hazard sweep; PRE-EXISTING)
+
+DF-245a's landing named this as one of two things unit 3 would meet. Probed both
+directions:
+
+```saw
+// hz/lib.saw
+public struct Plain { value: Int }
+extension Plain { public init(n: Int = 5) -> Plain { Plain(value: n) } }
+```
+```saw
+import hz.lib.{Plain}     func main() { let p = Plain()      }   // compiles, n = 5
+import hz.lib             func main() { let p = lib.Plain()  }   // refused
+// error: no matching initializer for `Plain` with parameters:
+//   hint: field init expects: value; available init methods: [['n']]
+```
+
+MECHANISM (obligation 4): `_check_struct_init` matches an init by "the provided
+names are a SUBSET of the parameters and every omitted one has a default"
+(design 53); `_check_module_struct_init` matches by SET EQUALITY
+(`provided_params == init_param_names`), so a defaulted parameter the caller
+omits removes the match instead of being filled. One rule, two implementations,
+and only one of them learned about defaults. The mechanism reaches every
+construction the qualified path serves — a defaulted init is the found cell, and
+the sibling cells are anything else the subset rule accepts that equality does
+not.
+
+THE FALLIBLE FORM MAKES IT WORSE, which is how design 234 met it: the qualified
+path returns the RECEIVER type on a failed match, so `try! lib.Holder()` then
+reports a SECOND error about the caller's own `try` (``try` requires a Result
+type, got `Holder``) — the caller is told its spelling is wrong when the callee's
+signature is what was never read. The non-fallible twin above reports once.
+
+NOT REACHED BY DESIGN 234's FLIP: every constructor the flip touches
+(`Vector(capacity:)`, `Data(capacity:)`, `Arc(value:)`, `Channel()`,
+`StringBuilder(capacity:)`, `TaskGroup(threads:)`) has no defaulted parameter,
+and the one std init that does — `cbor.CborEncoder(max_depth: Int = 64)` — does
+not become fallible. So the flip records this rather than fixing it: the fix is a
+selection rule moving to ONE predicate both checkers ask, which is its own
+funnel-extraction commit. [53, 234, 245]
+
+## DF-257b — §5 keeps the `copy()` hook infallible, so `Vector.try_copy` is the
+## one alloc `try_` twin the flip cannot retire (filed Aug 25 by design 234
+## unit 3)
+
+Design 234 §4 narrows the `try_` prefix to ONE meaning, non-blocking, and unit 0
+counted `try_copy` in the retiring family with `copy` as its infallible partner.
+§5 rules the other way for that pair: "the compiler-inserted `copy()` hook stays
+infallible (design 219's contract)". `Vector.copy` IS that hook — its signature
+is `ExplicitCopy`'s (`func copy(&self) -> Self`), the compiler emits calls to it,
+and a `Result` return would have to change the TRAIT. So the merge unit 0
+planned is refused by the brief's own boundary, and after the flip `try_copy` is
+the only `try_` in std that still means "can fail to allocate".
+
+Three ways out, none of them the implementing agent's to pick:
+1. **Rename** — `Vector.duplicate() -> Result<Vector<T, A>, AllocError>` beside
+   the infallible `copy()`. New public API, so a naming ruling.
+2. **Delete** — the all-or-nothing reporting duplicate stops existing; a caller
+   who needs one writes `reserve` + a `push` loop, which is what the body does.
+   Loses a capability the flip is supposed to be adding, not removing.
+3. **Keep the name** — the prefix keeps two meanings at exactly one site, with
+   the exception written down. Cheapest, and contradicts §4.
+
+HELD at 3 for now: unit 3 left `try_copy`'s NAME alone and flipped only its body
+(its `try_reserve` call became `reserve`, its `push` calls propagate). Nothing
+else in std spells the prefix for allocation. Conformance row A17 pins the
+boundary that creates this — `Vector.copy()` still panics on refusal — so the
+residue is visible from the ledger rather than only from here. [219, 234]
 
 ## Design 242 — the Thread/Task split (AUTHORED + fully RULED Aug 22; IN
 ## FLIGHT on branch `design-242`)
