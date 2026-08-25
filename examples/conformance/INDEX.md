@@ -33,18 +33,9 @@ emission residues; K74, DF-219c's bound-aware spawn capture audit; K75,
 DF-218v's try/catch error edge — K74/K75 renumbered from K72/K73 at
 integration, where the two Aug-21 branches collided; K76, DF-218x's
 optional-binding branch scope, K77, DF-218y's discard order, B23,
-<<<<<<< HEAD
-<<<<<<< HEAD
-DF-238c's orphan-rule coherence across import forms, and A02, DF-245a's
-`init` declared-return rule.)
-=======
-DF-238c's orphan-rule coherence across import forms, and K78-K82, design 242
-unit 2's no-implicit-fates rules.)
->>>>>>> 80fc3291 (design 242 unit 2: a spawned thread's fate is written, never dropped)
-=======
-DF-238c's orphan-rule coherence across import forms, K78-K82, design 242
-unit 2's no-implicit-fates rules, and K83-K84, its unit 4 thread-body rules.)
->>>>>>> 43409ecc (design 242 unit 4 (part): a thread body is sync, and may block on FFI)
+DF-238c's orphan-rule coherence across import forms, A02, DF-245a's `init`
+declared-return rule, K78-K82, design 242 unit 2's no-implicit-fates rules,
+and K83-K84, its unit 4 thread-body rules.)
 
 ## How to read it
 

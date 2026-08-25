@@ -476,7 +476,6 @@ alloc-free and denied-allocator paths keep working. `E` is not bounded
 NEEDS A RULING on the exact wording, and it CHANGES A PIN
 (`examples/try_force_panic.saw` expects `try! failed` verbatim). [234, 19]
 
-<<<<<<< HEAD
 LANDED Aug 22, in the fix shape above and at that wording:
 `panic at F:L: try! failed: <error>`. `_generate_try_force`'s literal
 `_emit_panic` became `_emit_try_force_panic`, which renders the extracted Err
@@ -526,13 +525,9 @@ belongs in the message at all, and whether std's own hand-written accessor
 panics (`Vector.[]: index out of range`, authored in Saw) should follow. [122,
 170, 63]
 
-## DF-245c — ONE SPAWNED TASK ANYWHERE stops every `return None` at a
-## `-> Result<T?, E>` from typing, in functions that task never calls
-=======
 ## ~~DF-245c — ONE SPAWNED TASK ANYWHERE stops every `return None` at a
 ## `-> Result<T?, E>` from typing, in functions that task never calls~~ —
 ## **FIXED Aug 22** on branch `transform-typing`, commit 1
->>>>>>> ae94bdb0 (DF-245c: a bare `None`'s payload type outlives the second typecheck pass)
 
 ```saw
 func poll(n: Int) -> Result<Int?, Stop> {
