@@ -136,8 +136,12 @@ a row of its own.
 the old intended behavior — `EXPECT: error`, citing DF-232n — for two days
 after DF-232n closed, and no gate said a word: a stale XFAIL breaks the build
 only in the XPASS direction, and this one still FAILED, because it asked for a
-refusal the language deliberately does not give. Nothing cross-checks an
-`// XFAIL: DF-xxx` citation against whether that DF is still open.
+refusal the language deliberately does not give. Nothing cross-checked an
+`// XFAIL: DF-xxx` citation against whether that DF is still open. Something
+does now — the `citations` battery lane (`tools/check_citations.py`), which
+reads exactly this shape: a pin citing a DF whose entry has reached a
+`designs/done_*.md` file is a build failure. Its negative control is this very
+case.
 
 **Supplementary, not part of the brief's named 3-tier axis**:
 `public(parent)` (design 80's fourth tier) has its own strong existing

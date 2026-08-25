@@ -136,6 +136,13 @@ a fix would go unnoticed and the coverage would stay lost.
 | Expected failure (`xfail`) | yellow `x` | no |
 | Unexpectedly passed (`xpass`) | red `!` | **yes** — remove the stale marker |
 
+XPASS is only one of the two ways a marker goes stale, and the suite can only
+see that one. When a finding is closed by a ruling that SUPERSEDES the behaviour
+its pin asserts, the pin keeps failing — a well-behaved known failure forever,
+citing a DF that is done. The `citations` battery lane reads the marker's
+CITATION against the tracker's closed set and catches that direction; see "The
+citations stage".
+
 ### Required Directives
 
 All tests **must** have explicit directives:
@@ -394,6 +401,83 @@ Adding a lane means editing `STAGES` in the script. That is the point of it
 being tracked: it used to be an untracked scratch file each session rewrote
 from prose, and a gate list nobody can diff is a gate list that quietly loses
 an entry.
+
+### The citations stage — the files nothing compiles
+
+```bash
+./.venv/bin/python tools/check_citations.py          # the lane
+./.venv/bin/python tools/check_citations.py --list   # every citation, with its verdict
+```
+
+Every other lane in this battery compiles something. A file nothing compiles — a
+tracker entry, an INDEX row, an XFAIL citation — can say anything at all and no
+gate notices. This lane reads those files. Two checks, one blind spot (DF-248c).
+
+#### Committed conflict markers
+
+A line beginning `<<<<<<<` PAIRED with a later line beginning `>>>>>>>` in the
+same file is a git conflict block somebody committed. Three of them were found
+on `main` on Aug 24, one of which had been sitting in `designs/todo.md` since
+Aug 22 — through every gate the tree has, because none of them read it.
+
+The PAIR is the test. `=======` on its own is ordinary content (a markdown rule,
+a banner) and the opener alone could be ASCII art, but the two together are the
+exact shape git writes and nothing else. Every TRACKED text file is checked
+(`git ls-files`, binaries skipped the way `git grep -I` skips them), with NO
+exclusions — verified by grep when the lane landed. If a file ever legitimately
+carries the shape, add its path to `CONFLICT_ALLOWED` in the tool with a comment
+saying why; never widen it to a directory.
+
+The fix is the tracker's own rule: resolve hunk by hunk in the editor, keeping
+BOTH sides of an accumulator file (`todo.md`, `INDEX.md`, `SKILL.md`) unless
+they are genuine duplicates, and never by taking one whole side.
+
+#### Stale DF citations
+
+The other direction of the XFAIL policy. An XFAIL marker and a
+harness known-ledger row both PROMISE that a finding is still open, and every
+gate reads that promise one way only: a pin that starts passing is an XPASS and
+breaks the build. A pin whose finding was CLOSED by a ruling that superseded the
+behaviour the pin asserts keeps FAILING, so it stays a well-behaved known
+failure forever, while the ledger it belongs to reports a red cell that is
+green. `visibility_package_relative_import_fails_open.saw` sat that way for two
+days after DF-232n closed.
+
+The lane collects the first DF of every `// XFAIL:` reason in the tracked `.saw`
+corpus plus the leading DF of each row of `tools/corodiff_known.txt` and
+`tools/sawfuzz_known.txt` — a second DF later in the same reason is prose, and
+holding prose to the citation's standard is how a lint starts crying wolf — and
+checks each against the tracker's closed set:
+
+| Evidence | Reading |
+|----------|---------|
+| An entry in a `designs/done_*.md` file | CLOSED, full stop — the lead moves an entry there only once it is closed |
+| A `designs/todo.md` entry struck through (`~~DF-xxx~~`) or opening `— CLOSED`/`FIXED`/`LANDED`/`RETIRED` | closed |
+| ANY other `designs/todo.md` entry anchored on that DF | OPEN, and open WINS over every closure |
+| No entry anchored on it anywhere | undecided — reported as info, not a failure |
+
+That third row is the one that keeps the lane honest. A finding is often closed
+in PART — DF-218w narrowed to one shape, DF-248b's window half landed and its
+closure half did not — and the tracker spells the remainder as a RESIDUE entry.
+Both keep a pinned XFAIL that is exactly right, so a citation is stale only when
+nothing anchored on that DF is still open. A lint that cries wolf gets deleted.
+
+An entry is a heading or a list item whose SUBJECT is the DF number; a wrapped
+paragraph line that merely begins with a bolded cross-reference is not one.
+
+Every recogniser in this lane — the entry anchors, the closure words, and the
+conflict markers — is checked on EVERY invocation against real lines copied into
+the tool, because a lint whose recognisers have quietly stopped recognising
+anything reports a clean tree exactly the way a clean tree does, which is the
+shape of gap this lane exists to close. The self-test earned its keep the day it
+was written, catching `~~DF-218s remainder + DF-218w~~`: the strikethrough spans
+two DFs there, so there is no `~~DF-218s~~` to match.
+
+Fixing a stale row is the ledger's own rule, in whichever direction is true:
+either the pin asserts a behaviour the closing ruling SUPERSEDED, in which case
+it becomes the accept row under the behaviour's own name and the marker goes; or
+the finding is not closed after all and the tracker entry is what needs
+correcting.
 
 ### The freestanding stage
 

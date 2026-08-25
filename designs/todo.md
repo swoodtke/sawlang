@@ -78,7 +78,7 @@ for sawos; "238 before more M3 work" is absolute.
 - ~~DF-246a~~ — CLOSED Aug 24 (branch `harness-doctrine`, commit 1): the three ruled rules are TESTING.md's "Waiting in a multi-threaded test", with the park-on-controlled-gate idiom as its worked example, and BOTH members of the class are rewritten to it — each 10/10 byte-identical in isolation AND at loadavg 34, where the backtrace one also dropped from 3.9s per run to 0.01s. Entry below
 - DF-248a — RULED Aug 24 (user): NO carve-out to the Law. The ASSIGNMENT-RHS face (`v[0].n = v.len()`) LEGALIZES via the design-193/DF-218j hoist (RHS-first is the documented order, so hoisting the read ahead of the target's window is semantics-preserving by rule); every OTHER in-window naming of the root (arguments, body reads) keeps its refusal, because the hoist there would run the read ahead of the accessor's PROLOGUE — an observable reorder of documented sequence. USER REQUIREMENT: the refusal carries TEACHING TEXT explaining the asymmetry (the two shapes look identical to an uninformed reader — the error must say WHY the assignment form works and this one doesn't, and give the one-line `let` hoist as the fix). HOLDS with DF-218h until design-242-b lands, then dispatches. Entry below
 - DF-248b RESIDUE — a HAND-WRITTEN closure nested inside another still captures the outer one's `&var` PARAMETER by value, so a write through it is silently lost; the place-window half closed Aug 22. Entry below, pinned XFAIL; wants a borrow marker on `VariableInfo`
-- DF-248c — SCHEDULED Aug 24 (user): the stale-citation lint LANE rides with DF-246a's doctrine work (an XFAIL/known-ledger row citing a CLOSED DF becomes a gate failure — checked against the tracker's closed set; the fix direction is in the entry below). DISPATCHED Aug 24 (branch `harness-doctrine`). Entry below
+- DF-248c RESIDUE (the XFAIL-CHARACTER face) — an XFAIL that starts failing for a WORSE reason than the one cited is still invisible to every gate; it wants the `XFAIL-EXPECT: error`/`output` discriminator the entry names, in the RUNNER, not in a lint. The CITATION face closed Aug 24 (branch `harness-doctrine`, commit 2) as the `citations` battery lane, `tools/check_citations.py`: done-file membership is closure full stop, a todo.md entry's status decides the rest, and an OPEN entry WINS over every closure — which is what keeps a partly-closed finding's pin (DF-218w, DF-248b, and this entry itself) from being flagged. Undecidable rows are info, never failures. The lane also carries the COMMITTED-CONFLICT-MARKER check the lead's Aug-24 incident asked for (three blocks found on main, repaired at e414a8fb; one had sat in todo.md since Aug 22) — same blind spot, same lane: nothing gates the files nothing compiles. Clean on the current tree (4 citations all open, 0 markers); the historical DF-232n row and the INDEX.md nested block are its negative controls. Entry below
 - DF-250a — a COLLECTION LITERAL does not shape through a `Result`'s Ok payload, where the bare `-> Vector<Int>` twin compiles (entry below, filed by DF-245c's sweep; PRE-EXISTING and spawn-independent). The fix is a third peel beside DF-226e's and DF-140d's, at one funnel
 - DF-250b — a `??` whose DEFAULT is a bare `None` at a NON-optional peeled type is an LLVM ICE where the documented behaviour is a clean refusal (entry below, filed by DF-245c's sweep; PRE-EXISTING). Wants the refusal first, the funnel guard beside it
 - DF-251b — a GENERIC extension's `init` registers no param cleanups (an un-moved owning param leaks), populates no `variable_types` and sets no ICE breadcrumb, where the non-generic twin does all three. Entry below, filed by DF-251a's fix; one function, three faces
@@ -3964,7 +3964,68 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   DF-248a's boundary.
 
 - **DF-248c (PROCESS GAP; filed Aug 22 by the place-window branch's xfail
-  audit) — an XFAIL whose cited DF has CLOSED is invisible to every gate.** The
+  audit) — THE CITATION FACE CLOSED Aug 24 (branch `harness-doctrine`,
+  commit 2); the XFAIL-CHARACTER FACE stays OPEN.** (Naming note for the lead:
+  the entry already called the xfail-character half "FACE 2" when it was filed,
+  and the Aug-24 conflict-marker incident was dispatched to me as "the second
+  face" too — so the two halves are named by what they check here rather than by
+  number.)
+  A THIRD SHAPE OF THE SAME BLIND SPOT, added at the lead's request Aug 24 and
+  landing in the same lane: COMMITTED CONFLICT MARKERS. Three git conflict
+  blocks were found on `main` that day, one of which had been sitting in
+  `designs/todo.md` since the Aug-22 transform-typing integration, and the other
+  two nested inside each other in `examples/conformance/INDEX.md`; the lead
+  repaired them at e414a8fb. Nothing caught them for the same reason nothing
+  caught DF-232n's citation — every gate in the battery COMPILES something, and
+  none of them reads a file nothing compiles. The check is the PAIR git writes:
+  a line beginning `<<<<<<<` and a later line beginning `>>>>>>>` in one file,
+  over every tracked text file (`git ls-files`, binaries skipped), no
+  exclusions — `=======` alone is ordinary content and was deliberately not used,
+  and the allow-list is an explicit path list with a reason if one is ever
+  needed, never a directory skip. Negative control: the INDEX.md nested shape,
+  which reports both of its pairs. NOTE FOR INTEGRATION — this branch also
+  REPAIRS the todo.md block, identically to e414a8fb's hunks (the branch is off
+  8110c1e4, which predates the repair, and the lane cannot be green on a tree
+  that still carries it), so the cherry-pick will meet an already-applied hunk
+  there.
+  `tools/check_citations.py` is the `citations` battery lane, sitting
+  beside `astgraft` at about a second: it collects every `// XFAIL: DF-xxx` in
+  the tracked `.saw` corpus plus the rows of `corodiff_known.txt` and
+  `sawfuzz_known.txt`, and reads each against the tracker. THREE RULES, and the
+  third is the one that keeps it from crying wolf — (1) an entry in a
+  `designs/done_*.md` file is closure, full stop (the lead moves an entry there
+  only once it is closed, which is the cheap test the fix direction below asked
+  for, and it is what catches face 1); (2) a `todo.md` entry struck through or
+  opening `— CLOSED`/`FIXED`/`LANDED`/`RETIRED` is closed; (3) ANY other
+  `todo.md` entry anchored on that DF is OPEN, and open WINS over every closure,
+  because a finding is often closed in PART and the tracker spells the remainder
+  as a RESIDUE entry — DF-218w, DF-248b and this entry are all live examples,
+  and all three keep a citation that is exactly right. An "entry" is a heading or
+  list item whose SUBJECT is the DF; a wrapped paragraph line beginning with a
+  bolded cross-reference is not one (`**DF-239b** below.` in a done file must not
+  read as DF-239b's closure, and does not). Anything undecidable — a DF no entry
+  is anchored on — is reported as INFO and passes. The RECOGNISERS are checked on
+  every invocation against real tracker lines copied into the tool, because a
+  lint whose recognisers have stopped recognising anything reports a clean tree
+  exactly the way a clean tree does — which is this finding's own shape, and the
+  self-test earned its keep immediately (it caught `~~DF-218s remainder +
+  DF-218w~~`, where the strikethrough spans two DFs so no `~~DF-218s~~` exists to
+  match). Current tree: 4 citations, all open, 0 stale, 0 undecided. Negative
+  controls run both ways — the historical DF-232n pin is reported stale against
+  `done_aug18-aug25.md:1158`, a ledger row citing DF-232n likewise, and a ledger
+  row citing the partly-closed DF-218w correctly passes. Documented in TESTING.md
+  ("The citations stage", plus the reverse-direction paragraph under Known
+  Failures) and in `examples/module_matrix/INDEX.md`, whose DF-248c note now ends
+  at the lane instead of at the gap.
+  THE XFAIL-CHARACTER FACE IS NOT CLOSED and stays the open half of this entry:
+  an XFAIL that starts failing for a WORSE reason than the one cited is still
+  invisible,
+  because every gate reads pass/fail and nothing reads WHY. That wants the
+  `XFAIL-EXPECT: error` / `XFAIL-EXPECT: output` discriminator described below,
+  in `test_runner.py` rather than in a lint — a lint cannot see a run's
+  character, only its citation.
+  ORIGINAL FINDING — an XFAIL whose cited DF has CLOSED is invisible to every
+  gate. The
   XFAIL policy's teeth are the XPASS direction: a marker on a test that starts
   passing breaks the build. Nothing looks the other way. A pin whose finding was
   fixed by a ruling that SUPERSEDED the intended behavior the pin asserts keeps

@@ -63,6 +63,7 @@ STAGES=(
     "lexdiff|no|the Saw lexer against sawc's, over every tracked .saw|$PY tools/lexdiff.py"
     "astdiff|no|every .saw dumps completely and byte-stably|$PY tools/astdiff.py"
     "astgraft|no|no pass stamps an AST attribute no class declares|$PY tools/test_ast_graft.py"
+    "citations|no|the files nothing compiles: stale DF citations, committed conflict markers|$PY tools/check_citations.py"
     "forgetgate|no|every __saw_forget and M1/M3 stamp cites its deferral|$PY tools/test_forget_purge.py"
     "ircontract|no|-c embeds what hosted embeds; seam widths match rt/ABI.md|$PY tools/test_ir_contract.py"
     "preludegate|no|the import gate matches LANGUAGE_SPEC's module table|$PY tools/test_prelude_gate_doc.py"
