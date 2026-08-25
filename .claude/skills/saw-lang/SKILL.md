@@ -663,6 +663,20 @@ var u = w.copy()       // explicit duplicate
   (`libs/toml`'s `_section_index` beside `section`). VALUE READS out of a place
   follow design 131's table: retain for Copy, clean error for
   ExplicitCopy/NoCopy naming `with_ref` / `swap_out`.
+  **MOVING A LOCAL INTO A WINDOW WORKS** — `slots[0].push(move h)`,
+  `bag.at().take(r: move h)`, and the same shape through
+  `with_ref`/`with_var_ref` all consume `h` once. The window is a closure, and a
+  `move` capture into a NON-ESCAPING closure transfers WHEN THE BODY RUNS: the
+  environment holds a pointer to the local, and the body takes the value as it
+  starts. So a conditional lend whose absent path skips the body leaves `h`
+  alone and it deinits at the end of its own scope, and a body that took it and
+  did not move it on deinits it at the body's end. Refused until Aug 24
+  (DF-218h — ``cannot copy value of type `Res` which implements NoCopy``,
+  anchored at a receiver that copies nothing), so distrust the shape in an older
+  build, where the workaround was to move into a plain local first. An ESCAPING
+  closure keeps the creation-time transfer, and a body that moves ITS capture
+  out still double-frees there (DF-255a) — pass the value as a parameter
+  instead.
   **An arm of a borrowing `match` may LEND ITS PAYLOAD BINDING** (design 146,
   DF-146d) — how a slot-enum container gets an accessor at all:
   ```saw

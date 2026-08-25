@@ -1,36 +1,29 @@
-// A `move` of a LOCAL inside a place window should consume it, once.
+// A `move` of a LOCAL inside a place window consumes it, once.
 //
 // `v.push(move h)` where `v` is a PLACE puts the author's `move h` inside the
-// closure the window lowering writes, and a `move` of an ENCLOSING local from
-// inside a closure body has no way to clear that local's drop flag. Today the
-// checker refuses it — ``cannot copy value of type `Res` which implements
-// NoCopy``, anchored at a receiver that copies nothing — which is the
-// PROTECTIVE answer: both ways of making it compile that were tried, a
-// `[move h]` capture spec on the synthesized closure and a `[&var h]` one,
-// produced a DOUBLE FREE instead (each id deinits twice: once where the
-// container drops it and once where the enclosing scope does).
+// closure the window lowering writes, so the lowering owes that local a real
+// transfer. Neither eager answer worked: with the drop flag cleared at capture
+// the local LEAKED whenever the body did not run, and with it left alone the
+// value DOUBLE-FREED whenever the body did. The window closure is
+// non-escaping, so it takes the deferred transfer (DF-218h, ruled Aug 24) —
+// the environment carries a pointer to the local and the body takes the value
+// as it starts.
 //
-// The refusal is not confined to synthesized closures. A hand-written one has
-// it too, which is the same hole from the other side and the reason the fix is
-// a design rather than a capture-list patch:
+// Found by design 218 stage 1: a frame local is a `Slot` now, so
+// `pending.push(move h)` in a driven body became a window call and irdet
+// stopped compiling. The `_migrated_enc` hold-back that answered it is still in
+// place (retiring it is a design-218 staging decision), so the driven row below
+// exercises the legacy encoding and the two below it the window.
 //
-//     let h = Res(id: 1)
-//     run({ [move h] in sink(move h) })     // compiles; deinits TWICE
-//
-// Sibling of DF-169h, the `&var`-argument half. Found by design 218 stage 1: a
-// frame local is a `Slot` now, so `pending.push(move h)` in a driven body
-// became a window call and irdet stopped compiling — the migration holds that
-// family back (`_migrated_enc`) until this is decided, so the driven row below
-// compiles today and is here to stay green through the fix.
+// The uniform rule across every non-escaping shape is
+// `closure_move_capture_transfers_when_body_runs.saw`.
 //
 // ORACLE: each id is constructed once and deinits once.
-// XFAIL: DF-218h a `move` of a local inside a place window is refused, and the
-// capture spellings that lift the refusal double-free
 // EXPECT: success
 // EXPECT-OUTPUT:
-// driven len 2
 // deinit 5
 // deinit 4
+// driven len 2
 // direct len 1
 // deinit 1
 // binding len 2
@@ -45,7 +38,9 @@ extension Res: NoCopy {
 }
 
 // The shape the migration held back: `pending` is a frame local, so a `Slot`
-// read would make `pending.push(move h)` a window call. Compiles today.
+// read would make `pending.push(move h)` a window call. Teardown is EAGER
+// (design 124), so the frame releases `pending` when the task completes —
+// which is why both ids print before the line that reports the length.
 func driven_row() -> Int {
     var wave = Vector<Res>()
     wave.push(Res(id: 4))

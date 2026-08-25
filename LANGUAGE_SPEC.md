@@ -5897,6 +5897,26 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   closed design 71's residual gap: an owning closure in a copyable struct that is
   then copied now retains the shared env and tears it down once at the last
   owner.)*
+- **A `move` capture into a non-escaping closure transfers when the body runs.**
+  A non-escaping closure keeps its environment on the stack and has no teardown
+  of its own, so it cannot own a value from creation the way an escaping
+  environment does. Its environment holds a pointer to the local, and the body
+  takes the value as it starts. The source therefore stops owning it on exactly
+  the paths that run the body. A body that never runs (a conditional lend's
+  absent path, a closure the callee did not call) leaves the local alone, and it
+  deinits at the end of its own scope. What the body took belongs to the body: a
+  body that moves it on only some paths deinits it on the others, at the body's
+  end. This is one rule for every non-escaping shape, the closure a place window
+  is lowered into included, which is what makes `v[i].push(move h)` through a
+  place consume `h` once:
+
+  ```saw
+  let h = Res(id: 1)
+  slots[0].push(move h)     // `h` is the container's now
+  ```
+
+  Running one such body twice panics rather than taking a value that has already
+  left. An **escaping** closure keeps the creation-time transfer described above.
 - **Assigning to a by-value capture is a compile error** (design 132). The env
   above is immutable, and at body entry every plain / `move` / `copy` capture is
   loaded out of it into a per-call local. A write to one therefore lands on that

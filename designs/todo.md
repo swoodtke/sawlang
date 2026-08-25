@@ -33,7 +33,7 @@ is scheduled and in what order is the whole of what they say.
 
 - Design 234 — the fallibility flip (designs/234-fallibility-flip.md) — units 0-2, 4, 5 + channel sub-unit LANDED Aug 22; UNIT 3 RULED Aug 24 (user): PATH 1 — ~~fix DF-245a FIRST~~ **DF-245a LANDED Aug 24** (branch `df-245a-fallible-init`: fallible `init` is expressible; an `init` may declare ONLY `Self`/the receiver or `Result<Self, E>`, nothing else — no `Self?`, refused at the declaration; entry below), so unit 3 may now flip the constructors in place and is UNBLOCKED, THEN the flip as ratified (no factory migration). Migration protocol RATIFIED: examples/tests take `try!` mechanically (failure-path tests get real matches, flagged by name); sawc/std per-site with a propagate bias (`try!` inside std re-creates the panic tier); blade/devtools/tools/selfhost per-site, propagate bias, irdet+bench their own careful commit; every non-mechanical site listed in the landing section (the 205 precedent). Execution: DF-245a brief-let, then unit 3 as one dispatch
 - Design 242 — the Thread/Task split (designs/242-thread-task-split.md) — units 0-1 LANDED Aug 22; UNITS 2 + 4(part) + 5 LANDED Aug 24 (branch `design-242-b`: the consumption funnel per-path, 9a's storage discharge keyed on a hand-written-deinit root, 9b's panic on the two THREAD handles, the blocking-permitted sync context via a second fixpoint, docs; conformance K78-K84; the 9b probe corrected the census — three corpus sites migrated). UNIT 3 RULED Aug 24 (user, ruling 10 in the brief): the CALL form is the Task engine's primitive; the brace form is SUGAR with an EXPLICIT-CAPTURE-LIST requirement UNIFORM across Thread.spawn/Task.spawn/group.spawn braces (the list IS the parameter list; implicit captures = teaching error; ~42-site Thread-brace migration rides). Trailing-brace syntax briefed as design 243, BACKLOGGED. Unit 3 redisptaches when the deferred-move branch lands (capture-machinery overlap); detach()'s `__saw_rt_*` seam gets lead-spec'd in the redispatch prompt. One finding filed: DF-252a (FuncPointer called by name in a driven body, pinned XFAIL)
-- ~~Place-window xfail family~~ — LANDED Aug 22 (branch `place-window-fixes`): DF-169h/DF-218i(+248d)/DF-218j closed, DF-232n pin resolved as superseded-by-ruling. DF-218h stopped for a ruling, now RULED Aug 24 (user): DEFERRED MOVE — a non-escaping closure's `move` capture transfers ownership WHEN THE BODY RUNS (env holds a pointer; the body takes the value and clears the caller's drop flag at run time), so a conditional lend's absent path leaks nothing and the executed path frees once; a Slot-based spelling is an acceptable implementation strategy. The rule is uniform for non-escaping closures (direct-call shapes swept, not window-special). HOLDS until design-242-b lands (capture-machinery overlap), then dispatches with DF-248a. Entry below
+- ~~Place-window xfail family~~ — LANDED Aug 22 (branch `place-window-fixes`): DF-169h/DF-218i(+248d)/DF-218j closed, DF-232n pin resolved as superseded-by-ruling. ~~DF-218h~~ — CLOSED Aug 24 (branch `deferred-move`, commit 1) to the ruling: a non-escaping closure's `move` capture transfers WHEN THE BODY RUNS. DF-248a rides the same branch. Entries below
 - ~~Diagnostics/codegen small batch~~ — LANDED Aug 22-23 (branch `diag-batch`, seven commits, nothing stopped): DF-245b, DF-238b (+ the checked-cast twin), DF-238c (+ a second face at the thread-assertion funnel, conformance B23), DF-243a (four operator families + the sos abi un-suffixing, byte-identical), DF-243b+DF-232g residue, DF-225a, DF-225d (self usable as its own type on all ten primitives), DF-225f ridden. One finding filed: DF-249a (bounds panic omits index+length — wording decision held). xfails -2, none added
 - ~~Transform typing batch~~ — ALL THREE LANDED Aug 22 (branch `transform-typing`, one commit each, after 242 units 0-1 integrated): DF-245c (a bare `None`'s payload type now outlives the second typecheck pass), DF-245d (a propagating `try` in a container HEAD — the sweep widened the rule from the binding forms), DF-244b (the bare `None` tail, through design 234's ladder). Two XFAIL pins flipped (suite xfails 7 -> 5), two new passing tests added (DF-244b had no pin: `result_optional_none_tail_types_itself.saw` plus the refusal `errors/result_none_tail_needs_an_optional_ok.saw`). Two findings filed: DF-250a, DF-250b. Entries below
 - Design 218 unit 1.5 — monomorphization becomes a pre-codegen transform (RULED Aug 13; SCHEDULED Aug 24, user: MOVED UP, BEFORE the 238 split — the migration lands under the full in-tree gate battery and the sawos pin starts life post-1.5). Process per the 218 ruling: a FABLE SPEC AGENT authors the census first (every `_ensure_monomorphized_*` call site, the instance-re-check design, error attribution, the per-(template, type-args) cache), lead reviews, user rules, Opus implements. Expected closures ride it: DF-217i/j/k, S1 row p08a, plausibly DF-247a. Brief section: designs/218-enforcement-architecture.md unit 1.5
@@ -81,6 +81,7 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-248c RESIDUE (the XFAIL-CHARACTER face) — an XFAIL that starts failing for a WORSE reason than the one cited is still invisible to every gate; it wants the `XFAIL-EXPECT: error`/`output` discriminator the entry names, in the RUNNER, not in a lint. The CITATION face closed Aug 24 (branch `harness-doctrine`, commit 2) as the `citations` battery lane, `tools/check_citations.py`: done-file membership is closure full stop, a todo.md entry's status decides the rest, and an OPEN entry WINS over every closure — which is what keeps a partly-closed finding's pin (DF-218w, DF-248b, and this entry itself) from being flagged. Undecidable rows are info, never failures. The lane also carries the COMMITTED-CONFLICT-MARKER check the lead's Aug-24 incident asked for (three blocks found on main, repaired at e414a8fb; one had sat in todo.md since Aug 22) — same blind spot, same lane: nothing gates the files nothing compiles. Clean on the current tree (4 citations all open, 0 markers); the historical DF-232n row and the INDEX.md nested block are its negative controls. Entry below
 - DF-250a — a COLLECTION LITERAL does not shape through a `Result`'s Ok payload, where the bare `-> Vector<Int>` twin compiles (entry below, filed by DF-245c's sweep; PRE-EXISTING and spawn-independent). The fix is a third peel beside DF-226e's and DF-140d's, at one funnel
 - DF-250b — a `??` whose DEFAULT is a bare `None` at a NON-optional peeled type is an LLVM ICE where the documented behaviour is a clean refusal (entry below, filed by DF-245c's sweep; PRE-EXISTING). Wants the refusal first, the funnel guard beside it
+- DF-255a — an ESCAPING closure whose body consumes its `move` capture double-frees; the non-escaping half closed Aug 24 as DF-218h, and its answer does not port (entry below, pinned XFAIL). Owes a ruling on whether a closure body may consume a capture at all
 - DF-251b — a GENERIC extension's `init` registers no param cleanups (an un-moved owning param leaks), populates no `variable_types` and sets no ICE breadcrumb, where the non-generic twin does all three. Entry below, filed by DF-251a's fix; one function, three faces
 - DF-251c — DF-216h's extension-parameter RENAME does not reach an `init`'s parameters at the construction site, so `Pair<Int>(three: 11)` under `extension Pair<U>` is refused; the METHOD half works. Entry below, with the mechanism and the data the fix needs
 - DF-251d — an `init` BODY that suspends is an internal compiler error; the coro transform scans init bodies but a construction is a `StructInit`, not a `MethodCall`, so nothing can name the frame. Entry below; either transform it or refuse it at the declaration
@@ -4164,7 +4165,47 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   `"{got.id}"` is an ordinary place hop and migrates).
   PIN: `examples/place_rendering_operand_is_a_borrow.saw` (XFAIL)
 
-- **DF-218h (BOGUS-REFUSAL + a worse alternative, PRE-EXISTING) — a `move` of
+- **DF-218h — CLOSED (Aug 24, `deferred-move`): a `move` capture into a
+  NON-ESCAPING closure transfers WHEN THE BODY RUNS.** The ruled answer, one
+  site: `closures.py`'s env build gives a non-escaping `move` capture a
+  `{ T*, i1* }` field (the local's storage and its drop flag) instead of a copy
+  of the value, and the body's prologue takes the value, clears that flag and
+  registers the taken value as an owned local of the body. Every branch of the
+  old dilemma falls out rather than being handled: the absent path of a
+  conditional lend never runs the prologue, so the local is still the frame's
+  and deinits at scope end; the executed path clears the flag, so exactly one
+  owner frees; a body that moves CONDITIONALLY drops what it took at its own
+  end on the paths that keep it. The flag doubles as OCCUPANCY — a body run
+  twice would take a value that is gone, so the take is guarded and a repeat
+  PANICS (`closure body ran twice on `move` capture `h``) where it used to
+  free three times silently. The window synthesis then stops excluding moved
+  names: `_synthesize_place_window_captures` writes `[move h]` for them, behind
+  the reference arm so `move` out of a reference keeps its own refusal.
+  DROP ORDER, measured for the exactly-once direct call: deferred and eager
+  agree wherever the body CONSUMES the capture (the consumer frees, at the same
+  point either encoding would). They differ only where the body does not — eager
+  defers to the env teardown, deferred drops at the body's end — and where the
+  body never runs, which eager cannot express at all.
+  SWEEP (obligation 4), one matrix, deinit-counted both ways:
+  `examples/closure_move_capture_transfers_when_body_runs.saw` — a literal at a
+  non-escaping parameter (consumed / kept / never run), `with_var_ref` and
+  `with_ref` bodies, the place window's own lowered closure, a conditional lend
+  on BOTH paths, and the three owning tiers (NoCopy, ExplicitCopy, and the
+  declared Copy hook). Conformance row V48. Pin flipped
+  (`place_window_move_arg_consumes_local.saw`); its driven row's expected output
+  was corrected at the same time — eager frame teardown releases `pending` when
+  the task completes, so both ids print before the length does.
+  ONE SIBLING FOUND AND NOT FIXED: the ESCAPING half double-frees the same way
+  and always did (DF-255a below, pinned). Its answer cannot be this one — the
+  flag cleared here belongs to the source frame, which an escaping capture has
+  left — so the occupancy has to live in the heap env.
+  ALSO UNBLOCKED, not done: `FAM_WINDOW_MOVE` in `coro_transform` was held back
+  by this defect and by DF-169h, both now fixed. Retiring the family also
+  migrates design 222 unit 1's raw cell write (`_cell_hop_raw`), which is a
+  frame-layout change with its own corodiff/irdet surface — a design-218
+  staging landing, and the docstrings now say so instead of citing a defect.
+  Original finding follows.
+  **(BOGUS-REFUSAL + a worse alternative, PRE-EXISTING) — a `move` of
   a LOCAL inside a place window is refused, and every capture spelling that
   lifts the refusal double-frees.** `v.push(move h)` where `v` is a place puts
   the author's `move h` inside the closure the window lowering writes, and a
@@ -4203,7 +4244,28 @@ obligation-2 consumer sweep before dispatch. Gates 218 stages 1-2.
   below it. DF-169h's borrow captures deliberately do NOT reach this — a `move`
   of a borrow-captured name is "cannot move out of reference", a different
   refusal for the same protective reason.
-  PIN: `examples/place_window_move_arg_consumes_local.saw` (XFAIL)
+  PIN: `examples/place_window_move_arg_consumes_local.saw` (flipped Aug 24)
+
+- **DF-255a (DOUBLE FREE, PRE-EXISTING; filed Aug 24 by DF-218h's sweep) — an
+  ESCAPING closure whose BODY consumes its `move` capture frees it twice.**
+  `let f = { [move h] in sink(move h) }` then `f()` prints `built / sank 1 /
+  deinit 1 / done / deinit 1` (stash-verified against the tree before
+  `deferred-move`, so it is not this branch's). MECHANISM: an escaping env OWNS
+  its captures and its generated destructor releases each one, and the body's
+  prologue LOADS the capture out of the env into a per-call local — so `move h`
+  in the body retires the LOCAL and leaves the env field looking occupied.
+  `sink` frees the value; dropping `f` frees it again.
+  WHY DF-218h's answer does not port: the flag the deferred take clears belongs
+  to the SOURCE FRAME, and an escaping capture has already left it. The
+  occupancy has to live in the heap env — a word beside the refcount, or a
+  per-capture bit the destructor honors — which is a layout decision, and it
+  raises the question the language has not taken a position on: a closure VALUE
+  can be called any number of times, so a body that consumes a capture is
+  a one-shot closure with no type to say so. Refusing the move-out for escaping
+  closures is the other candidate answer, and it is the same question the
+  non-escaping side answers at RUN TIME today (the second run panics).
+  PIN: `examples/closure_escaping_move_capture_consumed_once.saw` (XFAIL).
+  Conformance row V49.
 
 - **DF-218j — CLOSED (Aug 22, `place-window-fixes`): two windows on one root,
   in one assignment, are SEQUENCED rather than nested.** An assignment already

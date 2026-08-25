@@ -76,9 +76,9 @@ def _moved_names(node, out=None):
     """Every name a `move` under `node` consumes.
 
     The one thing a BORROW capture cannot serve (DF-218h): `move` out of a
-    reference is not a transfer the language has, and every capture spelling
-    that lifts the refusal double-frees, so a moved name must stay a value
-    capture and keep the copy-tier refusal it already had. Used by
+    reference is not a transfer the language has. Such a name is spelled
+    `[move x]` instead, which for a non-escaping closure is the deferred
+    transfer — the body takes the value when it runs. Used by
     `_synthesize_place_window_captures`.
     """
     if out is None:
@@ -11634,22 +11634,21 @@ class ExpressionsMixin:
         parameter to the POINTER with its INNER type recorded beside it, so the
         capture walk loaded the value and put a copy in the env.
 
-        TWO names are deliberately left plain captures, and each keeps a
-        refusal exactly where it was:
+        A name the body MOVES (`v.push(move h)` through a place — DF-218h) is
+        spelled `[move h]`, not borrowed: `move` out of a borrow capture is not
+        a transfer the language has. The window closure is non-escaping, so that
+        is the DEFERRED move (ruled Aug 24) — the env carries a pointer to the
+        local and the body takes the value when it runs, which is what makes
+        the conditional lend's absent path leak nothing and the executed path
+        free exactly once.
 
-        * the receiver's own ROOT (`place_window_root`). Borrowing it would put
-          a second access to the root INSIDE the open window, which is what
-          design 188 refuses in one call — and `v[0].n = v.pop()!` is exactly
-          the invalidation that rule exists for. (DF-248a records the bogus
-          half: a root read that invalidates nothing is refused too.)
-        * a name the body MOVES (`v.push(move h)` through a place — DF-218h).
-          `move` out of a borrow capture is not a transfer the language has:
-          the enclosing frame still holds the drop flag, and every capture
-          spelling that lifts the refusal DOUBLE-FREES instead (measured, both
-          `[move h]` and `[&var h]`, and a hand-written closure has the same
-          hole). The plain capture's copy-tier refusal is the protective
-          answer until the closure move-out design lands, so this walk must not
-          quietly turn it into a double free.
+        ONE name is deliberately left a plain capture, and it keeps a refusal
+        exactly where it was: the receiver's own ROOT (`place_window_root`).
+        Borrowing it would put a second access to the root INSIDE the open
+        window, which is what design 188 refuses in one call — and
+        `v[0].n = v.pop()!` is exactly the invalidation that rule exists for.
+        The refusal it keeps is `_place_window_root_capture_error`, whose
+        teaching text is the whole of DF-248a's other half.
 
         `self` is never listed: design 216 already captures a receiver by
         borrow, at the mode the receiver itself carries.
@@ -11663,7 +11662,7 @@ class ExpressionsMixin:
         moved = _moved_names(expr.body)
         specs = []
         for name in self._analyze_closure_captures(expr.body, outer_scope):
-            if name == 'self' or name == root or name in moved:
+            if name == 'self' or name == root:
                 continue
             info = outer_scope.lookup(name)
             if info is None or info.type is None:
@@ -11672,7 +11671,11 @@ class ExpressionsMixin:
                 # An ENCLOSING WINDOW's binding (nested windows in one call), or
                 # a `&var T` parameter forwarded in. The borrow it already is,
                 # spelled — see DF-248b for why the plain capture was not one.
+                # Checked BEFORE the moved-name arm so `move` out of a reference
+                # keeps its own refusal instead of becoming a bogus transfer.
                 mode = 'ref_var' if info.type.reference_mutable else 'ref'
+            elif name in moved:
+                mode = 'move'
             else:
                 mode = 'ref_var' if info.mutable else 'ref'
             specs.append(CaptureSpec(name=name, mode=mode,

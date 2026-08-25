@@ -1,0 +1,39 @@
+// An ESCAPING closure whose body consumes its `move` capture must free it once.
+//
+// The environment of an escaping closure owns its captures: the transfer
+// happens where the closure is built, and the generated env destructor releases
+// them when the last owner drops. Nothing tells that destructor when the BODY
+// took the value instead. The body's prologue loads the capture out of the env
+// into a local, so `move h` inside the body retires the LOCAL and leaves the
+// env field looking occupied — `sink` frees the value, then the env destructor
+// frees it again.
+//
+// The non-escaping half of this is DF-218h, closed by the deferred transfer:
+// the body takes ownership at run time and the source's drop flag records it.
+// An escaping env has no such flag, so the same answer does not port — the
+// occupancy has to live in the environment.
+//
+// ORACLE: id 1 is constructed once and deinits once.
+// XFAIL: DF-255a an escaping closure's env destructor releases a capture the
+// body already moved out
+// EXPECT: success
+// EXPECT-OUTPUT:
+// built
+// sank 1
+// deinit 1
+// done
+
+struct Res { id: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("deinit {self.id}") }
+}
+
+func sink(r: Res) { print("sank {r.id}") }
+
+func main() {
+    let h = Res(id: 1)
+    let f = { [move h] in sink(r: move h) }
+    print("built")
+    f()
+    print("done")
+}

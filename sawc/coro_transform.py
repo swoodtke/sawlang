@@ -887,14 +887,14 @@ def _deferred_family(name, enc, address_taken=(), saw_type=None,
       * a local a method call CONSUMES another local into — `v.push(move h)`
         (DF-218h). A slot read is a lend, so the call moves inside the window's
         closure, and a `move` of an ENCLOSING local from inside a closure body
-        has no way to clear that local's drop flag: the checker refuses it
-        (``cannot copy value of type `Res` which implements NoCopy``, anchored
-        at a receiver that copies nothing — DF-169h's family) and every way of
-        making it compile that was tried, a `[move h]` capture and a
-        `[&var h]` one alike, produced a DOUBLE FREE instead, because the
-        enclosing frame drops `h` again at scope end. The refusal is the
-        protective behavior and this row waits for the closure move-out design
-        that fixes both halves;
+        used to have no way to clear that local's drop flag: the checker refused
+        it and every way of making it compile double-freed. THE DEFECT IS FIXED
+        (DF-218h, ruled Aug 24 — a non-escaping closure's `move` capture
+        transfers when the body runs), so this family is no longer BLOCKED; what
+        holds it now is staging. Retiring it also migrates design 222 unit 1's
+        raw cell write (`_cell_hop_raw`), which is a frame-layout change with
+        its own corodiff/irdet surface, and that is the landing this row waits
+        for;
       * a SCRUTINEE temp (`__hoistN` / `__matchN`) — see `_SCRUTINEE_TEMPS`.
         This is the one family whose forget is the TRANSFORM's own (DF-210f)
         rather than a rewritten `move`;
@@ -4715,12 +4715,15 @@ class _FrameBuilder:
         cannot go through `deref()`, and the reason is the mechanism that defers
         that whole family rather than anything about the cell: a place window is
         lowered as a CLOSURE, so every enclosing local the assignment's RHS names
-        is a by-value capture, and a move-only one is refused
+        was a by-value capture, and a move-only one was refused
         (``cannot copy value of type `Res` which implements NoCopy``, context
         `closure capture` — measured on `coro_iflet_suspending_deinit`,
         `coro_nested_iflet_struct_init` and `taskgroup_nested_ambient`). The
         value being stored is precisely the thing a frame's locals feed, so the
-        write is the one cell operation that meets it every time.
+        write is the one cell operation that meets it every time. Both halves of
+        that refusal have since been fixed — DF-169h made the window body borrow
+        its enclosing bindings, DF-218h gave a moved one the deferred transfer —
+        so what remains here is the staging, not the defect.
 
         Forwarding the handle's pointer is stage 3's own answer to the same shape
         (its finding (a): three sites that took `&` of a window forward

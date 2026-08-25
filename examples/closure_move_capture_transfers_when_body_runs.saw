@@ -1,0 +1,221 @@
+// A `move` capture into a NON-ESCAPING closure transfers WHEN THE BODY RUNS.
+//
+// An escaping closure owns a heap environment with a destructor, so it can take
+// ownership the moment it is built. A non-escaping one keeps its environment on
+// the stack with no teardown at all, and neither eager answer works there:
+// clearing the source's drop flag at capture LEAKS whenever the body does not
+// run, and not clearing it DOUBLE-FREES whenever the body does. So the
+// environment carries a pointer to the local, and the body takes the value and
+// clears that flag as it starts (DF-218h, ruled Aug 24).
+//
+// The rule is uniform across every shape that reaches a non-escaping closure —
+// a literal passed straight to a non-escaping parameter, a `with_ref` /
+// `with_var_ref` element borrow, the closure a place window is lowered into,
+// and a conditional lend on both of its paths. This file is that matrix, with
+// deinit counting as its oracle: every id below is constructed once and printed
+// once.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// sank 1
+// deinit 1
+// direct done
+// kept 2
+// deinit 2
+// held done
+// absent done
+// deinit 3
+// with_var_ref 1
+// deinit 4
+// sank 5
+// deinit 5
+// with_ref 0
+// window len 1
+// deinit 6
+// deinit 7
+// present 7
+// absent 7
+// lend done
+// deinit 8
+// explicit 1
+// drop deep 9
+// copy tier 1
+// drop shallow 10
+
+struct Res { id: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("deinit {self.id}") }
+}
+
+struct Bin { held: Vector<Res> }
+extension Bin: NoCopy {}
+extension Bin {
+    func take(&var self, r: Res) { self.held.push(move r) }
+    func count(&self) -> Int { self.held.len() }
+}
+
+// A `borrows` accessor, so the window the place lowering writes is the closure
+// under test.
+struct Bag { slot: Bin }
+extension Bag: NoCopy {}
+extension Bag {
+    func at(&self) borrows -> Bin { lend self.slot }
+}
+
+// A conditional lend. Its payload is trivially copyable so the ABSENT path is
+// reachable through `?.`; what the row is about is the moved-in `Res`.
+struct Counter { n: Int }
+extension Counter {
+    func absorb(&var self, r: Res) { self.n = self.n + r.id }
+    func read(&self) -> Int { self.n }
+}
+struct Ledger { c: Counter }
+extension Ledger {
+    func at(&var self, i: Int) borrows -> Counter? {
+        if i != 0 { return None }
+        lend self.c
+    }
+}
+
+func sink(r: Res) { print("sank {r.id}") }
+func run(body: () -> Void) { body() }
+func maybe(go: Bool, body: () -> Void) { if go { body() } }
+
+// 1. A literal passed straight to a non-escaping parameter, body CONSUMES.
+func direct_row() {
+    let h = Res(id: 1)
+    run(body: { [move h] in sink(r: move h) })
+    print("direct done")
+}
+
+// 2. The same, body KEEPS what it took: the value is the body's now, so it
+//    drops at the body's end rather than at the frame's.
+func held_row() {
+    let h = Res(id: 2)
+    run(body: { [move h] in print("kept {h.id}") })
+    print("held done")
+}
+
+// 3. The body never runs: nothing was taken, so the local is still the frame's.
+func absent_row() {
+    let h = Res(id: 3)
+    maybe(go: false, body: { [move h] in sink(r: move h) })
+    print("absent done")
+}
+
+// 4. `with_var_ref`: an exclusive element borrow whose body moves a local in.
+func with_var_ref_row() {
+    var bins = Vector<Bin>()
+    bins.push(Bin(held: Vector<Res>()))
+    let h = Res(id: 4)
+    bins.with_var_ref(0) { [move h] b in b.take(r: move h) }
+    print("with_var_ref {bins.with_ref(0) { b in b.count() }}")
+}
+
+// 5. `with_ref`: a SHARED element borrow whose body moves a local OUT.
+func with_ref_row() {
+    var bins = Vector<Bin>()
+    bins.push(Bin(held: Vector<Res>()))
+    let h = Res(id: 5)
+    let n = bins.with_ref(0) { [move h] b in
+        sink(r: move h)
+        b.count()
+    }
+    print("with_ref {n}")
+}
+
+// 6. The closure a PLACE WINDOW is lowered into. The author wrote no closure at
+//    all here, so the `[move h]` is the lowering's own.
+func window_row() {
+    var bag = Bag(slot: Bin(held: Vector<Res>()))
+    let h = Res(id: 6)
+    bag.at().take(r: move h)
+    print("window len {bag.at().count()}")
+}
+
+// 7. A conditional lend, both paths. The present one runs the body and the
+//    transfer happens; the absent one opens no window, so `g` is still the
+//    frame's and drops at scope end. `absorb` owns its by-value parameter, so
+//    `deinit 7` prints inside it — before the line that reports the result.
+func lend_row() {
+    var led = Ledger(c: Counter(n: 0))
+    let h = Res(id: 7)
+    led.at(0)!.absorb(r: move h)
+    print("present {led.at(0)!.read()}")
+    let g = Res(id: 8)
+    led.at(9)?.absorb(r: move g)
+    print("absent {led.at(0)!.read()}")
+    print("lend done")
+}
+
+// 8. The two other owning tiers, through a window.
+struct Deep { items: Vector<Int>, tag: Int }
+extension Deep: ExplicitCopy {
+    func copy(&self) -> Deep {
+        var out = Vector<Int>()
+        var i = 0
+        while i < self.items.len() {
+            out.push(self.items[i])
+            i += 1
+        }
+        Deep(items: move out, tag: self.tag)
+    }
+    func deinit(&var self) { print("drop deep {self.tag}") }
+}
+
+struct Shallow { tag: Int }
+extension Shallow: Copy {
+    func copy(&self) -> Shallow { Shallow(tag: self.tag) }
+    func deinit(&var self) { print("drop shallow {self.tag}") }
+}
+
+struct DeepBin { held: Vector<Deep> }
+extension DeepBin: NoCopy {}
+extension DeepBin {
+    func take(&var self, d: Deep) { self.held.push(move d) }
+    func count(&self) -> Int { self.held.len() }
+}
+struct DeepBag { slot: DeepBin }
+extension DeepBag: NoCopy {}
+extension DeepBag {
+    func at(&self) borrows -> DeepBin { lend self.slot }
+}
+
+struct ShallowBin { held: Vector<Shallow> }
+extension ShallowBin: NoCopy {}
+extension ShallowBin {
+    func take(&var self, s: Shallow) { self.held.push(move s) }
+    func count(&self) -> Int { self.held.len() }
+}
+struct ShallowBag { slot: ShallowBin }
+extension ShallowBag: NoCopy {}
+extension ShallowBag {
+    func at(&self) borrows -> ShallowBin { lend self.slot }
+}
+
+func explicit_tier_row() {
+    var bag = DeepBag(slot: DeepBin(held: Vector<Deep>()))
+    var buf = Vector<Int>()
+    buf.push(7)
+    let d = Deep(items: move buf, tag: 9)
+    bag.at().take(d: move d)
+    print("explicit {bag.at().count()}")
+}
+
+func copy_tier_row() {
+    var bag = ShallowBag(slot: ShallowBin(held: Vector<Shallow>()))
+    let s = Shallow(tag: 10)
+    bag.at().take(s: move s)
+    print("copy tier {bag.at().count()}")
+}
+
+func main() {
+    direct_row()
+    held_row()
+    absent_row()
+    with_var_ref_row()
+    with_ref_row()
+    window_row()
+    lend_row()
+    explicit_tier_row()
+    copy_tier_row()
+}

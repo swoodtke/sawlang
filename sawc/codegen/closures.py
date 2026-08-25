@@ -111,6 +111,38 @@ class ClosuresMixin:
         # non-escaping closure cannot outlive the call); every other mode uses
         # the env-of-values path (bitwise / retain / move / copy).
         modes = getattr(expr, 'capture_modes', {}) or {}
+        # THE DEFERRED MOVE (DF-218h, ruled Aug 24). A NON-escaping closure's
+        # `move` capture transfers ownership WHEN THE BODY RUNS, not when the
+        # closure is built. An escaping closure has a heap env with a destructor,
+        # so it can own the value from the capture onward; a non-escaping one
+        # keeps its env on the stack with no teardown at all, and neither eager
+        # answer is available there — clearing the source's drop flag at capture
+        # LEAKS whenever the body does not run (a conditional lend's absent path),
+        # and not clearing it DOUBLE-FREES whenever the body does.
+        #
+        # So the env holds a POINTER to the local (plus a pointer to its drop
+        # flag), and the body's prologue takes the value and clears that flag —
+        # the transfer happens at run time, on exactly the paths that run the
+        # body. The taken value is an ordinary owned local of the body, so a body
+        # that moves it on only some paths drops it on the others, and a body
+        # that never moves it drops it at its own end.
+        #
+        # The flag doubles as OCCUPANCY: a second run of the same body would take
+        # a value that is already gone, so the take is guarded and a repeat
+        # panics rather than corrupting memory.
+        #
+        # ONE SITE, uniform for every non-escaping closure — the synthesized
+        # place-window body, a `with_ref`/`with_var_ref` body, a literal passed
+        # straight to a non-escaping parameter. Escaping closures are untouched.
+        #
+        # Only a capture that OWNS something takes this path: `move n` on a
+        # trivially-copyable local transfers nothing, has no drop flag to clear
+        # and would gain only the occupancy check's false alarm.
+        flag_ptr_type = ir.PointerType(ir.IntType(1))
+
+        def _deferred_field(base):
+            """`{ T*, i1* }` — the local's storage and its drop flag."""
+            return ir.LiteralStructType([ir.PointerType(base), flag_ptr_type])
 
         def _cap_base_llvm(cap_name):
             if cap_name in self.variable_types:
@@ -123,6 +155,13 @@ class ClosuresMixin:
         # body can type reads/writes through borrowed and by-value captures.
         cap_saw_types = {name: self.variable_types.get(name) for name in captures}
 
+        deferred_moves = ([] if escapes else
+                          [c for c in captures
+                           if modes.get(c) == 'move'
+                           and cap_saw_types.get(c) is not None
+                           and self._needs_cleanup(cap_saw_types[c])])
+        deferred_set = set(deferred_moves)
+
         if captures:
             # Build environment struct with captured variables. An escaping
             # closure's heap env leads with the atomic refcount word (design 73).
@@ -131,6 +170,8 @@ class ClosuresMixin:
                 base = _cap_base_llvm(cap_name)
                 if modes.get(cap_name) in ('ref', 'ref_var'):
                     env_field_types.append(ir.PointerType(base))  # env-of-reference
+                elif cap_name in deferred_set:
+                    env_field_types.append(_deferred_field(base))
                 else:
                     env_field_types.append(base)
             env_struct_type = ir.LiteralStructType(env_field_types)
@@ -207,6 +248,13 @@ class ClosuresMixin:
         self.moved_variables = set()
         self.borrowed_variables = set()
 
+        # A deferred-move capture becomes an OWNED local of the body, so the body
+        # owes it a scope: without one the value it took would never be dropped
+        # on the paths that do not move it on. Pushed only when there is such a
+        # capture, so every other closure keeps the frame shape it had.
+        if deferred_moves:
+            self.cleanup_stack.append([])
+
         # Set up environment access if there are captures
         if captures and env_struct_type:
             env_ptr_arg = closure_fn.args[0]
@@ -232,6 +280,40 @@ class ClosuresMixin:
                     self.variables[cap_name] = ref_ptr
                     if csaw is not None:
                         self.variable_types[cap_name] = csaw
+                elif cap_name in deferred_set:
+                    # THE TRANSFER, at run time (DF-218h). Take the value out of
+                    # the enclosing local and clear that local's drop flag, so
+                    # the frame stops owning it exactly on the paths that reach
+                    # here. The flag is also the occupancy: it was 1 while the
+                    # local still held the value, so finding it 0 means this body
+                    # already took it and a second take would read freed storage.
+                    pair = self.builder.load(field_ptr,
+                                             name=f"cap_{cap_name}_deferred")
+                    val_ptr = self.builder.extract_value(
+                        pair, 0, name=f"cap_{cap_name}_src")
+                    flag_ptr = self.builder.extract_value(
+                        pair, 1, name=f"cap_{cap_name}_flag")
+                    live = self.builder.load(flag_ptr,
+                                             name=f"cap_{cap_name}_live")
+                    take_bb = closure_fn.append_basic_block(
+                        name=f"take_{cap_name}")
+                    gone_bb = closure_fn.append_basic_block(
+                        name=f"take_{cap_name}.gone")
+                    self.builder.cbranch(live, take_bb, gone_bb)
+                    self.builder.position_at_end(gone_bb)
+                    self._emit_panic(
+                        f"closure body ran twice on `move` capture "
+                        f"`{cap_name}`", line=expr.line)
+                    self.builder.position_at_end(take_bb)
+                    cap_value = self.builder.load(val_ptr,
+                                                 name=f"cap_{cap_name}")
+                    self.builder.store(ir.Constant(ir.IntType(1), 0), flag_ptr)
+                    alloca = self._entry_alloca(cap_value.type, name=cap_name)
+                    self.builder.store(cap_value, alloca)
+                    self.variables[cap_name] = alloca
+                    if csaw is not None:
+                        self.variable_types[cap_name] = csaw
+                        self._register_cleanup(cap_name, csaw)
                 else:
                     # Load the captured value into a local alloca (env-of-values).
                     cap_value = self.builder.load(field_ptr, name=f"cap_{cap_name}")
@@ -269,6 +351,14 @@ class ClosuresMixin:
         # Generate body
         result = self._generate_block(expr.body)
 
+        # Drop whatever the body took and did not move on (DF-218h). `result` is
+        # already materialized, and a tail `move h` cleared this scope's flag, so
+        # running the drops here cannot free the value being returned.
+        if deferred_moves:
+            taken_vars = self.cleanup_stack.pop()
+            if not self.builder.block.is_terminated:
+                self._cleanup_scope(taken_vars)
+
         # Return
         if ret_type == ir.VoidType():
             if not self.builder.block.is_terminated:
@@ -297,7 +387,9 @@ class ClosuresMixin:
         # Build the environment and copy captured values in. A NON-escaping
         # closure (a direct call argument, e.g. Mutex.lock's body) keeps its env
         # on the stack — it is consumed before the frame returns, so captures are
-        # borrowed and no retain/teardown is needed. An ESCAPING closure (design
+        # borrowed and no retain/teardown is needed, and a `move` capture there
+        # is the DEFERRED transfer above (the env records where the value lives;
+        # the body takes it). An ESCAPING closure (design
         # 21b E1: bound/returned/passed to spawn) heap-allocates its env via
         # saw_alloc and transfers each capture in per the value-transfer rules:
         # Copy captures are retained (copy() == refcount bump); trivial
@@ -341,21 +433,44 @@ class ClosuresMixin:
                     # itself (self.variables holds its address), not a loaded copy.
                     self.builder.store(self.variables[cap_name], field_ptr)
                     continue
+                if cap_name in deferred_set:
+                    # Nothing is transferred HERE (DF-218h) — the env records
+                    # where the value lives and which flag governs it, and the
+                    # body does the taking. A binding with no drop flag has no
+                    # per-path drop machinery to suppress, so it gets a private
+                    # slot that says "still here": the take then clears something
+                    # harmless and stays exactly-once for a second run.
+                    src_flag = self.drop_flags.get(cap_name)
+                    if src_flag is None:
+                        src_flag = self._entry_alloca(
+                            ir.IntType(1), name=f"{cap_name}.deferred_flag")
+                        self.builder.store(ir.Constant(ir.IntType(1), 1),
+                                           src_flag)
+                    pair_ty = env_field_types[i + cap_off]
+                    pair = ir.Constant(pair_ty, ir.Undefined)
+                    pair = self.builder.insert_value(
+                        pair, self.variables[cap_name], 0,
+                        name=f"defer_{cap_name}_src")
+                    pair = self.builder.insert_value(
+                        pair, src_flag, 1, name=f"defer_{cap_name}_flag")
+                    self.builder.store(pair, field_ptr)
+                    continue
                 cap_value = self.builder.load(self.variables[cap_name], name=f"load_{cap_name}")
                 cap_saw = cap_saw_types.get(cap_name)
                 if mode == 'move':
-                    # Ownership transfers into the env; the source is moved-from,
-                    # so no retain — and the CREATING frame must NOT drop it (design
-                    # 71: the closure's own drop, via the env destructor, releases
-                    # it exactly once). Clear the source binding's drop flag (or mark
-                    # it statically moved) so the frame's scope-exit cleanup skips it.
-                    # Without this the source is released early at frame exit AND, on
-                    # the spawn path, again by the trampoline's dtor — a double free.
-                    if escapes:
-                        src_flag = self.drop_flags.get(cap_name)
-                        if src_flag is not None:
-                            self.builder.store(ir.Constant(ir.IntType(1), 0), src_flag)
-                        self.moved_variables.add(cap_name)
+                    # ESCAPING only — a non-escaping `move` took the deferred arm
+                    # above. Ownership transfers into the heap env; the source is
+                    # moved-from, so no retain — and the CREATING frame must NOT
+                    # drop it (design 71: the closure's own drop, via the env
+                    # destructor, releases it exactly once). Clear the source
+                    # binding's drop flag (or mark it statically moved) so the
+                    # frame's scope-exit cleanup skips it. Without this the source
+                    # is released early at frame exit AND, on the spawn path,
+                    # again by the trampoline's dtor — a double free.
+                    src_flag = self.drop_flags.get(cap_name)
+                    if src_flag is not None:
+                        self.builder.store(ir.Constant(ir.IntType(1), 0), src_flag)
+                    self.moved_variables.add(cap_name)
                 elif mode == 'copy' and cap_saw is not None:
                     # Explicit deep copy (ExplicitCopy `.copy()` / Copy retain).
                     cap_value = self._emit_copy_value(cap_value, cap_saw)
