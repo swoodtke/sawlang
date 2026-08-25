@@ -2,11 +2,17 @@
 // holds the WHOLE vector borrowed for the body, so an attempt to mutate the
 // vector (here `push`, which could reallocate the buffer and dangle the element
 // borrow) while the borrow is live is a clean exclusivity error.
+//
+// Conformance Z01, RE-READ for design 234. `push` reports a refused allocation
+// now, which gives this closure body a SECOND thing it could be refused for
+// (design 151's discard), and a row that passes for the wrong reason has
+// stopped testing. The `try!` consumes the `Result` so the exclusivity refusal
+// is the only one left standing — which is the guarantee the row is for.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: exclusive access violation
 
 func main() {
     var v: Vector<Int> = [1, 2, 3]
-    v.with_var_ref<Void>(0, { [&var v] e in v.push(9) })
+    v.with_var_ref<Void>(0, { [&var v] e in try! v.push(9) })
     print(v.len())
 }

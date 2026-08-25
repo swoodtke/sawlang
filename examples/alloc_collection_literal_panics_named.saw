@@ -1,0 +1,39 @@
+// Conformance row A16 — a COLLECTION LITERAL cannot report, so it panics
+// NAMING the error.
+//
+// `[a, b, c]` lowers to a container plus one SYNTHESIZED `push` per element
+// (design 54), and a synthesized call is exactly a site with no expression an
+// author could hang a `try` on — §5's hidden-allocation boundary reached from
+// the other side. The literal forces the element op's `Result` and the panic
+// says what the `Result` said, which is strictly more than design 123's
+// `Vector.push: allocation failed` could: the request size is in the message.
+//
+// The container's own `Vector()` allocates nothing, so the only allocation a
+// literal makes is the one the elements force.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: collection literal: allocation of
+
+// Enough budget for the container's first buffer, then nothing.
+static BUDGET: Atomic<Int> = Atomic(1)
+
+struct FailAlloc {}
+extension FailAlloc: Allocator {
+    func alloc(&self, size: Int, align: Int) unsafe -> UnsafePointer<Int8>? {
+        let left = BUDGET.load()
+        if left <= 0 {
+            return None
+        }
+        BUDGET.store(left - 1)
+        GlobalAllocator().alloc(size, align)
+    }
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) unsafe {
+        GlobalAllocator().dealloc(ptr, size, align)
+    }
+}
+
+func main() {
+    // The first push allocates capacity 4 and elements 2-4 fit; the fifth has
+    // to grow, and the budget is gone by then.
+    let v: Vector<Int, FailAlloc> = [1, 2, 3, 4, 5]
+    print(v.len())
+}

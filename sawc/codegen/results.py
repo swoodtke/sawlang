@@ -176,19 +176,24 @@ class ResultsMixin:
             [(prefix_ptr, prefix_len),
              self._render_argument(rendered, in_entry=False)])
 
-    def _synthesized_result_enum(self, value, ok_saw):
+    def _synthesized_result_enum(self, value, ok_saw, err_spelling="AllocError"):
         """The registered `Result$…` enum a COMPILER-SYNTHESIZED call returned,
         or `None` when the call returned something else.
 
         A synthesized call has no AST node the typechecker annotated, so the
         instantiation cannot be read off `expr.result_enum_type` the way
         `_generate_try_expr` reads it. It is recovered from the LLVM layout and
-        DISAMBIGUATED by the Ok payload's spelling — which the caller knows by
+        DISAMBIGUATED by BOTH payload spellings — which the caller knows by
         construction — because same-layout instantiations are exactly what a
-        layout match alone cannot separate (`Result<Int, Int>` and
-        `Result<String, E>` are both `{ i32, [8 x i8] }`).
+        layout match alone cannot separate. Both halves are load-bearing: a
+        `Result<Void, AllocError>` shares its layout with
+        `Result<Arc<DataBuf>, AllocError>` (same Err, different Ok) and with
+        `Result<Void, DecodeError>` (same Ok, different Err), so either key
+        alone still leaves three candidates in an ordinary program.
 
-        `ok_saw` is `None` for a `Result<Void, E>` (design 92: a dataless Ok arm).
+        `ok_saw` is `None` for a `Result<Void, E>` (design 92: a dataless Ok
+        arm); `err_spelling` defaults to the leaf every flipped container op
+        reports (design 234 §1's narrowest-type rule).
 
         ENTRY POINTS: `_build_collection_literal` — the per-element
         `push`/`insert` of a vector/map/set literal (design 54), which is the
@@ -201,12 +206,21 @@ class ResultsMixin:
                 continue
             if "Ok" not in info or "Err" not in info:
                 continue
+            err = info["Err"]
+            if len(err) != 1 or str(err[0][1]) != err_spelling:
+                continue
             candidates.append((name, info))
         if not candidates:
             return None
 
         if ok_saw is None:
-            exact = [n for n, i in candidates if self._is_void_payload(i["Ok"])]
+            # `Result<Void, E>` is registered EITHER dataless (design 92) or as
+            # one `Void`-typed field, depending on which producer built it, so
+            # the spelling is checked beside the layout test rather than instead
+            # of it — a `Void` Ok that is not lowered away is still a `Void` Ok.
+            exact = [n for n, i in candidates
+                     if self._is_void_payload(i["Ok"])
+                     or (len(i["Ok"]) == 1 and str(i["Ok"][0][1]) == "Void")]
         else:
             want = str(ok_saw)
             exact = [n for n, i in candidates

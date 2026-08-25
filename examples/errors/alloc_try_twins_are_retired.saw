@@ -1,0 +1,18 @@
+// Conformance row A13 — the alloc `try_` twins are GONE.
+//
+// Design 234 §4 narrows the prefix to ONE meaning, non-blocking. A retirement
+// nothing checks is a retirement that grows back, so this asserts the ABSENCE:
+// the twin name resolves to no method, and the diagnostic lists what the type
+// does have — which is the un-prefixed operation the twin retired into.
+//
+// `try_receive`, `try_lock` and `try_get` keep the prefix and keep their
+// meaning; they are polls, not allocations.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: type `Vector` has no method `try_push`
+// EXPECT-ERROR-CONTAINS: push
+
+func main() {
+    var v = Vector<Int>()
+    let _ = v.try_push(1)
+    print(v.len())
+}
