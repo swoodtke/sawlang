@@ -6818,7 +6818,8 @@ Thread.spawn { crunch(n) }
 var t = Thread.spawn { crunch(n) }
 if urgent { let _ = t.join() }
 // error: `t` holds a `Thread<Int>` that is never consumed: it was spawned at
-//        line 1 and reaches the end of its scope with no `join()` on this path
+//        line 1 and reaches the end of its scope with no `join()` or `detach()`
+//        on this path
 ```
 
 The check is per-path: a `join()` inside a branch settles that branch and no
@@ -6864,7 +6865,7 @@ forgets can still reach a thread handle's destructor unconsumed. That path
 panics, naming the type and the fates:
 
 ```
-panic at task.saw:150: Thread was dropped without being joined or detached —
+panic at task.saw:181: Thread was dropped without being joined or detached —
 `join()` waits for it and takes its result, `detach()` gives the thread to the
 process
 ```
@@ -7166,7 +7167,7 @@ consumer — and that exemption is what makes the accept-loop idiom work. One
 that escapes the check and reaches its destructor unconsumed panics:
 
 ```
-panic at taskgroup.saw:1802: Task was dropped without being joined, detached or
+panic at taskgroup.saw:1827: Task was dropped without being joined, detached or
 cancelled — `join()` waits for it and takes its result, `detach()` hands it to
 the process, `cancel()` asks it to stop
 ```

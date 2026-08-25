@@ -1721,7 +1721,7 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   type with two obligations.
   The storage rule asks only that the owner DECLARE a deinit, not that it
   actually consume — an owner that forgets meets the runtime backstop:
-  `panic at task.saw:150: Thread was dropped without being joined or detached`,
+  `panic at task.saw:181: Thread was dropped without being joined or detached`,
   and its `Task` twin.
   GOTCHA for older code: the handle used to JOIN on drop, so
   `let _ = spawn { … }` was a sequential call plus thread overhead and every
