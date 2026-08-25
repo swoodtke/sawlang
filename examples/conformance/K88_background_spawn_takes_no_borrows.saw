@@ -1,0 +1,40 @@
+// Conformance row K88 — `Task.spawn` accepts no borrows, in either spelling
+//
+// design 242 ruling 7. Design 189 makes a spawn borrow's extent the TASK's
+// life and `join()` its release point; a background task has no such point —
+// it may be detached, and it is cancelled at `main`'s return rather than joined
+// at a scope the borrow's root outlives. So the ban is at the FORM, which is
+// also what keeps the checker out of the business of tracing a handle's
+// provenance through the program to decide whether a `detach()` is legal.
+//
+// Both spellings design 201/189 gave a spawn borrow are refused, because
+// `_spawn_borrow_sources` is the one funnel that knows them: a `&`/`&var`
+// ARGUMENT of the spawned call, and a borrow CAPTURE in a closure inside it.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `Task.spawn` accepts no borrows: `&var buffer` is an argument of the spawned call
+// EXPECT-ERROR-CONTAINS: `Task.spawn` accepts no borrows: `&var total` is a capture of the spawned call
+// EXPECT-ERROR-CONTAINS: a group's scope IS the borrow's extent
+
+import std.task.*
+
+func fill(v: &var Vector<Int>, n: Int) -> Int {
+    yield_now()
+    v.push(n)
+    v.len()
+}
+
+func run(body: () sync -> Int) -> Int {
+    yield_now()
+    body()
+}
+
+func main() {
+    var buffer: Vector<Int> = []
+    let filler = Task.spawn(fill(&var buffer, 3))
+    filler.join()
+
+    var total = 0
+    let adder = Task.spawn(run({ [&var total] in total = total + 1  total }))
+    adder.join()
+}

@@ -1,0 +1,50 @@
+// Conformance row K89 — `Task<T>.detach()` gives the task to the process and
+// DECLARES its result dropped
+//
+// design 242 ruling 4, the cooperative half. `detach()` is the moral
+// `let _ =`, and it is what makes never-hide-errors hold for a fire-and-forget
+// task: the value is thrown away at one named place instead of quietly
+// outliving the program in a cell nobody will ever read. Scheduler-side only —
+// no thread, no runtime seam, no new ABI: the task's group cell is marked
+// never-joined, and the completion path drops the result there rather than
+// keeping it for a `join` that will never come.
+//
+// The `dropped` line is the row: it must land WHEN THE TASK FINISHES, before
+// main's own last line, and exactly once.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// spawned and detached
+// report 7 dropped
+// main is finished
+
+import std.task.*
+
+struct Report {
+    id: Int
+}
+
+extension Report: NoCopy {
+    func deinit(&var self) {
+        print("report {self.id} dropped")
+    }
+}
+
+func measure(id: Int) -> Report {
+    yield_now()
+    Report(id: id)
+}
+
+func main() {
+    let handle = Task.spawn(measure(7))
+    handle.detach()
+    print("spawned and detached")
+    // Give the scheduler its turns: the detached task runs, produces its
+    // `Report`, and the completion path drops it because the cell says
+    // never-joined. Two yields, because the body has a suspension of its own —
+    // and the point of the row is that the drop lands HERE, at the task's own
+    // completion, rather than at the exit close below.
+    yield_now()
+    yield_now()
+    print("main is finished")
+}

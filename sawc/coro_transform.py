@@ -8565,8 +8565,7 @@ def _make_ambient_entry_executor(fb: _FrameBuilder, fbs):
     cell_ptr = _cell_ptr_type(fb)
     cell_init = StructInit(
         struct_name="__ResultCell", type_args=[fb.ret],
-        field_inits=[("__result", NoneLiteral()),
-                     ("__cancel", BoolLiteral(value=False))])
+        field_inits=_result_cell_fields())
     cell_box_ty = SawType(TypeKind.EXISTENTIAL, existential_trait="__TaskCell")
     stmts = [
         LetStatement(name="__cbox", type_annotation=None, mutable=True,
@@ -8814,7 +8813,22 @@ def _check_spawn_frame_send(fb: _FrameBuilder, fbs, typechecker):
             fb.func.line, fb.func.column, source_file=fb.src_file)
 
 
-def _make_spawn_helper(fb: _FrameBuilder, fbs, helper_name=None):
+def _void_cell_fields():
+    """`__VoidCell`'s memberwise fields, in declaration order (design 242 unit 3
+    added the two words beside the cancel one — see `std/taskgroup.saw`). One
+    definition, because three synthesis sites build this literal: the spawn
+    helper, its background twin, and the ambient entry executor's root cell."""
+    return [("__cancel", BoolLiteral(value=False)),
+            ("__fated", BoolLiteral(value=False)),
+            ("__detached", BoolLiteral(value=False))]
+
+
+def _result_cell_fields():
+    """`__ResultCell<T>`'s memberwise fields — see `_void_cell_fields`."""
+    return [("__result", NoneLiteral())] + _void_cell_fields()
+
+
+def _make_spawn_helper(fb: _FrameBuilder, fbs, helper_name=None, background=False):
     """Synthesize `__spawn_<f>(__group, <params>) -> Task<T>`.
 
     Allocate the task's CELL first (design 134), take the raw pointers to its
@@ -8846,23 +8860,32 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs, helper_name=None):
     `helper_name` overrides the emitted name. It is set when `fb` is a
     DF-138a spawn-root trampoline (`f$spawnroot`), whose frame the helper boxes
     while the call sites still say `__spawn_f` — see `_make_spawn_trampoline`.
+
+    `background` (design 242 ruling 3) builds the `Task.spawn` twin
+    `__bgspawn_<f>(<params>)`: no `__group` parameter, because the group is the
+    process-wide one `__saw_bg_group()` builds on first use. Two more things
+    differ, and both are ruling 5/9b's must-consume obligation made
+    mechanical — the handle carries `background: true`, and the SLOT is PINNED,
+    so the cell (which holds the fate word the handle's `deinit` reads) is never
+    released under a live handle. Everything else — the cell, the frame, the
+    enqueue, the handle — is byte for byte the group form's.
     """
     from ast_nodes import StructInit
     T = fb.ret
     params = fb.params
-    helper_name = helper_name or f"__spawn_{fb.name}"
+    helper_name = helper_name or (f"__bgspawn_{fb.name}" if background
+                                  else f"__spawn_{fb.name}")
 
     cell_ptr = _cell_ptr_type(fb)
     # design 102 item 1: a `Void` task has no result slot, so its cell is the
     # bare `__VoidCell` and the handle captures only the cancel word + slot.
     if fb.is_void:
         cell_init = StructInit(struct_name="__VoidCell", type_args=None,
-                               field_inits=[("__cancel", BoolLiteral(value=False))])
+                               field_inits=_void_cell_fields())
     else:
         cell_init = StructInit(
             struct_name="__ResultCell", type_args=[T],
-            field_inits=[("__result", NoneLiteral()),
-                         ("__cancel", BoolLiteral(value=False))])
+            field_inits=_result_cell_fields())
     cell_box_ty = SawType(TypeKind.EXISTENTIAL, existential_trait="__TaskCell")
     cell_box_make = MethodCall(
         object=Identifier(name="Box", type_args=[cell_box_ty]),
@@ -8880,18 +8903,27 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs, helper_name=None):
                      inner_type=SawType(TypeKind.STRUCT, struct_name="TaskGroup"),
                      reference_mutable=False)
 
-    stmts = [
+    # design 242 ruling 3: the background form has no `__group` parameter — its
+    # group is the process-wide one, built on first use. Everything after this
+    # one declaration is identical, which is the point of routing both forms
+    # through one builder.
+    if background:
+        group_value = FunctionCall(name="__saw_bg_group", arguments=[])
+    else:
         # design 222 unit 2: the helper's `__group` is a REFERENCE now (the spawn
         # site writes `&group` and no cast), so the pointer the enqueue and the
         # handle need is derived HERE, in the one declaration that says `unsafe`
         # about it. Forwarding a received reference is design 106's ordinary
         # spelling; the address is the same one the site used to take.
+        group_value = CastExpr(
+            expr=ReferenceExpr(expr=Identifier(name="__group"),
+                               mutable=False,
+                               in_argument_position=True),
+            target_type=tg_ptr)
+
+    stmts = [
         LetStatement(name="__gp", type_annotation=None, mutable=False,
-                     value=CastExpr(
-                         expr=ReferenceExpr(expr=Identifier(name="__group"),
-                                            mutable=False,
-                                            in_argument_position=True),
-                         target_type=tg_ptr)),
+                     value=group_value),
         LetStatement(name="__cbox", type_annotation=None, value=cell_box_make,
                      mutable=True),
         LetStatement(name="__cdata", type_annotation=None, mutable=False,
@@ -8909,12 +8941,20 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs, helper_name=None):
                          value=CastExpr(
                              expr=ReferenceExpr(expr=_cell_field("__result"), mutable=False),
                              target_type=SawType(TypeKind.POINTER, inner_type=_opt(T)))))
+    bool_ptr = SawType(TypeKind.POINTER, inner_type=SawType(TypeKind.BOOL))
     stmts.append(
         LetStatement(name="__cp", type_annotation=None, mutable=False,
                      value=CastExpr(
                          expr=ReferenceExpr(expr=_cell_field("__cancel"), mutable=False),
-                         target_type=SawType(TypeKind.POINTER,
-                                             inner_type=SawType(TypeKind.BOOL)))))
+                         target_type=bool_ptr)))
+    # design 242 rulings 5/9b: the fate word, addressed the same way the cancel
+    # word is. Both handle kinds carry it; only a background handle READS it
+    # (its `deinit` does), which is what keeps a group handle freely droppable.
+    stmts.append(
+        LetStatement(name="__fp", type_annotation=None, mutable=False,
+                     value=CastExpr(
+                         expr=ReferenceExpr(expr=_cell_field("__fated"), mutable=False),
+                         target_type=bool_ptr)))
 
     frame_init = _build_frame_init(
         fb, [_seed_field(fb, p.name, p.type, _frame_param_arg(p))
@@ -8943,38 +8983,43 @@ def _make_spawn_helper(fb: _FrameBuilder, fbs, helper_name=None):
                          method_name="__gen_at",
                          arguments=[Argument(name=None, value=Identifier(name="__slot"))])),
     ])
-    if fb.is_void:
-        handle = StructInit(
-            struct_name="VoidTask", type_args=None,
-            field_inits=[("cancel_ptr", Identifier(name="__cp")),
-                         ("group_ptr", Identifier(name="__gp")),
-                         ("slot", Identifier(name="__slot")),
-                         ("generation", Identifier(name="__gen"))])
-        ret_type = SawType(TypeKind.STRUCT, struct_name="VoidTask")
+    if background:
+        # design 242 rulings 5/9b: a background slot is PINNED at birth. The
+        # handle's `deinit` reads the cell's fate word, and a handle may outlive
+        # its task by any amount — so the cell has to outlive the task too, which
+        # is exactly what `pin` buys (`__recycle` keeps a pinned slot's cell and
+        # never hands the index out again). `cancel_addr()` pins for the
+        # neighbouring reason: an address that escaped must stay valid.
+        stmts.append(ExpressionStatement(expression=MethodCall(
+            object=ArrayIndex(array_expr=Identifier(name="__gp"), index=_int(0)),
+            method_name="__pin_sync",
+            arguments=[Argument(name=None, value=Identifier(name="__slot")),
+                       Argument(name=None, value=Identifier(name="__gen"))])))
+    common_fields = [("cancel_ptr", Identifier(name="__cp")),
+                     ("fate_ptr", Identifier(name="__fp")),
+                     ("background", BoolLiteral(value=background)),
+                     ("group_ptr", Identifier(name="__gp")),
+                     ("slot", Identifier(name="__slot")),
+                     ("generation", Identifier(name="__gen"))]
+    if background:
+        helper_params = [_helper_param(fb, p) for p in params]
+    else:
         helper_params = [Parameter(name="__group", type=tg_ref,
                                    is_reference=True,
                                    reference_mutable=False)] + \
                         [_helper_param(fb, p) for p in params]
-        # The helper hands the cell's `__cancel` address to the handle and casts
-        # its group reference to the pointer the queue wants: unsafe by body in
-        # every shape (the trusted design-134 cell plumbing).
-        return _declare_unsafe(
-            Function(name=helper_name, parameters=helper_params,
-                     return_type=ret_type,
-                     body=Block(statements=stmts, final_expr=handle),
-                     is_synthesized=True,
-                     source_file=getattr(fb.func, 'source_file', "")), True)
-    handle = StructInit(
-        struct_name="Task", type_args=[T],
-        field_inits=[("result_ptr", Identifier(name="__rp")),
-                     ("cancel_ptr", Identifier(name="__cp")),
-                     ("group_ptr", Identifier(name="__gp")),
-                     ("slot", Identifier(name="__slot")),
-                     ("generation", Identifier(name="__gen"))])
-    ret_type = SawType(TypeKind.STRUCT, struct_name="Task", type_args=[T])
-    helper_params = [Parameter(name="__group", type=tg_ref,
-                               is_reference=True, reference_mutable=False)] + \
-                    [_helper_param(fb, p) for p in params]
+    if fb.is_void:
+        handle = StructInit(struct_name="VoidTask", type_args=None,
+                            field_inits=common_fields)
+        ret_type = SawType(TypeKind.STRUCT, struct_name="VoidTask")
+    else:
+        handle = StructInit(
+            struct_name="Task", type_args=[T],
+            field_inits=[("result_ptr", Identifier(name="__rp"))] + common_fields)
+        ret_type = SawType(TypeKind.STRUCT, struct_name="Task", type_args=[T])
+    # The helper hands the cell's `__cancel`/`__fated` addresses to the handle
+    # and casts its group reference to the pointer the queue wants: unsafe by
+    # body in every shape (the trusted design-134 cell plumbing).
     return _declare_unsafe(
         Function(name=helper_name, parameters=helper_params,
                  return_type=ret_type,
@@ -9132,8 +9177,15 @@ def _labeled_call_rule(node):
 
 
 def _spawn_site_rule(node):
-    """Rewrite `group.spawn(f(args))` -> `__spawn_f(&group, args...)`. The site
-    was stamped with `spawn_root` by the typechecker.
+    """Rewrite a cooperative spawn site to its synthesized helper call. Both
+    forms were stamped with `spawn_root` by the typechecker:
+
+        group.spawn(f(args))  ->  __spawn_f(&group, args...)
+        Task.spawn(f(args))   ->  __bgspawn_f(args...)      [design 242 unit 3]
+
+    The background form takes no group argument — its group is the process-wide
+    one `__saw_bg_group()` builds on first use, and the helper reads it there,
+    inside the one declaration that says `unsafe` about the pointer.
 
     design 222 unit 2: the group crosses as a REFERENCE. This one site was 158 of
     the 166 files unit 0 measured under E2 — every program that spawns a task got
@@ -9141,6 +9193,15 @@ def _spawn_site_rule(node):
     and then owed an `unsafe` declaration for a pointer nobody typed. `&group` is
     what the author would have written; `__spawn_<f>` takes it and does the
     crossing in its own `unsafe`-declared body."""
+    if (isinstance(node, FunctionCall) and node.name == "Task.spawn"
+            and getattr(node, 'spawn_root', None)):
+        inner = node.arguments[0].value
+        call = FunctionCall(
+            name=f"__bgspawn_{node.spawn_root}",
+            arguments=[_ref_arg_to_ptr(a) for a in inner.arguments],
+            line=node.line, column=node.column)
+        call.resolved_type = getattr(node, 'resolved_type', None)
+        return call
     if (isinstance(node, MethodCall) and node.method_name == "spawn"
             and getattr(node, 'spawn_root', None)):
         root = node.spawn_root
@@ -9825,6 +9886,12 @@ def transform_program(program, typechecker, imported_ast=None):
     method_roots = dict(getattr(typechecker, "_driven_method_roots", {}) or {})
     spawn_roots = dict(getattr(typechecker, "_spawn_roots", {}) or {})
     mt_spawn_roots = set(getattr(typechecker, "_mt_spawn_roots", set()) or set())
+    # design 242 ruling 3: roots spawned by `Task.spawn` into the process-wide
+    # background group. A root may be in BOTH sets (spawned into a group at one
+    # site and into the background at another) — the two helpers box the same
+    # frame and differ only in where the group comes from.
+    bg_spawn_roots = set(
+        getattr(typechecker, "_background_spawn_roots", set()) or set())
     funcs_by_name = {f.name: f for f in program.functions}
     # design 84: a nested suspending method may be defined in an IMPORTED module
     # (std.net's TcpStream.read / TcpListener.accept), not the entry module. The
@@ -10366,6 +10433,13 @@ def transform_program(program, typechecker, imported_ast=None):
         # mirrors those params exactly, so nothing escapes the check.
         new_functions.append(_make_spawn_helper(
             spawn_fbs[root_name], fbs, helper_name=f"__spawn_{root_name}"))
+        # design 242 ruling 3: a root also spawned by `Task.spawn` gets a second
+        # helper over the SAME frame. Both are emitted whenever both forms name
+        # the root; an unused one is dead code the linker drops.
+        if root_name in bg_spawn_roots:
+            new_functions.append(_make_spawn_helper(
+                spawn_fbs[root_name], fbs,
+                helper_name=f"__bgspawn_{root_name}", background=True))
         removed.add(root_name)
     removed.update(closure)
     if main_suspends:
@@ -10533,4 +10607,65 @@ def transform_program(program, typechecker, imported_ast=None):
     program.structs.extend(new_structs)
     program.enums.extend(new_enums)
     program.extensions.extend(new_extensions)
+    if bg_spawn_roots:
+        _wrap_main_for_background(program)
     return True
+
+
+BG_PROGRAM_MAIN = "__saw_program_main"
+
+
+def _wrap_main_for_background(program):
+    """design 242 ruling 3: close the background group at `main`'s return.
+
+    The singleton has no scope and no owner, so nothing runs its teardown —
+    there is no at-exit hook in the language or the runtime, and a `main` that
+    is SYNC is emitted verbatim, so there is no existing place to append to
+    either. What there is is a `main`, whatever shape it ended up in: the user's
+    own body when it never suspends, or the entry executor this pass just
+    synthesized when it does. Rename THAT to `__saw_program_main` and put a
+    wrapper called `main` over it:
+
+        func main() -> R {
+            let __status = __saw_program_main()
+            __saw_bg_close()
+            move __status
+        }
+
+    A wrapper rather than an appended statement, because the close has to run on
+    every edge out of the program and a `return` in the middle of `main` is one
+    of them. `main`'s four legal return shapes (design 221) all forward through
+    the binding; a `Void` one drops the binding and calls in statement position.
+    Codegen's C-entry treatment keys on the NAME `main` with no parameters, so
+    it lands on the wrapper, which is what makes the renamed body an ordinary
+    Saw function with an ordinary Saw return.
+
+    Runs AFTER the splice, so it sees exactly one `main` however this pass got
+    there. A program with no `main` (a library, a `-c` object) gets nothing:
+    there is no exit of ours to hang the close on.
+    """
+    inner = None
+    for f in program.functions:
+        if f.name == "main" and not f.parameters:
+            inner = f
+            break
+    if inner is None:
+        return
+    inner.name = BG_PROGRAM_MAIN
+    ret = inner.return_type
+    is_void = ret is None or ret.kind == TypeKind.VOID
+    call = FunctionCall(name=BG_PROGRAM_MAIN, arguments=[])
+    close = ExpressionStatement(
+        expression=FunctionCall(name="__saw_bg_close", arguments=[]))
+    if is_void:
+        stmts, final = [ExpressionStatement(expression=call), close], None
+    else:
+        stmts = [LetStatement(name="__status", type_annotation=None,
+                              mutable=False, value=call),
+                 close]
+        final = MoveExpr(variable="__status", path=None)
+    program.functions.append(Function(
+        name="main", parameters=[], return_type=ret,
+        body=Block(statements=stmts, final_expr=final),
+        is_synthesized=True,
+        source_file=getattr(inner, 'source_file', "")))

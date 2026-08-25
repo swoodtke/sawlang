@@ -2303,25 +2303,49 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         type_order = list(struct_map.keys()) + [
             n for n in enum_map.keys() if n not in struct_map]
         all_types = set(type_order)
+        # DF-256a: a GENERIC struct's own fields are dependencies too, and the
+        # walk below cannot see them — the graph is built over non-generic
+        # declarations only (a template has no layout), so a field of type
+        # `Task<Int>` contributed the name `Task` and stopped. `Task<T>`'s
+        # `group_ptr: UnsafePointer<TaskGroup>` is a CONCRETE dependency of every
+        # instantiation, and registering the container asks
+        # `_ensure_monomorphized_struct` to build the instantiation right there —
+        # which needs `TaskGroup` already registered. Reaching through the
+        # template is what makes that edge visible. Substitution is not needed:
+        # a field typed by a type PARAMETER names no registered type, and one
+        # typed by a concrete struct names the same struct at every
+        # instantiation.
+        generic_templates = {decl_identity(s): s
+                             for s in structs if s.type_params}
 
         # Helper to get type dependencies from a SawType
-        def get_deps(saw_type):
+        def get_deps(saw_type, _through=None):
             deps = set()
+            if _through is None:
+                _through = set()
             if saw_type.kind == TypeKind.STRUCT and saw_type.struct_name in all_types:
                 deps.add(saw_type.struct_name)
+                template = generic_templates.get(saw_type.struct_name)
+                if template is not None and saw_type.struct_name not in _through:
+                    # Guarded against a self-referential template (a `Node<T>`
+                    # holding a `Node<T>?`), which would otherwise recurse
+                    # forever.
+                    _through.add(saw_type.struct_name)
+                    for tfield in template.fields:
+                        deps.update(get_deps(tfield.type, _through))
             elif saw_type.kind == TypeKind.ENUM and saw_type.enum_name in all_types:
                 deps.add(saw_type.enum_name)
             # Check type args for generics like Vector<MyStruct>
             if saw_type.type_args:
                 for arg in saw_type.type_args:
-                    deps.update(get_deps(arg))
+                    deps.update(get_deps(arg, _through))
             # Check inner_type for optionals, pointers, references, etc.
             if saw_type.inner_type:
-                deps.update(get_deps(saw_type.inner_type))
+                deps.update(get_deps(saw_type.inner_type, _through))
             # Check tuple element types.
             if saw_type.element_types:
                 for elem in saw_type.element_types:
-                    deps.update(get_deps(elem))
+                    deps.update(get_deps(elem, _through))
             # Check the element type of a fixed array `[T; N]`: a struct field of
             # array type depends on its element type's layout being registered
             # first (design 33). Missing this let the topological sort place a
@@ -2329,7 +2353,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             # container's LLVM type failed with "Undefined struct" nondeterministically
             # (the order depended on set iteration / hash seed).
             if saw_type.kind == TypeKind.ARRAY and saw_type.array_element_type:
-                deps.update(get_deps(saw_type.array_element_type))
+                deps.update(get_deps(saw_type.array_element_type, _through))
             return deps
 
         # Build dependency graph

@@ -1,0 +1,21 @@
+// design 242 ruling 3: the background task group is closed at `main`'s return,
+// and a freestanding image has no `main` to return from — so `Task.spawn` is a
+// clean refusal in that profile rather than a group nothing ever drains. The
+// hint names the spelling that DOES work freestanding: a `TaskGroup` the author
+// declares, whose scope says where the tasks end.
+// (An ELF cross-target is named explicitly, for the reason
+// `offload_freestanding_reject.saw` gives.)
+// COMPILE-FLAGS: --freestanding --target x86_64-unknown-linux-gnu
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: freestanding profile: `Task.spawn` needs the process-wide background task group
+// EXPECT-ERROR-CONTAINS: declare a `TaskGroup` and spawn into it
+
+func work(n: Int) -> Int {
+    n * 2
+}
+
+@export("entry")
+func entry(n: Int) -> Int {
+    let h = Task.spawn(work(n))
+    h.join()
+}

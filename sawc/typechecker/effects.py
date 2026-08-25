@@ -250,6 +250,12 @@ class EffectsMixin:
         # (`TaskGroup(threads: N)`). Their frames cross OS-thread boundaries, so the
         # coroutine transform gates every across-suspend live value on `Send`.
         self._mt_spawn_roots: set = set()
+        # design 242 ruling 3: spawn roots spawned into the BACKGROUND singleton
+        # (`Task.spawn(f(args))`). A root here gets a second helper beside
+        # `__spawn_<f>` — `__bgspawn_<f>`, which takes no group parameter and
+        # reads the process-wide group instead — and its presence is what makes
+        # the transform wrap `main` with the group's close.
+        self._background_spawn_roots: set = set()
         # design 70 (A5): effect polymorphism via monomorphization-time
         # re-inference. Pristine (pre-body-check) copies of every generic function
         # template, keyed by name, so an instantiation can be cloned + substituted
@@ -307,6 +313,9 @@ class EffectsMixin:
 
     def _effect_record_spawn(self, name: str, return_type):
         self._spawn_roots[name] = return_type
+
+    def _effect_record_background_spawn(self, name: str):
+        self._background_spawn_roots.add(name)
 
     def _effect_record_driven_method(self, struct_name: str, method: str, mode: str,
                                      resolved_symbol=None):

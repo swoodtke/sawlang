@@ -4140,6 +4140,8 @@ class ExpressionsMixin:
             return None
         if expr.name == "Thread.spawn":
             return self._check_spawn(expr)
+        if expr.name == "Task.spawn":
+            return self._check_task_spawn(expr)
         if expr.name == "sizeof":
             if len(expr.arguments) != 0:
                 self._error(
@@ -8997,28 +8999,32 @@ class ExpressionsMixin:
         }
         return box_result
 
-    def _check_taskgroup_spawn(self, expr, group_type):
-        """`group.spawn(f(args))` (design 52b item 2). Validate the argument is a
-        direct call to a free function, record `f` a spawn root (so the coro
-        transform builds its frame + `Resumable` conformance + a `__spawn_<f>`
-        helper), and yield `Task<T>` with `T` = f's return type. Absorbs the
-        callee's suspension — spawning enqueues; it does not itself suspend — so
-        the enclosing function does not become suspending merely by spawning."""
+    def _check_spawned_call_argument(self, expr, form: str, example: str):
+        """THE COOPERATIVE SPAWN FUNNEL (design 242 unit 3, obligation 1).
+
+        Both cooperative spawn forms hand the engine a DIRECT CALL to a free
+        function, and everything between "one positional argument" and "the
+        root is registered" is the same question asked twice. It is asked here.
+
+        ENTRY POINTS, both of them:
+          * `_check_taskgroup_spawn` — `group.spawn(f(args))` (design 52b).
+          * `_check_task_spawn` — `Task.spawn(f(args))` (design 242 ruling 10:
+            the CALL form is the Task engine's primitive, because a brace body
+            cannot suspend and a suspending body is the engine's whole point).
+
+        `form` is the spelling the diagnostics print and `example` a call in
+        that spelling. Returns `(spawn_name, result_type, inner)` — the
+        MONOMORPHIZED root symbol, the body's return type and the (possibly
+        reinterpreted) inner call node — or None after a diagnostic.
+        """
         if len(expr.arguments) != 1 or expr.arguments[0].name is not None:
             self._error(
                 ErrorKind.WRONG_ARGUMENT_COUNT,
-                "`group.spawn(...)` takes exactly one positional argument: a call "
-                "to the function to run as a task, e.g. `group.spawn(worker(n))`",
+                f"`{form}(...)` takes exactly one positional argument: a call "
+                f"to the function to run as a task, e.g. `{example}`",
                 expr.line, expr.column)
             return None
         inner = expr.arguments[0].value
-        # A FULLY-LABELED call is a `StructInit` by parse (design 66), and the
-        # spawn argument is one of the positions that only ever asked for a
-        # `FunctionCall` — so `group.spawn(worker(n: 20))` was refused with a
-        # message showing the same call it was given (DF-190b's family).
-        # Reinterpret it here and REPLACE the argument, so everything
-        # downstream — the capture-order check, the effect record, and the coro
-        # transform's spawn rewrite — reads one call shape.
         if isinstance(inner, StructInit) and self.get_struct_info(inner.struct_name) is None:
             as_call = self._reinterpret_struct_init_as_call(inner)
             if as_call is not None:
@@ -9028,16 +9034,11 @@ class ExpressionsMixin:
         if not isinstance(inner, FunctionCall):
             self._error(
                 ErrorKind.TYPE_MISMATCH,
-                "`group.spawn(...)` expects a direct call to a free function, "
-                "e.g. `group.spawn(worker(n))`",
+                f"`{form}(...)` expects a direct call to a free function, "
+                f"e.g. `{example}`",
                 expr.line, expr.column)
             return None
-        # Before anything reads the callee: put the AUTHORED name back if an
-        # earlier pass over this same AST already monomorphized it.
         self._restore_authored_call(inner)
-        # Check the inner call inside an absorbing scope so its suspension does not
-        # taint the spawning function; this also validates the argument types and
-        # stamps `inner.resolved_type`.
         sentinel = self._effect_absorb_scope()
         inner_type = self._check_expression(inner)
         self._effect_unabsorb(sentinel)
@@ -9047,25 +9048,118 @@ class ExpressionsMixin:
                 "the task never completes and `join` on its handle could never "
                 "return", result_type, expr.line, expr.column):
             return None
-        # design 70 (A5): spawning a generic function monomorphizes the
-        # instantiation to a concrete function (keyed by the mangled symbol) and
-        # spawns THAT, so the coroutine transform's frame + `__spawn_<f>` synthesis
-        # sees an ordinary non-generic function.
-        # Design 105: a generic OVERLOAD resolved by inference carries its distinct
-        # `$OL$` base in `resolved_symbol`; monomorphize from THAT template so the
-        # right overload is instantiated (plain `inner.name` maps ambiguously).
         spawn_name = getattr(inner, 'resolved_symbol', None) or inner.name
         if getattr(inner, 'type_args', None):
             resolved_args = [self._resolve_type(a) for a in inner.type_args]
             if not all(self._is_concrete_type(a) for a in resolved_args):
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
-                    f"`group.spawn(...)` of a generic function requires concrete "
+                    f"`{form}(...)` of a generic function requires concrete "
                     f"type arguments", expr.line, expr.column)
                 return None
             spawn_name = self._effect_queue_fn_mono(spawn_name, resolved_args)
             inner.name = spawn_name
             inner.type_args = None
+        return (spawn_name, result_type, inner)
+
+    def _task_handle_type(self, result_type):
+        """The cooperative handle for a body of this result type (design 102
+        item 1): a `Void` body carries no result slot, so it yields the distinct
+        `VoidTask` rather than a `Task<Void>` nothing could write down."""
+        if result_type.kind == TypeKind.VOID:
+            return SawType(TypeKind.STRUCT, struct_name="VoidTask")
+        return SawType(TypeKind.STRUCT, struct_name="Task", type_args=[result_type])
+
+    def _check_task_spawn(self, expr: FunctionCall) -> Optional[SawType]:
+        """`Task.spawn(work(3))` — the background-singleton spawn form (design
+        242 ruling 3, spelled by ruling 10).
+
+        The task rides the ambient cooperative scheduler in a group the program
+        never declares: lazily built on first use, cancelled-then-joined at
+        `main`'s return. Three things distinguish it from `group.spawn`:
+
+          * BORROWS ARE BANNED AT THE FORM (ruling 7). A detachable task has no
+            join to release a borrow, and enforcing it HERE rather than at
+            `detach()` means the checker never has to trace a handle's
+            provenance through the program.
+          * THE HANDLE IS MUST-CONSUME (ruling 5), minted through the same
+            funnel `Thread.spawn` uses.
+          * IT NEEDS A HOSTED ENTRY. The background group is closed from the
+            synthesized `main`, and a freestanding image has neither.
+        """
+        resolved = self._check_spawned_call_argument(
+            expr, "Task.spawn", "Task.spawn(worker(n))")
+        if resolved is None:
+            return None
+        spawn_name, result_type, inner = resolved
+        handle_type = self._task_handle_type(result_type)
+        if self.freestanding:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                "freestanding profile: `Task.spawn` needs the process-wide "
+                "background task group, which is closed at `main`'s return — "
+                "a freestanding image has no such entry point",
+                expr.line, expr.column,
+                hint="declare a `TaskGroup` and spawn into it with "
+                     "`group.spawn(work(...))`: the group is the scope that "
+                     "says where the tasks end")
+            return handle_type
+        # ruling 7: no borrow reaches a background task. `_spawn_borrow_sources`
+        # is the funnel that knows every position one can be written in — a
+        # capture list inside the spawned call, and a `&`/`&var` argument of it
+        # — so the ban is stated once, over that list, rather than re-derived.
+        for source in self._spawn_borrow_sources(expr, inner):
+            sigil = "&var" if source.mutable else "&"
+            where = ("a capture" if source.kind == 'capture'
+                     else "an argument")
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"`Task.spawn` accepts no borrows: `{sigil} {source.name}` is "
+                f"{where} of the spawned call",
+                source.line, source.column,
+                hint="a background task outlives the statement that spawned it "
+                     "and may be detached, so there is no join to end the "
+                     "borrow at. Spawn into a `TaskGroup` — a group's scope IS "
+                     "the borrow's extent (design 189) — or hand the task an "
+                     "owned value, an `Arc` or a `Channel`")
+            # Hand the handle type back rather than None: the binding stays
+            # typed, so a refused spawn reports the borrow and not a cascade of
+            # `undefined variable` at every later use. Nothing is recorded and
+            # no obligation is minted — the compile has already failed, so the
+            # transform never runs.
+            return handle_type
+        self._effect_record_spawn(spawn_name, result_type)
+        self._effect_record_background_spawn(spawn_name)
+        expr.spawn_root = spawn_name
+        expr.resolved_type = handle_type
+        # ruling 5: the obligation is minted AT THE FORM, which is what keeps
+        # `group.spawn`'s handles out of it (ruling 6). See the funnel in
+        # `types.py`.
+        self._mint_spawn_obligation(
+            expr,
+            "VoidTask" if result_type.kind == TypeKind.VOID
+            else f"Task<{result_type}>",
+            "Task.spawn")
+        return handle_type
+
+    def _check_taskgroup_spawn(self, expr, group_type):
+        """`group.spawn(f(args))` (design 52b item 2). Validate the argument is a
+        direct call to a free function, record `f` a spawn root (so the coro
+        transform builds its frame + `Resumable` conformance + a `__spawn_<f>`
+        helper), and yield `Task<T>` with `T` = f's return type. Absorbs the
+        callee's suspension — spawning enqueues; it does not itself suspend — so
+        the enclosing function does not become suspending merely by spawning.
+
+        The argument's own validation — the arity, design 66's fully-labeled
+        `StructInit` reinterpretation, the direct-call requirement, the
+        absorbed effect check, the `Never` refusal and design 70's
+        monomorphization — is `_check_spawned_call_argument`, which
+        `Task.spawn` asks the same way."""
+        resolved = self._check_spawned_call_argument(
+            expr, "group.spawn", "group.spawn(worker(n))")
+        if resolved is None:
+            return None
+        spawn_name, result_type, inner = resolved
         sources = self._spawn_borrow_sources(expr, inner)
         refused = self._check_spawn_borrow_order(expr, sources)
         self._register_task_capture_borrows(expr, sources, refused)
@@ -9078,14 +9172,7 @@ class ExpressionsMixin:
             if recv_info is not None and getattr(recv_info, 'is_mt_group', False):
                 self._mt_spawn_roots.add(spawn_name)
         expr.spawn_root = spawn_name
-        # design 102 item 1: a `Void` spawn body carries no result slot, so it
-        # yields a `VoidTask` (no `result_ptr`) rather than `Task<Void>` — join
-        # drives to completion and returns, with nothing to take.
-        if result_type.kind == TypeKind.VOID:
-            handle_type = SawType(TypeKind.STRUCT, struct_name="VoidTask")
-        else:
-            handle_type = SawType(TypeKind.STRUCT, struct_name="Task",
-                                  type_args=[result_type])
+        handle_type = self._task_handle_type(result_type)
         # Stamp the handle type so the transform's `__spawn_<f>` rewrite can carry
         # it onto the replacement call (needed when a suspending spawner makes the
         # `let h = group.spawn(...)` binding frame-resident and must type it).

@@ -1225,6 +1225,11 @@ class FunctionCall(Expression):
     alias_construction: Optional[str] = annotation(None)
     # `spawn(f(...))`: f's return type, needed to build the task handle.
     spawn_result_type: Optional['SawType'] = annotation(None)
+    # `Task.spawn(f(...))`: the spawned root's name (design 242 ruling 10 —
+    # the background form is a `FunctionCall`, where `group.spawn`'s is a
+    # `MethodCall`). Consumed by the coroutine transform, which rewrites the
+    # site to `__bgspawn_<f>(args...)`. Same meaning as `MethodCall.spawn_root`.
+    spawn_root: Optional[str] = annotation(None)
     # True once generic type arguments were INFERRED rather than written.
     type_args_inferred: bool = annotation(False)
     # `__saw_blk_take(job)`: the blocking extern whose result this collects

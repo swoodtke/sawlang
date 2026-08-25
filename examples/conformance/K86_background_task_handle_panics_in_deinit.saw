@@ -1,0 +1,49 @@
+// Conformance row K86 — a forgotten BACKGROUND task handle panics in its deinit
+//
+// design 242 ruling 9b on the cooperative side. K82 pins the thread half; this
+// is the one that could not be written until `Task.spawn` existed, because
+// every cooperative handle alive before it came from `group.spawn` and is free
+// to drop (ruling 6). That is exactly why the fault keys on PROVENANCE — a
+// `background` bit the spawn form sets — and never on the type: a check written
+// against `Task<T>` would fire on the group handle this file drops one line
+// earlier, and would take the accept-loop idiom with it.
+//
+// Reachable only through ruling 9a's approximation gap: the storage discharge
+// asks that the owning type DECLARE a `deinit`, not that the deinit actually
+// consume, and `Keeper`'s deliberately does not. Panics do not unwind, so a
+// destructor panic cannot meet another on the way out.
+//
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: Task was dropped without being joined, detached or cancelled
+// EXPECT-PANIC-CONTAINS: `cancel()` asks it to stop
+
+import std.task.*
+
+func work(n: Int) -> Int {
+    yield_now()
+    n
+}
+
+struct Keeper {
+    held: Vector<Task<Int>>
+}
+
+extension Keeper: NoCopy {
+    // The gap, written out: a hand-written deinit that forgets. Declaring one
+    // is what discharges ruling 5's check at the `push` below.
+    func deinit(&var self) {
+        print("the keeper forgot to join")
+    }
+}
+
+func main() {
+    // The control, first: a group handle in the same shape drops in silence.
+    var group = TaskGroup()
+    let dropped = group.spawn(work(1))
+    print("a group handle drops in silence")
+
+    var keeper = Keeper(held: Vector<Task<Int>>())
+    let escaped = Task.spawn(work(2))
+    keeper.held.push(move escaped)
+    print("about to drop the keeper")
+}

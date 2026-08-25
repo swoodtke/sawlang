@@ -516,8 +516,31 @@ static __saw_bt_dumping: Atomic<Int> = Atomic(0)
 // `public` for the design-204 reason, not because a program should name it: the
 // coroutine transform picks these three by NAME when it lowers a spawn, so their
 // identities must stay the plain spellings `sawc/coro_transform.py` writes.
+//
+// design 242 unit 3 adds TWO more words beside the cancel one, and they live
+// here for the same reason it does — the cell OUTLIVES the frame, so a word a
+// handle must still be able to read after its task has finished cannot live in
+// the frame:
+//   `__fated`    — has this handle's fate been WRITTEN (`join`/`detach`/
+//                  `cancel`)? Ruling 9b's deinit panic reads it, and reads it
+//                  through a raw pointer from a `&self` method, exactly as
+//                  `cancel` writes the cancel word. A `group.spawn` handle
+//                  never consults it (ruling 6): the bit is provenance-gated at
+//                  the handle, not type-gated.
+//   `__detached` — ruling 4's scheduler-side detach. The task keeps running;
+//                  its RESULT is dropped at completion instead of being kept
+//                  for a `join` that will never come.
+// The trait grew with them: `__cancel_now` is what `__saw_bg_close` uses to
+// cancel every live member of the background group through the erased box, and
+// `__drop_result` is what the completion path calls on a detached cell — both
+// need the TYPED impl (only `__ResultCell<T>` knows what a result is), which is
+// what the vtable is for.
 public trait __TaskCell {
     func __carries_result(&self) sync -> Bool
+    func __is_detached(&self) sync -> Bool
+    func __cancel_now(&var self) sync
+    func __detach_now(&var self) sync
+    func __drop_result(&var self) sync
 }
 
 // The cell for a task whose body returns a value. `__result` is the slot
@@ -525,22 +548,37 @@ public trait __TaskCell {
 public struct __ResultCell<T> {
     __result: T?
     __cancel: Bool
+    __fated: Bool
+    __detached: Bool
 }
 
 extension __ResultCell<T>: NoCopy {}
 
 extension __ResultCell<T>: __TaskCell {
     func __carries_result(&self) sync -> Bool { true }
+    func __is_detached(&self) sync -> Bool { self.__detached }
+    func __cancel_now(&var self) sync { self.__cancel = true }
+    func __detach_now(&var self) sync { self.__detached = true }
+    // The one place the erased side reaches a TYPED result. `take()` leaves
+    // `None` behind, so the value drops here, exactly once, and the cell's own
+    // later teardown drops nothing.
+    func __drop_result(&var self) sync { let _ = self.__result.take() }
 }
 
 // The cell for a `Void` task (design 102 item 1) and for the ambient scheduler's
 // root frame: a cancel word and nothing else, so no value outlives the task.
 public struct __VoidCell {
     __cancel: Bool
+    __fated: Bool
+    __detached: Bool
 }
 
 extension __VoidCell: __TaskCell {
     func __carries_result(&self) sync -> Bool { false }
+    func __is_detached(&self) sync -> Bool { self.__detached }
+    func __cancel_now(&var self) sync { self.__cancel = true }
+    func __detach_now(&var self) sync { self.__detached = true }
+    func __drop_result(&var self) sync {}
 }
 
 public struct TaskGroup {
@@ -1002,9 +1040,70 @@ extension TaskGroup {
         // The frame is gone, so the dump's view of it goes with it (design 225).
         self.frame_desc.set(slot, -1)
         self.frame_addr.set(slot, 0)
-        let keeps = self.cells.with_ref<Bool>(slot, { c in c!.__carries_result() })
+        // design 242 ruling 4: a DETACHED task's result is dropped where the
+        // task ends, not kept for a `join` that was explicitly given up. That
+        // makes the cell hold nothing joinable, so the slot recycles here on
+        // the `Void` task's terms.
+        let detached = self.cells.with_ref<Bool>(slot, { c in c!.__is_detached() })
+        if detached {
+            let _ = self.cells.with_var_ref<Bool>(slot, { c in c!.__drop_result()  true })
+        }
+        var keeps = false
+        if not detached {
+            keeps = self.cells.with_ref<Bool>(slot, { c in c!.__carries_result() })
+        }
         if not keeps {
             self.__recycle(slot)
+        }
+    }
+
+    // design 242 ruling 4: mark this slot's cell detached, and — when the task
+    // has ALREADY finished — drop the result it was holding for a join. Reached
+    // only from `Task.detach`/`VoidTask.detach`, which have already written the
+    // handle's fate word.
+    //
+    // A stale (slot, generation) is a defined no-op, exactly as it is for
+    // `cancel`: the task finished and its slot retired, so there is nothing
+    // left to detach and no successor this handle may reach.
+    func __detach_slot(&var self, slot: Int, generation: Int) unsafe {
+        self.__lock()
+        if not self.__stale(slot, generation) {
+            let _ = self.cells.with_var_ref<Bool>(slot, { c in c!.__detach_now()  true })
+            if self.done.get(slot)! {
+                let _ = self.cells.with_var_ref<Bool>(slot, { c in c!.__drop_result()  true })
+                self.__recycle(slot)
+            }
+        }
+        self.__unlock()
+    }
+
+    // design 242 ruling 3: the exit path of the BACKGROUND group — cancel every
+    // member that is still live, then rouse a blocked reactor poll so an
+    // already-io-parked one observes it now (design 102 item 2's reason, at the
+    // scale of a whole group). The join is the caller's next line.
+    func __cancel_every_live(&var self) unsafe {
+        var i = 0
+        while i < self.tasks.len() {
+            let d = self.done.get(i)!
+            if not d {
+                let _ = self.cells.with_var_ref<Bool>(i, { c in c!.__cancel_now()  true })
+            }
+            i = i + 1
+        }
+        __saw_exec_reactor_wake()
+    }
+
+    // The slot release `Deinit` has always done, as a method — `__saw_bg_close`
+    // needs the same teardown for a group that is not a local and whose `Deinit`
+    // therefore never runs. Clearing a slot's cell runs the erased teardown, so
+    // an UNCONSUMED result drops exactly once (a joined or detached task's cell
+    // holds `None` by then and drops nothing).
+    func __release_slots(&var self) unsafe {
+        var s = 0
+        while s < self.tasks.len() {
+            self.tasks.set(s, None)
+            self.cells.set(s, None)
+            s = s + 1
         }
     }
 
@@ -1495,12 +1594,7 @@ extension TaskGroup: NoCopy {
         // task's cell holds `None` by then, so it drops nothing. `tasks` is
         // already `None` for every completed task (design 134 releases the frame
         // box at completion); only a frame the drain could not finish is left.
-        var s = 0
-        while s < self.tasks.len() {
-            self.tasks.set(s, None)
-            self.cells.set(s, None)
-            s = s + 1
-        }
+        self.__release_slots()
         // design 75 (A2) + 225: release the run-queue mutex AND its condition
         // variable (multi-threaded groups only) — one 128-byte block, so one
         // deallocation. Safe here because `__shutdown_crew` above joined every
@@ -1539,6 +1633,18 @@ extension TaskGroup: NoMove {}
 public struct Task<T> {
     result_ptr: UnsafePointer<T?>
     cancel_ptr: UnsafePointer<Bool>
+    // design 242 rulings 5/9b: the cell's `__fated` word. `join`/`detach`/
+    // `cancel` write it and `deinit` reads it — through the cell, because the
+    // cell is what outlives the task (design 134) and a handle's destructor may
+    // run long after its frame is gone.
+    fate_ptr: UnsafePointer<Bool>
+    // design 242 ruling 6: PROVENANCE, not type. A handle minted by
+    // `Task.spawn` carries the must-consume obligation and faults when it is
+    // dropped unconsumed; one minted by `group.spawn` is free to drop, because
+    // the group is a declared consumer. The two are one type, so the bit is
+    // what tells them apart — the alternative, keying the fault on the type,
+    // would break the accept-loop idiom.
+    background: Bool
     group_ptr: UnsafePointer<TaskGroup>
     // design 89 + 134: this task's slot index in its group's queue, paired with
     // the generation the slot carried when the task was spawned. `join` drives the
@@ -1550,6 +1656,19 @@ public struct Task<T> {
 }
 
 extension Task<T> {
+    // design 242 ruling 5/6: write the fate word — and ONLY for a background
+    // handle. A `group.spawn` handle's cell is released the moment its slot
+    // recycles (a `Void` task recycles AT completion, design 134), so its
+    // `fate_ptr` may address freed storage by the time a consume runs; nothing
+    // reads that word for a group handle, since ruling 6 lets one drop freely.
+    // A BACKGROUND slot is pinned at birth, so its cell outlives every handle
+    // to it and the word is always there to write.
+    func __write_fate(&self) unsafe {
+        if self.background {
+            self.fate_ptr[0] = true
+        }
+    }
+
     // Drive the group until this task is Done, then TAKE its result. The take is
     // exactly-once: `take()` moves the payload out of the CELL and leaves `None`
     // behind, so the cell's later teardown drops nothing. Taking the result is
@@ -1563,6 +1682,9 @@ extension Task<T> {
     /// consumes the result and reclaims the task's slot in the group. Calling
     /// `join` more than once causes a panic.
     public func join(&self) unsafe -> T {
+        // design 242 ruling 5: the fate is written HERE, before anything can
+        // fail, so a handle that reached a consume never faults in `deinit`.
+        self.__write_fate()
         if self.group_ptr[0].__stale_sync(self.slot, self.generation) {
             panic("Task.join: this task's result was already joined")
         }
@@ -1596,6 +1718,9 @@ extension Task<T> {
     /// cancellation-aware wait to return through normal control flow. Cancelling a
     /// task that has already finished is a no-op.
     public func cancel(&self) unsafe {
+        // design 242 ruling 5: cancelling IS a fate — the task still runs its
+        // cancel path to completion, which is a decision about how it ends.
+        self.__write_fate()
         if self.group_ptr[0].__stale_sync(self.slot, self.generation) {
             return
         }
@@ -1603,6 +1728,33 @@ extension Task<T> {
         // design 102 item 2: rouse a blocked reactor poll so an ALREADY-io-parked
         // target observes the cancel now (not only at its pre-park check).
         __saw_exec_reactor_wake()
+    }
+
+    // design 242 ruling 4: hand the task to the process. SCHEDULER-SIDE ONLY —
+    // there is no thread to hand to an OS and no new runtime seam: the task's
+    // cell is marked never-joined, so its result is DROPPED where the task ends
+    // instead of being kept for a `join` that will never come, and the handle's
+    // fate is written. The task itself is untouched and keeps running.
+    //
+    // The declared drop is what satisfies never-hide-errors: `detach()` is the
+    // moral `let _ =`, said out loud at the one place that knows the value is
+    // being thrown away.
+    /// Hands the task to the process and gives up its result.
+    ///
+    /// The task keeps running; its result is dropped when it completes, and this
+    /// handle's obligation is discharged. A task still live when the program's
+    /// background group closes is cancelled there, like any other member.
+    public func detach(&self) unsafe {
+        if not self.background {
+            // design 242 ruling 6: a GROUP handle takes no `detach()`. A group
+            // task may borrow from its spawner (design 189) and the group's
+            // scope is what releases that borrow, so "hand it to the process"
+            // has no meaning for one. Provenance decides, not the type, and a
+            // caller-checkable bug is a fault (the design-134 precedent).
+            panic("Task.detach: this handle came from `group.spawn`, and a group task's fate is its group's scope — drop the handle instead, or use `Task.spawn` for a detachable task")
+        }
+        self.__write_fate()
+        self.group_ptr[0].__detach_slot(self.slot, self.generation)
     }
 
     // design 75 (A2): the cancel word's ADDRESS as a Send `Int`. A `Task` is
@@ -1630,8 +1782,26 @@ extension Task<T> {
 
 // Owns nothing (the frame + result live in the group); dropping an unjoined
 // handle must not touch the group-owned result. Declared before NoCopy.
+//
+// design 242 ruling 9b: a handle minted by `Task.spawn` PANICS here when no
+// fate was written. The check is gated on PROVENANCE and not on the type, which
+// is what keeps ruling 6's group handles freely droppable — the accept-loop
+// idiom drops one per iteration on purpose. Ruling 5's compile-time check makes
+// this path unreachable from ordinary code; what is left is 9a's approximation
+// gap, an owner whose hand-written `deinit` was trusted to consume and forgot.
+// A caller-checkable bug is a fault, not a status (the design-134 double-join
+// precedent), and panics do not unwind, so a destructor panic cannot meet
+// another on the way out.
 extension Task<T>: NoCopy {
-    public func deinit(&var self) {
+    /// Panics if a `Task.spawn` handle was neither joined, detached nor
+    /// cancelled: a background task's fate is explicit, and dropping the handle
+    /// is not one of the fates. A `group.spawn` handle drops silently.
+    public func deinit(&var self) unsafe {
+        if self.background {
+            if not self.fate_ptr[0] {
+                panic("Task was dropped without being joined, detached or cancelled — `join()` waits for it and takes its result, `detach()` hands it to the process, `cancel()` asks it to stop")
+            }
+        }
     }
 }
 
@@ -1647,12 +1817,23 @@ extension Task<T>: NoCopy {
 /// matches `Task<T>`.
 public struct VoidTask {
     cancel_ptr: UnsafePointer<Bool>
+    // design 242 rulings 5/9b — see `Task<T>`'s two fields for what they are
+    // and why the fate word lives in the cell rather than in the handle.
+    fate_ptr: UnsafePointer<Bool>
+    background: Bool
     group_ptr: UnsafePointer<TaskGroup>
     slot: Int
     generation: Int
 }
 
 extension VoidTask {
+    // See `Task.__write_fate` — provenance-gated for the same reason.
+    func __write_fate(&self) unsafe {
+        if self.background {
+            self.fate_ptr[0] = true
+        }
+    }
+
     // Drive the group until this task is Done. No result to take — the void body
     // ran purely for its effects. A `Void` task's slot is reclaimed AT completion
     // (nothing outlives it), so joining one that already finished is a defined
@@ -1661,6 +1842,7 @@ extension VoidTask {
     /// Waits until the task is done. Joining one that has already finished
     /// returns immediately.
     public func join(&self) unsafe {
+        self.__write_fate()
         if self.group_ptr[0].__stale_sync(self.slot, self.generation) {
             return
         }
@@ -1675,12 +1857,24 @@ extension VoidTask {
     /// reclaimed, this function performs no operation. See `Task.cancel` for
     /// more information.
     public func cancel(&self) unsafe {
+        self.__write_fate()
         if self.group_ptr[0].__stale_sync(self.slot, self.generation) {
             return
         }
         self.cancel_ptr[0] = true
         // design 102 item 2: rouse a blocked reactor poll (see Task.cancel).
         __saw_exec_reactor_wake()
+    }
+
+    /// Hands the task to the process. The task keeps running and this handle's
+    /// obligation is discharged; see `Task.detach` for the whole story. There is
+    /// no result to give up here.
+    public func detach(&self) unsafe {
+        if not self.background {
+            panic("VoidTask.detach: this handle came from `group.spawn`, and a group task's fate is its group's scope — drop the handle instead, or use `Task.spawn` for a detachable task")
+        }
+        self.__write_fate()
+        self.group_ptr[0].__detach_slot(self.slot, self.generation)
     }
 
     /// Returns the cancel-flag address and pins the slot, exactly as
@@ -1692,7 +1886,15 @@ extension VoidTask {
 }
 
 extension VoidTask: NoCopy {
-    public func deinit(&var self) {
+    /// Panics if a `Task.spawn` handle was neither joined, detached nor
+    /// cancelled — see `Task.deinit` for why (design 242 ruling 9b). A
+    /// `group.spawn` handle drops silently.
+    public func deinit(&var self) unsafe {
+        if self.background {
+            if not self.fate_ptr[0] {
+                panic("VoidTask was dropped without being joined, detached or cancelled — `join()` waits for it, `detach()` hands it to the process, `cancel()` asks it to stop")
+            }
+        }
     }
 }
 
@@ -2257,7 +2459,7 @@ func __saw_exec_run_root(rootbox: Box<any Resumable>) {
     // A `Void` `main` has no handle and no joinable result, so its cell is the
     // empty one (design 134): every occupied slot carries a cell, with no
     // special case for the root.
-    let _ = root.__enqueue(move rootbox, Box<any __TaskCell>.make(__VoidCell(__cancel: false)))
+    let _ = root.__enqueue(move rootbox, Box<any __TaskCell>.make(__VoidCell(__cancel: false, __fated: false, __detached: false)))
     __saw_exec_run(0, -1, 0)
 }
 
@@ -2283,6 +2485,85 @@ func __saw_exec_run_root_status(rootbox: Box<any Resumable>,
     let _ = root.__enqueue(move rootbox, move cellbox)
     __saw_exec_run(0, -1, 0)
     cellp[0].__result.take() ?? 0
+}
+
+// =============================================================================
+// The background task group (design 242 ruling 3)
+// =============================================================================
+// `Task.spawn(work(3))` spawns into ONE process-wide group that nothing declares
+// and nothing owns. Two things follow from that, and they are the whole design:
+//
+//   * IT IS LAZY. The group is built on the FIRST `Task.spawn` and never before
+//     — the `__saw_host_reactor` precedent above, one static word and the same
+//     create-then-CAS publish, so a loser destroys its spare and uses the
+//     winner's. A program that never spawns a background task pays one zero
+//     word in .bss and not a byte more.
+//   * ITS STORAGE IS RAW, AND THAT IS NOT A TRICK. A `TaskGroup` is `NoMove`
+//     (design 188) precisely because it is a scope whose address its members
+//     hold, so there is no way to BUILD one and then put it somewhere: no
+//     `Box.make`, no assignment through a pointer, and no const initializer
+//     either, since `Vector`'s fields belong to `std.vector`. What there is
+//     instead is the fact that an ALL-ZERO `TaskGroup` already IS a valid empty
+//     single-threaded group — every `Vector` field is `{None, 0, 0}`, `workers`
+//     is 0 (the ST engine, `< 2`), the lock/cond are absent and every flag is
+//     clear. So the getter allocates the bytes, zeroes them, and the group
+//     exists. It is never freed: process-lifetime, like the reactor instance.
+//
+// The exit half is `__saw_bg_close`, which the coroutine transform calls from
+// the synthesized `main` of any program that has a background spawn.
+static __saw_bg_addr: Atomic<Int> = Atomic(0)
+
+// The process-wide background group, created on first use.
+func __saw_bg_group() unsafe -> UnsafePointer<TaskGroup> {
+    let cur = __saw_bg_addr.load()
+    if cur != 0 {
+        return cur as UnsafePointer<TaskGroup>
+    }
+    let size = sizeof<TaskGroup>()
+    let align = alignof<TaskGroup>()
+    if let raw = GlobalAllocator().alloc(size, align) {
+        var i = 0
+        while i < size {
+            raw[i] = 0
+            i = i + 1
+        }
+        let addr = raw as Int
+        if __saw_bg_addr.compare_exchange(0, addr) {
+            return addr as UnsafePointer<TaskGroup>
+        }
+        // A peer won the publish. Give the spare back and use the winner's —
+        // nothing was enqueued into ours, so there is nothing to tear down.
+        GlobalAllocator().dealloc(raw, size, align)
+        return __saw_bg_addr.load() as UnsafePointer<TaskGroup>
+    }
+    // design 123: an infallible surface panics naming its method. There is no
+    // `try_` twin here because `Task.spawn` is a language form, not a call.
+    panic("Task.spawn: the background task group could not be allocated")
+}
+
+// design 242 ruling 3: the program is finished, so every background member is
+// CANCELLED, then joined, then released. Cancel-then-join rather than join
+// alone, because a background task is exactly the kind that loops forever and
+// nobody is left to ask it to stop; join-after-cancel rather than abandonment,
+// because a task's own values deinit when the task completes (design 124) and a
+// cancelled task completes through its cancel path like any other.
+//
+// Called from the synthesized `main` of every program that has a background
+// spawn, and a no-op — one atomic load — in one that never took the getter.
+func __saw_bg_close() unsafe {
+    let addr = __saw_bg_addr.load()
+    if addr == 0 {
+        return
+    }
+    let g = addr as UnsafePointer<TaskGroup>
+    g[0].__cancel_every_live()
+    // The GROUP predicate: drive until no frame of THIS group is live. A
+    // cancelled task that ignores its cancel word still runs to completion,
+    // which is the cooperative contract said out loud.
+    __saw_exec_run(addr, -1, 0)
+    g[0].__release_slots()
+    g[0].__unregister()
+    g[0].__bt_unlink()
 }
 
 // =============================================================================

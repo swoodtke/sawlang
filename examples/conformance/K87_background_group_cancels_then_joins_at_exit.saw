@@ -1,0 +1,54 @@
+// Conformance row K87 — at `main`'s return the background group CANCELS every
+// live member, joins them, and their values deinit on the cancel path
+//
+// design 242 ruling 3. The background group has no scope and no owner, so
+// nothing in the program says where its tasks end — this rule is what says it,
+// and the order is load-bearing in both halves. CANCEL first, because a
+// detached background task is exactly the kind that loops forever and there is
+// nobody left to ask it to stop; JOIN after, because deterministic destruction
+// is the language's promise and a cancelled task reaches its own completion
+// through normal control flow (design 102/124), where its owned values are
+// released. Abandoning the tasks instead would leak every one of them, silently.
+//
+// The `released` lines are the whole row: they prove the cancel path ran the
+// destructor rather than the process simply exiting over the top of it.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// main is finished
+// worker 1 saw the cancel
+// resource 1 released
+// worker 2 saw the cancel
+// resource 2 released
+
+import std.task.*
+
+struct Resource {
+    id: Int
+}
+
+extension Resource: NoCopy {
+    func deinit(&var self) {
+        print("resource {self.id} released")
+    }
+}
+
+// A forever-task: it ends only because it is asked to.
+func serve(id: Int) {
+    let held = Resource(id: id)
+    while true {
+        if cancelled() {
+            print("worker {id} saw the cancel")
+            return
+        }
+        yield_now()
+    }
+}
+
+func main() {
+    let first = Task.spawn(serve(1))
+    let second = Task.spawn(serve(2))
+    first.detach()
+    second.detach()
+    print("main is finished")
+}

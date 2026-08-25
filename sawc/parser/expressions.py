@@ -44,7 +44,7 @@ from .types import CommittedGenericError
 # static. The parser rewrites both to a `FunctionCall` named `<Namespace>.spawn`
 # so that everything downstream reads ONE node kind, exactly as the retired bare
 # `spawn { ... }` did. Adding an engine means adding a name here.
-SPAWN_FORM_NAMESPACES = ("Thread",)
+SPAWN_FORM_NAMESPACES = ("Thread", "Task")
 
 
 class ExpressionsMixin:
