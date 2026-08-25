@@ -90,6 +90,31 @@ actively miscommunicates which one a call site is on.
    (designs 91/102/117), and `threads: N` workers are the existence proof
    that executors share it. What a suspending context needs is an executor
    loop, never a reactor.
+10. **RULED Aug 24 (user) — the Task spelling + the SPAWN-BRACE rule,
+   uniform across ALL THREE forms.** The Task engine's PRIMITIVE is the
+   CALL form (`Task.spawn(work(3))`, matching `group.spawn`) — the brief's
+   original brace-only spelling cannot suspend (the transform frames named
+   functions only) and is superseded. The brace form survives as SUGAR over
+   it with an EXPLICIT-CAPTURE-LIST REQUIREMENT, uniform across
+   `Thread.spawn { }`, `Task.spawn { }` and `group.spawn { }`: the capture
+   list IS the parameter list (`{ [count, conn] in ... }` — by-value
+   capture semantics, which for a spawned body are exactly
+   parameter-passing: transfer at the spawn, per tier, `[move x]` legal);
+   an IMPLICIT capture (an enclosing local the list does not name) is a
+   TEACHING ERROR pointing at the list; borrow entries (`[&x]`/`[&var x]`)
+   are refused at the two singleton forms per ruling 7 and allowed at
+   `group.spawn` per ruling 6/design 189; an enclosing TYPE parameter named
+   by the body is refused v1 (future work). No new grammar — the list
+   parses today; the desugar lifts the body verbatim into a hidden named
+   function (listed captures = its parameters), which is why no capture
+   analysis, no DF-218h interaction (a spawned env escapes → heap env), and
+   no hidden-alloc wrinkle (design 135 names spawn's env) exist. The
+   ~42-site Thread-brace corpus migration to explicit lists rides unit 3.
+   Reader-visibility rationale: everything crossing a concurrency boundary
+   is spelled at the crossing. TRAILING-BRACE syntax
+   (`Task.spawn(priority: 3) { [p] in ... }`) is deliberately NOT here —
+   briefed separately as design 243 and BACKLOGGED (a grammar-doctrine
+   exception to be granted consciously, not under way).
 9a. **RULED Aug 24 (user) — the crew-escape question, shape (a):** the
    must-consume obligation is discharged by a MOVE INTO STORAGE WHOSE OWNER
    CONSUMES IN ITS OWN `Deinit` — ruling 6's principle (a declared consumer
