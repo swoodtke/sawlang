@@ -1839,3 +1839,1352 @@ both arches.
 - ~~DF-218s remainder + DF-218w~~ — LANDED Aug 21 on branch `df-218s-218w`, two commits. DF-218s CLOSED (forced frame residency, pin flipped with its block-kind matrix); DF-218w NARROWED to the mixed `case Both(v, _)` shape, both ledger rows retired, three pins now (one flipped, two XFAIL). Two findings filed: DF-218x (sync `if let` leak on a `return`/`break` out of the then-branch) and DF-218y (a multi-field all-`_` payload's field order, and sync is the suspect half). Entries below
 - ~~Small-fix batch~~ — LANDED Aug 21-22 (branch `small-fix-batch`, five fixes + a docs commit): DF-216c (+DF-217d), DF-216h, DF-219c, DF-238a (a fourth face found and fixed with it), DF-218v all CLOSED in place. Three findings filed: DF-242a (driven try/catch teardown timing), DF-242b (cross-module overload set bound bare as one overload), DF-242c (suffixed literal does not disambiguate an Int-vs-narrow overload set). Conformance K74/K75 (renumbered from K72/K73 at integration). xfails 13 -> 10
 - sos riders batch — LANDED Aug 21 (branch sos-riders): the remainder both flipped — `clock_get` takes `type:` at its two declarations, the kernel decode and the three labeled call sites, and all 46 rights-enum cases in `sos/kernel/abi/` read as shifts with the values probe-verified byte-identical before and after (ordinals left decimal; the `>= 256` static_assert threshold is not a case and stayed, reported). The kcore re-narrowing LANDED Aug 20; the member audit RAN Aug 20 and its narrowing unit LANDED Aug 20 (84 sites: 78 `public(package)`, 6 private, 2 consumed; the audit's file-local split was inverted — DF-232q); see the re-narrowing rider section
+
+## ~~DF-239b — a fully CONCRETE parameter type is unchecked on the
+## generic-bound call path~~ (filed Aug 20, DF-239a's sweep) — **FIXED Aug 24**
+## on branch `resolution-wording`, commit 2, by DECLARATION-TIME RESOLUTION
+
+The residue of DF-239a's mechanism. `_check_type_param_method_call` defers
+deep argument typing because a trait signature MAY name an associated type;
+it never asks whether THIS one does. So `a.concrete("hi")` against a
+requirement `func concrete(&self, n: Int)` — no `Self`, no associated type,
+nothing abstract — type-checks in the generic body and dies at codegen with
+`Type of #2 arg mismatch: i64 != i8*`. Traits carry no type parameters of
+their own (`TraitSymbol` has `associated_types` and nothing else), so the
+decidability test is small: substitute `Self` to the receiver's type
+parameter and check every parameter whose result names no associated type.
+What stopped the fix riding DF-239a was RESOLUTION — a trait's declared
+parameter types are stored raw, and resolving one at a foreign call site runs
+the design-194 prelude gate against the wrong module. Wants a resolution
+strategy, hence its own entry. PIN:
+`examples/generic_bound_call_concrete_param_type.saw` (XFAIL). [239]
+
+**FIXED Aug 24** (branch `resolution-wording`, commit 2). `_register_trait` —
+design 241 unit 1's fifth funnel entry, which already GATED the requirement's
+written types and threw the answer away — now RESOLVES them and keeps the
+result: `TraitMethodSymbol.resolved_param_types` / `resolved_return_type`
+(design-144 identities) plus `abstract_type_names`, the set that stays abstract
+at every call site. `_check_type_param_method_call` then substitutes `Self` to
+the receiver's own type parameter and, for every parameter whose result names
+nothing in that set, runs the ORDINARY argument check — `_apply_literal_
+expected_type`, `_try_existential_arg_coercion`, `_arg_type_ok`, the same
+message and the same `_int_conversion_hint` the instance-method path uses.
+WHY DECLARATION TIME IS THE WHOLE FIX: resolving the spelling at the CALL runs
+the prelude gate against the caller's module, so a trait declaring
+`take(&self, bytes: &data.Data)` would be uncallable from any module that never
+wrote `import std.data` — the error naming a type the author never mentioned.
+Registration runs in the declaring module (and fourth of four passes, so
+same-module names are registered); the gate's per-position dedup means passing
+through `_resolve_type` there reports nothing twice.
+MECHANISM (obligation 4): "a call form with no argument-compatibility loop".
+The MATRIX, all probed: a CONCRETE parameter (the pin), a `Self` parameter
+(decidable — becomes `&T`, and the message says `&T` not `&Self`), an
+ASSOCIATED-TYPE parameter (deferred, and must stay so), a MIXED signature with
+all three plus out-of-order LABELS, and the cross-module gated pair in both
+directions. Two abstract sources the matrix does NOT need rows for, because the
+parser refuses both spellings: a trait cannot declare type parameters
+(`trait Holder<E>` is a parse error) and neither can a requirement
+(`func pick<R>(...)`). `abstract_type_names` collects them anyway, so the day
+either lands the decidability test is already right.
+TWO SECOND FACES the sweep turned up, both ICEs and both fixed by running the
+real machinery rather than by new rules: an auto-WRAP at an `Int?` parameter
+(`Type of #2 arg mismatch: {i1, i64} != i64`, verified against the branch point
+by stash) and design 87/205's literal ADOPTION at a `UInt8` parameter.
+FUNNEL (obligation 1): `_bound_call_param_slots` is now the ONE
+argument -> parameter mapping on this path, shared by the new type check and
+DF-239a's reference-spelling check — two rules judging per-parameter properties
+of the same argument had grown two copies of the label mapping. The type check
+also DEFERS to the spelling check where the two would both fire (a missing or
+surplus `&`), so one mistake still draws one diagnostic.
+ADJACENT, NOT CLOSED: a `static` requirement is still not callable on a type
+parameter (`T.make(...)` is `undefined variable \`T\``) — DF-169e, recorded in
+`std/cbor.saw` beside the `decode<T: Deserialize>` it blocks. That is why
+`_bound_call_param_slots`' `off == 0` branch is unreachable from this call form
+today; it is kept because the helper's contract covers both receiver shapes.
+PIN FLIPPED: `examples/generic_bound_call_concrete_param_type.saw` (XPASS).
+FIVE tests added: `generic_bound_call_self_param_type.saw`,
+`generic_bound_call_associated_param_defers.saw`,
+`generic_bound_call_mixed_signature_error.saw`,
+`generic_bound_call_decidable_param_conversions.saw`, and the cross-module pair
+`generic_bound_call_cross_module_gated_param{,_mismatch}.saw` over the new
+fixture `examples/modules/traitgate239b/`.
+CONFORMANCE: no row owed, the same disposition DF-239a took — this completes a
+TYPE CHECK (an ICE becomes a diagnostic) and changes no safety guarantee the
+ledger states.
+
+## ~~DF-247b — under a GLOB import the QUALIFIED spelling of a type is a
+## DIFFERENT type from the bare one~~ (filed Aug 22 by design 242 unit 1's
+## identity probes) — **FIXED Aug 24** on branch `resolution-wording`, commit 3,
+## as the ruled DESIGN 150 AMENDMENT
+
+```saw
+import std.data.*
+
+func main() {
+    var a: Data = Data()          // fine
+    var b: data.Data = Data()     // error: cannot assign `Data` to variable
+    print(a.len() + b.len())      //        of type `data.Data`
+}
+```
+
+Neither answer is the right one. Design 150 says a qualifier works "in EVERY
+position a name appears", so `data.Data` should BE `Data`; and if a glob
+import is not meant to bind the qualifier at all, the line should be a clean
+"undefined type", not a type mismatch against a phantom. Today it resolves to
+something that is not std's type and nothing says so.
+
+Reproduced at three types on two axes, which is what makes it general rather
+than a corner of design 242's new carve-out: `std.data.*` + `data.Data` (an
+ordinary gated std type), `std.compiler.frame.*` + `frame.Slot<Int>` (a
+compiler-emitted one), and `std.task.*` + `task.Thread<Int>`. CONTROLS, both
+green: the plain `import std.data` + `data.Data`, and the selective `import
+std.compiler.frame.{Slot}` + `frame.Slot<Int>` — so it is the GLOB form
+specifically.
+
+MECHANISM (obligation 4, unswept): the glob path binds the qualifier without
+mapping it to the module's real type identities, so `data.Data` resolves to a
+name-only type that compares unequal to `Data`. The mechanism reaches every
+position a qualified type name may be WRITTEN under a glob — design 194's
+annotation matrix is the ready-made grid (parameter, return, `let`, field,
+enum payload, alias RHS, `static`, generic argument, tuple/array element,
+function-type part, `any Trait`) — and only the `let` cell is probed. Whether
+the fix is "make it work" or "make the glob refuse a qualifier" is a RULING,
+not an implementation choice.
+
+Not pinned: the pin belongs with the ruling. [150, 194, 242]
+
+**FIXED Aug 24** (branch `resolution-wording`, commit 3), both ruled halves.
+HALF 1 — a QUALIFIER is bound ONLY by the whole-module form. The decision is one
+predicate, `_import_binds_qualifier`, applied INSIDE `_bind_module_qualifier`
+rather than at its callers, so no binding site can bypass it (obligation 1; the
+docstring names its two entries, and the selective arms that used to be a third
+and fourth are gone). The former bonus reach is a refusal naming the line that
+would bind it, at the two positions a qualifier is written: the TYPE funnel's
+qualified arm (`` `data` is not a module qualifier here ``, after design 229's
+export wall has had its say) and the expression ladder's undefined-variable
+verdict, both through one `_nonbinding_qualifier_hint`. The phantom's downstream
+shadows are suppressed on DF-232o's rule, keyed on the WHOLE dotted spelling so
+the bare `Data` beside it stays judged, plus the file-scoped "body has no value"
+verdict a local of an unresolved type produces.
+HALF 2 — the same-module pair is legal and complementary. It falls out rather
+than being added: with only one form binding, `import std.data` +
+`import std.data.{Data}` cannot collide, and the duplicate-qualifier error still
+fires on two DIFFERENT modules (both collision pins use whole-module imports and
+are untouched). ONE IDENTITY pinned position by position, since a fresh identity
+there would be silent — annotation (both directions), construction, generic
+argument (bare element into a qualified container and back), `&any` existential,
+generic bound, extension lookup, struct field, enum payload, `type` alias, and
+an `as` target: `examples/import247b_pair_one_identity.saw` over the new fixture
+`examples/modules/pair247b/`, plus `import247b_glob_pair_one_identity.saw` for
+the GLOB pair at the filing's own two axes (a gated std type and the
+compiler-emitted `frame.Slot<Int>`).
+CONSUMER SWEEP (obligation 2) — what read the selective form's `ns.modules`
+entry, and what each of them was really asking:
+  * COHERENCE (`coherence_search_namespaces`): would have LOST a conformance,
+    which is DF-238c's finding one form over. The source moved to a new
+    `selective_sources` list the same funnel walks beside `glob_sources`.
+  * design 229's bare-name hint (`_import_hiding`): same list, same reason.
+  * NAME lookups that fall through to imports — SIX walks, and the last two the
+    first gate found rather than the sweep: `_lookup_struct_deep` and its type
+    alias and enum twins, `trait_refines`' parent walk, `_cross_module_lookup`
+    (the bare-name fallback; sos's `ATTACHMENTS[a].kind` reads a field off an
+    element whose TYPE the import list never named, and 80 kernel builds failed
+    on it), and the "not directly accessible" diagnostic that says WHICH module
+    has a name. These were never qualifier questions — `import m.{Child}` has to
+    keep finding `Child`'s unselected PARENT — so they read a new
+    `imported_search_sources` that is `modules` plus the selective sources. A
+    GLOB source is deliberately still excluded there: a glob COPIES what it is
+    entitled to, so a name it did not copy is one this module may not see.
+  * `-W shadowed-qualifier` and the member-lookup shadow hint: scoped to the one
+    binding form automatically, since both read `ns.modules`.
+  * design 229's private-import NOTE is still recorded by every form — it says
+    what this module IMPORTS, not what it binds — which is what keeps B13's
+    chain hop (`wall229.wire229.Header`) and the facade refusal reporting the
+    surface wall rather than a missing qualifier.
+CENSUS (obligation 2, the migration): a token-level walk of every tracked `.saw`
+file over the compiler's own front end, filtering member accesses and local
+bindings, then hand-verified. FIVE files, FOURTEEN sites, each given its
+explicit whole-module line: `examples/import150_std_forms.saw` (1 — the design
+150 forms pin itself, rewritten to document the amended rule),
+`examples/module_matrix/import_form_selective_positions.saw` (1 — design 235's
+selective-form row, same rewrite),
+`examples/conformance/B13_import_is_not_reexport.saw` (2 — which makes it a
+bonus test of half 2, all three forms of one module in one file),
+`tests/freestanding/cases/module_compose.saw` (9), and
+`sos/kernel/sysapi/src/lib.saw` (1 — `sosabi.ENTRY_IMAGE`; an ordinary import,
+so the vDSO wall is unchanged). Nothing in blade, libs, devtools or selfhost
+used one: every apparent hit there was a local named after a std leaf, which is
+design 150 pin 4 working as designed.
+The token walk had ONE BLIND SPOT, found by the gate and then closed in the
+probe: a STRING INTERPOLATION is one token, so `"{lib.other_widget(9).n}"` was
+invisible to it — which is the position a qualifier is most likely to be
+PRINTED from. The corrected sweep scans interpolations as text beside the token
+stream, and that is what the fifth file is.
+CONFORMANCE: row B24 added (the amended binding + the one-identity matrix), and
+B23's note gained the sentence that keeps its claim true through the amendment.
+Spec's Imports section, README's import block and the saw-lang skill's import
+table all carry the amended cells.
+
+## ~~DF-244b — a bare `None` TAIL at a `Result<T?, E>` cannot type itself, in a
+## NAMED body as much as a closure~~ (filed Aug 22, DF-232h's residue) —
+## **FIXED Aug 22** on branch `transform-typing`, commit 3
+
+`func f() -> Result<Int32?, Bad> { None }` is ``cannot tell what this `None` is
+a `None` OF``, while `{ return None }` compiles and prints `ok -1`. Both
+spellings were probed, in a named body and in a closure, and they agree — so
+this is NOT the closure-vs-named disagreement DF-232h was, and DF-232h's fix
+neither caused nor was owed it. MECHANISM: the wrap ladder runs AFTER the body
+is checked, and a bare `None` fails in the body check itself, before any
+expectation reaches it. `_check_return_statement` gets past that because
+`_stamp_return_literal_types` / its own DF-140d branch push the expected type
+onto the value FIRST; the tail path has no equivalent push for a Result whose
+Ok payload is an optional. A fix propagates the peeled Ok payload into the
+tail ahead of the body check, at both tail sites. Low value on its own —
+`return None` is the one-keyword workaround, and the shape (an absent value
+that is also fallible) is rare. [232, 234]
+
+**FIXED Aug 22** (branch `transform-typing`, commit 3), and the mechanism as
+FOUND corrects the guess above. The wrap ladder does not run after the body
+check for this value at all — it never runs, because the ENTRY CONDITION at all
+four sites is "does the body's type fail to transfer into the declared one?",
+and the none-literal rule makes a bare `None` transfer into EVERYTHING. So the
+tail was left exactly as written and codegen met a raw `NoneLiteral`. Nothing
+about the body check refused it. `_check_return_statement` escaped only because
+DF-140d had hand-written the decision at that ONE site — which is what made
+`return None` work and the tail that means the same thing die.
+FIX, extending design 234 unit 1's funnel rather than adding a rule beside it:
+the bare-`None` decision MOVED into `_autowrap_into_result` (a new arm, ahead of
+the ambiguity check — a `None` fits both payloads by the none-literal rule, so
+asking the ambiguity question of one would reject an unambiguous program), the
+hand-written copy at entry point 3 is GONE, and one predicate
+`_reaches_result_autowrap` answers "does this value reach the ladder?" at all
+four entry points so the answer cannot drift between them. The generic tail
+needed one more clause, on DF-174a's argument: `_wrap_optional_tail` routes a
+bare `None` at a declared `Result<T?, E>` through the same ladder, because the
+Ok payload is an optional at every instantiation and so exactly one wrap is
+right for all of them.
+SWEEP (obligation 4), compiled AND run: 20 rows — the four entry points x the
+tail shapes (bare, a value `if`'s arms, a value `match`'s arms) x {sync,
+suspending}, plus a generic body, a generic STRUCT's method, an erased
+`Result<T?, Box<any Error>>`, a closure whose tail is a value `if`, and the
+`return` control. 8 failed before, 0 after. TWO faces, not one: the sync rows
+were the codegen refusal, and the SUSPENDING tail rows COMPILED and then panicked
+`force unwrap of None` inside `Task.join` — the tail normalization turns a tail
+into a `return`, so the transform hid the refusal and left a task that stores no
+result. CONTROL rows: a `None` at a Result whose Ok type is not an optional now
+gives the same clean refusal at all four sites (the tail's used to be the codegen
+message about a payload type, for a program whose real problem is the declared Ok
+type).
+Pins: `examples/result_optional_none_tail_types_itself.saw` (10 rows) and
+`examples/errors/result_none_tail_needs_an_optional_ok.saw` (the refusal).
+Docs: LANGUAGE_SPEC's four-return-targets section and the saw-lang skill's two
+Result-tail paragraphs.
+CONFORMANCE: none owed — a typing over-rejection plus one ICE, no guarantee
+moves.
+
+## DF-245a — an `init`'s DECLARED return type is never checked against the
+## receiver, so a wrong one is an ICE (found while probing design 234 unit 3's
+## constructor question)
+## — CLOSED Aug 24 (branch `df-245a-fallible-init`, commit 2)
+
+An `init` may be declared with ANY return type. The declaration is accepted, the
+CALL is typed as the receiver regardless, and codegen then emits IR that does
+not verify:
+
+```saw
+struct Other { m: Int }
+extension Other {
+    init(seed: Int) -> Int { return seed }        // accepted at the declaration
+}
+func main() { let o = Other(seed: 7)  print("{o.m}") }
+// internal compiler error: LLVM IR parsing error
+//   value doesn't match function result type '%Other = type { i64 }'
+//     ret i64 %"seed.2"
+```
+
+MECHANISM (obligation 4): the two consumers of an `init`'s signature disagree
+and nothing reconciles them. The CALL side derives the constructed type from the
+RECEIVER and ignores the written return type; the BODY side checks `return`
+against the WRITTEN one. Every other member kind has a declaration check that
+ties the two together; `init` has none, so any return type that is not the
+receiver is silently two different types. SIBLINGS the mechanism reaches, all
+one funnel (the `init` declaration): a plain struct extension and a generic one,
+`public` and private, and any wrong type — `-> Int` is the IR-verifier failure
+above, `-> Result<Self, E>` is a `ResultErrWrap` ICE at the `return <error>`
+inside the body, and the call site of the latter types as the bare receiver
+(``cannot assign `Holder` to variable of type `Result<Holder, AllocError>` ``,
+reported at the CALLER, about a signature the caller cannot see). Enums have no
+`init`, so there is no second declaration site.
+
+FIX SHAPE: refuse at the declaration — an `init`'s written return type must BE
+the receiver (`Self` or the spelled receiver type, generic arguments included),
+with the ordinary two-way fixit. Zero in-tree violations, so it costs nothing to
+adopt. NOT fixed here: it is a new refusal with its own conformance row and is
+outside design 234's units.
+
+WHAT IT SETTLES FOR DESIGN 234: a constructor cannot be made fallible by
+declaring `init(...) -> Result<T, E>`. So unit 3's allocating constructors —
+`Vector(capacity:)`, `Data(capacity:)`, `Arc(value:)`, `Mutex(value:)`,
+`Channel()` — must become STATIC factories returning `Result`, which is the same
+shape their `try_` twins already have and turns "retire the prefix" into
+"delete the `init`, rename the twin". That is a public-API change at 194 call
+sites (counted below), not a signature tweak. [234]
+
+RULED Aug 24 (user) and LANDED the same day, WIDER than the fix shape above: an
+`init` may declare `Self`/the receiver (today's meaning) OR `Result<Self, E>`,
+and nothing else. No `Self?` — an optional creation encodes as Result, since a
+`None` names no cause — refused at the declaration with a fixit naming the
+Result form. So a constructor CAN be made fallible after all, and unit 3 keeps
+its `init`s instead of migrating 194 call sites to static factories; the two
+paragraphs above are superseded on that point and kept as the record of why the
+question was asked.
+
+WHAT LANDED. ONE funnel, `_init_declared_return`
+(sawc/typechecker/registration.py), whose docstring names its two entry points —
+the DECLARATION side (`register_extension`, which reports) and the BODY side
+(`_check_method`, silent). It answers `('receiver', None)` /
+`('result', <type>)` / `('refused', <what the author wrote>)`; the receiver's
+SPELLING stays each caller's own, because the two disagree on purpose (DF-216r).
+A refused declaration is judged against the author's own type so the body is not
+reported a second time for the same mistake. Argument comparison is by rendered
+spelling and only where BOTH sides spell their arguments — `_ext_written_self_type`
+bails out to the argument-free form for a CONST parameter, and std's
+`extension FixedBuf<N>` writes `init() -> FixedBuf<N>` by hand.
+The CALL SITE reads the matched init's registered return through
+`_init_call_type`, at both construction positions (`_check_struct_init` and
+`_check_module_struct_init`). CODEGEN lowers the declared return through
+`_init_llvm_return_type`, at both prototype sites (`_declare_extension_methods`
+and `_declare_monomorphized_method`), and both init body generators size their
+undefined-fallback from the signature rather than the struct layout.
+The SIGVIS hole the sweep found is closed with it: design 193's position matrix
+SKIPPED an init's return (it could only name the receiver, so judging it only
+restated the cap), and the fallible form names an `E` beside it — a
+`public init(...) -> Result<Exposed, Hidden>` published a private error type
+with no diagnostic. New row in `SIGNATURE_VISIBILITY_POSITIONS` + a row in
+`examples/private_in_public_positions_error.saw`.
+END TO END, probe-verified: `try!`, `try?`, a propagating `try`, `match
+Ok/Err`, the `try(as ...)` routing clause, design 151's discard error, a NoCopy
+receiver, a generic receiver, a const-generic receiver, default parameters, and
+label-distinguished overloads. Conformance row A02. Tests:
+`examples/init_fallible_result.saw`, `init_fallible_result_shapes.saw`,
+`init_fallible_result_module_qualified.saw` (the second construction position),
+`init_receiver_return_spellings.saw` (the control — every receiver spelling,
+including the no-clause form nothing in the corpus writes), and three refusals
+under `examples/errors/`. Zero in-tree migrations: all 118 `init` declarations
+already name their receiver.
+
+FOR UNIT 3, two things the sweep turned up that a flip will meet.
+`codegen/collections.py` SYNTHESIZES a no-argument init CALL for a collection
+literal (`resolved_init_params = []`) and takes the returned value as the
+container, so flipping a container's nullary `init` needs that site taught
+first. And the two construction checkers select an init differently —
+`_check_struct_init` accepts a subset plus defaults (design 53),
+`_check_module_struct_init` demands an exact set — so a fallible init with
+defaults resolves at the bare spelling and not the qualified one.
+Four findings filed: DF-251a (FIXED here, commit 1), DF-251b, DF-251c, DF-251d
+(the suspending-`init` boundary this brief was asked to record). [234]
+
+## DF-251a — a GENERIC extension's `init` body inherited the PREVIOUS
+## function's cleanup state, so an unrelated `String_deinit` landed in it
+## — CLOSED Aug 24 (branch `df-245a-fallible-init`, commit 1); PRE-EXISTING,
+## verified by stash against the branch point 13f85716
+
+`_generate_init_method_generic` was the one body generator that reset neither
+the cleanup stack nor the drop flags nor `moved_variables`, and set no
+`current_return_type`. Every explicit `return` in a body runs
+`_cleanup_all_scopes()`, so a generic init containing one emitted whatever the
+LAST-generated function had registered:
+
+```saw
+extension Label { init(text: String) -> Label {
+    if text.len() == 0 { return Label(v: 0) }
+    return Label(v: text.len()) } }
+extension Wrap<T> { init(payload: T, mark: Int) -> Wrap<T> {
+    if mark < 0 { return Wrap<T>(item: payload, tag: 0) }
+    return Wrap<T>(item: payload, tag: mark) } }
+// internal compiler error: LLVM IR parsing error
+//   use of undefined value '%text.1'
+//   call void @"String_deinit"(i8** %"text.1")
+```
+in `Wrap$1$Int_init_payload_mark`, which has no `text`. Needs THREE things at
+once, which is why it sat unnoticed: an earlier init with an OWNING param, a
+generic init after it, and an explicit `return` in that generic body (a bare
+tail asks for no cleanup). Found landing DF-245a, whose fallible generic init
+returns twice by construction; nothing about the fallible form is required.
+LANDED: the state is saved, cleared and restored exactly as
+`_generate_method_generic` does it. Regression test
+`examples/init_generic_body_isolates_cleanup_state.saw`. [234, 245]
+
+## DF-245b — `try!` PANICS WITHOUT THE ERROR IT WAS HANDED, and design 234
+## makes it the corpus's mass-migration spelling
+## — CLOSED Aug 22 (branch `diag-batch`, commit 1)
+
+```saw
+func fails() -> Result<Void, AllocError> { return AllocError(size: 64, align: 8) }
+func main() { try! fails() }
+// panic at trybang.saw:8: try! failed
+```
+
+`AllocError` is `Printable` (every `Error` is), the value is right there, and
+none of it reaches the message: `sawc/codegen/results.py:102` emits the fixed
+string `"try! failed"` and drops the payload.
+
+WHY IT MATTERS NOW rather than as a papercut. Design 234 retires the panic tier
+by making the infallible ops return `Result`, and the behavior-PRESERVING
+migration for a call site that does not want to handle OOM is `try!`. Today
+`v.push(x)` panics `Vector.push: allocation failed`; after the flip
+`try! v.push(x)` panics `try! failed`. That is the same failure reported worse,
+at every one of the 1434 sites counted below — the flip would trade a precise
+cause for none, which is the opposite of what it is for.
+
+MECHANISM (obligation 4): `_emit_panic` is called with a literal, so nothing
+about the error VALUE is consulted — it is one site, and the sibling forms are
+already better. `main`'s `Err` exit prints the error through its vtable (design
+221) and `try? `/`try`/`catch` all hand the value on; `try!` is the only
+consumer of a `Result` that throws the payload away. So this is a single
+missing rendering, not a family.
+
+FIX SHAPE: render the error after the fixed prefix when `E` is `Printable`
+(`panic at F:L: try! failed: allocation of 64 bytes (align 8) failed`), through
+the stack-scratch builder design 137 already uses for panic assembly, so the
+alloc-free and denied-allocator paths keep working. `E` is not bounded
+`Printable` at the `try!` site, so a non-Printable `E` keeps today's text.
+NEEDS A RULING on the exact wording, and it CHANGES A PIN
+(`examples/try_force_panic.saw` expects `try! failed` verbatim). [234, 19]
+
+LANDED Aug 22, in the fix shape above and at that wording:
+`panic at F:L: try! failed: <error>`. `_generate_try_force`'s literal
+`_emit_panic` became `_emit_try_force_panic`, which renders the extracted Err
+through `_render_argument` — design 137's ONE format walk, the same one
+`print("{}", e)` and the checked-cast panic (`cast to UInt8 out of range: 1000`)
+already use, which is why the message is alloc-free by construction rather than
+by a second copy of the rule. `_render_argument`/`_render_via_format` gained the
+`in_entry` knob `_render_int_value` already had, and the `try!` path passes
+False: a panic block ends in `unreachable`, so a function that merely CONTAINS a
+`try!` pays no frame bytes for the 512-byte Printable scratch.
+MATRIX (probed, `.build/scratch/df245b_matrix.saw` + `_suspend.saw`): a
+`Printable` struct, a `Printable` enum at a `Result<Void, E>`, an erased
+`Box<any Error>` (renders through its vtable), a `String` error, an `Int32`
+error, and a NON-Printable struct (keeps the bare text) — plus a `try!` in a
+suspending body over a suspending subject, and the whole file under
+`--no-hidden-alloc`.
+SWEEP (obligation 4): the mechanism is "a compiler-emitted panic that HOLDS the
+offending value and reports fixed text". Census of `_emit_panic`'s callers — the
+force-unwrap of `None` has no value (that IS the failure), and division by zero
+/ integer overflow / shift range report a CONDITION, not a payload; the checked
+CAST already renders its value and is the precedent this follows. One position
+remains and is filed rather than invented: the fixed-array bounds panic
+(DF-249a below) holds the index and the length and prints neither.
+PINS: `examples/try_force_panic_names_the_error.saw` (the rendering row) beside
+`examples/try_force_panic.saw`, whose non-`Printable` `ParseError` is now the
+FALLBACK row and says so. Spec's Runtime-Semantics list, README's error section
+and the saw-lang skill all carry the new message.
+CONFORMANCE: no row owed — this is diagnostic quality on an already-trapping
+path, not a safety guarantee (what `try!` DOES on an `Err` is unchanged).
+
+## ~~DF-249a — the FIXED-ARRAY bounds panic holds the index and the length and
+## prints neither~~ (filed Aug 22, DF-245b's sweep) — **FIXED Aug 24** on branch
+## `resolution-wording`, commit 1, as the whole WORDING FAMILY the ruling asked
+## for
+
+`a[i]` out of range on a `[Int; 4]` is `panic at f.saw:9: index out of range`,
+and the two numbers that would make it actionable are both in hand at the trap:
+the index is the value just compared, and the length is the compile-time
+constant it was compared against (`_emit_array_bounds_check`,
+`codegen/operators.py:283`). The checked CAST next door already renders its
+operand (`cast to UInt8 out of range: 1000`, design 170) through the alloc-free
+format path, and DF-245b just put `try!` on the same footing, so the machinery
+and the precedent both exist — `index 7 out of range: length 4` is one
+`_render_int_value(..., in_entry=False)` plus a constant.
+NOT the same finding as DF-245b (that one dropped a value it was HANDED; this
+one declines to report a value it COMPUTED), which is why it is filed rather
+than ridden. Wants a wording decision before it is written: whether the length
+belongs in the message at all, and whether std's own hand-written accessor
+panics (`Vector.[]: index out of range`, authored in Saw) should follow. [122,
+170, 63]
+
+**FIXED Aug 24** (branch `resolution-wording`, commit 1). ONE WORDING FAMILY,
+`<what>: index out of range: <i> (len <n>)`, spelled by every bounds panic in
+the language; a range/slice accessor spells both bounds
+(`String.substring: range out of range: 5..2 (len 5)`). The compiler trap is
+`array: index out of range: 7 (len 4)` — `array` is the only name a fixed array
+has, and the `<what>:` slot stays uniform rather than growing a second shape for
+the one non-method site.
+MECHANISM (obligation 4): "a bounds check that HAS both numbers and reports
+neither", which is exactly DF-245b's mechanism one position over. The census is
+the funnel plus the prologues, and it is closed: ONE compiler funnel,
+`_emit_array_bounds_check` (8 call sites — read, write, compound write, `swap`'s
+two indices, the pointee-region arms), and THIRTEEN std prologues —
+`Vector.[]`/`with_ref`/`with_var_ref`/`set`/`swap`(×2)/`swap_out`,
+`Data.[]`/`set`/`try_set`, `String.byte_at`/`substring`, `FixedBuf.get`/`set`.
+`Vector.swap` was the one shape the wording did not fit: a joint `i or j` check
+has two candidates and no way to name the guilty one, so the two indices are
+checked separately now. `get`-shaped accessors are untouched by construction —
+they return `None`/`Err` and raise nothing.
+The index is rendered at its OWN signedness, not the unsigned reading the
+compare folds it to, so `a[-1]` says `-1` rather than 18446744073709551615.
+ALLOC-FREE by construction, not by a second copy of the rule: the compiler side
+goes through `_emit_runtime_panic` + `_render_int_value(in_entry=False)` — the
+same three lines the checked cast and DF-245b's `try!` use — and the std side
+through design 137's `{}` panic arguments, never interpolation.
+ARITHMETIC TRAPS EXCLUDED (ruled): overflow, shift range and division by zero
+report a CONDITION rather than an index into something with a length, and keep
+their fixed text. Recorded in `_emit_array_bounds_check`'s docstring and in the
+spec's accessor-rule section, which is where the family is documented.
+PINS: 18 updated to assert the full new message (they were `-CONTAINS` prefixes
+that would have passed unchanged — updating them is what makes the payload
+tested), plus one new file `examples/fixedbuf_get_oob_panic.saw`: the const
+generic `N` as the length, under `--no-hidden-alloc`, which pins the alloc-free
+claim where it matters. Spec's accessor-rule section gained the family (with the
+arithmetic exclusion), the runtime-semantics array bullet and the `#lend_var`
+example follow it, and the saw-lang skill teaches the house wording for a
+hand-written accessor.
+CONFORMANCE: no row owed — diagnostic quality on an already-trapping path, the
+same disposition DF-245b recorded. Rows T10/T11/T25 keep their guarantee and
+had their expected text updated in place.
+
+## ~~DF-245c — ONE SPAWNED TASK ANYWHERE stops every `return None` at a
+## `-> Result<T?, E>` from typing, in functions that task never calls~~ —
+## **FIXED Aug 22** on branch `transform-typing`, commit 1
+
+```saw
+func poll(n: Int) -> Result<Int?, Stop> {
+    if n == 0 { return None }        // fine on its own
+    return n
+}
+func worker() -> Int { yield_now()  return 7 }   // never calls `poll`
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(worker())                // <- adding this breaks `poll`
+    print("worker {h.join()}")
+    match poll(0) { case Ok(o) -> print("{o ?? -1}"), case Err(e) -> print("{e}") }
+}
+// error: cannot tell what this `None` is a `None` OF — no annotation, parameter,
+//        field, return type or element type in scope fixes its payload type
+//   --> line 2, a line the transform never touched
+```
+
+MECHANISM (obligation 4): sawc typechecks TWICE, and the SECOND pass — over the
+post-transform AST — does not push the peeled `Ok` payload onto a `return`'s
+`None` the way the first does. Anything that makes the coroutine transform RUN
+turns the second pass on for the whole module, so the trigger is global while
+the symptom is local. Probed four ways: `poll` alone compiles; `poll` plus a
+suspending function that is never spawned compiles; `poll` plus a spawned task
+that CALLS it fails; `poll` plus a spawned task that does NOT call it fails. So
+it is the transform running, not the call graph.
+
+SIBLINGS the mechanism reaches: every position where the first pass pushes an
+expected type that the second does not re-derive. `return None` at
+`Result<T?, E>` is the one design 234 hits; the family to sweep is the rest of
+`_stamp_return_literal_types`'s work (bare literals at fixed widths, optional
+payload adoption) under a spawned task. NOT probed here — that sweep belongs to
+the fix brief.
+
+RELATED, and NOT the same: DF-244b is the sync-only residue (a bare `None` TAIL
+that cannot type itself where `return None` works). This one breaks `return
+None` too, and only with a spawn present.
+
+Pin: `examples/result_optional_none_survives_the_transform.saw` (XFAIL).
+Workaround, which std.channel now uses: an annotated local
+(`let absent: T? = None  return absent`). Design 234 §4 makes `Result<T?, E>`
+the shape of every non-blocking poll, so the flip meets this immediately.
+[234, 244]
+
+**FIXED Aug 22** (branch `transform-typing`, commit 1). The mechanism as FOUND
+is narrower and more mechanical than "the second pass does not re-derive": the
+contextual annotation was written to `resolved_type`, which is the very field
+`_check_expression` stamps generically on every node it visits, so the design-146
+second pass ERASED it — and the branch that had written it (the DF-140d `return`
+route into `_prepare_ok_payload`) could not re-run, because its own first-pass
+rewrite into a `ResultOkWrap` is what it keys on. `_apply_literal_expected_type`
+case (0) had already met this and chosen the durable field, `expected_type`; the
+OTHER contextual-`None` funnel, `_propagate_optional_type`, had not. It now
+stamps both, and its docstring names its nine entry points.
+SWEEP (obligation 4): 18 return-position rows x {no spawn, spawn}, compiled AND
+run — the rest of `_stamp_return_literal_types`'s work, as the entry asked.
+Exactly five cells failed, all one shape (a `None` inside a synthesized
+`ResultOkWrap`): a free function, a method, a suspending body (which failed with
+or without a spawn — a suspending body IS the transform running), the arms of a
+value `if`, and a generic body. Everything else in the family survives already,
+and for one reason: a fixed-width literal, a collection literal, a struct field
+`None`, a Vector-element `None` and a plain `-> T?` `None` are all stamped
+through `_apply_literal_expected_type`'s durable field, or sit in a position
+whose annotating path re-runs unchanged on the second pass. Pin FLIPPED to a
+passing test carrying all five rows. Two unrelated findings fell out of the
+sweep and are filed separately: DF-250a, DF-250b.
+
+## ~~DF-245d — a PROPAGATING `try` in an optional-binding SCRUTINEE inside a
+## SUSPENDING body is refused~~ — **FIXED Aug 22** on branch `transform-typing`,
+## commit 2; the rule is about CONTAINER HEADS, not the binding forms
+
+```saw
+while let v = try step(i) { ... }    // inside a spawned/driven body
+// error: `try` cannot propagate errors from a function returning `Poll`
+//        (must return Result)
+```
+
+MECHANISM (obligation 4): the same one DF-244a named, at the positions its
+sweep did not reach. `_lower_stmt` dispatches a propagating `try` to design
+196's error landing BELOW the control-flow ladder; DF-244a moved the `return`
+branch (and block tails) to defer to it, and the optional-BINDING branches —
+`while let`, `if let`, `guard let` — still lower in place with the `try` inside
+`resume() -> Poll`, where the propagation target is read off `Poll`. Probed:
+all three are fine in a SYNC body and all three are refused in a suspending
+one; a plain `let v = try f()` in a suspending body is fine, which is what
+makes it a rule about the binding forms rather than about expressions.
+
+Design 234 §4 makes this the natural drain loop — `try` peels the error
+channel and `while let` peels the optional — so the flip meets it on its first
+consumer. Pin: `examples/suspending_binding_scrutinee_propagates_a_try.saw`
+(XFAIL, both the `while let` and `if let` rows).
+`examples/while_let_channel_drain.saw` spells `try!` and cites this entry.
+[196, 234, 244]
+
+**FIXED Aug 22** (branch `transform-typing`, commit 2). The sweep WIDENED the
+rule and CORRECTED the entry's claim above: it is not about the binding forms,
+it is about CONTAINER HEADS — the one place an expression sits outside every
+block its construct owns — so the fix is one clause on design 224's head lift
+(`_hoist_container_heads`, via the new `_head_must_move`), which already moves a
+head that SPANS a suspension and now moves one that carries a propagating `try`
+for the same reason. That is DF-244a's second half at the other position:
+`_norm_block` had to call a try-carrying TAIL "spanning" because the lowering
+keys on STATEMENTS and the landing dispatch wraps one.
+SWEEP (obligation 4), all compiled AND run:
+  * 3 binding forms x 6 expression shapes (plain, argument, receiver, binary
+    operand, `match` subject, `??` RHS) x {sync, suspending, suspending with a
+    spanning body} = 54 cells. ALL 18 sync cells passed and 30 of the 36
+    suspending cells FAILED, in the two faces DF-244a named: the `Poll` refusal
+    and ``Cannot create Result.Err outside Result-returning function`` (an ICE,
+    a face this entry had not recorded). The 6 that passed are the one cell the
+    entry mis-generalised — `if let` whose branch does NOT span, which is not
+    CFG-split and so reached the landing dispatch already. That is also why
+    `while let` fails even with a body that suspends nowhere: design 127's op
+    budget makes every loop in a task body span.
+  * the OTHER 4 head kinds `control_heads` enumerates — an `if` condition, a
+    `while` condition, a `for` range endpoint, a `match` scrutinee — x {sync,
+    suspending, suspending-spanning} = 12 cells. Two failed the same way, and
+    they are siblings the entry never named.
+  * a SECOND clause was needed and is its own finding-shaped thing: the lifted
+    temp must be a frame FIELD. `_collect_frame_locals` already forces residency
+    inside a SPLIT try/catch, for the stated reason that a `let` lowered behind
+    a landing pad is scoped to the pad's synthesized `try { }` and invisible to
+    the statement after it — and the PROPAGATE landing (no enclosing catch) has
+    no such marker. A `let` carrying a propagating `try` now asks for itself.
+    Without it the two head shapes whose container is lowered IN PLACE (an `if`
+    condition, a `match` scrutinee, in a body with no other suspension) failed
+    with `undefined variable __head0`; with it every cell above is green and
+    every answer matches its sync twin.
+All 66 cells green after the fix. Pin FLIPPED and rebuilt as 7 rows x {Ok, Err}
+covering the three binding forms, a `try` NESTED inside a larger head, and the
+other three head kinds. `examples/while_let_channel_drain.saw` got its honest
+spelling back — `consumer` returns `Result<Int, ChannelError>` and drains with a
+plain `try`. Docs: LANGUAGE_SPEC's design-196 propagating-`try` bullet and the
+saw-lang skill's container-head + channel-drain paragraphs.
+CONFORMANCE: none owed — a typing/lowering over-rejection, no guarantee moves.
+
+## ~~DF-257e — conformance K90 pinned a THREAD RACE, through directives its own
+## header said must not pin one~~ (filed + FIXED Aug 25 by design 234 unit 3;
+## PRE-EXISTING, from design 242 unit 3b)
+
+`examples/conformance/K90_thread_detach_is_a_fate.saw` asserts five lines with
+`EXPECT-OUTPUT-CONTAINS`, two of which are printed by DETACHED OS THREADS. Its
+header says so out loud — "their order against `detached`/`chained` is not a
+property of the language and must not be pinned as one" — but design 158 made
+`EXPECT-OUTPUT-CONTAINS` ORDER-CHECKED, each match starting where the last one
+ended, because order is half of what a structured dump asserts. So the file
+pinned exactly the order it declared unpinnable, and passed only while the
+spawner happened to win both races. It lost one here, on an unrelated branch,
+with a 35-second suite run:
+
+```
+detached / chained / ticket 2 released / ticket 1 released / main is finished
+```
+
+MECHANISM (obligation 4): an order-checked directive over output whose order is
+a race. The siblings are every other MT test that reaches for CONTAINS — the
+class DF-246a already ruled on, whose three rules this file breaks two of (a
+fixed 150ms `sleep` as the synchronizer, and no polling of the observation).
+
+FIXED to that doctrine: both threads park on a `GO` gate the test controls
+(a SPIN, not a sleep — a spawned thread runs no executor, so a suspension there
+is a compile error), main opens it after its own printing, and then POLLS a
+`RELEASED` counter with a 5-second ceiling that bounds genuine breakage only.
+The two releases print the same text, so which thread finishes first cannot
+decide anything; two identical directives still require two occurrences, because
+the cursor moves past each match. Verified green on five consecutive runs.
+
+WORTH KEEPING AS A RULE: a CONTAINS directive is an ORDER assertion. A test that
+wants an unordered set of lines has to make the ORDER deterministic — there is
+no unordered spelling, and adding one would weaken every structured-dump pin
+that depends on the ordering. [158, 242, 246]
+
+## Design 242 — the Thread/Task split (AUTHORED + fully RULED Aug 22; IN
+## FLIGHT on branch `design-242`)
+
+designs/242-thread-task-split.md is the plan of record and its nine rulings
+are law. Status by unit:
+
+- **Unit 0 (census) — DONE.** 43 real `Thread.spawn`-form sites (42 in
+  `examples/` across 22 files, 1 in `sawc/std/taskgroup.saw`); zero in
+  `blade/`, `libs/`, `sos/`, `devtools/`. 14 `TaskHandle` + 5 `VoidTaskHandle`
+  mentions in `.saw` (8 of them real annotations, all `Vector<...>` element
+  types). `Channel.recv` has ONE call site in the whole tree
+  (`examples/channel_pipeline.saw`) against 82 `receive()`s. PROBE ON RECORD
+  for unit 4: a suspending body handed to today's spawn form is neither
+  refused nor driven — it compiles as ORDINARY SYNC CODE (no frame in the
+  emitted IR), so a `yield_now()` inside it is a silent no-op; and a
+  `blocking` extern called there already emits a DIRECT call inside the
+  trampoline (no offload thunk), which is ruling 9's behaviour arrived at by
+  accident rather than by a rule. One finding: DF-247a.
+- **Unit 1 (the renames) — LANDED.** `spawn {}` -> `Thread.spawn {}`,
+  `Task<T>` -> `Thread<T>` (+ the new `VoidThread`), `TaskHandle<T>` ->
+  `Task<T>`, `VoidTaskHandle` -> `VoidTask`; std's internal `trait Thread` is
+  `NativeThread`. Compiler-driven per 236: the bare `spawn { }` and both old
+  type names are ERRORS carrying the new spelling (pins
+  `examples/errors/spawn_names_its_engine.saw`,
+  `examples/errors/retired_task_handle_names.saw`), no deprecation alias.
+  `Thread`/`VoidThread` joined `COMPILER_EMITTED_STD_TYPES` (`Slot`'s
+  carve-out, DF-218g), so the SPELLING stays the user's — which is what keeps
+  SOS's own `struct Thread` compiling; pin
+  `examples/thread_name_belongs_to_the_user.saw`. Two findings: DF-247a,
+  DF-247b.
+- **Unit 2 (the consumption rules) — LANDED.** Rulings 5/6/9a/9b. ONE funnel
+  (`typechecker/types.py`, entries named in its header) in two halves: a
+  singleton spawn form's handle is BOUND to a local or CONSUMED where it is
+  made (`Thread.spawn { }.join()`), and a bound handle reaches `join()`/
+  `detach()`/`cancel()` on every path — per-path exactly as design 189's
+  borrows are, with a nested-block consume undone on the way out. Both
+  discard spellings refused, `let _ =` included (the one place design 151's
+  blessed explicit discard does not apply); `return` is an exit and refuses
+  the escape, which is ruling 5's function-local fence. 9a's storage
+  discharge keys on the ROOT of the destination path declaring a hand-written
+  `deinit`, which is what makes std's crew compile unchanged. 9b: `Thread<T>`
+  and `VoidThread` deinits PANIC instead of joining. Conformance rows K78-K82
+  (written first). CONSUMER SWEEP (obligation 2) found THREE corpus users of
+  drop-join and no more: `task_join_on_deinit.saw` (the whole test WAS the
+  retired contract — renamed `thread_fate_is_written_not_dropped.saw` and
+  rewritten around the explicit join plus the chained spelling),
+  `spawn_void_body.saw`'s `drop_path`, and `conformance/D11`, which is refused
+  earlier and needed nothing. Suite 2181 pass / 4 xfail (unchanged),
+  freestanding 31, corodiff clean.
+- **Unit 4 (`Thread.spawn` semantics) — LANDED IN PART, rulings 8 and 9.** The
+  body is a `sync` context (ruling 8) that PERMITS a `blocking` extern (ruling
+  9), which is one decision about one context and is set in one place
+  (`_effect_mark_thread_spawn_body`). Ruling 9 is a second fixpoint over the
+  same graph — `suspends_ignoring_blocking`, `really_suspending`'s shape with
+  blocking sources struck out — computed only when a blocking-permitted
+  context exists, and the violation path skips blocking sources so it names
+  the cooperative suspension that actually broke the rule. Both directions
+  tested (conformance K83, K84 + its ordinary-sync control), and K84 pins
+  "runs DIRECTLY" on the IR: design 103's offload machinery is absent.
+  Ruling 8 turned unit 0's probe finding into a refusal, and the refusal
+  immediately caught a corpus test that was passing VACUOUSLY —
+  `funcpointer226_composites.saw`'s across-a-suspend section spawned onto a
+  thread, so no frame was ever built and its `yield_now()`s were no-ops. Its
+  claim does not hold on the cooperative engine either: DF-252a, filed with a
+  seven-cell matrix and pinned XFAIL. Suite 2183 + the new rows, freestanding
+  31, corodiff clean.
+- **Unit 5 (docs) — LANDED for what units 2 and 4 shipped.** LANGUAGE_SPEC §6:
+  the two-engines paragraph became the NAMESPACE rule (with the
+  `Channel.recv`-from-a-task warning it always implied), plus two new
+  subsections under Tasks and Channels — "No implicit fates" (the refusals,
+  the 9a storage discharge with a compiling `Pool` example, the group control,
+  the 9b panic quoted from a real run) and "The thread body" (rulings 8 and 9,
+  both with their real diagnostics). README gained the second-engine example
+  and the recommendation gradient; the saw-lang skill gained the two rules and
+  the gradient in its concurrency section. The spec says in one sentence that
+  `detach()` is named by the diagnostics and not implemented yet, which is the
+  honest state until unit 4c lands.
+- **Unit 3 — LANDED (branch `design-242-c`, three commits), except the
+  cooperative BRACE sugar.** Rulings 3, 4, 5/6/9b on the cooperative side, 7
+  and 10's capture-list half. The brief's landing section is the record of
+  every mechanism; the summary is that `Task.spawn(work(n))` is the call form
+  ruling 10 named, the background group is an all-zero heap `TaskGroup`
+  published by CAS and closed by a synthesized `main` wrapper, the 9b fault
+  keys on a PROVENANCE bit rather than on the handle type, `detach()` landed on
+  both engines (the thread side on one additive seam,
+  `__saw_rt_thread_detach`), and a spawned brace now captures nothing
+  implicitly. Conformance rows K85-K91. Suite 2206 / 5 xfail (unchanged),
+  freestanding 31, sos 80, corodiff + abidoc + citations clean.
+  - **STILL OPEN, ruling 10's other half:** the brace sugar for the two
+    cooperative forms (`Task.spawn { [x] in ... }`,
+    `group.spawn { [x] in ... }`). The blocker is the lifted function's RETURN
+    TYPE — a Saw function with no declared return type is `Void`, so the lift
+    cannot defer the question to the ordinary function checker, and the answer
+    is not known until the body is checked. The two ways out (a sandboxed
+    deepcopy check on design 70's pristine-template model, or a
+    deferred-return-type mechanism for a synthesized declaration) are a shape
+    to decide rather than to pick; the brief's landing section has the analysis
+    and the probe. Ruling 10's enclosing-TYPE-parameter refusal belongs with
+    the lift and not before it.
+  - Two findings: DF-256a (a generic struct's fields invisible to codegen's
+    type-order sort — FIXED here, it blocked the unit) and DF-256b (the thread
+    control block's deallocation SIZE, pre-existing, open; entry below).
+- **The widest edge of 9a's approximation, recorded for a possible tightening.**
+  The discharge asks whether the destination path's ROOT type declares a
+  hand-written `deinit`. std's `Vector` declares one, so `v.push(move t)` into
+  a BARE LOCAL `Vector<VoidThread>` is discharged too — a local vector the
+  author drains and joins is legal code that must keep compiling, and the
+  checker cannot tell it from one that is forgotten. The forgotten one meets
+  ruling 9b's panic at the element drop. The alternative reading (require at
+  least one field hop from the root, so a bare container is refused and ruling
+  5's "`Vector<Task<T>>` stays a group idiom" sentence holds literally) is a
+  ruling, not a fix, and is left to the user.
+
+## Design 234 — the fallibility flip (RATIFIED Aug 17; QUEUED behind the
+## three in-flight Aug-17 branches)
+
+designs/234-fallibility-flip.md is the plan of record: every failable op
+returns Result (design 123's panic tier retired, the ~16 alloc try_ twins
+with it), three-tier error doctrine (narrowest leaf type / payload-carrying
+compounds / Box<any Error> as the app-only tier), the prefix routing clause
+`try(as LocalError.Alloc) f(...)`, `try_` reserved for non-blocking, the
+fault-line and hidden-alloc boundaries. Resolves DQ-230b (try_send retires,
+ChannelError gains Alloc). DISPATCH ORDER: after the kcore split, the
+literal/const family and the small-fix batch all integrate — corpus-wide
+touches conflict with everything; M3 unit 1.5+ may interleave with units 1-2
+only. [234]
+
+IN FLIGHT on branch `design-234`. Landed so far:
+- **unit 0 — the consumer sweep**: the migration matrix is in the brief's
+  landing section. Three corrections to the brief's own census, all recorded
+  there: 19 alloc twins across 10 std files (not "~16 across nine"), FOUR of
+  them with NO infallible twin at all (a rename, not a merge), and
+  `try_receive`'s §4 shape is a CHANGE rather than a preservation.
+- **unit 1 — the routing clause** `try(as ErrorType.Case) f()`: parser,
+  typechecker (one chokepoint, `_check_try_routing`), codegen, the coroutine
+  fence, 13-row position matrix + 10 refusals. RIDER **DF-232h CLOSED** by
+  the funnel extraction the entry asked for (`_autowrap_into_result`, four
+  named entry points), which also closes **DF-213b** — the same defect filed
+  from another angle. Two findings filed: DF-244a (FIXED, its own commit —
+  a propagating `try` in a `return` inside a suspending body) and DF-244b
+  (open, the bare-`None` tail residue).
+
+- **unit 2 — the error-type reshapes** (branch `design-234-b`, RULED Aug 22 =
+  option 1, the additive seam): `__saw_rt_last_raw_code() -> word`, stamped by
+  `__saw_rt_last_syserror` in both host bodies, PER-THREAD (pthread TSD, the
+  op_budget idiom — errno is per-thread and MT groups classify on several at
+  once). Recorded in ABI.md as an AMENDMENT to design 117's pin deviation with
+  both of its grounds shown to survive. SOS: nothing to stamp (four seams, no
+  OS-op family, no `last_syserror`), the ruled answer documented in ABI.md and
+  `sos/rt/common/src/lib.saw` for when one lands. `IoError` is now
+  `{syscall, kind: IoErrorKind, code: Int32}` — 21 kinds off the frozen tag
+  table with `Other`→`Unknown` as the escape hatch, two factories
+  (`of(syscall:tag:)` reads the seam, `of(syscall:kind:)` is the std-raised
+  form whose code is 0), and only `kind()` reaches the rendered text so `"{e}"`
+  stays platform-identical. `ChannelError` gained `Alloc(e: AllocError)`,
+  rendering through the leaf. Pin `examples/io_error_kind_and_raw_code.saw`.
+
+- **unit 3, CHANNEL sub-unit only** (the rest is blocked — see the two DF
+  entries above this section): `send`'s allocator arm is `Err(Alloc(e))` and
+  `try_send` retired. **DQ-230b is now EXECUTED**, not just resolved on paper —
+  its entry sits in `done_aug18-aug25.md` saying "Executes with 234's Channel
+  sub-unit", and this is that. Conformance row **A01** opens the alloc-tier
+  section, which had zero rows.
+- **unit 4 — the non-blocking family**: `try_receive` is
+  `Result<T?, ChannelError>` (`Ok(None)` nothing yet, `Err(Closed)` closed and
+  drained), over a new private `_take_one`; the transform's
+  `__try_receive_result` seam is untouched by construction. 16 call sites
+  migrated. §4's discipline audit finds the other two `try_` keepers already
+  conforming — `SpinLock.try_lock -> R?` and `Once.try_get -> T?` are the
+  no-error-path short form §4 blesses. `selfhost`'s `try_read_int_suffix` is the
+  third in-tree meaning and stays out of scope (not std), as unit 0 recorded.
+
+- **unit 5 — docs closeout, PARTIAL** (the half that is true after units 1/2/4).
+  LANGUAGE_SPEC §5 gained "Error-type doctrine" (the three tiers, the
+  no-stdlib-wide-enum rule, a pointer to the routing clause) and "`try_` means
+  non-blocking" (§4's shape + the `T?` short form + the `try`/`while let` drain);
+  the saw-lang skill and README carry the user-facing subset. THE TWO RULED
+  BOUNDARY SENTENCES landed with it — the erased-error box panics because an
+  error path cannot report an allocation failure without allocating, and
+  `Data.[]`'s copy-on-write separation stays under the accessor rule with
+  `try_detached()` named as the fallible spelling. NOT landable yet, because
+  they describe unit 3's end state: marking design 123's sections superseded,
+  and removing the `try_` twin table (18 of the 20 twins still exist).
+
+**CENSUS CORRECTIONS to unit 0's own numbers**, both found by re-counting
+against the tree, both recorded in the brief's landing section:
+- the alloc twin family is **20**, not 19 — unit 0's own table lists 20 rows
+  (4+7+3+1+1+1+1+2) under a heading that says 19;
+- **FIVE** twins have no infallible partner method, not four — unit 0's own
+  paragraph names five (`Vector.try_with_capacity`, `Vector.try_reserve`,
+  `Data.try_with_capacity`, `Data.try_reserve`, `StringBuilder.try_with_capacity`)
+  under a heading that says four. And each `try_with_capacity` DOES have a
+  panicking partner, just not a method one: `Vector(capacity:)` / `Data(capacity:)`
+  are INITS, which is the constructor question DF-245a below now answers — and
+  since Aug 24 the answer is that an `init` MAY return `Result<Self, E>`, so
+  those two flip in place instead of becoming static factories.
+
+**THE COUNT UNIT 0's MATRIX NEVER TOOK, and unit 3's real size**: the matrix
+counts the 56 twin CALL sites and the 24 std alloc-panic sites, but not the
+callers of the INFALLIBLE ops those panics belong to — and design 151 makes
+every one of them a compile error the moment `push`/`append`/`insert` return a
+`Result`. Counted Aug 22: **1434** `.push(`/`.append(`/`.insert(`/
+`.append_char(`/`.append_bytes(` sites (examples 902, sawc/std 115, the rest
+417 across blade/libs/devtools/selfhost/sos), plus **194** constructor sites
+(`Arc(value:)` 67, `Channel<T>()` 72, `Mutex<T>(value:)` 22,
+`Vector<T>(capacity:)`/`Data(capacity:)` 33). Each needs a SPELLED disposition
+(`try!` / `try` / `let _ =`), and which one is a decision the brief does not
+make — `try!` reproduces today's behavior visibly, `let _ =` would hide the
+failure the flip exists to surface. [234]
+
+- **unit 3 — THE FLIP, COMPLETE** (branch `design-234-c`, four commits, Aug 25).
+  Design 123's panic tier is retired; every allocating std op returns
+  `Result<_, AllocError>`; 18 of the 20 twins retired into the operation they
+  doubled, two renamed (`Vector.reserve`, `Data.reserve`), and the constructors
+  flipped IN PLACE over DF-245a rather than becoming factories. The brief's
+  landing section carries the 20-row twin table, the two hazards' resolutions,
+  and the per-tree list of every non-mechanical site with its chosen spelling
+  (the 205 precedent). Conformance A03-A17 plus Z01's re-read. ONE
+  silent-unsoundness save: the Send-on-frames gate keys on the SHAPE of a
+  group's initializer and could not see through the `try!` every
+  `TaskGroup(threads:)` now needs, so it turned itself off everywhere — a
+  `_unwrap_try` funnel fixes it and the five pinned Send refusals are back.
+  Findings: DF-257a (recorded, not reached), DF-257b (owes a naming ruling),
+  DF-257c and DF-257d (both PRE-EXISTING, both pinned XFAIL). Gates: suite
+  2220/6 xfailed, freestanding both arches, citations, bootstrap, selfhostlex,
+  bench, irdet --all, sos both arches.
+- **unit 5 — docs closeout, COMPLETE** with unit 3: LANGUAGE_SPEC's "Allocation
+  failure" rewritten around the one tier with a "Where a refusal still panics"
+  subsection, the twin table deleted, the `Data`/`StringBuilder`/`Box`/slab
+  sections de-twinned; the saw-lang skill's allocation section rewritten;
+  README's allocation bullet and error-doctrine section carry the one-tier
+  sentence.
+
+**DESIGN 234 IS COMPLETE** — units 0-5 all landed. [234]
+
+## DF-225a-f — six compiler findings surfaced by the doc-sync correctness
+## scan round 2 (filed Aug 15; reconstructing LANGUAGE_SPEC.md examples
+## against the real compiler, not grep — every example is a free fuzz
+## input the sweep never asked for)
+
+None of these are doc bugs — each is the compiler doing something the
+doc-sync scan's reconstruction probes did not expect while verifying an
+otherwise-correct LANGUAGE_SPEC.md example. Two (a, b) are ICEs (an
+unhandled exception surfacing as `internal compiler error: ...` instead
+of a clean diagnostic — the sawfuzz oracle's exact bar), which per
+obligation 4 are PRESUMED a class until swept properly; the corroborating
+positions below are from three independent probes (two different
+sub-agents, one lead), not one lucky repro.
+
+- **DF-225a — declaring a user `extern "C"` function under a name the
+  compiler ALSO declares internally in codegen (`printf`, `abort`,
+  `snprintf`, `strcpy`, `strcat` — `sawc/codegen/core.py` lines
+  459/463/471/478/485) crashes codegen with `internal compiler error:
+  <name>`, no location, even when the function is never called.**
+  Reproduces in a bare one-declaration file, no import needed:
+  `extern "C" { func printf(format: UnsafeConstPointer<Int8>, ...) -> Int }`
+  alone ICEs; renaming to any non-colliding name (`myprintf`) compiles
+  clean. Contrast: colliding with a std-declared extern (`malloc`, which
+  `sawc/std/{file,directory,env,process}.saw` all declare with a
+  DIFFERENT signature) gives a clean `function 'malloc' is defined
+  multiple times with different signatures` — so the ordinary
+  multi-declaration check works fine; only the codegen-internal names
+  bypass it entirely and reach llvmlite's redeclaration path unguarded.
+  Motivating case: LANGUAGE_SPEC.md's "C FFI" section (`Status:
+  implemented`) used exactly `printf` in its worked example, which
+  therefore ICE'd regardless of the (separately real, separately fixed)
+  `malloc(size: UInt)` signature bug beside it — the doc-sync fix
+  swapped the example to `puts`, sidestepping the collision rather than
+  masking it.
+  **CLOSED Aug 22 (branch `diag-batch`, commit 6).** SWEPT FIRST (obligation 4),
+  and the sweep is what sized the fix: EVERY LLVM symbol codegen declares was
+  probed with a user `extern "C"` of the same name — the five above, the two
+  `_libc_func` declares lazily (`memcpy`, `strlen`), a runtime seam
+  (`__saw_rt_write`), a String helper (`__saw_string_len`) and a
+  non-colliding control. Only the five ICE, and the reason is exact: every
+  other compiler-declared symbol is ALSO declared as an `extern` in a std
+  source, so the typechecker knows it and the ordinary multi-declaration check
+  answers; the five exist only as LLVM declarations, so there was nothing to
+  compare against and the second `ir.Function` reached llvmlite unguarded.
+  FIX at the mechanism: `_declare_external_functions` registers the five in
+  `self.functions` like every other compiler-declared symbol (so the extern
+  pass's existing skip covers them) and records the TYPE each was declared with
+  in `compiler_declared_c_symbols`; `_declare_extern_function` then applies the
+  ordinary rule in the terms that decide correctness — the same LLVM signature
+  UNIFIES, a different one is a clean, located refusal whose hint prints the
+  compiler's own signature. LLVM types rather than Saw ones on purpose: an
+  `UnsafePointer<Int8>` and an `UnsafeConstPointer<Int8>` are two Saw types and
+  one C parameter, and refusing an author for choosing the other spelling would
+  be arbitrary. `_extern_llvm_type` is the one construction both readers use.
+  RIDER: `ExternFunction` gained the `source_file` every other declaration node
+  carries (stamped by the parser), because two diagnostics anchor on it — this
+  one and DF-181f's `blocking` disagreement — and both read it defensively, so
+  a refusal raised while checking a DEPENDENCY named no file at all. Same family
+  as DF-243b, one commit later.
+  PINS: `examples/extern_c_compiler_declared_symbol.saw` (all five declared,
+  `printf` actually CALLED through the shared symbol — LANGUAGE_SPEC's C-FFI
+  example is writable again) and
+  `examples/errors/extern_c_compiler_symbol_mismatch_error.saw`, whose
+  `EXPECT-ERROR-ABSENT: internal compiler error` is what pins the ICE as gone.
+  Spec's C FFI section documents both arms.
+- **DF-225b — referencing an undefined struct name ICEs
+  (`internal compiler error: Undefined struct: <Name>`, no location)
+  in at least two independent positions, never a clean "undefined type"
+  diagnostic:** an enum case's payload field type
+  (`enum Reel { case Loaded(t: Tape), case Empty }` with `Tape` never
+  declared — found independently reconstructing LANGUAGE_SPEC.md block
+  72, L2594), and a `sizeof<>` type argument
+  (`static_assert(sizeof<UartRegs>() == 0x1C, ...)` with `UartRegs`
+  declared only much later in a different section — LANGUAGE_SPEC.md
+  L7480). Every OTHER undefined-name context hit during the same sweep
+  (undefined module, undefined trait, unknown attribute, undefined
+  function/variable) gives sawc's normal located `error: ...` — these
+  two are the exceptions, which is exactly the "two positions, presumed
+  a class" shape obligation 4 asks a fix brief to sweep before
+  dispatch (other likely positions, unswept: a trait method's
+  parameter/return type, a `type` alias RHS, a generic bound).
+  **SWEPT Aug 21 (design 240 item 4) — the class is WIDER and has a second,
+  SILENT face.** An undefined type name in an annotation is never diagnosed as
+  one at all: it becomes an opaque type the checker carries, so an annotated
+  `let` and a struct FIELD give a downstream mismatch about a type that does
+  not exist (``cannot assign `Float` to variable of type `Float64` ``, plus a
+  "not `Printable`" cascade), and a free FUNCTION SIGNATURE that reaches
+  codegen gives the ICE — a THIRD ICE position beside the filed two.
+  `Float64` and a nonsense `Nonesuch` behave IDENTICALLY, which is how item 4
+  found this: the ruling asked for the `Float64` type-name registration to be
+  removed and there is none to remove (see DF-225c below). The fix is one
+  diagnostic, at the point a type NAME resolves, and its hard part is
+  deciding when to fire: a GENERIC PARAMETER is also "a name the parser left
+  as STRUCT" (`_is_abstract_type_param`), so telling a typo from a type
+  parameter is a scope question rather than a table lookup. Wants its own
+  brief.
+  PIN: `examples/unknown_type_name_diagnostic.saw` (XFAIL; asserts a located
+  diagnostic naming the type and NO internal compiler error, rather than a
+  wording nobody has ruled on).
+  **CLOSED Aug 21, design 241 unit 1** (branch `design-241`). One rule at the
+  design-194 written-type funnel: ``error: undefined type `X` ``, located at the
+  name. `_gate_resolved_type` asks the hidden-std question, then design 229's,
+  then this one as the residue, so the specific answer wins wherever there is
+  one. The scope question is answered by the type parameters in force (the
+  declaration's own at the registration entries), the names the unit declares
+  (registration is ordered and Saw is not), the namespace, and three fences —
+  a const generic ARGUMENT written as a bare name, `Optional`, and the file
+  being checked (a foreign generic's `R` resolves in the CALLER's body).
+  `_register_trait` became the funnel's fifth entry, `_register_extension` now
+  states its type parameters while it resolves signatures, and DF-174d's
+  duplicate `_check_type_name_resolves` retired. Pin un-XFAIL'd and grown into
+  the nine-row position matrix. Cascade suppression was NOT attempted — see
+  the boundary in designs/241-undefined-type-names.md.
+- **DF-225c (RULED Aug 20, user: FLOAT ONLY — reading 2, sharpened: `Float`
+  is THE float type, the `Float64` name is dropped/removed rather than
+  wired; `Float32` stays a planned future narrower type; there is no
+  `Double` and never was, probed same day. Spec doc half DONE Aug 20 —
+  the alias claim, the primitive table, and every worked example now say
+  `Float`; the CBOR wire-width sentence untouched. Compiler half PENDING,
+  small-fix batch: remove the `Float64` type-name registration so the
+  spelling errors cleanly.
+  **CLOSED-AS-NO-OP Aug 21, design 240 item 4 — THE PREMISE WAS WRONG.**
+  There is no `Float64` type-name registration: the name appears nowhere in
+  `sawc/` outside a `std/cbor.saw` comment about CBOR's own float items, and
+  `BUILTIN_TYPES` (parser/types.py) lists `Float` and no other float. The
+  ruling's compiler half is therefore already in force — `Float64` names
+  nothing — and what is left of the filing is not about `Float64` at all: an
+  UNDEFINED TYPE NAME is not diagnosed as one, which is DF-225b's class and
+  is filed there with the sweep, the third ICE position and the pin. Probe of
+  record: `Float64` and a nonsense `Nonesuch` produce byte-identical
+  diagnostics in every position tried. No compiler change landed here, and
+  none is owed under this number. DOC RESIDUE swept Aug 21 by design 241:
+  the Aug-20 doc half missed ELEVEN worked-example occurrences of `Float64`
+  in LANGUAGE_SPEC — unit 1's new diagnostic turns each into a hard error
+  rather than a cascade, so they now read `Float`; the two occurrences left
+  are prose about the name and are correct.) — original filing:** `Float64` cannot be produced
+  by any literal, cast, or arithmetic, contradicting LANGUAGE_SPEC.md's own
+  "`Float` // Alias for `Float64`" claim (lines 669-670, 690-692, stated as
+  `implemented`).** `let x: Float64 = 1.0` fails with `cannot assign
+  'Float' to variable of type 'Float64'`; `(1.0) as Float64` fails with
+  `cannot cast 'Float' to 'Float64'`; two `Float64` operands refuse `+=`;
+  `Float64` has no `Printable` conformance. `Float` and `Float64`
+  type-check as two distinct, non-interconvertible types today — either the
+  alias direction regressed, or it was never wired up on the
+  literal/cast/arithmetic/Printable paths. CORROBORATED at scale, two
+  independent probes: falsifies LANGUAGE_SPEC.md's Type System `Point`
+  example (line 146, block 4) AND, at wider scope, the identical `Point`
+  example reused in "Type Extensions" (line ~2158, block 58) — substituting
+  `Float64` throughout either produces double-digit cascading errors;
+  substituting `Float` compiles and runs clean both times. Two readings:
+  (1) `Float64` should be wired as a true alias and the compiler has the
+  gap (the doc's own design intent, matching its own primitive-types
+  table); (2) the doc is describing an aspiration that was never built and
+  every `Float64` mention should read `Float`. Left every LANGUAGE_SPEC.md
+  `Float64` occurrence UNCHANGED pending this ruling — this is exactly the
+  "spec promises X, compiler does Y, X is plausibly the design" case the
+  doc-sync doctrine says not to decide alone.
+- **DF-225d — an extension method on a PRIMITIVE that returns bare
+  `self` fails type-check against its own declared return type with a
+  message naming the identical type on both sides**:
+  `extension UInt8 { func encoded(&self) -> UInt8 { self } }` →
+  `error: method 'encoded' should return 'UInt8' but returns 'UInt8'`.
+  Substituting a literal (`5u8`) for `self` compiles clean, isolating it
+  to `self`'s inferred type inside a primitive extension not unifying
+  with the primitive type it visibly is. Falsifies LANGUAGE_SPEC.md's
+  "Conformances on primitives" worked example (block 153, L5051).
+  **CLOSED Aug 22 (branch `diag-batch`, commit 7).** MECHANISM: three maps held
+  one fact — "which written names are primitives, and which `TypeKind` each IS"
+  — and design 176 (DF-169d) widened TWO of them from {Int, Float, String} to
+  all thirteen. The typechecker's `PRIMITIVE_EXT_SELF_KINDS` stayed at three, so
+  inside `extension UInt8` the receiver was a STRUCT named "UInt8" while the
+  return annotation was `TypeKind.UINT8` — the same type spelled two ways, which
+  is why both sides printed identically.
+  THE CLASS IS WIDER THAN THE FILING, probed
+  (`.build/scratch/df225d_matrix.saw`): `self` was unusable as a value of its
+  own type AT ALL on those ten. Beside the return, `self * 2` was ``operator `*`
+  cannot be applied to `UInt8` and `Int` `` and `self == other` was ``cannot
+  compare `UInt8` with `UInt8` ``; `not self` on a `Bool` and `self as UInt64`
+  on a `UInt` failed too, so `Bool` and `UInt` — both in the OTHER two maps —
+  were affected as much as the fixed-width integers. Int, Float and String were
+  clean throughout, which is what made it look like a `UInt8` problem.
+  FIX at the mechanism (obligation 1): ONE table,
+  `ast_nodes.PRIMITIVE_EXT_KINDS`, whose docstring names its three readers —
+  the typechecker's `_primitive_ext_self_type`, codegen's
+  `_primitive_self_llvm_type`/`_primitive_ext_name`, and
+  `Namespace._PRIMITIVE_CONFORMANCE_KEYS`, which is it inverted. The other two
+  copies are now assignments to it, so a fourth primitive cannot be added to one
+  and missed by another.
+  PIN: `examples/primitive_extension_self_is_its_own_type.saw` — thirteen rows,
+  four positions each (bare return, arithmetic, comparison, a bound reached
+  through a conformance on the primitive), with Int/Float/String as the
+  controls. The SPEC needed no change: its worked example is the repro, and it
+  was right — the compiler was wrong. The skill's primitive-conformance bullet
+  carries the note.
+- **DF-225e (RULED Aug 20, user: reading 1 — `std/` comes OFF the bare
+  import's search path; only `std.`-prefixed imports reach std sources, per
+  design 150's uniform model, and the spec's documented collision
+  diagnostic becomes reachable. Compiler fix PENDING, small-fix batch:
+  module_resolver.py search-path split + a pin for the user-module-named-
+  `data` case.
+  **CLOSED Aug 21, design 240 item 5 (branch `design-240`).** The split is
+  literal: `ModuleResolver` keeps `std_paths` beside `search_paths`, the
+  `std.`-prefixed arm searches `std_paths + search_paths` and the bare arm
+  searches `rel_dirs + search_paths` — one list became two, and the class
+  docstring now states the order. Nothing else reads `search_paths`.
+  PINS: `examples/import225e_bare_std_leaf_not_found.saw` (the bare `import
+  data` with no user module of that name is one "module `data` not found",
+  with an `EXPECT-ERROR-ABSENT: defined multiple times` — the cascade is what
+  had to go: four errors about std's own `DataBuf` internals, pointing INTO
+  std, about a collision the program never wrote) and
+  `examples/module_tests/test_bare_import_user_module_named_after_std.saw`
+  plus its sibling `data.saw` (a user module named after a std leaf resolves
+  to itself, with `import std.data as sdata` reaching std beside it). Spec's
+  Qualifier-collisions section says the second import names YOUR module.)
+  — original filing:** a bare `import <name>`
+  with no `std.` prefix silently resolves into `sawc/std/<name>.saw`
+  when the name happens to collide with a real std leaf module.**
+  `sawc/module_resolver.py`'s search-path list always includes `std/`,
+  even for a non-`std.`-prefixed import, so `import data` (intending an
+  unrelated user module) double-compiles `sawc/std/data.saw` alongside
+  any real `import std.data`, producing a pile of "defined multiple
+  times" errors rather than the clean "two imports bind the qualifier
+  `data`" diagnostic LANGUAGE_SPEC.md documents for exactly this
+  scenario (L7986-7990). Two readings, no evidence either way of
+  original intent: (1) the doc is right and `std/` should never be on a
+  bare import's search path, only `std.`-prefixed ones; (2) the
+  fallback is deliberate (some blessed same-name-as-std-leaf
+  configuration) and the doc's example is an accidental collision with
+  a broader mechanism it didn't anticipate.
+- **DF-225f (minor, compiler-robustness) — `@section(".vector_table")`
+  on a mach-O target aborts the PROCESS via a raw LLVM fatal error
+  (`LLVM ERROR: ... invalid section specifier ...`, exit -6), not a
+  sawc-formatted diagnostic.** LANGUAGE_SPEC.md (L8412-8418) documents
+  mach-O needing the `SEG,sect` section-name form instead of ELF's bare
+  name but doesn't claim what happens if you get it wrong; a reader on
+  macOS who copies the ELF-shaped form as written hits an LLVM crash
+  instead of a compiler error naming the fix.
+  **CLOSED Aug 22 (branch `diag-batch`, commit 7), ridden with DF-225d because
+  the interception is twelve lines.** `_checked_section` is the one place a
+  section name is validated, with its two entry points named in its docstring —
+  the `@section` stamp on a `static` and on a function, which are the only two
+  positions the attribute is legal in. On a mach-O triple a specifier with no
+  comma is a clean `CodegenUserError` naming the declaration and BOTH two-part
+  spellings; ELF is untouched, where a bare `.name` is right and a comma'd one
+  is legal too. Checking before LLVM is the whole point: `report_fatal_error`
+  kills the process, so there is no error for a front end to catch afterwards.
+  PIN: `examples/errors/section_macho_specifier_error.saw`, which PINS the
+  triple (`--target arm64-apple-darwin`) rather than inheriting the host's — the
+  rule is a property of the object format, and an inherited triple would make
+  the test pass on Linux by not applying. `EXPECT-ERROR-ABSENT: LLVM ERROR` is
+  what pins the abort as gone. Spec's `@section` paragraph states the refusal.
+- **DF-225h (RULED Aug 20, user, and CLOSED — no compiler work): `()` and
+  `Void` stay DISTINCT; design 122/132's visible-Void rejection is
+  ABSOLUTE (a `case _ -> Void` spelling was proposed and REJECTED — it
+  would carve a position-specific exception into a deliberately absolute
+  rule); `{}` is the do-nothing arm spelling and the spec's three `()`
+  arms now use it. Doc fix landed Aug 20.) — original filing:** a bare `()` does not unify with `Void` as a
+  match arm's "do nothing" value, though LANGUAGE_SPEC.md uses exactly that
+  spelling three times** (`case Empty -> ()` / `case Nothing -> ()` twice,
+  §4 Memory Management's NoCopy-enum and Copy-enum match examples, each
+  beside a sibling arm calling a Void function). Lead-reproduced:
+  `case _ -> ()` beside `case 1 -> use()` (`use` returning `Void`) gives
+  `match arms have incompatible types: 'Void' and 'TUPLE'`
+  (`.build/scratch/docsync2/verify_spec_a_voidtuple.saw`) — `()` type-checks
+  as a genuine, distinct empty-tuple value, not a `Void` spelling, in this
+  compiler. `case _ -> {}` (empty block) compiles clean in the identical
+  position (`verify_spec_a_voidtuple2.saw`), so a working spelling exists;
+  the question is which one LANGUAGE_SPEC.md's three occurrences should
+  use, or whether `()`/`Void` unification is the intended design and the
+  compiler has the gap.
+
+## Queue records — the Aug 22-25 group (moved verbatim from [QUEUE] and [BACKLOG] at the Aug-25 tracker pass)
+
+- ~~Design 234 — the fallibility flip~~ — **COMPLETE Aug 25**, units 0-5 all landed (unit 3 on branch `design-234-c`, four gated commits: conformance rows first, the two hazards, the flip, the edge rows + docs). Every allocating std op returns `Result<_, AllocError>`; 18 of the 20 twins retired into the operation they doubled and two renamed; the constructors flipped IN PLACE over DF-245a. The flip's own consumer sweep caught the Send-on-frames gate turning itself OFF at every `TaskGroup(threads:)` because its shape test could not see through the new `try!`. Findings DF-257a-d. Entry below. Original ruling and protocol kept here: (designs/234-fallibility-flip.md) — units 0-2, 4, 5 + channel sub-unit LANDED Aug 22; UNIT 3 RULED Aug 24 (user): PATH 1 — ~~fix DF-245a FIRST~~ **DF-245a LANDED Aug 24** (branch `df-245a-fallible-init`: fallible `init` is expressible; an `init` may declare ONLY `Self`/the receiver or `Result<Self, E>`, nothing else — no `Self?`, refused at the declaration; entry below), so unit 3 may now flip the constructors in place and is UNBLOCKED, THEN the flip as ratified (no factory migration). Migration protocol RATIFIED: examples/tests take `try!` mechanically (failure-path tests get real matches, flagged by name); sawc/std per-site with a propagate bias (`try!` inside std re-creates the panic tier); blade/devtools/tools/selfhost per-site, propagate bias, irdet+bench their own careful commit; every non-mechanical site listed in the landing section (the 205 precedent). Execution: DF-245a brief-let, then unit 3 as one dispatch
+- ~~Place-window xfail family~~ — LANDED Aug 22 (branch `place-window-fixes`): DF-169h/DF-218i(+248d)/DF-218j closed, DF-232n pin resolved as superseded-by-ruling. ~~DF-218h~~ and ~~DF-248a~~ — CLOSED Aug 24 (branch `deferred-move`, one commit each) to their rulings: a non-escaping closure's `move` capture transfers WHEN THE BODY RUNS, and an assignment's RHS may read the target's own root while every other in-window naming keeps its refusal behind teaching text. One finding filed: DF-255a (the ESCAPING half of the capture double free, pinned XFAIL). Entries below
+- ~~Diagnostics/codegen small batch~~ — LANDED Aug 22-23 (branch `diag-batch`, seven commits, nothing stopped): DF-245b, DF-238b (+ the checked-cast twin), DF-238c (+ a second face at the thread-assertion funnel, conformance B23), DF-243a (four operator families + the sos abi un-suffixing, byte-identical), DF-243b+DF-232g residue, DF-225a, DF-225d (self usable as its own type on all ten primitives), DF-225f ridden. One finding filed: DF-249a (bounds panic omits index+length — wording decision held). xfails -2, none added
+- ~~Transform typing batch~~ — ALL THREE LANDED Aug 22 (branch `transform-typing`, one commit each, after 242 units 0-1 integrated): DF-245c (a bare `None`'s payload type now outlives the second typecheck pass), DF-245d (a propagating `try` in a container HEAD — the sweep widened the rule from the binding forms), DF-244b (the bare `None` tail, through design 234's ladder). Two XFAIL pins flipped (suite xfails 7 -> 5), two new passing tests added (DF-244b had no pin: `result_optional_none_tail_types_itself.saw` plus the refusal `errors/result_none_tail_needs_an_optional_ok.saw`). Two findings filed: DF-250a, DF-250b. Entries below
+(User-reserved list RELEASED by user, Aug 21: DF-232h rides design 234 unit 1 as an implemented task — the auto-wrap ladder extraction is exactly unit 1's machinery; DF-217m's sync half is design 240's item 9, LANDED Aug 21. Neither is a hand fix anymore.)
+- ~~DF-243a~~ — CLOSED Aug 22 (branch `diag-batch`, commit 4): the adoption ladder covers the mixed binop now, at all four operator families the sweep found (not just the comparison the filing named), so the Aug-17 bit-flag ruling costs no suffix anywhere. The sos rider un-suffixed 40 assert operands, proved byte-identical. Entry below
+- ~~DF-243b~~ — CLOSED Aug 22 (branch `diag-batch`, commit 5), with the DF-232g residue in the same commit: one family, two layers. A module-level diagnostic falls back to the MODULE's source now, and a declared array length carries its own file into codegen. Entry below
+- DF-243c — RULED Aug 22 (user): the DOC was wrong ("bit 8" is unrepresentable in a `UInt8`); doc-fix landed same day, lead-direct — the sentence now states the value AND the masking invariant it rests on (`PMP_PERM_MASK = 0x7` before staging). Wire format unchanged. CLOSED; entry below is the record
+- (DF-238a CLOSED Aug 21 by the small-fix batch — entry below; DF-239b, its adjacent, is still open at the line above)
+- ~~DF-238b~~ — CLOSED Aug 22 (branch `diag-batch`, commit 2): an integer renders at its own width now, through the new `_fmt_int_fn` funnel; the freestanding pin lost its XFAIL and grew to four rows. The sweep also fixed the checked-CAST panic, which truncated the same way. Entry below
+- ~~DF-238c~~ — CLOSED Aug 22 (branch `diag-batch`, commit 3): a conformance query now walks the GLOB sources beside the qualifier bindings, through the new `coherence_search_namespaces` funnel. The sweep found a SECOND FACE at the same funnel — a declared `UnsafeSend`/`UnsafeSync` was lost the same way. Both pins flipped; conformance row B23. Entry below
+- DF-239b — RULED Aug 24 (user): DECLARATION-TIME RESOLUTION — a trait requirement's parameter types resolve at registration IN THE DECLARING MODULE'S context (design 194's provenance rule; design 241's `_register_trait` funnel entry already resolves them for the undefined check — the fix STORES the result as design-144 identities on `TraitMethodSymbol`), and the deep check then covers every parameter whose stored type names no `Self`/associated type. This is the ruled "migrate rules into abstract bound vocabulary" direction from 218 unit 1.5 — the abstract error at the generic's own line stays the better error post-1.5. DISPATCHED Aug 24 (branch `resolution-wording`). Entry below, beside DF-239a
+- ~~DF-239b~~ — CLOSED Aug 24 (branch `resolution-wording`, commit 2): a requirement's signature is resolved at `_register_trait` in the declaring module and stored on `TraitMethodSymbol`; the generic-bound call path checks every parameter that names nothing abstract once `Self` is substituted. Pin flipped, five tests added, the cross-module gated case verified in both directions, two auto-wrap/literal-adoption ICEs closed along the way. DF-169e (a static requirement on a type parameter) stays open and is named in the entry. Original ruling: DECLARATION-TIME RESOLUTION — a trait requirement's parameter types resolve at registration IN THE DECLARING MODULE'S context (design 194's provenance rule; design 241's `_register_trait` funnel entry already resolves them for the undefined check — the fix STORES the result as design-144 identities on `TraitMethodSymbol`), and the deep check then covers every parameter whose stored type names no `Self`/associated type. This is the ruled "migrate rules into abstract bound vocabulary" direction from 218 unit 1.5 — the abstract error at the generic's own line stays the better error post-1.5. Joins the pending dispatch group. Entry below, beside DF-239a
+- ~~DF-232g RESIDUE~~ — CLOSED Aug 22 (branch `diag-batch`, commit 5): `Expression` declares a `source_file` annotation, stamped by a walk beside the length fold's, so a codegen-raised length refusal names its file. Entry below
+- ~~DF-218x~~ — CLOSED Aug 22 (branch `df-218xy`, commit 1): the branch got a cleanup scope of its own, so `_cleanup_to_depth` reaches the binding with no fourth entry point. The sweep found FIVE leaking spellings, not two, and corrected two entry claims (the driven twin was already right; the tuple pattern was mis-scoped rather than leaked). Entry below; conformance K76
+- ~~DF-218y~~ — CLOSED Aug 22 (branch `df-218xy`, commit 2) on the SYNC side, as the Aug-22 ruling directs: discard order is REVERSE-DECLARATION everywhere. The sweep found a SECOND forward loop — the destructuring `let`'s wildcard leaves — which was forward on both twins and moved with it. Pin flipped and extended to 11 rows; entry below; conformance K77
+- ~~DF-244b~~ — CLOSED Aug 22 (branch `transform-typing`, commit 3): the ladder's ENTRY CONDITION was the defect, not its ordering — a bare `None` transfers into everything, so no tail site ever reached it. The decision moved INTO `_autowrap_into_result` and one predicate now answers for all four entry points. Entry below
+- DF-247b — RULED Aug 24 (user), as a DESIGN 150 AMENDMENT with two halves: (1) a QUALIFIER is bound ONLY by the whole-module form (`import std.data`, renamed by `as`); the selective and glob forms bind exactly their named/bare surface and NO qualifier — the former bonus-qualifier reach becomes a refusal with the fixit naming the whole-module line (an undocumented dependency was exactly what 150's own braces idiom exists to prevent); (2) same-module combinations (`import std.data` + `.{Data}` or `.*`) become LEGAL and complementary, and with both imported the bare and qualified spellings are ONE TYPE in EVERY position (annotation, construction, generic arg, `&any` bound, extension lookup, conformance coherence) — pinned by a position matrix, since the pair is newly legal and DF-247b's fresh-identity mechanism could lurk on it. Obligation-2 census owed (any in-tree qualifier use whose only import is selective/glob gets its explicit whole-module line). DISPATCHED Aug 24 (branch `resolution-wording`, with DF-239b + DF-249a). Entry below
+- DF-249a — RULED Aug 24 (user): YES to both, ONE wording family — every bounds/range panic (compiler traps AND std's hand-written accessor prologues) spells `<what>: index out of range: <i> (len <n>)` (range/slice variants spell both bounds); free via the design-137 format machinery, alloc-free everywhere. Arithmetic traps (overflow/shift/div-zero) deliberately EXCLUDED from v1 (operand-format questions, marginal value) — recorded, not forgotten. Mechanical sweep + pinned-string updates; DISPATCHED Aug 24 (branch `resolution-wording`). Entry below
+- ~~DF-246a~~ — CLOSED Aug 24 (branch `harness-doctrine`, commit 1): the three ruled rules are TESTING.md's "Waiting in a multi-threaded test", with the park-on-controlled-gate idiom as its worked example, and BOTH members of the class are rewritten to it — each 10/10 byte-identical in isolation AND at loadavg 34, where the backtrace one also dropped from 3.9s per run to 0.01s. Entry below
+- ~~DF-248a~~ — CLOSED Aug 24 (branch `deferred-move`, commit 2) to the ruling: the hoist widened from a window-opening RHS to any read of the root, and every other in-window naming keeps its refusal behind the teaching text. Entry below
+- ~~DF-247b~~ — CLOSED Aug 24 (branch `resolution-wording`, commit 3): the design 150 amendment, both halves. One predicate (`_import_binds_qualifier`) inside the one binding site decides which form binds a qualifier; an unbound one is a refusal naming the whole-module line, in a type position and an expression position. The same-module pair is legal by construction and pinned position by position (conformance B24). Census: 5 files, 14 sites migrated — one of them in sos/, so the commit gated on sos_runner too. Consumer sweep moved the selective source into two new search lists rather than losing it; the first gate found two more walks the sweep had missed (the bare-name cross-module fallback, which is what 80 kernel builds died on, and the "not directly accessible" diagnostic), and the census probe had a string-interpolation blind spot it closed. Original ruling: (1) a QUALIFIER is bound ONLY by the whole-module form (`import std.data`, renamed by `as`); the selective and glob forms bind exactly their named/bare surface and NO qualifier — the former bonus-qualifier reach becomes a refusal with the fixit naming the whole-module line (an undocumented dependency was exactly what 150's own braces idiom exists to prevent); (2) same-module combinations (`import std.data` + `.{Data}` or `.*`) become LEGAL and complementary, and with both imported the bare and qualified spellings are ONE TYPE in EVERY position (annotation, construction, generic arg, `&any` bound, extension lookup, conformance coherence) — pinned by a position matrix, since the pair is newly legal and DF-247b's fresh-identity mechanism could lurk on it. Obligation-2 census owed (any in-tree qualifier use whose only import is selective/glob gets its explicit whole-module line). QUEUED for dispatch with DF-218h at the next free slot. Entry below
+- ~~DF-249a~~ — CLOSED Aug 24 (branch `resolution-wording`, commit 1): one funnel (`_emit_array_bounds_check`, 8 call sites) plus 13 std prologues all spell `<what>: index out of range: <i> (len <n>)`; the range variant spells both bounds; `Vector.swap` split its joint check so the message can name the guilty index; the negative index reports at its own signedness. 18 pins updated, one added (`fixedbuf_get_oob_panic.saw`, const-generic length under `--no-hidden-alloc`). Arithmetic traps excluded per the ruling, recorded in the spec. Entry below
+- DF-246a — RULED Aug 24 (user), the MT-TEST DOCTRINE, three rules: (1) a fixed sleep is NEVER a synchronizer (it may pace a poll loop, never establish state); (2) the awaited state must be STABLE once reached (workers park on gates the TEST controls — a channel nobody sends on, an Atomic the observer flips); (3) observe by POLLING the observation itself until the stable state appears, a generous deadline bounding only genuine breakage. No synchronized `dump_tasks` twin — its unsync character is a recorded feature. Execution: TESTING.md section (the three rules + the park-on-controlled-gate idiom), both flaky tests rewritten, DF-246a closes. Rides the DF-218h/247b/248a dispatch or the next harness batch. Entry below
+- DF-248a — RULED Aug 24 (user): NO carve-out to the Law. The ASSIGNMENT-RHS face (`v[0].n = v.len()`) LEGALIZES via the design-193/DF-218j hoist (RHS-first is the documented order, so hoisting the read ahead of the target's window is semantics-preserving by rule); every OTHER in-window naming of the root (arguments, body reads) keeps its refusal, because the hoist there would run the read ahead of the accessor's PROLOGUE — an observable reorder of documented sequence. USER REQUIREMENT: the refusal carries TEACHING TEXT explaining the asymmetry (the two shapes look identical to an uninformed reader — the error must say WHY the assignment form works and this one doesn't, and give the one-line `let` hoist as the fix). QUEUED for dispatch with DF-218h + DF-247b. Entry below
+- ~~DF-257e~~ — CLOSED Aug 25 (branch `design-234-c`, commit 4): conformance K90 pinned a THREAD RACE through order-checked `EXPECT-OUTPUT-CONTAINS` directives, against its own header. Rewritten to DF-246a's doctrine (a gate the test controls, then poll the observation); entry below
+- ~~DF-225a~~ — CLOSED Aug 22 (branch `diag-batch`, commit 6): the five join the ordinary duplicate-declaration rule — same LLVM signature unifies (so `printf` is callable), a different one is a clean refusal. The sweep probed every compiler-declared symbol and found the five are exactly the ones std does not also declare. Entry below, under DF-225a-f
+- ~~DF-225d~~ — CLOSED Aug 22 (branch `diag-batch`, commit 7): the three copies of "which names are primitives" became ONE table, so `self` inside a primitive extension is that primitive again. The sweep found the class is wider than the filing — arithmetic, comparison and `Bool`/`UInt` too, all ten design 176 added. Entry below, under DF-225a-f
+- ~~DF-225f~~ — CLOSED Aug 22 (branch `diag-batch`, commit 7, ridden with DF-225d): a mach-O specifier with no comma is refused before LLVM sees it, at one funnel with both `@section` positions as its entries. Entry below, under DF-225a-f
+(DF-225b closed Aug 21 by design 241 unit 1, 225c/225e by design 240's
+batch, 225h Aug 20; 225a, 225d and 225f closed Aug 22 by `diag-batch` — their
+closure notes live in the DF-225a-f entry below, which has nothing open left
+inside it now and travels whole.)
+
+## DF-256a — a GENERIC struct's own fields are invisible to codegen's
+## type-registration order (filed + FIXED Aug 25 by design 242 unit 3a)
+
+```saw
+func work(n: Int) -> Int { yield_now()  n * 2 }
+func main() -> Int {
+    let a = Task.spawn(work(3))   // `a` lives across the suspension below,
+    yield_now()                   //   so `__Frame_main` holds a `Task<Int>`
+    a.join()
+}
+// internal compiler error: Undefined struct: TaskGroup
+```
+
+MECHANISM. `_register_types_in_order` (`codegen/core.py`) topologically sorts
+the program's types before registering them, and builds the graph over
+NON-GENERIC declarations only — a template has no layout, so `if
+struct.type_params: continue`. A field of type `Task<Int>` therefore
+contributed the name `Task` and stopped. But registering the CONTAINER asks
+`_ensure_monomorphized_struct` to build the instantiation right there, and
+`Task<T>`'s `group_ptr: UnsafePointer<TaskGroup>` needs `TaskGroup` registered
+first. The edge exists and the graph could not see it.
+
+Pre-existing, and invisible until now for a mundane reason: every program that
+put a `Task<T>` in a frame also had a `TaskGroup` of its own, which ordered
+`TaskGroup` for it. `Task.spawn` is the first spawn form with no group in
+sight. It is the same class of failure design 33's array-element arm fixed (its
+comment records the identical symptom, "Undefined struct", nondeterministic
+under hash order) — a dependency edge the walk did not follow.
+
+FIXED here: `get_deps` reaches THROUGH a generic name into the template's own
+fields, guarded against a self-referential template. Substitution is not
+needed — a field typed by a type PARAMETER names no registered type, and one
+typed by a concrete struct names the same struct at every instantiation.
+SIBLINGS the mechanism reaches, now covered by the same widening: any
+non-generic struct whose field instantiates a generic that holds a concrete
+struct, in either direction of declaration order. [33, 242]
+- Design 242 — the Thread/Task split (designs/242-thread-task-split.md) — units 0-1 LANDED Aug 22; UNITS 2 + 4(part) + 5 LANDED Aug 24 (branch `design-242-b`: the consumption funnel per-path, 9a's storage discharge keyed on a hand-written-deinit root, 9b's panic on the two THREAD handles, the blocking-permitted sync context via a second fixpoint, docs; conformance K78-K84; the 9b probe corrected the census — three corpus sites migrated). UNIT 3 RULED Aug 24 (user, ruling 10 in the brief): the CALL form is the Task engine's primitive; the brace form is SUGAR with an EXPLICIT-CAPTURE-LIST requirement UNIFORM across Thread.spawn/Task.spawn/group.spawn braces (the list IS the parameter list; implicit captures = teaching error; ~42-site Thread-brace migration rides). Trailing-brace syntax briefed as design 243, BACKLOGGED. UNIT 3 LANDED Aug 25 (branch `design-242-c`, three commits): `Task.spawn` + the background singleton + the exit cancel-then-join, the cooperative must-consume with its PROVENANCE-keyed 9b fault, `detach()` on both engines (one additive seam `__saw_rt_thread_detach`), and the spawn brace's capture list with the 27-site migration; conformance K85-K91. ONE PART OPEN — the cooperative BRACE sugar (`Task.spawn { }` / `group.spawn { }`), blocked on the lifted function's return type; the brief's landing section has the analysis. Findings: DF-252a (FuncPointer called by name in a driven body, pinned XFAIL), DF-256a (fixed), DF-256b (open)
+
+## ~~DF-232h — a closure's TAIL expression does not auto-wrap into a declared
+## `Result` return type, though its `return` does and though the OPTIONAL
+## analogue works~~ — **FIXED Aug 22** as design 234 unit 1's rider (found
+## Aug 17 by DF-226e's fix, probed; RENUMBERED from the branch's DF-232d at
+## integration — the kcore split claimed d-g first; SCHEDULED Aug 17 as a
+## rider on design 234 unit 1, user)
+
+LANDED as the extraction the entry asked for, not a second copy: the
+Ok-vs-Err ladder is now `_autowrap_into_result` in
+`sawc/typechecker/statements.py`, ONE funnel whose docstring names its four
+entry points — a function tail, a method tail, a `return`, and the closure
+tail that had no copy at all. The three hand-written copies are gone; each
+caller keeps only its own wording for the outcomes that are errors at ITS
+site, which is what lets a method, a function, a `return` and a closure each
+name themselves. The if/match per-ARM reconciliation is deliberately NOT an
+entry point, and the docstring says why (a different question, with no
+ambiguity refusal, no erasure and no optional-payload peel). Matrix covered
+row by row in the flipped pin `examples/closure_tail_autowraps_result.saw`
+(Ok literal, Ok non-literal, Err, erased `Box<any Error>`, optional Ok
+payload, the two controls, a value-`if` tail) plus
+`examples/closure_tail_result_ambiguous_payloads.saw` for the refusal.
+DF-213b above is the same defect filed from another angle and closes with it.
+Residue filed as DF-244b (a bare `None` TAIL, which a NAMED body has too).
+Original filing:
+
+`run(f: { x in 12 })` against `(Int) sync -> Result<Int32, Bad>` is
+``argument `f` expects `(Int) sync -> Result<Int32, Bad>` but got
+`(Int) -> Int32` ``. NOT a literal-width problem and not DF-226e: a
+non-literal `{ x in k }` for an `Int32` k fails identically, and the explicit
+`{ x in Result<Int32, Bad>.Ok(value: 12i32) }` compiles. The closure return
+path (`_check_closure`, sawc/typechecker/expressions.py ~11085) has an
+`expected_ret.kind == OPTIONAL` branch that auto-wraps the tail in an
+`OptionalWrap` and no `Result` counterpart, while a closure's `return`
+statement goes through `_check_return_statement`, which shares the named
+body's auto-wrap chain — so the two spellings of the same intent disagree.
+MECHANISM/SHAPE OF A FIX (obligation 1): the Ok-vs-Err selection lives inline
+in `_check_return_statement` (the `_result_autowrap_ambiguous` /
+`_types_compatible(ok)` / `_types_compatible(err)` / erased-Err ladder). A fix
+should EXTRACT that ladder into one funnel and call it from both the return
+path and the closure tail, rather than growing a second copy — the matrix is
+Ok side, Err side, the ambiguity refusal, the erased `Box<any Error>` target,
+and an optional Ok payload needing `_prepare_ok_payload`. Workaround
+meanwhile: write `return` instead of a bare tail. [226, DF-226e]
+
+- ~~**DF-226f — a `static` of OPTIONAL type never auto-wraps its
+  initializer**~~ — **FIXED Aug 17**, to the Aug-17 ruling: a deliberate
+  refusal at the declaration, auto-wrap NOT added. `_register_static` asks it
+  on the TYPE right after `_resolve_type`, before the initializer is looked at,
+  so the bare (`= 7`), wrapped, `None` and NO-INITIALIZER spellings all meet
+  one rule instead of four incidental outcomes. An ALIAS to an optional is
+  refused too (it resolves to the static's own top-level type); an optional
+  nested in a field, element or generic argument is untouched, and `unsafe
+  static var` is not reopened.
+  The refusal does NOT bail out of registration — it suppresses only the
+  initializer checks and falls through, because returning early orphaned the
+  symbol and made every later USE of the name draw a second, misleading
+  ``static `SLOT` is declared after this point``. One error per declaration now.
+  Tests: `examples/static_optional_type_refused.saw` (the bare-payload form),
+  `examples/static_optional_type_refused_none.saw` (the `None` form — the row
+  that shows this is not a repackaged type mismatch, since `None` IS assignable
+  to `Int?`), and `examples/static_non_optional_types_unaffected.saw` for the
+  negative rows.
+
+- **DF-226c (v1 gap, deliberately not built) — construction form 2 accepts a
+  BARE name, not a module-QUALIFIED one.** `import fpmod.{tripled}` then
+  `let p: FuncPointer<(Int) sync -> Int> = tripled` works; under a whole-module
+  `import fpmod`, the only spelling design 150 leaves is `fpmod.tripled`, and
+  that is a clean but wrong refusal (``cannot assign `(Int) -> Int` to variable
+  of type `FuncPointer<(Int) sync -> Int>` `` — note the missing `sync`: a
+  qualified function reference is already typed as a FUNCTION so that calls
+  work, and it drops the effect slot doing it). Not built because a qualified
+  name is a THIRD construction site, not a third position of the existing one:
+  `_check_member_access` types it at TWO places (the single-qualifier arm and
+  the nested-module-chain arm), so form 2's checks — signature match, the
+  `sync` context, the generic and overload refusals — would need routing
+  through both, and a codegen path of its own for the address. That is a matrix
+  to write, not a line to add. Workaround today is one word at the import
+  (`import fpmod.{tripled}`). Worth doing when the kernel adopts the type in
+  M3, where `sos` sysapi callbacks are cross-module by nature.
+
+- **DF-226b (minor, cosmetic) — a `borrows` function type inside a GENERIC
+  ARGUMENT is a bare parse error, not design 141's named refusal.**
+  `func f(g: (Int) borrows -> Int)` says ``a function TYPE may not be
+  `borrows` ``; `FuncPointer<(Int) borrows -> Int>` says `Parse error at
+  1:33: Expected '>' after type arguments`. The committed-generic type parse
+  does not accept the effect slot's `borrows`, so it never reaches the rule
+  that has words for it. Both are clean errors and both reject the same
+  program — this is a diagnostic-quality gap, not a hole. Pre-dates design
+  226 (any generic taking a function type has it); noticed there because a
+  `FuncPointer`'s argument is ALWAYS a function type in a generic argument.

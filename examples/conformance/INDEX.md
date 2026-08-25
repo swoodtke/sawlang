@@ -6,9 +6,10 @@ either a file in this directory or an existing `examples/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
-**461 rows: 354 carry a file here, 107 are covered elsewhere** (recounted Aug 16
-from the table itself — the audit-era "121 here, 198 elsewhere" had gone stale
-across the briefs listed below). (The audit's 247 plus
+**507 rows: 260 carry a file here, 247 are covered elsewhere** (recounted Aug 25
+from the table itself — this header has now gone stale twice, so treat the
+table as the record and this line as a cache; a multi-file row is counted by
+its FIRST file). (The audit's 247 plus
 the rows later briefs added: W02-W05, design 194 unit 4; W06-W19, design 195
 unit 1; X41-X45, design 199 unit 1; M31-M35, design 200 unit 1; V26-V30,
 design 202 unit 1; B09-B12, design 204 unit 1; K14-K20, design 201 unit 1;
