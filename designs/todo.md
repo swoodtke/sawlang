@@ -849,7 +849,18 @@ are law. Status by unit:
   claim does not hold on the cooperative engine either: DF-252a, filed with a
   seven-cell matrix and pinned XFAIL. Suite 2183 + the new rows, freestanding
   31, corodiff clean.
-- **Units 3, 4c and 5 — OPEN.** Deviations and blockers, all recorded here:
+- **Unit 5 (docs) — LANDED for what units 2 and 4 shipped.** LANGUAGE_SPEC §6:
+  the two-engines paragraph became the NAMESPACE rule (with the
+  `Channel.recv`-from-a-task warning it always implied), plus two new
+  subsections under Tasks and Channels — "No implicit fates" (the refusals,
+  the 9a storage discharge with a compiling `Pool` example, the group control,
+  the 9b panic quoted from a real run) and "The thread body" (rulings 8 and 9,
+  both with their real diagnostics). README gained the second-engine example
+  and the recommendation gradient; the saw-lang skill gained the two rules and
+  the gradient in its concurrency section. The spec says in one sentence that
+  `detach()` is named by the diagnostics and not implemented yet, which is the
+  honest state until unit 4c lands.
+- **Units 3, 4c — OPEN.** Deviations and blockers, all recorded here:
   - `detach()` is NOT implemented. Unit 2's diagnostics NAME it, as the
     brief's own unit ordering intends. Its honest implementation is a
     control-block ownership handoff between the detacher and the trampoline

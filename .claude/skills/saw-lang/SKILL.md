@@ -1643,15 +1643,20 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   message says "not `Send`" — read past it to the sentence naming the unmet
   bound (`` `Arc` is `Send` only when its payload is `Sync` ``).
 - **THE NAMESPACE IS THE ENGINE (design 242).** `Thread.*` is OS threads and
-  blocking; `Task.*` and `TaskGroup` are cooperative and suspending. The two are
-  different machines — one blocks, one suspends; a `Thread<T>` joins on drop, a
-  `Task<T>` does not; `Channel.recv` blocks and `receive` parks — so the call
-  site's namespace is what says which one you are on:
+  blocking; `TaskGroup` and `Task<T>` are cooperative and suspending. The two are
+  different machines — one blocks, one suspends; `Channel.recv` blocks and
+  `receive` parks — so the call site's namespace is what says which one you are
+  on:
   ```saw
   var t = Thread.spawn { crunch(n) }   // Thread<Int>; join() BLOCKS this thread
   let h = group.spawn(crunch(n))       // Task<Int>;   join() drives the group
   ```
   A `Void` body gives `VoidThread` / `VoidTask` respectively.
+  **REACH FOR THEM IN THIS ORDER**: `TaskGroup` by default (structured, one
+  thread, deterministic interleaving); `TaskGroup(threads: N)` when the work is
+  CPU-parallel and every frame is `Send`; `Thread.spawn` only when one thread
+  must BLOCK — a long or thread-phobic C call — which is the one thing the
+  cooperative engine has no answer for.
   Don't mix engines per task. `Channel.recv` from a task is the worst version
   of mixing them: the block is unbounded and the thread it stops
   is the EXECUTOR's, so every sibling stops too — including the task that would
@@ -1660,6 +1665,43 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   The bare `spawn { … }` is GONE: it named neither engine, read like the
   cooperative one and started an OS thread. Writing one is a clean error naming
   both spellings, so code that still has it predates Aug 22.
+- **A THREAD'S FATE IS WRITTEN, NEVER DROPPED (design 242 rulings 5/9a/9b).**
+  A `Thread.spawn` handle must reach `join()` on EVERY path out of its scope.
+  Both discard spellings are compile errors — the bare statement AND the
+  `let _ =` that design 151 blesses for a `Result` — and so is a `return` that
+  leaves the handle unconsumed:
+  ```saw
+  Thread.spawn { crunch(n) }              // error: ... must be consumed
+  var t = Thread.spawn { crunch(n) }
+  if urgent { let _ = t.join() }          // error: not consumed on this path
+  Thread.spawn { crunch(n) }.join()       // the wait-here spelling: fine
+  ```
+  Two things discharge it besides a written `join()`. A move into STORAGE whose
+  owner declares a hand-written `deinit` (`self.workers.push(move t)` inside a
+  `Pool` that joins them in its own deinit) — which is how a pool outlives the
+  function that starts it. And `group.spawn`, whose handles carry NO obligation
+  at all: a group is a declared consumer, so the accept-loop idiom
+  (`while true { group.spawn(handle(accept())) }`) is untouched, and a bound
+  group handle may simply be dropped.
+  The storage rule asks only that the owner DECLARE a deinit, not that it
+  actually join — an owner that forgets meets the runtime backstop:
+  `panic at task.saw:150: Thread was dropped without being joined or detached`.
+  GOTCHA for older code: the handle used to JOIN on drop, so
+  `let _ = spawn { … }` was a sequential call plus thread overhead and every
+  exit edge of a function holding one was a blocking edge. A build that accepts
+  an unjoined handle predates Aug 24.
+- **A `Thread.spawn` BODY IS `sync`, AND MAY BLOCK ON FFI (design 242 rulings
+  8/9).** A spawned thread runs no executor, so a suspension there has nothing
+  to resume it: `Thread.spawn { yield_now()  7 }` is a clean error naming
+  `TaskGroup(threads: 1)`, which is suspending work on a dedicated thread WITH
+  an executor. The one permitted source is a `blocking` extern, directly or
+  through a helper — it runs as a plain call and blocks that thread, which is
+  the reason to spawn one; design 103's offload is for a body with a task to
+  park, and there is none here. An ordinary `sync` body still refuses the same
+  call. Treat both as working now and SUSPECT in older builds: the body used to
+  compile as ORDINARY SYNC CODE with no frame at all, so a `yield_now()` inside
+  one was a silent no-op and a corpus test claiming to check frame residency
+  across a suspension was passing while checking nothing.
 - **A CHANNEL WAIT IS A PARK, AND CHANNELS CLOSE EXPLICITLY (design 230).**
   `receive() -> Result<T, ChannelError>`, `send`/`close ->
   Result<Void, ChannelError>`, `enum ChannelError { case Closed, case Cancelled,

@@ -5971,9 +5971,12 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   body is checked once, abstractly, and a declared bound is a promise the caller
   is separately made to keep (it is checked at the call, against the concrete
   type argument). An unbounded `T` is refused, as it always was.
-  `Thread<T>` and `VoidThread` are `NoCopy + Deinit`:
-  `join` blocks for the result; dropping an unjoined handle **joins** it
-  (structured concurrency — a thread's lifetime is a value's lifetime).
+  `Thread<T>` and `VoidThread` are `NoCopy + Deinit`. `join` blocks for the
+  result; the handle must reach one of the fates below on every path, and
+  dropping it is not one of them (see [No implicit
+  fates](#no-implicit-fates)).
+  The body is a `sync` context that permits a `blocking` extern (see
+  [The thread body](#the-thread-body)).
 - **`Channel<T: Send>`** — a `Copy` handle onto a shared, internally
   refcounted unbounded MPMC queue (cloning the handle shares the queue; the last
   handle drains and frees it). Guarded by an internal pthread mutex + condvar
@@ -5993,7 +5996,7 @@ is the suspending `receive()` twin — `recv()` remains the blocking
 thread-engine call; `lock`'s
 critical section stays synchronous (a `sync` closure cannot suspend), which is
 how the never-block invariant makes holding a lock across a suspension point a
-compile error. A `Thread.spawn` closure is not a `sync` context today.
+compile error.
 
 **Status: tasks, channels, Mutex, Send/Sync — implemented (stage 1,
 thread-per-task engine). Cooperative engine — implemented: the coroutine
@@ -6735,7 +6738,8 @@ semantics (fairness, the op budget) designed for a spelling only tests write.
 var worker = Thread.spawn {
     heavy_computation()          // returns Int
 }
-let result = worker.join()       // Thread<Int>: NoCopy; deinit joins if unjoined
+let result = worker.join()       // Thread<Int>: NoCopy. The join is required —
+                                 // dropping the handle is a compile error
 
 // Channels: Copy handles onto a shared queue
 let ch = Channel<Int>()          // Channel<T: Send>
@@ -6746,7 +6750,111 @@ var producer = Thread.spawn {
 let got = ch.recv()              // blocks the calling thread (the thread
                                  // engine's receive); the cooperative twin is
                                  // the suspending receive() (below)
-producer.join()
+let _ = producer.join()
+```
+
+#### No implicit fates
+
+The result of `Thread.spawn { ... }` must reach `join()` on every path out of
+the scope that binds it. Both discard spellings are compile errors, including
+the `let _ =` that discards a `Result`:
+
+```saw
+Thread.spawn { crunch(n) }
+// error: `Thread.spawn` hands back a `Thread<Int>` that must be consumed,
+//        and this one is discarded
+
+var t = Thread.spawn { crunch(n) }
+if urgent { let _ = t.join() }
+// error: `t` holds a `Thread<Int>` that is never consumed: it was spawned at
+//        line 1 and reaches the end of its scope with no `join()` on this path
+```
+
+The check is per-path: a `join()` inside a branch settles that branch and no
+other, and a `return` is an exit like any other. `Thread.spawn { ... }.join()`
+consumes the handle where it is made, which is the wait-here spelling.
+
+Two things discharge the obligation besides a written `join()`. One is a move
+into storage whose owner consumes the handle in its own `deinit`; the compiler
+asks only that the owning type DECLARE a hand-written `deinit`, which is how a
+worker pool outlives the function that starts it:
+
+```saw
+import std.task.{VoidThread}
+
+struct Pool { workers: Vector<VoidThread> }
+
+extension Pool: NoCopy {
+    func deinit(&var self) {
+        while self.workers.len() > 0 {
+            if let held = self.workers.pop() { var h = move held  h.join() }
+        }
+    }
+}
+
+extension Pool {
+    func start(&var self, count: Int) {
+        var i = 0
+        while i < count {
+            var t = Thread.spawn { serve() }
+            self.workers.push(move t)     // discharged: `Pool` declares a deinit
+            i = i + 1
+        }
+    }
+}
+```
+
+The other is `group.spawn`, whose handles carry no obligation at all — a group
+is a declared consumer and its `Deinit` is the join barrier, so the accept-loop
+idiom (`while true { group.spawn(handle(accept())) }`) needs nothing written.
+
+Because a declared `deinit` is necessary and not sufficient, an owner that
+forgets can still reach a thread handle's destructor unconsumed. That path
+panics, naming the type and the fates:
+
+```
+panic at task.saw:150: Thread was dropped without being joined or detached —
+`join()` waits for it and takes its result, `detach()` gives the thread to the
+process
+```
+
+`detach()` — the daemon-thread fate, where the thread is given to the process
+and its values deinit if it completes — is named by the diagnostics and is not
+implemented yet. Until it is, `join()` is the only fate a handle can reach.
+
+The handle used to JOIN on drop instead. That made `let _ = Thread.spawn { ... }`
+— the natural way to guess at fire-and-forget — a sequential call plus the cost
+of a thread, and it made every exit edge of a function holding a handle a
+blocking edge, error paths included.
+
+#### The thread body
+
+A `Thread.spawn { ... }` body is a `sync` context: a spawned thread runs no
+executor, so there is nothing on it to resume a suspension.
+
+```saw
+var t = Thread.spawn { yield_now()  7 }
+// error: cannot suspend in a `Thread.spawn { ... }` body: closure calls
+//        yield_now
+```
+
+Suspending work on a dedicated thread is `TaskGroup(threads: 1)`, which brings
+an executor with it. Before this rule the body compiled as ordinary sync code —
+no coroutine frame was built at all — so a `yield_now()` inside one was a silent
+no-op.
+
+One suspension source is permitted, and it is the reason to reach for a thread
+in the first place: a `blocking` extern runs DIRECTLY there, blocking the
+spawned thread. Design 103's offload — which moves such a call to a worker
+thread and parks the task — applies to a suspending body, and there is no task
+here to park. An ordinary `sync` body still refuses the same call.
+
+```saw
+extern "C" {
+    blocking func compress(src: UnsafePointer<Int8>, n: Int) -> Int
+}
+var t = Thread.spawn { compress(buf, len) }   // blocks this thread, on purpose
+let bytes = t.join()
 ```
 
 ### Cooperative tasks: TaskGroup
@@ -7307,16 +7415,20 @@ for its C call to finish before it can return, and nothing the call points at ma
 be released until that join, which is why the frame keeps its storage until then.
 
 **Two engines coexist today, deliberately not unified, and the NAMESPACE is
-which one you are on.** `Thread.spawn`/`Thread<T>`/`Channel.recv` (design 21b)
-run on the **OS-thread** engine: `Thread.spawn` starts an OS thread,
-`Thread.join()`/`Channel.recv()` block that thread, and `Deinit` joins an
-unjoined handle at scope exit (structured concurrency). Separately, a suspending
-`main` runs on the **single-threaded cooperative executor** (above) with
-`yield_now`/`sleep`. Cooperative spawn, structured join, and cancellation
-shipped as `TaskGroup` on the ambient cooperative scheduler — `Box<any
-Resumable>` is the type-erased handle that made the shared run queue possible.
-The residual split is only that the OS-thread engine remains its own runtime: do
-not mix the two engines for one task.
+which one you are on.** `Thread.spawn`/`Thread<T>`/`Channel.recv` run on the
+**OS-thread** engine: `Thread.spawn` starts an OS thread, its body is a `sync`
+context that may block on FFI, and `Thread.join()`/`Channel.recv()` block the
+calling thread. `TaskGroup`/`Task<T>`/`Channel.receive` run on the
+**single-threaded cooperative executor** (above), where a body suspends and a
+join drives the group; a suspending `main` runs there too. The call site's
+namespace says which machine it is on, and the two behave differently enough
+that reading it matters: one blocks and one suspends, and a handle's obligations
+differ (a `Thread<T>` must be consumed; a group's `Task<T>` may be dropped).
+
+Do not mix the two engines for one task. `Channel.recv` from a cooperative task
+is the worst version of it: the block is unbounded and the thread it stops is
+the executor's, so every sibling stops with it — including the task that would
+have sent the value. Use `receive`. Nothing rejects that call today (DF-181c).
 
 ### Shared State
 

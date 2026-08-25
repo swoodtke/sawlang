@@ -393,6 +393,31 @@ call between its entry point and where it is parked. It reads tables the
 compiler links into the binary and allocates nothing, so it works in a
 kernel and inside a panic handler.
 
+For a dedicated OS thread — a long blocking C call, work that must not share
+the executor's thread — there is a second engine, and the namespace is which
+one you are on. `Thread.spawn` starts a real thread and `join()` blocks for
+its result:
+
+```saw
+extern "C" {
+    blocking func compress(level: Int32) -> Int
+}
+
+func main() {
+    var worker = Thread.spawn { compress(9) }   // blocks its own thread
+    print("compressed {worker.join()} bytes")
+}
+```
+
+A thread's body is a `sync` context, since a spawned thread runs no executor;
+a `blocking` extern is the one suspension source it may reach, which is the
+reason to spawn one. And a thread's fate is written, never inferred: the
+handle must reach `join()` on every path, so neither a bare
+`Thread.spawn { ... }` statement nor a `let _ =` compiles. Reach for the
+cooperative engine first — `TaskGroup` for structured concurrency,
+`TaskGroup(threads: N)` for parallelism — and for `Thread.spawn` when one
+thread must block.
+
 See [Concurrency](LANGUAGE_SPEC.md#6-concurrency),
 [Tasks and Channels](LANGUAGE_SPEC.md#tasks-and-channels), and
 [Task backtraces](LANGUAGE_SPEC.md#task-backtraces-design-158) in the spec.
