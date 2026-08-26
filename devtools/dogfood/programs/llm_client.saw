@@ -333,10 +333,11 @@ func build_request(method: String, path: String, host: String, port: Int, body: 
     return b.build()
 }
 
-// NOTE (DF, see .build/scratch/repro_min.saw and probe23/24.saw): matching a
-// SUSPENDING call's Result and moving the Ok payload onward — a `TcpStream`
-// out of `TcpStream.connect`'s match, or a `Data` out of `TcpStream.read`'s —
-// comes back corrupted: the connect case reads back as a broken socket ("io
+// NOTE (DF-215f, pinned at examples/coro_match_moved_payload_survives_return.saw):
+// matching a SUSPENDING call's Result and moving the Ok payload onward — a
+// `TcpStream` out of `TcpStream.connect`'s match, or a `Data` out of
+// `TcpStream.read`'s — comes back corrupted once the moved value leaves the
+// enclosing function: the connect case reads back as a broken socket ("io
 // error: ... (other error)" on the very next operation), and the read case
 // is a genuine Arc refcount underflow ("panic ... over-release of an Arc")
 // once the returned `Data` is used again. Neither reproduces with a
@@ -344,6 +345,8 @@ func build_request(method: String, path: String, host: String, port: Int, body: 
 // `match` on the very same call — which is the workaround used everywhere
 // below: every suspending TcpStream operation is unwrapped with `try!`
 // (panicking with the IoError's message on failure) rather than matched.
+// The DF-215f fix owes this file its designed error path back: these
+// `try!` panics should return to `Result<_, ClientError>` matches.
 func send_request(host: String, port: Int, method: String, path: String, body: String?) -> TcpStream {
     var stream = try! TcpStream.connect(host, port)
     let req = build_request(method, path, host, port, body)

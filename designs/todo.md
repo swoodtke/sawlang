@@ -74,6 +74,11 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-259a — `Box<any Trait>.make` sits outside design 234's flip, so one method name has two fallibilities and the erased one panics with a bare `allocation failed` (entry below, filed Aug 25 by the design-138 doc-sync sweep). This IS the 234 census's `existentials.py:402` hold, which never became a tracker entry — it owes the user ruling that brief deferred
 - DF-259b — a reserved word in any declaration-name position gives a bare "Expected X name" that never says the word is reserved; five slots, one shared report (entry below, filed Aug 25 by the design-138 doc-sync sweep; PRE-EXISTING). Diagnostic-only, so no XFAIL pin
 - DF-259c — a TRAILING closure is not recognized inside a `try`/`try!`/`try?` operand, so `try! v.map { … }` collapses to a field access; the parenthesized argument is the workaround (entry below, filed Aug 25 by the design-138 doc-sync sweep; PRE-EXISTING, and the 234 flip is what makes it reachable from ordinary code). Pinned XFAIL, three cells and one control
+- DF-215f — SOUNDNESS: a payload moved OUT of a suspending call's `match` is double-released when the value leaves the function — use-after-free reachable from safe code (entry below under design 215, filed Aug 26 by the stage A-C rewrite; pinned XFAIL; DF-218w/DF-242a family). Wants scheduling ahead of routine work
+- DF-215g — a bare `None` compared `==` against a CALL expression's determined optional refuses to infer, where the annotated-local twin compiles (entry below, Aug 26)
+- DF-215h — stdout has no newline-free write, so incremental output (`--stream` deltas) prints one line per piece; wants a surface ruling (entry below, Aug 26)
+- DF-215i — no boolean `guard cond else { }`, only `guard let`; wants a ruling on whether the omission is deliberate (entry below, Aug 26)
+- DF-215j — `return` inside a VALUE match arm is a bare "Unexpected token: RETURN" with no arms-are-expressions hint; diagnostic-only (entry below, Aug 26)
 
 
 ## DF-247a — a function that is a `group.spawn` ROOT is `undefined function`
@@ -4418,7 +4423,7 @@ definition, four routes named), design 195's platform-width family (units
 quantified over ALL typed operands / ALL value-branch arms; remainder is
 design 205's authored brief).
 
-## Design 215 — the LLM client (Python reference LANDED; Saw port FUTURE WORK)
+## Design 215 — the LLM client (Python reference LANDED; Saw stages A-C LANDED Aug 26; D-F future)
 
 Brief: `designs/215-llm-client-saw-port.md`. Both programs sit in
 `devtools/dogfood/programs/`. User order (Aug 12): Python first, port
@@ -4430,9 +4435,20 @@ editing, a system-prompt file, and an interactive REPL (vi bindings,
 persistent history, slash commands). Verified against LM Studio on
 `Mac-Studio.local:1234`.
 
-**ALSO LANDED — `llm_client.saw`**, the first Saw attempt (one-shot,
-non-streaming), verified end-to-end against a local mock. lexdiff and
-astdiff green over 1937 files with it in the corpus.
+**ALSO LANDED — `llm_client.saw`, REWRITTEN Aug 26 as stages A-C**
+(dogfood agent, design 203 instrument; cherry-pick 3b3ec748): one-shot
+chat, `/v1/models` + non-embedding auto-pick, `--stream` printing each
+SSE delta as its HTTP chunk arrives (both body framings decoded:
+Content-Length and chunked), `--system-prompt`/`--temperature`/
+`--max-tokens`, hand-rolled JSON both ways (fourth std.json consumer).
+Verified against a trap-laden loopback mock — decoy `"content"` key,
+surrogate-pair emoji, 0.4s-spaced SSE frames proving incremental
+arrival, a 400 path quoting the server detail. The first attempt it
+replaces had bit-rotted at design 234's allocator flip. Carries ONE
+workaround: every suspending TcpStream op is `try!`-unwrapped rather
+than matched (DF-215f below is why), so the connect-failure path exits
+via panic instead of the designed ClientError line — DEBT the DF-215f
+fix repays (the comment at the workaround site says so).
 
 **Environment fact worth carrying beyond this brief:** macOS 15+ gates
 Local Network access PER APP, so an unapproved binary gets
@@ -4470,12 +4486,64 @@ brief), plus one the DF-215a fix turned up:
   `{` in a literal opens an interpolation.
 - **DF-215d — the wrapped `&&` (DF-172d) re-confirmed.**
 
-Port blockers, staged A-F in the brief: DF-215a DONE; **std.json — tool
-use is where hand-rolled JSON stops working, making this its third
-consumer and the first that cannot route around it**; incremental line
-reads for streaming; a `TcpStream` read deadline; and **a line-editing
-story, probably its own brief**, since Saw has no terminal surface at
-all.
+Five more from the Aug-26 stage A-C rewrite (evidence, matrix and
+acceptance transcript in the brief's rewrite section; DF-215c was also
+re-hit verbatim as the fresh reader's FIRST error, strengthening its
+case for a diagnostic fix):
+- **DF-215f (SOUNDNESS — USE-AFTER-FREE; filed Aug 26) — a payload
+  moved OUT of a suspending call's `match` is released AGAIN when the
+  value leaves the enclosing function.** All three legs required —
+  suspending scrutinee, a `move`-out arm, the moved value crossing the
+  function return (tail auto-wrap and `return move` alike) — and
+  removing any one is clean, which is the pin's five-row matrix:
+  `examples/coro_match_moved_payload_survives_return.saw` (XFAIL;
+  deterministic — the Arc-instrumented payload prints its DEINIT while
+  the caller still holds it, then the second row dies). Manifests as
+  Arc refcount underflow, early deinit, or SIGSEGV depending on payload
+  type; in the wild it corrupted a `TcpStream` moved out of `connect`'s
+  match and a `Data` out of `read`'s. Same family as DF-218w/DF-242a —
+  a frame-owned release placed blind to what an arm moved out — but a
+  DOUBLE RELEASE of an owned payload, not a timing divergence.
+  OBLIGATION-4 SWEEP OWED before the fix dispatches: the container-head
+  hoist's frame temp is one of several frame homes a moved-from value
+  can still be released from (DF-242a's try-body edge and DF-255a's
+  consumed capture are known siblings); the sweep enumerates the rest
+  of that family and the fix targets the mechanism.
+- **DF-215g — bidirectional inference does not resolve a bare `None`
+  compared `==` against a CALL expression's fully determined optional**
+  (`find_thing(5) == None` is "cannot tell what this `None` is a `None`
+  OF"; the same compare against an `Int?`-annotated local compiles).
+  `.is_none()` is the workaround and the better idiom, but the refusal
+  contradicts "infer when accurate" — the LHS type is determined by the
+  callee's signature. Probe: `.build/scratch/probe_none_eq_call.saw`.
+- **DF-215h — no newline-free stdout write exists.** `print` appends
+  `\n` unconditionally and no std surface exposes a raw stdout handle,
+  so incremental output — this client's `--stream` deltas, any progress
+  meter — prints one line per piece. Wants a surface ruling: a
+  `print`-family variant vs a stdout handle in std.
+- **DF-215i — no boolean `guard cond else { }`** — only `guard let`;
+  every plain bounds check falls back to an inverted `if`. Wants a
+  ruling on whether the omission is deliberate.
+- **DF-215j — `return` inside a VALUE match arm is a bare parse error**
+  ("Unexpected token: RETURN") with no hint that arms are expressions —
+  brace the arm to return, or drop the `return` and let the arm's value
+  auto-wrap. The dogfood reader chased the wrong fix first.
+  Diagnostic-only, so no pin.
+
+Docs nits from the same rewrite, fixed on discovery (Aug 26): the spec
+now states `byte_at`/`bytes()` return SIGNED `Int8` directly instead of
+via a parenthetical (the reader wrote ~25 `u8`-literal comparisons
+first). Still open as a docs QUESTION, not a DF: no user-facing doc
+enumerates the std method signatures (exact overloads, labels), so the
+dogfood agent discovered several via compiler-diagnostic candidate
+lists — `--emit-docs` exists and may be the answer.
+
+Port blockers, staged A-F in the brief: DF-215a DONE; stage C's
+incremental reads DONE (Aug 26, in-client chunked/SSE decoding —
+NOT a std surface); **std.json — tool use (stage D) is where
+hand-rolled JSON stops working, this rewrite is its fourth consumer**;
+a `TcpStream` read deadline; and **a line-editing story for stage E,
+probably its own brief**, since Saw has no terminal surface at all.
 
 ## Design 213 findings — the closure-callable sweep (Aug 13)
 

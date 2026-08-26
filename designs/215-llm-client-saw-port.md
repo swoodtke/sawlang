@@ -1,13 +1,16 @@
 # Design 215 — the LLM client: a working Python reference, and the Saw port it exists for
 
-**Status: the Python REFERENCE is LANDED and working. The Saw PORT is FUTURE
-WORK — not scheduled, not ruled, no units authored.** Both programs live in
-`devtools/dogfood/programs/`:
+**Status: the Python REFERENCE is LANDED and working. STAGES A-C of the Saw
+port LANDED Aug 26** (dogfood-agent rewrite — see "The stage A-C rewrite"
+section at the end for its findings, DF-215f through DF-215j). Stages D-F
+remain future work. Both programs live in `devtools/dogfood/programs/`:
 
 - `llm_client.py` — the reference. Verified against LM Studio on
   `Mac-Studio.local:1234`.
-- `llm_client.saw` — the first Saw attempt. Compiles and runs; verified
-  end-to-end against a local mock, and the source of every finding below.
+- `llm_client.saw` — since Aug 26 the stage A-C port (one-shot, models +
+  auto-pick, streaming); the sections below describing "the first Saw
+  attempt" refer to the one-shot-only Aug-12 version it replaced, whose
+  findings (DF-215a-e) they document.
 
 Order chosen by the user (Aug 12): get it working in Python first, port second,
 debugging the language issues as they surface. The point of writing this down
@@ -304,3 +307,82 @@ was a multi-byte `index_of`, which the attempt supplies as a local
   exposed separately?~~ ANSWERED Aug 15: renamed to `code()`. The raw errno cannot
   reach std without a new seam, and the one-word status convention is what makes
   the ABI fit SOS — see the DF-215a section.
+
+## The stage A-C rewrite (Aug 26)
+
+A dogfood agent (design 203 instrument, Sonnet, docs-only knowledge) rewrote
+`llm_client.saw` from scratch against the current language — the Aug-12
+attempt had bit-rotted at design 234's allocator flip (every bare `append`
+became a discarded-Result compile error). What landed: one-shot chat,
+`--list-models`, non-embedding auto-pick, `--stream` with each SSE delta
+printed as its HTTP chunk is read off the socket (both body framings:
+Content-Length and an incremental chunked decoder), `--system-prompt` /
+`--temperature` / `--max-tokens`, hand-rolled JSON both directions with
+surrogate-pair unescaping. Stage D (tools) and E (interactive) stayed out of
+scope per this brief's staging: std.json and the terminal surface.
+
+Verified against a loopback mock with planted traps, all passing: a decoy
+`"content"` key before `choices` is not mistaken for the reply; an escaped
+emoji surrogate pair and embedded `\n` decode exactly; the embedding-first
+model list is not auto-picked; SSE frames sent 0.4s apart print with ~0.4s
+gaps (timestamped subprocess capture — genuinely incremental, not
+read-to-EOF); a 400 exits nonzero quoting the server's JSON detail verbatim;
+connection-refused exits nonzero with a legible line (via `try!` panic —
+DF-215f's debt, see below).
+
+### DF-215f — the soundness finding (and why the client carries a workaround)
+
+The agent's designed error handling — `match` each suspending `TcpStream`
+op's Result into a `ClientError` — corrupted the moved-out payloads. Reduced
+to a deterministic no-network repro and then to a five-row trigger matrix,
+each row removing one leg (lead-verified on main, Aug 26):
+
+| row | suspending callee | `match` + `move`-out | value leaves the fn | result |
+|---|---|---|---|---|
+| tail auto-wrap | yes | yes | yes | CORRUPTS |
+| bind + `return move` | yes | yes | yes | CORRUPTS |
+| local use only | yes | yes | no | clean |
+| `try` propagation | yes | no | yes | clean |
+| sync callee | no | yes | yes | clean |
+
+Manifestation varies by payload (Arc refcount underflow panic, early deinit,
+SIGSEGV, a `TcpStream` that reads back as a broken socket) but the divergence
+is deterministic run-to-run with an Arc-instrumented payload, which is what
+the pin uses: `examples/coro_match_moved_payload_survives_return.saw` (XFAIL,
+the five rows above). Suspected mechanism family: DF-218w/DF-242a — the
+container-head hoist parks the scrutinee in a frame temp and the frame's
+release does not know an arm moved the payload out. The obligation-4 sweep
+owes the enumeration of every frame home a moved-from value can still be
+released from before the fix dispatches.
+
+The landed client's workaround: every suspending TcpStream op unwraps with
+`try!` (which does not trigger the bug), so a connect failure panics with the
+IoError message instead of returning the designed ClientError. The fix
+restores the match spelling — the site comment in the client says so.
+
+### The smaller findings
+
+- **DF-215g** — `find_thing(5) == None` refuses ("cannot tell what this
+  `None` is a `None` OF") though the call's return type fully determines it;
+  the annotated-local twin compiles. Probe kept at
+  `.build/scratch/probe_none_eq_call.saw` shape (six lines).
+- **DF-215h** — no newline-free stdout write anywhere in std, so the
+  `--stream` deltas print one per line; any progress-style output hits this.
+- **DF-215i** — no boolean `guard cond else { }`; the agent reached for it
+  first for bounds checks.
+- **DF-215j** — `return` in a value match arm: "Unexpected token: RETURN"
+  with no hint that arms are expressions (brace it, or drop the `return` for
+  auto-wrap); the agent chased the brace fix before finding the idiom.
+- **DF-215c re-hit verbatim** — the fresh reader's FIRST compile error was
+  the JSON `\{` brace escape, in a plain literal with no interpolation in it.
+  Evidence for fixing the diagnostic, exactly as the DF predicted.
+- Docs: `byte_at`'s `Int8` return was stated only via a parenthetical on
+  `bytes()` (spec fixed on discovery, Aug 26 — the agent wrote ~25
+  `u8`-literal comparisons first); no doc enumerates std method signatures,
+  so several surfaces (`Data.append` overloads, `Env.args()` argv[0]) were
+  discovered through compiler diagnostics — open docs question, `--emit-docs`
+  may be the answer.
+- Pleasant (calibration): `Data.slice`'s O(1) CoW windows made the rolling
+  network buffer allocation-free by hand-off; `try` + auto-wrap composed
+  cleanly through four levels of `Result<_, ClientError>`; `chars()` +
+  `append_scalar` round-tripped UTF-8 byte-for-byte with no special-casing.

@@ -987,8 +987,11 @@ language with no `move` discipline — `greet(s)` does not consume `s`.
   interpolates and boxes at an erased `Result<T, Box<any Error>>` boundary.
 - **Access views, never `s[i]`.** There is deliberately no integer indexing (it
   conflates bytes with scalars). Two iterator views are provided instead:
-  `bytes()` yields the raw bytes (`Int8`, matching `byte_at`) and `chars()`
-  yields Unicode scalar values decoded from UTF-8. Scalars are yielded as `Int` —
+  `bytes()` yields the raw bytes and `chars()`
+  yields Unicode scalar values decoded from UTF-8. Bytes are `Int8` — from
+  `byte_at(i)` and from `bytes()` alike — so a byte at or above 0x80 reads
+  NEGATIVE, and a comparison against a `u8`-suffixed literal is a type error
+  (`Data`'s bytes are `UInt8`; `String`'s are not). Scalars are yielded as `Int` —
   there is no `Char` primitive type yet (a scalar is just an `Int`). `String`
   itself *is* `Comparable` (byte-lexicographic ordering, design 48). Each iterator
   holds its OWN retain on the source string, so iterating a temporary

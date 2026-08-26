@@ -17,7 +17,7 @@ test exactly like the skill: if it sets an expectation the language
 then breaks, quote the passage in your report (category b or c).
 
 Build and run with the main checkout's venv by absolute path:
-/Users/swoodtke/Projects/claudes-lang/.venv/bin/python sawc/sawc.py ...
+/Users/swoodtke/Projects/sawlang/.venv/bin/python sawc/sawc.py ...
 Work only in your worktree; program sources where the dispatch prompt
 says; scratch under .build/scratch/. No heredocs, no inline python -c,
 no cd-prefixed commands. Do not run the test suite or the battery.
