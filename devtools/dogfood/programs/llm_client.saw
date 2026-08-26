@@ -1,501 +1,862 @@
-// A minimal LLM chat client: POSTs one prompt to an OpenAI-compatible
-// /v1/chat/completions endpoint and prints the assistant's reply.
+// A small LLM chat client for an OpenAI-compatible server (LM Studio-style):
+// GET /v1/models and POST /v1/chat/completions, HTTP/1.1 over a plain TCP
+// socket, JSON both ways. This is the Saw port of
+// devtools/dogfood/programs/llm_client.py, covering its non-interactive,
+// non-tool subset (design 215 stages A-C): one-shot chat, --list-models,
+// model auto-pick, --stream, and the flag surface that does not need a
+// tool loop or a REPL.
 //
-// Written against LM Studio on Mac-Studio.local:1234, which also speaks
-// /api/v1 and /v1/messages; the OpenAI path is the portable one.
+// Out of scope on purpose: the interactive REPL and slash commands,
+// --tools/--allow-writes and the tool layer, and --timeout (std.net has no
+// read deadline yet, so a hung server hangs this client rather than timing
+// out — this is where a per-call deadline would plug in if std grew one).
 //
-// The JSON handling here is deliberately NOT a parser. The request body is
-// built by escaping into a StringBuilder, and the reply is found by an
-// ANCHORED SCAN for the choices -> message -> content key path. Saw has no
-// std.json (designs/214-raft-simulation-dogfood.md records the gap), and this
-// program is what a client looks like without one.
-//
-// Usage:  llm_client [prompt words...]
-//         LLM_HOST=<host>  LLM_PORT=<port>  LLM_MODEL=<id>   all override
-//
-// MACOS LOCAL NETWORK PERMISSION. On macOS 15+ a binary with no Local Network
-// grant gets EHOSTUNREACH (errno 65) from connect() for any LAN address, while
-// loopback works — so this client reports "connect failed (other error)" against
-// Mac-Studio.local until the terminal running it is enabled under
-// System Settings > Privacy & Security > Local Network. That is not a bug in
-// this program or in std.net: a plain cc-built C binary behaves identically.
-// Verify the HTTP and JSON paths without the LAN hop by pointing LLM_HOST and
-// LLM_PORT at a local server.
+// Saw has no std.json, so both directions are hand-rolled here: outbound
+// strings are escaped per RFC 8259, and inbound JSON is read with an
+// anchored scan (find "choices", then "message"/"delta", then "content")
+// rather than a general parser, which is enough for this envelope shape.
 
 import std.net.{TcpStream, IoError}
-import std.data.{Data}
+import std.data.*
 import std.env.{Env}
+import std.file
+import std.path.{Path}
 
 // =============================================================================
-// The bytes this program compares against
+// Errors
 // =============================================================================
-//
-// `String.byte_at` hands back an `Int8`, so every one of these is one — and a
-// byte >= 0x80 reads NEGATIVE, which is what keeps UTF-8 continuation bytes out
-// of the ASCII branches below and passes them through untouched.
 
-static BACKSPACE_BYTE: Int8 = 8
-static TAB_BYTE: Int8 = 9
-static NEWLINE_BYTE: Int8 = 10
-static FORMFEED_BYTE: Int8 = 12
-static RETURN_BYTE: Int8 = 13
-static SPACE_BYTE: Int8 = 32
-static QUOTE_BYTE: Int8 = 34
-static SLASH_BYTE: Int8 = 47
-static COLON_BYTE: Int8 = 58
-static BACKSLASH_BYTE: Int8 = 92
-static LOWER_B: Int8 = 98
-static LOWER_F: Int8 = 102
-static LOWER_N: Int8 = 110
-static LOWER_R: Int8 = 114
-static LOWER_T: Int8 = 116
-static LOWER_U: Int8 = 117
+struct ClientError { message: String }
 
-// The surrogate range, for the \uXXXX\uXXXX pair JSON must use to spell a
-// scalar above the BMP (an emoji, most of the time).
-static SURROGATE_HI_MIN: Int = 0xD800
-static SURROGATE_HI_MAX: Int = 0xDBFF
-static SURROGATE_LO_MIN: Int = 0xDC00
-static SURROGATE_LO_MAX: Int = 0xDFFF
-static SUPPLEMENTARY_BASE: Int = 0x10000
-
-// =============================================================================
-// Failures this client can report on its own
-// =============================================================================
-//
-// The network and UTF-8 failures already have types (IoError, Utf8Error); these
-// are the three ways a well-formed HTTP exchange can still not carry a reply.
-
-enum ChatError {
-    case HttpStatus(line: String),
-    case NoBody,
-    case NoContent
+extension ClientError: Printable {
+    func format(&self, into: &var StringBuilder) { try! into.append(self.message) }
 }
 
-extension ChatError: Printable {
-    func format(&self, into: &var StringBuilder) {
-        match self {
-            case HttpStatus(line) -> {
-                into.append("server returned ")
-                into.append(line)
-            },
-            case NoBody -> into.append("the response had no HTTP body"),
-            case NoContent -> {
-                into.append("no assistant message in the response body ")
-                into.append("(no choices[].message.content)")
-            }
-        }
-    }
-}
-
-extension ChatError: Error {}
+extension ClientError: Error {}
 
 // =============================================================================
-// String scanning — what std.string does not offer yet
+// JSON — outbound (escaping) and inbound (anchored scan)
 // =============================================================================
 
-/// Reports whether `needle` sits at `at` in `haystack`.
-///
-/// Compares bytes rather than cutting a substring, so a search over a
-/// response body allocates nothing.
-func matches_at(haystack: String, needle: String, at: Int) -> Bool {
-    let hn = haystack.len()
-    let nn = needle.len()
-    if at < 0 || at + nn > hn {
-        return false
-    }
-    var k = 0
-    while k < nn {
-        if haystack.byte_at(at + k) != needle.byte_at(k) {
-            return false
-        }
-        k += 1
-    }
-    true
+// Encodes one Unicode scalar as the \u00XX escape's hex digit at nibble
+// value `n` (0..15), returned as the scalar of the ASCII hex character.
+func hex_digit_scalar(n: Int) -> Int {
+    if n < 10 { return 48 + n }
+    return 87 + n
 }
 
-/// Returns the first index at or after `from` where `needle` occurs.
-///
-/// `std.string` has `index_of_char` for a single byte and nothing for a
-/// multi-byte needle, so this is the substring search.
-func find_from(haystack: String, needle: String, from: Int) -> Int? {
-    let hn = haystack.len()
-    let nn = needle.len()
-    if nn == 0 {
-        return from
-    }
-    if nn > hn {
-        return None
-    }
-    var i = from
-    if i < 0 {
-        i = 0
-    }
-    while i + nn <= hn {
-        if matches_at(haystack, needle, i) {
-            return i
-        }
-        i += 1
-    }
-    None
-}
-
-/// Returns everything before the first CRLF, or the whole string if there is
-/// none. Used to quote a bad status line back to the user.
-func first_line(s: String) -> String {
-    guard let i = find_from(s, "\r\n", 0) else {
-        return s
-    }
-    s.substring(0, i)
-}
-
-// =============================================================================
-// JSON out — escaping into a builder
-// =============================================================================
-
-/// Returns the lowercase hex digit for the low nibble of `v`.
-func hex_digit(v: Int) -> Int8 {
-    let d = v & 0xF
-    if d < 10 {
-        (48 + d) as Int8
-    } else {
-        (87 + d) as Int8
-    }
-}
-
-/// Appends `s` as the contents of a JSON string — no surrounding quotes.
-///
-/// Escapes exactly what RFC 8259 requires: the quote, the backslash, and every
-/// control byte below 0x20. Bytes at or above 0x80 are UTF-8 already and go
-/// through unchanged.
-func json_escape(s: String, into: &var StringBuilder) {
-    let n = s.len()
-    var i = 0
-    while i < n {
-        let b = s.byte_at(i)
-        if b == QUOTE_BYTE {
-            into.append("\\\"")
-        } else if b == BACKSLASH_BYTE {
-            into.append("\\\\")
-        } else if b == NEWLINE_BYTE {
-            into.append("\\n")
-        } else if b == RETURN_BYTE {
-            into.append("\\r")
-        } else if b == TAB_BYTE {
-            into.append("\\t")
-        } else if b == BACKSPACE_BYTE {
-            into.append("\\b")
-        } else if b == FORMFEED_BYTE {
-            into.append("\\f")
-        } else if b >= 0 && b < SPACE_BYTE {
-            into.append("\\u00")
-            into.append_char(hex_digit((b as Int) >> 4))
-            into.append_char(hex_digit(b as Int))
+// Appends `s` to `b` as a double-quoted, RFC 8259-escaped JSON string.
+// Bytes >= 0x80 pass through as UTF-8: `chars()` decodes the source string's
+// scalars and `append_scalar` re-encodes each one, which is the identity on
+// the valid-UTF-8 domain a `String` already guarantees.
+func append_json_string(b: &var StringBuilder, s: String) {
+    try! b.append("\"")
+    for ch in s.chars() {
+        if ch == 34 {
+            try! b.append("\\\"")
+        } else if ch == 92 {
+            try! b.append("\\\\")
+        } else if ch == 10 {
+            try! b.append("\\n")
+        } else if ch == 13 {
+            try! b.append("\\r")
+        } else if ch == 9 {
+            try! b.append("\\t")
+        } else if ch == 8 {
+            try! b.append("\\b")
+        } else if ch == 12 {
+            try! b.append("\\f")
+        } else if ch < 0x20 {
+            try! b.append("\\u00")
+            let _ = try! b.append_scalar(scalar: hex_digit_scalar(ch / 16))
+            let _ = try! b.append_scalar(scalar: hex_digit_scalar(ch % 16))
         } else {
-            into.append_char(b)
+            let _ = try! b.append_scalar(scalar: ch)
         }
+    }
+    try! b.append("\"")
+}
+
+// Finds the first occurrence of `needle` in `s` at or after `from`, or
+// `None`. Saw's String has no built-in substring search, so this is the
+// hand-rolled scan every other lookup below is built on.
+func find_sub(s: String, needle: String, from: Int) -> Int? {
+    let n = s.len()
+    let m = needle.len()
+    if m == 0 { return from }
+    if from > n - m { return None }
+    var i = from
+    while i + m <= n {
+        var j = 0
+        var ok = true
+        while j < m {
+            if s.byte_at(i + j) != needle.byte_at(j) {
+                ok = false
+                break
+            }
+            j += 1
+        }
+        if ok { return i }
         i += 1
     }
+    return None
 }
 
-// =============================================================================
-// JSON in — an anchored scan, not a parser
-// =============================================================================
-
-func is_json_space(b: Int8) -> Bool {
-    b == SPACE_BYTE || b == TAB_BYTE || b == NEWLINE_BYTE || b == RETURN_BYTE
-}
-
-/// Returns the value of the four hex digits at `at`.
-func hex4(s: String, at: Int) -> Int? {
-    if at < 0 || at + 4 > s.len() {
-        return None
+// Advances past ASCII whitespace and (optionally) a single JSON ':'.
+func skip_ws_colon(s: String, from: Int) -> Int {
+    var j = from
+    let n = s.len()
+    while j < n {
+        let b = s.byte_at(j)
+        if b == 32 || b == 9 || b == 10 || b == 13 || b == 58 {
+            j += 1
+        } else {
+            break
+        }
     }
+    return j
+}
+
+func skip_ws(s: String, from: Int) -> Int {
+    var j = from
+    let n = s.len()
+    while j < n {
+        let b = s.byte_at(j)
+        if b == 32 || b == 9 || b == 10 || b == 13 {
+            j += 1
+        } else {
+            break
+        }
+    }
+    return j
+}
+
+func hex_value(b: Int) -> Int? {
+    if b >= 48 && b <= 57 { return b - 48 }
+    if b >= 97 && b <= 102 { return b - 97 + 10 }
+    if b >= 65 && b <= 70 { return b - 65 + 10 }
+    return None
+}
+
+// Reads exactly 4 hex digits starting at `at`, returning (value, next).
+func parse_hex4(s: String, at: Int) -> (Int, Int)? {
+    if at + 4 > s.len() { return None }
     var v = 0
-    var k = 0
-    while k < 4 {
-        let b = s.byte_at(at + k)
-        var d = -1
-        if b >= 48 && b <= 57 {
-            d = (b as Int) - 48
-        } else if b >= 97 && b <= 102 {
-            d = (b as Int) - 87
-        } else if b >= 65 && b <= 70 {
-            d = (b as Int) - 55
-        }
-        if d < 0 {
-            return None
-        }
-        v = (v << 4) | d
-        k += 1
+    var j = 0
+    while j < 4 {
+        guard let d = hex_value(s.byte_at(at + j) as Int) else { return None }
+        v = v * 16 + d
+        j += 1
     }
-    v
+    return (v, at + 4)
 }
 
-/// Appends `scalar` as UTF-8, falling back to the literal `text` it was written
-/// as when it is not a scalar value.
-///
-/// `append_scalar` refuses an unpaired surrogate, which is the case that shows
-/// up in practice. Keeping the source text means a malformed escape is visible
-/// in the output instead of vanishing from it.
-func append_scalar_or_text(into: &var StringBuilder, scalar: Int, text: String) {
-    if let _ = into.append_scalar(scalar) {
-        return
-    }
-    into.append(text)
-}
-
-/// Reads the JSON string value that follows `"<key>"` at or after `from`,
-/// unescaping it.
-///
-/// This trusts the shape of the document: it finds the key, steps over the
-/// colon, and reads one string. It validates nothing else, which is exactly the
-/// line between a scan and a parser.
-func string_after_key(json: String, key: String, from: Int) -> String? {
-    let n = json.len()
-
-    var pattern = StringBuilder()
-    pattern.append("\"")
-    pattern.append(key)
-    pattern.append("\"")
-    let needle = pattern.build()
-
-    guard let found = find_from(json, needle, from) else {
-        return None
-    }
-
-    var i = found + needle.len()
-    while i < n && is_json_space(json.byte_at(i)) {
-        i += 1
-    }
-    if i >= n || json.byte_at(i) != COLON_BYTE {
-        return None
-    }
-    i += 1
-    while i < n && is_json_space(json.byte_at(i)) {
-        i += 1
-    }
-    if i >= n || json.byte_at(i) != QUOTE_BYTE {
-        return None
-    }
-    i += 1
-
+// Parses a JSON string literal starting exactly at the opening quote,
+// unescaping `\" \\ \/ \n \r \t \b \f` and `\uXXXX` (including surrogate
+// pairs — the only way a plain ASCII string can carry an emoji). Runs of
+// unescaped bytes are copied out with `substring`, which stays UTF-8-safe
+// because the cut points are always the ASCII '"' or '\' bytes.
+func parse_json_string(s: String, start: Int) -> (String, Int)? {
+    let n = s.len()
+    if start >= n || s.byte_at(start) != 34 { return None }
+    var i = start + 1
+    var run_start = i
     var out = StringBuilder()
     while i < n {
-        let b = json.byte_at(i)
-        if b == QUOTE_BYTE {
-            return out.build()
+        let b = s.byte_at(i)
+        if b == 34 {
+            if i > run_start { try! out.append(s.substring(run_start, i)) }
+            return (out.build(), i + 1)
         }
-        if b != BACKSLASH_BYTE {
-            out.append_char(b)
+        if b == 92 {
+            if i > run_start { try! out.append(s.substring(run_start, i)) }
             i += 1
-        } else {
-            if i + 1 >= n {
-                return None
-            }
-            let e = json.byte_at(i + 1)
-            if e == QUOTE_BYTE {
-                out.append_char(QUOTE_BYTE)
-                i += 2
-            } else if e == BACKSLASH_BYTE {
-                out.append_char(BACKSLASH_BYTE)
-                i += 2
-            } else if e == SLASH_BYTE {
-                out.append_char(SLASH_BYTE)
-                i += 2
-            } else if e == LOWER_N {
-                out.append_char(NEWLINE_BYTE)
-                i += 2
-            } else if e == LOWER_R {
-                out.append_char(RETURN_BYTE)
-                i += 2
-            } else if e == LOWER_T {
-                out.append_char(TAB_BYTE)
-                i += 2
-            } else if e == LOWER_B {
-                out.append_char(BACKSPACE_BYTE)
-                i += 2
-            } else if e == LOWER_F {
-                out.append_char(FORMFEED_BYTE)
-                i += 2
-            } else if e == LOWER_U {
-                guard let hi = hex4(json, i + 2) else {
-                    return None
-                }
-                // A high surrogate only means something paired with the low one
-                // after it; that pair is how JSON spells an emoji.
-                var advance = 6
-                var scalar = hi
-                if hi >= SURROGATE_HI_MIN && hi <= SURROGATE_HI_MAX {
-                    // A wrapped `&&` needs the enclosing parens (DF-172d):
-                    // a binary expression does not span lines on its own.
-                    let paired = (i + 7 < n
-                                  && json.byte_at(i + 6) == BACKSLASH_BYTE
-                                  && json.byte_at(i + 7) == LOWER_U)
-                    if paired {
-                        guard let lo = hex4(json, i + 8) else {
+            if i >= n { return None }
+            let e = s.byte_at(i)
+            if e == 34 {
+                try! out.append("\"")
+                i += 1
+            } else if e == 92 {
+                try! out.append("\\")
+                i += 1
+            } else if e == 47 {
+                try! out.append("/")
+                i += 1
+            } else if e == 110 {
+                try! out.append("\n")
+                i += 1
+            } else if e == 114 {
+                try! out.append("\r")
+                i += 1
+            } else if e == 116 {
+                try! out.append("\t")
+                i += 1
+            } else if e == 98 {
+                let _ = try! out.append_scalar(scalar: 8)
+                i += 1
+            } else if e == 102 {
+                let _ = try! out.append_scalar(scalar: 12)
+                i += 1
+            } else if e == 117 {
+                i += 1
+                guard let (cp, ni) = parse_hex4(s, i) else { return None }
+                i = ni
+                if cp >= 0xD800 && cp <= 0xDBFF {
+                    if i + 1 < n && s.byte_at(i) == 92 && s.byte_at(i + 1) == 117 {
+                        guard let (cp2, ni2) = parse_hex4(s, i + 2) else { return None }
+                        if cp2 >= 0xDC00 && cp2 <= 0xDFFF {
+                            let scalar = 0x10000 + ((cp - 0xD800) * 0x400) + (cp2 - 0xDC00)
+                            let _ = try! out.append_scalar(scalar: scalar)
+                            i = ni2
+                        } else {
                             return None
                         }
-                        if lo >= SURROGATE_LO_MIN && lo <= SURROGATE_LO_MAX {
-                            let high_part = (hi - SURROGATE_HI_MIN) << 10
-                            scalar = SUPPLEMENTARY_BASE + (high_part | (lo - SURROGATE_LO_MIN))
-                            advance = 12
-                        }
+                    } else {
+                        return None
                     }
+                } else if cp >= 0xDC00 && cp <= 0xDFFF {
+                    return None
+                } else {
+                    let _ = try! out.append_scalar(scalar: cp)
                 }
-                append_scalar_or_text(&var out, scalar, json.substring(i, i + advance))
-                i += advance
             } else {
-                // An escape JSON does not define. Keep both bytes rather than
-                // guessing what was meant.
-                out.append_char(BACKSLASH_BYTE)
-                out.append_char(e)
-                i += 2
+                return None
+            }
+            run_start = i
+        } else {
+            i += 1
+        }
+    }
+    return None
+}
+
+// Extracts EVERY string value of `"key": "..."` in `obj`, in order. Used
+// for /v1/models' `"id"` fields.
+func extract_all(obj: String, key: String) -> Result<Vector<String>, ClientError> {
+    let needle: String = "\"{key}\""
+    var out: Vector<String> = []
+    var pos = 0
+    var found = find_sub(obj, needle, pos)
+    while let idx = found {
+        let value_at = skip_ws_colon(obj, idx + needle.len())
+        if let parsed = parse_json_string(obj, value_at) {
+            try! out.push(parsed.0)
+            pos = parsed.1
+        } else {
+            pos = idx + needle.len()
+        }
+        found = find_sub(obj, needle, pos)
+    }
+    return move out
+}
+
+// The one non-generic scan this client actually needs: a chat-completion
+// envelope's reply text, reached through "choices" -> "message" (non-stream)
+// or "delta" (stream) -> "content". Anchoring on "choices" first (and only
+// searching onward from there) is what keeps a decoy "content" key planted
+// earlier in the envelope from being mistaken for the reply. `None` means
+// "no content on this object" (an empty `choices`, a null content, or a
+// usage-only frame) rather than an error — the caller decides whether that
+// is fine.
+func extract_content(obj: String) -> String? {
+    let choices_key: String = "\"choices\""
+    guard let choices_idx = find_sub(obj, choices_key, 0) else { return None }
+    let after_choices = skip_ws_colon(obj, choices_idx + choices_key.len())
+    if after_choices >= obj.len() || obj.byte_at(after_choices) != 91 { return None }
+    let after_bracket = skip_ws(obj, after_choices + 1)
+    if after_bracket < obj.len() && obj.byte_at(after_bracket) == 93 { return None }
+
+    let message_key: String = "\"message\""
+    let delta_key: String = "\"delta\""
+    let message_idx = find_sub(obj, message_key, choices_idx)
+    let delta_idx = find_sub(obj, delta_key, choices_idx)
+    var holder_idx: Int? = None
+    var holder_len = 0
+    if let mi = message_idx {
+        holder_idx = mi
+        holder_len = message_key.len()
+    }
+    if let di = delta_idx {
+        if let mi = holder_idx {
+            if di < mi {
+                holder_idx = di
+                holder_len = delta_key.len()
+            }
+        } else {
+            holder_idx = di
+            holder_len = delta_key.len()
+        }
+    }
+    guard let hi = holder_idx else { return None }
+
+    let content_key: String = "\"content\""
+    guard let content_idx = find_sub(obj, content_key, hi + holder_len) else { return None }
+    let value_at = skip_ws_colon(obj, content_idx + content_key.len())
+    if value_at >= obj.len() || obj.byte_at(value_at) != 34 { return None }
+    guard let parsed = parse_json_string(obj, value_at) else { return None }
+    return parsed.0
+}
+
+// =============================================================================
+// HTTP — a plain-socket client: build request, send, read status/headers,
+// then the body under either framing a server may use.
+// =============================================================================
+
+struct HttpHead {
+    status: Int
+    content_length: Int?
+    chunked: Bool
+}
+
+func build_request(method: String, path: String, host: String, port: Int, body: String?) -> String {
+    var b = StringBuilder()
+    try! b.append(method)
+    try! b.append(" ")
+    try! b.append(path)
+    try! b.append(" HTTP/1.1\r\n")
+    try! b.append("Host: ")
+    try! b.append(host)
+    try! b.append(":")
+    try! b.append(port)
+    try! b.append("\r\n")
+    try! b.append("Connection: close\r\n")
+    try! b.append("Accept: application/json\r\n")
+    if let payload = body {
+        try! b.append("Content-Type: application/json\r\n")
+        try! b.append("Content-Length: ")
+        try! b.append(payload.len())
+        try! b.append("\r\n\r\n")
+        try! b.append(payload)
+    } else {
+        try! b.append("\r\n")
+    }
+    return b.build()
+}
+
+// NOTE (DF, see .build/scratch/repro_min.saw and probe23/24.saw): matching a
+// SUSPENDING call's Result and moving the Ok payload onward — a `TcpStream`
+// out of `TcpStream.connect`'s match, or a `Data` out of `TcpStream.read`'s —
+// comes back corrupted: the connect case reads back as a broken socket ("io
+// error: ... (other error)" on the very next operation), and the read case
+// is a genuine Arc refcount underflow ("panic ... over-release of an Arc")
+// once the returned `Data` is used again. Neither reproduces with a
+// non-suspending callee, and neither reproduces with `try!` in place of
+// `match` on the very same call — which is the workaround used everywhere
+// below: every suspending TcpStream operation is unwrapped with `try!`
+// (panicking with the IoError's message on failure) rather than matched.
+func send_request(host: String, port: Int, method: String, path: String, body: String?) -> TcpStream {
+    var stream = try! TcpStream.connect(host, port)
+    let req = build_request(method, path, host, port, body)
+    try! stream.write(req)
+    return move stream
+}
+
+func must_read(stream: &var TcpStream) -> Data {
+    try! stream.read()
+}
+
+func find_crlf(d: &Data, from: Int) -> Int? {
+    var i = from
+    let n = d.len()
+    while i + 1 < n {
+        if d[i] == 13u8 && d[i + 1] == 10u8 { return i }
+        i += 1
+    }
+    return None
+}
+
+func find_header_end(d: &Data) -> Int? {
+    var i = 0
+    let n = d.len()
+    while i + 3 < n {
+        if d[i] == 13u8 && d[i + 1] == 10u8 && d[i + 2] == 13u8 && d[i + 3] == 10u8 {
+            return i + 4
+        }
+        i += 1
+    }
+    return None
+}
+
+func data_to_string(d: Data) -> Result<String, ClientError> {
+    match d.to_string() {
+        case Ok(s) -> s,
+        case Err(e) -> ClientError(message: "response was not valid UTF-8: {e}")
+    }
+}
+
+// Reads until the blank line that ends the response headers, parses the
+// status line and the two framing headers this client understands, and
+// returns whatever body bytes arrived in the same reads as the headers.
+func read_head(stream: &var TcpStream) -> Result<(HttpHead, Data), ClientError> {
+    var buf = try! Data(capacity: 512)
+    var header_end: Int? = None
+    while header_end.is_none() {
+        let chunk = must_read(&var stream)
+        if chunk.len() == 0 {
+            return ClientError(message: "connection closed before the response headers arrived")
+        }
+        try! buf.append(chunk)
+        header_end = find_header_end(&buf)
+    }
+    guard let end = header_end else { return ClientError(message: "unreachable") }
+    let head_bytes = buf.slice(0, end)
+    guard let hb = head_bytes else { return ClientError(message: "unreachable") }
+    let head_text = try data_to_string(hb)
+
+    let lines = try! head_text.split(separator: "\r\n")
+    if lines.len() == 0 { return ClientError(message: "empty response") }
+    let status_line = lines[0]
+    let sp1 = find_sub(status_line, " ", 0)
+    guard let s1 = sp1 else { return ClientError(message: "malformed status line: {status_line}") }
+    let rest = status_line.substring(s1 + 1, status_line.len())
+    let sp2 = find_sub(rest, " ", 0)
+    let status_text = if let s2 = sp2 { rest.substring(0, s2) } else { rest }
+    guard let status = status_text.to_int() else {
+        return ClientError(message: "malformed status line: {status_line}")
+    }
+
+    var content_length: Int? = None
+    var chunked = false
+    var i = 1
+    while i < lines.len() {
+        let line = lines[i]
+        let colon = find_sub(line, ": ", 0)
+        if let c = colon {
+            let name = line.substring(0, c).to_lowercase()
+            let value = line.substring(c + 2, line.len())
+            if name == "content-length" {
+                content_length = value.to_int()
+            } else if name == "transfer-encoding" {
+                if find_sub(value.to_lowercase(), "chunked", 0).is_some() { chunked = true }
             }
         }
+        i += 1
     }
-    None
+
+    let remainder = buf.slice(end, buf.len())
+    guard let rem = remainder else { return ClientError(message: "unreachable") }
+    return (HttpHead(status: status, content_length: content_length, chunked: chunked), rem)
 }
 
-/// Finds the assistant's reply in a chat-completions response body.
-///
-/// Anchors the search at `"choices"` then `"message"` so that a `"content"` key
-/// anywhere else in the envelope cannot be mistaken for the reply.
-func assistant_content(body: String) -> String? {
-    let at_choices = find_from(body, "\"choices\"", 0) ?? 0
-    let at_message = find_from(body, "\"message\"", at_choices) ?? at_choices
-    string_after_key(body, "content", at_message)
+// Decodes one full chunked body (used for a non-streaming response that
+// happens to use chunked framing — the streaming path has its own
+// incremental decoder below, since it must not wait for the final chunk
+// before printing).
+func decode_chunked_all(stream: &var TcpStream, initial: Data) -> Result<Data, ClientError> {
+    var raw = initial
+    var out = try! Data(capacity: 256)
+    while true {
+        var line_end = find_crlf(&raw, 0)
+        while line_end.is_none() {
+            let more = must_read(&var stream)
+            if more.len() == 0 { return ClientError(message: "connection closed mid chunk size") }
+            try! raw.append(more)
+            line_end = find_crlf(&raw, 0)
+        }
+        guard let le = line_end else { return ClientError(message: "unreachable") }
+        let size_bytes = raw.slice(0, le)
+        guard let sb = size_bytes else { return ClientError(message: "unreachable") }
+        let size_text = try data_to_string(sb)
+        let size = try parse_chunk_size(size_text)
+        let after_size = raw.slice(le + 2, raw.len())
+        guard var next_raw = after_size else { return ClientError(message: "unreachable") }
+        raw = move next_raw
+        if size == 0 { return move out }
+        while raw.len() < size + 2 {
+            let more = must_read(&var stream)
+            if more.len() == 0 { return ClientError(message: "connection closed mid chunk data") }
+            try! raw.append(more)
+        }
+        let piece = raw.slice(0, size)
+        guard let p = piece else { return ClientError(message: "unreachable") }
+        try! out.append(p)
+        let after_data = raw.slice(size + 2, raw.len())
+        guard var rest = after_data else { return ClientError(message: "unreachable") }
+        raw = move rest
+    }
+}
+
+func parse_chunk_size(text: String) -> Result<Int, ClientError> {
+    var t = text
+    let semi = find_sub(t, ";", 0)
+    if let s = semi { t = t.substring(0, s) }
+    t = t.trim()
+    guard let v = t.to_uint(radix: 16) else {
+        return ClientError(message: "malformed chunk size: {text}")
+    }
+    return v as Int
+}
+
+// Reads the whole body under either framing this client understands.
+// `content_length` present and not chunked reads exactly that many bytes;
+// `chunked` decodes the chunk framing; otherwise it reads until the peer
+// closes (the `Connection: close` this client always sends makes that a
+// legal way to signal end-of-body too).
+func read_full_body(stream: &var TcpStream, remainder: Data, head: HttpHead) -> Result<Data, ClientError> {
+    if head.chunked {
+        return decode_chunked_all(&var stream, remainder)
+    }
+    if let want = head.content_length {
+        var body = remainder
+        while body.len() < want {
+            let more = must_read(&var stream)
+            if more.len() == 0 {
+                return ClientError(message: "connection closed before the response body was complete")
+            }
+            try! body.append(more)
+        }
+        let exact = body.slice(0, want)
+        guard let e = exact else { return ClientError(message: "unreachable") }
+        return move e
+    }
+    var body = remainder
+    while true {
+        let more = must_read(&var stream)
+        if more.len() == 0 { return move body }
+        try! body.append(more)
+    }
+}
+
+func read_response(stream: &var TcpStream) -> Result<(Int, String), ClientError> {
+    let head_and_rem = try read_head(&var stream)
+    let head = head_and_rem.0
+    let remainder = head_and_rem.1
+    let body = try read_full_body(&var stream, remainder, head)
+    let text = try data_to_string(body)
+    return (head.status, text)
+}
+
+func status_error(method: String, path: String, host: String, port: Int, status: Int, body: String) -> ClientError {
+    let detail = if body.len() > 500 { body.substring(0, 500) } else { body }
+    return ClientError(message: "{method} {path} on {host}:{port} -> HTTP {status}: {detail}")
 }
 
 // =============================================================================
-// HTTP
+// Client operations
 // =============================================================================
 
-func build_body(model: String, prompt: String) -> String {
-    // `\{` and `\}` are the literal-brace escapes: a bare `{` in a string
-    // literal opens an interpolation, so every JSON brace is escaped here.
-    var sb = StringBuilder()
-    sb.append("\{\"model\":\"")
-    json_escape(model, &var sb)
-    sb.append("\",\"messages\":[\{\"role\":\"user\",\"content\":\"")
-    json_escape(prompt, &var sb)
-    sb.append("\"\}],\"stream\":false\}")
-    sb.build()
+func fetch_models(host: String, port: Int) -> Result<Vector<String>, ClientError> {
+    var stream = send_request(host, port, "GET", "/v1/models", None)
+    let status_and_text = try read_response(&var stream)
+    let status = status_and_text.0
+    let text = status_and_text.1
+    if status != 200 {
+        return status_error("GET", "/v1/models", host, port, status, text)
+    }
+    return extract_all(text, "id")
 }
 
-/// Builds the request. `Connection: close` is what makes reading to EOF the
-/// right way to read the response — without it an HTTP/1.1 server holds the
-/// socket open and the read below would park forever.
-func build_request(host: String, path: String, body: String) -> String {
-    var sb = StringBuilder()
-    sb.append("POST ")
-    sb.append(path)
-    sb.append(" HTTP/1.1\r\nHost: ")
-    sb.append(host)
-    sb.append("\r\nContent-Type: application/json")
-    sb.append("\r\nAccept: application/json")
-    sb.append("\r\nConnection: close")
-    sb.append("\r\nContent-Length: ")
-    sb.append(body.len())
-    sb.append("\r\n\r\n")
-    sb.append(body)
-    sb.build()
+func pick_model(host: String, port: Int) -> Result<String, ClientError> {
+    let ids = try fetch_models(host, port)
+    var i = 0
+    while i < ids.len() {
+        let low = ids[i].to_lowercase()
+        if find_sub(low, "embed", 0).is_none() { return ids[i] }
+        i += 1
+    }
+    return ClientError(message: "no chat model on the server (saw: {ids.join(", ")})")
 }
 
-/// Sends `request` and reads the whole response.
-///
-/// There is no read deadline: `std.net` has no way to set one yet, so a server
-/// that accepts the connection and never answers parks this task forever.
-func post(host: String, port: Int, request: String) -> Result<Data, IoError> {
-    let stream = try TcpStream.connect(host, port)
-    try stream.write(request)
+func build_chat_payload(model: String, system_prompt: String?, user_prompt: String, stream: Bool, temperature: Float?, max_tokens: Int?) -> String {
+    var b = StringBuilder()
+    try! b.append("\{\"model\":")
+    append_json_string(&var b, model)
+    try! b.append(",\"messages\":[")
+    if let sp = system_prompt {
+        try! b.append("\{\"role\":\"system\",\"content\":")
+        append_json_string(&var b, sp)
+        try! b.append("\},")
+    }
+    try! b.append("\{\"role\":\"user\",\"content\":")
+    append_json_string(&var b, user_prompt)
+    try! b.append("\}]")
+    try! b.append(",\"stream\":")
+    try! b.append(if stream { "true" } else { "false" })
+    if stream {
+        try! b.append(",\"stream_options\":\{\"include_usage\":true\}")
+    }
+    if let t = temperature {
+        try! b.append(",\"temperature\":")
+        try! b.append("{t}")
+    }
+    if let m = max_tokens {
+        try! b.append(",\"max_tokens\":")
+        try! b.append(m)
+    }
+    try! b.append("\}")
+    return b.build()
+}
 
-    var response = Data()
-    var reading = true
-    while reading {
-        let chunk = try stream.read()
-        if chunk.len() == 0 {
-            reading = false          // an empty Ok is EOF, distinct from an Err
-        } else {
-            response.append(chunk)
+func chat_once(host: String, port: Int, payload: String) -> Result<String, ClientError> {
+    var stream = send_request(host, port, "POST", "/v1/chat/completions", payload)
+    let status_and_text = try read_response(&var stream)
+    let status = status_and_text.0
+    let text = status_and_text.1
+    if status != 200 {
+        return status_error("POST", "/v1/chat/completions", host, port, status, text)
+    }
+    guard let content = extract_content(text) else {
+        return ClientError(message: "the response carried no message content: {text}")
+    }
+    return content
+}
+
+// Streams the reply, printing each content delta as it arrives — each SSE
+// `data:` line is decoded and printed as soon as its owning HTTP chunk has
+// been read off the socket, never waiting for the whole response.
+func run_stream(stream: &var TcpStream, initial: Data) -> Result<String, ClientError> {
+    var raw = initial
+    var line_buf = try! Data(capacity: 256)
+    var reply = StringBuilder()
+    var done = false
+    while not done {
+        var line_end = find_crlf(&raw, 0)
+        while line_end.is_none() {
+            let more = must_read(&var stream)
+            if more.len() == 0 { return ClientError(message: "connection closed mid stream") }
+            try! raw.append(more)
+            line_end = find_crlf(&raw, 0)
+        }
+        guard let le = line_end else { return ClientError(message: "unreachable") }
+        let size_bytes = raw.slice(0, le)
+        guard let sb = size_bytes else { return ClientError(message: "unreachable") }
+        let size_text = try data_to_string(sb)
+        let size = try parse_chunk_size(size_text)
+        let after_size = raw.slice(le + 2, raw.len())
+        guard var next_raw = after_size else { return ClientError(message: "unreachable") }
+        raw = move next_raw
+        if size == 0 {
+            done = true
+            break
+        }
+        while raw.len() < size + 2 {
+            let more = must_read(&var stream)
+            if more.len() == 0 { return ClientError(message: "connection closed mid stream data") }
+            try! raw.append(more)
+        }
+        let piece = raw.slice(0, size)
+        guard let p = piece else { return ClientError(message: "unreachable") }
+        try! line_buf.append(p)
+        let after_data = raw.slice(size + 2, raw.len())
+        guard var rest = after_data else { return ClientError(message: "unreachable") }
+        raw = move rest
+
+        var nl = find_byte(&line_buf, 10u8, 0)
+        while not done {
+            guard let n = nl else { break }
+            let line_bytes = line_buf.slice(0, n)
+            guard let lb = line_bytes else { return ClientError(message: "unreachable") }
+            let line = try data_to_string(lb)
+            if process_sse_line(line, &var reply) { done = true }
+            let after_line = line_buf.slice(n + 1, line_buf.len())
+            guard var rest2 = after_line else { return ClientError(message: "unreachable") }
+            line_buf = move rest2
+            nl = find_byte(&line_buf, 10u8, 0)
         }
     }
-    return response
+    print("")
+    return reply.build()
 }
 
-func status_ok(response: String) -> Bool {
-    response.starts_with("HTTP/1.1 200") || response.starts_with("HTTP/1.0 200")
-}
-
-func http_body(response: String) -> String? {
-    let separator = "\r\n\r\n"
-    guard let i = find_from(response, separator, 0) else {
-        return None
+func find_byte(d: &Data, target: UInt8, from: Int) -> Int? {
+    var i = from
+    let n = d.len()
+    while i < n {
+        if d[i] == target { return i }
+        i += 1
     }
-    response.substring(i + separator.len(), response.len())
+    return None
+}
+
+// Handles one decoded SSE line, printing a content delta as it lands.
+// Returns `true` when the line was `data: [DONE]` — the caller stops.
+func process_sse_line(raw_line: String, reply: &var StringBuilder) -> Bool {
+    var line = raw_line
+    if line.len() > 0 && line.byte_at(line.len() - 1) == 13 {
+        line = line.substring(0, line.len() - 1)
+    }
+    if not starts_with(line, "data:") { return false }
+    var data_part = line.substring(5, line.len())
+    data_part = data_part.trim()
+    if data_part == "[DONE]" { return true }
+    guard let piece = extract_content(data_part) else { return false }
+    if piece.len() > 0 {
+        print(piece)
+        try! reply.append(piece)
+    }
+    return false
+}
+
+func starts_with(s: String, prefix: String) -> Bool {
+    if prefix.len() > s.len() { return false }
+    var i = 0
+    while i < prefix.len() {
+        if s.byte_at(i) != prefix.byte_at(i) { return false }
+        i += 1
+    }
+    return true
+}
+
+func chat_stream(host: String, port: Int, payload: String) -> Result<String, ClientError> {
+    var stream = send_request(host, port, "POST", "/v1/chat/completions", payload)
+    let head_and_rem = try read_head(&var stream)
+    let head = head_and_rem.0
+    let remainder = head_and_rem.1
+    if head.status != 200 {
+        let body = try read_full_body(&var stream, remainder, head)
+        let text = try data_to_string(body)
+        return status_error("POST", "/v1/chat/completions", host, port, head.status, text)
+    }
+    return run_stream(&var stream, remainder)
+}
+
+func read_system_prompt(path_str: String) -> Result<String, ClientError> {
+    var f = match file.File.open(Path(s: path_str)) {
+        case Ok(x) -> move x,
+        case Err(e) -> { return ClientError(message: "could not read {path_str}: {e}") }
+    }
+    let data = match f.read() {
+        case Ok(d) -> move d,
+        case Err(e) -> { return ClientError(message: "could not read {path_str}: {e}") }
+    }
+    return data_to_string(data)
 }
 
 // =============================================================================
-// The one call this program exists for
+// Flags
 // =============================================================================
 
-func chat(host: String, port: Int, model: String, prompt: String) -> Result<String, Box<any Error>> {
-    let body = build_body(model, prompt)
-    let request = build_request(host, "/v1/chat/completions", body)
+struct ParsedArgs {
+    host: String
+    port: Int
+    model: String?
+    stream: Bool
+    list_models: Bool
+    system_prompt_file: String?
+    temperature: Float?
+    max_tokens: Int?
+    prompt: String
+}
 
-    let raw = try post(host, port, request)
-    let response = try raw.to_string()
+func parse_args(args: Vector<String>) -> Result<ParsedArgs, ClientError> {
+    var host: String = "Mac-Studio.local"
+    var port = 1234
+    var model: String? = None
+    var stream = false
+    var list_models = false
+    var system_prompt_file: String? = None
+    var temperature: Float? = None
+    var max_tokens: Int? = None
+    var words: Vector<String> = []
 
-    if not status_ok(response) {
-        return ChatError.HttpStatus(line: first_line(response))
+    var i = 1
+    while i < args.len() {
+        let a = args[i]
+        if a == "--host" {
+            i += 1
+            if i >= args.len() { return ClientError(message: "--host needs a value") }
+            host = args[i]
+        } else if a == "--port" {
+            i += 1
+            if i >= args.len() { return ClientError(message: "--port needs a value") }
+            guard let p = args[i].to_int() else {
+                return ClientError(message: "--port expects a number, got {args[i]}")
+            }
+            port = p
+        } else if a == "--model" {
+            i += 1
+            if i >= args.len() { return ClientError(message: "--model needs a value") }
+            model = args[i]
+        } else if a == "--stream" {
+            stream = true
+        } else if a == "--list-models" {
+            list_models = true
+        } else if a == "--system-prompt" {
+            i += 1
+            if i >= args.len() { return ClientError(message: "--system-prompt needs a value") }
+            system_prompt_file = args[i]
+        } else if a == "--temperature" {
+            i += 1
+            if i >= args.len() { return ClientError(message: "--temperature needs a value") }
+            guard let t = args[i].to_float() else {
+                return ClientError(message: "--temperature expects a number, got {args[i]}")
+            }
+            temperature = t
+        } else if a == "--max-tokens" {
+            i += 1
+            if i >= args.len() { return ClientError(message: "--max-tokens needs a value") }
+            guard let m = args[i].to_int() else {
+                return ClientError(message: "--max-tokens expects a number, got {args[i]}")
+            }
+            max_tokens = m
+        } else if a.len() >= 2 && a.byte_at(0) == 45 && a.byte_at(1) == 45 {
+            return ClientError(message: "unknown flag: {a}")
+        } else {
+            try! words.push(a)
+        }
+        i += 1
     }
-    guard let json = http_body(response) else {
-        return ChatError.NoBody
+
+    var prompt_builder = StringBuilder()
+    var first = true
+    var wi = 0
+    while wi < words.len() {
+        if not first { try! prompt_builder.append(" ") }
+        try! prompt_builder.append(words[wi])
+        first = false
+        wi += 1
     }
-    guard let content = assistant_content(json) else {
-        return ChatError.NoContent
-    }
-    content
+
+    return ParsedArgs(
+        host: host, port: port, model: model, stream: stream,
+        list_models: list_models, system_prompt_file: system_prompt_file,
+        temperature: temperature, max_tokens: max_tokens,
+        prompt: prompt_builder.build())
 }
 
 // =============================================================================
 // main
 // =============================================================================
 
-/// Joins the command-line arguments after the program name into one prompt.
-func prompt_from_args() -> String? {
-    let args = Env.args()
-    if args.len() < 2 {
-        return None
-    }
-    var sb = StringBuilder()
-    var i = 1
-    while i < args.len() {
-        if i > 1 {
-            sb.append(" ")
+func main() -> Result<Void, ClientError> {
+    let argv = try! Env.args()
+    let parsed = try parse_args(move argv)
+
+    if parsed.list_models {
+        let ids = try fetch_models(parsed.host, parsed.port)
+        var i = 0
+        while i < ids.len() {
+            print(ids[i])
+            i += 1
         }
-        sb.append(args[i])
-        i += 1
-    }
-    sb.build()
-}
-
-func main() {
-    let host = Env.get("LLM_HOST") ?? "Mac-Studio.local"
-    let model = Env.get("LLM_MODEL") ?? "google/gemma-4-31b-qat"
-    let prompt = prompt_from_args() ?? "Say hello in exactly five words."
-
-    var port = 1234
-    if let text = Env.get("LLM_PORT") {
-        guard let parsed = text.to_int() else {
-            print("llm_client: LLM_PORT is not a number: {text}")
-            return
-        }
-        port = parsed
+        return
     }
 
-    match chat(host, port, model, prompt) {
-        case Ok(reply) -> print(reply),
-        case Err(e) -> print("llm_client: {e}")
+    var model = ""
+    if let m = parsed.model {
+        model = m
+    } else {
+        model = try pick_model(parsed.host, parsed.port)
     }
+
+    var system_prompt: String? = None
+    if let path = parsed.system_prompt_file {
+        system_prompt = try read_system_prompt(path)
+    }
+
+    if parsed.prompt.len() == 0 {
+        return ClientError(message: "usage: llm_client [flags] <prompt words...>")
+    }
+
+    let payload = build_chat_payload(
+        model: model, system_prompt: system_prompt, user_prompt: parsed.prompt,
+        stream: parsed.stream, temperature: parsed.temperature, max_tokens: parsed.max_tokens)
+
+    if parsed.stream {
+        let _ = try chat_stream(parsed.host, parsed.port, payload)
+    } else {
+        let reply = try chat_once(parsed.host, parsed.port, payload)
+        print(reply)
+    }
+    return
 }
