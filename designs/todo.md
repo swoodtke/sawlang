@@ -31,6 +31,8 @@ is scheduled and in what order is the whole of what they say.
 
 ## [QUEUE] — scheduled, in order (user-approved)
 
+- DF-215f fix — the suspending-match moved-payload double release (HEAD of queue, user Aug 26: a correctness bug outranks everything scheduled). Entry under design 215 below; the obligation-4 mechanism sweep (every frame home a moved-from value can still be released from — DF-242a and DF-255a are known siblings) comes FIRST and shapes the fix brief
+- Design 244 — the String byte surface goes unsigned (designs/244-string-byte-surface-unsigned.md; ruled Aug 26, after DF-215f and before design 209). The `*_char` naming rider is the one open ruling, wanted at or before dispatch
 - Design 218 unit 1.5 — monomorphization becomes a pre-codegen transform (RULED Aug 13; SCHEDULED Aug 24, user: MOVED UP, BEFORE the 238 split — the migration lands under the full in-tree gate battery and the sawos pin starts life post-1.5). Process per the 218 ruling: a FABLE SPEC AGENT authors the census first (every `_ensure_monomorphized_*` call site, the instance-re-check design, error attribution, the per-(template, type-args) cache), lead reviews, user rules, Opus implements. Expected closures ride it: DF-217i/j/k, S1 row p08a, plausibly DF-247a. Brief section: designs/218-enforcement-architecture.md unit 1.5. **SPEC AUTHORED Aug 25 (`designs/218c-monomorphization-spec.md`) and LEAD-RATIFIED same night under the overnight authorization — all six section-8 questions resolved as recommended (rationale in the spec's status header); none touched a user ruling. Probes: DF-247a NOT dissolved (own dispatch after 1.5, OQ5); two new findings (DF-258a: a nested unconditionally-suspending generic silently loses its yield — pinned at stage 0, flips stage 4; DF-258b: recursive instantiation growth HANGS the compiler — fixed by stage 1's depth limit). IMPLEMENTATION HELD (user, Aug 25 morning): the pipeline STOPS after the 234 flip integrates — 1.5's build dispatches on the user's go, against the ratified spec**
 - Design 238 — the sawos split (designs/238-sawos-split.md) — FULLY RULED Aug 24 (D-b1/b2/b3 ruled "absolute simplest, pre-1.0" — bin/ shims via make install; version-only `--version` check with the asymmetry documented + rigorous bumps as standing practice; the fetch creates its own venv). AFTER 218 unit 1.5 (re-ordered Aug 24), BEFORE the M3 ladder; UNITS 0-1 LANDED Aug 21, units 2-7 ready to dispatch when reached
 - M3 ladder — designs/232-sos-m3-sketch.md: unit 1.5 interruptibility, 2 CreateProcess, 2.75 handle lifecycle, 3 give, 4 Memory/IoMemory, 5 quotas, 5.5 death notifications, 6 money shot — runs IN sawos, after design 238
@@ -74,7 +76,6 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-259a — `Box<any Trait>.make` sits outside design 234's flip, so one method name has two fallibilities and the erased one panics with a bare `allocation failed` (entry below, filed Aug 25 by the design-138 doc-sync sweep). This IS the 234 census's `existentials.py:402` hold, which never became a tracker entry — it owes the user ruling that brief deferred
 - DF-259b — a reserved word in any declaration-name position gives a bare "Expected X name" that never says the word is reserved; five slots, one shared report (entry below, filed Aug 25 by the design-138 doc-sync sweep; PRE-EXISTING). Diagnostic-only, so no XFAIL pin
 - DF-259c — a TRAILING closure is not recognized inside a `try`/`try!`/`try?` operand, so `try! v.map { … }` collapses to a field access; the parenthesized argument is the workaround (entry below, filed Aug 25 by the design-138 doc-sync sweep; PRE-EXISTING, and the 234 flip is what makes it reachable from ordinary code). Pinned XFAIL, three cells and one control
-- DF-215f — SOUNDNESS: a payload moved OUT of a suspending call's `match` is double-released when the value leaves the function — use-after-free reachable from safe code (entry below under design 215, filed Aug 26 by the stage A-C rewrite; pinned XFAIL; DF-218w/DF-242a family). Wants scheduling ahead of routine work
 - DF-215g — a bare `None` compared `==` against a CALL expression's determined optional refuses to infer, where the annotated-local twin compiles (entry below, Aug 26)
 - DF-215h — stdout has no newline-free write, so incremental output (`--stream` deltas) prints one line per piece; wants a surface ruling (entry below, Aug 26)
 - DF-215i — no boolean `guard cond else { }`, only `guard let`; wants a ruling on whether the omission is deliberate (entry below, Aug 26)
@@ -4531,6 +4532,8 @@ case for a diagnostic fix):
   can still be released from (DF-242a's try-body edge and DF-255a's
   consumed capture are known siblings); the sweep enumerates the rest
   of that family and the fix targets the mechanism.
+  SCHEDULED Aug 26 at the HEAD of [QUEUE] (user: a correctness bug
+  outranks everything scheduled).
 - **DF-215g — bidirectional inference does not resolve a bare `None`
   compared `==` against a CALL expression's fully determined optional**
   (`find_thing(5) == None` is "cannot tell what this `None` is a `None`
@@ -4555,10 +4558,14 @@ case for a diagnostic fix):
 Docs nits from the same rewrite, fixed on discovery (Aug 26): the spec
 now states `byte_at`/`bytes()` return SIGNED `Int8` directly instead of
 via a parenthetical (the reader wrote ~25 `u8`-literal comparisons
-first). Still open as a docs QUESTION, not a DF: no user-facing doc
-enumerates the std method signatures (exact overloads, labels), so the
-dogfood agent discovered several via compiler-diagnostic candidate
-lists — `--emit-docs` exists and may be the answer.
+first). SUPERSEDED same day: the user ruled the TYPE was the bug, not
+the wording — the String byte surface flips to `UInt8` as design 244
+(`designs/244-string-byte-surface-unsigned.md`, queued behind DF-215f),
+and the patched spec passage flips with it. Still open as a docs
+QUESTION, not a DF: no user-facing doc enumerates the std method
+signatures (exact overloads, labels), so the dogfood agent discovered
+several via compiler-diagnostic candidate lists — `--emit-docs` exists
+and may be the answer.
 
 Port blockers, staged A-F in the brief: DF-215a DONE; stage C's
 incremental reads DONE (Aug 26, in-client chunked/SSE decoding —

@@ -249,6 +249,7 @@ Navigation only. One line per design brief in `designs/` (number, file, the brie
 - **241** — `241-undefined-type-names.md` — undefined type names get a located diagnostic (DF-225b's class: silent ghosts + three ICE positions) + adoption slots become full const positions (DF-240a's ruling, the design-185 amendment)
 - **242** — `242-thread-task-split.md` — the Thread/Task split: the namespace is the engine (`Thread.spawn -> Thread<T>`, `Task.spawn -> Task<T>` into a background singleton), must-consume handles with explicit join/detach/cancel, sync-enforced blocking-permitted thread bodies (eleven rulings, Aug 22-24)
 - **243** — `243-trailing-brace.md` — trailing-brace call syntax, BACKLOG scoping brief: the spawn-family-vs-general scope question, the design-129 newline interactions, the doctrine cost of a grammar exception (authored Aug 24, no rulings)
+- **244** — `244-string-byte-surface-unsigned.md` — the String byte surface goes unsigned: `byte_at`/`bytes()`/`append_char` et al. flip `Int8` -> `UInt8`, aligning with Data/FixedBuf and deleting std's internal sign corrections; pointers stay C-char `Int8`; the `*_char` naming rider is the open ruling (ruled Aug 26, queued behind DF-215f)
 - **archive** — `done_aug1-aug9.md` — Aug 1 – Aug 9, 2026 — landed/closed tracker recaps, archived at the Aug-9 split
 - **archive** — `done_aug10-aug17.md` — Aug 10 – Aug 17, 2026 — landed/closed tracker recaps, archived at the Aug-17 split
 - **archive** — `done_aug18-aug25.md` — Aug 18 – Aug 25, 2026 — landed/closed tracker recaps, opened at the Aug-18 split
