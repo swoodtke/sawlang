@@ -79,6 +79,7 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-215h — stdout has no newline-free write, so incremental output (`--stream` deltas) prints one line per piece; wants a surface ruling (entry below, Aug 26)
 - DF-215i — no boolean `guard cond else { }`, only `guard let`; wants a ruling on whether the omission is deliberate (entry below, Aug 26)
 - DF-215j — `return` inside a VALUE match arm is a bare "Unexpected token: RETURN" with no arms-are-expressions hint; diagnostic-only (entry below, Aug 26)
+- DF-242d — conformance row K90's bounded GO spin re-opens its output race under suite load; flaky, seen once Aug 26 (entry below; oracle choice is a ruling)
 
 
 ## DF-247a — a function that is a `group.spawn` ROOT is `undefined function`
@@ -843,6 +844,27 @@ cross-module alike (`.build/scratch/p238c.saw` is the same-module control), so
 this is the overload matcher's own question and not an import or qualifier one:
 the candidate filter is admitting `Int` for a `UInt8` argument somewhere it
 should not. One line, no pin — the shape is a two-overload file.
+
+## DF-242d — conformance row K90's GO gate is a BOUNDED spin, so suite load
+## re-opens the output race the gate exists to close (filed Aug 26, seen once
+## in the design-215 integration gate)
+
+`K90_thread_detach_is_a_fate.saw` holds its two detached threads behind a
+`GO` Atomic so "ticket released" cannot print before the `detached`/`chained`
+markers — the file's own comment says that order "is not a property of the
+language and must not be pinned as one", and the ordered CONTAINS directives
+DO pin it, on the strength of the gate. But the gate spin is bounded
+(`SPIN_LIMIT` = 200M iterations, ~0.2s) so a thread that outlives it while a
+40-worker suite has main descheduled constructs and releases its ticket with
+the gate still shut: "'ticket released' — out of order (it appears earlier)".
+Observed once under the full suite, Aug 26; passes twice consecutively in
+isolation. The bound exists so a gate that never opens ends the thread
+instead of pinning a core — the fix must keep that property while making
+early release impossible (print both markers before either spawn, or skip
+ticket construction when the gate never opened — the latter converts the
+flake into the missing-line failure the bound intends). A conformance row's
+oracle is a ruling surface, so the choice parks here rather than landing on
+discovery.
 
 ## DF-238b — `print`'s `{}` format argument renders a wider-than-word integer
 ## as its LOW WORD on a 32-bit target (filed Aug 21, design 238 unit 1)
