@@ -83,6 +83,8 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-262a — the container-head hoist's move-only refusal diagnostic names the compiler-internal frame field (`self.__head0…`) to the user; the refusal itself is correct (filed Aug 27 by the DF-215f sweep; evidence in the 247 brief's appendix). Diagnostic-only
 - DF-262b — a suspending interpolation piece + `Task.spawn` at the same NoCopy result type + optional auto-wrap of the joined value is an LLVM-verifier ICE (filed Aug 27 by the DF-215f sweep; repro preserved verbatim in the 247 brief's appendix)
 - DF-264a — the `Copy` tier's conformance check skips the deinit-signature validation its ExplicitCopy/NoCopy siblings both have, so a `deinit(&self)` inside a `@synthesize Copy` reaches codegen and ICEs (entry below, filed Aug 27 from the user's scratch example)
+- DF-265a — two std files declaring same-named public generic free functions with DISTINGUISHABLE signatures is a hard `builtins failed to type-check` collision — a flat-namespace uniqueness check that predates the per-file-module scoping everything else follows (entry below, filed Aug 27 by the std.json build)
+- DF-266a — a bare leading-minus TAIL expression after a preceding `if { return }` block is an ICE at a BinaryOp node; the same tail after a `let` compiles (entry below, filed Aug 27 by the std.json build, lead-verified both cells)
 - DF-215h — stdout has no newline-free write, so incremental output (`--stream` deltas) prints one line per piece; wants a surface ruling (entry below, Aug 26)
 - DF-215i — no boolean `guard cond else { }`, only `guard let`; wants a ruling on whether the omission is deliberate (entry below, Aug 26)
 - DF-215j — `return` inside a VALUE match arm is a bare "Unexpected token: RETURN" with no arms-are-expressions hint; diagnostic-only (entry below, Aug 26)
@@ -127,6 +129,40 @@ for sawos; "238 before more M3 work" is absolute.
   cited XFAIL pin when dispatched. Probes were
   `.build/scratch/probe_copy_deinit_m1-m7` (ephemeral; the matrix above is
   the record).
+
+## DF-265a — same-named public generic free functions in two std files are a
+## flat-namespace collision (filed Aug 27 by the std.json build)
+
+- Adding `public func encode<T: Serialize>(value: &T) sync -> Result<String,
+  EncodeError>` to `sawc/std/json.saw` while `sawc/std/cbor.saw` holds
+  `public func encode<T: Serialize>(value: &T) sync -> Result<Data,
+  EncodeError>` (different module, different return type) fails EVERY build:
+  `internal compiler error: builtins failed to type-check` / ``function
+  `encode` is already defined with an indistinguishable signature`` at
+  `builtins:1114:8`. The two are import-gated members of separate design-82
+  file-modules; nothing should collide. Mechanism hypothesis: a uniqueness
+  check over ONE flat "builtins" surface, predating design 82/150's
+  per-file-module scoping that the rest of name resolution follows.
+  Obligation-4 sweep owed at fix time: does the same flat check hit USER
+  packages (two dep modules exporting a same-named generic), or only the
+  std-compiled-as-builtins path? std.json shipped `encode_json` instead —
+  a rename, not a semantic workaround; the fix frees the natural name.
+
+## DF-266a — a leading-minus tail after an `if { return }` block is an ICE
+## (filed Aug 27 by the std.json build; lead-verified)
+
+- `func h(b: Int) -> Int { if b >= 48 { return b - 48 }` newline `-1 }` dies
+  `internal compiler error at FILE:5:5 (BinaryOp): 'NoneType' object has no
+  attribute 'type'` — the breadcrumb names a BinaryOp AT the `-`, so the
+  tail's leading minus is being parsed/typed as a BINARY operator whose LHS
+  is the preceding block statement (which has no type). The same `-1` tail
+  after a plain `let` compiles and runs, so the boundary is a BLOCK
+  statement (at least `if`-with-`return`) preceding the sign. `return -1`
+  is the trivial spelling that avoids it. Probes
+  `.build/scratch/probe_negtail{,2}.saw` (ephemeral; cells recorded here).
+  Fix wants the design-129/161 newline-and-token rules consulted: a
+  statement-start `-` after a closed block should open a new expression,
+  and whichever answer is ruled, the ICE becomes a clean parse/type error.
 
 ## DF-247a — a function that is a `group.spawn` ROOT is `undefined function`
 ## at every OTHER call of it in the same module (filed Aug 22 by design 242
