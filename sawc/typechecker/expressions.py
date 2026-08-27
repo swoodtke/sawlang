@@ -13382,13 +13382,6 @@ class ExpressionsMixin:
 
         This allows using match in the catch block to differentiate errors.
         """
-        # Create unique name based on expression id
-        # Named from the node's stable id, not its address (design 126 R2): this
-        # name reaches codegen and the emitted type table, so deriving it from
-        # `id()` made the compiler's output differ run to run for any program
-        # using a multi-error `try`/`catch`.
-        union_name = f"_CatchError_{expr.node_id}"
-
         # Build variants - each error type becomes a variant with 'value' field
         variants = {}
         variant_order = []
@@ -13403,6 +13396,24 @@ class ExpressionsMixin:
 
             variants[variant_name] = [("value", err_type)]
             variant_order.append(variant_name)
+
+        # THE NAME IS THE CONTENT, and it has to be (design 126 R2, finished).
+        # This name reaches codegen and the emitted type table, so anything
+        # POSITIONAL in it makes the compiler's output depend on how much was
+        # compiled before this file. It was `id(expr)` once, which differed run
+        # to run; then `expr.node_id`, which is stable across two FRESH
+        # processes and shifts the moment something is compiled ahead of it —
+        # invisible until design 246 unit B made a payload-carrying enum an
+        # IDENTIFIED LLVM type, at which point the name landed in the IR text
+        # and `reemitdiff` caught it on the second in-process compile.
+        #
+        # The variant SEQUENCE identifies the union exactly: a variant name IS
+        # its error type's identity, so two unions with the same sequence hold
+        # the same payloads in the same order — the same type, with the same
+        # tags — and two that differ anywhere get different names. Two catch
+        # sites raising the same errors in the same order now SHARE one union,
+        # which is a deduplication rather than a collision.
+        union_name = "_CatchError_" + "_".join(variant_order)
 
         # Register the enum in namespace
         union_enum = EnumSymbol(
