@@ -1714,9 +1714,20 @@ class Namespace:
                 and self._lookup_enum_deep(name) is None
                 and self._lookup_type_alias_deep(name) is None)
 
-    def _has_abstract_type_arg(self, saw_type: SawType) -> bool:
-        """Does any type ARGUMENT of this instantiation mention a parameter?"""
-        return any(self.copy_tier(arg) == 'abstract'
+    def _has_abstract_type_arg(self, saw_type: SawType, _visiting=None) -> bool:
+        """Does any type ARGUMENT of this instantiation mention a parameter?
+
+        DF-261a: `_visiting` is threaded here like everywhere else under
+        `copy_tier`. This was the ONE recursion into it that started a FRESH
+        walk, and a cyclic type reaches it whenever a user generic sits on the
+        cycle — `enum E { case K(p: Pair<E>) }` asked whether `Pair`'s argument
+        `E` is abstract, which re-entered `copy_tier(E)` with an empty visiting
+        set, which asked about `Pair<E>` again. The guard the two structural
+        joins carry could never fire, so the query recursed until Python's
+        stack ran out and the compiler reported `internal compiler error:
+        maximum recursion depth exceeded`.
+        """
+        return any(self.copy_tier(arg, _visiting) == 'abstract'
                    for arg in (saw_type.type_args or [])
                    if arg is not None)
 
@@ -1937,7 +1948,7 @@ class Namespace:
                 return declared
             if self.is_abstract_type_name(name):
                 return 'abstract'
-            if self._has_abstract_type_arg(saw_type):
+            if self._has_abstract_type_arg(saw_type, _visiting):
                 # An undeclared struct's tier is a STRUCTURAL answer, and a
                 # structural answer over abstract arguments is not knowable from
                 # the written type.

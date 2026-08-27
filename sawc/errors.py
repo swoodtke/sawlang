@@ -35,6 +35,11 @@ class ErrorKind(Enum):
     IMMUTABLE_ASSIGNMENT = auto()
     INVALID_BREAK_CONTINUE = auto()
     CANNOT_COPY = auto()
+    # Design 246: a type whose storage transitively contains its own storage
+    # INLINE. The layout has no finite size, so the declaration is refused
+    # rather than reaching codegen, where it used to be an internal compiler
+    # error about an undefined type (DF-260a).
+    RECURSIVE_TYPE = auto()
     USE_AFTER_MOVE = auto()
     EXCLUSIVITY_VIOLATION = auto()
 

@@ -1,0 +1,17 @@
+// Design 246 row 11: the cycle passes through an `Optional`, which embeds
+// its payload INLINE (`{i1, T}`) and is therefore no indirection at all.
+// `Box<Node>?` would be finite; `Node?` is not.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: recursive type `Node` has infinite size
+// EXPECT-ERROR-CONTAINS: Node.next -> Node
+// EXPECT-ERROR-ABSENT: internal compiler error
+
+struct Node {
+    value: Int
+    next: Node?
+}
+
+func main() -> Int {
+    0
+}

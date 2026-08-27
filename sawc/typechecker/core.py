@@ -2724,6 +2724,14 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # that names no trait at all is already its own diagnostic.
         self._check_signature_visibility_in_program(program)
 
+        # design 246 Unit A: a type whose storage contains its own storage
+        # INLINE has no finite layout. Ahead of the containment checks so the
+        # first thing an infinite-size declaration is told is that it has no
+        # size — the copy-policy question about a member it cannot lay out is
+        # a consequence, not the finding. Entry point 1 of 2; see
+        # `_check_recursive_type_sizes`.
+        self._check_recursive_type_sizes(program)
+
         # Fifth-b pass: check resource management containment rules
         self._check_no_copy_containment()
         self._check_no_move_declarations()
@@ -3589,6 +3597,10 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         self._check_signature_visibility_in_program(module_ast)
         # design 188 unit 1: the no-escape walk again, with aliases resolved.
         self._validate_no_ref_laundering_in_program(module_ast)
+
+        # design 246 Unit A: entry point 2 of 2 — a module's own declarations
+        # are registered by its own pass, so the rule is owed here too.
+        self._check_recursive_type_sizes(module_ast)
 
         # Check resource containment rules
         self._check_no_copy_containment()

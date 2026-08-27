@@ -20,6 +20,7 @@ from ast_nodes import (
 from ast_walk import child_nodes
 from errors import ErrorKind
 from noescape import first_reference_in
+from type_identity import display_name
 from namespace import (
     SymbolKind, StructSymbol, EnumSymbol, FunctionSymbol, TraitSymbol, TypeAliasSymbol
 )
@@ -5496,6 +5497,310 @@ class TypeUtilsMixin:
                     hint=hint
                 )
                 break  # Only report once per enum
+
+    # ------------------------------------------------ design 246 (Unit A)
+    # Recursive nominal types. A cycle among nominal declarations is legal
+    # exactly when every cycle crosses a heap indirection; an ALL-INLINE cycle
+    # has no finite layout and is refused here, at the declaration, rather than
+    # dying in codegen as `internal compiler error: Undefined enum: X`
+    # (DF-260a). The legal shapes are what design 246 Unit B's
+    # publish-before-lower registration then resolves.
+
+    #: How far the inline-embedding walk follows a chain of DISTINCT nodes
+    #: before it calls the nesting unbounded. A CYCLE is caught by the
+    #: in-progress stack, not by this; the bound is for the GROWTH chain
+    #: (`S<T>` embedding `S<Pair<T>>` embedding `S<Pair<Pair<T>>>`, …), which
+    #: repeats no node and so would otherwise run forever. That family is
+    #: DF-258b's disease and has its own fix in the ratified 218c spec; all
+    #: this owes it is a clean error instead of a hang.
+    _INLINE_EMBED_DEPTH_LIMIT = 64
+
+    #: The stand-in a type PARAMETER substitutes to while the walk runs over a
+    #: declaration abstractly. An unsubstituted parameter embeds nothing (the
+    #: instantiation decides), so every such argument keys alike.
+    _INLINE_OPAQUE = SawType(TypeKind.TYPE_PARAM, type_param_name="?")
+
+    def _inline_embedding_edges(self, identity: str, type_args: tuple):
+        """THE inline-embedding walk (design 246 Unit A, obligation 1).
+
+        A NODE is a nominal declaration plus the type arguments it was named
+        with. This returns `(member path, child identity, child arguments)` for
+        every position of that declaration whose storage is embedded INLINE —
+        held in the declaration's own bytes rather than reached through an
+        address.
+
+        ENTRY POINTS — the positions that embed inline, and all of them:
+          * struct FIELDS.
+          * enum case PAYLOADS.
+          * TUPLE and named-tuple ELEMENTS, at any nesting.
+          * the `Optional` PAYLOAD, which is `{i1, T}` with the `T` inline.
+          * the `[T; N]` ELEMENT.
+          * and, by recursion with substitution, the corresponding positions of
+            any generic declaration a member instantiates.
+
+        The positions that embed NOTHING: `UnsafePointer`/`UnsafeConstPointer`
+        and `&`/`&var` references are addresses; a function value is
+        {code, environment}, both pointers; an `any Trait` existential is the
+        two-word fat pointer. Everything else is a scalar and holds no nominal.
+
+        There is NO allowlist of heap containers. `Vector<T>` contributes no
+        inline `T` because its declared `buffer` field is a pointer, and
+        `struct Pair<T> { a: T }` contributes one because its declared field is
+        a `T` — the same walk into the member declarations answers both, so a
+        container written tomorrow needs no maintenance here.
+        """
+        info = self._inline_declaration(identity)
+        if info is None:
+            return []
+        type_map = {}
+        for i, tp in enumerate(getattr(info, 'type_params', None) or []):
+            type_map[tp.name] = (type_args[i] if i < len(type_args)
+                                 else self._INLINE_OPAQUE)
+
+        edges = []
+        short = display_name(identity) or identity
+
+        def descend(path: str, member_type, depth: int = 0):
+            if member_type is None or depth > 32:
+                return
+            resolved = self._resolve_type_alias(member_type) or member_type
+            kind = resolved.kind
+            if kind == TypeKind.OPTIONAL:
+                descend(path, resolved.inner_type, depth + 1)
+                return
+            if kind == TypeKind.ARRAY:
+                descend(path, resolved.array_element_type, depth + 1)
+                return
+            if kind == TypeKind.TUPLE:
+                names = resolved.tuple_field_names or []
+                for i, element in enumerate(resolved.element_types or []):
+                    label = names[i] if i < len(names) else str(i)
+                    descend(f"{path}.{label}", element, depth + 1)
+                return
+            if kind in (TypeKind.POINTER, TypeKind.REFERENCE,
+                        TypeKind.FUNCTION, TypeKind.EXISTENTIAL):
+                return
+            if kind not in (TypeKind.STRUCT, TypeKind.ENUM):
+                return
+            child = self._inline_nominal(resolved)
+            if child is not None:
+                edges.append((path, child[0], child[1]))
+
+        if isinstance(info, StructSymbol):
+            for field_name, field_type in info.fields.items():
+                if field_type is None:
+                    continue
+                descend(f"{short}.{field_name}", field_type.substitute(type_map))
+        else:
+            for variant_name, payloads in info.variants.items():
+                for payload_name, payload_type in (payloads or []):
+                    if payload_type is None:
+                        continue
+                    descend(f"{short}.{variant_name}.{payload_name}",
+                            payload_type.substitute(type_map))
+        return edges
+
+    def _inline_declaration(self, identity: str):
+        """The struct or enum symbol `identity` names, or None."""
+        ns = getattr(self, 'namespace', None)
+        if ns is None or not identity:
+            return None
+        return ns.lookup_struct(identity) or ns.lookup_enum(identity)
+
+    def _inline_nominal(self, saw_type: SawType):
+        """`(identity, type arguments)` for a nominal member type, or None when
+        the name resolves to no declaration — a type parameter, or a name some
+        other diagnostic has already reported. Either way it embeds nothing the
+        walk can see."""
+        name = (saw_type.struct_name if saw_type.kind == TypeKind.STRUCT
+                else saw_type.enum_name)
+        if not name:
+            return None
+        symbol = getattr(saw_type, 'symbol', None)
+        if symbol is None or getattr(symbol, 'kind', None) not in (
+                SymbolKind.STRUCT, SymbolKind.ENUM):
+            ns = getattr(self, 'namespace', None)
+            symbol = (ns.lookup_struct(name) or ns.lookup_enum(name)
+                      if ns is not None else None)
+        if symbol is None:
+            return None
+        return (self._sym_identity(symbol, name),
+                tuple(saw_type.type_args or []))
+
+    def _inline_node_key(self, identity: str, type_args: tuple) -> tuple:
+        """The memo/cycle key of a node. Two instantiations with the same
+        inline-embedding SHAPE are one node."""
+        return (identity, tuple(self._inline_shape_key(a) for a in type_args))
+
+    def _inline_shape_key(self, saw_type) -> str:
+        """A type's inline-embedding SHAPE, as a string.
+
+        Everything behind an address collapses to one token, because what a
+        pointer points AT never contributes an inline member — which is also
+        what keeps a pointer-linked structure from generating fresh keys
+        forever. An unresolved name (a type parameter, an undefined type) is
+        `?` for the same reason."""
+        if saw_type is None:
+            return "?"
+        kind = saw_type.kind
+        if kind == TypeKind.TYPE_PARAM:
+            return "?"
+        if kind == TypeKind.POINTER:
+            return "*"
+        if kind == TypeKind.REFERENCE:
+            return "&"
+        if kind == TypeKind.FUNCTION:
+            return "fn"
+        if kind == TypeKind.EXISTENTIAL:
+            return "any"
+        if kind == TypeKind.OPTIONAL:
+            return self._inline_shape_key(saw_type.inner_type) + "?"
+        if kind == TypeKind.ARRAY:
+            return "[" + self._inline_shape_key(saw_type.array_element_type) + "]"
+        if kind == TypeKind.TUPLE:
+            return "(" + ",".join(self._inline_shape_key(e)
+                                  for e in (saw_type.element_types or [])) + ")"
+        if kind in (TypeKind.STRUCT, TypeKind.ENUM):
+            nominal = self._inline_nominal(saw_type)
+            if nominal is None:
+                return "?"
+            if not saw_type.type_args:
+                return nominal[0]
+            return nominal[0] + "<" + ",".join(
+                self._inline_shape_key(a) for a in saw_type.type_args) + ">"
+        if kind == TypeKind.CONST_VALUE:
+            return str(saw_type.const_value)
+        return kind.name
+
+    def _check_recursive_type_sizes(self, program):
+        """A type whose storage transitively contains its own storage INLINE
+        has no finite layout — refuse it here, at the declaration.
+
+        A cycle among nominal types is legal exactly when every cycle passes
+        through a heap indirection (`Box<Self>`, `Vector<Self>`,
+        `Map<String, Self>`), and one leg is enough: `Expr` holding
+        `Vector<Term>` while `Term` holds `Expr` inline is finite, because
+        `Expr`'s leg is a pointer. What counts as inline is discovered
+        structurally by `_inline_embedding_edges` — never by a list of blessed
+        container names.
+        """
+        declarations = list(getattr(program, 'structs', None) or [])
+        declarations += list(getattr(program, 'enums', None) or [])
+        if not declarations:
+            return
+
+        # identity -> the AST declaration, which is what carries a location a
+        # diagnostic can point at. A cycle is always intra-module (a cross-module
+        # one would need mutual imports, which are refused), so every member of
+        # a reported cycle is in this map.
+        sites = {}
+        roots = []
+        for declaration in declarations:
+            identity = self._canonical_type_name(declaration.name)
+            if identity not in sites:
+                sites[identity] = declaration
+            roots.append((getattr(declaration, 'line', 0) or 0,
+                          getattr(declaration, 'column', 0) or 0,
+                          identity, declaration))
+        roots.sort(key=lambda entry: (entry[0], entry[1]))
+
+        finite = set()
+        reported = getattr(self, '_reported_inline_cycles', None)
+        if reported is None:
+            reported = set()
+            self._reported_inline_cycles = reported
+
+        def walk(identity, type_args, stack) -> bool:
+            """Depth-first over the inline-embedding graph. Returns whether the
+            node is known to be finite (so it can be memoized)."""
+            key = self._inline_node_key(identity, type_args)
+            if key in finite:
+                return True
+            for index, frame in enumerate(stack):
+                if frame['key'] == key:
+                    self._report_inline_cycle(stack[index:], sites, reported)
+                    return False
+            if len(stack) >= self._INLINE_EMBED_DEPTH_LIMIT:
+                self._report_unbounded_nesting(identity, stack, sites, reported)
+                return False
+            frame = {'key': key, 'identity': identity, 'out': None}
+            stack.append(frame)
+            ok = True
+            for member_path, child_identity, child_args in \
+                    self._inline_embedding_edges(identity, type_args):
+                frame['out'] = member_path
+                if not walk(child_identity, child_args, stack):
+                    ok = False
+            stack.pop()
+            if ok:
+                finite.add(key)
+            return ok
+
+        for _line, _column, identity, declaration in roots:
+            abstract = tuple(
+                self._INLINE_OPAQUE
+                for _ in (getattr(declaration, 'type_params', None) or []))
+            walk(identity, abstract, [])
+
+    def _report_inline_cycle(self, cycle, sites, reported):
+        """`error: recursive type 'X' has infinite size`, naming the cycle
+        member by member and pointing at the indirection that fixes it."""
+        key = frozenset(frame['key'] for frame in cycle)
+        if key in reported:
+            return
+        reported.add(key)
+
+        path = " -> ".join(frame['out'] for frame in cycle if frame['out'])
+        # The cycle CLOSES on its entry node, and that is also the declaration
+        # to report at: roots are walked in source order, so the entry is the
+        # first cycle member a reader meets. A member with no AST declaration
+        # here would mean a cross-module cycle, which mutual imports being
+        # refused makes unreachable — the fallback is a bare location, never a
+        # wrong one.
+        entry = cycle[0]['identity']
+        declaration = sites.get(entry)
+        if declaration is None:
+            declaration = next((sites[frame['identity']] for frame in cycle
+                                if frame['identity'] in sites), None)
+        line = getattr(declaration, 'line', 0) or 0
+        column = getattr(declaration, 'column', 0) or 1
+        source_file = getattr(declaration, 'source_file', None)
+        short = display_name(entry) or entry
+        self._error(
+            ErrorKind.RECURSIVE_TYPE,
+            f"recursive type `{short}` has infinite size: its storage contains "
+            f"its own storage inline, through {path} -> {short}",
+            line, column,
+            hint=f"hold the recursive member behind a heap indirection — "
+                 f"`Box<{short}>`, `Vector<{short}>` or a `Map` value — so the "
+                 f"cycle crosses a pointer and the layout is finite",
+            source_file=source_file
+        )
+
+    def _report_unbounded_nesting(self, identity, stack, sites, reported):
+        """The GROWTH chain: no node repeats, but each level instantiates a
+        strictly larger type, so the nesting never bottoms out."""
+        key = ('unbounded', identity)
+        if key in reported:
+            return
+        reported.add(key)
+        root_identity = stack[0]['identity'] if stack else identity
+        declaration = sites.get(root_identity)
+        line = getattr(declaration, 'line', 0) or 0
+        column = getattr(declaration, 'column', 0) or 1
+        short = display_name(root_identity) or root_identity
+        self._error(
+            ErrorKind.RECURSIVE_TYPE,
+            f"recursive type `{short}` has infinite size: each level of the "
+            f"nesting embeds a strictly larger instantiation inline, so the "
+            f"layout never bottoms out "
+            f"(stopped after {self._INLINE_EMBED_DEPTH_LIMIT} levels)",
+            line, column,
+            hint=f"hold the recursive member behind a heap indirection — "
+                 f"`Box`, `Vector` or a `Map` value — or instantiate it at a "
+                 f"type that does not grow",
+            source_file=getattr(declaration, 'source_file', None)
+        )
 
     def _check_copy_trait_exclusivity(self):
         """DELETED by design 219 — the two are no longer alternatives.

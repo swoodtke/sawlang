@@ -1,0 +1,20 @@
+// Design 246 row 14: a mutual cycle with no indirection on either leg. The
+// diagnostic names the whole path, not just the declaration it stopped at,
+// because neither type alone shows the reader what went wrong.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: recursive type `Frame` has infinite size
+// EXPECT-ERROR-CONTAINS: Frame.head -> Header.owner -> Frame
+// EXPECT-ERROR-ABSENT: internal compiler error
+
+struct Frame {
+    head: Header
+}
+
+struct Header {
+    owner: Frame
+}
+
+func main() -> Int {
+    0
+}
