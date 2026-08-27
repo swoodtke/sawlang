@@ -1,12 +1,14 @@
 # Design 245 — `Scalar`: a Unicode scalar type for the String surface
 
-**Status: SCOPING brief, authored Aug 27 out of the design-244 discussion.
-BACKLOG — not scheduled. The user has endorsed the headline (`chars()` yields
-a type that PRINTS as the character, Aug 27: "a nice usability win"); the §4
-questions are unruled.** Independent of 244's byte flip (disjoint call
-sites), but reads best beside its rider: bytes and scalars are the two
-things "char" used to blur, and after both briefs the String surface says
-which it means everywhere.
+**Status: V1 RULED Aug 27 (user) and DISPATCHED — §6 is the landing scope.
+The user pulled the core forward ("add scalars() -> Scalar and remove
+.chars() now") and ruled the two gating questions: NO literals in v1 (the
+total read `value()` and hoisted constants are the compare spellings;
+literal syntax stays open), and Scalar is PRELUDE vocabulary. §4's remaining
+questions (literal shape, match/range patterns) stay open for a later
+unit.** Independent of 244's byte flip (disjoint call sites), but reads best
+beside its rider: bytes and scalars are the two things "char" used to blur,
+and after both briefs the String surface says which it means everywhere.
 
 ## 1. What is wrong with scalars-as-`Int`
 
@@ -115,8 +117,40 @@ Migration size (Aug 27 sweep): 21 `chars()` sites in 15 files, 17
 
 ## 5. Ordering
 
-After 244 lands (the surfaces are disjoint — 244 touches byte-typed sites,
-this touches `chars()`/`append_scalar` sites — but 244 is queued and this is
-not, and the rider vocabulary should settle first). Worth deciding relative
-to design 209 (string slices) when this is pulled: a slice's `chars()` should
-be born yielding whatever this brief rules.
+~~After 244 lands~~ SUPERSEDED by the Aug-27 pull-forward: v1 dispatches
+immediately (the surfaces are disjoint from both DF-215f's compiler fix and
+244's byte sites, so nothing is waiting on it). Design 209 (string slices),
+when built, is born with `scalars()` — there is no `chars()` left to
+inherit.
+
+## 6. The v1 landing (ruled Aug 27 — this is the dispatch scope)
+
+**In:**
+
+- `Scalar` in std, PRELUDE-registered (the prelude list + the `preludegate`
+  lane move together): the §2 invariant, `init(value: Int) ->
+  Result<Scalar, InvalidScalar>` (lenient labels make `try! Scalar(34)`
+  legal), a total `value(&self) -> Int` read, `@synthesize`
+  Equatable/Comparable/Hashable, hand-written Printable that renders the
+  CHARACTER. `InvalidScalar` is an enum naming the cause (surrogate /
+  out-of-range), Printable + Error.
+- `String.scalars()` yielding `Scalar`; **`chars()` REMOVED — no alias, no
+  deprecation window** (user, Aug 27: nothing char-named survives until a
+  grapheme type exists to claim the word).
+- `StringBuilder.append(_: Scalar) -> Result<Void, AllocError>` joins the
+  append overload family (coherent per §3); `append_scalar` REMOVED with its
+  ignorable invalid-`Option`.
+- Consumer migration: every `chars()` site (21 in 15 files) and
+  `append_scalar` site (17), std included. Compare sites read back
+  (`ch.value() == 34`) or hoist a constant; sites are NOT contorted to dodge
+  the missing literal — that gap is §4's open question, and honest
+  `.value()` reads are the v1 idiom.
+- Docs: the spec's access-views passage (bytes/scalars, the Scalar type,
+  both removals), the saw-lang skill's string section, README if it names
+  `chars()`.
+
+**Out (later units, gated on the §4 rulings):** scalar literals, match/range
+patterns over Scalar, any grapheme surface (§2's position stands).
+
+**Gates:** the prelude-list edit makes this a compiler branch — full suite +
+freestanding runner (both arches) per commit, full battery terminal.
