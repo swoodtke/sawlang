@@ -4684,6 +4684,13 @@ NOT a std surface); **std.json — tool use (stage D) is where
 hand-rolled JSON stops working, this rewrite is its fourth consumer**;
 a `TcpStream` read deadline; and **a line-editing story for stage E,
 probably its own brief**, since Saw has no terminal surface at all.
+STAGE D HALF-LANDED Aug 27: std.json unit 2 (`JsonEncoder`/`JsonDecoder`
+over the serde seam + `encode_json`, sawc/std/json.saw + JSON.md + five
+exact-fault tests) integrated at ae670624, suite + freestanding green on
+main. The `JsonValue` tree half is the [QUEUE]'s event-gated unit 1,
+blocked on design 246; the build filed DF-265a/DF-266a and corroborated
+DF-260a's mechanism. OPEN riders recorded in the unit-1 queue line;
+`max_items` parity with CborDecoder was scope-narrowed out and stays open.
 
 ## Design 213 findings — the closure-callable sweep (Aug 13)
 
