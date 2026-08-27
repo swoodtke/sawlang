@@ -31,7 +31,8 @@ is scheduled and in what order is the whole of what they say.
 
 ## [QUEUE] — scheduled, in order (user-approved)
 
-- DF-215f fix — the suspending-match moved-payload double release (HEAD of queue, user Aug 26: a correctness bug outranks everything scheduled). Entry under design 215 below; the obligation-4 mechanism sweep (every frame home a moved-from value can still be released from — DF-242a and DF-255a are known siblings) comes FIRST and shapes the fix brief
+- DF-215f fix — the suspending-match moved-payload double release (HEAD of queue, user Aug 26: a correctness bug outranks everything scheduled). Entry under design 215 below; the obligation-4 mechanism sweep (every frame home a moved-from value can still be released from — DF-242a and DF-255a are known siblings) comes FIRST and shapes the fix brief. SWEEP DISPATCHED Aug 27 (opus, read-only, probes only); the fix brief follows its report
+- Design 246 — recursive nominal types via indirection (designs/246-recursive-types.md; ruled + DISPATCHED Aug 27 on the user's "sooner is better", concurrent worktree — codegen registration + a typechecker size check, disjoint from 215f's transform territory and 245's scalar work). Carries DF-260a; unblocks std.json's `JsonValue` (design 215 stage D). Entry below
 - Design 244 — the String byte surface goes unsigned (designs/244-string-byte-surface-unsigned.md; ruled Aug 26, after DF-215f and before design 209). The `*_char` naming rider is the one open ruling, wanted at or before dispatch
 - Design 245 v1 — `Scalar` + `scalars()`, `chars()` and `append_scalar` REMOVED (designs/245-unicode-scalar-type.md §6; ruled Aug 27 — no literals in v1, prelude placement — and DISPATCHED same day on the user's "now", disjoint from the two items above). Literals + patterns stay open as later units
 - Design 218 unit 1.5 — monomorphization becomes a pre-codegen transform (RULED Aug 13; SCHEDULED Aug 24, user: MOVED UP, BEFORE the 238 split — the migration lands under the full in-tree gate battery and the sawos pin starts life post-1.5). Process per the 218 ruling: a FABLE SPEC AGENT authors the census first (every `_ensure_monomorphized_*` call site, the instance-re-check design, error attribution, the per-(template, type-args) cache), lead reviews, user rules, Opus implements. Expected closures ride it: DF-217i/j/k, S1 row p08a, plausibly DF-247a. Brief section: designs/218-enforcement-architecture.md unit 1.5. **SPEC AUTHORED Aug 25 (`designs/218c-monomorphization-spec.md`) and LEAD-RATIFIED same night under the overnight authorization — all six section-8 questions resolved as recommended (rationale in the spec's status header); none touched a user ruling. Probes: DF-247a NOT dissolved (own dispatch after 1.5, OQ5); two new findings (DF-258a: a nested unconditionally-suspending generic silently loses its yield — pinned at stage 0, flips stage 4; DF-258b: recursive instantiation growth HANGS the compiler — fixed by stage 1's depth limit). IMPLEMENTATION HELD (user, Aug 25 morning): the pipeline STOPS after the 234 flip integrates — 1.5's build dispatches on the user's go, against the ratified spec**
@@ -83,6 +84,25 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-215j — `return` inside a VALUE match arm is a bare "Unexpected token: RETURN" with no arms-are-expressions hint; diagnostic-only (entry below, Aug 26)
 - DF-242d — conformance row K90's bounded GO spin re-opens its output race under suite load; flaky, seen once Aug 26 (entry below; oracle choice is a ruling)
 
+
+## Design 246 — recursive nominal types via indirection (DF-260a; authored +
+## dispatched Aug 27)
+
+- Brief: designs/246-recursive-types.md. Filed when the std.json dispatch hit
+  the wall Aug 27: EVERY cyclic nominal shape is `internal compiler error:
+  Undefined enum/struct: X` once the demanded copy policy is declared —
+  including the finite ones (`Vector<Self>`/`Box<Self>` payloads, mutual
+  cycles through a container); acyclic forward references are fine. ONE
+  mechanism, lead-probed (five probes in the brief): registration lowers
+  member LLVM types BEFORE publishing the type, and the toposort concedes
+  cycles at `codegen/core.py:2404`. Rule (ruled by dispatch): a cycle is
+  legal iff it crosses a heap indirection, discovered STRUCTURALLY — no
+  container allowlist; an all-inline cycle is a clean located infinite-size
+  diagnostic, never an ICE. Units: A the typechecker inline-embedding funnel,
+  B publish-before-lower registration (payload enums become identified
+  structs), C the 14-row matrix + spec/skill/README. The json dispatch
+  pivoted to the serde-seam half meanwhile; `JsonValue` plugs into its
+  lexical layer when this lands. Agent DF range: DF-261a+.
 
 ## DF-247a — a function that is a `group.spawn` ROOT is `undefined function`
 ## at every OTHER call of it in the same module (filed Aug 22 by design 242
