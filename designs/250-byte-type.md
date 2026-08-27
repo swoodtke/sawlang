@@ -111,10 +111,26 @@ The deleted sign-correction helpers (string.saw's to-unsigned,
 - **Q3 — rt seam scope.** Confirm rt/'s Saw sources keep their current
   spellings in v1 (the frozen-ABI argument above); a later brief may
   migrate rt internals when the seam contract is next reopened.
-- **Q4 — `Data`'s mutation surface.** `Data.set(index, value)` and the CoW
-  subscript take `Byte` (construction required at call sites feeding
-  computed integers) — confirm, since this is where the one-way friction
-  is most visible in real code.
+- **Q4 — `Data`'s mutation surface: RESOLVED Aug 27 (user + probes).** The
+  user's rule: `Data.set` accepts "either a UInt8 or a Byte — Data only
+  deals with bytes, so it is not ambiguous." Probes
+  (`.build/scratch/probe_byte_param.saw`, `probe_byte_tie.saw`) settle the
+  spelling: a SINGLE `UInt8` parameter already accepts all three arrivals
+  (`Byte` degrades in, bare literals adopt, `UInt8` passes), and the
+  `UInt8`/`Byte` overload PAIR is REFUSED at declaration by the existing
+  design-53/55 rule ("not just type aliases of the same underlying type") —
+  the language forces the single-parameter design. A computed `Int` still
+  pays the visible `as UInt8` at the boundary (no implicit narrowing), so
+  bare integers cannot silently enter byte storage; only literals and
+  byte-typed values pass. GENERALIZED as the brief's SINK RULE (amends §2's
+  blanket flip): byte SOURCES return `Byte`; byte SINKS in single-semantics
+  domains keep `UInt8` parameters (accepting `Byte` by degradation and
+  literals by adoption) — `Data.set`, the CoW subscript, FixedBuf writes,
+  the wire encoders' byte writes, and `String.index_of`'s byte needle (no
+  digits sibling shares that name, so literals like `index_of(34)` stay
+  legal); a `Byte`-TYPED parameter is reserved for DISCRIMINATION POINTS,
+  where an integer-rendering sibling shares the name — `StringBuilder`'s
+  `append` family is the case that exists.
 
 ## 6. Units (after the sheet)
 
