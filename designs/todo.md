@@ -81,6 +81,7 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-215g — a bare `None` compared `==` against a CALL expression's determined optional refuses to infer, where the annotated-local twin compiles (entry below, Aug 26)
 - DF-262a — the container-head hoist's move-only refusal diagnostic names the compiler-internal frame field (`self.__head0…`) to the user; the refusal itself is correct (filed Aug 27 by the DF-215f sweep; evidence in the 247 brief's appendix). Diagnostic-only
 - DF-262b — a suspending interpolation piece + `Task.spawn` at the same NoCopy result type + optional auto-wrap of the joined value is an LLVM-verifier ICE (filed Aug 27 by the DF-215f sweep; repro preserved verbatim in the 247 brief's appendix)
+- DF-264a — the `Copy` tier's conformance check skips the deinit-signature validation its ExplicitCopy/NoCopy siblings both have, so a `deinit(&self)` inside a `@synthesize Copy` reaches codegen and ICEs (entry below, filed Aug 27 from the user's scratch example)
 - DF-215h — stdout has no newline-free write, so incremental output (`--stream` deltas) prints one line per piece; wants a surface ruling (entry below, Aug 26)
 - DF-215i — no boolean `guard cond else { }`, only `guard let`; wants a ruling on whether the omission is deliberate (entry below, Aug 26)
 - DF-215j — `return` inside a VALUE match arm is a bare "Unexpected token: RETURN" with no arms-are-expressions hint; diagnostic-only (entry below, Aug 26)
@@ -105,6 +106,26 @@ for sawos; "238 before more M3 work" is absolute.
   structs), C the 14-row matrix + spec/skill/README. The json dispatch
   pivoted to the serde-seam half meanwhile; `JsonValue` plugs into its
   lexical layer when this lands. Agent DF range: DF-261a+.
+
+## DF-264a — the Copy tier's checker misses the deinit-signature validation
+## (filed Aug 27, lead-probed from the user's scratch example)
+
+- `@synthesize extension T: Copy { func deinit(&self) }` — receiver should be
+  `&var self` — is not diagnosed and reaches codegen, which dies with
+  `internal compiler error: Type of #1 arg mismatch: %"T" != %"T"*` on ANY
+  program declaring the type (no copy, no container needed). The SAME wrong
+  signature under ExplicitCopy or NoCopy gets the clean located
+  ``method `deinit` should take `&var self` to conform`` — so the matrix is
+  one missing cell: the validation is duplicated PER TIER and the Copy path
+  lacks its copy. With `&var self` the Copy-with-deinit shape works exactly
+  as the spec's Ticket example promises (probed: runs, one deinit per live
+  copy). Mechanism named (obligation 4): a per-tier duplicated check instead
+  of a funnel — the fix puts the signature validation at one chokepoint over
+  all three tiers, and probes the NON-`@synthesize` Copy-with-body row (the
+  spec's hand-written-copy Ticket shape) the lead did not reach. Owes a
+  cited XFAIL pin when dispatched. Probes were
+  `.build/scratch/probe_copy_deinit_m1-m7` (ephemeral; the matrix above is
+  the record).
 
 ## DF-247a — a function that is a `group.spawn` ROOT is `undefined function`
 ## at every OTHER call of it in the same module (filed Aug 22 by design 242
