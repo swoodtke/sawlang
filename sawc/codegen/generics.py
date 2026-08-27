@@ -391,19 +391,20 @@ class GenericsMixin:
         old_context = self.type_param_context
         self.type_param_context = type_mapping
 
+        # PUBLISH BEFORE LOWER (design 246 Unit B), on the same terms as
+        # `_register_struct`. The discipline lives HERE, in the registration
+        # helper, rather than at the call sites: design 218 unit 1.5 relocates
+        # the callers, and a rule written at a call site would not travel.
+        llvm_struct_type = self.module.context.get_identified_type(mangled_name)
+        field_order = [field.name for field in generic_struct.fields]
+        self.struct_types[mangled_name] = (llvm_struct_type, field_order)
+
         # Generate field types with substitution
         field_types = []
         for field in generic_struct.fields:
             substituted = self._substitute_saw_type(field.type, type_mapping)
             field_types.append(self._get_llvm_type(substituted))
-
-        # Create identified struct type (unique identity even if same field types)
-        llvm_struct_type = self.module.context.get_identified_type(mangled_name)
-        llvm_struct_type.set_body(*field_types)
-
-        # Store the type and field order
-        field_order = [field.name for field in generic_struct.fields]
-        self.struct_types[mangled_name] = (llvm_struct_type, field_order)
+        self._set_registered_body(llvm_struct_type, field_types, mangled_name)
         # Record base name + concrete args so a monomorphized deinit can rebuild
         # its receiver's SawType for appended field cleanup (allocator leak fix).
         self.mono_struct_args[mangled_name] = (struct_name, list(type_args))

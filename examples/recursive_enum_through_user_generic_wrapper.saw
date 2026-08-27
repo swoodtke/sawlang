@@ -1,0 +1,44 @@
+// Design 246 row 6: the cycle runs through a USER generic that stores its
+// parameter inline, and is indirected overall. `Pair<T>` embeds a `T` — its
+// declaration says so — and `Vector<Pair<Node>>` embeds only a pointer to one.
+// Neither fact comes from a list of blessed container names; the same walk into
+// the member declarations answers both.
+//
+// The inline-only twin, where `Pair<Node>` is the whole path, is refused in
+// `recursive_type_through_user_generic_refused.saw`.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// sum 12
+
+struct Pair<T> {
+    a: T
+}
+
+enum Node {
+    case Leaf(v: Int),
+    case Kids(k: Vector<Pair<Node>>)
+}
+
+extension Node: NoCopy {}
+
+extension Node {
+    func sum(&self) -> Int {
+        match self {
+            case Leaf(v) -> v,
+            case Kids(k) -> {
+                var total = 0
+                k.each({ [&var total] p in total = total + p.a.sum() })
+                total
+            }
+        }
+    }
+}
+
+func main() {
+    var kids = Vector<Pair<Node>>()
+    try! kids.push(Pair<Node>(a: Node.Leaf(v: 5)))
+    try! kids.push(Pair<Node>(a: Node.Leaf(v: 7)))
+    let root = Node.Kids(k: move kids)
+    print("sum {root.sum()}")
+}

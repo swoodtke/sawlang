@@ -1,0 +1,48 @@
+// Design 246 row 5: a mutual cycle with ONE indirected leg. `Term` holds an
+// `Expr` INLINE — its storage really does contain `Expr`'s — and that is fine,
+// because `Expr`'s own leg is a `Vector`, so following the cycle crosses a
+// pointer. The rule is about every CYCLE crossing an indirection, not about
+// every edge.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// total 42
+
+enum Expr {
+    case Literal(v: Int),
+    case Group(g: Vector<Term>)
+}
+
+struct Term {
+    weight: Int
+    body: Expr
+}
+
+extension Expr: NoCopy {}
+extension Term: NoCopy {}
+
+extension Expr {
+    func total(&self) -> Int {
+        match self {
+            case Literal(v) -> v,
+            case Group(g) -> {
+                var sum = 0
+                g.each({ [&var sum] t in sum = sum + t.total() })
+                sum
+            }
+        }
+    }
+}
+
+extension Term {
+    func total(&self) -> Int {
+        self.weight + self.body.total()
+    }
+}
+
+func main() {
+    var parts = Vector<Term>()
+    try! parts.push(Term(weight: 2, body: Expr.Literal(v: 40)))
+    let root = Expr.Group(g: move parts)
+    print("total {root.total()}")
+}

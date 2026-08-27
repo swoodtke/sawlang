@@ -2600,7 +2600,7 @@ class Namespace:
         return None
 
     def _assertion_applies(self, name: str, saw_type: SawType,
-                           want_sync: bool, assume) -> bool:
+                           want_sync: bool, assume, visiting=None) -> bool:
         """Does `name`'s declared assertion hold for THIS instantiation?
 
         A conditional header (`extension Vector<T: Send, A: Send>: UnsafeSend`)
@@ -2632,16 +2632,28 @@ class Namespace:
                 # is not made.
                 return False
             for bound in param_bounds:
-                if not self._satisfies_thread_bound(args[index], bound, assume):
+                if not self._satisfies_thread_bound(args[index], bound, assume,
+                                                    visiting):
                     return False
         return True
 
-    def _satisfies_thread_bound(self, arg: SawType, bound: str, assume) -> bool:
-        """One bound of a conditional assertion header, at one type argument."""
+    def _satisfies_thread_bound(self, arg: SawType, bound: str, assume,
+                                visiting=None) -> bool:
+        """One bound of a conditional assertion header, at one type argument.
+
+        DF-261b: `visiting` is threaded through from the walk that asked. This
+        was the one re-entry into `_send_sync` that started a FRESH set, and a
+        RECURSIVE type reaches it on every legal shape — `enum Json { case
+        Items(items: Vector<Json>) }` asks whether `Vector<Json>` is Send,
+        `Vector`'s conditional header (`extension Vector<T: Send, A: Send>:
+        UnsafeSend`) asks whether `Json` is, and with an empty set that walk
+        starts over. The `visiting` key carries `want_sync`, so sharing one set
+        between a Send question and a Sync question keeps each answer its own.
+        """
         if bound == "Send":
-            return self._send_sync(arg, False, set(), assume)
+            return self._send_sync(arg, False, visiting or set(), assume)
         if bound == "Sync":
-            return self._send_sync(arg, True, set(), assume)
+            return self._send_sync(arg, True, visiting or set(), assume)
         return self.type_satisfies_bound(arg, bound)
 
     @staticmethod
@@ -2821,7 +2833,8 @@ class Namespace:
             # what it is for. Its conditional bounds are re-checked here against
             # this instantiation's arguments, so `extension Mutex<T: Send>:
             # UnsafeSync {}` promises nothing about a `Mutex<File>`.
-            if self._assertion_applies(name, saw_type, want_sync, assume):
+            if self._assertion_applies(name, saw_type, want_sync, assume,
+                                       visiting):
                 return True
             # A type PARAMETER the legality check is assuming thread-safe (see
             # `_assumed`): reached only while judging a conditional header.
@@ -2872,7 +2885,7 @@ class Namespace:
                 # (Abstract `T: Send` bodies are handled at the call site via
                 # the parameter's declared bounds.)
                 return False
-            key = (name, tuple(str(a) for a in args))
+            key = (name, tuple(str(a) for a in args), want_sync)
             if key in visiting:
                 return True  # co-recursive type: assume ok on the back-edge
             visiting = visiting | {key}
@@ -2887,7 +2900,8 @@ class Namespace:
         if kind == TypeKind.ENUM:
             name = saw_type.enum_name
             args = saw_type.type_args or []
-            if self._assertion_applies(name, saw_type, want_sync, assume):
+            if self._assertion_applies(name, saw_type, want_sync, assume,
+                                       visiting):
                 return True
             enum_sym = self._lookup_enum_deep(name)
             if enum_sym is None:
@@ -2904,7 +2918,7 @@ class Namespace:
         Shared by both spellings that reach an enum — the ENUM kind, and the
         struct-kind bare name a field or type argument carries (DF-155d).
         """
-        key = (name, tuple(str(a) for a in args))
+        key = (name, tuple(str(a) for a in args), want_sync)
         if key in visiting:
             return True  # co-recursive type: assume ok on the back-edge
         visiting = visiting | {key}

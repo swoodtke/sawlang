@@ -289,6 +289,14 @@ class TypesMixin:
                     mangled_name = self._ensure_monomorphized_struct(
                         saw_type.struct_name, filled)
                     return self.struct_types[mangled_name][0]
+                # design 246 Unit B: a declaration this unit owns that the
+                # registration loop has not reached. Register it here and ask
+                # again — the retry finds a published handle, because
+                # registration publishes before it lowers. Covers the ENUM
+                # spelled with the generic STRUCT kind too, which is how a bare
+                # name arrives from a field or a payload.
+                if self._demand_register_type(saw_type.struct_name):
+                    return self._get_llvm_type(saw_type)
                 raise ValueError(f"Undefined struct: {saw_type.struct_name}")
             return self.struct_types[saw_type.struct_name][0]  # Return LLVM type
         elif saw_type.kind == TypeKind.OPTIONAL:
@@ -319,6 +327,9 @@ class TypesMixin:
                 mangled_name = self._ensure_monomorphized_enum(saw_type.enum_name, concrete_args)
                 return self.enum_types[mangled_name][0]
             if saw_type.enum_name not in self.enum_types:
+                # design 246 Unit B — see the struct arm above.
+                if self._demand_register_type(saw_type.enum_name):
+                    return self._get_llvm_type(saw_type)
                 raise ValueError(f"Undefined enum: {saw_type.enum_name}")
             return self.enum_types[saw_type.enum_name][0]  # Return LLVM type
         elif saw_type.kind == TypeKind.TYPE_PARAM:

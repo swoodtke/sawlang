@@ -1,0 +1,52 @@
+// Design 246 row 1: an enum whose payload is a `Vector` of itself — the
+// `JsonValue` shape. The cycle crosses `Vector`'s heap buffer, so the layout is
+// finite and the type is legal. Every such shape was an ICE before design 246
+// (DF-260a: registration lowered a member's LLVM type before publishing the
+// type it belonged to, so the self-reference arrived at a lookup that had
+// nothing to find).
+//
+// The tree is built two levels deep, matched over, and dropped. The DEINIT
+// lines are the oracle: destruction recurses to DATA depth, and each payload is
+// released exactly once.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// leaves 3
+// DEINIT a
+// DEINIT b
+// DEINIT c
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+
+enum Json {
+    case Leaf(r: Res),
+    case Items(items: Vector<Json>)
+}
+extension Json: NoCopy {}
+
+extension Json {
+    func leaves(&self) -> Int {
+        match self {
+            case Leaf(_) -> 1,
+            case Items(items) -> {
+                var total = 0
+                items.each({ [&var total] child in total = total + child.leaves() })
+                total
+            }
+        }
+    }
+}
+
+func main() {
+    var inner = Vector<Json>()
+    try! inner.push(Json.Leaf(r: Res(name: "c")))
+    var kids = Vector<Json>()
+    try! kids.push(Json.Leaf(r: Res(name: "a")))
+    try! kids.push(Json.Leaf(r: Res(name: "b")))
+    try! kids.push(Json.Items(items: move inner))
+    let tree = Json.Items(items: move kids)
+    print("leaves {tree.leaves()}")
+}

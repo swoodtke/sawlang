@@ -295,6 +295,15 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # variant_info: dict[variant_name, list[(param_name, SawType)]]
         self.enum_types: dict = {}
 
+        # design 246 Unit B. Concrete declarations this unit owns that no type
+        # has been registered for yet, by identity — what `_demand_register_type`
+        # registers out of order when a member of a CYCLE names one. And the
+        # bodies waiting for a member to become sized: `_set_registered_body`
+        # parks one here and `_drain_deferred_type_bodies` lands it.
+        self._unregistered_type_decls: dict = {}
+        self._deferred_type_bodies: list = []
+        self._draining_type_bodies: bool = False
+
         # String constants (raw C strings: [N x i8] globals for printf etc.)
         self.string_constants: dict = {}
         # Saw String literal globals: value -> {i64 refcount(=-1), i64 len, [N+1 x i8]}
@@ -2102,6 +2111,11 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             # rejects the ELF section spelling, so apple triples skip it.
             self._apply_section_layout(place_sections=True, internalize=False)
 
+        # design 246 Unit B: nothing may leave here with a body still waiting.
+        # A monomorphization reached during BODY generation registers types too,
+        # so the check at the end of `_register_types_in_order` is not the last
+        # word — this is.
+        self._assert_no_deferred_type_bodies()
         return str(self.module)
 
     def _apply_section_layout(self, place_sections: bool = True,
@@ -2274,10 +2288,24 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             return llmod.get_global_variable(gv.name).global_value_type
 
     def _abi_size(self, llvm_type) -> int:
+        self._require_sized(llvm_type, "size")
         return self.target_data.get_abi_size(self._ll_layout_type(llvm_type))
 
     def _abi_align(self, llvm_type) -> int:
+        self._require_sized(llvm_type, "alignment")
         return self.target_data.get_abi_alignment(self._ll_layout_type(llvm_type))
+
+    def _require_sized(self, llvm_type, what: str):
+        """LLVM ABORTS the process on a layout query about an unsized type
+        (`Cannot getTypeInfo() on a type that is unsized!`), which is not a
+        diagnostic anybody can act on. Design 246 Unit B makes a bodyless
+        identified type reachable while a cycle is being registered, so ask
+        first and report through the ordinary internal-compiler-error path."""
+        if self._embeds_unsized_type(llvm_type):
+            raise ValueError(
+                f"the {what} of `{llvm_type}` was asked for while it still "
+                f"embeds a type whose body has not been set — a type in a "
+                f"registration cycle is being laid out before it is finished")
 
     def _const_type_metric(self, saw_type, which):
         """The layout oracle `const_eval` calls for `sizeof`/`alignof`."""
@@ -2379,7 +2407,25 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                 for _, param_type in variant.associated_types:
                     deps[decl_identity(enum)].update(get_deps(param_type))
 
-        # Topological sort using Kahn's algorithm
+        # Topological sort using Kahn's algorithm.
+        #
+        # design 246 Unit B: this sort is now an ORDERING HEURISTIC and nothing
+        # more. `get_deps` above states a hard edge for every type ARGUMENT of a
+        # generic field, including the ones a container reaches only through a
+        # pointer — `Vector<T>`'s own fields are a pointer and two `Int`s, so its
+        # layout never needs `T`'s. That edge set is a strict SUPERSET of the
+        # layout relation, which is what used to drop a cyclic type into the
+        # tail below and then into `Undefined enum/struct` (DF-260a).
+        #
+        # It is deliberately left overstated. Registration no longer depends on
+        # the order at all: a member naming an unregistered type registers it
+        # (`_demand_register_type`), and a body whose members are not sized yet
+        # waits (`_finish_or_defer`). Narrowing the edges to the inline-embedding
+        # relation Unit A computes would reshuffle the emitted type order across
+        # the whole corpus and buy no correctness — while KEEPING it means the
+        # acyclic majority is still emitted in the order every existing IR
+        # baseline was recorded under. What the edge set must never become again
+        # is a claim about layout; it is a hint about emission order.
         in_degree = {name: 0 for name in type_order}
         for name, type_deps in deps.items():
             for dep in type_deps:
@@ -2401,17 +2447,68 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                     if in_degree[other_name] == 0:
                         queue.append(other_name)
 
-        # Add any remaining types (may have cycles - just add them)
+        # The remaining types form CYCLES, so no order puts every one of them
+        # after its members. The sort stays as the ordering heuristic it always
+        # was — it is what keeps the emitted type order stable for the acyclic
+        # majority — and the cycle members are simply appended in declaration
+        # order; what makes them work is publish-before-lower plus the demand
+        # registration below (design 246 Unit B), not the position they land in.
         for name in type_order:
             if name not in sorted_types:
                 sorted_types.append(name)
 
-        # Register in sorted order
+        # Every concrete declaration this unit owns, by identity, so a member
+        # type naming one that has not been registered YET can register it on
+        # demand (`_demand_register_type`). A cycle guarantees at least one such
+        # member, whatever order the loop below runs in.
+        self._unregistered_type_decls = {
+            name: (struct_map.get(name) or enum_map.get(name))
+            for name in sorted_types
+            if not getattr(struct_map.get(name) or enum_map.get(name),
+                           'type_params', None)
+        }
+
+        # Register in sorted order. A concrete type goes through the demand
+        # entry, so a member that already registered it is a no-op here rather
+        # than a second registration; a GENERIC declaration has no layout and
+        # only stores its template, so it never enters the pending map.
         for name in sorted_types:
-            if name in struct_map:
-                self._register_struct(struct_map[name])
-            elif name in enum_map:
-                self._register_enum(enum_map[name])
+            declaration = struct_map.get(name) or enum_map.get(name)
+            if declaration is None:
+                continue
+            if getattr(declaration, 'type_params', None):
+                if isinstance(declaration, Struct):
+                    self._register_struct(declaration)
+                else:
+                    self._register_enum(declaration)
+                continue
+            self._demand_register_type(name)
+        self._assert_no_deferred_type_bodies()
+
+    def _demand_register_type(self, identity: str) -> bool:
+        """Register the concrete declaration `identity` names, right now.
+
+        Design 246 Unit B: the answer to a CYCLE. A cycle has no order in which
+        every type follows its members, so a member type will always name one
+        that is not registered yet — `enum Expr { case Group(g: Vector<Term>) }`
+        beside `enum Term { case Nested(e: Vector<Expr>) }` reaches `Term` while
+        `Term` is still ahead in the loop. Registering it THERE terminates
+        because registration publishes its handle before it lowers anything, so
+        the way back finds a published type rather than re-entering.
+
+        Returns whether it registered something. The entry is popped BEFORE the
+        registration runs, so a second demand for the same type in the same
+        walk answers False and falls through to the published handle.
+        """
+        pending = getattr(self, '_unregistered_type_decls', None)
+        declaration = pending.pop(identity, None) if pending else None
+        if declaration is None:
+            return False
+        if isinstance(declaration, Struct):
+            self._register_struct(declaration)
+        else:
+            self._register_enum(declaration)
+        return identity in self.struct_types or identity in self.enum_types
 
     def _register_struct(self, struct: Struct):
         """Register a struct type with LLVM."""
@@ -2423,16 +2520,20 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             self.generic_structs[identity] = struct
             return
 
-        # Get LLVM types for each field
-        field_types = [self._get_llvm_type(field.type) for field in struct.fields]
-
-        # Create identified struct type (unique identity even if same field types)
+        # PUBLISH BEFORE LOWER (design 246 Unit B). The identified type and its
+        # registry entry go in FIRST, still bodyless; the field types are
+        # lowered afterwards and become the body. A field that reaches back to
+        # this same type — `next: Box<Node>?` — then finds the published
+        # handle instead of raising `Undefined struct: Node` (DF-260a), and a
+        # pointer to a bodyless identified type is legal and sized, which is
+        # what identified types exist for. An ALL-INLINE cycle would try to
+        # embed a bodyless type by value; design 246 Unit A refuses that at the
+        # declaration, so it never arrives here.
         llvm_struct_type = self.module.context.get_identified_type(identity)
-        llvm_struct_type.set_body(*field_types)
-
-        # Store the type and field order for later use
         field_order = [field.name for field in struct.fields]
         self.struct_types[identity] = (llvm_struct_type, field_order)
+        field_types = [self._get_llvm_type(field.type) for field in struct.fields]
+        self._set_registered_body(llvm_struct_type, field_types, identity)
         # Struct field types are in namespace
 
     def _register_builtin_enums(self):
@@ -2483,18 +2584,44 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         declared width, and the tag values are the ones written in source rather
         than declaration ordinals — the point of declaring a backing is that
         reordering the cases cannot renumber them.
+
+        PUBLISH BEFORE LOWER (design 246 Unit B). A payload-carrying enum is an
+        IDENTIFIED struct `{i32, [N x i8]}` rather than a literal one, so the
+        registry entry can be published while it is still bodyless and a
+        payload that reaches back to this enum — `case Items(items:
+        Vector<Json>)` — resolves to the published handle instead of raising
+        `Undefined enum: Json` (DF-260a). The tags and the variant table are
+        computed first because neither lowers a type. Payload-free and
+        raw-backed enums stay bare integers: with no payload there is no member
+        edge, so no cycle can reach them.
         """
-        # Assign tag values to variants (0, 1, 2, ...)
+        # Assign tag values to variants (0, 1, 2, ...) — no type is lowered
+        # here, which is what lets the publication below come first.
         variant_tags = {}
         variant_info = {}
-        max_payload_size = 0
-
         for i, variant in enumerate(variants):
             declared = variant.raw_value
             variant_tags[variant.name] = (
                 declared if raw_type is not None and declared is not None else i)
             variant_info[variant.name] = variant.associated_types
 
+        if not self._enum_carries_payload(variants, raw_type):
+            if raw_type is not None:
+                # Raw-backed (design 145 unit B2): the enum IS its tag, at the
+                # declared width. Payload-free by construction — the typechecker
+                # rejects a backing on an enum with payloads.
+                llvm_enum_type = self._get_llvm_type(raw_type)
+            else:
+                # Simple enum (no associated values): just i32 tag
+                llvm_enum_type = ir.IntType(32)
+            self.enum_types[name] = (llvm_enum_type, variant_tags, variant_info)
+            return
+
+        llvm_enum_type = self.module.context.get_identified_type(name)
+        self.enum_types[name] = (llvm_enum_type, variant_tags, variant_info)
+
+        variant_structs = []
+        for variant in variants:
             # Calculate payload size for this variant
             if variant.associated_types:
                 # A Void-typed payload field carries no data (design 92:
@@ -2505,36 +2632,171 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                                  if not isinstance(self._get_llvm_type(typ), ir.VoidType)]
                 # Create a struct to hold the associated values
                 if variant_types:
-                    variant_struct = ir.LiteralStructType(variant_types)
-                    # Size the payload byte array by the variant struct's TRUE ABI
-                    # size (via LLVM's DataLayout), NOT a naive field-size sum. The
-                    # sum ignores alignment padding, so any payload with internal
-                    # padding — a pointer/optional after a smaller field, e.g.
-                    # `Arc<T>` (an optional pointer `{i1, ptr}` = 16 bytes, sum 9)
-                    # or an `Int8` before a wide field — undersizes `[N x i8]` and
-                    # both TRUNCATES the aggregate on construction and reads OOB on
-                    # extraction (design 65, L17 symptom 2).
-                    size = self._abi_size(variant_struct)
-                    max_payload_size = max(max_payload_size, size)
+                    variant_structs.append(ir.LiteralStructType(variant_types))
 
-        # Create LLVM type for enum
-        if max_payload_size > 0:
-            # Enum with associated values: { i32 tag, [N x i8] payload }
-            llvm_enum_type = ir.LiteralStructType([
-                ir.IntType(32),  # tag
-                ir.ArrayType(ir.IntType(8), max_payload_size)  # payload
-            ])
-        elif raw_type is not None:
-            # Raw-backed (design 145 unit B2): the enum IS its tag, at the
-            # declared width. Payload-free by construction — the typechecker
-            # rejects a backing on an enum with payloads.
-            llvm_enum_type = self._get_llvm_type(raw_type)
-        else:
-            # Simple enum (no associated values): just i32 tag
-            llvm_enum_type = ir.IntType(32)
+        def finish():
+            # Size the payload byte array by each variant struct's TRUE ABI
+            # size (via LLVM's DataLayout), NOT a naive field-size sum. The
+            # sum ignores alignment padding, so any payload with internal
+            # padding — a pointer/optional after a smaller field, e.g.
+            # `Arc<T>` (an optional pointer `{i1, ptr}` = 16 bytes, sum 9)
+            # or an `Int8` before a wide field — undersizes `[N x i8]` and
+            # both TRUNCATES the aggregate on construction and reads OOB on
+            # extraction (design 65, L17 symptom 2).
+            max_payload_size = max(
+                (self._abi_size(vs) for vs in variant_structs), default=0)
+            # `{ i32 tag, [N x i8] payload }`.
+            llvm_enum_type.set_body(
+                ir.IntType(32),
+                ir.ArrayType(ir.IntType(8), max_payload_size))
 
-        # Store enum info
-        self.enum_types[name] = (llvm_enum_type, variant_tags, variant_info)
+        # The SIZE of a payload is what waits, not just the body: an enum whose
+        # payload is a container of itself asks for that container's layout, and
+        # the container is what published this enum's demand in the first place
+        # (design 246 Unit B).
+        self._finish_or_defer(name, variant_structs, finish)
+
+    def _enum_carries_payload(self, variants, raw_type) -> bool:
+        """Whether this enum's LLVM shape is `{i32, [N x i8]}` rather than a
+        bare integer tag — asked BEFORE any payload type is lowered, because
+        the answer decides which shape gets PUBLISHED (design 246 Unit B).
+
+        A raw backing forbids payloads outright (design 145 unit B2). Otherwise
+        the question is whether any payload carries data, and the one shape that
+        declares a payload and carries none is the all-`Void` enum
+        (`Result<Void, Void>`): `_register_concrete_enum` drops a Void field so
+        the arm is dataless, and this has to agree or the published shape and
+        the computed one disagree. It is conservative in the safe direction —
+        a payload it cannot prove is `Void` counts as data, which at worst
+        publishes an identified type the enum did not need.
+        """
+        if raw_type is not None:
+            return False
+        return any(not self._payload_type_is_void(payload_type)
+                   for variant in variants
+                   for _name, payload_type in (variant.associated_types or []))
+
+    def _payload_type_is_void(self, saw_type, _depth: int = 0) -> bool:
+        """Whether `saw_type` DEFINITELY lowers to `void`, resolved the same
+        way `_get_llvm_type` resolves it: through an alias, and through the
+        monomorphization context for a type parameter."""
+        if saw_type is None or _depth > 8:
+            return False
+        if saw_type.kind == TypeKind.VOID:
+            return True
+        name = (saw_type.struct_name if saw_type.kind == TypeKind.STRUCT
+                else saw_type.type_param_name
+                if saw_type.kind == TypeKind.TYPE_PARAM else None)
+        if name is None:
+            return False
+        bound = self.type_param_context.get(name)
+        if bound is not None and bound is not saw_type:
+            return self._payload_type_is_void(bound, _depth + 1)
+        alias = self.namespace.lookup_type_alias(name)
+        if alias is not None and alias.aliased_type is not None:
+            return self._payload_type_is_void(alias.aliased_type, _depth + 1)
+        return False
+
+    def _set_registered_body(self, llvm_type, member_types, identity: str):
+        """Give a PUBLISHED identified type its body (design 246 Unit B).
+
+        The one place the second half of publish-before-lower happens — both
+        registration helpers and both monomorphization helpers reach it — and
+        the one place the ORDER of a cycle is resolved.
+
+        A body may name a type that is still bodyless: registering `Node` (whose
+        payload is `Vector<Pair<Node>>`) reaches `Pair<Node>`, whose field IS a
+        `Node`, while `Node` is still open. That is a legal shape — the cycle
+        crosses `Vector`'s pointer — it is only the ORDER that is wrong, so the
+        body waits here and lands as soon as what it names is sized. Setting any
+        body drains the waiting ones, which is what makes the order irrelevant.
+        A body that could NEVER land is an all-inline cycle; Unit A's
+        finite-size check refuses those at the declaration, and
+        `_assert_no_deferred_type_bodies` is the breadcrumb if one ever gets
+        past it.
+        """
+        self._finish_or_defer(identity, member_types,
+                              lambda: llvm_type.set_body(*member_types))
+
+    def _finish_or_defer(self, identity: str, blockers, finish):
+        """Run `finish` now, or park it until every type in `blockers` is sized.
+
+        `blockers` are the LLVM types the finish step embeds BY VALUE — a
+        struct's field types, an enum's variant structs. Parking is not an
+        error: a legal cycle simply has no order in which every type is
+        finished after its members, so the last one to become sized is what
+        releases the rest. `_assert_no_deferred_type_bodies` is the backstop for
+        a park that can never be released, which is the all-inline cycle Unit A
+        refuses at the declaration.
+        """
+        if any(self._embeds_unsized_type(b) for b in blockers):
+            self._deferred_type_bodies.append((identity, list(blockers), finish))
+            return
+        finish()
+        self._drain_deferred_type_bodies()
+
+    def _embeds_unsized_type(self, llvm_type) -> bool:
+        """Whether `llvm_type` holds a still-bodyless identified type BY VALUE.
+
+        A POINTER to one does not count and is the whole point of the exercise:
+        a pointer to an opaque type is legal and sized, which is why a cycle
+        that crosses an indirection has a layout at all."""
+        if isinstance(llvm_type, ir.IdentifiedStructType):
+            return llvm_type.is_opaque
+        if isinstance(llvm_type, ir.LiteralStructType):
+            return any(self._embeds_unsized_type(e) for e in llvm_type.elements)
+        if isinstance(llvm_type, ir.ArrayType):
+            return self._embeds_unsized_type(llvm_type.element)
+        return False
+
+    def _drain_deferred_type_bodies(self):
+        """Finish every parked type whose blockers are now sized, repeatedly —
+        one finish can release another. Re-entrant calls return immediately: a
+        `finish` that finishes ANOTHER type re-enters here, and the outer loop
+        sees its progress on the next pass."""
+        if self._draining_type_bodies:
+            return
+        self._draining_type_bodies = True
+        try:
+            while self._deferred_type_bodies:
+                pending = self._deferred_type_bodies
+                # A `finish` may park a NEW entry (registering one type can
+                # reach another), so the list is taken away for the pass and
+                # whatever lands back on it is carried into the next one.
+                self._deferred_type_bodies = []
+                still_waiting = []
+                landed = False
+                for identity, blockers, finish in pending:
+                    if any(self._embeds_unsized_type(b) for b in blockers):
+                        still_waiting.append((identity, blockers, finish))
+                        continue
+                    finish()
+                    landed = True
+                self._deferred_type_bodies = still_waiting + self._deferred_type_bodies
+                if not landed:
+                    return
+        finally:
+            self._draining_type_bodies = False
+
+    def _assert_no_deferred_type_bodies(self):
+        """Every published type has a body by now, or the finite-size check has
+        a hole (design 246 Unit A) and the module would not verify.
+
+        The breadcrumbed report, per the `icebreadcrumb` convention: a named
+        internal compiler error naming both types, never a silent opaque type
+        reaching LLVM.
+        """
+        if not self._deferred_type_bodies:
+            return
+        identity, blockers, _finish = self._deferred_type_bodies[0]
+        blocking = next((b.name for b in blockers
+                         if isinstance(b, ir.IdentifiedStructType) and b.is_opaque),
+                        "another type")
+        raise ValueError(
+            f"`{identity}` embeds `{blocking}` INLINE and `{blocking}` never "
+            f"became sized: the two contain each other's storage, which has no "
+            f"finite layout. The finite-size check (design 246 Unit A) is "
+            f"supposed to refuse this at the declaration")
 
     # _estimate_type_size is now in codegen_types.py (TypesMixin)
 

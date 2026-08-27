@@ -1,0 +1,57 @@
+// Design 246 row 8: a spawned task builds a recursive tree, traverses it and
+// drops it across two suspensions. The coroutine frame holds the tree in a
+// field, so the new type meets the transform as well as the registration.
+//
+// The DEINIT lines are the oracle: the task's own values are released when THE
+// TASK completes (design 124), to data depth, each exactly once — which is why
+// they print BEFORE the join hands the result back.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// DEINIT a
+// DEINIT b
+// leaves 2
+
+import std.task.*
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+
+enum Json {
+    case Leaf(r: Res),
+    case Items(items: Vector<Json>)
+}
+extension Json: NoCopy {}
+
+extension Json {
+    func leaves(&self) -> Int {
+        match self {
+            case Leaf(_) -> 1,
+            case Items(items) -> {
+                var total = 0
+                items.each({ [&var total] child in total = total + child.leaves() })
+                total
+            }
+        }
+    }
+}
+
+func build() -> Int {
+    yield_now()
+    var inner = Vector<Json>()
+    try! inner.push(Json.Leaf(r: Res(name: "b")))
+    var kids = Vector<Json>()
+    try! kids.push(Json.Leaf(r: Res(name: "a")))
+    try! kids.push(Json.Items(items: move inner))
+    let tree = Json.Items(items: move kids)
+    yield_now()
+    tree.leaves()
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(build())
+    print("leaves {h.join()}")
+}

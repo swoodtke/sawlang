@@ -536,7 +536,11 @@ class OperatorsMixin:
                 return self._emit_array_equals(left, right, st)
             if k == TypeKind.STRUCT and not isinstance(lt, ir.IntType):
                 return self._emit_struct_equals(left, right, st)
-            if k == TypeKind.ENUM and isinstance(lt, ir.LiteralStructType):
+            # A payload-carrying enum is `{i32, [N x i8]}`; design 246 Unit B
+            # makes that an IDENTIFIED struct, so the test is the struct-ness
+            # rather than the literal spelling. A payload-free enum is a bare
+            # integer and falls through to the tag compare below.
+            if k == TypeKind.ENUM and isinstance(lt, ir.BaseStructType):
                 return self._emit_enum_deep_equals(left, right, st)
 
         # Primitives (integers, Bool) and payload-free enums (an i32 tag).
@@ -546,7 +550,8 @@ class OperatorsMixin:
         # Fallback for values reaching here without a Saw type (compiler-
         # synthesized comparisons): an enum-shaped {i32, [N x i8]} value compares
         # tags (the historical behavior); a bare pointer compares by identity.
-        if (isinstance(lt, ir.LiteralStructType) and len(lt.elements) == 2
+        if (isinstance(lt, ir.BaseStructType) and lt.elements
+                and len(lt.elements) == 2
                 and isinstance(lt.elements[0], ir.IntType)
                 and lt.elements[0].width == 32):
             l_tag = self.builder.extract_value(left, 0, name="l_tag")
@@ -961,7 +966,8 @@ class OperatorsMixin:
         less, equal, greater = self._ordering_tags()
 
         # Payload-free enum: the value IS the tag; compare tags three-way.
-        if not isinstance(llvm_enum_type, ir.LiteralStructType):
+        # design 246 Unit B: a payload-carrying enum is an IDENTIFIED struct.
+        if not isinstance(llvm_enum_type, ir.BaseStructType):
             return self._emit_int_compare(left, right)
 
         left_tag = self.builder.extract_value(left, 0, name="l_tag")
@@ -1094,7 +1100,8 @@ class OperatorsMixin:
             if k == TypeKind.STRUCT and not isinstance(lt, ir.IntType):
                 self._emit_struct_hash(value, st, hasher_ptr)
                 return
-            if k == TypeKind.ENUM and isinstance(lt, ir.LiteralStructType):
+            # design 246 Unit B: a payload-carrying enum is an IDENTIFIED struct.
+            if k == TypeKind.ENUM and isinstance(lt, ir.BaseStructType):
                 self._emit_enum_hash(value, st, hasher_ptr)
                 return
 
