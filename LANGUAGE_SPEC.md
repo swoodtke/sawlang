@@ -327,10 +327,12 @@ arguments below — `f(a:b:)` and `f(kind:value:)` coexist).
 
 The declaration-site rule is **per module**. A free function is identified by
 (defining module, name), the way a type is, so two modules may hold same-named
-functions of the same shape; neither module knows the other exists. Which one a
-call means is decided where the call is written:
+functions of the same shape; neither module knows the other exists.
+`std.json.encode` and `std.cbor.encode` are the pair in the standard library.
+Which one a call means is decided where the call is written:
 
-- A **qualified** call takes exactly the named module's declarations.
+- A **qualified** call takes exactly the named module's declarations —
+  `json.encode(&value)` is json's, whatever `std.cbor` declares.
 - A **bare** call takes this module's own declarations plus the names imported
   bare into it (`import m.*`, `import m.{f}`). When two modules bring the same
   name, the merged set is one overload set and resolves by signature.
@@ -9830,6 +9832,7 @@ need one of the three [import forms](#imports).
 | `std.fixedbuf` | `FixedBuf<N>`, `FixedStringBuilder<N>` | no |
 | `std.serde` | `Serialize`, `Deserialize`, `Encoder`, `Decoder`, the error types | yes |
 | `std.cbor` | `CborEncoder`, `CborDecoder`, `encode` | no |
+| `std.json` | `JsonEncoder`, `JsonDecoder`, `JsonValue`, `encode` | no |
 | `std.compiler.frame` | `Slot<T>`, `UnsafeRef<T>`, `Poll`, `Resumable` | no |
 
 Concurrency has no module of its own beyond those: it is colorless, with no

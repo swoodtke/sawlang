@@ -19,6 +19,25 @@ let back = try LockEntry.deserialize(from: &var dec)
 try dec.finish()   // rejects content left over after the value
 ```
 
+For a single value there is a one-call form, `encode`:
+
+```saw
+import std.json
+
+let text = try json.encode(&entry)
+```
+
+`std.cbor` declares an `encode` of its own. The two are separate modules and
+so are the two names: the qualified spelling says which is meant, and a file
+that takes both bare gets an ambiguity error at the call rather than one of
+them silently. Reach for the two-step form above when several values share a
+buffer or the nesting limit needs changing.
+
+The matching `decode<T>(text:)` cannot be written yet, for the same reason
+`std.cbor` has no `decode<T>` (DF-169e: a static trait requirement is not
+callable on a type parameter). Read a value back through the type's own name,
+as the first example does.
+
 ## Status: units 1 and 2 — `JsonValue` exists; `Object` does not serialize yet
 
 The brief that commissioned this file asked for two things: a `JsonValue`

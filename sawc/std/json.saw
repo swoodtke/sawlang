@@ -1161,12 +1161,9 @@ extension JsonDecoder {
 /// The two-step form (`JsonEncoder`, then `finish`) is what to reach for when
 /// several values share a buffer or the nesting limit needs changing.
 ///
-/// Named `encode_json` rather than `encode` (`std.cbor`'s own spelling):
-/// sawc validates every std file's public surface as one flat namespace, so
-/// a same-named, same-parameter-shape `encode<T: Serialize>(value: &T)` in
-/// two different std files is a hard collision regardless of module scoping
-/// — see the finding in this brief's final report.
-public func encode_json<T: Serialize>(value: &T) sync -> Result<String, EncodeError> {
+/// `std.cbor` declares its own `encode`. The two are separate modules, so the
+/// two names are separate: `json.encode(&value)` is this one.
+public func encode<T: Serialize>(value: &T) sync -> Result<String, EncodeError> {
     var enc = JsonEncoder()
     try value.serialize(to: &var enc)
     return enc.finish()

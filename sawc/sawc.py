@@ -102,10 +102,16 @@ HOSTED_STD_MODULES = {"file", "process", "env", "directory", "time", "net"}
 # allowlist and its documentation disagreed. The drift cannot recur silently:
 # `tools/test_prelude_gate_doc.py` walks the spec's own table and asserts every
 # module it marks gated is in this set.
+#
+# DF-268a (found by this same doc test while design 249 gave `std.json` its
+# spec row): `json` arrived with design 246 and never joined the list, so
+# `JsonEncoder`, `JsonDecoder`, `JsonValue` and the one-call `encode` resolved
+# bare — four names reserved in every program in the language, while its twin
+# `cbor` was gated from the start. Exactly DF-188i's shape, one module later.
 IMPORT_REQUIRED_STD_MODULES = {
     "file", "directory", "path", "data", "channel", "mutex", "spinlock",
     "slab", "time", "net", "process", "env", "task", "fixedbuf", "cbor",
-    "once",
+    "json", "once",
     # design 218 unit 1: the compiler's own frame vocabulary. Public so that
     # generated code is code a user could have written, and gated because
     # nothing in it belongs in an ordinary program's namespace. A leaf may be

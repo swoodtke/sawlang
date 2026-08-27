@@ -1,0 +1,36 @@
+// Design 249 unit 2, the in-tree proof: `std.json` and `std.cbor` each declare
+// `encode<T: Serialize>(value: &T)`. Same name, same parameter shape, two
+// modules — legal, because a free function is identified by (defining module,
+// name). Until the registry got module identity, adding the second one failed
+// every build with `builtins failed to type-check` (DF-265a), and std.json
+// shipped under the name `encode_json`.
+//
+// Both spellings here are qualified, which is what a reader would write when
+// two encoders are in one file.
+// A derived `Serialize` writes a struct as one array of its stored fields, so
+// the JSON text is an array, not an object.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// json: [443,true,"api"]
+// cbor: 9 bytes
+import std.json
+import std.cbor
+
+struct Endpoint {
+    port: Int
+    secure: Bool
+    name: String
+}
+
+@synthesize
+extension Endpoint: Serialize {}
+
+func main() {
+    let api = Endpoint(port: 443, secure: true, name: "api")
+
+    let text = try! json.encode(&api)
+    print("json: {text}")
+
+    let bytes = try! cbor.encode(&api)
+    print("cbor: {bytes.len()} bytes")
+}
