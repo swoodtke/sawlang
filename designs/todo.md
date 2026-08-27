@@ -100,9 +100,11 @@ for sawos; "238 before more M3 work" is absolute.
 ## Design 246 — recursive nominal types via indirection — LANDED Aug 27
 ## (DF-260a CLOSED; authored + dispatched Aug 27)
 
-- STATUS: LANDED, three commits on `design-246-recursive-types`. All 14 matrix
-  rows are `examples/recursive_*.saw`; per-commit gate (full suite +
-  freestanding, both arches) green on each, terminal battery run at the end.
+- STATUS: LANDED, four commits. All 14 matrix rows are
+  `examples/recursive_*.saw`; per-commit gate (full suite + freestanding, both
+  arches) green on each, and the terminal battery is 22 stages GREEN — including
+  the `reemit` and `irdet` lanes that police unit B's representation change
+  corpus-wide.
   - Unit A — the typechecker inline-embedding funnel
     (`_inline_embedding_edges` in `typechecker/types.py`, entry points named in
     its docstring) plus `ErrorKind.RECURSIVE_TYPE` and the located diagnostic;
@@ -117,6 +119,11 @@ for sawos; "238 before more M3 work" is absolute.
     are not sized yet. Payload-carrying enums are IDENTIFIED structs now.
   - Unit C — spec section "Recursive types", README, saw-lang skill, this
     entry.
+  - Unit B follow-up — the catch union's LLVM name. `reemitdiff` caught two
+    files after unit B; the synthesized `_CatchError_{node_id}` name comes from
+    a process-global allocator (DF-164a's class) and unit B is what put it in
+    the IR text by making the enum an identified type. The name is the variant
+    SEQUENCE now, which identifies the union exactly.
 - THE TOPOSORT STAYS, as an ordering heuristic only. Its `get_deps` edge set
   states a hard edge for every type ARGUMENT of a generic field, including the
   ones a container reaches only through a pointer — a strict SUPERSET of the
