@@ -87,6 +87,10 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-264a — the `Copy` tier's conformance check skips the deinit-signature validation its ExplicitCopy/NoCopy siblings both have, so a `deinit(&self)` inside a `@synthesize Copy` reaches codegen and ICEs (entry below, filed Aug 27 from the user's scratch example)
 - DF-265a — two std files declaring same-named public generic free functions with DISTINGUISHABLE signatures is a hard `builtins failed to type-check` collision — a flat-namespace uniqueness check that predates the per-file-module scoping everything else follows (entry below, filed Aug 27 by the std.json build)
 - DF-266a — a bare leading-minus TAIL expression after a preceding `if { return }` block is an ICE at a BinaryOp node; the same tail after a `let` compiles (entry below, filed Aug 27 by the std.json build, lead-verified both cells)
+- DF-267a — an Optional method called DIRECTLY on a `borrows -> T?` lend's result resolves against the unwrapped payload type, contradicting DF-218a's tier-independent presence promise; `if let` is the working spelling (entry below, filed Aug 27 by std.json unit 1)
+- DF-267b — `Map.keys()` through an enum MATCH BINDING leaves the defaulted allocator parameter unresolved where the struct-field twin resolves (entry below, same filer)
+- DF-267c — a hand-written `borrows` accessor cannot `lend` a place indexed FURTHER into a match-bound payload, though the docs' own field-projection twin works — blocks JsonValue's combined member/element accessors (entry below, same filer)
+- DF-267d — a SELF-RECURSIVE function under sawc/std that transitively reaches a maybe-suspending closure API fails the builtins pre-check `cannot suspend in a sync closure context`; the IDENTICAL shape compiles as a user file — blocks JsonValue `Object` serialization (entry below, same filer)
 - DF-215h — stdout has no newline-free write, so incremental output (`--stream` deltas) prints one line per piece; wants a surface ruling (entry below, Aug 26)
 - DF-215i — no boolean `guard cond else { }`, only `guard let`; wants a ruling on whether the omission is deliberate (entry below, Aug 26)
 - DF-215j — `return` inside a VALUE match arm is a bare "Unexpected token: RETURN" with no arms-are-expressions hint; diagnostic-only (entry below, Aug 26)
@@ -231,6 +235,54 @@ for sawos; "238 before more M3 work" is absolute.
   Fix wants the design-129/161 newline-and-token rules consulted: a
   statement-start `-` after a closed block should open a new expression,
   and whichever answer is ruled, the ICE becomes a clean parse/type error.
+
+## DF-267a..d — filed Aug 27 by std.json unit 1 (the JsonValue build); all
+## probe-verified by direct compile/run, repros in the entry
+
+**DF-267a — OPEN.** `v.get(0).is_some()` on a `Vector<Int>` errors ``type
+`Int` has no method `is_some``` (plus a `__window` signature mismatch) — an
+Optional-only method called directly on a `borrows -> T?` accessor's result,
+with no `!` or binding between, resolves against the unwrapped `T`.
+Identical on `Map.get`. Contradicts DF-218a's documented "presence is
+tier-independent at every spelling"; `if let _ = <lend>` is the working
+presence test. Suspect: the conditional-lend spelling commits to opening the
+window before the member lookup ever sees `Optional`.
+
+**DF-267b — OPEN.** `Map<K, V, A = GlobalAllocator>.keys()` called on a value
+reached through an ENUM MATCH BINDING leaves `A` unresolved
+(`Vector<String, A>` at the use site, clean type error); the identical call
+through a struct FIELD resolves. Side-by-side confirmed; routing through a
+free-function parameter also resolves it. The default-type-param fill is
+skipped on the match-binding path — obligation-4 sweep at fix time: which
+other binding forms skip it.
+
+**DF-267c — OPEN.** In a hand-written `borrows` accessor, `lend items[at]`
+where `items` is a MATCH-BOUND payload fails ``cannot open an exclusive place
+window on immutable variable `items``` — the docs' own `Grid.[]` example
+lends `self.cells[i]` (field projection) and works. Same for `Map`'s
+subscript, so not about conditionality: a match binding is not a lendable
+place ROOT for deeper projection, only whole-payload lend works (DF-146d's
+arm-lend). This is why JsonValue ships `as_array()`/`as_object()` +
+caller-side indexing instead of `element(at:)`/`member(key:)`.
+
+**DF-267d — OPEN, the one that blocks JsonValue `Object` SERIALIZATION.** A
+self-recursive function under `sawc/std/` that also transitively reaches a
+maybe-suspending closure API (`Map.keys`/`each_key`/`Vector.each` beside a
+second closure dependency — any closure param without `sync`, deliberate per
+design 216) fails sawc's builtins pre-check with `internal compiler error:
+builtins failed to type-check` / `cannot suspend in a sync closure context` —
+while the IDENTICAL shape compiles and runs as an ordinary user file (even
+importing the real JsonEncoder). Decisive isolation by the filer: recursion
+alone in std fine; recursion + `Vector.each` fine; recursion + `Map.keys`/
+`each_key` breaks, and the reported line shifts between call sites across
+otherwise-identical edits (misattribution). Mechanism (obligation 4, as
+filed): the builtins pass computes ONE effect signature per function, and its
+fixed-point for a self-recursive function depending on a non-sync leaf API is
+unsound — reaches any recursive std type enumerating a Map, not JSON.
+Consequence shipped meanwhile: `to_json_string` answers
+`EncodeFault.Unsupported` for any tree containing an `Object` (parse is
+full — parsing only calls `Map.insert`). The fix reopens JSON.md's Object
+serialization cell.
 
 ## DF-261a..f — filed Aug 27 by design 246's implementer; a/b FIXED in that
 ## landing, c/d/e/f OPEN
