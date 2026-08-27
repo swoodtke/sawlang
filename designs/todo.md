@@ -33,7 +33,7 @@ is scheduled and in what order is the whole of what they say.
 
 - ~~DF-215f fix — the suspending-match moved-payload double release~~ **LANDED Aug 27** (designs/247-scrutinee-temp-migration.md, all three units; entry under design 215 below carries the landing note). `FAM_SCRUTINEE_TEMP` retired, every hoist temp take-read, the DF-218w residue SUBSUMED as predicted and DF-262a dissolved as a side effect. DF-242a/DF-255a were not subsumed and stay open
 - ~~Design 246~~ — recursive nominal types via indirection — LANDED Aug 27, entry below. `JsonValue` is writable; design 215 stage D unblocked
-- DF-265a fix — MODULE-KEY the free-function registry (the last unkeyed symbol kind; the DF-140h statics treatment, the design-144 type-identity precedent) and scope the declaration-site ambiguity check to one module (SCHEDULED Aug 27, user: directly after DF-215f). Entry below carries the verified mechanism; DF-242b (the bare cross-module overload face) is an EXPECTED CLOSURE, DF-242c is re-probed against it but its same-module cell says it will not dissolve. Fix brief designs/249-module-keyed-functions.md AUTHORED Aug 27, dispatches on 247's integration; frees `std.json.encode`'s natural name
+- ~~DF-265a fix — MODULE-KEY the free-function registry~~ **LANDED Aug 27** (designs/249-module-keyed-functions.md, all three units; entry below carries the landing note). DF-242b CLOSED with it as predicted; DF-242c SURVIVED as predicted and stays open. `std.json.encode` has its natural name back, and DF-268a (std.json never joined the prelude gate) was found and fixed on the way
 - Design 244 — the String byte surface goes unsigned (designs/244-string-byte-surface-unsigned.md; ruled Aug 26, after DF-215f and before design 209). The `*_char` naming rider is the one open ruling, wanted at or before dispatch
 - Design 245 v1 — `Scalar` + `scalars()`, `chars()` and `append_scalar` REMOVED (designs/245-unicode-scalar-type.md §6; ruled Aug 27 — no literals in v1, prelude placement — and DISPATCHED same day on the user's "now", disjoint from the two items above). Literals + patterns stay open as later units
 - std.json unit 1 — the `JsonValue` tree (parse-to-DOM, DOM-to-text, Optional-returning accessors), EVENT-GATED on design 246 integrating rather than queue-ordered (user, Aug 27: resume once the recursive-types fix lands). GATE FIRED + DISPATCHED Aug 27, minutes after 246's integration gate went green — a FRESH Sonnet agent (the unit-2 agent could not be resumed once its integrated worktree was removed; the dispatch carries the context, and the lexical layer in sawc/std/json.saw was built for this reuse). MODEL RULING (user, Aug 27): the continuation stays SONNET deliberately — dogfood value, the design-203 logic (a simpler model surfaces more language pain as findings). Agent DF range DF-267a+. Pinned defaults carry over from the original dispatch: numbers Int-when-lexically-integral-and-in-range else Float, duplicate keys last-wins (matching the landed seam decode), get-shaped accessors return Optional; pretty-printing stays OUT of unit 1 (open). Landing owes the design-215 stage-D note an update
@@ -49,8 +49,8 @@ for sawos; "238 before more M3 work" is absolute.
 
 - Cooperative BRACE sugar (`Task.spawn { }` / `group.spawn { }`) — design 242's last piece, HELD for the user: blocked on the lifted function's return-type inference, two candidate shapes in the 242 brief's landing section (designs/242-thread-task-split.md). Everything else in 242 landed Aug 22-25; the entry and its queue record are in done_aug18-aug25.md
 - `public(package) import` — should the scoped re-export form exist? Refused today (design 229). Real use case: an INTERNAL PRELUDE, one sibling aggregating names for the others (Rust's `pub(crate) use`). Against: siblings can already import each other directly, so it buys convenience, not capability — and kcore, the biggest multi-file package and the one that motivated the tier, does NOT want it (its `public import` block is the EXTERNAL facade). Wait for a package that feels the pain (entry: the re-narrowing rider section)
-- DF-242b — a cross-module OVERLOAD SET is bound BARE as a single overload, so a call only another member matches is refused; the QUALIFIED spelling of the same call sees all of them (entry below, found probing DF-238a's fix) — EXPECTED CLOSURE of the queued DF-265a fix
-- DF-242c — a SUFFIXED (exact-typed) literal argument does not disambiguate an `Int`-vs-narrow overload set; same-module and cross-module alike (entry below, found probing DF-238a's fix)
+- ~~DF-242b — a cross-module OVERLOAD SET is bound BARE as a single overload~~ **CLOSED Aug 27 by design 249 unit 1**, the expected closure: every import arm binds the whole overload set a name stands for. Entry below
+- DF-242c — a SUFFIXED (exact-typed) literal argument does not disambiguate an `Int`-vs-narrow overload set; same-module and cross-module alike (entry below, found probing DF-238a's fix). RE-PROBED against design 249 Aug 27 and SURVIVES verbatim, as the entry predicted — the matcher's own question, not the registry's
 - DF-226b/c — FuncPointer v1 gaps (entries below, under design 226)
 - DF-225o — reemit divergence under load (entry below)
 - Design 231 — native-compiler readiness ledger (designs/231-native-compiler.md). ELEVATED to a V1.0 GATE (user, Aug 24): the self-hosted story lands BEFORE v1.0 — a compiled compiler is what retires the D-b install/version simplifications
@@ -187,6 +187,7 @@ for sawos; "238 before more M3 work" is absolute.
 
 ## DF-265a — same-named public generic free functions in two std files are a
 ## flat-namespace collision (filed Aug 27 by the std.json build)
+## **CLOSED Aug 27 — designs/249-module-keyed-functions.md, all three units**
 
 - Adding `public func encode<T: Serialize>(value: &T) sync -> Result<String,
   EncodeError>` to `sawc/std/json.saw` while `sawc/std/cbor.saw` holds
@@ -219,6 +220,23 @@ for sawos; "238 before more M3 work" is absolute.
   the fix brief is owed at dispatch, with DF-242b as an expected closure
   and DF-242c re-probed (its same-module cell is likely a separate
   resolution mechanism, not this registry).
+- **LANDED Aug 27, design 249.** The registry keeps design 144's two acts
+  apart: `module_function_overloads[def_module][name]` is the identity half,
+  `function_name_modules[name]` is which modules a bare name is bound to in
+  each namespace, and `register_function` files both so every binding path
+  records itself. `lookup_function_overloads` is the one funnel over the two
+  (docstring names its entry points); its filter engages only when candidates
+  span 2+ modules, so a single-owner name resolves exactly as before, and
+  `lookup_function` then applies design 150's ladder — a module's own
+  declaration outranks anything merged in under the same name. Codegen
+  naming follows: a `free_function_owners` census over the parsed module set
+  (std folded in) decides each declaration's `symbol_base` before any module
+  is checked, so a name more than one module owns is `$M$`-tagged per module
+  with no dependence on check order. Unit 2 renamed `std.json.encode_json`
+  back to `encode` — the live proof, `examples/d249_std_json_and_cbor_both_
+  name_encode.saw`. Ten new examples cover the matrix: qualified twins,
+  bare-import merge, selective-of-one, the call-site tie naming both origins,
+  DF-242b's two bare forms, and four design-150 ladder rungs.
 
 ## DF-266a — a leading-minus tail after an `if { return }` block is an ICE
 ## (filed Aug 27 by the std.json build; lead-verified)
@@ -1122,6 +1140,7 @@ than merely looking odd.
 
 ## DF-242b — a cross-module OVERLOAD SET is bound BARE as ONE overload (filed
 ## Aug 21, probing DF-238a's fix)
+## **CLOSED Aug 27 — designs/249-module-keyed-functions.md unit 1**
 
 A module declaring three `public func pick` overloads (`Int`, `String`,
 `UInt8`) is reached two ways from one file, and the two ways see different
@@ -1144,6 +1163,19 @@ free function (found), a static method, an `init`, and a re-export
 (`public import m.{pick}`). NOT probed further here — this is DF-238a's
 neighbour rather than its mechanism, and it wants its own dispatch.
 
+**LANDED Aug 27, design 249 unit 1.** The mechanism named above was right and
+the fix is at the binding site: each import arm — glob, selective, and the
+parent-module inherit — now binds every member of the set the name stands for,
+judged by that member's own visibility, through `register_bare_function`
+(idempotent by declaration, so an aliasing copy binds once). Regression tests
+`examples/d249_glob_import_binds_whole_overload_set.saw` and
+`d249_selective_import_binds_whole_overload_set.saw`; the `pick("s")` call the
+finding reported now resolves under both forms and the qualified spelling is
+unchanged. The sibling positions the entry lists (static method, `init`,
+re-export) were NOT swept here — the free-function face was the one this brief
+owned; a re-export travels through the same two arms, and the two member kinds
+keep their own `method_overloads` binding.
+
 ## DF-242c — a SUFFIXED literal does not disambiguate an `Int`-vs-narrow
 ## overload set (filed Aug 21, probing DF-238a's fix)
 
@@ -1157,6 +1189,17 @@ cross-module alike (`.build/scratch/p238c.saw` is the same-module control), so
 this is the overload matcher's own question and not an import or qualifier one:
 the candidate filter is admitting `Int` for a `UInt8` argument somewhere it
 should not. One line, no pin — the shape is a two-overload file.
+
+RE-PROBED Aug 27 against design 249 and it SURVIVES, verbatim, as this entry
+predicted. Post-fix behaviour on record: `pick(200u8)` against `pick(n: Int)` +
+`pick(b: UInt8)` is still ``ambiguous call to `pick`: multiple overloads match
+the argument types (UInt8)`` with both named, same-module and cross-module
+alike. Module identity moved WHICH candidates a call sees; it does not touch
+how the matcher scores the ones it sees, and the cross-module cell now reaches
+the same tie by a shorter road (a bare `pick(3)` across two modules ties for
+exactly this reason). Probes: `.build/scratch/p249_242c.saw` (same-module
+control) and `p249_242b_glob.saw` before its `let n: Int` was added to route
+around this finding.
 
 ## DF-242d — conformance row K90's GO gate is a BOUNDED spin, so suite load
 ## re-opens the output race the gate exists to close (filed Aug 26, seen once
