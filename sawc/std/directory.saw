@@ -82,7 +82,6 @@ extension Directory {
         if let dir = __saw_rt_fs_opendir(path_ptr, status_ptr) {
             var result = Vector<Path>()
 
-            // Read entries until we get None
             var done = false
             while not done {
                 if let entry = readdir(dir) {
@@ -92,7 +91,6 @@ extension Directory {
                     // buffer has no String header and is reused by readdir).
                     let name = __saw_string_from_bytes(name_ptr, strlen(name_ptr))
 
-                    // Skip . and ..
                     let first_char = name_ptr[0]
                     if first_char == (46 as Int8) {  // '.'
                         let second_char = name_ptr[1]
@@ -105,7 +103,6 @@ extension Directory {
                         }
                     }
 
-                    // Create full path by joining with the directory path
                     let full_path = path.join(name)
                     // design 234: the listing's own allocator refusal, mapped
                     // onto this domain's word for it. The directory handle is
@@ -155,7 +152,7 @@ extension Directory {
         return
     }
 
-    // Check if a path exists (works for both files and directories)
+    // Works for both files and directories.
     // Note: Uses access() from file.saw
     public static func exists(path: Path) unsafe -> Bool {
         let ptr = path.as_str() as UnsafePointer<Int8>

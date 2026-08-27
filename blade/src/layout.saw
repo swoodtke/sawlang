@@ -139,7 +139,6 @@ extension BuildLayout {
         "{build_root()}/{self.target_name()}"
     }
 
-    // Where a named artifact of this build lands.
     public func artifact(&self, name: String) -> String {
         "{self.dir()}/{name}"
     }
@@ -151,7 +150,6 @@ extension BuildLayout {
         "{self.dir()}/build-hash"
     }
 
-    // Where `blade test` puts the binaries it compiles.
     public func tests_dir(&self) -> String {
         "{self.dir()}/tests"
     }

@@ -189,7 +189,6 @@ public struct CommandOutput {
 }
 
 extension CommandOutput {
-    // Check if the command succeeded (exit code 0)
     public func success(&self) -> Bool {
         self.exit_code == (0 as Int32)
     }
@@ -238,7 +237,6 @@ func names_variable(entry: String, name: String) -> Bool {
 }
 
 extension Command {
-    // Create a new Command for the given program
     public init(program: String) -> Command {
         Command(program: program, args: Vector<String>(),
                 merged_stderr: false, envs: Vector<String>())
@@ -251,7 +249,6 @@ extension Command {
         return try self.args.push(argument)
     }
 
-    // The number of arguments added so far.
     public func arg_count(&self) -> Int {
         self.args.len()
     }
@@ -297,7 +294,6 @@ extension Command {
         return try self.envs.push(entry)
     }
 
-    // The number of environment variables `env` has set so far.
     public func env_count(&self) -> Int {
         self.envs.len()
     }

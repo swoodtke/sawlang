@@ -27,7 +27,6 @@ extension Path {
     // Constructors
     // =========================================================================
 
-    // Create a Path from a string
     public init(s: String) -> Path {
         Path(value: s)
     }
@@ -36,7 +35,6 @@ extension Path {
     // Conversion
     // =========================================================================
 
-    // Get the path as a string
     public func as_str(&self) -> String {
         self.value
     }
@@ -45,56 +43,44 @@ extension Path {
     // Path Components
     // =========================================================================
 
-    // Get the parent directory path
-    // Returns None for root paths or paths with no parent
     public func parent(&self) -> Path? {
         let len = self.value.len()
         if len == 0 {
             return None
         }
 
-        // Find the last separator
         if let last_sep = self.value.last_index_of_char(47 as Int8) {  // '/'
             if last_sep == 0 {
-                // Root directory "/" - parent is itself or None
                 if len == 1 {
                     return None  // "/" has no parent
                 }
                 return Path(value: "/")
             }
 
-            // Extract substring up to last separator
             Path(value: self.value.substring(0, last_sep))
         } else {
-            // No separator found - no parent
             None
         }
     }
 
-    // Get the file name (last component of the path)
-    // Returns None for root or empty paths
     public func file_name(&self) -> String? {
         let len = self.value.len()
         if len == 0 {
             return None
         }
 
-        // Find the last separator
         if let last_sep = self.value.last_index_of_char(47 as Int8) {  // '/'
             if last_sep == len - 1 {
                 // Path ends with separator (directory path)
                 return None
             }
-            // Extract substring after last separator
             self.value.substring(last_sep + 1, len)
         } else {
-            // No separator - entire path is the file name
             self.value
         }
     }
 
-    // Get the file extension (without the dot)
-    // Returns None if no extension
+    // Without the dot.
     public func ext(&self) -> String? {
         if let name = self.file_name() {
             if let last_dot = name.last_index_of_char(46 as Int8) {  // '.'
@@ -104,10 +90,8 @@ extension Path {
                 }
                 let len = name.len()
                 if last_dot == len - 1 {
-                    // Dot at end - no extension
                     return None
                 }
-                // Extract substring after last dot
                 name.substring(last_dot + 1, len)
             } else {
                 None
@@ -117,18 +101,15 @@ extension Path {
         }
     }
 
-    // Get the file stem (file name without extension)
+    // File name without extension.
     public func stem(&self) -> String? {
         if let name = self.file_name() {
             if let last_dot = name.last_index_of_char(46 as Int8) {  // '.'
                 if last_dot == 0 {
-                    // Dot at start - entire name is stem
                     return name
                 }
-                // Extract substring before last dot
                 name.substring(0, last_dot)
             } else {
-                // No dot - entire name is stem
                 name
             }
         } else {
@@ -159,13 +140,10 @@ extension Path {
             return Path(value: self.value)
         }
 
-        // Check if other is absolute
         if other.byte_at(0) == (47 as Int8) {  // '/'
-            // Other is absolute - return it
             return Path(value: other)
         }
 
-        // Check if self ends with separator
         let needs_sep = self.value.byte_at(self_len - 1) != (47 as Int8)
 
         let new_len = self_len + other_len + (if needs_sep { 1 } else { 0 })
@@ -180,7 +158,6 @@ extension Path {
 
         var offset = self_len
 
-        // Add separator if needed
         if needs_sep {
             buf[offset] = 47 as Int8  // '/'
             offset = offset + 1
@@ -190,13 +167,11 @@ extension Path {
         // pointer-returning memcpy call).
         memcpy(buf + offset, other_ptr, other_len)
 
-        // Null terminate
         buf[new_len] = 0 as Int8
 
         Path(value: buf as String)
     }
 
-    // Join with a Path
     public func join_path(&self, other: Path) -> Path {
         self.join(other.value)
     }
@@ -205,7 +180,6 @@ extension Path {
     // Path Queries
     // =========================================================================
 
-    // Check if the path is absolute
     public func is_absolute(&self) -> Bool {
         let len = self.value.len()
         if len == 0 {
@@ -214,12 +188,10 @@ extension Path {
         self.value.byte_at(0) == (47 as Int8)  // Starts with '/'
     }
 
-    // Check if the path is relative
     public func is_relative(&self) -> Bool {
         not self.is_absolute()
     }
 
-    // Check if the path is empty
     public func is_empty(&self) -> Bool {
         self.value.len() == 0
     }

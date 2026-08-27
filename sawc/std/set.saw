@@ -25,7 +25,7 @@ public struct Set<T, A: Allocator = GlobalAllocator> {
 }
 
 extension Set<T: Hashable + Equatable, A: Allocator = GlobalAllocator> {
-    // Create an empty set (no allocation until the first insert).
+    // No allocation until the first insert.
     public init() -> Set<T, A> {
         Set<T, A>(map: Map<T, SetMark, A>())
     }
@@ -55,7 +55,6 @@ extension Set<T: Hashable + Equatable, A: Allocator = GlobalAllocator> {
         return move s
     }
 
-    // Number of elements.
     public func len(&self) -> Int {
         self.map.len()
     }
@@ -64,7 +63,6 @@ extension Set<T: Hashable + Equatable, A: Allocator = GlobalAllocator> {
         self.map.is_empty()
     }
 
-    // Whether `value` is a member.
     public func contains(&self, value: T) -> Bool {
         self.map.contains_key(value)
     }
@@ -87,7 +85,6 @@ extension Set<T: Hashable + Equatable, A: Allocator = GlobalAllocator> {
         return true
     }
 
-    // Remove `value`. Returns true iff it was present.
     public func remove(&var self, value: T) -> Bool {
         if let prev = self.map.remove(move value) {
             true
@@ -136,7 +133,6 @@ extension Set<T: Hashable + Equatable + Copy, A: Allocator = GlobalAllocator> {
         }
     }
 
-    // A NEW set containing every element of self OR other.
     public func union(&self, other: &Set<T, A>) -> Result<Set<T, A>, AllocError> {
         var result = Set<T, A>()
         let a = match self.to_vector() {
@@ -156,7 +152,6 @@ extension Set<T: Hashable + Equatable + Copy, A: Allocator = GlobalAllocator> {
         return move result
     }
 
-    // A NEW set containing every element in BOTH self and other.
     public func intersection(&self, other: &Set<T, A>) -> Result<Set<T, A>, AllocError> {
         var result = Set<T, A>()
         let a = match self.to_vector() {
@@ -171,7 +166,6 @@ extension Set<T: Hashable + Equatable + Copy, A: Allocator = GlobalAllocator> {
         return move result
     }
 
-    // A NEW set of the elements in self that are NOT in other.
     public func difference(&self, other: &Set<T, A>) -> Result<Set<T, A>, AllocError> {
         var result = Set<T, A>()
         let a = match self.to_vector() {
@@ -186,7 +180,6 @@ extension Set<T: Hashable + Equatable + Copy, A: Allocator = GlobalAllocator> {
         return move result
     }
 
-    // Whether every element of self is also in other.
     public func is_subset(&self, other: &Set<T, A>) -> Result<Bool, AllocError> {
         let a = match self.to_vector() {
             case Ok(v) -> move v,
@@ -201,7 +194,6 @@ extension Set<T: Hashable + Equatable + Copy, A: Allocator = GlobalAllocator> {
         return ok
     }
 
-    // Whether self contains every element of other (the dual of is_subset).
     public func is_superset(&self, other: &Set<T, A>) -> Result<Bool, AllocError> {
         let b = match other.to_vector() {
             case Ok(v) -> move v,

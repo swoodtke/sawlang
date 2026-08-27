@@ -1,5 +1,4 @@
 // String Methods - Extensions on the String primitive type
-// Part of the Saw standard library
 
 // =============================================================================
 // FFI declarations
@@ -34,7 +33,6 @@ extension String {
         __saw_string_len(self as UnsafePointer<Int8>)
     }
 
-    // Check if the string is empty
     public func is_empty(&self) -> Bool {
         self.len() == 0
     }
@@ -54,7 +52,6 @@ extension String {
         ptr[index]
     }
 
-    // Check if the string starts with the given prefix
     public func starts_with(&self, prefix: String) -> Bool {
         let self_len = self.len()
         let prefix_len = prefix.len()
@@ -74,7 +71,6 @@ extension String {
         }
     }
 
-    // Check if the string ends with the given suffix
     public func ends_with(&self, suffix: String) -> Bool {
         let self_len = self.len()
         let suffix_len = suffix.len()
@@ -95,7 +91,6 @@ extension String {
         }
     }
 
-    // Check if the string contains the given substring
     public func contains(&self, needle: String) -> Bool {
         let self_len = self.len()
         let needle_len = needle.len()
@@ -125,7 +120,7 @@ extension String {
         }
     }
 
-    // Check if a byte is ASCII whitespace (space, tab, newline, carriage return)
+    // Space, tab, newline, carriage return.
     func _is_whitespace(&self, b: Int8) -> Bool {
         b == (32 as Int8) || b == (9 as Int8) || b == (10 as Int8) || b == (13 as Int8)
     }
