@@ -115,6 +115,19 @@ Migration size (Aug 27 sweep): 21 `chars()` sites in 15 files, 17
    payoff is a synonym. One byte type: `UInt8`. (Contrast `Scalar`, which
    earns the newtype by its invariant — that contrast is the criterion.)
 
+   **OVERTURNED later the same day (user ruling; design 250).** Both legs of
+   the rationale failed on evidence: lead probes showed the comparison/mask
+   tax DOES NOT EXIST (one-way flow degrades outward through operators, and
+   literals adopt on the underlying side — `Byte(65) < 100` and `b & 0x1F`
+   compile untouched), and the StringBuilder digits-vs-raw-byte overload
+   question surfaced a real bug class the distinct type prevents (a bare
+   literal can never reach a `Byte` parameter, so `append(value: Int)` /
+   `append(b: Byte)` is unambiguous where every integer-width pair is not —
+   probes in 250 §1). The invariant-earns-the-newtype criterion was too
+   narrow: OVERLOAD DISCRIMINATION at semantics-diverging APIs is a second
+   way a newtype pays. `Scalar` is unaffected; the byte/scalar split
+   stands, both halves now nominal.
+
 ## 5. Ordering
 
 ~~After 244 lands~~ SUPERSEDED by the Aug-27 pull-forward: v1 dispatches

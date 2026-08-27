@@ -4,6 +4,16 @@
 DF-215f's fix. Not yet dispatched.** One open question rides it (the `*_char`
 naming rider, §4), to be ruled before or at dispatch.
 
+**SUPERSEDED IN TARGET Aug 27 (user ruling) by design 250
+(`designs/250-byte-type.md`): the destination type is the distinct `Byte`
+alias, not bare `UInt8` — "a UInt8 value is not a Byte, but a Byte is a
+UInt8; everything that uses bytes should use Byte." This brief's census
+(§2), two-conversion-point analysis (§3) and deleted-correction inventory
+carry over into 250 verbatim; §4's naming rider is RE-RULED by the type
+itself (`append(b: Byte)` is sound — the ambiguity grounds all assumed an
+integer-width overload; lead probes in 250 §1). Do not dispatch from this
+brief.**
+
 ## 1. The ruling and why
 
 `String.byte_at` and `bytes()` return `Int8`. That was never decided: design 38
