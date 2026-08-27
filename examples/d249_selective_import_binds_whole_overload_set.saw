@@ -1,0 +1,12 @@
+// DF-242b's other bare form: `import m.{pick}` selects the NAME, which stands
+// for the whole overload set, not for its first-registered member.
+// EXPECT: success
+// EXPECT-OUTPUT: str s
+// EXPECT-OUTPUT: int 3
+import modules.d249_overload_set.{pick}
+
+func main() {
+    let n: Int = 3
+    print(pick("s"))
+    print(pick(n))
+}

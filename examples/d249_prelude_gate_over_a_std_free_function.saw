@@ -1,0 +1,9 @@
+// Design 249 ladder rung: module identity for free functions changes nothing
+// about the design-82/150 prelude gate. A non-prelude std free function named
+// bare with no import is still refused, with the three import spellings.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `dump_tasks` is not in the prelude and must be imported
+// EXPECT-ERROR-CONTAINS: import std.task.{dump_tasks}
+func main() {
+    dump_tasks()
+}

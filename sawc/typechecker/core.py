@@ -521,6 +521,13 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # `sawc.py` once the builtin namespace has been built. The import gate
         # asks it whether a bare std name needs an import.
         self._std_symbol_file: Dict[str, str] = {}
+        # Design 249: free-function name -> the MODULES of this compilation that
+        # declare one. Taken by the driver over the parsed module set before any
+        # module is checked, so `_free_function_symbol_base` can decide a
+        # declaration's codegen base without depending on module order — a name
+        # more than one module owns is `$M$`-tagged per module, and a name only
+        # one module owns keeps the plain spelling it has always had.
+        self.free_function_owners: Dict[str, Set[Tuple[str, ...]]] = {}
         # design 45: the suspending METHODS the effect fixpoint settled on,
         # handed back by the coroutine transform for its own second pass.
         self._suspending_methods_set: Optional[set] = None
@@ -1814,12 +1821,19 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                         view.conformances.setdefault(ident, dict(conf))
                     break
             else:
-                fn = builtin_namespace.functions.get(name)
-                if fn is not None:
-                    view.register_function(name, fn)
-                    overloads = builtin_namespace.lookup_function_overloads(name)
-                    if len(overloads) > 1:
-                        view.function_overloads[name] = list(overloads)
+                # Design 249: THIS leaf's own declarations, by identity. The
+                # `functions` representative is whichever module registered the
+                # name first, so a name two std files own (`json.encode` beside
+                # `cbor.encode`) would otherwise put the other file's function
+                # behind this file's qualifier.
+                own = builtin_namespace.lookup_module_function_overloads(
+                    name, ("<std>", leaf))
+                for sym in own:
+                    view.register_function(name, sym)
+                if not own:
+                    fn = builtin_namespace.functions.get(name)
+                    if fn is not None:
+                        view.register_function(name, fn)
             view.make_accessible(name)
         cache[leaf] = view
         return view
@@ -1910,6 +1924,13 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                         reg(local, sym)
                         break
             ns.make_accessible(local)
+            # Design 249: record WHICH std file this bare name came from. The
+            # symbol is already here (the builtin namespace is merged wholesale
+            # into every module), so this exposure registers nothing — and
+            # without the binding, a name two std files own would resolve
+            # against both of them from a file that imported one.
+            if name in builtin_namespace.function_overloads:
+                ns.bind_function_module(local, ("<std>", leaf))
 
         is_glob = bool(getattr(imp, 'is_glob', False)) or list(imp.path)[-1:] == ['*']
 
@@ -3218,8 +3239,13 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                     ns.make_accessible(name)
             for name, sym in parent_namespace.functions.items():
                 if sym.visibility == Visibility.PUBLIC:
-                    if name not in ns.functions:
-                        ns.register_function(name, sym)
+                    # DF-242b: the whole overload set, not the representative —
+                    # binding one member is what made a call only a sibling
+                    # matches report a type error about a candidate the author
+                    # never meant.
+                    for over in parent_namespace.lookup_function_overloads(name):
+                        if over.visibility == Visibility.PUBLIC:
+                            ns.register_bare_function(name, over)
                     ns.make_accessible(name)
             for name, _ident, sym in parent_namespace.iter_traits():
                 if sym.visibility == Visibility.PUBLIC:
@@ -3323,8 +3349,12 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                             _import_conformances(ident, ident, source_ns)
                     for name, sym in source_ns.functions.items():
                         if _glob_takes(name, sym):
-                            if name not in ns.functions:
-                                ns.register_function(name, sym)
+                            # DF-242b: the whole overload set, judged member by
+                            # member (an overload may be `public(package)` while
+                            # its sibling is `public`).
+                            for over in source_ns.lookup_function_overloads(name):
+                                if _glob_takes(name, over):
+                                    ns.register_bare_function(name, over)
                             ns.make_accessible(name)
                             _note_import(imp, name, glob_label)
                     for name, _ident, sym in source_ns.iter_traits():
@@ -3418,16 +3448,24 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                                 _ident = source_ns.resolve_type_identity(sym_name)
                                 _import_conformances(_ident, _ident, source_ns)
                         elif sel_kind == "function":
+                            # DF-242b: selecting a name selects the whole
+                            # overload set it stands for, member by member.
                             # For an ALIASED function, bind a copy whose
                             # codegen name is the real symbol (design 53), so
                             # a call under the alias reaches the real
                             # definition. Unaliased imports are unchanged.
-                            if local != sym_name and not sym.mangled_name:
-                                import dataclasses
-                                sym = dataclasses.replace(
-                                    sym, mangled_name=sym_name)
-                            if local not in ns.functions:
-                                ns.register_function(local, sym)
+                            for over in source_ns.lookup_function_overloads(
+                                    sym_name):
+                                if not self._selection_visible(
+                                        over, imp_path,
+                                        tuple(module_path or ()),
+                                        ns.package_root):
+                                    continue
+                                if local != sym_name and not over.mangled_name:
+                                    import dataclasses
+                                    over = dataclasses.replace(
+                                        over, mangled_name=sym_name)
+                                ns.register_bare_function(local, over)
                             ns.make_accessible(local)
                         else:
                             if local not in ns.statics:

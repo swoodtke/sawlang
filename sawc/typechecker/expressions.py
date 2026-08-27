@@ -2363,7 +2363,8 @@ class ExpressionsMixin:
     def _format_arg_types(self, arg_types) -> str:
         return ", ".join("<closure>" if at is None else str(at) for at in arg_types)
 
-    def _format_overload_candidate(self, name: str, cand, is_method: bool) -> str:
+    def _format_overload_candidate(self, name: str, cand, is_method: bool,
+                                   with_origin: bool = False) -> str:
         offset = self._overload_cand_offset(cand, is_method)
         ps = cand.param_types[offset:]
         ns = cand.param_names[offset:] if cand.param_names else []
@@ -2374,7 +2375,20 @@ class ExpressionsMixin:
         for i, p in enumerate(ps):
             nm = ns[i] if i < len(ns) else None
             parts.append(f"{nm}: {p}" if nm else f"{p}")
-        return f"{prefix}{name}(" + ", ".join(parts) + ")"
+        # Design 249: when the tie is between MODULES, the signatures are the
+        # same text and only the origin tells them apart — so name it.
+        origin = ""
+        if with_origin:
+            mod = tuple(getattr(cand, 'def_module', ()) or ())
+            origin = f" [{'.'.join(mod)}]" if mod else " [this module]"
+        return f"{prefix}{name}(" + ", ".join(parts) + f"){origin}"
+
+    @staticmethod
+    def _candidates_span_modules(candidates) -> bool:
+        """Design 249: whether these candidates come from more than one defining
+        module, which is what makes an ambiguity hint owe their origins."""
+        return len({tuple(getattr(c, 'def_module', ()) or ())
+                    for c in candidates}) > 1
 
     def _resolve_overload(self, display_name, candidates, arg_types,
                           has_type_args, is_method, line, column, arguments,
@@ -2561,7 +2575,10 @@ class ExpressionsMixin:
             f"argument types ({self._format_arg_types(arg_types)})",
             line, column,
             hint="matching candidates: " + "; ".join(
-                self._format_overload_candidate(display_name, m[0], is_method)
+                self._format_overload_candidate(
+                    display_name, m[0], is_method,
+                    with_origin=self._candidates_span_modules(
+                        [m2[0] for m2 in matches]))
                 for m in matches)
         )
         return None, None
@@ -4348,7 +4365,8 @@ class ExpressionsMixin:
         # through the exact-match resolver, which then feeds the SAME downstream
         # machinery (value-transfer checkpoint, effect edges, exclusivity) with
         # the resolved callee.
-        overloads = self.namespace.lookup_function_overloads(expr.name)
+        overloads = self.namespace.lookup_function_overloads(
+            expr.name, accessor_module=self._accessor_vis_module())
         if len(overloads) > 1 and self.namespace.is_accessible(expr.name):
             return self._check_overloaded_function_call(expr, overloads)
         # Prelude discipline (design 82 Part B): a bare call to a non-prelude std
@@ -10546,6 +10564,13 @@ class ExpressionsMixin:
             expr.is_yield_intrinsic = True
             self._effect_direct_source("yield_now", expr.line)
             return SawType(TypeKind.VOID)
+        # Design 249: name the exact definition. A cross-module free function
+        # used to be reachable by its plain name because no other module could
+        # hold one, so this path never stamped a symbol; a name two modules
+        # declare now carries a `$M$` module tag, and the qualified spelling is
+        # precisely the one that says which module is meant.
+        if getattr(func_info, 'mangled_name', ""):
+            expr.resolved_symbol = func_info.mangled_name
         # design 24 item 3: record the suspend-graph edge for a module-qualified
         # call. In the whole-program (single-file) path the callee's node is
         # registered under its name and the edge connects; a cross-module callee

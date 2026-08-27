@@ -367,6 +367,12 @@ exact argument types. Type inference works across the overloads: a unique
 match is picked, and a genuine tie is a compile error that lists the
 candidates instead of guessing.
 
+Names belong to modules. A free function is identified by its defining module
+and its name, so two modules may declare the same one and no module reserves a
+name from any other. A qualified call takes the named module's declarations;
+a bare call merges what you declared with what you imported bare, and a tie
+between two modules is reported at the call, naming both.
+
 See [Traits](LANGUAGE_SPEC.md#traits),
 [Generics](LANGUAGE_SPEC.md#7-metaprogramming), and
 [Functions](LANGUAGE_SPEC.md#functions) (overloading) in the spec.

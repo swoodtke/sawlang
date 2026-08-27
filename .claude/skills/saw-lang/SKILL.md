@@ -2568,6 +2568,20 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
   modules may extend one type with the same method name: different
   signatures overload normally, identical ones are an ambiguity error AT THE
   CALL naming both modules.
+- **FREE FUNCTIONS carry module identity too (design 249)** — (defining
+  module, name), like a type. Two modules may declare the same free function
+  with the same shape; the declaration-site distinctness rule is PER MODULE.
+  A qualified call takes exactly that module's declarations. A bare call takes
+  your own declarations plus what you imported bare, MERGED into one overload
+  set — a tie there is the ordinary call-site ambiguity, with the hint naming
+  the module each candidate comes from (`chime(n: Int) [modules.tie_a]`). An
+  import binds the WHOLE overload set a name stands for, so `import m.{pick}`
+  sees every `pick` in `m`, exactly as `m.pick(...)` does (that was DF-242b:
+  the bare form used to bind the first member only, and a call only a sibling
+  matched was refused with a type error about the wrong candidate). Declaring
+  a function whose name a std FILE also declares is legal and your declaration
+  wins the bare call — take std's bare (`import std.task.*`) as well and the
+  call is ambiguous, which is what it now says.
 - **CONFORMANCES follow the ORPHAN RULE (design 142)**, not import scoping:
   `extension T: Trait` is declarable ONLY in the module defining `T` or the
   module defining `Trait`. A conformance mints one vtable per (type, trait)

@@ -929,9 +929,19 @@ class RegistrationMixin:
         # with another overload's shape is a declaration-site ambiguity (design
         # 53). Non-defaulted declarations expand to a single shape, so this
         # subsumes design 55's identical-signature rejection.
+        #
+        # Design 249: SAME-MODULE declarations only. Two modules may hold
+        # shape-identical same-named free functions — `std.json.encode` beside
+        # `std.cbor.encode` is the point — and a declaration in one module can
+        # never be the "other overload" a declaration in another is
+        # indistinguishable from. What a bare call does when both are in scope
+        # is the use-site ambiguity, raised where it is written.
+        def_module = self._vis_module_for_source(
+            getattr(func, 'source_file', None))
         new_keys = self._overload_shape_keys(param_types, func.type_params,
                                               default_values, param_names)
-        for other in self.namespace.lookup_function_overloads(func.name):
+        for other in self.namespace.lookup_module_function_overloads(
+                func.name, def_module):
             other_keys = self._overload_shape_keys(
                 other.param_types, other.type_params, other.default_values,
                 other.param_names)
@@ -948,20 +958,27 @@ class RegistrationMixin:
                 )
                 return
 
-        self.namespace.register_function(func.name, FunctionSymbol(
+        visibility = getattr(func, 'visibility', Visibility.PRIVATE)
+        symbol_base = self._free_function_symbol_base(
+            func.name, def_module, visibility)
+        symbol = FunctionSymbol(
             param_types=param_types,
             param_names=param_names,
             return_type=return_type,
             type_params=func.type_params,
             default_values=default_values,
-            visibility=getattr(func, 'visibility', Visibility.PRIVATE),
+            visibility=visibility,
             is_sync=getattr(func, 'is_sync', False),
             is_unsafe=getattr(func, 'is_unsafe', False),
-            def_module=self._vis_module_for_source(
-                getattr(func, 'source_file', None)),
+            def_module=def_module,
             ast_node=func if func.type_params else None,
-            decl_node=func
-        ))
+            decl_node=func,
+            symbol_base=symbol_base,
+        )
+        if symbol_base:
+            symbol.mangled_name = symbol_base
+            func.mangled_symbol = symbol_base
+        self.namespace.register_function(func.name, symbol)
 
     def _overload_sig_key(self, param_types, type_params, param_names=None) -> tuple:
         """Normalized signature key for declaration-site overload distinctness
@@ -1114,13 +1131,46 @@ class RegistrationMixin:
             return None
         return f"{base}$m${self._module_symbol_tag(def_module)}"
 
+    def _free_function_symbol_base(self, name: str,
+                                   def_module: Tuple[str, ...],
+                                   visibility: Visibility) -> str:
+        """Design 249: the module-tagged codegen base for a free function whose
+        name MORE THAN ONE module of this compilation declares, or "" when the
+        plain name is unambiguous.
+
+        Two modules owning one free-function name is legal since design 249, so
+        the two definitions need two LLVM symbols. The decision is a pure
+        function of `free_function_owners` — the (name -> declaring modules)
+        census the driver takes over the parsed module set BEFORE any module is
+        checked — so it never depends on module order and never renames a
+        symbol whose bodies are already checked.
+
+        A PRIVATE declaration of a NON-ROOT module is left to DF-140f's `$m$`
+        tag, which already makes it module-local. The root module takes a tag
+        like any other (`module_tag(())` is `root`) — std is checked once and
+        CACHED across compiles, so its symbols cannot depend on the program
+        being compiled, which makes the entry the side that moves when a user
+        declaration meets a std one.
+        """
+        if visibility == Visibility.PRIVATE and def_module:
+            return ""
+        owners = (getattr(self, 'free_function_owners', None) or {}).get(name)
+        if not owners or len(owners) < 2:
+            return ""
+        return f"{name}$M${self._module_symbol_tag(def_module)}"
+
     def _stamp_module_private_functions(self):
         """Give this module's private free functions a module-local codegen
         symbol. Runs per module, and only over declarations this module OWNS —
         an imported symbol is the SAME object as the source module's, so
         stamping it here would rename the definition out from under its owner."""
         own_module = self._vis_module_for_source(None)
-        for name, overloads in self.namespace.function_overloads.items():
+        # Design 249: ask the module-keyed storage for THIS module's own
+        # declarations, so an import that puts another module's same-named
+        # function in the bare view no longer hides this one's private tag.
+        own_table = self.namespace.module_function_overloads.get(
+            tuple(own_module), {})
+        for name, overloads in own_table.items():
             if len(overloads) != 1:
                 # An overload set already carries signature-mangled symbols; a
                 # cross-module private clash inside one is out of scope here.
@@ -1131,8 +1181,6 @@ class RegistrationMixin:
             if sym.type_params:
                 # A generic's symbol is the template base its monomorphizations
                 # are named from; leave that naming alone.
-                continue
-            if (getattr(sym, 'def_module', ()) or ()) != own_module:
                 continue
             mangled = self._module_private_symbol(
                 name, own_module, getattr(sym, 'visibility', Visibility.PRIVATE))
@@ -1148,6 +1196,15 @@ class RegistrationMixin:
         (definition emission) agree. Single-declaration names are untouched and
         keep their plain symbol. Generic overloads keep their type-argument
         instantiation naming and are left plain here.
+
+        Design 249: the free-function half walks the MODULE-KEYED storage and
+        stamps only the module this pass registers. An overload set is one
+        module's own declarations, so an importer that now sees two modules'
+        same-named functions in a single bare set never re-mangles either
+        module's symbols out from under the bodies already resolved against
+        them. The BASE each symbol is built from is the declaration's
+        `symbol_base` — the plain name, or the `$M$`-tagged one when more than
+        one module declares the name.
         """
         from codegen.mangle import mangle_overload, mangle_method, mangle_type
 
@@ -1155,51 +1212,60 @@ class RegistrationMixin:
             return tuple(mangle_type(p) if p is not None else "Void"
                          for p in param_types)
 
-        for name, overloads in self.namespace.function_overloads.items():
-            if len(overloads) < 2:
+        own_module = tuple(self._vis_module_for_source(None))
+        checking_builtins = bool(getattr(self, '_checking_builtins', False))
+        for def_module, table in self.namespace.module_function_overloads.items():
+            # std registers many file-modules in ONE pass; every other pass owns
+            # exactly the module it is checking.
+            if not checking_builtins and tuple(def_module) != own_module:
                 continue
-            # Design 66: within a set, members that share a parameter-TYPE
-            # signature (now legal when their labels differ) need their labels
-            # appended to stay distinct; type-unique members keep design-55 symbols.
-            sig_counts = {}
-            for sym in overloads:
-                if sym.type_params:
+            for name, overloads in table.items():
+                if len(overloads) < 2:
                     continue
-                sig_counts[_type_sig(sym.param_types)] = \
-                    sig_counts.get(_type_sig(sym.param_types), 0) + 1
-            for sym in overloads:
-                if sym.type_params:
-                    continue
-                need_labels = sig_counts.get(_type_sig(sym.param_types), 0) > 1
-                mangled = mangle_overload(
-                    name, sym.param_types,
-                    sym.param_names if need_labels else None)
-                sym.mangled_name = mangled
-                if sym.decl_node is not None:
-                    sym.decl_node.mangled_symbol = mangled
-            # Design 105: two or more GENERIC overloads of one name would both
-            # monomorphize to `name$<args>` and collide in codegen. Give each a
-            # distinct `$OL$`-tagged base (its declared param-type signature, which
-            # includes the type params) so its instantiations are `base$<args>` —
-            # collision-free. A lone generic in the set keeps its plain name
-            # (the byte-identical single-template path), so this is inert for all
-            # existing code (no std/blade/libs set has 2+ generic overloads).
-            generic_syms = [s for s in overloads if s.type_params]
-            if len(generic_syms) >= 2:
-                gsig_counts = {}
-                for sym in generic_syms:
-                    gsig_counts[_type_sig(sym.param_types)] = \
-                        gsig_counts.get(_type_sig(sym.param_types), 0) + 1
-                for sym in generic_syms:
-                    # Design 66: generic overloads that share a param-TYPE sig
-                    # (differ only by label) need their labels appended too.
-                    need_labels = gsig_counts.get(_type_sig(sym.param_types), 0) > 1
+                base = next((s.symbol_base for s in overloads if s.symbol_base),
+                            name)
+                # Design 66: within a set, members that share a parameter-TYPE
+                # signature (now legal when their labels differ) need their labels
+                # appended to stay distinct; type-unique members keep design-55 symbols.
+                sig_counts = {}
+                for sym in overloads:
+                    if sym.type_params:
+                        continue
+                    sig_counts[_type_sig(sym.param_types)] = \
+                        sig_counts.get(_type_sig(sym.param_types), 0) + 1
+                for sym in overloads:
+                    if sym.type_params:
+                        continue
+                    need_labels = sig_counts.get(_type_sig(sym.param_types), 0) > 1
                     mangled = mangle_overload(
-                        name, sym.param_types,
+                        base, sym.param_types,
                         sym.param_names if need_labels else None)
                     sym.mangled_name = mangled
                     if sym.decl_node is not None:
                         sym.decl_node.mangled_symbol = mangled
+                # Design 105: two or more GENERIC overloads of one name would both
+                # monomorphize to `name$<args>` and collide in codegen. Give each a
+                # distinct `$OL$`-tagged base (its declared param-type signature, which
+                # includes the type params) so its instantiations are `base$<args>` —
+                # collision-free. A lone generic in the set keeps its plain name
+                # (the byte-identical single-template path), so this is inert for all
+                # existing code (no std/blade/libs set has 2+ generic overloads).
+                generic_syms = [s for s in overloads if s.type_params]
+                if len(generic_syms) >= 2:
+                    gsig_counts = {}
+                    for sym in generic_syms:
+                        gsig_counts[_type_sig(sym.param_types)] = \
+                            gsig_counts.get(_type_sig(sym.param_types), 0) + 1
+                    for sym in generic_syms:
+                        # Design 66: generic overloads that share a param-TYPE sig
+                        # (differ only by label) need their labels appended too.
+                        need_labels = gsig_counts.get(_type_sig(sym.param_types), 0) > 1
+                        mangled = mangle_overload(
+                            base, sym.param_types,
+                            sym.param_names if need_labels else None)
+                        sym.mangled_name = mangled
+                        if sym.decl_node is not None:
+                            sym.decl_node.mangled_symbol = mangled
         for struct_name, struct_sym in self.namespace.structs.items():
             for mname, overloads in struct_sym.method_overloads.items():
                 if len(overloads) < 2:

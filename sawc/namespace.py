@@ -86,6 +86,13 @@ class FunctionSymbol:
     # the same `mangled_symbol` so codegen emits the definition under it.
     mangled_name: str = ""
     decl_node: Optional[Any] = None
+    # Design 249: the codegen BASE this declaration's symbols are built from.
+    # The plain name unless another MODULE in this compilation declares a free
+    # function of the same name, in which case it is `name$M$<module tag>` —
+    # two modules may now hold same-named free functions, and two definitions
+    # cannot share one LLVM symbol. Empty means "the plain name", so every
+    # single-owner program keeps byte-identical IR.
+    symbol_base: str = ""
 
 
 @dataclass
@@ -367,6 +374,23 @@ class Namespace:
         # `functions` map above keeps the first-registered overload as the
         # representative; overloaded call sites resolve against this list.
         self.function_overloads: Dict[str, List[FunctionSymbol]] = {}
+        # Design 249: free functions get MODULE IDENTITY, the last unkeyed
+        # symbol kind. Two acts, kept apart exactly as design 144 keeps them
+        # apart for types:
+        #   1. STORAGE, keyed by (defining module, name). Two modules' `encode`s
+        #      are two entries that can never overwrite or collide with each
+        #      other, which is what lets the declaration-site ambiguity check
+        #      (design 53/55) compare SAME-MODULE declarations only.
+        #   2. BINDING: `function_overloads` above is the name-as-written view
+        #      of THIS namespace, and `function_name_modules` records which
+        #      defining modules each bare name is actually bound to here. A
+        #      name may bind to SEVERAL modules — free functions overload, so
+        #      the merged set is the overload set (design 150's bare-import
+        #      rung), unlike a type name, which is simply ambiguous.
+        # Root module = the empty key, exactly as `module_statics` does.
+        self.module_function_overloads: Dict[
+            Tuple[str, ...], Dict[str, List[FunctionSymbol]]] = {}
+        self.function_name_modules: Dict[str, List[Tuple[str, ...]]] = {}
         # Design 144: the four TYPE tables are keyed by module-qualified type
         # IDENTITY (`Header$m$dep`), not by the bare source name. Two modules'
         # private `Header`s are two entries, hence two layouts, two
@@ -764,14 +788,115 @@ class Namespace:
 
         The first registration under a name is also the representative in
         `self.functions`; later overloads only extend `function_overloads`.
+
+        Design 249: the same act ALSO files the symbol under its identity
+        (defining module, name) and binds `name` here to that module. Every
+        registration path goes through this one method — a module's own
+        declarations and externs (`_register_function` /
+        `_register_extern_function`), each import form that binds a bare name
+        (glob, selective, std expose, parent-module inherit), and the module-AST
+        shim below — so the binding view is complete without a second act at
+        each site.
         """
         self.function_overloads.setdefault(name, []).append(symbol)
+        key = tuple(getattr(symbol, 'def_module', ()) or ())
+        bucket = self.module_function_overloads.setdefault(key, {})
+        if symbol not in bucket.setdefault(name, []):
+            bucket[name].append(symbol)
+        self.bind_function_module(name, key)
         if name not in self.functions:
             self.functions[name] = symbol
 
-    def lookup_function_overloads(self, name: str) -> List[FunctionSymbol]:
-        """All free-function overloads registered under `name` (design 55)."""
-        return self.function_overloads.get(name, [])
+    def register_bare_function(self, name: str, symbol: FunctionSymbol):
+        """Bind an ALREADY-DECLARED function symbol under the bare `name` here.
+
+        DF-242b: an import binds the whole overload set, not the representative
+        — binding one member is what made a call only a sibling matches report a
+        type error about a candidate the author never wrote. Idempotent by
+        object identity, so two import lines naming one module bind each member
+        once. Callers: the glob, selective and parent-module binding arms of
+        `TypeChecker.check_module`."""
+        decl = getattr(symbol, 'decl_node', None)
+        for bound in self.function_overloads.get(name, ()):
+            # Identity, or the same DECLARATION behind an aliasing copy
+            # (`import m.{f as g}` binds a `dataclasses.replace` of the symbol).
+            if bound is symbol or (
+                    decl is not None
+                    and getattr(bound, 'decl_node', None) is decl):
+                return
+        self.register_function(name, symbol)
+
+    def bind_function_module(self, name: str, module: Tuple[str, ...]):
+        """Bind the bare spelling `name` to `module`'s free functions HERE.
+
+        Design 249's second act. `register_function` calls it for every symbol
+        it files; the std import path calls it directly, because an unaliased
+        `import std.json.*` binds a name whose symbol is already present (the
+        builtin namespace is merged wholesale into every module) and so never
+        re-registers it.
+        """
+        bound = self.function_name_modules.setdefault(name, [])
+        if module not in bound:
+            bound.append(module)
+
+    def lookup_module_function_overloads(
+            self, name: str,
+            module: Tuple[str, ...]) -> List[FunctionSymbol]:
+        """The overloads `module` itself declares under `name` (design 249).
+
+        The identity-keyed read: it answers about ONE module's declarations and
+        never about what that module imported. Callers: the declaration-site
+        ambiguity check (`_register_function`), the codegen-symbol stamping
+        (`_stamp_overload_symbols`), and the per-std-file qualifier view
+        (`_std_leaf_namespace`)."""
+        return self.module_function_overloads.get(tuple(module), {}).get(name, [])
+
+    def lookup_function_overloads(
+            self, name: str,
+            accessor_module: Optional[Tuple[str, ...]] = None
+            ) -> List[FunctionSymbol]:
+        """THE free-function lookup funnel (design 55 + design 249).
+
+        Returns the overloads a reference to the bare `name` resolves against
+        in this namespace, following design 150's binding order: the accessor
+        module's OWN declarations plus the names imported bare into it. When
+        several modules bind one name, the MERGED set is the overload set and
+        resolution proceeds normally — a genuine tie is then the existing
+        ambiguity error AT THE CALL, naming both origins.
+
+        The filter engages only when the candidates span 2+ defining modules,
+        which before design 249 could not happen: a single-owner name returns
+        exactly what it always did.
+
+        ENTRY POINTS (obligation 1). Every reader of the free-function registry
+        goes through here or through `lookup_module_function_overloads` above:
+          - `_check_function_call` — the bare call (typechecker/expressions.py)
+          - `_check_module_qualified_call`'s two arms — `q.f(...)` and the
+            chained `a.b.f(...)`, each asking the NAMED module's namespace
+          - `_check_funcpointer_named_function` + `_check_identifier`'s
+            FuncPointer arm — a named function in a `FuncPointer<F>` slot
+          - `_reinterpret_struct_init_as_call` — the labeled-call reroute
+          - `_std_leaf_namespace` — building a std file's qualifier view
+        """
+        cands = self.function_overloads.get(name, [])
+        if len(cands) < 2:
+            return cands
+        modules = {tuple(getattr(s, 'def_module', ()) or ()) for s in cands}
+        if len(modules) < 2:
+            return cands
+        # Design 249: a name several modules define is visible here only through
+        # the modules this namespace actually BOUND it from, plus the accessor's
+        # own declarations and the root/builtin module (which has no module to
+        # import). Fail CLOSED — an unbound name resolves to nothing, so the
+        # caller reports "not accessible"/"must be imported" rather than
+        # silently picking a module the source never named.
+        allowed = set(self.function_name_modules.get(name, ()))
+        allowed.add(())
+        if accessor_module is not None:
+            allowed.add(tuple(accessor_module))
+        allowed.add(self.module_path)
+        return [s for s in cands
+                if tuple(getattr(s, 'def_module', ()) or ()) in allowed]
 
     @staticmethod
     def _static_is_module_local(symbol: 'StaticSymbol') -> bool:
@@ -1191,9 +1316,27 @@ class Namespace:
     # Lookup Methods
     # =========================================================================
 
-    def lookup_function(self, name: str) -> Optional[FunctionSymbol]:
-        """Look up a function by name."""
-        return self.functions.get(name)
+    def lookup_function(self, name: str,
+                        accessor_module: Optional[Tuple[str, ...]] = None
+                        ) -> Optional[FunctionSymbol]:
+        """Look up a function by name — the ONE declaration a bare use means.
+
+        Design 249: routed through the overload funnel, then design 150's
+        ladder inside what it returns — the accessor module's OWN declaration
+        wins over anything merged or imported under the same name. The
+        representative in `self.functions` is only first-registration order,
+        which put std's `dump_tasks` ahead of the program's own (std is merged
+        into every module namespace before that module registers a thing)."""
+        cands = self.lookup_function_overloads(name, accessor_module)
+        if not cands:
+            return self.functions.get(name)
+        if len(cands) > 1:
+            own = (tuple(accessor_module) if accessor_module is not None
+                   else self.module_path)
+            for cand in cands:
+                if tuple(getattr(cand, 'def_module', ()) or ()) == own:
+                    return cand
+        return cands[0]
 
     def _lookup_type(self, table: Dict[str, Any], name: str,
                      module: Optional[Tuple[str, ...]] = None):
@@ -3205,8 +3348,29 @@ class Namespace:
             return (getattr(sym, 'visibility', None) == Visibility.PRIVATE
                     and bool(getattr(sym, 'mangled_name', "")))
 
+        def _distinct_definitions(a, b) -> bool:
+            """Design 249: whether two same-named FREE FUNCTIONS from different
+            modules are two definitions the merge can hold at once.
+
+            Since free functions carry module identity, two modules owning one
+            name is no more a merge event than two modules owning one `Header`
+            (design 144) — provided the two emit distinct LLVM symbols, which
+            `symbol_base` guarantees by module-tagging every name more than one
+            module declares. Same codegen symbol is still a real collision, and
+            still reported."""
+            amod = tuple(getattr(a, 'def_module', ()) or ())
+            bmod = tuple(getattr(b, 'def_module', ()) or ())
+            if amod == bmod:
+                return False
+            asym = getattr(a, 'mangled_name', "") or getattr(
+                a, 'symbol_base', "") or None
+            bsym = getattr(b, 'mangled_name', "") or getattr(
+                b, 'symbol_base', "") or None
+            return asym is not None and bsym is not None and asym != bsym
+
         def _merge(category: str, dst: Dict[str, Any], src: Dict[str, Any],
-                   private_is_local: bool = False):
+                   private_is_local: bool = False,
+                   module_keyed: bool = False):
             for name, sym in src.items():
                 # design 82 Part B: a std symbol whose module is not compiled into
                 # this program (non-imported import-required std) is skipped, so a
@@ -3221,6 +3385,8 @@ class Namespace:
                 elif existing is not sym and collisions is not None:
                     if private_is_local and (_module_local(sym)
                                              or _module_local(existing)):
+                        continue
+                    if module_keyed and _distinct_definitions(sym, existing):
                         continue
                     prev = self._provenance.get(name, "<unknown>")
                     collisions.append((category, name, prev,
@@ -3237,12 +3403,23 @@ class Namespace:
         _merge("struct", self.structs, other.structs)
         _merge("enum", self.enums, other.enums)
         _merge("function", self.functions, other.functions,
-               private_is_local=True)
+               private_is_local=True, module_keyed=True)
         # Overloading (design 55): carry each name's full overload set across the
         # merge (first-wins per name, matching the representative merge above).
         for _name, _lst in other.function_overloads.items():
             if _name not in self.function_overloads:
                 self.function_overloads[_name] = list(_lst)
+        # Design 249: the identity-keyed storage travels too, keyed by defining
+        # module, so a module's own declarations stay answerable after the merge
+        # and two modules' entries can never collide — the module path is part
+        # of the key. The BINDING view (`function_name_modules`) deliberately
+        # does NOT travel: what a bare name means is each namespace's own
+        # business, and carrying std's declaration bindings into a user module
+        # would bare-bind every std file's functions there.
+        for _mod, _tbl in other.module_function_overloads.items():
+            _dst = self.module_function_overloads.setdefault(_mod, {})
+            for _n, _lst in _tbl.items():
+                _dst.setdefault(_n, list(_lst))
         _merge("trait", self.traits, other.traits)
         _merge("type alias", self.type_aliases, other.type_aliases)
         # Statics (design 41): same identity/collision rule (design 26) as the

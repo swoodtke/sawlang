@@ -489,7 +489,9 @@ class TypeUtilsMixin:
             symbol = self.namespace.resolve(qualified_path, check_access=False)
             if symbol and symbol.kind == SymbolKind.FUNCTION:
                 return symbol
-        return self.namespace.lookup_function(name)
+        # Design 249: name the accessor, so a module's own declaration wins over
+        # a same-named one merged in from std or another module.
+        return self.namespace.lookup_function(name, self._accessor_vis_module())
 
     def get_trait_info(self, name: str, qualified_path: str = None) -> Optional[TraitSymbol]:
         """Lookup trait info via namespace, supporting qualified names.

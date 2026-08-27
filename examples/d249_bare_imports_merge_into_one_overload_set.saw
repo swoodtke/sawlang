@@ -1,0 +1,13 @@
+// Design 249: when bare imports bring same-named free functions from TWO
+// modules, the MERGED set is the overload set and resolution proceeds normally.
+// Neither call is ambiguous — the argument type picks the module.
+// EXPECT: success
+// EXPECT-OUTPUT: A:4
+// EXPECT-OUTPUT: B:x
+import modules.d249_pair_a.*
+import modules.d249_pair_b.*
+
+func main() {
+    print(tag(4))
+    print(tag("x"))
+}

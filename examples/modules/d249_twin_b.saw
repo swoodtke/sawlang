@@ -1,0 +1,6 @@
+// Design 249 fixture: the twin of d249_twin_a's `wrap` — same name, same
+// shape, different module. Not a standalone test.
+
+public func wrap<T: Printable>(value: &T) sync -> String {
+    "B<{value}>"
+}

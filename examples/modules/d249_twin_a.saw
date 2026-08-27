@@ -1,0 +1,7 @@
+// Design 249 fixture: a PUBLIC generic free function sharing its name AND its
+// shape with d249_twin_b's. Free functions carry module identity, so these two
+// are two declarations, not a redefinition. Not a standalone test.
+
+public func wrap<T: Printable>(value: &T) sync -> String {
+    "A<{value}>"
+}

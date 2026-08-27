@@ -1,0 +1,18 @@
+// Design 249: the rung below. Taking `std.task`'s vocabulary bare AND
+// declaring the same name puts two definitions in one bare set, and the call
+// says so at the call site, naming the module each comes from. The fixes the
+// reader has are all local: rename one, drop the glob for a selective import,
+// or reach std's through its qualifier.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: ambiguous call to `dump_tasks`
+// EXPECT-ERROR-CONTAINS: [<std>.task]
+// EXPECT-ERROR-CONTAINS: [this module]
+import std.task.*
+
+func dump_tasks() sync {
+    print("mine")
+}
+
+func main() {
+    dump_tasks()
+}

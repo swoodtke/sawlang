@@ -1,0 +1,4 @@
+// Design 249 fixture: the other half of the d249_tie pair. Not a standalone
+// test.
+
+public func chime(n: Int) sync -> String { "B:{n}" }

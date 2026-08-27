@@ -1,0 +1,14 @@
+// Design 249: two modules' same-named, same-SHAPED free functions imported
+// bare are a genuine tie, and the tie is reported AT THE CALL — not at the
+// import, and not at either declaration. Since the two signatures print the
+// same text, the hint names the module each candidate comes from.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: ambiguous call to `chime`
+// EXPECT-ERROR-CONTAINS: [modules.d249_tie_a]
+// EXPECT-ERROR-CONTAINS: [modules.d249_tie_b]
+import modules.d249_tie_a.*
+import modules.d249_tie_b.*
+
+func main() {
+    print(chime(1))
+}

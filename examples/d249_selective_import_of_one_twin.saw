@@ -1,0 +1,13 @@
+// Design 249: selecting ONE module's `tag` bare leaves the other reachable
+// only through its qualifier — the two spellings name two definitions, and
+// each reaches the one it names.
+// EXPECT: success
+// EXPECT-OUTPUT: A:4
+// EXPECT-OUTPUT: B:x
+import modules.d249_pair_a.{tag}
+import modules.d249_pair_b
+
+func main() {
+    print(tag(4))
+    print(d249_pair_b.tag("x"))
+}

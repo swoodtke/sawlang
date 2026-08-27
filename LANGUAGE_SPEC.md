@@ -325,6 +325,28 @@ signature (post-alias, with bare type parameters folded to one placeholder, so
 always legal; so is **same types with different labels** (see labeled
 arguments below — `f(a:b:)` and `f(kind:value:)` coexist).
 
+The declaration-site rule is **per module**. A free function is identified by
+(defining module, name), the way a type is, so two modules may hold same-named
+functions of the same shape; neither module knows the other exists. Which one a
+call means is decided where the call is written:
+
+- A **qualified** call takes exactly the named module's declarations.
+- A **bare** call takes this module's own declarations plus the names imported
+  bare into it (`import m.*`, `import m.{f}`). When two modules bring the same
+  name, the merged set is one overload set and resolves by signature.
+- Two candidates that no rule separates are the ordinary call-site ambiguity.
+  Their signatures print the same text, so the hint names the module each comes
+  from:
+
+```
+error: ambiguous call to `chime`: multiple overloads match the argument types (Int)
+  hint: matching candidates: chime(n: Int) [modules.tie_a]; chime(n: Int) [modules.tie_b]
+```
+
+An import binds the whole overload set a name stands for, not its first
+member — `import m.{pick}` puts every `pick` in `m` in scope, matching what
+`m.pick(...)` sees.
+
 **Default parameter values.**
 **Status: implemented (design 53).** A parameter may carry a default value on
 free functions, methods, and inits. Rules:
