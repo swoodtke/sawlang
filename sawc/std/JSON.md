@@ -19,32 +19,63 @@ let back = try LockEntry.deserialize(from: &var dec)
 try dec.finish()   // rejects content left over after the value
 ```
 
-## Status: Unit 2 only — there is no `JsonValue` tree
+## Status: units 1 and 2 — `JsonValue` exists; `Object` does not serialize yet
 
 The brief that commissioned this file asked for two things: a `JsonValue`
-data-model type (parse text to a tree, write a tree back to text) and this
-`Encoder`/`Decoder` seam. **Only the seam shipped.** The tree needs a type
-that holds itself — an array of `JsonValue`, an object mapping to
-`JsonValue` — and that shape hits an internal compiler error today: a
-struct or enum that reaches itself through a `Vector`/`Map`/`Box` type
-argument, even indirectly (one level of `Box<Self>?` is enough), defeats
-the codegen type-registration order. This reproduces on a plain,
-non-generic, two-struct MUTUAL cycle too (`A` holding `Vector<B>`, `B`
-holding `Vector<A>`) — it is not particular to self-reference. See the
-finding filed against the tracker for the minimal repro and the mechanism.
-Building `JsonValue` around that gap — a type-erased payload, an
-`UnsafeMemory` cell, an index-into-a-side-table arena standing in for the
-tree — would be exactly the kind of workaround this project's conduct
-rules forbid, so the tree is deferred behind that compiler fix rather than
-shipped in a shape nobody would choose on its own merits.
+data-model type (parse text to a tree, write a tree back to text) and the
+`Encoder`/`Decoder` seam above. Unit 2 shipped the seam first, deferred
+behind the recursive-type compiler defect design 246 went on to fix; unit 1
+lands `JsonValue` itself now that the fix has landed:
 
-Practically: there is no `JsonValue.parse(text:)`, no
-`JsonValue.to_json_string()`, no accessor surface (`get`/`at`/`as_int` and
-so on). A caller that wants "parse arbitrary JSON into a tree and walk it"
-has nothing here yet. A caller with a Saw type shaped like its JSON
-document — the overwhelmingly common case for a wire format — reads and
-writes it directly through `Serialize`/`Deserialize`, exactly as with
-`std.cbor`.
+```saw
+import std.json.{JsonValue}
+
+let v = try JsonValue.parse(text: "\{\"port\":8080,\"tags\":[\"a\",\"b\"]}")
+let port = v.as_object()!.get("port")!.as_int() ?? 0
+let text = try v.to_json_string()   // Array/scalar trees only — see below
+```
+
+`JsonValue` is `enum JsonValue { case Null, case Bool(value: Bool),
+case Number(value: Int), case Text(value: String),
+case Array(items: Vector<JsonValue>),
+case Object(fields: Map<String, JsonValue>) }`, `NoCopy` (a `Map` payload
+has no `ExplicitCopy` conformance yet regardless of the recursion, so this
+was never a choice). `Object` key order is not preserved, matching `Map`
+everywhere else in std.
+
+**Two things remain incomplete, both compiler-defect-shaped, both filed:**
+
+- **Numbers are `Int`-only** — the pinned rule ("integral and in `Int`
+  range -> `Number`, else `Float`") cannot be honored: std has no
+  correctly-rounded `Float`<->text conversion (`String.to_float` is
+  explicitly documented as a NOT-correctly-rounded naive accumulation, and
+  there is no `Float`->text direction in std at all). A fraction-/
+  exponent-shaped token, or an integral one outside `Int`'s range, is a
+  decode error carrying `JsonDecoder.read_int`'s own fault
+  (`TypeMismatch`/`OutOfRange`) rather than becoming a `Number(value:
+  Float)`. Temporary, pending a correct `Float` parse/format surface in std.
+- **`to_json_string` does not serialize `Object`** (`EncodeFault.Unsupported`)
+  — `Null`/`Bool`/`Number`/`Text`/`Array` (nested arbitrarily, including
+  arrays of arrays and arrays of objects) serialize fully, and `parse`
+  builds a full `Object` (parsing only ever calls `Map.insert`, which the
+  defect below does not touch). Writing an `Object` needs its keys
+  enumerated, and every avenue to do that (`Map.keys`/`each`/`each_key`/
+  `each_value`) has a closure parameter that deliberately carries no `sync`
+  (design 216, so a suspending body composes) — which makes each of them a
+  "maybe-suspending" API. `JsonValue._write` is unavoidably self-recursive
+  (an array/object element may itself be an array or object), and a
+  self-recursive function defined under `sawc/std/` that also transitively
+  reaches a maybe-suspending API fails `sawc`'s own "builtins" pre-check
+  with `internal compiler error: builtins failed to type-check` /
+  `cannot suspend in a sync closure context` — even though the identical
+  shape compiles and runs correctly as an ordinary (non-`sawc/std/`) source
+  file. See `_write`'s doc comment in `sawc/std/json.saw` and this unit's
+  landing report for the mechanism and a minimal repro. `Array`'s own
+  recursion is unaffected (`Vector`'s plain `[]`/`len` are not
+  closure-based).
+
+Everything else — `parse`, every accessor, `Array` serialization, the
+whole seam below — works and is tested (`examples/json_value_*.saw`).
 
 ## What a `Serialize` value becomes
 
@@ -161,7 +192,21 @@ item-count budget on top is deferred.
   `std.cbor`'s "one spelling per value" discipline, though JSON's own
   history leans toward wanting one).
 - Duplicate-key policy: pinned to last-wins above; needs ratification.
-- The `JsonValue` tree itself, entirely: parse-to-DOM, DOM-to-text,
-  accessor surface — blocked on the recursive-type compiler defect
-  described above.
+  Observed through `JsonValue` too now (`examples/json_value_structural_
+  reject.saw`'s `duplicate_key_last_wins`).
+- `JsonValue.Number` is `Int`-only — no `Float` case — pending a correct
+  `Float`<->text surface in std (see the status section above).
+- `JsonValue.to_json_string` does not serialize `Object` (DF-267d) —
+  pending a fix to the recursive-std-function-vs-maybe-suspending-API
+  compiler defect (see the status section above; this unit's landing
+  report has the repro).
+- There is no combined `member(key:)`/`element(at:)` convenience accessor
+  (DF-267c): `as_array`/`as_object` lend the whole container, and
+  navigation composes through `Vector`/`Map`'s own accessors at the call
+  site (`value.as_object()!.get("key")`). A hand-written `borrows`
+  accessor cannot `lend` a place reached by indexing FURTHER into a
+  `match`-bound payload (confirmed for both `Vector`'s unconditional `[]`
+  and `Map`'s conditional `[]`/`get` — see this unit's landing report), so
+  a single-call accessor doing the match-and-index in one body is not
+  expressible today.
 - Streaming/incremental parsing: not attempted.

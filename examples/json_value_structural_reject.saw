@@ -1,0 +1,83 @@
+// std.json unit 1: structural rejections through `JsonValue.parse` (trailing
+// content, trailing comma, unterminated containers — each with its byte
+// offset), the nesting-depth limit at and past its boundary, and duplicate
+// object keys observed as LAST-WINS through the built tree (mirroring the
+// seam-level `examples/json_structural_reject.saw`, one layer up). Malformed
+// input never panics: every rejection is a clean `Err(DecodeError)`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// trailing_bytes: decode error at byte 2: bytes remain after the top-level item
+// trailing_comma_array: decode error at byte 5: the bytes are not a well-formed item
+// unterminated_string: decode error at byte 0: the input ended in the middle of an item
+// unterminated_array: decode error at byte 4: the input ended in the middle of an item
+// depth_ok_at_limit: leaf=0
+// depth_exceeds_limit: decode error at byte 3: nesting is deeper than the decoder allows
+// duplicate_key_last_wins: a=2
+
+import std.json.{JsonValue}
+
+func check_trailing_bytes() {
+    match JsonValue.parse(text: "1 2") {
+        case Ok(v) -> print("trailing_bytes: unexpectedly accepted -> {}", v.as_int() ?? -1),
+        case Err(e) -> print("trailing_bytes: {}", e)
+    }
+}
+
+func check_trailing_comma_array() {
+    match JsonValue.parse(text: "[1,2,]") {
+        case Ok(_) -> print("trailing_comma_array: unexpectedly accepted"),
+        case Err(e) -> print("trailing_comma_array: {}", e)
+    }
+}
+
+func check_unterminated_string() {
+    match JsonValue.parse(text: "\"abc") {
+        case Ok(v) -> print("unterminated_string: unexpectedly accepted -> {}", v.as_text() ?? "?"),
+        case Err(e) -> print("unterminated_string: {}", e)
+    }
+}
+
+func check_unterminated_array() {
+    match JsonValue.parse(text: "[1,2") {
+        case Ok(_) -> print("unterminated_array: unexpectedly accepted"),
+        case Err(e) -> print("unterminated_array: {}", e)
+    }
+}
+
+func check_depth() {
+    // Exactly 3 levels of nesting under max_depth 3: legal.
+    match JsonValue.parse(text: "[[[0]]]", max_depth: 3) {
+        case Ok(v) -> {
+            let leaf = v.as_array()![0].as_array()![0].as_array()![0].as_int() ?? -1
+            print("depth_ok_at_limit: leaf={}", leaf)
+        },
+        case Err(e) -> print("depth_ok_at_limit: {}", e)
+    }
+
+    // A 4th level under the same limit is refused.
+    match JsonValue.parse(text: "[[[[0]]]]", max_depth: 3) {
+        case Ok(_) -> print("depth_exceeds_limit: unexpectedly accepted"),
+        case Err(e) -> print("depth_exceeds_limit: {}", e)
+    }
+}
+
+// Duplicate object keys: last-wins (pinned default — matches the seam's own
+// decoder behavior, exercised through the tree this time).
+func check_duplicate_key_last_wins() {
+    match JsonValue.parse(text: "\{\"a\":1,\"a\":2}") {
+        case Ok(v) -> {
+            let a = v.as_object()!.get("a")!.as_int() ?? -1
+            print("duplicate_key_last_wins: a={}", a)
+        },
+        case Err(e) -> print("duplicate_key_last_wins: parse failed: {}", e)
+    }
+}
+
+func main() {
+    check_trailing_bytes()
+    check_trailing_comma_array()
+    check_unterminated_string()
+    check_unterminated_array()
+    check_depth()
+    check_duplicate_key_last_wins()
+}

@@ -1179,3 +1179,260 @@ public func encode_json<T: Serialize>(value: &T) sync -> Result<String, EncodeEr
 //
 //     var dec = try JsonDecoder.open(text: input)
 //     let entry = try LockEntry.deserialize(from: &var dec)
+
+// =============================================================================
+// JsonValue — a JSON DOM tree (design 246 unit 1)
+// =============================================================================
+
+/// A JSON value, parsed to (or built as) a tree — the DOM half of this file,
+/// alongside the `JsonEncoder`/`JsonDecoder` seam above. Recursive-type
+/// support (design 246) is what makes this legal: the cycle through `Array`
+/// crosses `Vector`'s own heap indirection and the cycle through `Object`
+/// crosses `Map`'s, so `JsonValue` is written directly with no arena or
+/// side-table workaround.
+///
+/// `Object` is a `Map<String, JsonValue>` — **key order is not preserved**,
+/// exactly like every other `Map` in std. `Array` is a `Vector<JsonValue>`.
+///
+/// **`to_json_string` does not serialize `Object` yet (DF-267d) — see
+/// `_write`'s doc comment for the mechanism.** `parse` builds an `Object`
+/// exactly as documented (it only ever calls `Map.insert`, which the defect
+/// does not touch); serializing a tree that contains one returns
+/// `EncodeFault.Unsupported`. `Null`/`Bool`/`Number`/`Text`/`Array` (nested
+/// arbitrarily deep, arrays-of-arrays included) serialize fully.
+///
+/// **Numbers are `Int`-only in v1 — see "What is OPEN" below.** A JSON number
+/// that is lexically integral AND fits `Int`'s range parses as `Number`; a
+/// fraction-/exponent-shaped token, or an integral one outside `Int`'s range,
+/// is a decode error (`TypeMismatch`/`OutOfRange` — the same faults
+/// `JsonDecoder.read_int` already reports for the identical shapes, since
+/// `parse` drives that exact method for the number case). This is a
+/// TEMPORARY restriction, not the originally pinned "else Float" rule: std
+/// has no correctly-rounded `Float`<->text conversion to build a `Number`
+/// case on (`String.to_float` is explicitly documented as NOT
+/// correctly-rounded naive accumulation, and there is no `Float`->text
+/// direction anywhere in std). `JsonValue` gains a `Number(value: Float)`
+/// case once that lands.
+///
+/// `NoCopy`: an owning recursive type holding `Vector`/`Map` is move-only on
+/// the same terms as any other type built from them (see
+/// `examples/recursive_enum_through_vector_payload.saw`) — and `Map` has no
+/// `ExplicitCopy` conformance yet regardless, which would force the choice
+/// even without the recursion. Build once, `move` around; there is no `.copy()`.
+public enum JsonValue {
+    case Null,
+    case Bool(value: Bool),
+    case Number(value: Int),
+    case Text(value: String),
+    case Array(items: Vector<JsonValue>),
+    case Object(fields: Map<String, JsonValue>)
+}
+
+extension JsonValue: NoCopy {}
+
+extension JsonValue {
+    /// Parses `text` as one JSON value, rejecting anything left over
+    /// afterward (`DecodeFault.TrailingBytes`, via `JsonDecoder.finish` —
+    /// see its own doc comment for why that check happens at the far end
+    /// rather than up front).
+    ///
+    /// `max_depth`/`max_size` are `JsonDecoder.open`'s own limits, forwarded
+    /// unchanged.
+    public static func parse(text: String, max_depth: Int = 64,
+                              max_size: Int = 16777216) -> Result<JsonValue, DecodeError> {
+        var dec = try JsonDecoder.open(text: text, max_depth: max_depth, max_size: max_size)
+        let v = try JsonValue._read(dec: &var dec)
+        try dec.finish()
+        return v
+    }
+
+    // Reads exactly one JSON value at `dec`'s current position, driving
+    // JsonDecoder's own byte-level helpers directly — this is the SAME
+    // module, so its private methods (`peek`, `before_value`, ...) are in
+    // scope, and this reuses them rather than re-lexing anything. The
+    // peek-then-dispatch shape mirrors `JsonDecoder.at_null`'s own
+    // documented idiom: `before_value` is idempotent per pending item, so
+    // calling it here and then again inside whichever typed `read_*`/
+    // `begin_*` this dispatches to costs nothing extra.
+    static func _read(dec: &var JsonDecoder) sync -> Result<JsonValue, DecodeError> {
+        try dec.before_value()
+        guard let b = dec.peek() else {
+            return DecodeError(offset: dec.offset(), fault: DecodeFault.Truncated)
+        }
+        if b == BYTE_QUOTE {
+            let s = try dec.read_text()
+            return JsonValue.Text(value: s)
+        }
+        if b == BYTE_LBRACKET {
+            return JsonValue._read_array(dec: &var dec)
+        }
+        if b == BYTE_LBRACE {
+            return JsonValue._read_object(dec: &var dec)
+        }
+        if b == BYTE_T || b == BYTE_F {
+            let v = try dec.read_bool()
+            return JsonValue.Bool(value: v)
+        }
+        if b == BYTE_N {
+            try dec.read_null()
+            return JsonValue.Null
+        }
+        if b == BYTE_MINUS || (b >= BYTE_ZERO && b <= BYTE_NINE) {
+            // Int-only in v1 — see the type's doc comment. `read_int` already
+            // rejects a fraction-/exponent-shaped or out-of-range token with
+            // exactly the fault this deviation is documented under, at the
+            // byte offset the token started.
+            let n = try dec.read_int()
+            return JsonValue.Number(value: n)
+        }
+        return DecodeError(offset: dec.offset(), fault: DecodeFault.Malformed)
+    }
+
+    static func _read_array(dec: &var JsonDecoder) sync -> Result<JsonValue, DecodeError> {
+        let n = try dec.begin_array()
+        var items = Vector<JsonValue>()
+        var i = 0
+        while i < n {
+            let v = try JsonValue._read(dec: &var dec)
+            match items.push(move v) {
+                case Ok(_) -> {},
+                case Err(_) -> { return __json_alloc_decoded(dec.offset()) }
+            }
+            i = i + 1
+        }
+        return JsonValue.Array(items: move items)
+    }
+
+    static func _read_object(dec: &var JsonDecoder) sync -> Result<JsonValue, DecodeError> {
+        let n = try dec.begin_map()
+        var fields = Map<String, JsonValue>()
+        var i = 0
+        while i < n {
+            let k = try dec.read_text()
+            let v = try JsonValue._read(dec: &var dec)
+            match fields.insert(k, move v) {
+                case Ok(_) -> {},
+                case Err(_) -> { return __json_alloc_decoded(dec.offset()) }
+            }
+            i = i + 1
+        }
+        return JsonValue.Object(fields: move fields)
+    }
+
+    /// Serializes `self` to compact JSON text, through the same
+    /// `JsonEncoder` machinery a `Serialize` value writes through — the
+    /// escaping and number rendering are byte-for-byte the seam's own.
+    public func to_json_string(&self) -> Result<String, EncodeError> {
+        var enc = JsonEncoder()
+        try self._write(enc: &var enc)
+        return enc.finish()
+    }
+
+    // `Object` is NOT serialized yet (DF-267d) — see the OPEN note on
+    // `JsonValue`'s own doc comment above and this unit's final report for
+    // the full mechanism and repro. Short version: `JsonValue._write` is
+    // necessarily self-recursive (an array/object element can itself be an
+    // array or object), and `sawc/std/`'s own "builtins" pre-check computes
+    // one effect signature per std function differently from how an
+    // ordinary source file infers effects per call site. A recursive std
+    // function that ALSO transitively reaches a "maybe-suspending" API —
+    // one whose closure parameter carries no `sync`, which `Map.keys`/
+    // `each`/`each_key`/`each_value` all are by design (216's "the closure
+    // is not sync, so a suspending transform works") — hits `internal
+    // compiler error: builtins failed to type-check` /
+    // `cannot suspend in a sync closure context`, even though the identical
+    // shape compiles and runs correctly as an ordinary (non-`sawc/std/`)
+    // source file. `Array`'s own recursion is unaffected (`Vector`'s plain
+    // `[]`/`len` are not closure-based), which is why it works below.
+    func _write(&self, enc: &var JsonEncoder) -> Result<Void, EncodeError> {
+        match self {
+            case Null -> { return enc.write_null() },
+            case Bool(value) -> { return enc.write_bool(value) },
+            case Number(value) -> { return enc.write_int(value) },
+            case Text(value) -> { return enc.write_text(value) },
+            case Array(items) -> {
+                try enc.begin_array(items.len())
+                var i = 0
+                while i < items.len() {
+                    try items[i]._write(enc: &var enc)
+                    i = i + 1
+                }
+                return
+            },
+            case Object(_) -> {
+                return EncodeError(fault: EncodeFault.Unsupported)
+            }
+        }
+    }
+
+    /// Whether `self` is JSON `null`.
+    public func is_null(&self) -> Bool {
+        match self {
+            case Null -> true,
+            case _ -> false
+        }
+    }
+
+    /// `self`'s value if it is a JSON boolean, else `None`.
+    public func as_bool(&self) -> Bool? {
+        match self {
+            case Bool(value) -> value,
+            case _ -> None
+        }
+    }
+
+    /// `self`'s value if it is a JSON number, else `None`.
+    public func as_int(&self) -> Int? {
+        match self {
+            case Number(value) -> value,
+            case _ -> None
+        }
+    }
+
+    /// `self`'s value if it is a JSON string, else `None`.
+    public func as_text(&self) -> String? {
+        match self {
+            case Text(value) -> value,
+            case _ -> None
+        }
+    }
+
+    /// Lends `self`'s array, if it is one, as a place — a `Vector<JsonValue>`
+    /// is NoCopy-tier here (its element is), so this hands out the storage
+    /// rather than a value. Reach `Vector`'s own accessors on the result:
+    /// `value.as_array()![0]` (panics out of range), `value.as_array()!.get(0)`
+    /// (`None` out of range), `value.as_array()!.len()`.
+    ///
+    /// There is no combined `element(at:)` accessor (DF-267c): a
+    /// hand-written `borrows` body cannot `lend` a place reached by indexing
+    /// FURTHER into a `match`-bound payload — `lend items[at]` fails at this
+    /// declaration with "cannot open an exclusive place window on immutable
+    /// variable `items`" even though `items[at]` is `Vector`'s UNCONDITIONAL
+    /// subscript (the same shape the language docs' own `Grid.[]` example
+    /// shows working — the difference is that example lends off a `self.field`
+    /// projection, not a `match self { case ... (items) -> }` binding; see
+    /// this unit's landing report for the repro). `as_array()` plus
+    /// `Vector`'s own subscript is the working spelling.
+    public func as_array(&self) borrows -> Vector<JsonValue>? {
+        match self {
+            case Array(items) -> { lend items },
+            case _ -> { return None }
+        }
+    }
+
+    /// Lends `self`'s object, if it is one, as a place. Reach `Map`'s own
+    /// accessor on the result: `value.as_object()!.get("key")`. Key order is
+    /// not preserved (`Map`'s own rule).
+    ///
+    /// There is no combined `member(key:)` accessor, for the exact same
+    /// DF-267c reason `as_array` has no `element(at:)` — `lend fields[key]!`
+    /// hits the identical "cannot open an exclusive place window" error, so
+    /// this is NOT about `Map`'s subscript being conditional (`Vector`'s
+    /// unconditional one hits it too).
+    public func as_object(&self) borrows -> Map<String, JsonValue>? {
+        match self {
+            case Object(fields) -> { lend fields },
+            case _ -> { return None }
+        }
+    }
+}

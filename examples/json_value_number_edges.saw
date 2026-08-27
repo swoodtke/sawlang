@@ -1,0 +1,56 @@
+// std.json unit 1: number-token edges through `JsonValue.parse`. The
+// pinned rule is "integral and in Int range -> Number, else Float"; since
+// std has no correct Float<->text surface (see JsonValue's doc comment),
+// `parse` drives `JsonDecoder.read_int` directly for the number case, so a
+// fraction-/exponent-shaped token or an out-of-range integral one surfaces
+// read_int's own fault (`TypeMismatch`/`OutOfRange`) rather than becoming a
+// `Number(value: Float)` — this is the documented temporary substitute.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// int_max: 9223372036854775807
+// int_min: -9223372036854775808
+// int_overflow: decode error at byte 0: the value does not fit the destination type
+// frac_form: decode error at byte 0: the item is not of the expected type
+// exp_form: decode error at byte 0: the item is not of the expected type
+// zero: 0
+// negative_zero: 0
+// in_array: [1,-1,9223372036854775807]
+
+import std.json.{JsonValue}
+
+func check_ok(label: String, text: String) {
+    match JsonValue.parse(text: text) {
+        case Ok(v) -> print("{}: {}", label, v.as_int() ?? 0),
+        case Err(e) -> print("{}: parse failed: {}", label, e)
+    }
+}
+
+func check_reject(label: String, text: String) {
+    match JsonValue.parse(text: text) {
+        case Ok(v) -> print("{}: unexpectedly accepted -> {}", label, v.as_int() ?? 0),
+        case Err(e) -> print("{}: {}", label, e)
+    }
+}
+
+func check_in_array() {
+    match JsonValue.parse(text: "[1,-1,9223372036854775807]") {
+        case Ok(v) -> {
+            match v.to_json_string() {
+                case Ok(t) -> print("in_array: {}", t),
+                case Err(e) -> print("in_array: encode failed: {}", e)
+            }
+        },
+        case Err(e) -> print("in_array: parse failed: {}", e)
+    }
+}
+
+func main() {
+    check_ok("int_max", "9223372036854775807")
+    check_ok("int_min", "-9223372036854775808")
+    check_reject("int_overflow", "9223372036854775808")
+    check_reject("frac_form", "1.5")
+    check_reject("exp_form", "1e5")
+    check_ok("zero", "0")
+    check_ok("negative_zero", "-0")
+    check_in_array()
+}

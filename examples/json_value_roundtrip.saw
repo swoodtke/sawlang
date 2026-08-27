@@ -1,0 +1,195 @@
+// std.json unit 1: `JsonValue.parse` round-trips every JSON type — null,
+// bool, int, string, array (nested arbitrarily deep) and object — read back
+// through the accessor surface, and `to_json_string` re-serializes every
+// shape EXCEPT `Object` (DF-267c — see `JsonValue._write`'s doc comment in
+// sawc/std/json.saw: a recursive std function that also reaches `Map.keys`
+// hits a builtins-pre-check defect, so `Object` parses fully but does not
+// serialize yet). `Array`/scalar round trips prove parse -> serialize ->
+// parse stability byte-for-byte.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// null: is_null=true text=null reparsed_is_null=true
+// bool_true: value=true text=true
+// bool_false: value=false text=false
+// int: value=42 text=42
+// negative_int: value=-17 text=-17
+// text: value=hi text="hi"
+// array: len=3 text=[1,2,3] elem1=2
+// nested_array: text=[[1,2],[3],[]]
+// nested_array_stability: match=true
+// array_of_mixed: text=[1,"two",true,null,3]
+// object: a=1 b=true c_len=2 c0=10 c1=20
+// object_serialize: encode error: the value has no representation in this format
+// deep_mixed: x_a0_y=99
+
+import std.json.{JsonValue}
+
+func check_null() {
+    match JsonValue.parse(text: "null") {
+        case Ok(v) -> {
+            let is_n = v.is_null()
+            let text = match v.to_json_string() {
+                case Ok(t) -> t,
+                case Err(e) -> { print("null: serialize failed: {}", e) return }
+            }
+            let reparsed_is_n = match JsonValue.parse(text: text) {
+                case Ok(v2) -> v2.is_null(),
+                case Err(e) -> { print("null: reparse failed: {}", e) return }
+            }
+            print("null: is_null={} text={} reparsed_is_null={}", is_n, text, reparsed_is_n)
+        },
+        case Err(e) -> print("null: parse failed: {}", e)
+    }
+}
+
+func check_bool(label: String, text_in: String) {
+    match JsonValue.parse(text: text_in) {
+        case Ok(v) -> {
+            let b = v.as_bool() ?? false
+            let text = match v.to_json_string() {
+                case Ok(t) -> t,
+                case Err(e) -> { print("{}: serialize failed: {}", label, e) return }
+            }
+            print("{}: value={} text={}", label, b, text)
+        },
+        case Err(e) -> print("{}: parse failed: {}", label, e)
+    }
+}
+
+func check_int() {
+    match JsonValue.parse(text: "42") {
+        case Ok(v) -> {
+            let n = v.as_int() ?? -1
+            let text = match v.to_json_string() {
+                case Ok(t) -> t,
+                case Err(e) -> { print("int: serialize failed: {}", e) return }
+            }
+            print("int: value={} text={}", n, text)
+        },
+        case Err(e) -> print("int: parse failed: {}", e)
+    }
+}
+
+func check_negative_int() {
+    match JsonValue.parse(text: "-17") {
+        case Ok(v) -> {
+            let n = v.as_int() ?? 0
+            let text = match v.to_json_string() {
+                case Ok(t) -> t,
+                case Err(e) -> { print("negative_int: serialize failed: {}", e) return }
+            }
+            print("negative_int: value={} text={}", n, text)
+        },
+        case Err(e) -> print("negative_int: parse failed: {}", e)
+    }
+}
+
+func check_text() {
+    match JsonValue.parse(text: "\"hi\"") {
+        case Ok(v) -> {
+            let s = v.as_text() ?? "?"
+            let text = match v.to_json_string() {
+                case Ok(t) -> t,
+                case Err(e) -> { print("text: serialize failed: {}", e) return }
+            }
+            print("text: value={} text={}", s, text)
+        },
+        case Err(e) -> print("text: parse failed: {}", e)
+    }
+}
+
+func check_array() {
+    match JsonValue.parse(text: "[1,2,3]") {
+        case Ok(v) -> {
+            let l = v.as_array()!.len()
+            let text = match v.to_json_string() {
+                case Ok(t) -> t,
+                case Err(e) -> { print("array: serialize failed: {}", e) return }
+            }
+            let e1 = v.as_array()![1].as_int() ?? -1
+            print("array: len={} text={} elem1={}", l, text, e1)
+        },
+        case Err(e) -> print("array: parse failed: {}", e)
+    }
+}
+
+func check_nested_array() {
+    let src = "[[1,2],[3],[]]"
+    match JsonValue.parse(text: src) {
+        case Ok(v) -> {
+            let text = match v.to_json_string() {
+                case Ok(t) -> t,
+                case Err(e) -> { print("nested_array: serialize failed: {}", e) return }
+            }
+            print("nested_array: text={}", text)
+
+            let reparsed_text = match JsonValue.parse(text: text) {
+                case Ok(v2) -> match v2.to_json_string() {
+                    case Ok(t2) -> t2,
+                    case Err(e) -> { print("nested_array_stability: reserialize failed: {}", e) return }
+                },
+                case Err(e) -> { print("nested_array_stability: reparse failed: {}", e) return }
+            }
+            print("nested_array_stability: match={}", reparsed_text.equals(text))
+        },
+        case Err(e) -> print("nested_array: parse failed: {}", e)
+    }
+}
+
+func check_array_of_mixed() {
+    match JsonValue.parse(text: "[1,\"two\",true,null,3]") {
+        case Ok(v) -> {
+            let text = match v.to_json_string() {
+                case Ok(t) -> t,
+                case Err(e) -> { print("array_of_mixed: serialize failed: {}", e) return }
+            }
+            print("array_of_mixed: text={}", text)
+        },
+        case Err(e) -> print("array_of_mixed: parse failed: {}", e)
+    }
+}
+
+func check_object() {
+    match JsonValue.parse(text: "\{\"a\":1,\"b\":true,\"c\":[10,20]}") {
+        case Ok(v) -> {
+            let a = v.as_object()!.get("a")!.as_int() ?? -1
+            let b = v.as_object()!.get("b")!.as_bool() ?? false
+            let c_len = v.as_object()!.get("c")!.as_array()!.len()
+            let c0 = v.as_object()!.get("c")!.as_array()![0].as_int() ?? -1
+            let c1 = v.as_object()!.get("c")!.as_array()![1].as_int() ?? -1
+            print("object: a={} b={} c_len={} c0={} c1={}", a, b, c_len, c0, c1)
+
+            match v.to_json_string() {
+                case Ok(t) -> print("object_serialize: unexpectedly succeeded -> {}", t),
+                case Err(e) -> print("object_serialize: {}", e)
+            }
+        },
+        case Err(e) -> print("object: parse failed: {}", e)
+    }
+}
+
+func check_deep_mixed() {
+    // object -> array -> object, three levels, one leaf read at the bottom.
+    let src = "\{\"x\":[\{\"y\":99}]}"
+    match JsonValue.parse(text: src) {
+        case Ok(v) -> {
+            let leaf = v.as_object()!.get("x")!.as_array()![0].as_object()!.get("y")!.as_int() ?? -1
+            print("deep_mixed: x_a0_y={}", leaf)
+        },
+        case Err(e) -> print("deep_mixed: parse failed: {}", e)
+    }
+}
+
+func main() {
+    check_null()
+    check_bool("bool_true", "true")
+    check_bool("bool_false", "false")
+    check_int()
+    check_negative_int()
+    check_text()
+    check_array()
+    check_nested_array()
+    check_array_of_mixed()
+    check_object()
+    check_deep_mixed()
+}

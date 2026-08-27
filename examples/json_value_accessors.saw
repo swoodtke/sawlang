@@ -1,0 +1,91 @@
+// std.json unit 1: accessor behavior across present / absent / wrong-type —
+// `is_null`/`as_bool`/`as_int`/`as_text`/`as_array`/`as_object`, each on a
+// value of its own type (present), a value of a DIFFERENT type (wrong-type,
+// answers `None`/`false` cleanly rather than panicking), and a member/index
+// that does not exist (absent, through `as_object()!.get`/`as_array()!.get`
+// composition — see `as_array`/`as_object`'s doc comments for why there is
+// no combined `member`/`element` accessor).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// is_null on null: true
+// is_null on number: false
+// as_bool on bool: true
+// as_bool on number: none
+// as_int on number: 7
+// as_int on text: none
+// as_text on text: hi
+// as_text on array: none
+// as_array on array: len=2
+// as_array on object: none
+// as_object on object: present
+// as_object on array: none
+// element present: 20
+// element absent: none
+// member present: 1
+// member absent: none
+
+import std.json.{JsonValue}
+
+func main() {
+    let n = JsonValue.Null
+    let num = JsonValue.Number(value: 7)
+    let bt = JsonValue.Bool(value: true)
+    let txt = JsonValue.Text(value: "hi")
+    var items = Vector<JsonValue>()
+    try! items.push(JsonValue.Number(value: 10))
+    try! items.push(JsonValue.Number(value: 20))
+    let arr = JsonValue.Array(items: move items)
+    var fields = Map<String, JsonValue>()
+    let _ = fields.insert("a", JsonValue.Number(value: 1))
+    let obj = JsonValue.Object(fields: move fields)
+
+    print("is_null on null: {}", n.is_null())
+    print("is_null on number: {}", num.is_null())
+
+    print("as_bool on bool: {}", bt.as_bool() ?? false)
+    print("as_bool on number: {}", if let _ = num.as_bool() { "some" } else { "none" })
+
+    print("as_int on number: {}", num.as_int() ?? -1)
+    print("as_int on text: {}", if let _ = txt.as_int() { "some" } else { "none" })
+
+    print("as_text on text: {}", txt.as_text() ?? "?")
+    print("as_text on array: {}", if let _ = arr.as_text() { "some" } else { "none" })
+
+    if let _ = arr.as_array() {
+        print("as_array on array: len={}", arr.as_array()!.len())
+    } else {
+        print("as_array on array: none")
+    }
+    print("as_array on object: {}", if let _ = obj.as_array() { "some" } else { "none" })
+
+    if let _ = obj.as_object() {
+        print("as_object on object: present")
+    } else {
+        print("as_object on object: absent")
+    }
+    print("as_object on array: {}", if let _ = arr.as_object() { "some" } else { "none" })
+
+    // element by index: as_array() + Vector's own get()/[]
+    if let _ = arr.as_array()!.get(1) {
+        print("element present: {}", arr.as_array()!.get(1)!.as_int() ?? -1)
+    } else {
+        print("element present: none")
+    }
+    if let _ = arr.as_array()!.get(9) {
+        print("element absent: {}", arr.as_array()!.get(9)!.as_int() ?? -1)
+    } else {
+        print("element absent: none")
+    }
+
+    // member by key: as_object() + Map's own get()
+    if let _ = obj.as_object()!.get("a") {
+        print("member present: {}", obj.as_object()!.get("a")!.as_int() ?? -1)
+    } else {
+        print("member present: none")
+    }
+    if let _ = obj.as_object()!.get("z") {
+        print("member absent: {}", obj.as_object()!.get("z")!.as_int() ?? -1)
+    } else {
+        print("member absent: none")
+    }
+}

@@ -1,0 +1,61 @@
+// std.json unit 1: destruction sanity. `JsonValue` has no case that carries
+// a user-supplied payload (unlike `examples/recursive_enum_through_vector_
+// payload.saw`'s `Json.Leaf(r: Res)`), so there is nothing to hang a
+// DEINIT print on directly — every leaf is a `Text`/`Number`/`Bool`, and
+// the containers are `Vector`/`Map`, whose own teardown is std's, not this
+// unit's, to instrument. What this unit CAN and DOES prove: a tree built
+// 40 array levels deep (well past the `max_depth` boundary the DECODER
+// enforces, since here the tree is built directly rather than parsed) tears
+// down cleanly on an ordinary scope exit — no panic, no crash, no hang —
+// which is exactly the failure mode a double-free or an unbalanced release
+// in the recursive-type machinery would produce. `EXPECT: success` on the
+// last print is the oracle: if teardown corrupted anything, this test would
+// panic or the process would not reach it.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// built depth 40
+// nodes counted: 41
+// dropped cleanly
+
+import std.json.{JsonValue}
+
+// Counts every node visited: each `Array` wrapper is 1 plus its children's
+// counts, and the terminal `Object` (this walk does not descend into it —
+// see the accessors test for member-by-key composition) is 1.
+func count_nodes(v: &JsonValue) -> Int {
+    if let _ = v.as_array() {
+        var total = 1
+        var i = 0
+        while i < v.as_array()!.len() {
+            total = total + count_nodes(&v.as_array()![i])
+            i = i + 1
+        }
+        return total
+    }
+    return 1
+}
+
+func main() {
+    // Build [ [ [ ... [0] ... ] ] ] 40 levels deep, plus one Object at the
+    // very bottom holding an Array leaf and a Text leaf, so both recursive
+    // container kinds tear down together.
+    var fields = Map<String, JsonValue>()
+    var leaf_items = Vector<JsonValue>()
+    try! leaf_items.push(JsonValue.Number(value: 0))
+    let _ = fields.insert("nums", JsonValue.Array(items: move leaf_items))
+    let _ = fields.insert("tag", JsonValue.Text(value: "bottom"))
+    var current = JsonValue.Object(fields: move fields)
+
+    var depth = 0
+    while depth < 40 {
+        var items = Vector<JsonValue>()
+        try! items.push(move current)
+        current = JsonValue.Array(items: move items)
+        depth = depth + 1
+    }
+    print("built depth {}", depth)
+    print("nodes counted: {}", count_nodes(&current))
+
+    let _ = move current
+    print("dropped cleanly")
+}
