@@ -2546,7 +2546,9 @@ class ExpressionsMixin:
                         hint="give explicit type arguments or labels to select "
                              "one; matching: " + "; ".join(
                                  self._format_overload_candidate(
-                                     display_name, c, is_method)
+                                     display_name, c, is_method,
+                                     with_origin=self._candidates_span_modules(
+                                         [s[0] for s in solved]))
                                  + " with "
                                  + self._format_solved_type_args(c, ta)
                                  for c, _m, ta in solved))

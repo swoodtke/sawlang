@@ -801,8 +801,11 @@ class Namespace:
         self.function_overloads.setdefault(name, []).append(symbol)
         key = tuple(getattr(symbol, 'def_module', ()) or ())
         bucket = self.module_function_overloads.setdefault(key, {})
-        if symbol not in bucket.setdefault(name, []):
-            bucket[name].append(symbol)
+        filed = bucket.setdefault(name, [])
+        # By IDENTITY: `FunctionSymbol` compares by value, and two declarations
+        # are two declarations however alike their fields look.
+        if not any(s is symbol for s in filed):
+            filed.append(symbol)
         self.bind_function_module(name, key)
         if name not in self.functions:
             self.functions[name] = symbol

@@ -1892,7 +1892,28 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                 ns.note_private_import(local, std_source)
             # Register an aliased copy so the local name resolves to the symbol
             # (unaliased just un-gates the already-merged symbol).
-            if local != name:
+            #
+            # Design 249: FUNCTIONS come from THIS leaf's own declarations, by
+            # identity, and the whole overload set comes with the name. The
+            # `ns.functions` table below is keyed by bare name and holds
+            # whichever module registered it first, so a name two std files own
+            # (`json.encode` beside `cbor.encode`) bound the other file's
+            # function under the alias.
+            own_fns = (
+                builtin_namespace.lookup_module_function_overloads(
+                    name, ("<std>", leaf)) if local != name else [])
+            if own_fns:
+                import dataclasses
+                for fn in own_fns:
+                    # DF-187a: a function's namespace KEY is also its codegen
+                    # name unless `mangled_name` says otherwise, so a second
+                    # spelling needs the original carried as the mangled name.
+                    # A COPY — mutating the shared std symbol would rename the
+                    # definition out from under std itself.
+                    if not getattr(fn, 'mangled_name', ""):
+                        fn = dataclasses.replace(fn, mangled_name=name)
+                    ns.register_bare_function(local, fn)
+            elif local != name:
                 for table, reg in (
                     (ns.structs, ns.register_struct),
                     (ns.enums, ns.register_enum),
