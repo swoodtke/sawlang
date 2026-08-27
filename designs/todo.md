@@ -140,13 +140,27 @@ for sawos; "238 before more M3 work" is absolute.
   `internal compiler error: builtins failed to type-check` / ``function
   `encode` is already defined with an indistinguishable signature`` at
   `builtins:1114:8`. The two are import-gated members of separate design-82
-  file-modules; nothing should collide. Mechanism hypothesis: a uniqueness
-  check over ONE flat "builtins" surface, predating design 82/150's
-  per-file-module scoping that the rest of name resolution follows.
-  Obligation-4 sweep owed at fix time: does the same flat check hit USER
-  packages (two dep modules exporting a same-named generic), or only the
-  std-compiled-as-builtins path? std.json shipped `encode_json` instead —
-  a rename, not a semantic workaround; the fix frees the natural name.
+  file-modules; nothing should collide. MECHANISM VERIFIED (lead, Aug 27):
+  `namespace.function_overloads` is ONE FLAT dict keyed by bare name
+  (`sawc/namespace.py:762-774`) — free-function symbols carry no module
+  key — and the design-53/55 declaration-site ambiguity check
+  (`typechecker/registration.py:925-949`) compares shape keys (params/arity
+  only; return type rightly excluded) against EVERY registration under the
+  name, cross-module. "builtins" in the message is only the reporting wrapper
+  (`sawc.py:467`) because std typechecks in the builtins pass — the registry
+  is compilation-wide, so the mechanism reaches USER modules too, where
+  DF-242b/c (cross-module overload sets bound bare as a single overload;
+  suffixed literals not disambiguating) are already-filed faces of the same
+  unkeyed-symbol family. The contrast is in the same file: STATICS got the
+  per-module overlay at DF-140h (`namespace.py:776-789`) and TYPE identity
+  is (module, name) since design 144 — free functions are the last unkeyed
+  symbol kind. Fix shape: module-key the function registry the way DF-140h
+  keyed statics; scope the ambiguity check to same-module declarations plus
+  genuine one-scope collisions (bare-import overlap reports at the
+  import/call, per design 150), and re-probe DF-242b/c against it — the fix
+  brief should treat all three as one family. std.json shipped `encode_json`
+  meanwhile — a rename, not a semantic workaround; the fix frees the
+  natural name.
 
 ## DF-266a — a leading-minus tail after an `if { return }` block is an ICE
 ## (filed Aug 27 by the std.json build; lead-verified)
