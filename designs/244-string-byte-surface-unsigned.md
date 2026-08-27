@@ -79,12 +79,41 @@ a pointer, which is what makes the migration mechanical.
 named "char", and the language deliberately has no Char type (scalars are
 `Int`). The doctrine is "APIs do the expected thing": a reader handed
 `append_char(c: UInt8)` will pass a scalar and be wrong the moment it exceeds
-one byte. RECOMMENDATION: rename to `index_of_byte` / `last_index_of_byte` /
-`append_byte` in the same migration — ~83 call sites outside std already need
-no edit for the type flip alone (bare literals adopt the new context), so the
-rename is the only reason those sites would be touched; one migration beats
-two. If the rename is declined, the type flip proceeds alone and the naming
-question dies here with that ruling recorded.
+one byte. Three spellings were weighed (the overload question raised by the
+user, Aug 27):
+
+**An `append(UInt8)` OVERLOAD is rejected**, four grounds. (1) The existing
+`append` family means "append the TEXTUAL RENDERING" — `append(port)` writes
+`1234` — where a raw-byte append is a different operation; one name would
+mean text-or-bytes by inferred integer width. (2) It booby-traps this very
+migration: the flip retypes byte values to `UInt8` tree-wide, and any
+`sb.append(v)` whose `v` flips would silently switch from digits to a raw
+byte — compiles clean, output corrupted. (3) Design 137 deliberately keeps a
+bare literal width-flexible and documents the `h(Int)`-vs-`h(Int8)` pair as
+AMBIGUOUS, so today's legal `sb.append(65)` becomes an error the moment the
+byte overload joins the set. (4) The suffix escape hatch is DF-242c's open
+bug — a suffixed literal fails to disambiguate exactly an Int-vs-narrow set.
+The Swift-style middle path (a mandatory-label `append(byte:)` selector)
+does not exist in Saw: the lenient model (design 66) makes a positional call
+legal wherever unambiguous, so a declaration cannot require its label and
+the spelling collapses back into (2)-(4).
+
+**The `index_of` pair is the opposite case**: `index_of(needle: UInt8)`
+beside a future `index_of(needle: String)` is ONE operation (find the byte
+offset) over two needle types — coherent overloading, and the String-needle
+search is a real filed appetite (both dogfood clients hand-rolled `find_sub`
+because std.string has only the single-byte form; design 215 brief, "what
+the port needs").
+
+RECOMMENDATION, split accordingly: `append_char` -> **`append_byte`** (a
+distinct name for a distinct operation); `index_of_char` /
+`last_index_of_char` -> **`index_of` / `last_index_of`** (the overload set
+the String-needle search later joins — that search is NOT in this brief's
+scope, only the name that leaves room for it). ~83 call sites outside std
+need no edit for the type flip alone (bare literals adopt the new context),
+so the renames are the only reason those sites are touched; one migration
+beats two. If the renames are declined, the type flip proceeds alone and
+this section records the ruling either way.
 
 ## 5. Consumer sweep (obligation 2)
 
