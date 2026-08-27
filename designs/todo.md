@@ -51,6 +51,7 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-225o — reemit divergence under load (entry below)
 - Design 231 — native-compiler readiness ledger (designs/231-native-compiler.md). ELEVATED to a V1.0 GATE (user, Aug 24): the self-hosted story lands BEFORE v1.0 — a compiled compiler is what retires the D-b install/version simplifications
 - Design 243 — trailing-brace call syntax (designs/243-trailing-brace.md; BACKLOGGED by user Aug 24, "a nice usability win, maybe not right now") — the scope ruling (spawn-family-only vs general) is the first question when pulled
+- Design 245 — `Scalar`, the Unicode scalar type (designs/245-unicode-scalar-type.md; scoping brief Aug 27, headline endorsed by user — `chars()` prints characters — questions unruled). Scalar literals are the load-bearing ruling; after 244
 - Blade out-of-tree target plugins — moves `sosimg.saw` + `imgformat` out of sawlang entirely and SUPERSEDES 238's D-a; user Aug 19: "probably the way forward in the future". NOT a dependency of 238 (entry: designs/238-sawos-split.md, D-a alternatives)
 - M4 seeds — IPC/pipes (renamed from channels Aug 20 — ratified record in spec §2.1 + the done file), dynamic loading, IOMMU, SMP (references in designs/232-sos-m3-sketch.md)
 - ESP32 path — P4 + TCP/IP stack ultimate goal; S3 via FreeRTOS-fakery stage 2 (HARDWARE PATH entry below)
