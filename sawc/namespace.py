@@ -849,9 +849,12 @@ class Namespace:
 
         The identity-keyed read: it answers about ONE module's declarations and
         never about what that module imported. Callers: the declaration-site
-        ambiguity check (`_register_function`), the codegen-symbol stamping
-        (`_stamp_overload_symbols`), and the per-std-file qualifier view
-        (`_std_leaf_namespace`)."""
+        ambiguity check (`_register_function`), the per-std-file qualifier view
+        (`_std_leaf_namespace`), and the aliasing arm of the std import
+        (`_process_std_import._expose`). Two more read the table directly
+        because they walk it rather than query it — the codegen-symbol
+        stampings, `_stamp_overload_symbols` (every module of this pass) and
+        `_stamp_module_private_functions` (this module's own bucket)."""
         return self.module_function_overloads.get(tuple(module), {}).get(name, [])
 
     def lookup_function_overloads(
@@ -879,7 +882,11 @@ class Namespace:
           - `_check_funcpointer_named_function` + `_check_identifier`'s
             FuncPointer arm — a named function in a `FuncPointer<F>` slot
           - `_reinterpret_struct_init_as_call` — the labeled-call reroute
-          - `_std_leaf_namespace` — building a std file's qualifier view
+          - `check_module`'s three bare-binding arms — the glob, the selective
+            import and the parent-module inherit, each asking the SOURCE
+            namespace for the whole set a name stands for (DF-242b)
+          - `lookup_function` below, which is how every single-symbol reader
+            (`get_function_info` and its callers) sees the same answer
         """
         cands = self.function_overloads.get(name, [])
         if len(cands) < 2:
