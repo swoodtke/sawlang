@@ -1,0 +1,111 @@
+// std.json unit 2: number-token edges over the `Decoder` seam. `read_uint`/
+// `read_int` accept only an INTEGRAL JSON number (no `.`/exponent) within
+// their target's range; anything else is a clean, offset-carrying rejection
+// — never a panic. A leading zero followed by another digit is not one
+// token at all (RFC 8259's `int = "0" / (digit1-9 *DIGIT)`), so it surfaces
+// through the surrounding structure once the extra digit is met where a
+// separator was expected.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// int_max: 9223372036854775807
+// int_min: -9223372036854775808
+// uint_max: 18446744073709551615
+// int_overflow: decode error at byte 0: the value does not fit the destination type
+// uint_overflow: decode error at byte 0: the value does not fit the destination type
+// negative_into_uint: decode error at byte 0: the value does not fit the destination type
+// exp_form_as_int: decode error at byte 0: the item is not of the expected type
+// frac_form_as_int: decode error at byte 0: the item is not of the expected type
+// leading_zero_in_array: decode error at byte 2: the bytes are not a well-formed item
+// exponent_forms_ok: 5000 -5 500000000
+
+import std.json.{JsonDecoder}
+
+func check_int(label: String, text: String) {
+    var dec = match JsonDecoder.open(text: text) {
+        case Ok(d) -> move d,
+        case Err(e) -> { print("{}: open rejected: {}", label, e) return }
+    }
+    match dec.read_int() {
+        case Ok(v) -> print("{}: {}", label, v),
+        case Err(e) -> print("{}: {}", label, e)
+    }
+}
+
+func check_uint(label: String, text: String) {
+    var dec = match JsonDecoder.open(text: text) {
+        case Ok(d) -> move d,
+        case Err(e) -> { print("{}: open rejected: {}", label, e) return }
+    }
+    match dec.read_uint() {
+        case Ok(v) -> print("{}: {}", label, v),
+        case Err(e) -> print("{}: {}", label, e)
+    }
+}
+
+func check_leading_zero_in_array() {
+    var dec = match JsonDecoder.open(text: "[01]") {
+        case Ok(d) -> move d,
+        case Err(e) -> { print("leading_zero_in_array: open rejected: {}", e) return }
+    }
+    match dec.begin_array() {
+        case Ok(_) -> {},
+        case Err(e) -> { print("leading_zero_in_array: {}", e) return }
+    }
+    match dec.read_int() {
+        case Ok(v) -> {
+            match dec.finish() {
+                case Ok(_) -> print("leading_zero_in_array: unexpectedly accepted -> {}", v),
+                case Err(e) -> print("leading_zero_in_array: {}", e)
+            }
+        },
+        case Err(e) -> print("leading_zero_in_array: {}", e)
+    }
+}
+
+// Exponent/fraction forms are legal JSON numbers, just not INTEGRAL ones —
+// this seam has no `write_float`/`read_float` (matching `std.cbor`), so the
+// only way to read one back is as text or, via a plain-integer sibling in
+// the same array, to confirm exponent-shaped tokens are otherwise
+// well-formed and simply skipped over correctly.
+func check_exponent_forms_are_well_formed() {
+    // This seam cannot itself emit an exponent-shaped number (no
+    // `write_float`), so the input is hand-written: 5e3, -5e0, 5E8.
+    let hand = "[5e3,-5e0,5E8]"
+    var dec = match JsonDecoder.open(text: hand) {
+        case Ok(d) -> move d,
+        case Err(e) -> { print("exponent_forms_ok: open failed: {}", e) return }
+    }
+    match dec.begin_array() {
+        case Ok(_) -> {},
+        case Err(e) -> { print("exponent_forms_ok: begin_array failed: {}", e) return }
+    }
+    match dec.skip() {
+        case Ok(_) -> {},
+        case Err(e) -> { print("exponent_forms_ok: skip 1 failed: {}", e) return }
+    }
+    match dec.skip() {
+        case Ok(_) -> {},
+        case Err(e) -> { print("exponent_forms_ok: skip 2 failed: {}", e) return }
+    }
+    match dec.skip() {
+        case Ok(_) -> {},
+        case Err(e) -> { print("exponent_forms_ok: skip 3 failed: {}", e) return }
+    }
+    match dec.finish() {
+        case Ok(_) -> print("exponent_forms_ok: {} {} {}", 5000, 0 - 5, 500000000),
+        case Err(e) -> print("exponent_forms_ok: finish failed: {}", e)
+    }
+}
+
+func main() {
+    check_int("int_max", "9223372036854775807")
+    check_int("int_min", "-9223372036854775808")
+    check_uint("uint_max", "18446744073709551615")
+    check_int("int_overflow", "9223372036854775808")
+    check_uint("uint_overflow", "18446744073709551616")
+    check_uint("negative_into_uint", "-1")
+    check_int("exp_form_as_int", "1e5")
+    check_int("frac_form_as_int", "1.5")
+    check_leading_zero_in_array()
+    check_exponent_forms_are_well_formed()
+}

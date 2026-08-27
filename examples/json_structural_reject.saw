@@ -1,0 +1,163 @@
+// std.json unit 2: the structural rejections — trailing content after the
+// top-level value, a trailing comma in an array or object, an unterminated
+// string/array/object, and the nesting-depth limit — each verifying the
+// reported byte offset. Malformed input never panics: every one of these is
+// a clean `Err(DecodeError)`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// trailing_bytes: decode error at byte 2: bytes remain after the top-level item
+// trailing_comma_array: decode error at byte 5: the bytes are not a well-formed item
+// trailing_comma_object: decode error at byte 7: the bytes are not a well-formed item
+// unterminated_string: decode error at byte 0: the input ended in the middle of an item
+// unterminated_array: decode error at byte 4: the input ended in the middle of an item
+// unterminated_object: decode error at byte 6: the input ended in the middle of an item
+// depth_ok_at_limit: opened
+// depth_exceeds_limit: decode error at byte 3: nesting is deeper than the decoder allows
+// duplicate_key_last_wins: a=2
+
+import std.json.{JsonDecoder}
+
+func check_trailing_bytes() {
+    var dec = match JsonDecoder.open(text: "1 2") {
+        case Ok(d) -> move d,
+        case Err(e) -> { print("trailing_bytes: open rejected: {}", e) return }
+    }
+    match dec.read_int() {
+        case Ok(_) -> {},
+        case Err(e) -> { print("trailing_bytes: read failed: {}", e) return }
+    }
+    match dec.finish() {
+        case Ok(_) -> print("trailing_bytes: unexpectedly accepted"),
+        case Err(e) -> print("trailing_bytes: {}", e)
+    }
+}
+
+func check_trailing_comma_array() {
+    var dec = match JsonDecoder.open(text: "[1,2,]") {
+        case Ok(d) -> move d,
+        case Err(e) -> { print("trailing_comma_array: open rejected: {}", e) return }
+    }
+    match dec.begin_array() {
+        case Ok(n) -> print("trailing_comma_array: begin_array unexpectedly returned {}", n),
+        case Err(e) -> print("trailing_comma_array: {}", e)
+    }
+}
+
+func check_trailing_comma_object() {
+    var dec = match JsonDecoder.open(text: "\{\"a\":1,}") {
+        case Ok(d) -> move d,
+        case Err(e) -> { print("trailing_comma_object: open rejected: {}", e) return }
+    }
+    match dec.begin_map() {
+        case Ok(n) -> print("trailing_comma_object: begin_map unexpectedly returned {}", n),
+        case Err(e) -> print("trailing_comma_object: {}", e)
+    }
+}
+
+func check_unterminated_string() {
+    var dec = match JsonDecoder.open(text: "\"abc") {
+        case Ok(d) -> move d,
+        case Err(e) -> { print("unterminated_string: open rejected: {}", e) return }
+    }
+    match dec.read_text() {
+        case Ok(s) -> print("unterminated_string: unexpectedly accepted -> {}", s),
+        case Err(e) -> print("unterminated_string: {}", e)
+    }
+}
+
+func check_unterminated_array() {
+    var dec = match JsonDecoder.open(text: "[1,2") {
+        case Ok(d) -> move d,
+        case Err(e) -> { print("unterminated_array: open rejected: {}", e) return }
+    }
+    match dec.begin_array() {
+        case Ok(n) -> print("unterminated_array: begin_array unexpectedly returned {}", n),
+        case Err(e) -> print("unterminated_array: {}", e)
+    }
+}
+
+func check_unterminated_object() {
+    var dec = match JsonDecoder.open(text: "\{\"a\":1") {
+        case Ok(d) -> move d,
+        case Err(e) -> { print("unterminated_object: open rejected: {}", e) return }
+    }
+    match dec.begin_map() {
+        case Ok(n) -> print("unterminated_object: begin_map unexpectedly returned {}", n),
+        case Err(e) -> print("unterminated_object: {}", e)
+    }
+}
+
+func check_depth() {
+    // Exactly 3 levels of nesting under max_depth 3: legal.
+    var dec_ok = match JsonDecoder.open(text: "[[[0]]]", max_depth: 3) {
+        case Ok(d) -> move d,
+        case Err(e) -> { print("depth_ok_at_limit: {}", e) return }
+    }
+    match dec_ok.begin_array() {
+        case Ok(_) -> print("depth_ok_at_limit: opened"),
+        case Err(e) -> print("depth_ok_at_limit: {}", e)
+    }
+
+    // A 4th level under the same limit is refused.
+    var dec_bad = match JsonDecoder.open(text: "[[[[0]]]]", max_depth: 3) {
+        case Ok(d) -> move d,
+        case Err(e) -> { print("depth_exceeds_limit: {}", e) return }
+    }
+    match dec_bad.begin_array() {
+        case Ok(_) -> print("depth_exceeds_limit: unexpectedly opened"),
+        case Err(e) -> print("depth_exceeds_limit: {}", e)
+    }
+}
+
+// Duplicate object keys: last-wins (a pinned default — flagged as OPEN in
+// this brief's final report; RFC 8259 leaves the policy unspecified).
+// Exercised through the `Decoder` methods directly into a `Map<String, Int>`
+// — see `examples/json_map_keys.saw` for `Map` round-tripped through a
+// hand-written `Serialize`/`Deserialize` pair.
+func check_duplicate_key_last_wins() {
+    // The wire form has "a" twice; a real encoder never emits that (map keys
+    // are unique by construction), so this is deliberately hand-assembled.
+    let text = "\{\"a\":1,\"a\":2}"
+    var dec = match JsonDecoder.open(text: text) {
+        case Ok(d) -> move d,
+        case Err(e) -> { print("duplicate_key_last_wins: open failed: {}", e) return }
+    }
+    let n = match dec.begin_map() {
+        case Ok(c) -> c,
+        case Err(e) -> { print("duplicate_key_last_wins: begin_map failed: {}", e) return }
+    }
+    var m = Map<String, Int>()
+    var i = 0
+    while i < n {
+        let k = match dec.read_text() {
+            case Ok(s) -> s,
+            case Err(e) -> { print("duplicate_key_last_wins: key failed: {}", e) return }
+        }
+        let v = match dec.read_int() {
+            case Ok(x) -> x,
+            case Err(e) -> { print("duplicate_key_last_wins: value failed: {}", e) return }
+        }
+        let _ = m.insert(k, v)
+        i = i + 1
+    }
+    match dec.finish() {
+        case Ok(_) -> {},
+        case Err(e) -> { print("duplicate_key_last_wins: trailing: {}", e) return }
+    }
+    if let v = m.get("a") {
+        print("duplicate_key_last_wins: a={}", v)
+    } else {
+        print("duplicate_key_last_wins: key missing")
+    }
+}
+
+func main() {
+    check_trailing_bytes()
+    check_trailing_comma_array()
+    check_trailing_comma_object()
+    check_unterminated_string()
+    check_unterminated_array()
+    check_unterminated_object()
+    check_depth()
+    check_duplicate_key_last_wins()
+}

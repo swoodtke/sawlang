@@ -1,0 +1,110 @@
+// std.json unit 2: the full string-escape grid — every RFC 8259 short
+// escape round-trips, a `\uXXXX` BMP escape and a surrogate-pair astral
+// escape both decode to the right scalar, and a lone/invalid surrogate is
+// rejected as `Malformed` at the escape's own offset. A raw (unescaped)
+// control byte in a string literal is rejected the same way.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// short_escapes -> "\"\\/\b\f\n\r\t" -> roundtrip OK
+// bmp_escape decoded: e9
+// astral_surrogate_pair decoded: 1f600
+// lone_high_surrogate: decode error at byte 1: the bytes are not a well-formed item
+// lone_low_surrogate: decode error at byte 1: the bytes are not a well-formed item
+// high_then_non_low_surrogate: decode error at byte 1: the bytes are not a well-formed item
+// high_not_followed_by_escape: decode error at byte 1: the bytes are not a well-formed item
+// raw_control_byte: decode error at byte 1: the bytes are not a well-formed item
+
+import std.json.{JsonEncoder, JsonDecoder}
+
+func check_short_escapes() {
+    // '"' '\' '/' BS FF LF CR TAB, written raw into a Saw string via escapes.
+    let s = "\"\\/\u{8}\u{c}\n\r\t"
+    var enc = JsonEncoder()
+    match enc.write_text(s) {
+        case Ok(_) -> {},
+        case Err(e) -> { print("short_escapes write failed: {}", e) return }
+    }
+    let text = match enc.finish() {
+        case Ok(t) -> t,
+        case Err(e) -> { print("short_escapes finish failed: {}", e) return }
+    }
+    var dec = match JsonDecoder.open(text: text) {
+        case Ok(d) -> move d,
+        case Err(e) -> { print("short_escapes open failed: {}", e) return }
+    }
+    match dec.read_text() {
+        case Ok(back) -> {
+            if back.equals(s) {
+                print("short_escapes -> {} -> roundtrip OK", text)
+            } else {
+                print("short_escapes -> {} -> MISMATCH", text)
+            }
+        },
+        case Err(e) -> print("short_escapes read failed: {}", e)
+    }
+}
+
+// Decodes `text` as a lone string and prints the hex codepoint of its first
+// (only) scalar, read back through `chars()`.
+func check_decodes_to_scalar(label: String, text: String) {
+    var dec = match JsonDecoder.open(text: text) {
+        case Ok(d) -> move d,
+        case Err(e) -> { print("{} open failed: {}", label, e) return }
+    }
+    match dec.read_text() {
+        case Ok(back) -> {
+            var scalar = -1
+            for c in back.chars() {
+                scalar = c
+            }
+            print("{} decoded: {}", label, to_hex(scalar))
+        },
+        case Err(e) -> print("{}: {}", label, e)
+    }
+}
+
+func to_hex(n: Int) -> String {
+    if n == 0 {
+        return "0"
+    }
+    var digits = Vector<Int>()
+    var v = n
+    while v > 0 {
+        try! digits.push(v % 16)
+        v = v / 16
+    }
+    var sb = StringBuilder()
+    var i = digits.len() - 1
+    while i >= 0 {
+        let d = digits[i]
+        if d < 10 {
+            try! sb.append_char(Int8.from(truncating: 48 + d))
+        } else {
+            try! sb.append_char(Int8.from(truncating: 97 + (d - 10)))
+        }
+        i = i - 1
+    }
+    sb.build()
+}
+
+func check_reject(label: String, text: String) {
+    var dec = match JsonDecoder.open(text: text) {
+        case Ok(d) -> move d,
+        case Err(e) -> { print("{}: {}", label, e) return }
+    }
+    match dec.read_text() {
+        case Ok(back) -> print("{}: unexpectedly accepted -> {}", label, back),
+        case Err(e) -> print("{}: {}", label, e)
+    }
+}
+
+func main() {
+    check_short_escapes()
+    check_decodes_to_scalar("bmp_escape", "\"\\u00e9\"")
+    check_decodes_to_scalar("astral_surrogate_pair", "\"\\ud83d\\ude00\"")
+    check_reject("lone_high_surrogate", "\"\\ud800\"")
+    check_reject("lone_low_surrogate", "\"\\udc00\"")
+    check_reject("high_then_non_low_surrogate", "\"\\ud800\\u0041\"")
+    check_reject("high_not_followed_by_escape", "\"\\ud800x\"")
+    check_reject("raw_control_byte", "\"\n\"")
+}

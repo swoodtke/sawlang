@@ -1,0 +1,158 @@
+// std.json unit 2: a struct carrying every field shape `@synthesize` can
+// derive `Serialize`/`Deserialize` for — Int, Bool, String, Optional,
+// Vector, a nested struct and a raw-backed enum — written to JSON text and
+// read back, byte-checked against the exact compact rendering. A struct
+// serializes as a JSON ARRAY of its fields, not an object (design 169
+// decision 2 — format-agnostic, unchanged by the target format), which is
+// why the printed text is bracketed rather than braced.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// endpoint text: [443,true,"api",null,[1,2,3],["h",80]]
+// endpoint back: port=443 secure=true name=api tag=none nums=1,2,3 inner=h:80
+// empty vector text: [[]]
+// empty vector back len: 0
+// track debug -> 0 -> Debug
+// track release -> 7 -> Release
+
+import std.json.{JsonEncoder, JsonDecoder}
+
+struct Inner {
+    host: String
+    port: Int
+}
+
+@synthesize
+extension Inner: Serialize {}
+@synthesize
+extension Inner: Deserialize {}
+
+struct Endpoint {
+    port: Int
+    secure: Bool
+    name: String
+    tag: String?
+    nums: Vector<Int>
+    inner: Inner
+}
+
+@synthesize
+extension Endpoint: Serialize {}
+@synthesize
+extension Endpoint: Deserialize {}
+
+extension Endpoint: NoCopy {}
+
+enum Track: UInt8 {
+    case Debug = 0,
+    case Release = 7
+}
+
+@synthesize
+extension Track: Serialize {}
+@synthesize
+extension Track: Deserialize {}
+
+func encode_endpoint(e: &Endpoint) -> Result<String, EncodeError> {
+    var enc = JsonEncoder()
+    try e.serialize(to: &var enc)
+    return enc.finish()
+}
+
+func check_endpoint() {
+    var nums = Vector<Int>()
+    try! nums.push(1)
+    try! nums.push(2)
+    try! nums.push(3)
+    let inner = Inner(host: "h", port: 80)
+    let ep = Endpoint(port: 443, secure: true, name: "api", tag: None,
+                      nums: move nums, inner: move inner)
+    let text = match encode_endpoint(&ep) {
+        case Ok(t) -> t,
+        case Err(e) -> { print("endpoint encode failed: {}", e) return }
+    }
+    print("endpoint text: {}", text)
+
+    var dec = match JsonDecoder.open(text: text) {
+        case Ok(d) -> move d,
+        case Err(e) -> { print("endpoint decoder refused: {}", e) return }
+    }
+    match Endpoint.deserialize(from: &var dec) {
+        case Ok(back) -> {
+            match dec.finish() {
+                case Ok(_) -> {},
+                case Err(e) -> { print("endpoint trailing content: {}", e) return }
+            }
+            let tag = back.tag ?? "none"
+            print("endpoint back: port={} secure={} name={} tag={} nums={},{},{} inner={}:{}",
+                  back.port, back.secure, back.name, tag,
+                  back.nums[0], back.nums[1], back.nums[2],
+                  back.inner.host, back.inner.port)
+        },
+        case Err(e) -> print("endpoint decode failed: {}", e)
+    }
+}
+
+struct Nums {
+    v: Vector<Int>
+}
+
+@synthesize
+extension Nums: Serialize {}
+@synthesize
+extension Nums: Deserialize {}
+extension Nums: NoCopy {}
+
+func check_empty_vector() {
+    var v = Vector<Int>()
+    let n = Nums(v: move v)
+    var enc = JsonEncoder()
+    match n.serialize(to: &var enc) {
+        case Ok(_) -> {},
+        case Err(e) -> { print("empty vector encode failed: {}", e) return }
+    }
+    let text = match enc.finish() {
+        case Ok(t) -> t,
+        case Err(e) -> { print("empty vector finish failed: {}", e) return }
+    }
+    print("empty vector text: {}", text)
+    var dec = match JsonDecoder.open(text: text) {
+        case Ok(d) -> move d,
+        case Err(e) -> { print("empty vector decoder refused: {}", e) return }
+    }
+    match Nums.deserialize(from: &var dec) {
+        case Ok(back) -> print("empty vector back len: {}", back.v.len()),
+        case Err(e) -> print("empty vector decode failed: {}", e)
+    }
+}
+
+func check_track(t: Track, label: String) {
+    var enc = JsonEncoder()
+    match t.serialize(to: &var enc) {
+        case Ok(_) -> {},
+        case Err(e) -> { print("{} encode failed: {}", label, e) return }
+    }
+    let text = match enc.finish() {
+        case Ok(s) -> s,
+        case Err(e) -> { print("{} finish failed: {}", label, e) return }
+    }
+    var dec = match JsonDecoder.open(text: text) {
+        case Ok(d) -> move d,
+        case Err(e) -> { print("{} decoder refused: {}", label, e) return }
+    }
+    match Track.deserialize(from: &var dec) {
+        case Ok(back) -> {
+            match back {
+                case Debug -> print("{} -> {} -> Debug", label, text),
+                case Release -> print("{} -> {} -> Release", label, text)
+            }
+        },
+        case Err(e) -> print("{} decode failed: {}", label, e)
+    }
+}
+
+func main() {
+    check_endpoint()
+    check_empty_vector()
+    check_track(Track.Debug, "track debug")
+    check_track(Track.Release, "track release")
+}

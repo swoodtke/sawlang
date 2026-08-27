@@ -1,0 +1,131 @@
+// std.json unit 2: `Map<String, Int>` over the seam through a HAND-WRITTEN
+// `Serialize`/`Deserialize` pair — the derived `@synthesize` walk does not
+// cover `Map` (mirrors `std.cbor`'s own scope; see `sawc/std/serde.saw`'s
+// doc comment on what the walk covers). A JSON object key is always a
+// string by grammar, so a map keyed by anything else has no representation
+// here: `EncodeFault.Unsupported` on encode, and — since the bytes
+// themselves are invalid JSON regardless of which key type was intended —
+// `DecodeFault.Malformed` on decode.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// bag text: {"a":1,"b":2}
+// bag back: a=1 b=2 len=2
+// int_key_map: encode error: the value has no representation in this format
+// non_string_key_wire: decode error at byte 1: the bytes are not a well-formed item
+
+import std.json.{JsonEncoder, JsonDecoder}
+
+struct Bag {
+    m: Map<String, Int>
+}
+
+extension Bag: NoCopy {}
+
+extension Bag: Serialize {
+    func serialize(&self, to: &var any Encoder) sync -> Result<Void, EncodeError> {
+        try to.begin_map(self.m.len())
+        var first_err: EncodeError? = None
+        self.m.each({ [&var to, &var first_err] k, v in
+            if first_err.is_some() {
+                return
+            }
+            match to.write_text(k) {
+                case Ok(_) -> {},
+                case Err(e) -> { first_err = e return }
+            }
+            match to.write_int(v) {
+                case Ok(_) -> {},
+                case Err(e) -> { first_err = e }
+            }
+        })
+        if let e = first_err {
+            return e
+        }
+        return
+    }
+}
+
+extension Bag: Deserialize {
+    static func deserialize(from: &var any Decoder) sync -> Result<Bag, DecodeError> {
+        let n = try from.begin_map()
+        var m = Map<String, Int>()
+        var i = 0
+        while i < n {
+            let k = try from.read_text()
+            let v = try from.read_int()
+            match m.insert(k, v) {
+                case Ok(_) -> {},
+                case Err(_) -> { return DecodeError(offset: from.offset(), fault: DecodeFault.TooLarge) }
+            }
+            i = i + 1
+        }
+        return Bag(m: move m)
+    }
+}
+
+func check_map_roundtrip() {
+    var m = Map<String, Int>()
+    let _ = m.insert("a", 1)
+    let _ = m.insert("b", 2)
+    let bag = Bag(m: move m)
+    var enc = JsonEncoder()
+    match bag.serialize(to: &var enc) {
+        case Ok(_) -> {},
+        case Err(e) -> { print("bag encode failed: {}", e) return }
+    }
+    let text = match enc.finish() {
+        case Ok(t) -> t,
+        case Err(e) -> { print("bag finish failed: {}", e) return }
+    }
+    print("bag text: {}", text)
+    var dec = match JsonDecoder.open(text: text) {
+        case Ok(d) -> move d,
+        case Err(e) -> { print("bag decoder refused: {}", e) return }
+    }
+    match Bag.deserialize(from: &var dec) {
+        case Ok(back) -> {
+            match dec.finish() {
+                case Ok(_) -> {},
+                case Err(e) -> { print("bag trailing content: {}", e) return }
+            }
+            let a = back.m.get("a") ?? -1
+            let b = back.m.get("b") ?? -1
+            print("bag back: a={} b={} len={}", a, b, back.m.len())
+        },
+        case Err(e) -> print("bag decode failed: {}", e)
+    }
+}
+
+// A hand-assembled encode of a map keyed by an integer: `begin_map` then a
+// non-text write at the key position.
+func check_int_key_rejected() {
+    var enc = JsonEncoder()
+    match enc.begin_map(1) {
+        case Ok(_) -> {},
+        case Err(e) -> { print("int_key_map: begin_map failed: {}", e) return }
+    }
+    match enc.write_int(7) {
+        case Ok(_) -> print("int_key_map: unexpectedly accepted an Int key"),
+        case Err(e) -> print("int_key_map: {}", e)
+    }
+}
+
+// The wire form of a map with a bare (unquoted) key — invalid JSON
+// regardless of what key type was intended, so this is a structural
+// rejection at the byte itself.
+func check_non_string_key_wire() {
+    var dec = match JsonDecoder.open(text: "\{1:2}") {
+        case Ok(d) -> move d,
+        case Err(e) -> { print("non_string_key_wire: open rejected: {}", e) return }
+    }
+    match dec.begin_map() {
+        case Ok(n) -> print("non_string_key_wire: unexpectedly opened -> {}", n),
+        case Err(e) -> print("non_string_key_wire: {}", e)
+    }
+}
+
+func main() {
+    check_map_roundtrip()
+    check_int_key_rejected()
+    check_non_string_key_wire()
+}
