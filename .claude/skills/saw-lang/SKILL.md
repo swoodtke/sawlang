@@ -3279,6 +3279,43 @@ construct in the owner and lend `&driver` down.
   enum. Import-scoped lookup and the orphan rule apply unchanged. The ONE
   difference: no `init` — the cases are the constructors, and writing one is a
   clean error naming a static method as the way to compute which case to build.
+- **A TYPE MAY NAME ITSELF, THROUGH AN INDIRECTION (design 246).** A tree, a
+  list or a JSON value is written directly; the rule is that every cycle
+  crosses a heap indirection, because storage may not transitively contain its
+  own storage INLINE.
+  ```saw
+  enum Json {
+      case Number(n: Int),
+      case Items(items: Vector<Json>)      // Vector stores a pointer
+  }
+  extension Json: NoCopy {}                // owning payload — declare a policy
+
+  struct Node { value: Int, next: Box<Node>? }   // Box under the Optional
+  extension Node: NoCopy {}
+  ```
+  INLINE is: a struct field, an enum payload, a tuple element, an `Optional`
+  payload, a `[T; N]` element, and the same positions of any generic a member
+  instantiates. NOT inline: an `UnsafePointer`, a reference, a closure, an
+  `any Trait`. There is no container allowlist — `Vector`/`Box`/`Map` work
+  because their stored field is a pointer, and your own
+  `struct Wrap<T> { held: T }` keeps a cycle inline for the same reason read the
+  other way (a `struct Slot<T> { at: Box<T> }` breaks it, and owes the ordinary
+  `extension Slot<T>: NoCopy {}`). ONE indirected leg is enough, so a mutual
+  cycle may hold one side
+  inline (`Expr` holding `Vector<Term>` while `Term` holds an `Expr`). An
+  all-inline cycle is a clean located error naming the path
+  (``recursive type `Tree` has infinite size … through Tree.Node.child -> Tree``).
+  Copy policy is the ordinary one — `NoCopy`, or `@synthesize`d `ExplicitCopy`
+  whose derived `copy()` recurses — and destruction recurses to DATA depth, so
+  a structure thousands of levels deep can exhaust the stack when dropped.
+  EVERY cyclic shape was an internal compiler error before Aug 27
+  (``Undefined enum: Json``, once the demanded copy policy was declared), so
+  code that works around one with an index into a side `Vector` predates this.
+  TWO GOTCHAS while writing one: `Box` payload-method forwarding reaches a
+  STRUCT payload's methods and NOT an ENUM payload's (DF-261d), and an optional
+  chain through a `Box<T>?` field is an ICE (DF-261e) — so traverse a
+  box-linked ENUM by matching at each level you own rather than by
+  `next.walk()`.
 - An escaping closure (bound/returned/stored/`spawn`) is **Copy**
   over a refcounted heap env (like String/Arc): `let g = f` is a free
   refcount bump (both valid), and the captures are torn down exactly once

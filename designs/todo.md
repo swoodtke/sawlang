@@ -32,7 +32,7 @@ is scheduled and in what order is the whole of what they say.
 ## [QUEUE] — scheduled, in order (user-approved)
 
 - DF-215f fix — the suspending-match moved-payload double release (HEAD of queue, user Aug 26: a correctness bug outranks everything scheduled). Entry under design 215 below; the obligation-4 mechanism sweep (every frame home a moved-from value can still be released from — DF-242a and DF-255a are known siblings) comes FIRST and shapes the fix brief. SWEEP DONE Aug 27 (class confirmed and WIDENED — the return-crossing leg is falsified; the pin's `local_use` row asserts Clean and double-releases); fix brief designs/247-scrutinee-temp-migration.md AUTHORED + DISPATCHED same day — finish the 218-stage-2 migration of `FAM_SCRUTINEE_TEMP` to the take()-read encoding, expected to subsume the DF-218w residue; DF-242a/DF-255a NOT subsumed, stay open. Sweep incidentals filed as DF-262a/b (backlog)
-- Design 246 — recursive nominal types via indirection (designs/246-recursive-types.md; ruled + DISPATCHED Aug 27 on the user's "sooner is better", concurrent worktree — codegen registration + a typechecker size check, disjoint from 215f's transform territory and 245's scalar work). Carries DF-260a; unblocks std.json's `JsonValue` (design 215 stage D). Entry below
+- ~~Design 246~~ — recursive nominal types via indirection — LANDED Aug 27, entry below. `JsonValue` is writable; design 215 stage D unblocked
 - DF-265a fix — MODULE-KEY the free-function registry (the last unkeyed symbol kind; the DF-140h statics treatment, the design-144 type-identity precedent) and scope the declaration-site ambiguity check to one module (SCHEDULED Aug 27, user: directly after DF-215f). Entry below carries the verified mechanism; DF-242b (the bare cross-module overload face) is an EXPECTED CLOSURE, DF-242c is re-probed against it but its same-module cell says it will not dissolve. Fix brief owed at dispatch; frees `std.json.encode`'s natural name
 - Design 244 — the String byte surface goes unsigned (designs/244-string-byte-surface-unsigned.md; ruled Aug 26, after DF-215f and before design 209). The `*_char` naming rider is the one open ruling, wanted at or before dispatch
 - Design 245 v1 — `Scalar` + `scalars()`, `chars()` and `append_scalar` REMOVED (designs/245-unicode-scalar-type.md §6; ruled Aug 27 — no literals in v1, prelude placement — and DISPATCHED same day on the user's "now", disjoint from the two items above). Literals + patterns stay open as later units
@@ -76,7 +76,7 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-256b — the thread control block is DEALLOCATED at a size std computes by hand, and the two do not agree with the one codegen allocated (entry below, filed Aug 25 by design 242 unit 3b; PRE-EXISTING and inert on both hosted allocators, which free by pointer)
 - DF-257a — the two construction checkers SELECT an init differently, so an init with a defaulted parameter resolves at the bare spelling and is `no matching initializer` at the module-qualified one (entry below, filed Aug 25 by design 234 unit 3's hazard sweep; PRE-EXISTING, probe-refuted in both directions)
 - DF-257b — design 234 §5 keeps the `copy()` hook infallible, which leaves `Vector.try_copy` as the one alloc `try_` twin the flip cannot retire; owes a naming ruling (entry below, filed Aug 25 by design 234 unit 3)
-- DF-257c — a propagating `try` inside a GENERIC body is resolved once and reused across monomorphizations, so the SECOND instantiation extracts through the first's `Result` type and codegen emits unverifiable IR (entry below, filed Aug 25 by design 234 unit 3; PRE-EXISTING, minimal repro needs no `init`). Pinned XFAIL
+- ~~DF-257c~~ — CLOSED Aug 27 by design 246 unit B: the by-LLVM-type fallback stopped being ambiguous when a payload-carrying enum became an IDENTIFIED struct. Entry below; the pin is no longer an XFAIL
 - DF-257d — the `$0` closure shorthand is invisible to the implicit-parameter scan inside a `try` operand, so the closure infers arity 0 (entry below, filed Aug 25 by design 234 unit 3; PRE-EXISTING). Pinned XFAIL; the flip meets it because `try!` is the corpus migration spelling
 - DF-259a — `Box<any Trait>.make` sits outside design 234's flip, so one method name has two fallibilities and the erased one panics with a bare `allocation failed` (entry below, filed Aug 25 by the design-138 doc-sync sweep). This IS the 234 census's `existentials.py:402` hold, which never became a tracker entry — it owes the user ruling that brief deferred
 - DF-259b — a reserved word in any declaration-name position gives a bare "Expected X name" that never says the word is reserved; five slots, one shared report (entry below, filed Aug 25 by the design-138 doc-sync sweep; PRE-EXISTING). Diagnostic-only, so no XFAIL pin
@@ -91,11 +91,53 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-215i — no boolean `guard cond else { }`, only `guard let`; wants a ruling on whether the omission is deliberate (entry below, Aug 26)
 - DF-215j — `return` inside a VALUE match arm is a bare "Unexpected token: RETURN" with no arms-are-expressions hint; diagnostic-only (entry below, Aug 26)
 - DF-242d — conformance row K90's bounded GO spin re-opens its output race under suite load; flaky, seen once Aug 26 (entry below; oracle choice is a ruling)
+- DF-261c — `==` on an ENUM ignores a hand-written `Equatable.equals` and does the structural payload compare instead; the STRUCT arm one line above does ask (entry below, filed Aug 27 by design 246; PRE-EXISTING). No pin — the shape needs a non-Equatable payload to reach
+- DF-261d — `Box` payload-method forwarding reaches a STRUCT payload's methods and NOT an ENUM payload's, so a box-linked recursive enum has no Saw-level traversal (entry below, filed Aug 27 by design 246; PRE-EXISTING)
+- DF-261e — an optional chain through a `Box<T>?` FIELD is `BindOptional lowered outside an optional chain`, with no recursion involved (entry below, filed Aug 27 by design 246; PRE-EXISTING)
+- DF-261f — a directly recursive SUSPENDING function makes the coroutine transform recurse forever, and escapes the ICE funnel as a raw Python traceback (entry below, filed Aug 27 by design 246; PRE-EXISTING, verified against main). Two halves: wrap the transform, then refuse the shape
 
 
-## Design 246 — recursive nominal types via indirection (DF-260a; authored +
-## dispatched Aug 27)
+## Design 246 — recursive nominal types via indirection — LANDED Aug 27
+## (DF-260a CLOSED; authored + dispatched Aug 27)
 
+- STATUS: LANDED, three commits on `design-246-recursive-types`. All 14 matrix
+  rows are `examples/recursive_*.saw`; per-commit gate (full suite +
+  freestanding, both arches) green on each, terminal battery run at the end.
+  - Unit A — the typechecker inline-embedding funnel
+    (`_inline_embedding_edges` in `typechecker/types.py`, entry points named in
+    its docstring) plus `ErrorKind.RECURSIVE_TYPE` and the located diagnostic;
+    runs AHEAD of the containment checks in both `check` and `check_module`.
+    Staged so ONLY all-inline cycles changed behavior — the legal shapes still
+    ICEd after this commit, which is what kept it honest.
+  - Unit B — publish-before-lower in all four registration helpers
+    (`_register_struct`, `_register_concrete_enum`,
+    `_ensure_monomorphized_struct`, and `_ensure_monomorphized_enum` through
+    the concrete one), `_demand_register_type` for the cycle member the
+    ordering cannot reach, and `_finish_or_defer` for the body whose members
+    are not sized yet. Payload-carrying enums are IDENTIFIED structs now.
+  - Unit C — spec section "Recursive types", README, saw-lang skill, this
+    entry.
+- THE TOPOSORT STAYS, as an ordering heuristic only. Its `get_deps` edge set
+  states a hard edge for every type ARGUMENT of a generic field, including the
+  ones a container reaches only through a pointer — a strict SUPERSET of the
+  layout relation, and what used to drop a cyclic type into the concession at
+  `core.py:2404`. Left overstated deliberately: registration no longer depends
+  on the order at all, and narrowing the edges to Unit A's inline relation
+  would reshuffle emitted type order corpus-wide for no correctness gain. The
+  comment at the sort says so, so the edge set is not mistaken for a layout
+  claim again.
+- DESIGN 218 UNIT 1.5 OVERLAP: the publish-before-lower discipline lives IN
+  `_register_struct` / `_register_concrete_enum` /
+  `_ensure_monomorphized_struct` and in the shared `_finish_or_defer`, never at
+  a call site, so relocating the monomorphization callers carries it along. The
+  ONE thing 1.5 must not lose is `_get_llvm_type`'s two demand hooks
+  (`codegen/types.py`, the `Undefined struct:` and `Undefined enum:` arms):
+  those are what register a cycle member the caller reached before the loop did.
+- FOUND ALONGSIDE: DF-261a and DF-261b (both FIXED here — a helper re-entering
+  a guarded structural walk with a FRESH visiting set, twice: `copy_tier`'s
+  `_has_abstract_type_arg` and `_send_sync`'s `_satisfies_thread_bound`);
+  DF-261c/d/e (filed, open); DF-261f (filed, open, pre-existing). DF-257c
+  closed as a side effect — see its entry.
 - Brief: designs/246-recursive-types.md. Filed when the std.json dispatch hit
   the wall Aug 27: EVERY cyclic nominal shape is `internal compiler error:
   Undefined enum/struct: X` once the demanded copy policy is declared —
@@ -182,6 +224,100 @@ for sawos; "238 before more M3 work" is absolute.
   Fix wants the design-129/161 newline-and-token rules consulted: a
   statement-start `-` after a closed block should open a new expression,
   and whichever answer is ruled, the ICE becomes a clean parse/type error.
+
+## DF-261a..f — filed Aug 27 by design 246's implementer; a/b FIXED in that
+## landing, c/d/e/f OPEN
+
+**DF-261a — FIXED (design 246 unit A).** `Namespace._has_abstract_type_arg` was
+the one recursion into `copy_tier` that started a FRESH `_visiting` set, so the
+guard the two structural joins carry could never fire on a cycle running through
+a user generic. `struct Pair<T> { a: T }` beside `enum E { case K(p: Pair<E>) }`
+recursed until Python's stack ran out (`internal compiler error: maximum
+recursion depth exceeded`). Fix: thread `_visiting`.
+
+**DF-261b — FIXED (design 246 unit B).** The SAME mechanism, second site:
+`Namespace._satisfies_thread_bound` re-entered `_send_sync` with `set()`. Every
+LEGAL recursive shape reaches it — `enum Json { case Items(items: Vector<Json>) }`
+asks whether `Vector<Json>` is Send, `Vector`'s conditional
+`extension Vector<T: Send, A: Send>: UnsafeSend` header asks whether `Json` is,
+and the walk starts over. Fix: thread `visiting`, with `want_sync` added to the
+key so one set serves both questions. THE MECHANISM SWEEP (obligation 4) found
+exactly these two: the three guarded structural walks in `namespace.py` are
+`copy_tier`, `_send_sync` and `is_cell_carrying`; the third threads its guard
+through every helper it has.
+
+**DF-261c — OPEN.** `==` on an ENUM ignores a hand-written `Equatable.equals`
+and does the structural payload compare instead, so a body that answers `true`
+loses to an `==` that answers `false`. PRE-EXISTING and nothing to do with
+recursion — probed on the unmodified compiler:
+
+```saw
+enum Bag { case Empty, case Full(k: Vector<Int>) }
+@synthesize
+extension Bag: ExplicitCopy {}
+extension Bag { func size(&self) -> Int { match self { case Empty -> 0, case Full(k) -> k.len() } } }
+extension Bag: Equatable { func equals(&self, other: &Self) -> Bool { self.size() == other.size() } }
+// a = Full([1,2]); b = a.copy()
+// "equal? {a == b}"        -> false      <- the structural compare
+// "direct? {a.equals(&b)}" -> true       <- the body
+```
+
+`_emit_equals`'s ENUM arm goes straight to `_emit_enum_deep_equals` and never
+asks whether the type has its own `equals`; the STRUCT arm one line above does
+ask. Reached only when a payload is not itself Equatable (a `Vector` here),
+because `@synthesize` refuses that case and a hand-written body is the only way
+in. Cost: design 246's row 7 could not pin the `Equatable` half of its brief.
+
+**DF-261d — OPEN.** `Box` payload-method forwarding (design 42 item 1) reaches
+a STRUCT payload's extension methods and NOT an ENUM payload's, so a
+`Box`-linked recursive enum has no Saw-level traversal:
+
+```saw
+enum Tag { case One, case Two }
+extension Tag { func rank(&self) -> Int { match self { case One -> 1, case Two -> 2 } } }
+let t = try! Box<Tag>.make(value: Tag.Two)
+t.rank()   // error: … hint: available methods: deinit, make, value
+```
+
+The struct twin (`b.twice()` on a `Box<Leafy>`) works. Design 145 gave enums a
+method surface and the forwarding resolver was never widened to it.
+
+**DF-261e — OPEN.** An optional chain through a `Box<T>?` FIELD is an internal
+compiler error, with no recursion in sight:
+
+```saw
+struct Holder { slot: Box<Leafy>? }
+extension Holder { func total(&self) -> Int { self.slot?.twice() ?? 0 } }
+// internal compiler error at …:11:18 (BindOptional):
+//   BindOptional lowered outside an optional chain
+```
+
+Together d and e are why design 246's rows 2 and 3 use the DEINIT order as the
+depth oracle rather than a written walk.
+
+**DF-261f — OPEN, pre-existing (verified by running the same probe against the
+main checkout's compiler).** A directly RECURSIVE suspending function makes the
+coroutine transform recurse forever building the embedded sub-frame, and it
+escapes the internal-compiler-error funnel as a RAW Python traceback — the
+transform is not wrapped the way the typechecker and codegen are:
+
+```saw
+import std.task.*
+func countdown(n: Int) -> Int {
+    if n <= 0 { return 0 }
+    yield_now()
+    countdown(n - 1)      // embeds its own frame by value
+}
+// RecursionError: maximum recursion depth exceeded, in
+// coro_transform.py:_build_frame_init -> _zeroed_value -> _zero_of
+```
+
+A suspending frame embeds its callee's frame BY VALUE, so a self-call is the
+same infinite-size shape design 246 unit A refuses for nominal types — but the
+frames are synthesized after that check runs, so it does not see them. Two
+halves owed: the transform under the ICE funnel (so this is a located refusal
+rather than a traceback), and the refusal itself, which should say what the
+nominal one says.
 
 ## DF-247a — a function that is a `group.spawn` ROOT is `undefined function`
 ## at every OTHER call of it in the same module (filed Aug 22 by design 242
@@ -491,9 +627,26 @@ else in std spells the prefix for allocation. Conformance row A17 pins the
 boundary that creates this — `Vector.copy()` still panics on refusal — so the
 residue is visible from the ledger rather than only from here. [219, 234]
 
-## DF-257c — a propagating `try` inside a GENERIC body is resolved ONCE and
-## reused across monomorphizations (filed Aug 25 by design 234 unit 3;
-## PRE-EXISTING)
+## DF-257c — CLOSED Aug 27 by design 246 unit B — a propagating `try` inside a
+## GENERIC body is resolved ONCE and reused across monomorphizations (filed
+## Aug 25 by design 234 unit 3; PRE-EXISTING)
+
+CLOSED, and by the REPRESENTATION rather than by the annotation the mechanism
+note below asks for. Design 246 unit B makes a payload-carrying enum an LLVM
+IDENTIFIED struct, and identified types compare by NAME, so
+`Result$Cell$Int$AllocError` and `Result$Cell$String$AllocError` are two types
+where they used to be one literal `{i32, [N x i8]}`. The by-LLVM-type fallback
+therefore lands on the right instantiation and the second monomorphization
+extracts through its own Result. The pin
+`examples/generic_body_try_survives_a_second_instantiation.saw` keeps its
+explanation and lost its XFAIL marker in the same commit.
+
+THE PER-INSTANTIATION ANNOTATION IS STILL OWED, and this closure does not
+supply it — it removes the ambiguity the fallback was resolving, not the
+fallback. If a later change re-introduces two same-named-and-shaped Result
+instantiations, the pin is what catches it. The two design-234 spellings the
+note below records (`Map.insert`'s direct return, `Map.keys`/`values`'s
+`Vector()` + `reserve`) may revert whenever someone wants to; nothing forces it.
 
 ```saw
 extension Cell<T> {

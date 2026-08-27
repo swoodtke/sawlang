@@ -1673,6 +1673,94 @@ static_assert(sizeof<SegHeader>() == 12, "SegHeader must stay 12 bytes")
 `Equatable`/`Hashable` auto-conformance is unchanged, and so is match
 exhaustiveness. A raw-ordered `Comparable` derivation is not available.
 
+### Recursive types
+
+A type may name itself, or name a type that names it back, as long as every
+such cycle passes through a **heap indirection**. A tree, a linked list and a
+JSON value are all written directly:
+
+```saw
+enum Json {
+    case Number(n: Int),
+    case Text(s: String),
+    case Items(items: Vector<Json>)
+}
+extension Json: NoCopy {}
+
+enum Chain {
+    case End,
+    case Link(v: Int, next: Box<Chain>)
+}
+extension Chain: NoCopy {}
+
+struct Node {
+    value: Int
+    next: Box<Node>?
+}
+extension Node: NoCopy {}
+```
+
+The rule is about SIZE. A value's storage may not transitively contain its own
+storage inline — that has no finite layout — and a pointer breaks the chain
+because a pointer is one word whatever it points at.
+
+**What embeds storage inline**, and this is the whole list: a struct field, an
+enum case payload, a tuple or named-tuple element, an `Optional` payload (`T?`
+is a flag beside a `T`), a `[T; N]` element, and the corresponding positions of
+any generic declaration a member instantiates. **What embeds nothing**: an
+`UnsafePointer`/`UnsafeConstPointer`, a reference, a function value (code
+address plus environment address), and an `any Trait` existential.
+
+There is no list of blessed containers. `Vector<T>`, `Box<T>` and `Map<K, V>`
+break a cycle because their own stored fields are pointers, and a generic you
+write breaks one or does not for exactly the same reason:
+
+```saw
+struct Wrap<T> { held: T }      // embeds a T — a cycle through it stays inline
+
+struct Slot<T> { at: Box<T> }   // embeds a pointer — a cycle through it is fine
+extension Slot<T>: NoCopy {}
+```
+
+**One indirected leg is enough.** A mutual cycle is legal as soon as any edge
+on it crosses a pointer, so a type on the cycle may hold another inline:
+
+```saw
+enum Expr {
+    case Literal(v: Int),
+    case Group(g: Vector<Term>)     // the indirected leg
+}
+struct Term {
+    weight: Int
+    body: Expr                      // inline, and finite: Expr's leg is a pointer
+}
+extension Expr: NoCopy {}
+extension Term: NoCopy {}
+```
+
+An all-inline cycle is refused where it is written, with the path named:
+
+```saw
+enum Tree {
+    case Leaf(v: Int),
+    case Node(child: Tree)
+}
+// error: recursive type `Tree` has infinite size: its storage contains its own
+//        storage inline, through Tree.Node.child -> Tree
+// hint: hold the recursive member behind a heap indirection — `Box<Tree>`,
+//       `Vector<Tree>` or a `Map` value — so the cycle crosses a pointer and
+//       the layout is finite
+```
+
+Nothing about the copy policy changes. A recursive type carries owning payloads,
+so it declares `NoCopy` or `@synthesize`s `ExplicitCopy` exactly as any other
+type with a `Vector` or a `Box` in it, and a synthesized `copy()` recurses:
+copying a `Tree` copies its `Vector<Tree>`, which copies each `Tree`.
+Destruction recurses the same way, to data depth — a structure thousands of
+levels deep can exhaust the stack when it is dropped, which is the accepted
+behavior in Rust and Swift too. Flatten such a structure or tear it down
+iteratively.
+
 ### Optionals
 
 ```saw

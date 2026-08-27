@@ -298,7 +298,24 @@ match msg {
 An enum can also carry a raw integer backing (see the spec), which pins its
 representation to one byte and lets it cross an ABI boundary.
 
-See [Enums](LANGUAGE_SPEC.md#enums-algebraic-data-types) in the spec.
+A type may name itself as long as the cycle passes through a heap indirection,
+so a tree or a list is written directly:
+
+```saw
+enum Json {
+    case Number(n: Int),
+    case Text(s: String),
+    case Items(items: Vector<Json>)
+}
+extension Json: NoCopy {}
+```
+
+`Vector`, `Box` and `Map` all break the cycle, because each stores a pointer.
+A cycle with no indirection on it has no finite size and is refused where it is
+written, naming the path.
+
+See [Enums](LANGUAGE_SPEC.md#enums-algebraic-data-types) and
+[Recursive types](LANGUAGE_SPEC.md#recursive-types) in the spec.
 
 ### Traits, generics, and dynamic dispatch
 
