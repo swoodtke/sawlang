@@ -11,6 +11,13 @@
 // store in consume mode; a Copy payload retains instead and both slots
 // legitimately drop (DF-210b is the other side of that rule).
 //
+// The GUARANTEE is unchanged and the MECHANISM is not: design 247 retired the
+// DF-210f forget with the encoding that needed it. The temp is take-read now,
+// so it is emptied at the read and there is no surviving claim for a second
+// statement to have to remember to give up — which is the whole reason the
+// pairing was gettable wrong. This file is the regression test for both
+// answers.
+//
 // The exit code IS the assertion: a double free here is a segfault, not a wrong
 // number. Run under Guard Malloc it faults on the first bad access.
 //

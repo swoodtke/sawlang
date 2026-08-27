@@ -19,10 +19,11 @@ forget at all, nine positions' worth.
 frame field the state "consumed but still flagged live" is not representable.
 218a section 9 wrote stage 4's exit criterion as "`__saw_forget` emission count
 hits ZERO in the transform (grep-gated)", which pre-dates the deferred census
-families stages 1-3 measured: six of them (`opt_closure`, address-taken locals,
-`Void`, fixed arrays, DF-218h's window-move, DF-218i's rendering operand) plus
-the two scrutinee-temp rows keep the legacy encoding, and a legacy encoding is
-exactly a field that still owes its forget.
+families stages 1-3 measured: `opt_closure`, address-taken locals, `Void`, fixed
+arrays and DF-218h's window-move keep the legacy encoding, and a legacy encoding
+is exactly a field that still owes its forget. (Two of the original set have
+since retired into the migration: DF-218i's rendering operand, and design 247's
+scrutinee-temp rows.)
 
 So the criterion this gate enforces is the adapted one:
 
@@ -47,7 +48,7 @@ asserting an answer instead of letting the language give one — the exact thing
 goes. Until then they are trusted residue, and the same rule applies:
 
   4. Every site that STAMPS M1 or M3 carries a `DEFERRED:` comment naming the
-     family (or the scrutinee-temp row) that keeps it alive, within
+     family that keeps it alive, within
      CITATION_LOOKBACK lines above it or on the line itself. A stamp reached on
      a MIGRATED path has no family to name, which is how this gate reports one.
   5. Only the transform stamps them. The consumer-side skip and retain rules
@@ -79,7 +80,10 @@ EXPECTED_FAMILIES = {
     "window-move",          # (e) DF-218h
     # (f) `rendering-operand` RETIRED Aug 22 with DF-218i — a rendering operand
     # is a borrow now, so a rendered frame local migrates to `Slot<T>`.
-    "scrutinee-temp",       # T1/T3 — the DF-210f forget lives exactly here
+    # (g) `scrutinee-temp` RETIRED Aug 27 with design 247 — the `__hoistN` /
+    # `__matchN` temps are take-read like every other hoist family now, and the
+    # DF-210f forget that lived exactly there went with them. DF-215f (a double
+    # release of any payload a driven arm moves out) is what the deferral cost.
     "spawn-cell",           # design 134's cell: TRUSTED, not deferred
 }
 

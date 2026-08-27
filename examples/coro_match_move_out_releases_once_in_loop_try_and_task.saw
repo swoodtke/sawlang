@@ -1,0 +1,117 @@
+// Conformance row V50 — the CONTEXTS a driven move-out `match` can sit in, each
+// releasing the moved payload exactly once (design 247 / DF-215f).
+//
+// The destination matrix is next door; this file varies the surrounding
+// construct, because each one puts the match in a different lowering. All three
+// double-released before design 247, and the loop row shows what the second
+// release actually was: it read a `String` its first release had already freed,
+// so the deinit printed an empty name.
+//
+//   in_loop      — once per ITERATION, so the counts must balance per pass
+//                  rather than only at the end of the loop
+//   in_try_catch — inside a `try { } catch { }` BLOCK, whose try body is a
+//                  state of its own (design 196 unit 3) and whose statements
+//                  are frame-resident by construction
+//   in_task      — inside a SPAWNED task, where a task's own values deinit at
+//                  task completion (design 124) rather than at group teardown
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -- in_loop
+// NEW l0
+// held l0
+// DEINIT l0
+// NEW l1
+// held l1
+// DEINIT l1
+// after loop
+// -- in_try_catch
+// NEW t2
+// held t2
+// DEINIT t2
+// after try
+// -- in_task
+// NEW t3
+// held t3
+// DEINIT t3
+// task done
+// after task
+
+import std.task.{yield_now}
+
+struct MyErr { message: String }
+extension MyErr: Printable {
+    func format(&self, into: &var StringBuilder) { try! into.append(self.message) }
+}
+extension MyErr: Error {}
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+
+func make(name: String) -> Result<Res, MyErr> {
+    yield_now()
+    print("NEW {name}")
+    return Res(name: name)
+}
+
+func make_n(i: Int) -> Result<Res, MyErr> {
+    yield_now()
+    print("NEW l{i}")
+    return Res(name: "l{i}")
+}
+
+// Gives the try BLOCK an error edge to be a block for; it never fails.
+func echo() -> Result<Int, MyErr> { return 1 }
+
+func hold(r: Res) { print("held {r.name}") }
+
+func row_loop() {
+    var n = 0
+    while n < 2 {
+        match make_n(n) {
+            case Ok(p) -> { hold(move p) },
+            case Err(e) -> { print("err") }
+        }
+        n = n + 1
+    }
+    print("after loop")
+}
+
+func row_try() -> Result<Void, MyErr> {
+    try {
+        match make("t2") {
+            case Ok(p) -> { hold(move p) },
+            case Err(e) -> { print("err") }
+        }
+        let _ = try echo()
+    } catch {
+        print("caught {error}")
+    }
+    print("after try")
+    return
+}
+
+func task_body() {
+    match make("t3") {
+        case Ok(p) -> { hold(move p) },
+        case Err(e) -> { print("err") }
+    }
+    print("task done")
+}
+
+func row_task() {
+    var group = TaskGroup()
+    let h = group.spawn(task_body())
+    h.join()
+    print("after task")
+}
+
+func main() {
+    print("-- in_loop")
+    __saw_drive(row_loop())
+    print("-- in_try_catch")
+    let _ = __saw_drive(row_try())
+    print("-- in_task")
+    row_task()
+}

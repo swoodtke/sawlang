@@ -1,0 +1,174 @@
+// Conformance row V50 — the `if let` / `guard let` half: a payload moved OUT of
+// a driven optional-binding branch over a suspending subject deinitializes
+// exactly once (design 247 / DF-215f).
+//
+// Same mechanism as the `match` half, through the other hoist: the subject is
+// lifted into `__hoistN` (design 62 G2) or `__headN` (design 224), and on the
+// legacy encoding that temp kept owning the payload while the branch's binding
+// aliased it. What separates the two `if let` rows below from the `guard let`
+// one is design 104's residency rule — a SPLIT binding is frame-resident by
+// construction, and a frame store disarmed the temp, so `guard let` and a
+// suspending branch were clean before the fix while the plain in-place `if let`
+// was not.
+//
+//   local             — the branch moves the payload into a local of its own
+//   call              — the branch moves it into a by-value parameter
+//   guard_let         — the `guard let` twin, whose binding belongs to the
+//                       ENCLOSING scope (clean before the fix)
+//   branch_suspends   — the branch spans a suspension, so the binding is
+//                       frame-resident (clean before the fix)
+//   sync_control      — the identical `if let` over a NON-suspending subject:
+//                       the oracle every driven row must read like
+//   non_moving_branch — the branch READS the binding; the payload dies at the
+//                       branch's end on both twins
+//   discard_binding   — `if let _ = <suspending>`, the presence test that binds
+//                       NOTHING, as a twin PAIR. Sync drops the unwrapped
+//                       payload immediately (the source handed it over and no
+//                       binding names it); the driven twin used to hold it to
+//                       the end of the statement, because the release it got
+//                       was the hoisted temp's. It is the same divergence
+//                       DF-218w filed on a `match` arm, at the optional-binding
+//                       spelling, and it closes for the same reason: the
+//                       take-read subject is an owned temporary, so ONE rule
+//                       decides both twins
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -- if_let_local
+// NEW t1
+// bound t1
+// DEINIT t1
+// after local
+// -- if_let_call
+// NEW t2
+// held t2
+// DEINIT t2
+// after call
+// -- guard_let_call
+// NEW t3
+// held t3
+// DEINIT t3
+// after guard
+// -- branch_suspends
+// NEW t4
+// held t4
+// DEINIT t4
+// after split
+// -- sync_control
+// NEW t5
+// held t5
+// DEINIT t5
+// after sync
+// -- non_moving_branch
+// NEW t6
+// read t6
+// DEINIT t6
+// after nomove
+// -- discard_binding sync
+// NEW t7
+// DEINIT t7
+// present
+// after discard
+// -- discard_binding driven
+// NEW t8
+// DEINIT t8
+// present
+// after discard
+
+import std.task.{yield_now}
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+
+func maybe(name: String) -> Res? {
+    yield_now()
+    print("NEW {name}")
+    return Res(name: name)
+}
+
+func maybe_sync(name: String) -> Res? {
+    print("NEW {name}")
+    return Res(name: name)
+}
+
+func hold(r: Res) { print("held {r.name}") }
+
+func row_local() {
+    if let p = maybe("t1") {
+        let h = move p
+        print("bound {h.name}")
+    }
+    print("after local")
+}
+
+func row_call() {
+    if let p = maybe("t2") {
+        hold(move p)
+    }
+    print("after call")
+}
+
+func row_guard() {
+    guard let p = maybe("t3") else {
+        print("none")
+        return
+    }
+    hold(move p)
+    print("after guard")
+}
+
+func row_branch_suspends() {
+    if let p = maybe("t4") {
+        yield_now()
+        hold(move p)
+    }
+    print("after split")
+}
+
+func row_sync() {
+    if let p = maybe_sync("t5") {
+        hold(move p)
+    }
+    print("after sync")
+}
+
+func row_nomove() {
+    if let p = maybe("t6") {
+        print("read {p.name}")
+    }
+    print("after nomove")
+}
+
+func row_discard_sync() {
+    if let _ = maybe_sync("t7") {
+        print("present")
+    }
+    print("after discard")
+}
+
+func row_discard_driven() {
+    if let _ = maybe("t8") {
+        print("present")
+    }
+    print("after discard")
+}
+
+func main() {
+    print("-- if_let_local")
+    __saw_drive(row_local())
+    print("-- if_let_call")
+    __saw_drive(row_call())
+    print("-- guard_let_call")
+    __saw_drive(row_guard())
+    print("-- branch_suspends")
+    __saw_drive(row_branch_suspends())
+    print("-- sync_control")
+    row_sync()
+    print("-- non_moving_branch")
+    __saw_drive(row_nomove())
+    print("-- discard_binding sync")
+    row_discard_sync()
+    print("-- discard_binding driven")
+    __saw_drive(row_discard_driven())
+}

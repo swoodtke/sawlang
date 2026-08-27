@@ -1,5 +1,5 @@
 // A driven `case Has(_)` releases the discarded payload at EXTRACTION, where
-// the sync twin releases it — DF-218w's per-arm emission (E-ARM).
+// the sync twin releases it — DF-218w.
 //
 // DF-217p's scope-end migration moved this cell from "frame teardown" to "the
 // end of the match statement" and stopped there. A `_` payload binding names no
@@ -10,13 +10,14 @@
 // hoist made (`self.__headN`), not an owned local — so the temp's own release
 // was what dropped the payload, one position late.
 //
-// THE FIX is an edge, not a mode: an arm that claims NOTHING of the scrutinee
-// by name — every payload binding `_`, and a design-63 pattern that binds
-// nothing either — releases the temp at the arm's START. Such an arm leaves the
-// payload owned by the temp and aliased by nobody, which is what makes the
-// early release safe. The merge-point release survives behind it as the
-// idempotent tag-drop (a no-op once the arm has released) and is still the edge
-// for an arm that DOES bind and for a dispatch that matched no arm.
+// DF-218w's first fix was an EDGE (E-ARM): an arm that claimed nothing of the
+// scrutinee released the hoisted temp at its own start, since the payload was
+// then aliased by nobody. Design 247 replaced the edge with the MODE the whole
+// row wanted — the hoisted temp is take-read now, so the scrutinee reaching
+// codegen is an owned temporary and the ordinary consume model drops an
+// unclaimed payload inline at extraction, deciding it by the same rule as the
+// sync twin instead of by a driven-only edge. The mixed `case Both(v, _)` shape
+// the edge could not reach came with it, and is pinned beside this file.
 //
 // MATRIX. The rows are the arm shapes that claim nothing, plus the control that
 // claims, plus both lowerings:
@@ -27,14 +28,13 @@
 //   wildcard  — `case _` over an owning variant, where sync drops the whole
 //               scrutinee at the arm's start for the same reason
 //   split     — `case Has(_)` where the ARM suspends too, so the match is
-//               CFG-split and the release rides the arm's entry state
-//   named     — the control: an arm that binds by name keeps the statement's
-//               end on BOTH twins, because the binding is live for the arm
+//               CFG-split and the drop rides the arm's entry state
+//   named     — the control: an arm that binds by name keeps the arm's END on
+//               BOTH twins, because the binding is live for the arm
 //
-// The shapes this does NOT reach are pinned separately, both XFAIL and both
-// intra-statement timing rather than a leak: the mixed `case Both(v, _)`
-// (coro_mixed_match_payload_released_at_extraction.saw, DF-218w's narrowed
-// residue) and a multi-field all-`_` payload's field ORDER
+// The neighbouring shapes are pinned separately: the mixed `case Both(v, _)`
+// (coro_mixed_match_payload_released_at_extraction.saw, closed with this one by
+// design 247) and a multi-field all-`_` payload's field ORDER
 // (coro_discarded_match_payload_field_drop_order.saw, DF-218y).
 // EXPECT: success
 // EXPECT-OUTPUT:

@@ -1,27 +1,40 @@
-// XFAIL: DF-215f a payload moved OUT of a suspending call's `match` is
-// released by the enclosing coroutine's frame anyway when the value leaves the
-// function, so the caller holds a value whose deinit already ran — a
-// use-after-free. On Arc-backed payloads it surfaces as the early DEINIT below
-// (or an over-release panic); on `Data`/`TcpStream` payloads in the wild it
-// was a SIGSEGV or a broken socket (the design-215 dogfood port hit it on
-// `TcpStream.connect` and `TcpStream.read`, and `try!` in place of `match` is
-// the workaround its llm_client.saw carries).
+// A payload moved OUT of a suspending call's `match` is released EXACTLY ONCE,
+// whether or not the moved value leaves the function — design 247 / DF-215f.
 //
-// The trigger needs all three legs — suspending scrutinee, a `move`-out arm,
-// and the moved value LEAVING the function — and the rows remove one each:
-//   returned_tail   — match IS the function's tail (auto-wrap). CORRUPTS.
-//   returned_bound  — bound to a local, then `return move`d. CORRUPTS — the
-//                     return form is not the variable; leaving the function is.
-//   local_use       — same match, value consumed in the same function. Clean.
-//   try_instead     — `try` on the same suspending call, value returned. Clean.
-//   sync_control    — identical match + return, non-suspending callee. Clean.
+// THE MECHANISM (obligation 4). The transform hoists a suspending scrutinee
+// into a frame temp, and on the LEGACY encoding that temp went on owning the
+// payload while the arm's binding was a codegen-level alias of it: `move
+// <binding>` minted a second owner and nothing disarmed the temp, so the value
+// was released by its new owner AND again by the temp's merge-point tag-drop.
+// The fix is the take-read encoding (`self.__matchN.take()`), which empties the
+// slot at the read and hands codegen the owned temporary its consume model is
+// written for — the same model the sync twin has always used.
 //
-// Same neighborhood as the DF-218w/DF-242a family (a frame-owned release the
-// transform places without seeing what an arm moved out), but this one is a
-// DOUBLE RELEASE of an owned payload, not a timing divergence.
+// THE MATRIX, corrected. The finding was filed with a third leg — "the moved
+// value crossing the function return" — and the Aug-27 sweep FALSIFIED it: the
+// double release needs only a driven body, a hoisted scrutinee, an owning
+// payload and an arm that hands it onward. Crossing the return buys
+// OBSERVABILITY, nothing more; with a refcounted payload the extra release
+// lands while another owner is live (a use-after-free), and without one it
+// lands after the last legitimate release and silently underflows. That is why
+// `local_use` was mis-graded Clean here, and why the payload below is a NoCopy
+// `Res` with a printing `deinit` rather than the `Arc`-instrumented `Holder`
+// this file used to carry — one DEINIT line per row, counted.
 //
-// The oracle: every DEINIT must print AFTER its row's "held" line — the early
-// DEINIT is the bug, printed while the caller still holds the value.
+//   returned_tail   — match IS the function's tail (auto-wrap)
+//   returned_bound  — bound to a local, then `return move`d
+//   local_use       — same match, value consumed in the same function. This
+//                     row asserted Clean and was a double release
+//   try_instead     — `try` on the same suspending call: the `__trycallN` temp
+//                     was take-read from design 218 stage 2 onward, which is
+//                     why it was always the working spelling
+//   sync_control    — identical match + return, non-suspending callee
+//
+// The wider position matrix (the destinations a move can have, the contexts the
+// match can sit in, and the `if let` twin) is in
+// coro_driven_match_move_out_releases_once.saw,
+// coro_match_move_out_releases_once_in_loop_try_and_task.saw and
+// coro_iflet_move_out_releases_once.saw.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // -- returned_tail
@@ -58,45 +71,39 @@ extension Res: NoCopy {
     func deinit(&var self) { print("DEINIT {self.name}") }
 }
 
-struct Holder { cell: Arc<Res> }
-@synthesize
-extension Holder: Copy {}
-
-func make_holder(name: String) -> Result<Holder, MyErr> {
-    let h = Holder(cell: try! Arc<Res>(value: Res(name: name)))
+func make_res(name: String) -> Result<Res, MyErr> {
     print("NEW {name}")
     yield_now()
-    return move h
+    return Res(name: name)
 }
 
-func make_holder_sync(name: String) -> Result<Holder, MyErr> {
-    let h = Holder(cell: try! Arc<Res>(value: Res(name: name)))
+func make_res_sync(name: String) -> Result<Res, MyErr> {
     print("NEW {name}")
-    return move h
+    return Res(name: name)
 }
 
-func wrap_tail(name: String) -> Result<Holder, MyErr> {
-    match make_holder(name) {
+func wrap_tail(name: String) -> Result<Res, MyErr> {
+    match make_res(name) {
         case Ok(h) -> move h,
         case Err(e) -> e
     }
 }
 
-func wrap_bound(name: String) -> Result<Holder, MyErr> {
-    let out = match make_holder(name) {
+func wrap_bound(name: String) -> Result<Res, MyErr> {
+    let out = match make_res(name) {
         case Ok(h) -> move h,
         case Err(e) -> { return e }
     }
     return move out
 }
 
-func wrap_try(name: String) -> Result<Holder, MyErr> {
-    let h = try make_holder(name)
+func wrap_try(name: String) -> Result<Res, MyErr> {
+    let h = try make_res(name)
     return move h
 }
 
-func wrap_sync(name: String) -> Result<Holder, MyErr> {
-    match make_holder_sync(name) {
+func wrap_sync(name: String) -> Result<Res, MyErr> {
+    match make_res_sync(name) {
         case Ok(h) -> move h,
         case Err(e) -> e
     }
@@ -104,34 +111,34 @@ func wrap_sync(name: String) -> Result<Holder, MyErr> {
 
 func row_tail() -> Result<Void, MyErr> {
     let h = try wrap_tail("t1")
-    print("held t1")
+    print("held {h.name}")
     return
 }
 
 func row_bound() -> Result<Void, MyErr> {
     let h = try wrap_bound("t2")
-    print("held t2")
+    print("held {h.name}")
     return
 }
 
 func row_local() -> Result<Void, MyErr> {
-    let h = match make_holder("t3") {
+    let h = match make_res("t3") {
         case Ok(payload) -> move payload,
         case Err(e) -> { return e }
     }
-    print("held t3")
+    print("held {h.name}")
     return
 }
 
 func row_try() -> Result<Void, MyErr> {
     let h = try wrap_try("t4")
-    print("held t4")
+    print("held {h.name}")
     return
 }
 
 func row_sync() -> Result<Void, MyErr> {
     let h = try wrap_sync("t5")
-    print("held t5")
+    print("held {h.name}")
     return
 }
 

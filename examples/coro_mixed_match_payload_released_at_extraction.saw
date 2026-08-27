@@ -1,31 +1,27 @@
-// XFAIL: DF-218w a driven `case Both(v, _)` holds the DISCARDED field to the
-// statement's end, where the sync twin drops it at extraction
+// A driven `case Both(v, _)` drops the DISCARDED field at extraction and the
+// NAMED one at the arm's end, exactly as the sync twin does — DF-218w's
+// narrowed residue, CLOSED by design 247.
 //
-// DF-218w's narrowed residue, and the one arm shape its per-arm edge (E-ARM)
-// cannot take. An arm that claims NOTHING of the scrutinee by name releases the
-// hoisted temp at its own start, because the payload is then aliased by nobody.
-// This arm claims HALF of it: `v` names the first field for the arm's whole
-// length while `_` discards the second.
+// Sync answers this arm shape with two drops at two points: the `_` field
+// INLINE at extraction (codegen/match.py's consume branch), the named binding
+// at the arm's end through the arm cleanup scope it is registered in. The
+// driven twin could not, because it held ONE value — the frame temp the
+// container-head hoist made, carrying the whole enum — and `_release_shape`
+// releases a field WHOLE. There was no spelling that dropped `b` while `a` was
+// still named, so the temp's own release at the statement's end dropped both,
+// one position late for the discarded half. DF-218w's per-arm edge (E-ARM)
+// could not take this arm either: it fires only where the arm claims NOTHING by
+// name, and releasing here would free the value `v` reads for the arm's length.
 //
-// Sync answers that with two drops at two points — the `_` field INLINE at
-// extraction (codegen/match.py's consume branch), the named binding at the
-// arm's end through the arm cleanup scope it is registered in.
-//
-// MECHANISM (obligation 4). The driven twin holds ONE value: the frame temp the
-// container-head hoist made, carrying the whole enum. `_release_shape` releases
-// a field WHOLE — a `Slot.clear()` or design 44's `= None` — so there is no
-// spelling that drops `b` while `a` is still named, and releasing the temp at
-// the arm's start would free the value `v` reads for the rest of the arm. The
-// positions this reaches are exactly the arms that bind SOME payload field by
-// name and discard another; an arm that claims none takes E-ARM (the pin
-// `coro_discarded_match_payload_released_at_extraction.saw`) and an arm that
-// claims all of them is at parity already, because both twins then drop at the
-// statement's end.
-//
-// What is left is intra-statement TIMING: the discarded field lives to the end
-// of the match statement instead of dying at extraction. Never a leak and never
-// a double free — the counts balance on both twins, and the temp's release is
-// the idempotent tag-drop.
+// WHAT CLOSED IT was not a third edge but the encoding. The hoisted temp is
+// take-read now (`self.__headN.take()`), so the scrutinee reaching codegen is
+// an OWNED TEMPORARY and the ordinary consume model applies: the `_` field is
+// dropped inline at extraction and `v` is registered in the arm's cleanup
+// scope. Both twins now take one code path to one answer, which is why the
+// timing agrees by construction rather than by two release systems being kept
+// apart. Its E-ARM sibling
+// (`coro_discarded_match_payload_released_at_extraction.saw`) reaches the same
+// answer through the same model.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // -- sync

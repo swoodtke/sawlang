@@ -73,9 +73,11 @@
 #
 # The `match_consume/in_rhs` cells went with the statement-end edge, stage D
 # (218b section 2c): the scrutinee temp a suspending `match` HEAD is hoisted
-# into is a statement's temporary, not a scope's binding, so it releases at the
+# into is a statement's temporary, not a scope's binding, so it released at the
 # construct's merge point — an idempotent tag-drop, paired with the DF-210f
-# forget that survives on the consuming arms.
+# forget on the consuming arms. Design 247 replaced both with the take-read
+# encoding: the temp is emptied AT the read, so the release point is whatever
+# codegen's consume model says it is, which is the sync twin's answer.
 #
 # DF-218w's two rows are GONE, removed by the landing that fixed them (Aug 21,
 # branch `df-218s-218w`). They were the `_`-arm cells, whose residual divergence
@@ -85,20 +87,19 @@
 # the frame temp the container-head hoist made — dropped the whole temp at the
 # statement's end.
 #
-# E-ARM is the edge that closed them: an arm that claims NOTHING of the
-# scrutinee by name releases the hoisted temp at the arm's START, because the
-# payload is then owned by the temp and aliased by nobody. The merge-point
-# release survives behind it as the idempotent tag-drop — a no-op once the arm
-# has released, and still the edge for an arm that DOES bind. Both lowerings
-# take it: `_split_match`'s arm entry state and `_lower_inplace`'s MatchExpr,
-# which is where corodiff's `in_rhs` placement lands (the head is the only
-# suspending part, so the construct spans nothing once it is hoisted).
+# E-ARM was the edge that closed them: an arm that claims NOTHING of the
+# scrutinee by name released the hoisted temp at the arm's START, because the
+# payload was then owned by the temp and aliased by nobody. It left one shape
+# behind — the MIXED `case Both(v, _)`, which corodiff does not generate
+# (`st_match_nobinding` builds the single-field `case Has(_)`) and which was
+# pinned XFAIL in examples/ instead.
 #
-# FAM_SCRUTINEE_TEMP is narrowed again, not retired, and the DF-210f forget is
-# untouched. What DF-218w still names is the MIXED `case Both(v, _)` shape,
-# which corodiff does not generate (`st_match_nobinding` builds the single-field
-# `case Has(_)`) and which is pinned in examples/ instead:
-# examples/coro_mixed_match_payload_released_at_extraction.saw.
+# DESIGN 247 (Aug 27) RETIRED THE EDGE AND CLOSED THE RESIDUE. FAM_SCRUTINEE_TEMP
+# is gone, and so is the DF-210f forget that lived in it: every hoist temp is
+# take-read now, so a driven scrutinee reaches codegen as an OWNED TEMPORARY and
+# the ordinary consume model decides both shapes exactly as it decides the sync
+# twin's. examples/coro_mixed_match_payload_released_at_extraction.saw lost its
+# marker in that landing.
 #
 # DF-218y — the multi-field discard's ORDER, filed off the same shape — is
 # CLOSED (Aug 22, ruled reverse-declaration everywhere), and its pin

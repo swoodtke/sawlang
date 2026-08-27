@@ -770,38 +770,35 @@ _SLOT_ENC_OF_LEGACY = {"opt": "slot", "self_opt": "slot_self",
 # conditional HOIST temp, which shares its prefix — IS on the list, and the
 # two are kept apart deliberately.
 #
-_TRANSFORM_CONSUMING_TEMPS = ("__anf", "__trycall", "__vch")
+# The SCRUTINEE and CONTAINER-HEAD temps join the list with design 247, which
+# finishes stage 2 (`__hoistN` from the `if let`/`guard let` condition hoist,
+# `__matchN` from the `match` scrutinee hoist, `__headN` from design 224's
+# container-head lift). Each is written once and read once — in the head slot
+# the lift emptied — so the read is the same hand-over the three above make.
+#
+# Stage 2 deferred the scrutinee pair on the belief that a `take()` read would
+# LEAK whenever the binding it feeds does not consume: the payload would land in
+# a binding whose scope is a CFG block the split reaches from another block. It
+# does not, and DF-215f is what the deferral cost. A take-read scrutinee is an
+# owned TEMPORARY, which is the one shape codegen's consume model is written
+# for (`codegen/match.py`'s DF-151d spill, `_optional_source_hands_over` for the
+# optional-binding twin): the arm's bindings become real owners with real drop
+# flags, an arm that claims nothing drops the scrutinee at its start, and a
+# `move` out of a binding clears its flag. The store into the binding's own
+# frame slot is then the ordinary transfer — a `move` at the owning tiers, an
+# alias the checkpoint retains at the Copy tier — and the arm scope releases
+# whatever it still holds. Leaving them on the legacy encoding is what made a
+# `move` out of an arm bookkeeping-invisible on BOTH sides of the seam at once,
+# so the payload was released by the new owner AND by the temp's merge-point
+# tag-drop.
+_TRANSFORM_CONSUMING_TEMPS = ("__anf", "__trycall", "__vch",
+                              "__hoist", "__match", "__head")
 
 
 def _is_consuming_temp(name):
     """Whether `name` is one of the transform's single-use EXPRESSION temps,
     whose one read consumes it."""
     return isinstance(name, str) and name.startswith(_TRANSFORM_CONSUMING_TEMPS)
-
-
-# The SCRUTINEE temps — census rows T1 and T3 — which stage 2 does NOT migrate.
-# Their reader is an `if let` / `match` dispatch, and it consumes only when the
-# BINDING it feeds does; the rest of the time the payload stays in the temp for
-# teardown to drop. Neither answer is spellable on a slot today:
-#
-#   * `take()` where the binding does NOT consume moves the payload into a
-#     binding whose scope is a CFG BLOCK the split reaches from another block,
-#     and the cleanup that would drop it never runs there — measured, a clean
-#     leak (`coro_iflet_suspending_deinit`'s 907 disappears);
-#   * `value()` is refused outright for a move-only payload — ``lends a place
-#     of type `Res?`, which is move-only`` — because a NAMED `if let` binding
-#     over an optional-typed lend is a value read, which is the half of DF-218a
-#     that its `_`-only desugar deliberately left open.
-#
-# So the row waits for two things that belong together: the named-binding form
-# of the DF-218a desugar, and a split dispatch whose binding is frame-resident
-# by construction rather than by the alloca happening to survive. The DF-210f
-# forget stays exactly as it is for them, which is why it is not deleted here.
-_SCRUTINEE_TEMPS = ("__hoist", "__match")
-
-
-def _is_scrutinee_temp(name):
-    return isinstance(name, str) and name.startswith(_SCRUTINEE_TEMPS)
 
 
 def _slot_type(payload):
@@ -838,12 +835,17 @@ FAM_WINDOW_MOVE = "window-move"          # (e) DF-218h
 # move-only element out of a lend; rendering is a borrow now (`place_uses`
 # lowers the operand inside the window), so a rendered frame local migrates to
 # `Slot<T>` like any other.
-FAM_SCRUTINEE_TEMP = "scrutinee-temp"    # T1/T3 — the DF-210f forget lives here
+# (g) `scrutinee-temp` — RETIRED Aug 27 with design 247. Census rows T1/T3
+# (`__hoistN`/`__matchN`) were the last legacy-encoded hoist family and the
+# DF-210f forget lived exactly there; both retire with the migration to the
+# take-read encoding, which is what `_optbind_dispatch`'s docstring already said
+# the rule would do "with the last of them". DF-215f — a double release of any
+# payload a driven arm moves out — is what the deferral cost.
 FAM_SPAWN_CELL = "spawn-cell"            # the design-134 cell: TRUSTED, not deferred
 
 DEFERRED_FAMILIES = (
     FAM_OPT_CLOSURE, FAM_ADDRESSED, FAM_VOID, FAM_FIXED_ARRAY,
-    FAM_WINDOW_MOVE, FAM_SCRUTINEE_TEMP, FAM_SPAWN_CELL,
+    FAM_WINDOW_MOVE, FAM_SPAWN_CELL,
 )
 
 # design 221: the synthesized `main`-result -> exit-status mapping (Part C's
@@ -895,9 +897,6 @@ def _deferred_family(name, enc, address_taken=(), saw_type=None,
         raw cell write (`_cell_hop_raw`), which is a frame-layout change with
         its own corodiff/irdet surface, and that is the landing this row waits
         for;
-      * a SCRUTINEE temp (`__hoistN` / `__matchN`) — see `_SCRUTINEE_TEMPS`.
-        This is the one family whose forget is the TRANSFORM's own (DF-210f)
-        rather than a rewritten `move`;
       * `Void` — `Slot<Void>` puts a `Void?` in a struct field, and a pointer
         to void is not a type llvmlite will build. A Void local carries nothing
         to release, so the slot buys nothing either;
@@ -912,8 +911,6 @@ def _deferred_family(name, enc, address_taken=(), saw_type=None,
         return FAM_ADDRESSED
     if name in move_arg_receivers:
         return FAM_WINDOW_MOVE
-    if _is_scrutinee_temp(name):
-        return FAM_SCRUTINEE_TEMP
     if saw_type is None or saw_type.kind == TypeKind.VOID:
         # An unknown payload type is the same answer as `Void` for the same
         # reason: there is no `Slot<T>` to build. Neither carries anything to
@@ -1281,12 +1278,12 @@ def _read_field(name, encoding, line=0, column=0, owning_read=False,
         return _unsaferef_deref(_self_field(name, line, column), saw_type,
                                 line=line, column=column)
 
-    # DEFERRED: opt_closure, address-taken, window-move, rendering-operand,
-    # void-payload, fixed-array, scrutinee-temp — THE legacy read, so every
-    # deferred family reaches it and it retires with the last of them (218a
-    # section 6's M1/M3 row). M2 (`frame_move_read`) rides in the same block and
-    # goes with them; it has no consumer of its own left to satisfy beyond
-    # `_optional_binding_owns`, which a `take()` result already answers.
+    # DEFERRED: opt_closure, address-taken, window-move, void-payload,
+    # fixed-array — THE legacy read, so every deferred family reaches it and it
+    # retires with the last of them (218a section 6's M1/M3 row). M2
+    # (`frame_move_read`) rides in the same block and goes with them; it has no
+    # consumer of its own left to satisfy beyond `_optional_binding_owns`, which
+    # a `take()` result already answers.
     def _marked(node):
         node.frame_place_read = True
         if move_read:
@@ -1303,11 +1300,11 @@ def _read_field(name, encoding, line=0, column=0, owning_read=False,
         acc.resolved_type = _field_type(saw_type, encoding)
     if encoding in ("opt", "opt_closure"):
         fu = _marked(ForceUnwrap(expr=acc, line=line, column=column))
-        # DEFERRED: opt_closure, address-taken, window-move, rendering-operand,
-        # void-payload, fixed-array, scrutinee-temp — M3, the retain codegen
-        # supplies because the checkpoint never saw this read. Reached by every
-        # family whose field is `opt`/`opt_closure`-encoded, the `__matchN`
-        # temps among them (a `self_opt` one reads bare and skips this arm).
+        # DEFERRED: opt_closure, address-taken, window-move, void-payload,
+        # fixed-array — M3, the retain codegen supplies because the checkpoint
+        # never saw this read. Reached by every family whose field is
+        # `opt`/`opt_closure`-encoded (a `self_opt` one reads bare and skips
+        # this arm). Design 247 took the `__matchN`/`__hoistN` temps off it.
         if owning_read:
             fu.frame_owning_read = True
         return _answered(fu, saw_type)
@@ -1544,8 +1541,9 @@ def _forget_call(place, family):
     """`__saw_forget(<place>)`, cited with the deferred family that owns it.
 
     ENTRY POINTS (obligation 1): `_FrameBuilder._forget_stmt` (every frame-field
-    forget — the rewritten `move`, and the DF-210f scrutinee-temp clears in
-    `_optbind_dispatch` and `_split_match`), and the three `__result` sites —
+    forget — now only the rewritten `move`, design 247 having retired the
+    DF-210f scrutinee-temp clears in `_optbind_dispatch` and `_split_match` with
+    the family that held them), and the three `__result` sites —
     `_emit_nested_call`'s two arms and `_make_driver`'s move-out."""
     if family not in DEFERRED_FAMILIES:
         raise CoroTransformError(
@@ -1950,16 +1948,13 @@ class _FrameBuilder:
         # binding types when a suspension splits a `match` across states).
         self.func = func
         self._tc = tc
-        # DF-210f: every SCRUTINEE TEMP this builder hoists, by name — the
-        # condition hoist's `__hoistN` and the match hoist's `__matchN`. A hoist
-        # temp holds a value the AUTHOR cannot name, so when the binding it
-        # feeds CONSUMES the payload, the temp's slot has to give up its claim
-        # on it or the frame frees the same buffer twice at teardown. Declared
-        # here rather than in either hoister because both write it and they do
-        # not run in a fixed order. Still live after design 218 stage 2: the
-        # scrutinee temps are the one hoisted family that did NOT migrate, so
-        # they keep the drop flag this rule pairs with (`_SCRUTINEE_TEMPS`).
-        self._hoist_temps = set()
+        # design 247: the DF-210f `_hoist_temps` set is GONE. It existed so the
+        # transform could tell a hoisted scrutinee's slot to give up a claim the
+        # binding it fed had already taken — bookkeeping split across two
+        # statements, which is exactly what `Slot.take()` makes unrepresentable.
+        # Every hoist temp is take-read now (`_TRANSFORM_CONSUMING_TEMPS`), so
+        # there is no surviving claim to remember and nothing to remember it in.
+        #
         # The `__vcN` payload bindings the value-conditional lowering makes,
         # under the `__obN` names the split rename gives them. Single-use, so
         # their read consumes — see `_prep_ob_split`.
@@ -2132,7 +2127,6 @@ class _FrameBuilder:
         if self._is_suspension_point(cond):
             tmp = f"__hoist{self._hoist_ctr}"
             self._hoist_ctr += 1
-            self._hoist_temps.add(tmp)          # DF-210f
             let_stmt = LetStatement(name=tmp, type_annotation=None, value=cond,
                                     mutable=False, line=cond.line, column=cond.column)
             ident = Identifier(name=tmp, line=cond.line, column=cond.column)
@@ -2242,7 +2236,6 @@ class _FrameBuilder:
         inner = m.matched_expr
         tmp = f"__match{self._match_ctr}"
         self._match_ctr += 1
-        self._hoist_temps.add(tmp)          # DF-210f — see `_optbind_dispatch`
         let_stmt = LetStatement(name=tmp, type_annotation=None, value=inner,
                                 mutable=False, line=inner.line, column=inner.column)
         ident = Identifier(name=tmp, line=inner.line, column=inner.column)
@@ -3251,10 +3244,11 @@ class _FrameBuilder:
             return head
         tmp = f"__head{self._head_ctr}"
         self._head_ctr += 1
-        # DF-210f: an optional-binding subject lifted here is read once, by the
-        # dispatch `_optbind_dispatch` builds, exactly as the design-62 and
-        # design-96 hoists' temps are.
-        self._hoist_temps.add(tmp)
+        # A head is read ONCE, in the head slot this lift emptied — the
+        # container evaluates it outside every block it owns, which is what
+        # makes it a head at all. So the read is a take (design 247's
+        # `_TRANSFORM_CONSUMING_TEMPS`), and the temp needs no bookkeeping
+        # beside it.
         line = getattr(head, 'line', 0) or 0
         col = getattr(head, 'column', 0) or 0
         t = getattr(head, 'resolved_type', None)
@@ -5794,56 +5788,16 @@ class _FrameBuilder:
                 name, self.encmap.get(name), self._frame_slot_type(name)))
         return seq
 
-    def _scrutinee_temp_release(self, node):
-        """E-STMT, the scrutinee half (218b section 2c). A suspending `match`
-        head or `if let`/`guard let` subject is hoisted into a frame temp that
-        no scope owns — `FAM_SCRUTINEE_TEMP`, still on design 44's legacy
-        encoding — so it lived to teardown. It dies at the construct's MERGE
-        point instead, where the sync twin drops its statement temporary.
-
-        The shape is the IDEMPOTENT tag-drop and must stay one: an arm whose
-        binding CONSUMED the payload already cleared the tag through the
-        DF-210f forget, so the release there is a no-op, and emitting an
-        unconditional drop instead would free the payload twice. That forget
-        SURVIVES; this closes the non-consuming half's timing. The family is
-        narrowed in reach, not retired.
-
-        E-ARM (DF-218w) is the second entry point, one position earlier: an arm
-        that claims NOTHING of the scrutinee releases the temp at its own START,
-        where the sync twin's inline drop sits. Both edges emit, and the merge
-        one is the no-op behind an arm that already released — which is exactly
-        what the idempotence above buys."""
-        if not isinstance(node, Identifier):
-            return []
-        return self._scrutinee_temp_release_by_name(node.name)
-
-    def _scrutinee_temp_release_by_name(self, name):
-        """`_scrutinee_temp_release` by NAME, for the E-ARM callers.
-
-        They emit AFTER `_rewrite_hosting` has replaced the scrutinee
-        identifier with a field access, so the node is no longer there to read
-        the name off; they capture the name first and come in here."""
-        if name is None or name not in self._hoist_temps or name not in self.encmap:
-            return []
-        return self._release_shape(
-            name, self.encmap.get(name), self._frame_slot_type(name))
-
-    def _arm_claims_no_payload(self, arm):
-        """Whether `arm` binds NOTHING of the scrutinee by name — every payload
-        binding is `_`, and its design-63 `pattern` binds nothing either.
-
-        The exact condition under which the hoisted scrutinee temp's release may
-        move from the construct's merge point to the arm's START (DF-218w).
-        Such an arm leaves the payload owned by the temp and aliased by NOBODY,
-        which is what makes the early release safe. An arm that does bind by
-        name is the opposite case and must keep the merge point: in the driven
-        twin those bindings are not owners — a spanning arm stores each into its
-        own frame field, a non-spanning one leaves it as a codegen pattern
-        binding aliasing the payload the temp still holds — so releasing at the
-        arm's start would free the value the binding still reads."""
-        if any(b != "_" for b in (arm.bindings or ())):
-            return False
-        return not self._pattern_binding_names(getattr(arm, 'pattern', None))
+    # E-STMT/2c AND E-ARM ARE GONE (design 247). They were the two edges the
+    # LEGACY scrutinee-temp encoding needed, and both were the same idempotent
+    # tag-drop of a frame temp that kept owning the payload while the arm read
+    # it. The take-read encoding leaves nothing there to release: the scrutinee
+    # is an owned temporary at the construct's head, so codegen's own consume
+    # model decides where the payload dies — the arm's cleanup scope when a
+    # binding claims it, an inline drop at extraction when none does, and the
+    # `move` that hands it onward clears the flag. That is the model the SYNC
+    # twin has always used, which is what makes the two agree by construction
+    # rather than by two release systems staying out of each other's way.
 
     # ----------------------------------------------------- the CFG walk
     def _lower_stmts(self, stmts, loop_ctx):
@@ -6099,38 +6053,31 @@ class _FrameBuilder:
         runs, so the source field's flag is cleared on BOTH — the value left it
         either way.
 
-        DF-210f adds the clear the author did NOT write. When the scrutinee is a
-        HOIST TEMP — the frame slot the transform makes for a suspending
-        scrutinee, `guard let out = cmd.output()` — and the binding's store
-        CONSUMES the payload, the temp has handed its value over and must give
-        up its claim on it. Nothing said so: `forgets` was fed only by an
-        explicit `move`, so the frame released the same buffer twice at
-        teardown, once through the binding's slot and once through the temp's.
-        That is DF-206f — a `Vector<String>` freed twice in
-        `__Frame_main_release`, which is where irdet died after printing its
-        answer. The author cannot write the `move` here, because the temp is not
-        a name they have; the transform owns the temp, so the transform owes the
-        clear.
+        THE DF-210f CLEAR IS GONE (design 247), and this is the position its
+        docstring said it would go from. It was the clear the AUTHOR could not
+        write: when the scrutinee was a legacy-encoded hoist temp and the
+        binding's store consumed the payload, the temp still held a claim on the
+        value it had just handed over, and the frame released the same buffer
+        twice at teardown (DF-206f — a `Vector<String>` freed twice in
+        `__Frame_main_release`). The migrated scrutinee is
+        `self.__hoistN.take()`, which empties the slot in the same method body
+        the value leaves by, so no claim survives the read and there is nothing
+        here to remember to do.
 
-        DESIGN 218 STAGE 2 DISSOLVES THAT RULE for a migrated temp. The
-        scrutinee is `self.__hoistN.take()`, which empties the slot in the same
-        method body the value leaves by, so there is no separate claim left to
-        give up and nothing here to remember to do. The rule survives only for
-        the encodings stage 2 did not migrate, and goes with the last of
-        them."""
+        WHAT THE DISPATCH LOOKS LIKE TO CODEGEN AFTERWARDS, since the store's
+        soundness now rests on it: a `take()` result is an owned temporary, so
+        `_optional_source_hands_over` answers yes, the binding OWNS its payload
+        and is registered in the then-branch's cleanup scope with a drop flag.
+        A consuming store (`put(move bind)`) clears that flag and the slot is
+        the one owner; a retaining one (`put(bind)` at the Copy tier) takes the
+        checkpoint's retain and the branch scope releases the binding's own
+        reference. Either way the count balances without a second release
+        system."""
         bind = node.name
         some_body = []
         if bind in self.encmap:
             some_body.append(self._store_binding_in_slot(
                 bind, node.line, node.column))
-            src = getattr(node, 'optional_expr', None)
-            if (self._slot_store_consumes(bind)
-                    and isinstance(src, Identifier)
-                    and src.name in self._hoist_temps
-                    and src.name in self.encmap
-                    and _enc_cleanup(self.encmap[src.name])
-                    and src.name not in forgets):
-                forgets = list(forgets) + [src.name]
         some_body.extend(self._forgets(forgets))
         some_body.append(AssignStatement(
             target=_self_field("__state"), value=_int(some_state)))
@@ -6172,18 +6119,19 @@ class _FrameBuilder:
             if self.cur not in self._term:
                 self._goto(merge)
         self.cur = merge
-        self._emit(self._scrutinee_temp_release(e.optional_expr))   # E-STMT/2c
 
     def _takes_temp(self, name):
         """Whether a read of frame field `name` is a `take()`.
 
         True for the transform's own SINGLE-USE temps once they are migrated:
         the ANF hoist's `__anfN`, the `try` hoist's `__trycallN`, the
-        value-conditional hoist's `__vchN`, and the payload binding a `??`/`?.`
+        value-conditional hoist's `__vchN`, the payload binding a `??`/`?.`
         lowering makes (`__vcN`, which the split rename turns into `__obN` —
-        `_prep_ob_split` is what remembers). Each is written once and read once,
-        in the position the lowering lifted an expression out of, so the read
-        hands the value over and `take()` is that in one method body.
+        `_prep_ob_split` is what remembers), and — since design 247 finished
+        stage 2 — the SCRUTINEE and CONTAINER-HEAD temps `__hoistN`, `__matchN`
+        and `__headN`. Each is written once and read once, in the position the
+        lowering lifted an expression out of, so the read hands the value over
+        and `take()` is that in one method body.
 
         False for everything else, including a user's own binding: a name the
         author wrote can be read more than once, and which of those reads
@@ -6208,7 +6156,6 @@ class _FrameBuilder:
         if self.cur not in self._term:
             self._goto(after)
         self.cur = after
-        self._emit(self._scrutinee_temp_release(s.optional_expr))   # E-STMT/2c
 
     def _split_while(self, e, loop_ctx):
         if e.condition is not None:
@@ -6314,10 +6261,6 @@ class _FrameBuilder:
 
     def _split_match(self, e, loop_ctx):
         forgets = []
-        # E-ARM (DF-218w) reads the temp by NAME, so capture it before the
-        # rewrite below turns the identifier into a field access.
-        scrut_name = (e.matched_expr.name
-                      if isinstance(e.matched_expr, Identifier) else None)
         cap_lets, scrut = self._rewrite_hosting(e.matched_expr, forgets)
         if forgets:
             raise CoroTransformError(
@@ -6353,8 +6296,15 @@ class _FrameBuilder:
             # deduplicated. It did not have to be while every store was an alias
             # (writing the field twice is idempotent); a MOVE emitted twice is
             # `use of moved variable`, reported on the compiler's own statement.
+            #
+            # DF-210f's per-arm forget USED to sit after this loop: an arm whose
+            # binding consumed had to tell a legacy-encoded hoisted scrutinee to
+            # drop its claim, or the frame freed the same buffer twice. Design
+            # 247 retired it with the encoding — the scrutinee is
+            # `self.__matchN.take()`, read once ahead of the dispatch, so no arm
+            # can find a claim still standing, and the per-arm asymmetry (only
+            # the binding arm forgot) goes with it.
             _seen_binds = set()
-            _consumed = False
             for bname in list(arm.bindings) + self._pattern_binding_names(arm.pattern):
                 if bname == "_" or bname not in self.encmap or bname in _seen_binds:
                     continue
@@ -6362,23 +6312,6 @@ class _FrameBuilder:
                 arm_binds.append(bname)          # SC7: the arm scope's own
                 dispatch.append(self._store_binding_in_slot(
                     bname, arm.line, arm.column))
-                _consumed = _consumed or self._slot_store_consumes(bname)
-            # DF-210f: the `if let` twin's rule, on the arm that actually took
-            # the payload. An arm whose binding CONSUMED means the scrutinee has
-            # given its value up, so a scrutinee the TRANSFORM hoisted must drop
-            # its claim — otherwise the frame frees the same buffer twice at
-            # teardown, once through the binding's slot and once through the
-            # temp's. Per ARM, because only the arm that binds consumes.
-            #
-            # A MIGRATED temp needs none of it (design 218 stage 2): the
-            # scrutinee is `self.__matchN.take()`, read once ahead of the
-            # dispatch, so no arm can find a claim still standing. The per-arm
-            # asymmetry — only the binding arm forgot — goes with it.
-            if _consumed and isinstance(e.matched_expr, Identifier) \
-                    and e.matched_expr.name in self._hoist_temps \
-                    and e.matched_expr.name in self.encmap \
-                    and _enc_cleanup(self.encmap[e.matched_expr.name]):
-                dispatch.extend(self._forgets([e.matched_expr.name]))
             dispatch.append(AssignStatement(
                 target=_self_field("__state"), value=_int(entry)))
             # design 101: preserve `pattern` and `guard` on the regenerated dispatch
@@ -6398,11 +6331,10 @@ class _FrameBuilder:
         self._term.add(self.cur)
         for arm, entry, arm_binds in arm_entries:
             self.cur = entry
-            # E-ARM (DF-218w): an arm that claims no payload drops the temp
-            # HERE, where the sync twin's inline drop at extraction sits. The
-            # merge release below stays and is a no-op on this path.
-            if self._arm_claims_no_payload(arm):
-                self._emit(self._scrutinee_temp_release_by_name(scrut_name))
+            # DF-218w's E-ARM edge is GONE (design 247): an arm that claims
+            # nothing of the take-read scrutinee has an OWNED TEMPORARY to drop,
+            # which codegen's consume model drops inline at extraction — the
+            # same position, decided by the same rule as the sync twin's.
             if isinstance(arm.body, Block):
                 self._lower_block(arm.body, loop_ctx, extra=arm_binds)
             else:
@@ -6419,7 +6351,6 @@ class _FrameBuilder:
             if self.cur not in self._term:
                 self._goto(merge)
         self.cur = merge
-        self._emit(self._scrutinee_temp_release(e.matched_expr))   # E-STMT/2c
 
     # ------------------------------------------- design 196 unit 3: try/catch
     def _split_try_catch(self, e, loop_ctx):
@@ -7229,9 +7160,9 @@ class _FrameBuilder:
                                    column=getattr(node, 'column', 0))
                 if not _enc_is_slot(enc):
                     # DEFERRED: opt_closure, address-taken, window-move,
-                    # rendering-operand, void-payload, fixed-array,
-                    # scrutinee-temp — the legacy `move o!`, whose `!` projects
-                    # out of a field the checkpoint must not re-judge.
+                    # void-payload, fixed-array — the legacy `move o!`, whose
+                    # `!` projects out of a field the checkpoint must not
+                    # re-judge.
                     #
                     # The MIGRATED read needs no mark and no longer carries one:
                     # `self.o.take()` hands back an owned temporary, and design
@@ -7296,11 +7227,10 @@ class _FrameBuilder:
         binding, whose write really does go through the frame's pointer."""
         if isinstance(target, Identifier) and _enc_unwraps(
                 self.encmap.get(target.name)):
-            # DEFERRED: opt_closure, address-taken, window-move,
-            # rendering-operand, void-payload, fixed-array, scrutinee-temp — the
-            # `_enc_unwraps` guard is what confines this to legacy fields; a
-            # migrated one takes the ordinary rewrite below, where `put`'s
-            # by-value parameter is the checkpoint.
+            # DEFERRED: opt_closure, address-taken, window-move, void-payload,
+            # fixed-array — the `_enc_unwraps` guard is what confines this to
+            # legacy fields; a migrated one takes the ordinary rewrite below,
+            # where `put`'s by-value parameter is the checkpoint.
             acc = _self_field(target.name, target.line, target.column)
             acc.frame_place_read = True
             return acc
@@ -7672,23 +7602,22 @@ class _FrameBuilder:
         # branch becomes the coroutine done-sequence (not a raw `return`).
         if isinstance(ctrl, IfLetExpr):
             forgets = []
-            # E-STMT / 2c — see the MatchExpr arm below.
-            scrut_release = self._scrutinee_temp_release(ctrl.optional_expr)
+            # The hoisted subject needs no release edge of its own (design 247):
+            # `self.__hoistN.take()` hands the optional over, so the BINDING owns
+            # the payload and codegen releases it at the end of the branch that
+            # introduced it — the sync twin's own rule (DF-218x's branch scope).
             cap_lets, ctrl.optional_expr = self._rewrite_hosting(
                 ctrl.optional_expr, forgets)
             self._lower_block_in_place(ctrl.then_branch)
             if ctrl.else_branch is not None:
                 self._lower_block_in_place(ctrl.else_branch)
-            return cap_lets + [s] + self._forgets(forgets) + scrut_release
+            return cap_lets + [s] + self._forgets(forgets)
         if isinstance(s, GuardLetStatement):
             forgets = []
-            # A guard's binding outlives the statement, but the TEMP its
-            # subject was hoisted into does not — the dispatch read it here.
-            scrut_release = self._scrutinee_temp_release(s.optional_expr)
             cap_lets, s.optional_expr = self._rewrite_hosting(
                 s.optional_expr, forgets)
             self._lower_block_in_place(s.else_branch)
-            return cap_lets + [s] + self._forgets(forgets) + scrut_release
+            return cap_lets + [s] + self._forgets(forgets)
         if isinstance(ctrl, (IfExpr, WhileExpr, MatchExpr)):
             e = ctrl
             if isinstance(e, IfExpr):
@@ -7710,31 +7639,21 @@ class _FrameBuilder:
                 return cap_lets + [s] + self._forgets(forgets)
             if isinstance(e, MatchExpr):
                 forgets = []
-                # E-STMT / 2c: read the scrutinee temp BEFORE the rewrite turns
-                # the identifier into a field access. A match whose SCRUTINEE
+                # THIS is the shape DF-215f lived in: a match whose SCRUTINEE
                 # was the only suspending thing in it lowers in place (the
                 # construct itself spans nothing once the head is hoisted), so
-                # this is where that shape's merge point is.
-                scrut_name = (e.matched_expr.name
-                              if isinstance(e.matched_expr, Identifier)
-                              else None)
-                scrut_release = self._scrutinee_temp_release(e.matched_expr)
+                # every arm binding is an ordinary codegen pattern binding and
+                # neither the split's frame store nor the DF-210f forget ever
+                # ran. The scrutinee is `self.__matchN.take()` now, an owned
+                # temporary — codegen spills it (DF-151d), the arm bindings get
+                # real drop flags, and a `move` out of one clears its flag. No
+                # release edge is owed here, and emitting one would be the
+                # second owner all over again.
                 cap_lets, e.matched_expr = self._rewrite_hosting(
                     e.matched_expr, forgets)
                 for arm in e.arms:
                     if isinstance(arm.body, Block):
                         self._lower_block_in_place(arm.body)
-                        # E-ARM (DF-218w): an arm claiming no payload drops the
-                        # temp at its START. PREPENDED after the body is
-                        # lowered, not before — these statements already name
-                        # the frame field, and running them back through the
-                        # in-place lowering would rewrite an already-rewritten
-                        # target. `scrut_release` above is a separate list of
-                        # nodes, so no node is shared between two positions.
-                        if self._arm_claims_no_payload(arm):
-                            arm.body.statements = (
-                                self._scrutinee_temp_release_by_name(scrut_name)
-                                + arm.body.statements)
                     else:
                         aforgets = []
                         arm.body = self._rewrite_expr(arm.body, aforgets)
@@ -7747,8 +7666,7 @@ class _FrameBuilder:
                                 f"a bare match-arm expression of driven "
                                 f"`{self.name}` is not supported; use a block arm",
                                 self.func.line, self.func.column)
-                return (cap_lets + [s] + self._forgets(forgets)
-                        + scrut_release)
+                return cap_lets + [s] + self._forgets(forgets)
 
         # Fallback: a plain expression statement (`foo()`), a break/continue with
         # a value, etc. — rewrite in place, hosting any drop-flag clears after.
