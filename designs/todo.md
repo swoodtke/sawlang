@@ -31,9 +31,9 @@ is scheduled and in what order is the whole of what they say.
 
 ## [QUEUE] — scheduled, in order (user-approved)
 
-- DF-215f fix — the suspending-match moved-payload double release (HEAD of queue, user Aug 26: a correctness bug outranks everything scheduled). Entry under design 215 below; the obligation-4 mechanism sweep (every frame home a moved-from value can still be released from — DF-242a and DF-255a are known siblings) comes FIRST and shapes the fix brief. SWEEP DONE Aug 27 (class confirmed and WIDENED — the return-crossing leg is falsified; the pin's `local_use` row asserts Clean and double-releases); fix brief designs/247-scrutinee-temp-migration.md AUTHORED + DISPATCHED same day — finish the 218-stage-2 migration of `FAM_SCRUTINEE_TEMP` to the take()-read encoding, expected to subsume the DF-218w residue; DF-242a/DF-255a NOT subsumed, stay open. Sweep incidentals filed as DF-262a/b (backlog)
+- ~~DF-215f fix — the suspending-match moved-payload double release~~ **LANDED Aug 27** (designs/247-scrutinee-temp-migration.md, all three units; entry under design 215 below carries the landing note). `FAM_SCRUTINEE_TEMP` retired, every hoist temp take-read, the DF-218w residue SUBSUMED as predicted and DF-262a dissolved as a side effect. DF-242a/DF-255a were not subsumed and stay open
 - ~~Design 246~~ — recursive nominal types via indirection — LANDED Aug 27, entry below. `JsonValue` is writable; design 215 stage D unblocked
-- DF-265a fix — MODULE-KEY the free-function registry (the last unkeyed symbol kind; the DF-140h statics treatment, the design-144 type-identity precedent) and scope the declaration-site ambiguity check to one module (SCHEDULED Aug 27, user: directly after DF-215f). Entry below carries the verified mechanism; DF-242b (the bare cross-module overload face) is an EXPECTED CLOSURE, DF-242c is re-probed against it but its same-module cell says it will not dissolve. Fix brief owed at dispatch; frees `std.json.encode`'s natural name
+- DF-265a fix — MODULE-KEY the free-function registry (the last unkeyed symbol kind; the DF-140h statics treatment, the design-144 type-identity precedent) and scope the declaration-site ambiguity check to one module (SCHEDULED Aug 27, user: directly after DF-215f). Entry below carries the verified mechanism; DF-242b (the bare cross-module overload face) is an EXPECTED CLOSURE, DF-242c is re-probed against it but its same-module cell says it will not dissolve. Fix brief designs/249-module-keyed-functions.md AUTHORED Aug 27, dispatches on 247's integration; frees `std.json.encode`'s natural name
 - Design 244 — the String byte surface goes unsigned (designs/244-string-byte-surface-unsigned.md; ruled Aug 26, after DF-215f and before design 209). The `*_char` naming rider is the one open ruling, wanted at or before dispatch
 - Design 245 v1 — `Scalar` + `scalars()`, `chars()` and `append_scalar` REMOVED (designs/245-unicode-scalar-type.md §6; ruled Aug 27 — no literals in v1, prelude placement — and DISPATCHED same day on the user's "now", disjoint from the two items above). Literals + patterns stay open as later units
 - std.json unit 1 — the `JsonValue` tree (parse-to-DOM, DOM-to-text, Optional-returning accessors), EVENT-GATED on design 246 integrating rather than queue-ordered (user, Aug 27: resume once the recursive-types fix lands). GATE FIRED + DISPATCHED Aug 27, minutes after 246's integration gate went green — a FRESH Sonnet agent (the unit-2 agent could not be resumed once its integrated worktree was removed; the dispatch carries the context, and the lexical layer in sawc/std/json.saw was built for this reuse). MODEL RULING (user, Aug 27): the continuation stays SONNET deliberately — dogfood value, the design-203 logic (a simpler model surfaces more language pain as findings). Agent DF range DF-267a+. Pinned defaults carry over from the original dispatch: numbers Int-when-lexically-integral-and-in-range else Float, duplicate keys last-wins (matching the landed seam decode), get-shaped accessors return Optional; pretty-printing stays OUT of unit 1 (open). Landing owes the design-215 stage-D note an update
@@ -82,8 +82,8 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-259b — a reserved word in any declaration-name position gives a bare "Expected X name" that never says the word is reserved; five slots, one shared report (entry below, filed Aug 25 by the design-138 doc-sync sweep; PRE-EXISTING). Diagnostic-only, so no XFAIL pin
 - DF-259c — a TRAILING closure is not recognized inside a `try`/`try!`/`try?` operand, so `try! v.map { … }` collapses to a field access; the parenthesized argument is the workaround (entry below, filed Aug 25 by the design-138 doc-sync sweep; PRE-EXISTING, and the 234 flip is what makes it reachable from ordinary code). Pinned XFAIL, three cells and one control
 - DF-215g — a bare `None` compared `==` against a CALL expression's determined optional refuses to infer, where the annotated-local twin compiles (entry below, Aug 26)
-- DF-262a — the container-head hoist's move-only refusal diagnostic names the compiler-internal frame field (`self.__head0…`) to the user; the refusal itself is correct (filed Aug 27 by the DF-215f sweep; evidence in the 247 brief's appendix). Diagnostic-only
-- DF-262b — a suspending interpolation piece + `Task.spawn` at the same NoCopy result type + optional auto-wrap of the joined value is an LLVM-verifier ICE (filed Aug 27 by the DF-215f sweep; repro preserved verbatim in the 247 brief's appendix)
+- ~~DF-262a — the container-head hoist's move-only refusal diagnostic names the compiler-internal frame field (`self.__head0…`) to the user~~ **DISSOLVED Aug 27 by design 247, needs the lead's confirmation to close.** The refusal was the head temp's `value()` LEND meeting a move-only element; the head temp is take-read now, so there is no place to refuse and both filed shapes (`match get_maker("h0").build()` at a move-only tier, `if let r = try? suspending()` at `Res?`) compile and release exactly once. Probe: `.build/scratch/df262a.saw` on branch `worktree-agent-a15c1414bca26ee3b`
+- DF-262b — a suspending interpolation piece + `Task.spawn` at the same NoCopy result type + optional auto-wrap of the joined value is an LLVM-verifier ICE (filed Aug 27 by the DF-215f sweep; repro preserved verbatim in the 247 brief's appendix). NOT dissolved by design 247 — re-probed Aug 27 post-migration and it reproduces verbatim (`ret {i1, %"Res"} %"autowrap_val"` against `%Res = type { ptr }`), which is what places it in the ANF/auto-wrap machinery rather than the scrutinee-temp family
 - DF-264a — the `Copy` tier's conformance check skips the deinit-signature validation its ExplicitCopy/NoCopy siblings both have, so a `deinit(&self)` inside a `@synthesize Copy` reaches codegen and ICEs (entry below, filed Aug 27 from the user's scratch example)
 - DF-265a — two std files declaring same-named public generic free functions with DISTINGUISHABLE signatures is a hard `builtins failed to type-check` collision — a flat-namespace uniqueness check that predates the per-file-module scoping everything else follows (entry below, filed Aug 27 by the std.json build)
 - DF-266a — a bare leading-minus TAIL expression after a preceding `if { return }` block is an ICE at a BinaryOp node; the same tail after a `let` compiles (entry below, filed Aug 27 by the std.json build, lead-verified both cells)
@@ -4779,11 +4779,18 @@ Content-Length and chunked), `--system-prompt`/`--temperature`/
 Verified against a trap-laden loopback mock — decoy `"content"` key,
 surrogate-pair emoji, 0.4s-spaced SSE frames proving incremental
 arrival, a 400 path quoting the server detail. The first attempt it
-replaces had bit-rotted at design 234's allocator flip. Carries ONE
+replaces had bit-rotted at design 234's allocator flip. ~~Carries ONE
 workaround: every suspending TcpStream op is `try!`-unwrapped rather
 than matched (DF-215f below is why), so the connect-failure path exits
 via panic instead of the designed ClientError line — DEBT the DF-215f
-fix repays (the comment at the workaround site says so).
+fix repays (the comment at the workaround site says so).~~ **DEBT REPAID
+Aug 27** (design 247 unit 2): `send_request` returns
+`Result<TcpStream, ClientError>` and matches both `connect` and `write`,
+`must_read` became `read_chunk -> Result<Data, ClientError>` and its
+seven call sites take a propagating `try`, and an unreachable port now
+exits via the designed line (`error: could not connect to 127.0.0.1:9:
+io error: connect failed (connection refused)`, status 1) instead of a
+panic.
 
 **Environment fact worth carrying beyond this brief:** macOS 15+ gates
 Local Network access PER APP, so an unapproved binary gets
@@ -4857,6 +4864,39 @@ case for a diagnostic fix):
   detector). Five-condition boundary, 12 affected / 16 clean cells, matrix
   and mechanism in designs/247-scrutinee-temp-migration.md, whose fix
   (DISPATCHED Aug 27) is the take()-read migration.
+  **CLOSED — FIXED Aug 27** by design 247, all three units on branch
+  `worktree-agent-a15c1414bca26ee3b`. `FAM_SCRUTINEE_TEMP` is RETIRED, not
+  narrowed: `__hoistN`/`__matchN` — and `__headN` with them, design 224's
+  container-head lift being the same single-use shape — read with `take()`
+  like every other hoist family, so the temp is emptied AT the read and what
+  reaches codegen is an OWNED TEMPORARY, which is exactly what its existing
+  consume model (the SYNC lowering, always correct) is written for. The two
+  edges the legacy encoding needed are deleted with it — E-STMT/2c
+  (`_scrutinee_temp_release`) and DF-218w's E-ARM (`_arm_claims_no_payload`)
+  — along with the DF-210f forgets in `_optbind_dispatch`/`_split_match` and
+  the `_hoist_temps` set that fed them; `_optbind_dispatch`'s docstring had
+  said the rule would go "with the last of them", and this is that landing.
+  IR-verified at -O0: the scrutinee is `Slot…_take`, codegen spills it into
+  `%match_scrutinee` (DF-151d), each arm binding gets a real drop flag, and
+  the `move` clears it — one owner throughout, no `__saw_forget` anywhere
+  near it. Regression matrix: the corrected pin plus
+  `coro_driven_match_move_out_releases_once.saw` (five destinations, three
+  controls), `coro_match_move_out_releases_once_in_loop_try_and_task.saw`
+  and `coro_iflet_move_out_releases_once.saw`. **DF-218w's residue pin
+  (`coro_mixed_match_payload_released_at_extraction.saw`) FLIPPED and its
+  marker is gone**, as the brief predicted — the mixed `case Both(v, _)` is
+  the arm shape no driven-only edge could take and needs none once the
+  scrutinee is a temporary. **DF-262a is DISSOLVED** (the refusal whose
+  spelling leaked `self.__head0` was the head temp's `value()` lend; a
+  take-read head has no place to refuse — probe compiles and single-releases
+  at both its shapes), and **DF-262b still reproduces verbatim** (unrelated:
+  an ANF/auto-wrap ICE). One unfiled divergence closed on the way:
+  `if let _ = <suspending>` now drops its payload where the sync twin does
+  (DF-218w's shape at the optional-binding spelling), pinned as a twin pair.
+  Conformance row V50 (added ahead of the fix as unit 0) and K73 both
+  updated. `tools/test_forget_purge.py` drops `scrutinee-temp` from its
+  family set; no live corodiff/sawfuzz ledger entry named this mechanism, so
+  none was removed. Unit 2 repaid the llm_client debt below.
 - **DF-215g — bidirectional inference does not resolve a bare `None`
   compared `==` against a CALL expression's fully determined optional**
   (`find_thing(5) == None` is "cannot tell what this `None` is a `None`
