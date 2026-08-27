@@ -39,9 +39,10 @@ declared-return rule, K78-K82, design 242 unit 2's no-implicit-fates rules,
 K83-K84, its unit 4 thread-body rules, and K85-K91, its unit 3 background
 engine — the `Task.spawn` obligation, its provenance-keyed fault, the exit
 cancel-then-join, the borrow ban at the form, `detach` on both engines, and the
-spawn brace's explicit capture list; and A01 plus A03-A17, design 234 unit 3's
+spawn brace's explicit capture list; A01 plus A03-A17, design 234 unit 3's
 allocator-failure tier — one row per op family that now reports, and five for
-the edges the flip deliberately does not cross.)
+the edges the flip deliberately does not cross; and V50, design 247 unit 0's
+deinit-exactly-once row for a driven move-out.)
 
 ## How to read it
 
@@ -274,6 +275,7 @@ Claim source: spec 4 *The Copy Trait Family* + *Move-Only Types*; designs 34, 13
 | V44 | control: the bounded wrapper copies really work, at both duplicable tiers | `V44_bounded_wrapper_copy_runs.saw` | 219 C2 — the accept side, and the fix to the ARRAY arm the row found: `type_satisfies_explicit_copy_bound` answers from the tier alone, so `[T; 2]` under a declared `<T: ExplicitCopy>` came back False and the one spelling the bound exists to license was refused |
 | V48 | a `move` capture into a NON-ESCAPING closure transfers when the BODY RUNS — the absent path leaks nothing, the executed path frees exactly once | `closure_move_capture_transfers_when_body_runs.saw` | DF-218h — a non-escaping closure keeps its environment on the stack with no destructor, so neither eager answer was available: clearing the source's drop flag at capture leaked whenever the body did not run, and leaving it alone double-freed whenever it did. The environment carries a pointer to the local and the body takes the value as it starts, which is one rule for every shape that reaches a non-escaping closure (a direct argument, `with_ref`/`with_var_ref`, the place window's own lowered closure, a conditional lend on both paths). A body run twice would take a value that is gone, so the flag is also the occupancy and a repeat panics |
 | V49 | an ESCAPING closure whose body consumes its `move` capture frees it once | `closure_escaping_move_capture_consumed_once.saw` | DF-255a — OPEN, XFAIL. The other side of V48: an escaping env OWNS its captures and its destructor releases them, and nothing records that the body already moved one out, so `sink` frees the value and the destructor frees it again. V48's answer does not port — the flag it clears is the source frame's, and an escaping capture has left that frame |
+| V50 | a payload moved OUT of a DRIVEN `match`/`if let` arm over a suspending scrutinee deinitializes exactly once | `coro_match_moved_payload_survives_return.saw` | DF-215f — OPEN, XFAIL, written ahead of design 247's fix. The scrutinee is hoisted into a frame temp that KEEPS the payload while the arm's binding is a codegen-level alias, so `move <binding>` mints a second owner and the temp's own release at the construct's merge point frees the value again. The double release does not need the value to leave the function — the sweep falsified that leg — and it is invisible on an `Arc`-instrumented payload, where the extra release lands after the last legitimate one and silently underflows; the row's oracle is therefore a NoCopy payload with a printing `deinit`, counted |
 
 ## Places (`borrows` / `lend`) — window discipline
 
@@ -812,6 +814,11 @@ rows (R24, X15, X16, X20, U24, U25, K13). The last one closed:
 Obligation 3 asks a safety-surface brief for its rows FIRST, so a row that
 states a ruling the compiler has not been taught yet lands as a cited XFAIL and
 the unit that teaches it removes the marker.
+
+Open: **V50** — design 247's row, written ahead of its unit 1 as obligation 3
+asks. It states the guarantee DF-215f breaks (an owned value deinitializes
+exactly once) at the position that breaks it, and its pin's XFAIL marker is what
+unit 1 removes.
 
 Closed: **G02-G04, G08-G14** — design 221's exit-status and `main`-rule rows,
 written before the fix as obligation 3 asks. G02 flipped with unit B2 (the
