@@ -92,7 +92,17 @@ The deleted sign-correction helpers (string.saw's to-unsigned,
 - 245's `Scalar` stays the character story; `Byte` and `Scalar` are the two
   halves "char" used to blur, now both nominal.
 
-## 5. Ruling sheet (dispatch waits on these)
+## 5. Ruling sheet — ALL RESOLVED Aug 27 (user: "go - your recommendations
+## are fine for all three"); DISPATCHED same day
+
+Q1 = (a) constructor form for v1. Q2 = prelude. Q3 = rt out of v1 scope.
+Q4 = the sink rule (below, resolved earlier the same day). RIDER ON Q4
+(user, at the go): "all values returned from Data and its internal
+representation should be Bytes" — Data is STRICT on the read side and in
+its own internals (every element-typed internal field, local and helper in
+data.saw speaks `Byte` where the element type is expressible; the raw
+C-char/pointer plumbing stays per §2's stays-list), LAX only at the public
+sink parameters per the sink rule.
 
 - **Q1 — annotated-let adoption.** `let b: Byte = 4` is refused today (the
   alias literal rule covers only Int/Float/Bool/String underlyings), so
