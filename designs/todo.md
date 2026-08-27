@@ -31,7 +31,7 @@ is scheduled and in what order is the whole of what they say.
 
 ## [QUEUE] — scheduled, in order (user-approved)
 
-- DF-215f fix — the suspending-match moved-payload double release (HEAD of queue, user Aug 26: a correctness bug outranks everything scheduled). Entry under design 215 below; the obligation-4 mechanism sweep (every frame home a moved-from value can still be released from — DF-242a and DF-255a are known siblings) comes FIRST and shapes the fix brief. SWEEP DISPATCHED Aug 27 (opus, read-only, probes only); the fix brief follows its report
+- DF-215f fix — the suspending-match moved-payload double release (HEAD of queue, user Aug 26: a correctness bug outranks everything scheduled). Entry under design 215 below; the obligation-4 mechanism sweep (every frame home a moved-from value can still be released from — DF-242a and DF-255a are known siblings) comes FIRST and shapes the fix brief. SWEEP DONE Aug 27 (class confirmed and WIDENED — the return-crossing leg is falsified; the pin's `local_use` row asserts Clean and double-releases); fix brief designs/247-scrutinee-temp-migration.md AUTHORED + DISPATCHED same day — finish the 218-stage-2 migration of `FAM_SCRUTINEE_TEMP` to the take()-read encoding, expected to subsume the DF-218w residue; DF-242a/DF-255a NOT subsumed, stay open. Sweep incidentals filed as DF-262a/b (backlog)
 - Design 246 — recursive nominal types via indirection (designs/246-recursive-types.md; ruled + DISPATCHED Aug 27 on the user's "sooner is better", concurrent worktree — codegen registration + a typechecker size check, disjoint from 215f's transform territory and 245's scalar work). Carries DF-260a; unblocks std.json's `JsonValue` (design 215 stage D). Entry below
 - Design 244 — the String byte surface goes unsigned (designs/244-string-byte-surface-unsigned.md; ruled Aug 26, after DF-215f and before design 209). The `*_char` naming rider is the one open ruling, wanted at or before dispatch
 - Design 245 v1 — `Scalar` + `scalars()`, `chars()` and `append_scalar` REMOVED (designs/245-unicode-scalar-type.md §6; ruled Aug 27 — no literals in v1, prelude placement — and DISPATCHED same day on the user's "now", disjoint from the two items above). Literals + patterns stay open as later units
@@ -79,6 +79,8 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-259b — a reserved word in any declaration-name position gives a bare "Expected X name" that never says the word is reserved; five slots, one shared report (entry below, filed Aug 25 by the design-138 doc-sync sweep; PRE-EXISTING). Diagnostic-only, so no XFAIL pin
 - DF-259c — a TRAILING closure is not recognized inside a `try`/`try!`/`try?` operand, so `try! v.map { … }` collapses to a field access; the parenthesized argument is the workaround (entry below, filed Aug 25 by the design-138 doc-sync sweep; PRE-EXISTING, and the 234 flip is what makes it reachable from ordinary code). Pinned XFAIL, three cells and one control
 - DF-215g — a bare `None` compared `==` against a CALL expression's determined optional refuses to infer, where the annotated-local twin compiles (entry below, Aug 26)
+- DF-262a — the container-head hoist's move-only refusal diagnostic names the compiler-internal frame field (`self.__head0…`) to the user; the refusal itself is correct (filed Aug 27 by the DF-215f sweep; evidence in the 247 brief's appendix). Diagnostic-only
+- DF-262b — a suspending interpolation piece + `Task.spawn` at the same NoCopy result type + optional auto-wrap of the joined value is an LLVM-verifier ICE (filed Aug 27 by the DF-215f sweep; repro preserved verbatim in the 247 brief's appendix)
 - DF-215h — stdout has no newline-free write, so incremental output (`--stream` deltas) prints one line per piece; wants a surface ruling (entry below, Aug 26)
 - DF-215i — no boolean `guard cond else { }`, only `guard let`; wants a ruling on whether the omission is deliberate (entry below, Aug 26)
 - DF-215j — `return` inside a VALUE match arm is a bare "Unexpected token: RETURN" with no arms-are-expressions hint; diagnostic-only (entry below, Aug 26)
@@ -4554,7 +4556,18 @@ case for a diagnostic fix):
   consumed capture are known siblings); the sweep enumerates the rest
   of that family and the fix targets the mechanism.
   SCHEDULED Aug 26 at the HEAD of [QUEUE] (user: a correctness bug
-  outranks everything scheduled).
+  outranks everything scheduled). SWEPT Aug 27 (lead-dispatched, launched on
+  the user's "let's launch DF-215f"): ONE mechanism — the legacy
+  `__matchN`/`__hoistN` scrutinee-temp encoding design 218 stage 2 never
+  migrated, whose merge-point release trusts a DF-210f forget that only
+  fires for FRAME-RESIDENT bindings, while codegen's consume model judges
+  scrutinee SYNTAX and sees a frame field as neither local nor temporary —
+  and the RETURN-CROSSING LEG IS FALSIFIED: move-out to any destination
+  double-releases (the pin's `local_use` row asserts Clean and is wrong;
+  the Arc idiom hid the underflow — NoCopy printing-deinit is the honest
+  detector). Five-condition boundary, 12 affected / 16 clean cells, matrix
+  and mechanism in designs/247-scrutinee-temp-migration.md, whose fix
+  (DISPATCHED Aug 27) is the take()-read migration.
 - **DF-215g — bidirectional inference does not resolve a bare `None`
   compared `==` against a CALL expression's fully determined optional**
   (`find_thing(5) == None` is "cannot tell what this `None` is a `None`
