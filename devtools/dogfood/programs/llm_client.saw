@@ -333,29 +333,36 @@ func build_request(method: String, path: String, host: String, port: Int, body: 
     return b.build()
 }
 
-// NOTE (DF-215f, pinned at examples/coro_match_moved_payload_survives_return.saw):
-// matching a SUSPENDING call's Result and moving the Ok payload onward — a
-// `TcpStream` out of `TcpStream.connect`'s match, or a `Data` out of
-// `TcpStream.read`'s — comes back corrupted once the moved value leaves the
-// enclosing function: the connect case reads back as a broken socket ("io
-// error: ... (other error)" on the very next operation), and the read case
-// is a genuine Arc refcount underflow ("panic ... over-release of an Arc")
-// once the returned `Data` is used again. Neither reproduces with a
-// non-suspending callee, and neither reproduces with `try!` in place of
-// `match` on the very same call — which is the workaround used everywhere
-// below: every suspending TcpStream operation is unwrapped with `try!`
-// (panicking with the IoError's message on failure) rather than matched.
-// The DF-215f fix owes this file its designed error path back: these
-// `try!` panics should return to `Result<_, ClientError>` matches.
-func send_request(host: String, port: Int, method: String, path: String, body: String?) -> TcpStream {
-    var stream = try! TcpStream.connect(host, port)
+// Every suspending TcpStream operation is MATCHED and its failure becomes a
+// `ClientError` naming the host, the port and the operation — a network client
+// that cannot reach its server should say so, not panic. (This is the file's
+// designed shape, restored by design 247: while DF-215f was open, moving a
+// suspending call's Ok payload out of a `match` arm released it twice, so
+// `TcpStream.connect` came back a broken socket and a `Data` out of
+// `TcpStream.read` was an Arc over-release. `try!` was the workaround, since a
+// `try` hoist's temp had been take-read since design 218 stage 2.)
+func send_request(host: String, port: Int, method: String, path: String, body: String?) -> Result<TcpStream, ClientError> {
+    var stream = match TcpStream.connect(host, port) {
+        case Ok(s) -> move s,
+        case Err(e) -> {
+            return ClientError(message: "could not connect to {host}:{port}: {e}")
+        }
+    }
     let req = build_request(method, path, host, port, body)
-    try! stream.write(req)
+    match stream.write(req) {
+        case Ok(_) -> { },
+        case Err(e) -> {
+            return ClientError(message: "could not send {method} {path} to {host}:{port}: {e}")
+        }
+    }
     return move stream
 }
 
-func must_read(stream: &var TcpStream) -> Data {
-    try! stream.read()
+func read_chunk(stream: &var TcpStream) -> Result<Data, ClientError> {
+    match stream.read() {
+        case Ok(chunk) -> move chunk,
+        case Err(e) -> ClientError(message: "reading the response failed: {e}")
+    }
 }
 
 func find_crlf(d: &Data, from: Int) -> Int? {
@@ -394,7 +401,7 @@ func read_head(stream: &var TcpStream) -> Result<(HttpHead, Data), ClientError> 
     var buf = try! Data(capacity: 512)
     var header_end: Int? = None
     while header_end.is_none() {
-        let chunk = must_read(&var stream)
+        let chunk = try read_chunk(&var stream)
         if chunk.len() == 0 {
             return ClientError(message: "connection closed before the response headers arrived")
         }
@@ -451,7 +458,7 @@ func decode_chunked_all(stream: &var TcpStream, initial: Data) -> Result<Data, C
     while true {
         var line_end = find_crlf(&raw, 0)
         while line_end.is_none() {
-            let more = must_read(&var stream)
+            let more = try read_chunk(&var stream)
             if more.len() == 0 { return ClientError(message: "connection closed mid chunk size") }
             try! raw.append(more)
             line_end = find_crlf(&raw, 0)
@@ -466,7 +473,7 @@ func decode_chunked_all(stream: &var TcpStream, initial: Data) -> Result<Data, C
         raw = move next_raw
         if size == 0 { return move out }
         while raw.len() < size + 2 {
-            let more = must_read(&var stream)
+            let more = try read_chunk(&var stream)
             if more.len() == 0 { return ClientError(message: "connection closed mid chunk data") }
             try! raw.append(more)
         }
@@ -502,7 +509,7 @@ func read_full_body(stream: &var TcpStream, remainder: Data, head: HttpHead) -> 
     if let want = head.content_length {
         var body = remainder
         while body.len() < want {
-            let more = must_read(&var stream)
+            let more = try read_chunk(&var stream)
             if more.len() == 0 {
                 return ClientError(message: "connection closed before the response body was complete")
             }
@@ -514,7 +521,7 @@ func read_full_body(stream: &var TcpStream, remainder: Data, head: HttpHead) -> 
     }
     var body = remainder
     while true {
-        let more = must_read(&var stream)
+        let more = try read_chunk(&var stream)
         if more.len() == 0 { return move body }
         try! body.append(more)
     }
@@ -539,7 +546,7 @@ func status_error(method: String, path: String, host: String, port: Int, status:
 // =============================================================================
 
 func fetch_models(host: String, port: Int) -> Result<Vector<String>, ClientError> {
-    var stream = send_request(host, port, "GET", "/v1/models", None)
+    var stream = try send_request(host, port, "GET", "/v1/models", None)
     let status_and_text = try read_response(&var stream)
     let status = status_and_text.0
     let text = status_and_text.1
@@ -591,7 +598,7 @@ func build_chat_payload(model: String, system_prompt: String?, user_prompt: Stri
 }
 
 func chat_once(host: String, port: Int, payload: String) -> Result<String, ClientError> {
-    var stream = send_request(host, port, "POST", "/v1/chat/completions", payload)
+    var stream = try send_request(host, port, "POST", "/v1/chat/completions", payload)
     let status_and_text = try read_response(&var stream)
     let status = status_and_text.0
     let text = status_and_text.1
@@ -615,7 +622,7 @@ func run_stream(stream: &var TcpStream, initial: Data) -> Result<String, ClientE
     while not done {
         var line_end = find_crlf(&raw, 0)
         while line_end.is_none() {
-            let more = must_read(&var stream)
+            let more = try read_chunk(&var stream)
             if more.len() == 0 { return ClientError(message: "connection closed mid stream") }
             try! raw.append(more)
             line_end = find_crlf(&raw, 0)
@@ -633,7 +640,7 @@ func run_stream(stream: &var TcpStream, initial: Data) -> Result<String, ClientE
             break
         }
         while raw.len() < size + 2 {
-            let more = must_read(&var stream)
+            let more = try read_chunk(&var stream)
             if more.len() == 0 { return ClientError(message: "connection closed mid stream data") }
             try! raw.append(more)
         }
@@ -701,7 +708,7 @@ func starts_with(s: String, prefix: String) -> Bool {
 }
 
 func chat_stream(host: String, port: Int, payload: String) -> Result<String, ClientError> {
-    var stream = send_request(host, port, "POST", "/v1/chat/completions", payload)
+    var stream = try send_request(host, port, "POST", "/v1/chat/completions", payload)
     let head_and_rem = try read_head(&var stream)
     let head = head_and_rem.0
     let remainder = head_and_rem.1
