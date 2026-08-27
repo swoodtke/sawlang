@@ -32,13 +32,23 @@ just an `Int`. Three costs, each observed in tree:
 
 A `Scalar` is an integer carrying the invariant 0..0x10FFFF excluding the
 surrogate range — Rust's `char`, Swift's `Unicode.Scalar` (UTF-32's value
-space). Construction is partial, reading is total — the design-145 raw-backed
-idiom applied to a struct:
+space). Construction is a FALLIBLE INIT, not a `from` factory (user, Aug 27:
+`try?` already converts a Result to the Optional, so the factory would only
+subtract the cause):
 
-- `Scalar.from(_: Int) -> Scalar?` — the ONE place validity is checked.
+- `Scalar(_: Int) -> Result<Scalar, InvalidScalar>` — the ONE place validity
+  is checked, and the error NAMES the cause (surrogate / out of range /
+  negative) exactly as the Optional-init refusal's doctrine demands; a caller
+  for whom absence is the answer writes `try? Scalar(x)`.
 - a total read back to `Int` (§4 decides the spelling).
 - Conformances: `Equatable`, `Comparable`, `Hashable`, `Printable` — and
   Printable renders the CHARACTER, which is the point. Trivial Copy tier.
+
+(The design-145 `from(raw:) -> E?` idiom is NOT the model here and survives
+only where it is structural: enums have no `init` at all, so the raw-backed
+wire idiom keeps `from`. Everything with an init constructs through it —
+the same collapse that retires `Box.make`, see the construction-doctrine
+discussion of Aug 27.)
 
 What it deliberately is NOT: a grapheme cluster (Swift's `Character`).
 Grapheme segmentation drags Unicode tables into std against the
@@ -50,8 +60,18 @@ future that wants one.
 
 | declaration | today | becomes |
 |---|---|---|
-| `String.chars()` iterator | yields `Int` | yields `Scalar` |
+| `String.chars()` iterator | yields `Int` | **`scalars()`**, yields `Scalar` |
 | `StringBuilder.append_scalar(scalar: Int)` | `-> Result<Int?, AllocError>` (`None` = invalid) | `append(_: Scalar) -> Result<Void, AllocError>` — validity gone from the signature |
+
+The RENAME rides the type flip deliberately (user question, Aug 27: "will
+`chars()` returning Scalars bite us when we introduce a grapheme Character?").
+The return TYPE never bites — a grapheme view would be a different type over a
+different segmentation, and a scalar iterator stays correct forever — but the
+NAME does: Rust's `str::chars()` yields scalars and "my emoji came apart" is
+its standing footgun, where Swift's `unicodeScalars` never misleads. The
+migration already touches every `chars()` site for the element type, so
+`scalars()` costs zero extra churn now and leaves `characters()`/`graphemes()`
+unencumbered for a future grapheme view (still out of scope, §2).
 
 The `append(Scalar)` spelling is a deliberate contrast with 244's rider:
 `append(UInt8)` was REJECTED because raw-byte append is a different operation
@@ -67,7 +87,7 @@ Migration size (Aug 27 sweep): 21 `chars()` sites in 15 files, 17
 1. **Scalar literals are near-mandatory, and their shape is the big
    question.** The same loops that print also COMPARE: the JSON escaper
    writes `if ch == 34`, and a bare integer literal cannot adopt a struct
-   type, so without literal syntax that becomes `ch == Scalar.from(34)!` —
+   type, so without literal syntax that becomes `ch == try! Scalar(34)` —
    unusable, and the migration would make working code worse. Options: a
    character literal (`'a'`, a lexer addition with its own escape/multi-scalar
    refusal rules), or blessing bare INTEGER literals to adopt `Scalar`
