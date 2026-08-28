@@ -15,7 +15,7 @@ import std.fixedbuf.{FixedBuf}
 
 func main() {
     var b = FixedBuf<8>()
-    b.set(0, 65 as Int8)
+    b.set(0, 65)
     print(b.get(0) as Int)      // 65 — in range, fine
     print(b.get(11) as Int)     // past the end -> panic
 }

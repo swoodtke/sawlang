@@ -12,13 +12,13 @@
 /// bytes live wherever the buffer does: a local puts them on the stack, a field
 /// puts them in the enclosing value, a `static` puts them in `.bss`.
 public struct FixedBuf<const N: Int> {
-    data: [Int8; N]
+    data: [Byte; N]
 }
 
 extension FixedBuf<N> {
     /// Creates a buffer of `N` zero bytes.
     public init() -> FixedBuf<N> {
-        FixedBuf<N>(data: [0; N])
+        FixedBuf<N>(data: [Byte(0); N])
     }
 
     /// The number of bytes this buffer holds.
@@ -40,12 +40,17 @@ extension FixedBuf<N> {
     /// The pointer is valid only while the buffer stays where it is. Storing one
     /// across a move of the owner leaves it addressing the old bytes, so take it
     /// where you use it rather than keeping it in a field.
+    ///
+    /// The element type is `Byte` but the pointer is C's `char`: this is the
+    /// storage `StringBuilder(bytes:capacity:)` formats into, and that seam is
+    /// spelled `UnsafePointer<Int8>` at the FFI boundary (design 250 §2's
+    /// stays-list). The reinterpret is free — one byte is one byte.
     public func ptr(&var self) unsafe -> UnsafePointer<Int8> {
         (&self.data) as UnsafePointer<Int8>
     }
 
     /// Reads the byte at `i`. Panics if `i` is out of range.
-    public func get(&self, i: Int) -> Int8 {
+    public func get(&self, i: Int) -> Byte {
         if i < 0 || i >= N {
             panic("FixedBuf.get: index out of range: {} (len {})", i, N)
         }
@@ -53,11 +58,15 @@ extension FixedBuf<N> {
     }
 
     /// Writes `b` at `i`. Panics if `i` is out of range.
-    public func set(&var self, i: Int, b: Int8) {
+    ///
+    /// `b` is a `UInt8` on `Data.set`'s terms (design 250 §5 Q4's sink rule):
+    /// a `Byte`, a `UInt8` and a bare literal all pass, since there is no second
+    /// reading for a number arriving at a byte buffer.
+    public func set(&var self, i: Int, b: UInt8) {
         if i < 0 || i >= N {
             panic("FixedBuf.set: index out of range: {} (len {})", i, N)
         }
-        self.data[i] = b
+        self.data[i] = Byte(b)
     }
 }
 

@@ -1,0 +1,80 @@
+// Design 250 §5 Q4 + its rider, on `Data`: every READ hands back a `Byte`, and
+// every SINK takes a `UInt8` parameter — which accepts a `Byte`, a `UInt8` and a
+// bare literal alike, because `Data` deals in nothing but bytes so a number
+// arriving at one has no second reading.
+//
+// The subscript is the documented exception and this pins it: `d[i]` is a PLACE,
+// and a place has ONE type for the read and the write, so it keeps `UInt8` —
+// otherwise `d[i] = 42` would stop compiling.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// get 200
+// pop 200
+// iterated 3, last 202
+// literal sink 7
+// byte sink 65
+// uint8 sink 9
+// place read 7
+// place write 42
+// from a string 104
+// fixedbuf 65
+
+import std.data.{Data}
+import std.fixedbuf.{FixedBuf}
+
+// A `Byte` from `Data` flows straight into anything that wants a `UInt8`.
+func widen(u: UInt8) -> Int {
+    u as Int
+}
+
+func main() {
+    var d = try! Data(capacity: 4)
+    let _ = try! d.push(200)          // a bare literal adopts at the sink
+    let _ = try! d.push(201)
+    let _ = try! d.push(202)
+
+    // Reads are `Byte`, and a byte at or above 0x80 is 200, not -56.
+    if let b = d.get(0) {
+        print("get {}", b as Int)
+    }
+
+    var e = d.copy()
+    if let last = e.pop() {
+        let _ = last                  // `pop` yields `Byte?` too
+    }
+    if let b = d.get(0) {
+        print("pop {}", b as Int)
+    }
+
+    var count = 0
+    var last = 0
+    for b in d.iter() {
+        count = count + 1
+        last = b as Int               // the iterator's element is a `Byte`
+    }
+    print("iterated {}, last {}", count, last)
+
+    // The three arrivals at one `UInt8` sink.
+    var f = try! Data(capacity: 4)
+    let _ = try! f.push(7)
+    print("literal sink {}", widen(f.get(0)!))
+    let byte = "A".byte_at(0)
+    let _ = try! f.push(byte)
+    print("byte sink {}", widen(f.get(1)!))
+    let raw: UInt8 = 9
+    let _ = try! f.push(raw)
+    print("uint8 sink {}", widen(f.get(2)!))
+
+    // The place: read and write both at `UInt8`.
+    print("place read {}", f[0] as Int)
+    f[0] = 42
+    print("place write {}", f[0] as Int)
+
+    // The String -> Data door, one byte type on both sides.
+    let g = try! "hello".to_data()
+    print("from a string {}", g.get(0)! as Int)
+
+    var buf = FixedBuf<8>()
+    buf.set(0, 65)
+    print("fixedbuf {}", buf.get(0) as Int)
+}

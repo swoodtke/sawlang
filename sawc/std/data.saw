@@ -54,6 +54,11 @@ extern "C" {
 // `&var DataBuf` exactly when nobody else holds the storage. There is no third
 // way to write these bytes, which is what makes the copy-on-write discipline
 // structural rather than a convention.
+//
+// The buffer POINTER is `Int8` because that is what the allocator and `memcpy`
+// speak; every element access below views it as `UnsafePointer<Byte>` instead,
+// so nothing inside this file handles a byte under a second type (design 250's
+// `Data` rider: strict on reads, strict in its own internals).
 
 struct DataBuf {
     buffer: UnsafePointer<Int8>
@@ -85,8 +90,8 @@ extension DataBuf {
 
     // ---- reads: forwarded through `Arc`'s immutable borrow ----
 
-    func at(&self, index: Int) unsafe -> UInt8 {
-        let bytes = self.buffer as UnsafePointer<UInt8>
+    func at(&self, index: Int) unsafe -> Byte {
+        let bytes = self.buffer as UnsafePointer<Byte>
         bytes[index]
     }
 
@@ -96,8 +101,8 @@ extension DataBuf {
 
     // ---- writes: reachable only through `Arc.with_unique` ----
 
-    func store(&var self, index: Int, value: UInt8) unsafe {
-        let bytes = self.buffer as UnsafePointer<UInt8>
+    func store(&var self, index: Int, value: Byte) unsafe {
+        let bytes = self.buffer as UnsafePointer<Byte>
         bytes[index] = value
     }
 
@@ -209,6 +214,13 @@ extension Data {
     ///
     /// The shared copy may skip the gate safely: the bounds check above already
     /// proved `length > 0`, so the storage it reads through exists.
+    ///
+    /// The place type is `UInt8` and not `Byte`, deliberately (design 250 §5 Q4
+    /// names the subscript in the sink list). A `borrows -> T` has ONE `T` for
+    /// the read and the write, so a `Byte` place would keep `let v = d[i]`
+    /// honest at the cost of `d[i] = 42` — a literal does not adopt into a
+    /// distinct alias. Writing bytes is what a subscript is for, so the write
+    /// wins here; `get`, `pop` and iteration carry the strict read side.
     public func [](&self, index: Int) unsafe borrows -> UInt8 {
         if index < 0 || index >= self.length {
             panic("Data.[]: index out of range: {} (len {})", index, self.length)
@@ -228,7 +240,7 @@ extension Data {
     /// and the only difference between them now that a shared `d[i]` read
     /// separates nothing either. Reach for `get` where an out-of-range index is
     /// data rather than a bug.
-    public func get(&self, index: Int) -> UInt8? {
+    public func get(&self, index: Int) -> Byte? {
         if index < 0 || index >= self.length {
             return None
         }
@@ -252,6 +264,11 @@ extension Data {
     /// as they were. An out-of-range `index` still panics — the reporting tier is
     /// about the allocator, not about bounds (design 130's accessor rule, and
     /// design 234 §5's fault line).
+    /// `value` is a `UInt8` and not a `Byte` because `Data` deals in nothing but
+    /// bytes, so there is no second reading for a number arriving here (design
+    /// 250 §5 Q4's sink rule). One parameter takes all three arrivals: a `Byte`
+    /// degrades in, a bare literal adopts, a `UInt8` passes. A computed `Int`
+    /// still pays the visible `as UInt8` at the boundary.
     public func set(&var self, index: Int, value: UInt8) -> Result<Void, AllocError> {
         if index < 0 || index >= self.length {
             panic("Data.set: index out of range: {} (len {})", index, self.length)
@@ -259,7 +276,7 @@ extension Data {
         if not self._make_ready(self.length) {
             return AllocError(size: self._grow_target(self.length), align: 1)
         }
-        self._store_at(index, value)
+        self._store_at(index, Byte(value))
         return
     }
 
@@ -272,12 +289,14 @@ extension Data {
     /// Separates shared storage first, so a sibling's bytes are never touched.
     /// Reports allocator exhaustion as `Err(AllocError)`; the buffer is
     /// unchanged then.
+    /// `value` takes a `Byte`, a `UInt8` and a bare literal alike, on `set`'s
+    /// terms above.
     public func push(&var self, value: UInt8) -> Result<Void, AllocError> {
         let wanted = self.length + 1
         if not self._make_ready(wanted) {
             return AllocError(size: self._grow_target(wanted), align: 1)
         }
-        self._store_at(self.length, value)
+        self._store_at(self.length, Byte(value))
         self.length = self.length + 1
         return
     }
@@ -299,7 +318,7 @@ extension Data {
     ///
     /// Shrinking a window is not a write, so this never separates the storage
     /// and never allocates: a sibling keeps every byte it could see.
-    public func pop(&var self) -> UInt8? {
+    public func pop(&var self) -> Byte? {
         if self.length == 0 {
             return None
         }
@@ -554,7 +573,7 @@ extension Data {
     // Write one byte into the buffer. Sound because `with_unique` runs the body
     // only when this Data solely owns the storage, and every caller has just
     // been through `_make_ready`.
-    func _store_at(&var self, index: Int, value: UInt8) {
+    func _store_at(&var self, index: Int, value: Byte) {
         let at = self.offset + index
         let _ = self.storage!.with_unique({ buf in buf.store(at, value) })
     }
@@ -597,9 +616,9 @@ public struct DataIterator {
 }
 
 extension DataIterator: Iterator {
-    type Item = UInt8
+    type Item = Byte
 
-    public func next(&var self) -> UInt8? {
+    public func next(&var self) -> Byte? {
         if self.index >= self.source.len() {
             return None
         }
