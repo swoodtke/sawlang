@@ -1,10 +1,10 @@
 [lock]
-manifest_hash = "8965556958154744869"
+manifest_hash = "5464318453959711802"
 
 [pkg.imgformat]
 version = "0.1.0"
 source = "path"
-loc = "../sos/imgformat"
+loc = "../libs/imgformat"
 rev = ""
 
 [pkg.semver]

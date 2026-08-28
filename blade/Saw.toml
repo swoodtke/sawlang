@@ -6,5 +6,7 @@ version = "0.1.0"
 toml = { path = "../libs/toml" }
 semver = { path = "../libs/semver" }
 # The sosimg layout, shared with the kernel that loads the images this emits
-# (sos/kernel/core reaches the same sources through --module-path).
-imgformat = { path = "../sos/imgformat" }
+# (sos/kernel/core reaches the same sources through --module-path). It sits in
+# `libs/` beside toml and semver — design 238 D-a — so sawlang builds Blade
+# without an SOS tree present.
+imgformat = { path = "../libs/imgformat" }

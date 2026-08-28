@@ -1,0 +1,55 @@
+// The segment half: the permission mask, and the two records a loader must
+// refuse before it installs a grant.
+//
+// `flags` is a raw byte on purpose (the loader did not write these bytes), so
+// `has` and `has_sane_perms` are the validating boundary and are what this
+// file pins.
+import src.lib.*
+
+func seg(flags: UInt8, file_len: UInt32, mem_len: UInt32) -> SosimgSeg {
+    SosimgSeg(load_addr: 0x8000_0000, file_off: 24, file_len: file_len,
+              mem_len: mem_len, flags: flags,
+              reserved0: 0, reserved1: 0, reserved2: 0)
+}
+
+func main() {
+    // The bit positions are the RISC-V PMP order, which is what lets the
+    // kernel install a mask without translating it.
+    assert(SegFlag.Read as UInt8 == 1, "R is bit 0")
+    assert(SegFlag.Write as UInt8 == 2, "W is bit 1")
+    assert(SegFlag.Execute as UInt8 == 4, "X is bit 2")
+    assert(SegFlag.Device as UInt8 == 8, "Device is bit 3")
+
+    let text = seg(SegFlag.Read | SegFlag.Execute, 64, 64)
+    assert(text.is_readable(), "R is set")
+    assert(text.is_executable(), "X is set")
+    assert(not text.is_writable(), "W is not")
+    assert(not text.is_device_grant(), "a code segment is not a device window")
+    assert(text.is_wellformed(), "R+X is a sound segment")
+
+    // A `.bss` tail is `mem_len > file_len`; the reverse describes bytes the
+    // loader would have nowhere to put.
+    let bss = seg(SegFlag.Read | SegFlag.Write, 16, 4096)
+    assert(bss.mem_covers_file(), "a zero-filled tail is fine")
+    assert(bss.is_wellformed(), "R+W with a tail is sound")
+    let short = seg(SegFlag.Read | SegFlag.Write, 4096, 16)
+    assert(not short.mem_covers_file(), "a segment smaller than its bytes is not")
+    assert(not short.is_wellformed(), "...and is refused")
+
+    // Write-without-read names a PMP encoding the hardware reserves, and a
+    // segment granting neither read nor execute is not worth a region.
+    assert(not seg(SegFlag.Write as UInt8, 8, 8).has_sane_perms(),
+           "W without R is refused")
+    assert(not seg(0, 8, 8).has_sane_perms(), "an empty mask is refused")
+
+    // A device window is judged by that rule plus one: registers are not
+    // instructions, and one profile's mapping cannot even express a fetch.
+    let mmio = seg(SegFlag.Device | SegFlag.Read | SegFlag.Write, 0, 4096)
+    assert(mmio.is_device_grant(), "the Device bit says what kind of record it is")
+    assert(mmio.is_wellformed(), "an R+W device window is sound")
+    let bad_mmio = seg(SegFlag.Device | SegFlag.Read | SegFlag.Execute, 0, 4096)
+    assert(not bad_mmio.has_sane_perms(), "an executable device window is refused")
+    assert(not bad_mmio.is_wellformed(), "...and fails the whole check")
+
+    print("segment_rules: ok")
+}

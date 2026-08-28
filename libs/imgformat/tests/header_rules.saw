@@ -1,0 +1,70 @@
+// The header half of the format: the constants both consumers agree on, and
+// the judgements a loader makes before it places a byte.
+//
+// The `static_assert`s in `src/lib.saw` pin the struct SIZES at compile time,
+// so a build is already the size test. What a build cannot check is the
+// VALUES — a magic word or a version number edited on one side would compile
+// fine and mismatch at boot — and the rules `is_wellformed` decides.
+import src.lib.*
+
+func header(magic: UInt32, version: UInt16, seg_count: UInt8) -> SosimgHeader {
+    SosimgHeader(magic: magic, version: version, seg_count: seg_count,
+                 arch: SosimgArch.Riscv32 as UInt8, prio_map: 0,
+                 reserved0: 0, entry: 0x8000_0000)
+}
+
+func main() {
+    // The sizes the overlay rests on, restated where a reader looks for them.
+    assert(sizeof<SosimgHeader>() == 24, "the header is 24 bytes")
+    assert(sizeof<SosimgSeg>() == 24, "a segment record is 24 bytes")
+
+    // 'S','O','S','I' as a little-endian word, and the version the loaders
+    // in this tree understand.
+    assert(SOSIMG_MAGIC == 0x4953_4F53, "the magic word spells SOSI")
+    assert(SOSIMG_VERSION == 3, "v3 is the current format")
+
+    let good = header(SOSIMG_MAGIC, SOSIMG_VERSION, 2)
+    assert(good.has_magic(), "the magic word is recognized")
+    assert(good.has_known_version(), "the current version is known")
+    assert(good.is_wellformed(), "a well-formed header passes")
+
+    // Each refusal on its own, so a regression names which rule went.
+    let wrong_magic = header(0x4953_4F54, SOSIMG_VERSION, 2)
+    assert(not wrong_magic.has_magic(), "a foreign magic word is refused")
+    assert(not wrong_magic.is_wellformed(), "...and fails the whole check")
+
+    let old_version = header(SOSIMG_MAGIC, 2, 2)
+    assert(not old_version.has_known_version(), "v2 is not read as v3")
+    assert(not old_version.is_wellformed(), "...and fails the whole check")
+
+    // An image with nothing to load is not an image.
+    let empty = header(SOSIMG_MAGIC, SOSIMG_VERSION, 0)
+    assert(not empty.is_wellformed(), "a segment-less header is refused")
+
+    // The arch tag is compared RAW: a loader asks "is this mine", never "what
+    // is it". An unregistered tag is simply nobody's.
+    assert(good.is_for_arch(SosimgArch.Riscv32 as UInt8), "riscv32 claims it")
+    assert(not good.is_for_arch(SosimgArch.Arm64 as UInt8), "arm64 does not")
+    assert(not good.is_for_arch(0), "an unregistered tag claims nothing")
+
+    // The tags are wire values, so they are pinned rather than derived.
+    assert(SosimgArch.Riscv32 as UInt8 == 1, "riscv32 is tag 1")
+    assert(SosimgArch.Arm64 as UInt8 == 2, "arm64 is tag 2")
+    assert(SosimgArch.Riscv32.describe().equals("riscv32"), "riscv32 names itself")
+    assert(SosimgArch.Arm64.describe().equals("arm64"), "arm64 names itself")
+    // The suffix is owed: `from(raw:)` does not adopt a bare literal the way
+    // an ordinary `UInt8` parameter does.
+    assert(SosimgArch.from(raw: 9u8).is_none(), "an unknown tag decodes to None")
+
+    // A 32-bit loader refuses an address it cannot hold; a 64-bit one holds
+    // everything. The low-4-GiB case is the one that answers alike on both,
+    // which is why the boards this format grew up on never exercised the rest.
+    assert(fits_target_word(0x8000_0000u64), "a low address fits any profile")
+    if sizeof<UInt>() >= 8 {
+        assert(fits_target_word(0x1_0000_0000u64), "a 64-bit word holds it")
+    } else {
+        assert(not fits_target_word(0x1_0000_0000u64), "a 32-bit word does not")
+    }
+
+    print("header_rules: ok")
+}

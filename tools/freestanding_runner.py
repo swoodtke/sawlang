@@ -95,11 +95,10 @@ MODULES = {
 BLADE_DIR = os.path.join(REPO_ROOT, "blade")
 TOML_SRC = os.path.join(REPO_ROOT, "libs", "toml", "src")
 SEMVER_SRC = os.path.join(REPO_ROOT, "libs", "semver", "src")
-# DESIGN 238 UNIT 2 MOVES THIS. `imgformat` is a Blade dependency that lives
-# under `sos/` today and relocates to `libs/imgformat` when unit 2 lands (D-a);
-# this constant and `sos_runner.py`'s are the two that change together. It is
-# named here rather than resolved so a grep for the crossing finds it.
-IMGFORMAT_SRC = os.path.join(REPO_ROOT, "sos", "imgformat", "src")
+# `imgformat` is a Blade dependency, and since design 238 unit 2 (D-a) it lives
+# in `libs/` beside toml and semver rather than under `sos/` — so this harness
+# builds Blade with no SOS tree present, which is the state after unit 5.
+IMGFORMAT_SRC = os.path.join(REPO_ROOT, "libs", "imgformat", "src")
 
 QEMU_TIMEOUT_S = 20
 

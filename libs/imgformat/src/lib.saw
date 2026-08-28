@@ -7,6 +7,15 @@
 //! constants in the kernel — which is exactly the arrangement where a format
 //! change lands on one side only.
 //!
+//! IT LIVES IN `libs/`, BESIDE ITS PRODUCER (design 238 D-a). Blade takes it
+//! as a path dependency, so putting it with the kernel would mean the language
+//! repo could not build its own package manager without an OS tree checked
+//! out. Here the dependency runs one way: sawlang is self-contained and the OS
+//! side reaches these sources the same way it reaches the compiler. That
+//! ruling is reversible — a Blade target plugin would move `sosimg.saw` and
+//! this package out together — which is why this package names NOTHING from
+//! sawlang and must not start.
+//!
 //! DEPENDENCY-LIGHT ON PURPOSE. This module names nothing but primitives: no
 //! `Data`, no `File`, no allocation. That is what lets the same source compile
 //! into a freestanding riscv32 kernel and into a host binary. Each consumer

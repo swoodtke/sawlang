@@ -39,9 +39,12 @@ TOML_SRC = os.path.join(TOML_DIR, "src")
 SEMVER_SRC = os.path.join(SEMVER_DIR, "src")
 # The sosimg layout package (design 140): Blade's `emit = "sosimg"` target
 # shares it with the SOS kernel, so stage0 needs it mapped like any other dep.
-IMGFORMAT_DIR = os.path.join(REPO, "sos", "imgformat")
+# Design 238 D-a put it in `libs/` beside toml and semver, which is what lets
+# this bootstrap run with no SOS tree present.
+IMGFORMAT_DIR = os.path.join(REPO, "libs", "imgformat")
 IMGFORMAT_SRC = os.path.join(IMGFORMAT_DIR, "src")
-LIB_DIRS = [("toml", TOML_DIR), ("semver", SEMVER_DIR)]
+LIB_DIRS = [("toml", TOML_DIR), ("semver", SEMVER_DIR),
+            ("imgformat", IMGFORMAT_DIR)]
 STAGE0 = os.path.join(REPO, ".build", "blade0")
 
 # Design 143: a package's build output lives in `<package>/.build/<target>/`,

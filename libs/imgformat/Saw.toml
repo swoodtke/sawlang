@@ -1,0 +1,9 @@
+[package]
+name = "imgformat"
+version = "0.1.0"
+
+# No dependencies, deliberately, and that is now doubly load-bearing: this
+# package is consumed by a FREESTANDING kernel as well as by the host-side
+# Blade, so it may name nothing but primitives — and design 238 D-a parks it
+# in sawlang's `libs/` on the condition that it stays free of sawlang-ward
+# dependencies, so the ruling can be reversed cheaply. See src/lib.saw.

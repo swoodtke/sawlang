@@ -56,18 +56,23 @@ jobs:
       - name: Blade self-hosting bootstrap (builds + tests Blade)
         run: python tools/blade_bootstrap.py
 
-      - name: Library package tests (semver, toml)
+      - name: Library package tests (semver, toml, imgformat)
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p .build
+          # Every path dependency Blade declares has to be mapped here, the
+          # imgformat one included: `blade/src/sosimg.saw` imports it, so a
+          # build missing the flag fails with `module imgformat not found`.
           python sawc/sawc.py blade/src/main.saw -o .build/blade_ci \
             --module-path toml=libs/toml/src \
-            --module-path semver=libs/semver/src
+            --module-path semver=libs/semver/src \
+            --module-path imgformat=libs/imgformat/src
           export SAWC="python $(pwd)/sawc/sawc.py"
           BLADE="$(pwd)/.build/blade_ci"
           (cd libs/semver && "$BLADE" test)
           (cd libs/toml && "$BLADE" test)
+          (cd libs/imgformat && "$BLADE" test)
           # Design 116: the Saw lexer port ships its own blade test suite.
           (cd selfhost/lexer && "$BLADE" test)
 

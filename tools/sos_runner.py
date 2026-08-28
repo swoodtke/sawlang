@@ -70,8 +70,10 @@ CORE_MODULE = f"kcore={CORE_DIR}"
 
 # The sosimg layout, shared with the Blade target that emits images. The kernel
 # reaches it through --module-path; Blade reaches the same sources through a
-# manifest path-dependency. One definition, two consumption mechanisms.
-IMGFORMAT_DIR = os.path.join(REPO_ROOT, "sos", "imgformat", "src")
+# manifest path-dependency. One definition, two consumption mechanisms. It lives
+# in `libs/` beside Blade's other path dependencies (design 238 D-a), so the
+# language repo builds Blade with no SOS tree present.
+IMGFORMAT_DIR = os.path.join(REPO_ROOT, "libs", "imgformat", "src")
 IMGFORMAT_MODULE = f"imgformat={IMGFORMAT_DIR}"
 
 # Arch-free, role-free Saw runtime helpers, shared with every process build.

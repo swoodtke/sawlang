@@ -810,11 +810,12 @@ parser, a manifest model, a dependency resolver, a deterministic lockfile, git
 fetching, and incremental builds.
 
 ```bash
-# Build the package manager (it depends on the libs/toml and libs/semver
-# packages, so map both)
+# Build the package manager (it depends on the libs/toml, libs/semver and
+# libs/imgformat packages, so map all three)
 ./.venv/bin/python sawc/sawc.py blade/src/main.saw -o .build/blade \
     --module-path toml=libs/toml/src \
-    --module-path semver=libs/semver/src
+    --module-path semver=libs/semver/src \
+    --module-path imgformat=libs/imgformat/src
 
 # Use it
 ./.build/blade new myproject   # scaffold a new project
@@ -849,7 +850,9 @@ a program, `src/lib.saw` alone is a library.
 per-test timing. A test fails via `assert`/`panic` or a nonzero exit.
 
 The version-requirement logic also lives as a standalone library package,
-`libs/semver`, with its own `blade test` suite.
+`libs/semver`, with its own `blade test` suite. So does `libs/imgformat`, the
+image layout Blade's `emit = "sosimg"` target writes and an SOS kernel reads —
+one definition, two consumers, so the two cannot drift.
 
 ## Design philosophy
 
@@ -888,7 +891,7 @@ sawc/                  # Compiler implementation
   std/                 # Standard library (.saw files)
 examples/              # Example programs (also the compiler test suite)
 blade/                 # Blade package manager (written in Saw)
-libs/                  # Real Saw library packages (semver, toml)
+libs/                  # Real Saw library packages (semver, toml, imgformat)
 designs/               # Design briefs and the project tracker
 LANGUAGE_SPEC.md       # Full language specification
 TESTING.md             # Test suite documentation

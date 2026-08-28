@@ -1001,19 +1001,23 @@ own `Saw.toml` and `blade test` suite:
 - `libs/toml` — the TOML reader (Blade depends on it by path).
 - `libs/semver` — semantic versions / requirements (a `Comparable`/`Printable`
   dogfood).
+- `libs/imgformat` — the sosimg image layout, written once and read by both
+  sides: Blade's `emit = "sosimg"` target writes images and an SOS kernel loads
+  them. Design 238 D-a moved it here from `sos/` so the language repo builds
+  Blade with no OS tree present; its suite pins the wire constants and the
+  header/segment rules a loader judges by.
 
 Run a package's own tests by pointing Blade at its directory
-(`blade test` from inside `libs/toml` or `libs/semver`) — nothing but
-`blade test` is needed once `sawc` is installed or `SAWC` is set. On a clean
-in-tree checkout (no installed `sawc`) the bootstrap sets `SAWC` for you: the
-loop runs both lib suites as a standard bar (design 97), so they are actually
-validated on every `make blade-bootstrap` and cannot silently rot.
+(`blade test` from inside `libs/toml`, `libs/semver` or `libs/imgformat`) —
+nothing but `blade test` is needed once `sawc` is installed or `SAWC` is set.
+On a clean in-tree checkout (no installed `sawc`) the bootstrap sets `SAWC` for
+you: the loop runs every lib suite as a standard bar (design 97), so they are
+actually validated on every `make blade-bootstrap` and cannot silently rot.
 
-Blade is an application, so its `Saw.lock` is committed. The two library
-packages are libraries, so theirs are not: `blade build` writes no lock in a
-library, and each ships a one-line `.gitignore` covering the `blade update`
-case. The bootstrap checks it, and a library that grows a `Saw.lock` fails the
-loop.
+Blade is an application, so its `Saw.lock` is committed. The library packages'
+are not: `blade build` writes no lock in a library, and each ships a one-line
+`.gitignore` covering the `blade update` case. The bootstrap checks it, and a
+library that grows a `Saw.lock` fails the loop.
 
 Because Blade's own `Saw.toml` depends on `libs/toml`, **every Blade build runs
 the resolver, writes/uses `Saw.lock`, and passes `--module-path`** — the dep
