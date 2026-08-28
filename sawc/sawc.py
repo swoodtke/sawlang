@@ -23,6 +23,7 @@ from errors import (ErrorReporter, ErrorKind, WARNING_CATEGORIES,
 from typechecker import TypeChecker
 from typechecker.effects import really_suspending
 from module_resolver import ModuleResolver, ModulePathError
+from version import SAWC_VERSION
 
 
 def parse_source(source: str, source_path: str, verbose: bool = False):
@@ -1982,6 +1983,13 @@ Examples:
         """
     )
 
+    # Ahead of the required `input` so `sawc --version` answers on its own:
+    # argparse's version action prints and exits where the flag is SEEN, before
+    # the missing-positional check runs. That matters because the caller asking
+    # is a toolchain resolver with no source file in hand (design 238 D-b2).
+    parser.add_argument("--version", action="version",
+                        version=f"sawc {SAWC_VERSION}",
+                        help="Print the compiler version and exit")
     parser.add_argument("input", help="Input .saw file")
     parser.add_argument("-o", "--output",
                         help="Output executable name (default: .build/<source>)")

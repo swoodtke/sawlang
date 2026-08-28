@@ -11349,6 +11349,10 @@ lowering Saw to LLVM IR and then to a native object/executable.
 ```
 sawc <source.saw> [options]
 
+  --version    Print the compiler version and exit. A plain semver from one
+               source-of-truth constant, and the only thing a consumer that
+               pinned a toolchain can check an installed compiler against —
+               so a change to user-visible behaviour bumps it.
   -o <file>    Output executable name (default: .build/<source>)
   -c           Compile to an object file (.o) only — no linking, no main() required
   -v           Verbose output (pipeline stages)

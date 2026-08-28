@@ -1,6 +1,6 @@
 # Saw Language Makefile
 
-.PHONY: test test-verbose test-sequential clean help blade-bootstrap sos-test freestanding-test lexdiff astdiff astgraft irdet irdet-all gmgate abidoc bttable bttable-sizes lldbtest ircontract preludegate icebreadcrumb
+.PHONY: test test-verbose test-sequential clean help blade blade-bootstrap install sos-test freestanding-test lexdiff astdiff astgraft irdet irdet-all gmgate abidoc bttable bttable-sizes lldbtest ircontract preludegate icebreadcrumb
 
 # Default target
 all: test
@@ -21,6 +21,34 @@ test-filter:
 # through its own resolve/lock/module-path/incremental pipeline.
 blade-bootstrap:
 	@python3 tools/blade_bootstrap.py
+
+# The install story (design 238 unit 3, D-b1): put `sawc` and `blade` on a
+# $PATH. There is nothing to package — the compiler is a Python entry point and
+# Blade is built from Saw source — so `bin/` holds two shims into this checkout
+# and `install` symlinks them onto a prefix. An installed name therefore always
+# means THIS tree, and re-installing after a `git pull` is unnecessary.
+#
+#   make install                    # -> ~/.local/bin
+#   make install PREFIX=/usr/local/bin
+#
+# Blade is built first because its shim execs a binary rather than a script.
+# The build goes through `bin/sawc`, which finds `.venv/bin/python` itself —
+# so this target, unlike `make test`, does not need the venv activated.
+PREFIX ?= $(HOME)/.local/bin
+BLADE_BIN := .build/blade
+
+blade:
+	@bin/sawc blade/src/main.saw -o $(BLADE_BIN) \
+		--module-path toml=libs/toml/src \
+		--module-path semver=libs/semver/src \
+		--module-path imgformat=libs/imgformat/src
+
+install: blade
+	@mkdir -p $(PREFIX)
+	@ln -sf $(abspath bin/sawc) $(PREFIX)/sawc
+	@ln -sf $(abspath bin/blade) $(PREFIX)/blade
+	@echo "Installed sawc and blade -> $(PREFIX)"
+	@echo "  (add it to your PATH if it is not already there)"
 
 # SOS QEMU tests (designs 112, 140, 162): build the freestanding kernel AND the
 # root-server sosimg (via blade), stitch them, and run under QEMU `virt` on
@@ -181,6 +209,8 @@ help:
 	@echo "  make test-sequential - Run tests sequentially (no parallelism)"
 	@echo "  make test-filter     - Run tests matching FILTER pattern"
 	@echo "                         Example: make test-filter FILTER=enum"
+	@echo "  make blade           - Build the package manager into .build/blade"
+	@echo "  make install         - Put sawc + blade on a PATH (PREFIX=~/.local/bin)"
 	@echo "  make sos-test        - Build + boot the SOS kernel + root server under QEMU (riscv32 AND arm64)"
 	@echo "  make freestanding-test - Build + run the freestanding feature suite under QEMU (riscv32 AND arm64)"
 	@echo "  make lexdiff         - Diff the Saw lexer against sawc's over the corpus"

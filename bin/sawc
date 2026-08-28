@@ -1,0 +1,41 @@
+#!/bin/sh
+# `sawc` on a $PATH (design 238 unit 3, D-b1).
+#
+# The compiler is `python sawc/sawc.py` plus llvmlite — there is no binary to
+# install and, pre-1.0, no packaging worth building for one. This shim is the
+# whole install story: `make install` symlinks it onto a prefix, and it execs
+# the checkout it lives in. So an installed `sawc` is always the checkout's
+# `sawc`, and editing the compiler changes what the name means immediately —
+# which is what you want while the compiler is the thing being worked on.
+#
+# It is also usable without installing anything: put `<checkout>/bin` on $PATH.
+set -eu
+
+# Resolve this script through any symlinks before taking the directory above
+# it. `dirname $0` alone would name the PREFIX rather than the checkout once
+# `make install` has linked it, and `readlink -f` is not portable to macOS.
+self=$0
+while [ -L "$self" ]; do
+    link=$(readlink "$self")
+    case $link in
+        /*) self=$link ;;
+        *) self=$(dirname "$self")/$link ;;
+    esac
+done
+# `SAWLANG_ROOT` wins, matching the resolver's own precedence (design 238 D-b):
+# what the operator named beats what was inferred.
+ROOT=${SAWLANG_ROOT:-$(CDPATH= cd -- "$(dirname -- "$self")/.." && pwd)}
+
+# The checkout's venv is where llvmlite lives. A machine that installed it
+# globally instead is served by the fallback; a machine with neither is told
+# so rather than left to fail somewhere deeper.
+PY="$ROOT/.venv/bin/python"
+if [ ! -x "$PY" ]; then
+    PY=$(command -v python3 || true)
+fi
+if [ -z "$PY" ]; then
+    echo "sawc: no Python found — expected $ROOT/.venv/bin/python or python3" >&2
+    exit 1
+fi
+
+exec "$PY" "$ROOT/sawc/sawc.py" "$@"

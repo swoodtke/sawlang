@@ -748,12 +748,33 @@ python3 -m venv .venv
 ./hello
 ```
 
+### Putting `sawc` and `blade` on your PATH
+
+`make install` builds Blade and symlinks two shims onto a prefix
+(`~/.local/bin` by default):
+
+```bash
+make install                        # -> ~/.local/bin
+make install PREFIX=/usr/local/bin  # -> somewhere else
+```
+
+Both shims exec this checkout, so an installed `sawc` is always the compiler
+you have — editing it changes what the name means with no reinstall. `blade`
+finds the `sawc` beside it, so `blade build` needs no `SAWC` set. If you would
+rather install nothing, put `<checkout>/bin` on your `PATH` instead; the shims
+work either way.
+
+`sawc --version` prints the compiler's version. Bumping it is part of shipping
+a user-visible change, because a consumer that pins a toolchain has only this
+string to check an installed compiler against.
+
 ### Compiler options
 
 ```bash
 ./.venv/bin/python sawc/sawc.py <source.saw> [options]
 
 Options:
+  --version          Print the compiler version and exit
   -o <file>          Output file name (default: .build/<source>)
   -c                 Compile to an object file only (no linking, no main required)
   -v                 Verbose output
@@ -810,8 +831,8 @@ parser, a manifest model, a dependency resolver, a deterministic lockfile, git
 fetching, and incremental builds.
 
 ```bash
-# Build the package manager (it depends on the libs/toml, libs/semver and
-# libs/imgformat packages, so map all three)
+# Build the package manager (`make blade` does exactly this; it depends on the
+# libs/toml, libs/semver and libs/imgformat packages, so map all three)
 ./.venv/bin/python sawc/sawc.py blade/src/main.saw -o .build/blade \
     --module-path toml=libs/toml/src \
     --module-path semver=libs/semver/src \
@@ -889,6 +910,7 @@ sawc/                  # Compiler implementation
   namespace.py         # Module/symbol resolution
   builtin.saw          # Built-in traits
   std/                 # Standard library (.saw files)
+bin/                   # `sawc` and `blade` shims (see `make install`)
 examples/              # Example programs (also the compiler test suite)
 blade/                 # Blade package manager (written in Saw)
 libs/                  # Real Saw library packages (semver, toml, imgformat)
