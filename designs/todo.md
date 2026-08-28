@@ -33,6 +33,7 @@ is scheduled and in what order is the whole of what they say.
 
 - Design 250 — the `Byte` type (designs/250-byte-type.md; RULED IN PRINCIPLE Aug 27, user: "everything that uses bytes should use Byte" — SUPERSEDES 244's target, absorbs its census/funnels; OVERTURNS 245 §6's decline on probe evidence). Takes 244's queue slot. §5 sheet FULLY RESOLVED + DISPATCHED Aug 27 (constructor-form constants, prelude placement, rt out of v1, the SINK RULE with Data strict on reads/internals and lax at sinks); the naming rider dissolved — `append(b: Byte)` is the discrimination point, single-semantics sinks keep `UInt8` params. Agent DF range DF-270a+
 - Design 251 — Map and Set join the ExplicitCopy tier (designs/251-std-copyability.md; user-directed Aug 27: value containers copyable when their contents are, so containing types like `JsonValue` can be ExplicitCopy — the unit-1 landing was FORCED NoCopy by Map's blanket). Vector is the oracle (conditional conformance + unconditional deinit + panicking copy/reporting try_copy); Data/Arc/String already done; builders + resource types STAY NoCopy. DISPATCHED Aug 27 IN PARALLEL with 250 (user: launch as Sonnet alongside — per-task model approval; shared files are map/set-disjoint with a bounded json.saw overlap the lead resolves at integration, second-lands-second). JsonValue flips `@synthesize ExplicitCopy` as the proof unit. Agent DF range DF-271a+
+- DF-267b fix + std.json `Object` serialization — EVENT-GATED on designs 250 AND 251 both integrating (user, Aug 27: queue after the existing agents complete). Stage 1: the typechecker default-type-arg fill at BINDING CONSTRUCTION for match payload bindings (mechanism + the sharper no-allocator-in-the-message cell in the DF-267b entry; obligation-4 sweep over sibling binding forms — if-let/guard-let payloads, closure parameters, for-loop bindings — rides the fix). Stage 2: std.json lands the recursive `Object` encoder (the lead's Aug-27 probe shapes compile in std today), drops the `Unsupported` stub, cleans the stale "no JsonValue in this file" module-header paragraph, and its landing CONFIRMS DF-267d's dissolution, closing that entry. cbor checked: no sibling fix owed
 - Design 245 v1 — `Scalar` + `scalars()`, `chars()` and `append_scalar` REMOVED (designs/245-unicode-scalar-type.md §6; ruled Aug 27 — no literals in v1, prelude placement — and DISPATCHED same day on the user's "now", disjoint from the two items above). Literals + patterns stay open as later units
 - Design 218 unit 1.5 — monomorphization becomes a pre-codegen transform (RULED Aug 13; SCHEDULED Aug 24, user: MOVED UP, BEFORE the 238 split — the migration lands under the full in-tree gate battery and the sawos pin starts life post-1.5). Process per the 218 ruling: a FABLE SPEC AGENT authors the census first (every `_ensure_monomorphized_*` call site, the instance-re-check design, error attribution, the per-(template, type-args) cache), lead reviews, user rules, Opus implements. Expected closures ride it: DF-217i/j/k, S1 row p08a, plausibly DF-247a. Brief section: designs/218-enforcement-architecture.md unit 1.5. **SPEC AUTHORED Aug 25 (`designs/218c-monomorphization-spec.md`) and LEAD-RATIFIED same night under the overnight authorization — all six section-8 questions resolved as recommended (rationale in the spec's status header); none touched a user ruling. Probes: DF-247a NOT dissolved (own dispatch after 1.5, OQ5); two new findings (DF-258a: a nested unconditionally-suspending generic silently loses its yield — pinned at stage 0, flips stage 4; DF-258b: recursive instantiation growth HANGS the compiler — fixed by stage 1's depth limit). IMPLEMENTATION HELD (user, Aug 25 morning): the pipeline STOPS after the 234 flip integrates — 1.5's build dispatches on the user's go, against the ratified spec**
 - Design 238 — the sawos split (designs/238-sawos-split.md) — FULLY RULED Aug 24 (D-b1/b2/b3 ruled "absolute simplest, pre-1.0" — bin/ shims via make install; version-only `--version` check with the asymmetry documented + rigorous bumps as standing practice; the fetch creates its own venv). AFTER 218 unit 1.5 (re-ordered Aug 24), BEFORE the M3 ladder; UNITS 0-1 LANDED Aug 21, units 2-7 ready to dispatch when reached
@@ -83,9 +84,10 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-264a — the `Copy` tier's conformance check skips the deinit-signature validation its ExplicitCopy/NoCopy siblings both have, so a `deinit(&self)` inside a `@synthesize Copy` reaches codegen and ICEs (entry below, filed Aug 27 from the user's scratch example)
 - DF-266a — a bare leading-minus TAIL expression after a preceding `if { return }` block is an ICE at a BinaryOp node; the same tail after a `let` compiles (entry below, filed Aug 27 by the std.json build, lead-verified both cells)
 - DF-267a — an Optional method called DIRECTLY on a `borrows -> T?` lend's result resolves against the unwrapped payload type, contradicting DF-218a's tier-independent presence promise; `if let` is the working spelling (entry below, filed Aug 27 by std.json unit 1)
-- DF-267b — `Map.keys()` through an enum MATCH BINDING leaves the defaulted allocator parameter unresolved where the struct-field twin resolves (entry below, same filer)
+- DF-267b — `Map.keys()` through an enum MATCH BINDING leaves the defaulted allocator parameter unresolved where the struct-field twin resolves (entry below, same filer). RE-CONFIRMED + PROMOTED Aug 27 (lead probes): with DF-267d dissolved, this is THE remaining `Object`-serialization blocker; fix scheduled in the queue's post-250/251 item
 - DF-267c — a hand-written `borrows` accessor cannot `lend` a place indexed FURTHER into a match-bound payload, though the docs' own field-projection twin works — blocks JsonValue's combined member/element accessors (entry below, same filer)
-- DF-267d — a SELF-RECURSIVE function under sawc/std that transitively reaches a maybe-suspending closure API fails the builtins pre-check `cannot suspend in a sync closure context`; the IDENTICAL shape compiles as a user file — blocks JsonValue `Object` serialization (entry below, same filer)
+- ~~DF-267d — a SELF-RECURSIVE function under sawc/std that transitively reaches a maybe-suspending closure API fails the builtins pre-check~~ **DISSOLVED-PENDING-CONFIRMATION Aug 27** (lead re-probe post-247/249: all three filed minimal shapes now compile under sawc/std — entry below has the cells; the Object-serialization landing is the confirming probe and closes this)
+- std.serde derived `Map` encoding — neither cbor nor json derive `Map<K, V>` through `@synthesize` (the field walk does not cover Map; both format landings record the scope note), so a Map on the wire is a hand-written `Serialize`/`Deserialize` today. Wants a design when the appetite arrives; pairs with the seam's missing Float story (design-215 section). Recorded Aug 27 while checking cbor for DF-267 siblings — no entry below, this line is the record
 - DF-269a — a LABEL-selected overload loses bare-literal width adoption: `report(byte: 65)` against `{report(value: Int), report(byte: UInt8)}` errors `expects UInt8 but got Int`, while the same labeled call against the SINGLETON declaration adopts and runs — the label face of DF-242c's family (overload resolution defeats literal adoption; 242c is the suffix face). Lead-probed Aug 27 (`.build/scratch/probe_append_overload{,2,3}.saw`, cells recorded here) while ruling design 244's naming rider; the bare positional call is a correct ambiguity error naming both candidates. The DF-242c re-probe note on its entry applies to this face too: module identity (249) moved which candidates are seen, not how a literal adopts once one is selected
 - DF-215h — stdout has no newline-free write, so incremental output (`--stream` deltas) prints one line per piece; wants a surface ruling (entry below, Aug 26)
 - DF-215i — no boolean `guard cond else { }`, only `guard let`; wants a ruling on whether the omission is deliberate (entry below, Aug 26)
@@ -151,7 +153,17 @@ reached through an ENUM MATCH BINDING leaves `A` unresolved
 through a struct FIELD resolves. Side-by-side confirmed; routing through a
 free-function parameter also resolves it. The default-type-param fill is
 skipped on the match-binding path — obligation-4 sweep at fix time: which
-other binding forms skip it.
+other binding forms skip it. RE-CONFIRMED Aug 27 (lead, in-std probe): still
+live post-247/249, and a SHARPER cell — the mismatch message prints the
+binding's type as `Map<String, JsonValue>` with NO allocator argument at
+all, so the fill is skipped at BINDING CONSTRUCTION, not at method lookup.
+PROMOTED: with DF-267d dissolved this is the one remaining `Object`-
+serialization blocker (the free-function routing compiles but is
+defect-routing, not a landing spelling). Fix is typechecker-side, disjoint
+from designs 250/251's std files; scheduled in the queue's post-250/251
+item. cbor CHECKED Aug 27: needs no sibling fix — zero keys/each/match-
+binding Map use in cbor.saw and no tree type; the fix being compiler-wide
+covers cbor USERS' hand-written Serialize code for free.
 
 **DF-267c — OPEN.** In a hand-written `borrows` accessor, `lend items[at]`
 where `items` is a MATCH-BOUND payload fails ``cannot open an exclusive place
@@ -162,7 +174,15 @@ place ROOT for deeper projection, only whole-payload lend works (DF-146d's
 arm-lend). This is why JsonValue ships `as_array()`/`as_object()` +
 caller-side indexing instead of `element(at:)`/`member(key:)`.
 
-**DF-267d — OPEN, the one that blocks JsonValue `Object` SERIALIZATION.** A
+**DF-267d — DISSOLVED-PENDING-CONFIRMATION Aug 27** (lead re-probe on main
+post-247/249, temporary in-std probes reverted after: (1) a self-recursive
+std function calling `Map.keys()` compiles and runs; (2) the recursion moved
+INSIDE an `each_value` closure compiles; (3) the full recursive `JsonValue`
+walk — Object arm via a param-routed keys helper, Array arm recursing inside
+`Vector.each`'s closure — compiles. All three were the filed minimal shapes.
+Attribution: almost certainly design 249's registration rework — the filer's
+tree predated 247 AND 249. The `Object`-serialization landing is the
+confirming probe; it closes this entry. Original filing follows.) A
 self-recursive function under `sawc/std/` that also transitively reaches a
 maybe-suspending closure API (`Map.keys`/`each_key`/`Vector.each` beside a
 second closure dependency — any closure param without `sync`, deliberate per
