@@ -1,8 +1,33 @@
 # Design 253 — The Float↔Text Story
 
-**Status: AUTHORED + DISPATCHED Aug 28 2026** (lead; user: "brief the
-Float-text story and slot it at the head of the queue", behind the DF-270d
-fix). Agent DF range: **DF-276a+**.
+**Status: BUILT Aug 28 2026**, four units, terminal battery 23/23 green.
+Authored + dispatched the same day (lead; user: "brief the Float-text story
+and slot it at the head of the queue", behind the DF-270d fix). Agent DF
+range: **DF-276a+**; DF-276a/b/c filed, all three pre-existing.
+
+Landing shape, one line per unit:
+
+0. `tools/sawfloat.py` + `tests/float_vectors/` + the `floatvectors` battery
+   lane, with the census below.
+1. `sawc/std/float.saw` — Ryū, `Float.to_string`, `StringBuilder.append(value:
+   Float)`, `Float.to_bits`/`from(bits:)` — and the compiler's six Float→text
+   positions funnelled through `_render_float_value`. The freestanding
+   refusal is deleted (it covered two of the six, and the other four leaked
+   `snprintf` into freestanding objects); `tests/freestanding/cases/float_text.saw`
+   replaces it, which moved `.fsmark` to ORIGIN + 512 KiB.
+2. Eisel-Lemire + the exact decimal fallback; `String.to_float` moves into
+   `std.float` and loses its naive body.
+3. `JsonValue.Float`, under the pinned token-decides rule; the serde SEAM
+   stays float-free as scoped.
+4. Spec (a new "Float ↔ text" section), README, the saw-lang skill, and the
+   tracker close.
+
+Two rulings this build took, both recorded in the census below: the text
+format IS CPython's `repr` (the brief's own oracle, and the source of its
+`nan`/`inf`/`-inf` spellings), and `Float.to_string` returns a plain `String`
+rather than a `Result` (design 234's String-layer panic boundary, and the
+shape the compiler already synthesizes). One naming choice: the JSON case is
+`Float`, the pinned rule's own word.
 
 ## The gap (recorded across three landings)
 
@@ -251,9 +276,15 @@ two-independent-readers scheme. Seed 253, sets emitted sorted, no clock read;
   both neighbours of eleven powers of ten, the 2^53 integer boundary, the
   fixed/exponent switch from both sides, and Paxson/Gay stress values. Random
   rows: 1200 uniform bit patterns, 600 realistic magnitudes, 200 subnormals.
-- `tests/float_vectors/parse.tsv` — 82 rows, the spellings a formatter never
-  emits (exponent forms, `+`, `.5`, `1.`, an 800-digit input, exponents that
-  saturate to infinity or zero) and 28 rejections.
+- `tests/float_vectors/parse.tsv` — 82 rows at unit 0, the spellings a
+  formatter never emits (exponent forms, `+`, `.5`, `1.`, an 800-digit input,
+  exponents that saturate to infinity or zero) and 28 rejections. **Unit 2
+  grew it to 175**: only 21 of 2943 rows reached the exact decimal path, which
+  is 300 lines of Saw, so three rows per sampled double were added — the
+  double's own exact decimal expansion (some 750 digits for a subnormal), the
+  exact MIDPOINT between it and its successor (a tie, which must round to
+  even), and that midpoint with one more digit (just past the tie, which must
+  round up whatever the parity says). 108 rows reach the exact path now.
 
 `verify` re-derives every row from the case table and byte-compares, THEN
 re-checks each row independently: the text parses back to the bits, and no
