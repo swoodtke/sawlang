@@ -38,31 +38,32 @@ The matching `decode<T>(text:)` cannot be written yet, for the same reason
 callable on a type parameter). Read a value back through the type's own name,
 as the first example does.
 
-## Status: units 1 and 2 — `JsonValue` exists; `Object` does not serialize yet
+## Status: units 1-3 — `JsonValue` exists and serializes fully
 
 The brief that commissioned this file asked for two things: a `JsonValue`
 data-model type (parse text to a tree, write a tree back to text) and the
 `Encoder`/`Decoder` seam above. Unit 2 shipped the seam first, deferred
 behind the recursive-type compiler defect design 246 went on to fix; unit 1
-lands `JsonValue` itself now that the fix has landed:
+landed `JsonValue` itself once that fix landed; unit 3 closed the one
+serialization gap unit 1 shipped with (`Object`, below):
 
 ```saw
 import std.json.{JsonValue}
 
 let v = try JsonValue.parse(text: "\{\"port\":8080,\"tags\":[\"a\",\"b\"]}")
 let port = v.as_object()!.get("port")!.as_int() ?? 0
-let text = try v.to_json_string()   // Array/scalar trees only — see below
+let text = try v.to_json_string()   // every case, Object included
 ```
 
 `JsonValue` is `enum JsonValue { case Null, case Bool(value: Bool),
 case Number(value: Int), case Text(value: String),
 case Array(items: Vector<JsonValue>),
-case Object(fields: Map<String, JsonValue>) }`, `NoCopy` (a `Map` payload
-has no `ExplicitCopy` conformance yet regardless of the recursion, so this
-was never a choice). `Object` key order is not preserved, matching `Map`
-everywhere else in std.
+case Object(fields: Map<String, JsonValue>) }`, `ExplicitCopy` (design 251 —
+`Map`/`Vector` gained a copy conformance for `Object`/`Array`'s payload to
+lean on; `@synthesize`d, so `copy()` recurses through both). `Object` key
+order is not preserved, matching `Map` everywhere else in std.
 
-**Two things remain incomplete, both compiler-defect-shaped, both filed:**
+**One thing remains incomplete, compiler-defect-shaped, filed:**
 
 - **Numbers are `Int`-only** — the pinned rule ("integral and in `Int`
   range -> `Number`, else `Float`") cannot be honored: std has no
@@ -73,28 +74,27 @@ everywhere else in std.
   decode error carrying `JsonDecoder.read_int`'s own fault
   (`TypeMismatch`/`OutOfRange`) rather than becoming a `Number(value:
   Float)`. Temporary, pending a correct `Float` parse/format surface in std.
-- **`to_json_string` does not serialize `Object`** (`EncodeFault.Unsupported`)
-  — `Null`/`Bool`/`Number`/`Text`/`Array` (nested arbitrarily, including
-  arrays of arrays and arrays of objects) serialize fully, and `parse`
-  builds a full `Object` (parsing only ever calls `Map.insert`, which the
-  defect below does not touch). Writing an `Object` needs its keys
-  enumerated, and every avenue to do that (`Map.keys`/`each`/`each_key`/
-  `each_value`) has a closure parameter that deliberately carries no `sync`
-  (design 216, so a suspending body composes) — which makes each of them a
-  "maybe-suspending" API. `JsonValue._write` is unavoidably self-recursive
-  (an array/object element may itself be an array or object), and a
-  self-recursive function defined under `sawc/std/` that also transitively
-  reaches a maybe-suspending API fails `sawc`'s own "builtins" pre-check
-  with `internal compiler error: builtins failed to type-check` /
-  `cannot suspend in a sync closure context` — even though the identical
-  shape compiles and runs correctly as an ordinary (non-`sawc/std/`) source
-  file. See `_write`'s doc comment in `sawc/std/json.saw` and this unit's
-  landing report for the mechanism and a minimal repro. `Array`'s own
-  recursion is unaffected (`Vector`'s plain `[]`/`len` are not
-  closure-based).
 
-Everything else — `parse`, every accessor, `Array` serialization, the
-whole seam below — works and is tested (`examples/json_value_*.saw`).
+`to_json_string` serializes every case now, `Object` included
+(`Null`/`Bool`/`Number`/`Text`/`Array`/`Object`, nested arbitrarily deep in
+any combination). Writing an `Object` needs its keys enumerated, and every
+avenue to do that (`Map.keys`/`each`/`each_key`/`each_value`) has a closure
+parameter that deliberately carries no `sync` (design 216, so a suspending
+body composes) — which makes each of them a "maybe-suspending" API.
+`JsonValue._write` is unavoidably self-recursive (an array/object element
+may itself be an array or object), and a self-recursive function defined
+under `sawc/std/` that also transitively reaches a maybe-suspending API used
+to fail `sawc`'s own "builtins" pre-check with `internal compiler error:
+builtins failed to type-check` / `cannot suspend in a sync closure
+context` — even though the identical shape compiled and ran correctly as an
+ordinary (non-`sawc/std/`) source file (DF-267d). Both `Array` and `Object`
+now route their recursion through a visitor closure (`Vector.each` /
+`Map.each`) rather than a direct self-call, which is the shape that clears
+the builtins pre-check — see `_write`'s doc comment in `sawc/std/json.saw`
+for the full mechanism and this unit's landing report for the repro.
+
+Everything — `parse`, every accessor, the full round trip, the whole seam
+above — works and is tested (`examples/json_value_*.saw`).
 
 ## What a `Serialize` value becomes
 
@@ -215,10 +215,9 @@ item-count budget on top is deferred.
   reject.saw`'s `duplicate_key_last_wins`).
 - `JsonValue.Number` is `Int`-only — no `Float` case — pending a correct
   `Float`<->text surface in std (see the status section above).
-- `JsonValue.to_json_string` does not serialize `Object` (DF-267d) —
-  pending a fix to the recursive-std-function-vs-maybe-suspending-API
-  compiler defect (see the status section above; this unit's landing
-  report has the repro).
+- `max_items` parity with `CborDecoder`: `std.cbor`'s decoder has one, this
+  one does not (see the decoder-limits section above) — scope-narrowed out
+  of this brief, stays open.
 - There is no combined `member(key:)`/`element(at:)` convenience accessor
   (DF-267c): `as_array`/`as_object` lend the whole container, and
   navigation composes through `Vector`/`Map`'s own accessors at the call

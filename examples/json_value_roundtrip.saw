@@ -1,11 +1,12 @@
-// std.json unit 1: `JsonValue.parse` round-trips every JSON type — null,
-// bool, int, string, array (nested arbitrarily deep) and object — read back
-// through the accessor surface, and `to_json_string` re-serializes every
-// shape EXCEPT `Object` (DF-267c — see `JsonValue._write`'s doc comment in
-// sawc/std/json.saw: a recursive std function that also reaches `Map.keys`
-// hits a builtins-pre-check defect, so `Object` parses fully but does not
-// serialize yet). `Array`/scalar round trips prove parse -> serialize ->
-// parse stability byte-for-byte.
+// std.json unit 1 (+ unit 3's Object serialization): `JsonValue.parse`
+// round-trips every JSON type — null, bool, int, string, array (nested
+// arbitrarily deep) and object — read back through the accessor surface,
+// and `to_json_string` re-serializes every shape, `Object` included (see
+// `examples/json_value_object_serialize.saw` for the dedicated Object
+// round-trip/nesting/escape/deinit coverage; this file keeps its original
+// scalar/array focus with `check_object` updated in place now that
+// serializing one no longer fails). `Array`/scalar round trips prove
+// parse -> serialize -> parse stability byte-for-byte.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // null: is_null=true text=null reparsed_is_null=true
@@ -19,7 +20,7 @@
 // nested_array_stability: match=true
 // array_of_mixed: text=[1,"two",true,null,3]
 // object: a=1 b=true c_len=2 c0=10 c1=20
-// object_serialize: encode error: the value has no representation in this format
+// object_serialize: {"a":1,"b":true,"c":[10,20]}
 // deep_mixed: x_a0_y=99
 
 import std.json.{JsonValue}
@@ -160,8 +161,8 @@ func check_object() {
             print("object: a={} b={} c_len={} c0={} c1={}", a, b, c_len, c0, c1)
 
             match v.to_json_string() {
-                case Ok(t) -> print("object_serialize: unexpectedly succeeded -> {}", t),
-                case Err(e) -> print("object_serialize: {}", e)
+                case Ok(t) -> print("object_serialize: {}", t),
+                case Err(e) -> print("object_serialize: unexpectedly failed -> {}", e)
             }
         },
         case Err(e) -> print("object: parse failed: {}", e)

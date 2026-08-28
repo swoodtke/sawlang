@@ -1,0 +1,204 @@
+// std.json unit 3: `Object` serialization (DF-267d's landing — see
+// `JsonValue._write`'s doc comment in sawc/std/json.saw for the compiler
+// defect its walk had to route around, and the mechanism note there for
+// why BOTH `Array` and `Object` now recurse through a visitor closure
+// rather than a direct self-call). Coverage the seam-level and unit-1
+// tests do not already have: a basic keyed object round-trip and its
+// parse -> serialize -> parse -> serialize STABILITY (same shape as
+// `json_value_roundtrip.saw`'s `nested_array_stability`, one layer up to
+// `Object`), an empty object, `Object` nested inside `Object`, `Object`
+// inside `Array` inside `Object`, escapes in a KEY as well as a value
+// (the seam's escape grid only ever escaped a value), duplicate-key
+// last-wins surviving a full round trip (not just the initial parse
+// `examples/json_value_structural_reject.saw` already covers), and the
+// writer's OWN nesting limit — exactly 64 levels (the default
+// `JsonEncoder` `max_depth`) succeeds, 65 is `EncodeFault.TooDeep` —
+// which had no writer-side test at any layer before this landing (only
+// the decoder's `max_depth` was ever exercised).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// basic: stable=true text={"ok":true,"tag":null,"port":8080,"name":"srv"}
+// empty_object: text={}
+// empty_object: reparsed_len=0
+// nested_obj: text={"outer":{"inner":5,"flag":false}}
+// nested_obj: inner=5
+// obj_in_arr_in_obj: text={"list":[{"n":1},{"n":2}]}
+// obj_in_arr_in_obj: n0=1 n1=2
+// escaped: text={"a\"b\\c":"line1\nline2\ttab"}
+// escaped: roundtrip=true
+// dup_key: text={"a":2}
+// dup_key: reparsed_a=2 len=1
+// deep_at_limit: ok len=385
+// deep_past_limit: encode error: nesting is deeper than the encoder allows
+
+import std.json.{JsonValue}
+
+func check_basic_object_roundtrip() {
+    let src = "\{\"port\":8080,\"name\":\"srv\",\"ok\":true,\"tag\":null}"
+    match JsonValue.parse(text: src) {
+        case Ok(v) -> {
+            let text1 = match v.to_json_string() {
+                case Ok(t) -> t,
+                case Err(e) -> { print("basic: serialize1 failed: {}", e) return }
+            }
+            match JsonValue.parse(text: text1) {
+                case Ok(v2) -> {
+                    let text2 = match v2.to_json_string() {
+                        case Ok(t) -> t,
+                        case Err(e) -> { print("basic: serialize2 failed: {}", e) return }
+                    }
+                    // Re-parsing the SAME key set walks the SAME hash
+                    // buckets, so the second serialize reproduces the
+                    // first byte-for-byte even though Map order is
+                    // otherwise unspecified.
+                    print("basic: stable={} text={}", text1.equals(text2), text1)
+                },
+                case Err(e) -> print("basic: reparse failed: {}", e)
+            }
+        },
+        case Err(e) -> print("basic: parse failed: {}", e)
+    }
+}
+
+func check_empty_object() {
+    var fields = Map<String, JsonValue>()
+    let v = JsonValue.Object(fields: move fields)
+    match v.to_json_string() {
+        case Ok(t) -> {
+            print("empty_object: text={}", t)
+            match JsonValue.parse(text: t) {
+                case Ok(v2) -> print("empty_object: reparsed_len={}", v2.as_object()!.len()),
+                case Err(e) -> print("empty_object: reparse failed: {}", e)
+            }
+        },
+        case Err(e) -> print("empty_object: serialize failed: {}", e)
+    }
+}
+
+func check_nested_object_in_object() {
+    let src = "\{\"outer\":\{\"inner\":5,\"flag\":false}}"
+    match JsonValue.parse(text: src) {
+        case Ok(v) -> {
+            let text = match v.to_json_string() {
+                case Ok(t) -> t,
+                case Err(e) -> { print("nested_obj: serialize failed: {}", e) return }
+            }
+            print("nested_obj: text={}", text)
+            let inner = v.as_object()!.get("outer")!.as_object()!.get("inner")!.as_int() ?? -1
+            print("nested_obj: inner={}", inner)
+        },
+        case Err(e) -> print("nested_obj: parse failed: {}", e)
+    }
+}
+
+func check_object_in_array_in_object() {
+    let src = "\{\"list\":[\{\"n\":1},\{\"n\":2}]}"
+    match JsonValue.parse(text: src) {
+        case Ok(v) -> {
+            let text = match v.to_json_string() {
+                case Ok(t) -> t,
+                case Err(e) -> { print("obj_in_arr_in_obj: serialize failed: {}", e) return }
+            }
+            print("obj_in_arr_in_obj: text={}", text)
+            match JsonValue.parse(text: text) {
+                case Ok(v2) -> {
+                    let n0 = v2.as_object()!.get("list")!.as_array()![0].as_object()!.get("n")!.as_int() ?? -1
+                    let n1 = v2.as_object()!.get("list")!.as_array()![1].as_object()!.get("n")!.as_int() ?? -1
+                    print("obj_in_arr_in_obj: n0={} n1={}", n0, n1)
+                },
+                case Err(e) -> print("obj_in_arr_in_obj: reparse failed: {}", e)
+            }
+        },
+        case Err(e) -> print("obj_in_arr_in_obj: parse failed: {}", e)
+    }
+}
+
+func check_escaped_keys_and_values() {
+    // Built directly (not via parse) so the KEY itself carries characters
+    // needing an escape, not just the value — the seam-level escape grid
+    // (`examples/json_escape_grid.saw`) and the tree-level one
+    // (`examples/json_value_escape_grid.saw`) only ever escape a VALUE.
+    var fields = Map<String, JsonValue>()
+    let _ = fields.insert("a\"b\\c", JsonValue.Text(value: "line1\nline2\ttab"))
+    let v = JsonValue.Object(fields: move fields)
+    match v.to_json_string() {
+        case Ok(t) -> {
+            print("escaped: text={}", t)
+            match JsonValue.parse(text: t) {
+                case Ok(v2) -> {
+                    let back = v2.as_object()!.get("a\"b\\c")!.as_text() ?? "?"
+                    print("escaped: roundtrip={}", back.equals("line1\nline2\ttab"))
+                },
+                case Err(e) -> print("escaped: reparse failed: {}", e)
+            }
+        },
+        case Err(e) -> print("escaped: serialize failed: {}", e)
+    }
+}
+
+func check_duplicate_key_survives_roundtrip() {
+    // Duplicate-key last-wins is a PARSE-time rule
+    // (`examples/json_value_structural_reject.saw`'s
+    // `duplicate_key_last_wins`); this proves it also survives a full
+    // serialize -> reparse trip — the loser is gone for good, not merely
+    // shadowed.
+    match JsonValue.parse(text: "\{\"a\":1,\"a\":2}") {
+        case Ok(v) -> {
+            let text = match v.to_json_string() {
+                case Ok(t) -> t,
+                case Err(e) -> { print("dup_key: serialize failed: {}", e) return }
+            }
+            print("dup_key: text={}", text)
+            match JsonValue.parse(text: text) {
+                case Ok(v2) -> {
+                    let a = v2.as_object()!.get("a")!.as_int() ?? -1
+                    print("dup_key: reparsed_a={} len={}", a, v2.as_object()!.len())
+                },
+                case Err(e) -> print("dup_key: reparse failed: {}", e)
+            }
+        },
+        case Err(e) -> print("dup_key: parse failed: {}", e)
+    }
+}
+
+// Wraps `leaf` in `depth` levels of `\{"n": ...}`.
+func build_nested_objects(depth: Int, leaf: JsonValue) -> JsonValue {
+    var current = move leaf
+    var i = 0
+    while i < depth {
+        var fields = Map<String, JsonValue>()
+        let _ = fields.insert("n", move current)
+        current = JsonValue.Object(fields: move fields)
+        i = i + 1
+    }
+    move current
+}
+
+func check_deep_nesting_at_writer_limit() {
+    // `to_json_string` always builds a `JsonEncoder()` at its default
+    // `max_depth` (64) — exactly 64 levels of nesting must succeed.
+    let ok_tree = build_nested_objects(64, JsonValue.Number(value: 0))
+    match ok_tree.to_json_string() {
+        case Ok(t) -> print("deep_at_limit: ok len={}", t.len()),
+        case Err(e) -> print("deep_at_limit: unexpectedly failed: {}", e)
+    }
+
+    // One level past it: EncodeFault.TooDeep, the writer's own nesting
+    // limit rather than the decoder's (no test exercised this side of
+    // the seam before this landing).
+    let bad_tree = build_nested_objects(65, JsonValue.Number(value: 0))
+    match bad_tree.to_json_string() {
+        case Ok(t) -> print("deep_past_limit: unexpectedly succeeded, len={}", t.len()),
+        case Err(e) -> print("deep_past_limit: {}", e)
+    }
+}
+
+func main() {
+    check_basic_object_roundtrip()
+    check_empty_object()
+    check_nested_object_in_object()
+    check_object_in_array_in_object()
+    check_escaped_keys_and_values()
+    check_duplicate_key_survives_roundtrip()
+    check_deep_nesting_at_writer_limit()
+}

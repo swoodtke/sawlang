@@ -15,18 +15,18 @@
 //! try dec.finish()   // rejects content left over after the value
 //! ```
 //!
-//! **There is no `JsonValue` tree type in this file.** A parsed-to-a-DOM
-//! JSON representation needs a type that holds itself — an array of
-//! `JsonValue` and an object mapping to `JsonValue` — and that shape hits an
-//! internal compiler error today (a struct/enum that reaches itself through a
-//! `Vector`/`Map`/`Box` type argument, even indirectly, defeats the codegen
-//! type-registration order — see the filed finding). Building `JsonValue`
-//! around that gap — a type-erased payload, an `UnsafeMemory` cell, an
-//! index-into-a-side-table arena standing in for the tree — would be exactly
-//! the kind of workaround this project's conduct rules forbid. So this file
-//! ships only the token-stream half: whatever a `Serialize`/`Deserialize`
-//! value drives through the seam. The tree is deferred behind that compiler
-//! fix.
+//! This file has two halves. Above is the token-stream seam:
+//! `JsonEncoder`/`JsonDecoder`, driven by any `Serialize`/`Deserialize`
+//! value. Below is `JsonValue` — a parsed-to-a-DOM JSON tree, `Null` /
+//! `Bool` / `Number` / `Text` / `Array(items: Vector<JsonValue>)` /
+//! `Object(fields: Map<String, JsonValue>)` — with `JsonValue.parse` and
+//! `JsonValue.to_json_string` on the same terms as the seam above. Recursive
+//! type support (design 246) is what makes the tree legal: the cycle
+//! through `Array` crosses `Vector`'s own heap indirection and the cycle
+//! through `Object` crosses `Map`'s, so `JsonValue` is written directly with
+//! no arena or side-table workaround — see its own doc comment below for
+//! the type, and `_write`'s for the one compiler defect (DF-267d) its
+//! serializer had to route around.
 //!
 //! Encoding rules, mirroring `std.cbor`'s deterministic-profile discipline
 //! where JSON has an equivalent choice to make:
@@ -64,9 +64,10 @@
 //! `CborDecoder.open` does — CBOR's containers declare their length in the
 //! header, so a single up-front scan can both validate and index it; JSON's
 //! do not; a container's item count is only known once its closing bracket
-//! is found. Building that index ahead of time would need the same
-//! self-referential shape `JsonValue` cannot have (a tree walk that isn't a
-//! tree). Instead, `begin_array`/`begin_map` count their container's items
+//! is found. Building that index ahead of time would mean parsing the whole
+//! input into a tree just to validate it — which `open` deliberately never
+//! does (that commitment is `JsonValue.parse`'s, layered on top, below).
+//! Instead, `begin_array`/`begin_map` count their container's items
 //! with a bounded, ITERATIVE lookahead — no native recursion, so a hostile
 //! depth is caught by the same `max_depth` limit the real read observes
 //! before it can reach the call stack — and every byte is still fully
@@ -1201,12 +1202,10 @@ public func encode<T: Serialize>(value: &T) sync -> Result<String, EncodeError> 
 /// `Object` is a `Map<String, JsonValue>` — **key order is not preserved**,
 /// exactly like every other `Map` in std. `Array` is a `Vector<JsonValue>`.
 ///
-/// **`to_json_string` does not serialize `Object` yet (DF-267d) — see
-/// `_write`'s doc comment for the mechanism.** `parse` builds an `Object`
-/// exactly as documented (it only ever calls `Map.insert`, which the defect
-/// does not touch); serializing a tree that contains one returns
-/// `EncodeFault.Unsupported`. `Null`/`Bool`/`Number`/`Text`/`Array` (nested
-/// arbitrarily deep, arrays-of-arrays included) serialize fully.
+/// **`to_json_string` serializes every case, `Object` included** — see
+/// `_write`'s doc comment for the compiler-defect mechanism (DF-267d) its
+/// walk had to route around. `Null`/`Bool`/`Number`/`Text`/`Array`/`Object`
+/// all serialize fully, nested arbitrarily deep in any combination.
 ///
 /// **Numbers are `Int`-only in v1 — see "What is OPEN" below.** A JSON number
 /// that is lexically integral AND fits `Int`'s range parses as `Number`; a
@@ -1339,22 +1338,45 @@ extension JsonValue {
         return enc.finish()
     }
 
-    // `Object` is NOT serialized yet (DF-267d) — see the OPEN note on
-    // `JsonValue`'s own doc comment above and this unit's final report for
-    // the full mechanism and repro. Short version: `JsonValue._write` is
-    // necessarily self-recursive (an array/object element can itself be an
-    // array or object), and `sawc/std/`'s own "builtins" pre-check computes
-    // one effect signature per std function differently from how an
-    // ordinary source file infers effects per call site. A recursive std
-    // function that ALSO transitively reaches a "maybe-suspending" API —
-    // one whose closure parameter carries no `sync`, which `Map.keys`/
-    // `each`/`each_key`/`each_value` all are by design (216's "the closure
-    // is not sync, so a suspending transform works") — hits `internal
-    // compiler error: builtins failed to type-check` /
-    // `cannot suspend in a sync closure context`, even though the identical
-    // shape compiles and runs correctly as an ordinary (non-`sawc/std/`)
-    // source file. `Array`'s own recursion is unaffected (`Vector`'s plain
-    // `[]`/`len` are not closure-based), which is why it works below.
+    // `JsonValue._write` is necessarily self-recursive (an array/object
+    // element can itself be an array or object). DF-267d was a
+    // self-recursive `sawc/std/` function that ALSO transitively reaches a
+    // "maybe-suspending" closure API — one whose closure parameter carries
+    // no `sync`, deliberate per design 216, which every `Vector`/`Map`
+    // visitor (`each`/`each_key`/`each_value`/`keys`) is — failing the
+    // builtins pre-check with `internal compiler error: builtins failed to
+    // type-check` / `cannot suspend in a sync closure context`, even though
+    // the identical shape compiled and ran as an ordinary source file.
+    // Design 249's registration rework dissolved the ISOLATED shape (one
+    // self-recursive function, one visitor call), confirmed again by this
+    // landing — but re-probing the WHOLE-FUNCTION shape while building this
+    // encoder found one more face of the same "one effect signature per
+    // function" mechanism DF-267d named: `_write` recursing DIRECTLY (a
+    // plain `while` loop indexing `items[i]`, no closure at all) in one
+    // match arm while ALSO recursing THROUGH a visitor closure in another
+    // still hit the same builtins-pre-check refusal, on the direct-call
+    // arm's line — so both arms below recurse through a visitor closure
+    // (`Vector.each` for `Array`, `Map.each` for `Object`), which is what
+    // actually compiles. No new DF is filed for this: it is the same
+    // "unsound fixed point for a self-recursive function depending on a
+    // non-sync leaf API" mechanism DF-267d already named, not a new
+    // mechanism — this is simply the shape that reaches it.
+    //
+    // What is STILL open is DF-272c, a narrower sibling: a maybe-suspending
+    // call made INSIDE A PLACE WINDOW (a `borrows` lend such as
+    // `fields.get(k)!`) is refused under `sawc/std/` only. `Object` routes
+    // around it on purpose — `Map.each` hands each key/value PAIR to the
+    // closure BY VALUE (a `move`, never a lend), so no window is ever open
+    // while `_write` recurses into a value.
+    //
+    // Every visitor closure here returns `Void` (the visitor shape carries
+    // no error channel and cannot short-circuit the walk), so a per-element
+    // `write_text`/`_write` failure is captured into `first_err` instead of
+    // propagated directly, and every closure invocation after the first
+    // failure is a no-op (checked at its own top) — once a write fails the
+    // encoder's level bookkeeping may already be inconsistent (see
+    // `JsonEncoder.open_container`'s `TooDeep` path), so nothing further may
+    // safely be written into it.
     func _write(&self, enc: &var JsonEncoder) -> Result<Void, EncodeError> {
         match self {
             case Null -> { return enc.write_null() },
@@ -1363,15 +1385,41 @@ extension JsonValue {
             case Text(value) -> { return enc.write_text(value) },
             case Array(items) -> {
                 try enc.begin_array(items.len())
-                var i = 0
-                while i < items.len() {
-                    try items[i]._write(enc: &var enc)
-                    i = i + 1
+                var first_err: EncodeError? = None
+                items.each({ [&var enc, &var first_err] item in
+                    if first_err.is_some() {
+                        return
+                    }
+                    match item._write(enc: &var enc) {
+                        case Ok(_) -> {},
+                        case Err(e) -> { first_err = e }
+                    }
+                })
+                if let e = first_err {
+                    return e
                 }
                 return
             },
-            case Object(_) -> {
-                return EncodeError(fault: EncodeFault.Unsupported)
+            case Object(fields) -> {
+                try enc.begin_map(fields.len())
+                var first_err: EncodeError? = None
+                fields.each({ [&var enc, &var first_err] k, v in
+                    if first_err.is_some() {
+                        return
+                    }
+                    match enc.write_text(k) {
+                        case Ok(_) -> {},
+                        case Err(e) -> { first_err = e  return }
+                    }
+                    match v._write(enc: &var enc) {
+                        case Ok(_) -> {},
+                        case Err(e) -> { first_err = e }
+                    }
+                })
+                if let e = first_err {
+                    return e
+                }
+                return
             }
         }
     }

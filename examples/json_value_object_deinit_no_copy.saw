@@ -1,0 +1,55 @@
+// std.json unit 3: `to_json_string(&self)` BORROWS a tree containing an
+// `Object` — it never consumes or copies it, even though `JsonValue` is
+// `ExplicitCopy` now (design 251) and copies of one are legal. Mirrors
+// `examples/json_value_synthesized_deep_copy.saw`'s idiom: a `Carrier`
+// wraps the tree with a NoCopy `Tag` that prints on `deinit`, so scope
+// exit proves EXACTLY-ONCE teardown of the carrier (and, since `Carrier`
+// is itself `NoCopy`, calling `to_json_string` twice with no `.copy()`/
+// `move` at either call site is only even LEGAL if serialize never needed
+// to consume or duplicate the tree it walks — a consuming or copying
+// implementation would force a `.copy()`/`move` at the second call, a
+// compile error, not a runtime one). The tree stays usable for an
+// ordinary read afterward too.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// serialized twice, stable: true
+// tree still usable after serialize: nums_len=2
+// about to drop carrier
+// DEINIT carrier
+
+import std.json.{JsonValue}
+
+struct Tag { name: String }
+extension Tag: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+
+struct Carrier { tag: Tag, tree: JsonValue }
+extension Carrier: NoCopy {}
+
+func build() -> JsonValue {
+    var fields = Map<String, JsonValue>()
+    var items = Vector<JsonValue>()
+    try! items.push(JsonValue.Number(value: 1))
+    try! items.push(JsonValue.Number(value: 2))
+    let _ = fields.insert("nums", JsonValue.Array(items: move items))
+    let _ = fields.insert("name", JsonValue.Text(value: "tree"))
+    JsonValue.Object(fields: move fields)
+}
+
+func main() {
+    var carrier = Carrier(tag: Tag(name: "carrier"), tree: build())
+
+    // Two independent walks over the SAME tree, through a plain `&self`
+    // borrow at each call — no `.copy()`, no `move`, and `carrier` (NoCopy)
+    // is never touched as a whole.
+    let text1 = try! carrier.tree.to_json_string()
+    let text2 = try! carrier.tree.to_json_string()
+    print("serialized twice, stable: {}", text1.equals(text2))
+
+    // The tree is still there afterward, unconsumed.
+    let nums_len = carrier.tree.as_object()!.get("nums")!.as_array()!.len()
+    print("tree still usable after serialize: nums_len={}", nums_len)
+
+    print("about to drop carrier")
+}
