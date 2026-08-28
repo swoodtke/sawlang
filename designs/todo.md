@@ -87,6 +87,11 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-267b — `Map.keys()` through an enum MATCH BINDING leaves the defaulted allocator parameter unresolved where the struct-field twin resolves (entry below, same filer). RE-CONFIRMED + PROMOTED Aug 27 (lead probes): with DF-267d dissolved, this is THE remaining `Object`-serialization blocker; fix scheduled in the queue's post-250/251 item
 - DF-267c — a hand-written `borrows` accessor cannot `lend` a place indexed FURTHER into a match-bound payload, though the docs' own field-projection twin works — blocks JsonValue's combined member/element accessors (entry below, same filer)
 - ~~DF-267d — a SELF-RECURSIVE function under sawc/std that transitively reaches a maybe-suspending closure API fails the builtins pre-check~~ **DISSOLVED-PENDING-CONFIRMATION Aug 27** (lead re-probe post-247/249: all three filed minimal shapes now compile under sawc/std — entry below has the cells; the Object-serialization landing is the confirming probe and closes this)
+- DF-270a — the alias literal rule differs by SLOT: `static X: Byte = 45` adopts, `static X: Byte = Byte(45)` is refused as non-constant, `let x: Byte = 45` is refused — 250 §5 Q1's assumption was wrong in BOTH directions (filed Aug 28 by design 250; repros in its report + the brief's §8). Wants ONE rule over the three slots
+- DF-270b — `G<Alias>` at a `G<Underlying>` slot: ICE at argument/return/field positions, SILENTLY ACCEPTED at a `let` — every monomorphized generic, not just Vector; two wrongs in opposite directions (filed Aug 28 by design 250)
+- DF-270c — a conformance body naming the UNDERLYING where the trait requirement names the ALIAS is accepted silently, and the call through `any Trait` is a codegen ICE — met live when `Decoder.read_byte` flipped (filed Aug 28 by design 250)
+- DF-270d — ordered comparison over an UNSIGNED integer lowers SIGNED — CORRECTNESS, entry below (filed Aug 28 by design 250; pinned XFAIL `examples/unsigned_ordered_comparison.saw`). Wants queue-head treatment per the Aug-26 "a correctness bug outranks everything scheduled" precedent — user ruling
+- DF-270e — a primitive type name as a ZERO-ARG call (`UInt8()`, `Int()`, `String()`, …) is an ICE; with an argument it is clean. Fuzz-found by 250's battery, pre-existing; its three obligations (pin `examples/errors/primitive_type_called_as_a_function.saw`, `sawfuzz_known.txt` row, report) all landed with 250 — this line completes the DF filing
 - DF-271a — the builtins pre-check refuses a `try` STATEMENT inside a match arm inside a while loop inside a GENERIC method (``` `try` cannot propagate errors from a closure returning `Never` (must return Result)``` + `builtins failed to type-check`), sawc/std ONLY — the identical shape compiles as a user file (probe recorded by design 251's report). THIRD member of the builtins-vs-user-file checking-divergence family: DF-257c (closed — generic-body `try` reuse across instantiations) and DF-267d (dissolved) are the siblings; std code routes around it with the `match`-instead-of-`try` idiom map.saw already carries for 257c. The family's standing question: why does the builtins pass check differently from user-file checking AT ALL — a fix brief should target that divergence, not the face. Filed Aug 27 by design 251; no entry below, this line is the record neither cbor nor json derive `Map<K, V>` through `@synthesize` (the field walk does not cover Map; both format landings record the scope note), so a Map on the wire is a hand-written `Serialize`/`Deserialize` today. Wants a design when the appetite arrives; pairs with the seam's missing Float story (design-215 section). Recorded Aug 27 while checking cbor for DF-267 siblings — no entry below, this line is the record
 - DF-269a — a LABEL-selected overload loses bare-literal width adoption: `report(byte: 65)` against `{report(value: Int), report(byte: UInt8)}` errors `expects UInt8 but got Int`, while the same labeled call against the SINGLETON declaration adopts and runs — the label face of DF-242c's family (overload resolution defeats literal adoption; 242c is the suffix face). Lead-probed Aug 27 (`.build/scratch/probe_append_overload{,2,3}.saw`, cells recorded here) while ruling design 244's naming rider; the bare positional call is a correct ambiguity error naming both candidates. The DF-242c re-probe note on its entry applies to this face too: module identity (249) moved which candidates are seen, not how a literal adopts once one is selected
 - DF-215h — stdout has no newline-free write, so incremental output (`--stream` deltas) prints one line per piece; wants a surface ruling (entry below, Aug 26)
@@ -98,6 +103,34 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-261e — an optional chain through a `Box<T>?` FIELD is `BindOptional lowered outside an optional chain`, with no recursion involved (entry below, filed Aug 27 by design 246; PRE-EXISTING)
 - DF-261f — a directly recursive SUSPENDING function makes the coroutine transform recurse forever, and escapes the ICE funnel as a raw Python traceback (entry below, filed Aug 27 by design 246; PRE-EXISTING, verified against main). Two halves: wrap the transform, then refuse the shape
 
+
+## DF-270d — ordered comparison over an unsigned integer lowers SIGNED
+## (filed Aug 28 by design 250; CORRECTNESS — wrong answers at runtime)
+
+- ONE mechanism (`_emit_int_compare`, `sawc/codegen/operators.py:818`,
+  hard-coded `icmp_signed`), TWO faces: (a) `<`/`<=`/`>`/`>=` with a
+  DISTINCT ALIAS over an unsigned underlying on the LEFT — the alias
+  carries `TypeKind.STRUCT`, so the dispatch at `operators.py:478` routes
+  it to the `compare()` path instead of the icmp branch that does consult
+  `_int_is_signed`: `Byte(255) <= Byte(127)` is TRUE. (b)
+  `Comparable.compare()` on ANY unsigned integer, no alias involved:
+  `UInt.max.compare(&1)` is `Less` — PRE-EXISTING, reaching every
+  `Comparable`-bounded generic, any sort over unsigned keys, and
+  `sos/kernel/abi`'s eight `type XHandle = UInt` (kernel handles order
+  wrongly today). Sound on the same values: `==`/`!=`, `/`, `%`, `>>`,
+  widening casts, printing. Pin: `examples/unsigned_ordered_comparison.saw`
+  (XFAIL, cited).
+- CONSEQUENCE HELD IN 250: `std.cbor`'s `byte_at` + UTF-8 table stay
+  `UInt8` — flipping them made `cbor169_vectors` accept `bad_utf8`, and
+  `compare_in`'s canonical map-key ordering sits on the same edge; both
+  call sites carry a comment naming the pin. The fix REOPENS those two
+  rows and completes 250's cbor flip.
+- Fix shape: signedness consulted at both faces' chokepoints
+  (`_emit_int_compare` gains the unsigned branch; the alias dispatch stops
+  mis-kinding a primitive-underlying alias into the struct path).
+  Obligation-4 sweep owed at dispatch: any OTHER operator lowering that
+  hard-codes signedness (shifts are recorded sound; the sweep proves the
+  rest), and the alias-mis-kinding dispatch's other consumers.
 
 ## DF-264a — the Copy tier's checker misses the deinit-signature validation
 ## (filed Aug 27, lead-probed from the user's scratch example)
