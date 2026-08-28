@@ -19,15 +19,15 @@ extern "C" {
 // =============================================================================
 
 static ASCII_ZERO: Int = 48
-static MINUS_SIGN: Int8 = 45
+static MINUS_SIGN: Byte = 45
 
 // The truncation marker a FIXED builder stamps when content does not fit: `…`
 // (U+2026), whose UTF-8 encoding is these three bytes. A cut message says so —
 // a silently short one is a hidden error (design 137).
 static MARKER_LEN: Int = 3
-static MARKER_BYTE_0: Int = 226
-static MARKER_BYTE_1: Int = 128
-static MARKER_BYTE_2: Int = 166
+static MARKER_BYTE_0: Byte = 226
+static MARKER_BYTE_1: Byte = 128
+static MARKER_BYTE_2: Byte = 166
 
 // The smallest `capacity` a fixed builder accepts: the marker plus the NUL
 // terminator plus one byte of text. Below this there is nothing to say.
@@ -170,7 +170,7 @@ extension StringBuilder {
         if let buf = self.buffer {
             var i = 0
             while i < s_len {
-                buf[self.length + i] = s.byte_at(i)
+                buf[self.length + i] = self._c_char(s.byte_at(i))
                 i = i + 1
             }
             self.length = self.length + s_len
@@ -190,7 +190,7 @@ extension StringBuilder {
     /// repeated division instead, so nothing is staged anywhere.
     public func append(&var self, value: Int) -> Result<Void, AllocError> {
         if value < 0 {
-            let _ = try self.append_char(MINUS_SIGN)
+            let _ = try self.append(MINUS_SIGN)
         }
         // The magnitude is carried on the NEGATIVE side: `0 - Int.min` overflows
         // but `Int.min` itself is representable, so every Int works here. `/`
@@ -205,7 +205,7 @@ extension StringBuilder {
         }
         while scale > 0 {
             let digit = 0 - ((n / scale) % 10)
-            let _ = try self.append_char(self._scalar_byte(ASCII_ZERO + digit))
+            let _ = try self.append(self._scalar_byte(ASCII_ZERO + digit))
             scale = scale / 10
         }
         return
@@ -225,14 +225,26 @@ extension StringBuilder {
         }
         while scale > 0 {
             let digit = (value / scale) % 10
-            let _ = try self.append_char(self._scalar_byte(ASCII_ZERO + (digit as Int)))
+            let _ = try self.append(self._scalar_byte(ASCII_ZERO + (digit as Int)))
             scale = scale / 10
         }
         return
     }
 
-    /// Appends one byte, reporting allocator exhaustion as `Err(AllocError)`.
-    public func append_char(&var self, c: Int8) -> Result<Void, AllocError> {
+    /// Appends one raw byte, reporting allocator exhaustion as `Err(AllocError)`.
+    ///
+    /// The overload of `append` that writes a byte AS a byte, where the `Int`
+    /// and `UInt` siblings above write its decimal rendering. Which one a call
+    /// reaches is decided by the argument's type and nothing else: `append(65)`
+    /// writes `65`, and `append(Byte(65))` writes `A`. That is why the parameter
+    /// is a `Byte` and not a `UInt8` — an integer never becomes a raw byte by
+    /// accident (design 250 §4). To render a byte's digits, widen it on purpose:
+    /// `append(b as Int)`.
+    ///
+    /// This was `append_char(c: Int8)` before design 250. The name said
+    /// "character" for something that is one byte of a possibly multi-byte
+    /// scalar; `append_scalar` is the one that speaks characters.
+    public func append(&var self, b: Byte) -> Result<Void, AllocError> {
         let needed = self.length + 2
         if not self._reserve(needed) {
             if self.fixed {
@@ -241,7 +253,7 @@ extension StringBuilder {
             }
             return AllocError(size: self._grow_target(needed), align: 1)
         }
-        self._place_char(c)
+        self._place_char(b)
         return
     }
 
@@ -268,7 +280,7 @@ extension StringBuilder {
             }
             var i = 0
             while i < n {
-                buf[self.length + i] = s.byte_at(i)
+                buf[self.length + i] = self._c_char(s.byte_at(i))
                 i = i + 1
             }
             self.length = self.length + n
@@ -285,26 +297,26 @@ extension StringBuilder {
         }
         self.truncated = true
         if let buf = self.buffer {
-            buf[self.length] = self._scalar_byte(MARKER_BYTE_0)
-            buf[self.length + 1] = self._scalar_byte(MARKER_BYTE_1)
-            buf[self.length + 2] = self._scalar_byte(MARKER_BYTE_2)
+            buf[self.length] = self._c_char(MARKER_BYTE_0)
+            buf[self.length + 1] = self._c_char(MARKER_BYTE_1)
+            buf[self.length + 2] = self._c_char(MARKER_BYTE_2)
             self.length = self.length + MARKER_LEN
             buf[self.length] = 0
         }
     }
 
-    // Internal: whether `b` is a UTF-8 continuation byte (0b10xxxxxx). Read as
-    // an unsigned byte value, since Int8 is signed and every continuation byte
-    // has its high bit set.
-    func _is_continuation(&self, b: Int8) -> Bool {
-        let u = if b < 0 { (b as Int) + 256 } else { b as Int }
-        u >= 128 && u < 192
+    // Internal: whether `b` is a UTF-8 continuation byte (0b10xxxxxx). Bytes are
+    // unsigned since design 250, so this is the comparison it always wanted to
+    // be — it used to fold a negative `Int8` back into 0..255 first, because
+    // every continuation byte has its high bit set.
+    func _is_continuation(&self, b: Byte) -> Bool {
+        b >= 128 && b < 192
     }
 
     // Internal: place one byte into the (already reserved) buffer.
-    func _place_char(&var self, c: Int8) unsafe {
+    func _place_char(&var self, b: Byte) unsafe {
         if let buf = self.buffer {
-            buf[self.length] = c
+            buf[self.length] = self._c_char(b)
             self.length = self.length + 1
             buf[self.length] = 0
         }
@@ -333,34 +345,45 @@ extension StringBuilder {
             return None                 // UTF-16 surrogate: not a scalar value
         }
         if scalar < 128 {
-            let _ = try self.append_char(self._scalar_byte(scalar))
+            let _ = try self.append(self._scalar_byte(scalar))
             return 1
         }
         if scalar < 2048 {
-            let _ = try self.append_char(self._scalar_byte(192 + scalar / 64))
-            let _ = try self.append_char(self._scalar_byte(128 + scalar % 64))
+            let _ = try self.append(self._scalar_byte(192 + scalar / 64))
+            let _ = try self.append(self._scalar_byte(128 + scalar % 64))
             return 2
         }
         if scalar < 65536 {
-            let _ = try self.append_char(self._scalar_byte(224 + scalar / 4096))
-            let _ = try self.append_char(self._scalar_byte(128 + (scalar / 64) % 64))
-            let _ = try self.append_char(self._scalar_byte(128 + scalar % 64))
+            let _ = try self.append(self._scalar_byte(224 + scalar / 4096))
+            let _ = try self.append(self._scalar_byte(128 + (scalar / 64) % 64))
+            let _ = try self.append(self._scalar_byte(128 + scalar % 64))
             return 3
         }
-        let _ = try self.append_char(self._scalar_byte(240 + scalar / 262144))
-        let _ = try self.append_char(self._scalar_byte(128 + (scalar / 4096) % 64))
-        let _ = try self.append_char(self._scalar_byte(128 + (scalar / 64) % 64))
-        let _ = try self.append_char(self._scalar_byte(128 + scalar % 64))
+        let _ = try self.append(self._scalar_byte(240 + scalar / 262144))
+        let _ = try self.append(self._scalar_byte(128 + (scalar / 4096) % 64))
+        let _ = try self.append(self._scalar_byte(128 + (scalar / 64) % 64))
+        let _ = try self.append(self._scalar_byte(128 + scalar % 64))
         return 4
     }
 
-    // A byte value 0..255 as the Int8 with the same bit pattern. `u >= 128` is
-    // outside Int8's signed range, so a checked `as` would panic on every
-    // continuation byte; keeping the low 8 bits is the operation, and design
-    // 170 gave it a name. This used to hand-fold the high half through
-    // `(u - 256) as Int8`, which computed the same thing less legibly.
-    func _scalar_byte(&self, u: Int) -> Int8 {
-        Int8.from(truncating: u)
+    // A code unit 0..255, computed in `Int` by the scalar encoder above, AS a
+    // byte. `Byte` cannot be built from an `Int` directly — the construction
+    // takes the underlying `UInt8` — so the narrowing is spelled once, here.
+    func _scalar_byte(&self, u: Int) -> Byte {
+        Byte(UInt8.from(truncating: u))
+    }
+
+    // THE WRITE FUNNEL (design 250 §3): a byte value as the C `char` with the
+    // same bit pattern. The buffer is `UnsafePointer<Int8>`, and a byte at or
+    // above 0x80 has no `Int8` value, so a checked `as` would panic on every
+    // continuation byte; keeping the low 8 bits is the operation, and design 170
+    // gave it a name.
+    //
+    // ENTRY POINTS: `_place`, `_place_char`, `_overflow`, `_mark_truncated` —
+    // every store of a byte VALUE into `self.buffer`. (The bare `buf[...] = 0`
+    // terminator writes are `Int8` literals and never come through here.)
+    func _c_char(&self, b: Byte) -> Int8 {
+        Int8.from(truncating: b)
     }
 
     // Clear the buffer (keep capacity). A fixed builder is un-truncated by
@@ -409,8 +432,8 @@ extension StringBuilder {
 
     // Internal: ensure `capacity >= min_capacity`. Returns whether the builder
     // now has that room — FALSE means the allocator refused and the builder is
-    // untouched. The old `grow` returned Void, so `append`/`append_char` copied
-    // into a buffer that had never grown and wrote past its end (RS-1's shape,
+    // untouched. The old `grow` returned Void, so the appends copied into a
+    // buffer that had never grown and wrote past its end (RS-1's shape,
     // repeated here).
     func _reserve(&var self, min_capacity: Int) unsafe -> Bool {
         if self.fixed {

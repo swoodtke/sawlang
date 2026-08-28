@@ -18,9 +18,9 @@ func dump0(s: String) -> String {
 // Wrap `inner` (the raw bytes between the quotes) into a source string literal.
 func lit(inner: String) -> String {
     var sb = StringBuilder()
-    try! sb.append_char(34 as Int8)      // opening "
+    try! sb.append(Byte(34))      // opening "
     try! sb.append(inner)
-    try! sb.append_char(34 as Int8)      // closing "
+    try! sb.append(Byte(34))      // closing "
     sb.build()
 }
 
@@ -37,24 +37,24 @@ func main() {
 
     // \u{41} -> 'A'  (source built byte-wise so the braces are literal).
     var u1 = StringBuilder()
-    try! u1.append_char(34 as Int8)      // "
-    try! u1.append_char(92 as Int8)      // backslash
-    try! u1.append_char(117 as Int8)     // u
-    try! u1.append_char(123 as Int8)     // {
+    try! u1.append(Byte(34))      // "
+    try! u1.append(Byte(92))      // backslash
+    try! u1.append(Byte(117))     // u
+    try! u1.append(Byte(123))     // {
     try! u1.append("41")
-    try! u1.append_char(125 as Int8)     // }
-    try! u1.append_char(34 as Int8)      // "
+    try! u1.append(Byte(125))     // }
+    try! u1.append(Byte(34))      // "
     assert(dump0(u1.build()).equals("STRING\t1:1\tA"), "backslash-u{41} -> A")
 
     // \u{1F600} -> the emoji's 4 UTF-8 bytes, emitted verbatim in the dump.
     var u2 = StringBuilder()
-    try! u2.append_char(34 as Int8)
-    try! u2.append_char(92 as Int8)
-    try! u2.append_char(117 as Int8)
-    try! u2.append_char(123 as Int8)
+    try! u2.append(Byte(34))
+    try! u2.append(Byte(92))
+    try! u2.append(Byte(117))
+    try! u2.append(Byte(123))
     try! u2.append("1F600")
-    try! u2.append_char(125 as Int8)
-    try! u2.append_char(34 as Int8)
+    try! u2.append(Byte(125))
+    try! u2.append(Byte(34))
     var exp = StringBuilder()
     try! exp.append("STRING\t1:1\t")
     try! exp.append("😀")
@@ -63,12 +63,12 @@ func main() {
     // \{ escaped brace: value carries the 0x01 sentinel + '{', and it stays a
     // plain STRING (NOT an interpolation).  Expected uses \{ for a literal brace.
     var e1 = StringBuilder()
-    try! e1.append_char(34 as Int8)      // "
-    try! e1.append_char(97 as Int8)      // a
-    try! e1.append_char(92 as Int8)      // backslash
-    try! e1.append_char(123 as Int8)     // {
-    try! e1.append_char(98 as Int8)      // b
-    try! e1.append_char(34 as Int8)      // "
+    try! e1.append(Byte(34))      // "
+    try! e1.append(Byte(97))      // a
+    try! e1.append(Byte(92))      // backslash
+    try! e1.append(Byte(123))     // {
+    try! e1.append(Byte(98))      // b
+    try! e1.append(Byte(34))      // "
     assert(dump0(e1.build()).equals("STRING\t1:1\ta\\x01\{b"), "escaped-brace STRING")
 
     print("escapes: ok")

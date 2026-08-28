@@ -1,0 +1,20 @@
+// Design 250's engine: raw-byte semantics are UNREACHABLE without a byte-typed
+// value. A bare integer literal never becomes a `Byte` — not at a parameter, and
+// not at an annotated `let` (design 250 §5 Q1 ruled (a): the constructor is the
+// spelling, and the alias literal rule stays as design 185 left it, covering
+// only `Int`/`Float`/`Bool`/`String` underlyings). That refusal is what makes
+// `append(65)`-is-digits and `append(Byte(65))`-is-a-raw-byte a sound pair
+// rather than an ambiguity.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: argument `b` expects `Byte` but got `UInt8`
+// EXPECT-ERROR-CONTAINS: cannot assign `UInt8` to variable of type `Byte`
+
+func only_byte(b: Byte) -> Int {
+    b as Int
+}
+
+func main() {
+    print("{}", only_byte(65))
+    let annotated: Byte = 4
+    print("{}", annotated)
+}

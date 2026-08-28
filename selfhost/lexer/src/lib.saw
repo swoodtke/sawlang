@@ -84,16 +84,16 @@ func ubyte(s: &String, i: Int) -> Int {
     if i < 0 || i >= s.len() {
         return -1
     }
-    let x = s.byte_at(i) as Int
-    if x < 0 { x + 256 } else { x }
+    // Bytes are unsigned since design 250; only the widening to `Int` is left,
+    // and that is load-bearing (`hex_value` and the scalar assembly work there).
+    s.byte_at(i) as Int
 }
 
-// Turn an unsigned byte value (0..255) into the Int8 with the same bit pattern,
-// so it can be appended to a StringBuilder without an out-of-range cast panic.
-// Design 170 named the operation; the old hand-fold through `(u - 256) as Int8`
-// computed the same thing.
-func to_i8(u: Int) -> Int8 {
-    Int8.from(truncating: u)
+// Turn an unsigned byte value (0..255) into the `Byte` a `StringBuilder.append`
+// takes. `Byte` is built from its underlying `UInt8`, so the narrowing is
+// spelled once, here.
+func to_byte(u: Int) -> Byte {
+    Byte(UInt8.from(truncating: u))
 }
 
 func is_digit(b: Int) -> Bool { b >= B_D0 && b <= B_D9 }
@@ -121,7 +121,7 @@ func hex_digit(n: Int) -> String { "0123456789abcdef".substring(n, n + 1) }
 // A one-byte String from an unsigned byte value.
 func char_str(u: Int) -> String {
     var sb = StringBuilder()
-    try! sb.append_char(to_i8(u))
+    try! sb.append(to_byte(u))
     sb.build()
 }
 
@@ -456,7 +456,7 @@ public func escape_text(s: String) -> String {
             try! out.append(hex_digit(u / 16))
             try! out.append(hex_digit(u % 16))
         }
-        else { try! out.append_char(to_i8(u)) }
+        else { try! out.append(to_byte(u)) }
         i = i + 1
     }
     out.build()
@@ -641,7 +641,7 @@ extension Lexer {
                 }
                 var text = StringBuilder()
                 while self.peek() != -1 && self.peek() != B_NL {
-                    try! text.append_char(to_i8(self.advance()))
+                    try! text.append(to_byte(self.advance()))
                 }
                 var body = text.build()
                 if body.len() > 0 && ubyte(&body, body.len() - 1) == B_CR {
@@ -670,7 +670,7 @@ extension Lexer {
         var ok = true
         while self.peek() != -1 && self.peek() != B_RBRACE {
             let d = self.advance()
-            try! hex.append_char(to_i8(d))
+            try! hex.append(to_byte(d))
             count = count + 1
             if not is_hex(d) { ok = false }
         }
@@ -720,19 +720,19 @@ extension Lexer {
             if self.peek() == B_BACKSLASH {
                 let _ = self.advance()
                 let ch = self.advance()
-                if ch == B_LO_N { try! out.append_char(to_i8(B_NL)) }
-                else if ch == B_LO_T { try! out.append_char(to_i8(B_TAB)) }
-                else if ch == B_LO_R { try! out.append_char(to_i8(B_CR)) }
-                else if ch == B_D0 { try! out.append_char(to_i8(0)) }
-                else if ch == B_QUOTE { try! out.append_char(to_i8(B_QUOTE)) }
-                else if ch == B_BACKSLASH { try! out.append_char(to_i8(B_BACKSLASH)) }
+                if ch == B_LO_N { try! out.append(to_byte(B_NL)) }
+                else if ch == B_LO_T { try! out.append(to_byte(B_TAB)) }
+                else if ch == B_LO_R { try! out.append(to_byte(B_CR)) }
+                else if ch == B_D0 { try! out.append(to_byte(0)) }
+                else if ch == B_QUOTE { try! out.append(to_byte(B_QUOTE)) }
+                else if ch == B_BACKSLASH { try! out.append(to_byte(B_BACKSLASH)) }
                 else if ch == B_LBRACE {
-                    try! out.append_char(to_i8(B_MARKER))
-                    try! out.append_char(to_i8(B_LBRACE))
+                    try! out.append(to_byte(B_MARKER))
+                    try! out.append(to_byte(B_LBRACE))
                 }
                 else if ch == B_RBRACE {
-                    try! out.append_char(to_i8(B_MARKER))
-                    try! out.append_char(to_i8(B_RBRACE))
+                    try! out.append(to_byte(B_MARKER))
+                    try! out.append(to_byte(B_RBRACE))
                 }
                 else if ch == B_LO_U {
                     try self.read_unicode_escape(&var out)
@@ -748,20 +748,20 @@ extension Lexer {
                     interp_line = open_line
                     interp_col = open_col
                 }
-                try! out.append_char(to_i8(self.advance()))  // keep '{'
+                try! out.append(to_byte(self.advance()))  // keep '{'
                 var depth = 1
                 while self.peek() != -1 && depth > 0 {
                     let c = self.peek()
                     if c == B_LBRACE { depth = depth + 1 }
                     else if c == B_RBRACE { depth = depth - 1 }
-                    try! out.append_char(to_i8(self.advance()))
+                    try! out.append(to_byte(self.advance()))
                 }
                 if depth > 0 {
                     // This interpolation ran to EOF without a closing `}`.
                     return self.err_at("unterminated interpolation in string literal, opened at this `\{` (write `\\\{` for a literal brace)", open_line, open_col)
                 }
             } else {
-                try! out.append_char(to_i8(self.advance()))
+                try! out.append(to_byte(self.advance()))
             }
         }
 
@@ -791,11 +791,11 @@ extension Lexer {
         var j = self.pos + 1
         var digits = StringBuilder()
         while j < self.slen && is_digit(ubyte(&self.src, j)) {
-            try! digits.append_char(to_i8(ubyte(&self.src, j)))
+            try! digits.append(to_byte(ubyte(&self.src, j)))
             j = j + 1
         }
         var cand = StringBuilder()
-        try! cand.append_char(to_i8(ch))
+        try! cand.append(to_byte(ch))
         try! cand.append(digits.build())
         let cand_str = cand.build()
         if suffix_width(cand_str) == 0 {
@@ -828,7 +828,7 @@ extension Lexer {
         if tuple_index {
             var digits = StringBuilder()
             while is_digit(self.peek()) {
-                try! digits.append_char(to_i8(self.advance()))
+                try! digits.append(to_byte(self.advance()))
             }
             let index_str = digits.build()
             if not literal_fits(index_str, 10, 64) {
@@ -848,7 +848,7 @@ extension Lexer {
             var digits = StringBuilder()
             while in_base_set(self.peek(), base) {
                 let d = self.advance()
-                if d != B_UNDERSCORE { try! digits.append_char(to_i8(d)) }
+                if d != B_UNDERSCORE { try! digits.append(to_byte(d)) }
             }
             let digit_str = digits.build()
             if digit_str.is_empty() {
@@ -878,7 +878,7 @@ extension Lexer {
         while going {
             let c = self.peek()
             if is_digit(c) {
-                try! val.append_char(to_i8(self.advance()))
+                try! val.append(to_byte(self.advance()))
             } else if c == B_DOT {
                 // Design 161, the LOOKAHEAD rule: a `.` continues the float only when
                 // a DIGIT follows it. Anything else ends the number and leaves the dot
@@ -889,7 +889,7 @@ extension Lexer {
                     going = false
                 } else {
                     is_float = true
-                    try! val.append_char(to_i8(self.advance()))
+                    try! val.append(to_byte(self.advance()))
                 }
             } else if c == B_UNDERSCORE {
                 let _ = self.advance()      // strip underscore separators
@@ -920,7 +920,7 @@ extension Lexer {
         let _ = self.advance()  // consume '#'
         var name = StringBuilder()
         while is_alnum(self.peek()) || self.peek() == B_UNDERSCORE {
-            try! name.append_char(to_i8(self.advance()))
+            try! name.append(to_byte(self.advance()))
         }
         let name_str = name.build()
         if name_str.is_empty() {
@@ -940,7 +940,7 @@ extension Lexer {
         let start_col = self.col
         var sb = StringBuilder()
         while is_alnum(self.peek()) || self.peek() == B_UNDERSCORE {
-            try! sb.append_char(to_i8(self.advance()))
+            try! sb.append(to_byte(self.advance()))
         }
         let value = sb.build()
         Token(kind: keyword_kind(value), value: value, line: start_line, col: start_col, suffix: None)
@@ -954,9 +954,9 @@ extension Lexer {
             return self.err("Expected number after `$` for shorthand closure parameter")
         }
         var num = StringBuilder()
-        try! num.append_char(to_i8(B_DOLLAR))
+        try! num.append(to_byte(B_DOLLAR))
         while is_digit(self.peek()) {
-            try! num.append_char(to_i8(self.advance()))
+            try! num.append(to_byte(self.advance()))
         }
         Token(kind: TokenKind.DollarParam, value: num.build(), line: start_line, col: start_col, suffix: None)
     }

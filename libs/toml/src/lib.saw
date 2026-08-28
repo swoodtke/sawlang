@@ -217,7 +217,7 @@ func parse_inline_table(key: String, raw: String) -> TomlTable {
         if frag.is_empty() {
             continue
         }
-        if let eq = frag.index_of_char(61 as Int8) {  // '='
+        if let eq = frag.index_of(61) {  // '='
             let subkey = frag.substring(0, eq).trim()
             let raw_sub = frag.substring(eq + 1, frag.len()).trim()
             var subval = raw_sub
@@ -272,7 +272,7 @@ extension TomlDoc {
             }
 
             // Key-value pair: key = "value" or key = value
-            if let eq_pos = trimmed.index_of_char(61 as Int8) {  // '=' is 61
+            if let eq_pos = trimmed.index_of(61) {  // '=' is 61
                 let key = trimmed.substring(0, eq_pos).trim()
                 let raw_value = trimmed.substring(eq_pos + 1, trimmed.len()).trim()
 

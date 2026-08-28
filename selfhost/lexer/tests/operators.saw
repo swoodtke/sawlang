@@ -59,14 +59,14 @@ func main() {
     // Braces: source built byte-wise (a bare `{` in a literal would be read as
     // interpolation). The LBRACE/RBRACE token values are bare braces.
     var bs = StringBuilder()
-    try! bs.append_char(123 as Int8)     // {
-    try! bs.append_char(125 as Int8)     // }
+    try! bs.append(Byte(123))     // {
+    try! bs.append(Byte(125))     // }
     let br = toks(bs.build())
     assert(kind(&br, 0) == TokenKind.LBrace, "lbrace")
     assert(kind(&br, 1) == TokenKind.RBrace, "rbrace")
     var lb_exp = StringBuilder()
     try! lb_exp.append("LBRACE\t1:1\t")
-    try! lb_exp.append_char(123 as Int8)
+    try! lb_exp.append(Byte(123))
     assert(at(&br, 0).equals(lb_exp.build()), "LBRACE value is a bare brace")
 
     // Shorthand closure parameters.

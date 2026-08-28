@@ -1,0 +1,68 @@
+// Design 250 §4: `StringBuilder.append` renders DIGITS for an integer and
+// writes a RAW BYTE for a `Byte`, and which one a call reaches is decided by the
+// argument's type alone. This is the grid — the overload set design 244 §4 had
+// to reject on four grounds, made sound by the fact that no integer or literal
+// becomes a `Byte` implicitly.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// literal      65
+// string       txt
+// int var      65
+// uint var     65
+// byte ctor    A
+// byte value   h
+// byte digits  104
+// scalar       é
+// fixed        65A
+
+import std.fixedbuf.{FixedStringBuilder}
+
+func main() {
+    // A bare literal is an Int: DIGITS.
+    var a = StringBuilder()
+    try! a.append(65)
+    print("literal      {}", a.build())
+
+    var b = StringBuilder()
+    try! b.append("txt")
+    print("string       {}", b.build())
+
+    // A computed Int is still digits — there is no silent flip to a raw byte.
+    let n = 65
+    var c = StringBuilder()
+    try! c.append(n)
+    print("int var      {}", c.build())
+
+    let u: UInt = 65
+    var d = StringBuilder()
+    try! d.append(u)
+    print("uint var     {}", d.build())
+
+    // `Byte(...)` is the raw-byte spelling.
+    var e = StringBuilder()
+    try! e.append(Byte(65))
+    print("byte ctor    {}", e.build())
+
+    // …and so is any byte a byte-producing API hands back.
+    var f = StringBuilder()
+    try! f.append("hello".byte_at(0))
+    print("byte value   {}", f.build())
+
+    // Rendering a byte's DIGITS is spelled by widening on purpose. `as UInt8`
+    // does NOT work — a `UInt8` matches both the `Int` and the `UInt` overload
+    // and is ambiguous, which is true today with or without the byte overload.
+    var g = StringBuilder()
+    try! g.append("hello".byte_at(0) as Int)
+    print("byte digits  {}", g.build())
+
+    // `append_scalar` is the one that speaks characters: it UTF-8-encodes.
+    var h = StringBuilder()
+    let _ = try! h.append_scalar(233)
+    print("scalar       {}", h.build())
+
+    // The same family on the inline-storage builder.
+    var k = FixedStringBuilder<16>()
+    k.append(65)
+    k.append(Byte(65))
+    print("fixed        {}", k.as_string())
+}

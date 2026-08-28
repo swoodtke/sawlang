@@ -62,7 +62,7 @@ static EXEC_FAILED_CODE: Int32 = 127
 static PROC_READ_CHUNK: Int = 1024
 // `=`, the byte POSIX reserves to separate an environment variable's NAME from
 // its VALUE — so a name may not contain one.
-static EQUALS_BYTE: Int8 = 61
+static EQUALS_BYTE: Byte = 61
 
 // The spawn seam's redirection bit set (rt/ABI.md). `output()` asks for the
 // stdout pipe; `merge_stderr()` adds the second bit.

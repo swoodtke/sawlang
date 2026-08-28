@@ -2,6 +2,32 @@
 // This file is automatically included by the compiler.
 
 // =============================================================================
+// Byte — the type of a byte value (design 250)
+// =============================================================================
+
+/// One byte of data — the element type of every byte-valued surface in the
+/// language.
+///
+/// `Byte` is a distinct alias over `UInt8`, so it flows the way every distinct
+/// alias flows: a `Byte` reads as its `UInt8` wherever one is wanted —
+/// comparisons, masks, arithmetic, a `UInt8` parameter — and the way back in is
+/// `Byte(...)` or an API that produces bytes. That is the whole design: a byte
+/// arrives from `String.byte_at`, `Data.get`, a `FixedBuf` read or a wire
+/// decoder already knowing what it is, and an integer never becomes one by
+/// accident.
+///
+/// ```saw
+/// let b = "hi".byte_at(0)      // Byte
+/// if b >= 0x80 { }             // reads as UInt8, literal and all
+/// var d = Data()
+/// let _ = try d.push(b)        // a UInt8 parameter takes it
+/// ```
+///
+/// It lives here, in the built-in vocabulary, because every byte API in std
+/// names it — the same reason `Duration` is in the prelude.
+public type Byte = UInt8
+
+// =============================================================================
 // Resource Management Traits
 // =============================================================================
 

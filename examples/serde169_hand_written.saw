@@ -180,7 +180,7 @@ extension ByteDecoder: Decoder {
         var i = 0
         while i < (n as Int) {
             let byte = try self.next()
-            try! b.append_char(byte as Int8)
+            try! b.append(Byte(byte))
             i = i + 1
         }
         return b.build()

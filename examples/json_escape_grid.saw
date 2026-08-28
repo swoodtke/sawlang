@@ -78,9 +78,9 @@ func to_hex(n: Int) -> String {
     while i >= 0 {
         let d = digits[i]
         if d < 10 {
-            try! sb.append_char(Int8.from(truncating: 48 + d))
+            try! sb.append(Byte(UInt8.from(truncating: 48 + d)))
         } else {
-            try! sb.append_char(Int8.from(truncating: 97 + (d - 10)))
+            try! sb.append(Byte(UInt8.from(truncating: 97 + (d - 10))))
         }
         i = i - 1
     }

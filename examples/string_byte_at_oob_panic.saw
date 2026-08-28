@@ -1,6 +1,6 @@
 // Design 122 unit A: `String.byte_at` is bounds-checked. It used to read
 // arbitrary heap past the end of the buffer from a signature carrying nothing
-// unsafe (`"hello".byte_at(99)` returned a value that was not even in Int8's
+// unsafe (`"hello".byte_at(99)` returned a value that was not even in the byte
 // range). An out-of-range index now panics like every other indexing operation.
 // EXPECT: panic
 // EXPECT-PANIC-CONTAINS: String.byte_at: index out of range: 99 (len 5)

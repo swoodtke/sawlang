@@ -49,7 +49,7 @@ extension Path {
             return None
         }
 
-        if let last_sep = self.value.last_index_of_char(47 as Int8) {  // '/'
+        if let last_sep = self.value.last_index_of(47) {  // '/'
             if last_sep == 0 {
                 if len == 1 {
                     return None  // "/" has no parent
@@ -69,7 +69,7 @@ extension Path {
             return None
         }
 
-        if let last_sep = self.value.last_index_of_char(47 as Int8) {  // '/'
+        if let last_sep = self.value.last_index_of(47) {  // '/'
             if last_sep == len - 1 {
                 // Path ends with separator (directory path)
                 return None
@@ -83,7 +83,7 @@ extension Path {
     // Without the dot.
     public func ext(&self) -> String? {
         if let name = self.file_name() {
-            if let last_dot = name.last_index_of_char(46 as Int8) {  // '.'
+            if let last_dot = name.last_index_of(46) {  // '.'
                 if last_dot == 0 {
                     // Dot at start (hidden file like .gitignore)
                     return None
@@ -104,7 +104,7 @@ extension Path {
     // File name without extension.
     public func stem(&self) -> String? {
         if let name = self.file_name() {
-            if let last_dot = name.last_index_of_char(46 as Int8) {  // '.'
+            if let last_dot = name.last_index_of(46) {  // '.'
                 if last_dot == 0 {
                     return name
                 }
@@ -140,11 +140,11 @@ extension Path {
             return Path(value: self.value)
         }
 
-        if other.byte_at(0) == (47 as Int8) {  // '/'
+        if other.byte_at(0) == 47 {  // '/'
             return Path(value: other)
         }
 
-        let needs_sep = self.value.byte_at(self_len - 1) != (47 as Int8)
+        let needs_sep = self.value.byte_at(self_len - 1) != 47
 
         let new_len = self_len + other_len + (if needs_sep { 1 } else { 0 })
 
@@ -185,7 +185,7 @@ extension Path {
         if len == 0 {
             return false
         }
-        self.value.byte_at(0) == (47 as Int8)  // Starts with '/'
+        self.value.byte_at(0) == 47  // Starts with '/'
     }
 
     public func is_relative(&self) -> Bool {

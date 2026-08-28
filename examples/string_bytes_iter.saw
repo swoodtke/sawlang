@@ -1,6 +1,8 @@
-// String.bytes() iterator (brief 38 item 2): yields the raw bytes as Int8,
+// String.bytes() iterator (brief 38 item 2): yields the raw bytes as `Byte`,
 // matching byte_at's element type, usable directly in a `for` loop. Multibyte
-// content yields every underlying byte (not scalars).
+// content yields every underlying byte (not scalars). Design 250 made the
+// element `Byte` (unsigned); it used to be `Int8`, so `é`'s bytes read negative
+// and this test had to fold them back.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 65
@@ -20,8 +22,7 @@ func main() {
     var last = 0
     for b in "café".bytes() {
         count = count + 1
-        last = b as Int
-        if last < 0 { last = last + 256 }   // fold to unsigned
+        last = b as Int                     // already unsigned: no fold
     }
     print(count)   // 5 bytes
     print(last)    // last byte of é = 0xA9 = 169

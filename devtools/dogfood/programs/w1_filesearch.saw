@@ -32,7 +32,7 @@ func file_content(i: Int) -> String {
 func to_data(s: String) -> Data {
     var d = Data(capacity: s.len())
     for b in s.bytes() {
-        d.push(UInt8.from(truncating: b))
+        d.push(b)
     }
     d
 }

@@ -17,26 +17,26 @@ func dump0(s: String) -> String {
 // A source string literal `"<parts...>"` with a bare `{name}` interior.
 func interp_src() -> String {
     var sb = StringBuilder()
-    try! sb.append_char(34 as Int8)      // "
+    try! sb.append(Byte(34))      // "
     try! sb.append("hi ")
-    try! sb.append_char(123 as Int8)     // {
+    try! sb.append(Byte(123))     // {
     try! sb.append("name")
-    try! sb.append_char(125 as Int8)     // }
-    try! sb.append_char(34 as Int8)      // "
+    try! sb.append(Byte(125))     // }
+    try! sb.append(Byte(34))      // "
     sb.build()
 }
 
 func nested_src() -> String {
     var sb = StringBuilder()
-    try! sb.append_char(34 as Int8)      // "
-    try! sb.append_char(123 as Int8)     // {
+    try! sb.append(Byte(34))      // "
+    try! sb.append(Byte(123))     // {
     try! sb.append("a ")
-    try! sb.append_char(123 as Int8)     // {  (nested)
+    try! sb.append(Byte(123))     // {  (nested)
     try! sb.append("b")
-    try! sb.append_char(125 as Int8)     // }
+    try! sb.append(Byte(125))     // }
     try! sb.append(" c")
-    try! sb.append_char(125 as Int8)     // }
-    try! sb.append_char(34 as Int8)      // "
+    try! sb.append(Byte(125))     // }
+    try! sb.append(Byte(34))      // "
     sb.build()
 }
 
@@ -45,21 +45,21 @@ func main() {
     // build the full expected text: "hi {name}"
     var full = StringBuilder()
     try! full.append("INTERP_STRING\t1:1\thi ")
-    try! full.append_char(123 as Int8)
+    try! full.append(Byte(123))
     try! full.append("name")
-    try! full.append_char(125 as Int8)
+    try! full.append(Byte(125))
     assert(dump0(interp_src()).equals(full.build()), "interpolation keeps braces")
 
     // Nested braces are balanced and preserved.
     var nexp = StringBuilder()
     try! nexp.append("INTERP_STRING\t1:1\t")
-    try! nexp.append_char(123 as Int8)
+    try! nexp.append(Byte(123))
     try! nexp.append("a ")
-    try! nexp.append_char(123 as Int8)
+    try! nexp.append(Byte(123))
     try! nexp.append("b")
-    try! nexp.append_char(125 as Int8)
+    try! nexp.append(Byte(125))
     try! nexp.append(" c")
-    try! nexp.append_char(125 as Int8)
+    try! nexp.append(Byte(125))
     assert(dump0(nested_src()).equals(nexp.build()), "nested braces balanced")
 
     print("interpolation: ok")

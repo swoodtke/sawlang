@@ -24,6 +24,27 @@ extern "C" {
 }
 
 // =============================================================================
+// The write funnel (design 250 §3)
+// =============================================================================
+
+// A byte value as the C `char` with the same bit pattern.
+//
+// A `String`'s storage is `UnsafePointer<Int8>` — C's `char` — and a byte at or
+// above 0x80 has no `Int8` value, so a checked `as` would panic on the first
+// one. Keeping the low bits IS the operation, and design 170 named it.
+//
+// This is the ONE place a byte value meets the character storage; the read side
+// is `String.byte_at`. The parameter is `UInt8` rather than `Byte` because
+// arithmetic on a byte lands in `UInt8` (`c - 32` in `to_uppercase`), and a
+// `Byte` flows in unchanged.
+//
+// ENTRY POINTS: `_substring`, `to_uppercase`, `to_lowercase`, `replace`,
+// `fromBytes`, `Vector<String>.join`.
+func to_c_char(b: UInt8) -> Int8 {
+    Int8.from(truncating: b)
+}
+
+// =============================================================================
 // String Extension - Methods on String values
 // =============================================================================
 
@@ -37,19 +58,27 @@ extension String {
         self.len() == 0
     }
 
-    // Get the byte at a given index. BOUNDS-CHECKED: an index outside
-    // `0..<len()` panics, exactly like every other indexing operation in the
-    // language (design 122 unit A). The signature carries nothing unsafe, so
-    // the caller gets no signal that a bad index would read arbitrary heap —
-    // reading past the end from a safe method is never acceptable, and the
-    // check is one O(1) header read.
-    public func byte_at(&self, index: Int) unsafe -> Int8 {
+    /// The byte at `index`.
+    ///
+    /// BOUNDS-CHECKED: an index outside `0..<len()` panics, exactly like every
+    /// other indexing operation in the language (design 122 unit A). The
+    /// signature carries nothing unsafe, so the caller gets no signal that a bad
+    /// index would read arbitrary heap — reading past the end from a safe method
+    /// is never acceptable, and the check is one O(1) header read.
+    ///
+    /// THE READ FUNNEL (design 250 §3). The storage is C `char`, so a byte at or
+    /// above 0x80 arrives as a negative `Int8`; widening, masking and narrowing
+    /// recovers the value, and `Byte(...)` says what it is. Every byte the String
+    /// layer hands out comes through here — `bytes()`, `starts_with`, the UTF-8
+    /// decoder and `to_data` all read through this one accessor — so the sign
+    /// question is answered once and nowhere else.
+    public func byte_at(&self, index: Int) unsafe -> Byte {
         if index < 0 || index >= self.len() {
             panic("String.byte_at: index out of range: {} (len {})",
                   index, self.len())
         }
         let ptr = self as UnsafePointer<Int8>
-        ptr[index]
+        Byte(UInt8.from(truncating: ptr[index]))
     }
 
     public func starts_with(&self, prefix: String) -> Bool {
@@ -121,8 +150,8 @@ extension String {
     }
 
     // Space, tab, newline, carriage return.
-    func _is_whitespace(&self, b: Int8) -> Bool {
-        b == (32 as Int8) || b == (9 as Int8) || b == (10 as Int8) || b == (13 as Int8)
+    func _is_whitespace(&self, b: Byte) -> Bool {
+        b == 32 || b == 9 || b == 10 || b == 13
     }
 
     // Trim whitespace from the start of the string
@@ -183,7 +212,7 @@ extension String {
             let new_ptr = __saw_string_alloc(length)
             var i = 0
             while i < length {
-                new_ptr[i] = self.byte_at(start + i)
+                new_ptr[i] = to_c_char(self.byte_at(start + i))
                 i = i + 1
             }
             new_ptr[length] = 0 as Int8  // null terminate
@@ -206,10 +235,10 @@ extension String {
             while i < len {
                 let c = self.byte_at(i)
                 // 'a' = 97, 'z' = 122
-                if c >= (97 as Int8) && c <= (122 as Int8) {
-                    new_ptr[i] = c - (32 as Int8)
+                if c >= 97 && c <= 122 {
+                    new_ptr[i] = to_c_char(c - 32)
                 } else {
-                    new_ptr[i] = c
+                    new_ptr[i] = to_c_char(c)
                 }
                 i = i + 1
             }
@@ -229,10 +258,10 @@ extension String {
             while i < len {
                 let c = self.byte_at(i)
                 // 'A' = 65, 'Z' = 90
-                if c >= (65 as Int8) && c <= (90 as Int8) {
-                    new_ptr[i] = c + (32 as Int8)
+                if c >= 65 && c <= 90 {
+                    new_ptr[i] = to_c_char(c + 32)
                 } else {
-                    new_ptr[i] = c
+                    new_ptr[i] = to_c_char(c)
                 }
                 i = i + 1
             }
@@ -298,13 +327,13 @@ extension String {
                         // Copy replacement
                         var k = 0
                         while k < new_len {
-                            new_ptr[dst_i] = new.byte_at(k)
+                            new_ptr[dst_i] = to_c_char(new.byte_at(k))
                             dst_i = dst_i + 1
                             k = k + 1
                         }
                         src_i = src_i + old_len
                     } else {
-                        new_ptr[dst_i] = self.byte_at(src_i)
+                        new_ptr[dst_i] = to_c_char(self.byte_at(src_i))
                         dst_i = dst_i + 1
                         src_i = src_i + 1
                     }
@@ -348,18 +377,19 @@ extension String {
     }
 
     // Byte-lexicographic comparison (design 48): String's builtin Comparable
-    // conformance. Bytes are compared as UNSIGNED (0..255), so this is
-    // code-point order for ASCII / UTF-8 — a shorter string that is a prefix of
-    // a longer one is Less. `< <= > >=` on String lower to this. `other` stays
-    // by value on `equals`'s terms above (design 239).
+    // conformance. Bytes are UNSIGNED, so this is code-point order for ASCII /
+    // UTF-8 — a shorter string that is a prefix of a longer one is Less.
+    // `< <= > >=` on String lower to this. `other` stays by value on `equals`'s
+    // terms above (design 239). The `& 255` this used to carry was the signed
+    // era's fold and is gone with it (design 250).
     public func compare(&self, other: String) -> Ordering {
         let self_len = self.len()
         let other_len = other.len()
         let min_len = if self_len < other_len { self_len } else { other_len }
         var i = 0
         while i < min_len {
-            let a = (self.byte_at(i) as Int) & 255
-            let b = (other.byte_at(i) as Int) & 255
+            let a = self.byte_at(i) as Int
+            let b = other.byte_at(i) as Int
             if a < b { return Ordering.Less }
             if a > b { return Ordering.Greater }
             i = i + 1
@@ -377,7 +407,7 @@ extension String {
         let n = self.len()
         var i = 0
         while i < n {
-            let b = (self.byte_at(i) as Int) & 255
+            let b = self.byte_at(i) as Int
             h.write_int(b)
             i = i + 1
         }
@@ -405,13 +435,20 @@ extension String {
         self._substring(start, end - start)
     }
 
-    // Find the first occurrence of a character (byte)
-    // Returns None if not found
-    public func index_of_char(&self, c: Int8) -> Int? {
+    /// The offset of the first byte equal to `b`, or `None`.
+    ///
+    /// The needle is a `UInt8` rather than a `Byte` so `index_of(47)` — a
+    /// literal separator — stays writable (design 250 §5 Q4's sink rule: a
+    /// single-semantics byte parameter takes a `Byte`, a `UInt8` and a literal
+    /// alike). It was `index_of_char(c: Int8)` before design 250: the name said
+    /// "character" for a byte, which is wrong the moment a scalar exceeds one
+    /// byte, and the type said signed. This is the overload set a String-needle
+    /// search joins later.
+    public func index_of(&self, b: UInt8) -> Int? {
         let len = self.len()
         var i = 0
         while i < len {
-            if self.byte_at(i) == c {
+            if self.byte_at(i) == b {
                 return i
             }
             i = i + 1
@@ -419,13 +456,13 @@ extension String {
         None
     }
 
-    // Find the last occurrence of a character (byte)
-    // Returns None if not found
-    public func last_index_of_char(&self, c: Int8) -> Int? {
+    /// The offset of the last byte equal to `b`, or `None`. The backward twin
+    /// of `index_of`, with the same needle rule.
+    public func last_index_of(&self, b: UInt8) -> Int? {
         let len = self.len()
         var i = len - 1
         while i >= 0 {
-            if self.byte_at(i) == c {
+            if self.byte_at(i) == b {
                 return i
             }
             i = i - 1
@@ -481,15 +518,15 @@ extension String {
 
     // Convert String bytes to Data.
     //
-    // `byte_at` yields `Int8`, so every byte of a non-ASCII scalar arrives
-    // negative; the `UInt8` these become is the SAME BIT PATTERN, not a
-    // converted value, which is why the reinterpret is spelled out (design
-    // 170 — a checked `as` would panic on the first byte >= 0x80).
+    // One byte type on both sides since design 250: `byte_at` hands out a
+    // `Byte` and `Data.push` takes it. This used to spell a reinterpret here,
+    // because `byte_at` yielded a signed `Int8` and every byte of a non-ASCII
+    // scalar arrived negative.
     public func to_data(&self) -> Result<Data, AllocError> {
         var data = Data()
         var i = 0
         while i < self.len() {
-            let _ = try data.push(UInt8.from(truncating: self.byte_at(i)))
+            let _ = try data.push(self.byte_at(i))
             i = i + 1
         }
         return move data
@@ -764,13 +801,15 @@ extension String {
     // UTF-8 decoding / validation (brief 38 items 1 & 2)
     // =========================================================================
     //
-    // `byte_at` returns an Int8 (signed); a byte >= 0x80 sign-extends to a
-    // negative Int. This helper folds that back into the unsigned 0..255 range
-    // so the decoder can compare against UTF-8 byte-class boundaries. (Saw has
-    // no bitwise operators, so the unsigned fold is arithmetic, not a mask.)
+    // The byte at `i` WIDENED to an Int, which is the width the decoder and the
+    // number parsers work in: scalar assembly multiplies by 4096 and 262144, and
+    // `b0 - 224` would not fit a byte.
+    //
+    // It used to fold a NEGATIVE `Int8` back into 0..255 as well — the sign
+    // correction design 250 deleted. Only the widening is left, and the name
+    // still says what it hands back: the unsigned byte value.
     func _ubyte_at(&self, i: Int) -> Int {
-        let raw = self.byte_at(i) as Int
-        if raw < 0 { raw + 256 } else { raw }
+        self.byte_at(i) as Int
     }
 
     // Decode ONE UTF-8 scalar starting at byte offset `i` (with `len` the total
@@ -877,7 +916,7 @@ extension String {
                 // accept arbitrary bytes and validate them afterwards, so a
                 // lead or continuation byte >= 0x80 must reach the validator
                 // rather than trapping on the way in (design 170).
-                ptr[i] = Int8.from(truncating: b)
+                ptr[i] = to_c_char(b)
             }
             i = i + 1
         }
@@ -900,7 +939,7 @@ extension String {
     // Iterators (brief 38 item 2)
     // =========================================================================
 
-    // Iterate the raw bytes. Element type is Int8, matching `byte_at`. The
+    // Iterate the raw bytes. Element type is `Byte`, matching `byte_at`. The
     // iterator holds its OWN retain on the String (the `s` field is an
     // Copy capture), so `for b in makeString().bytes()` keeps the bytes
     // alive for the whole loop even though the temporary receiver is gone.
@@ -984,7 +1023,7 @@ extension Vector<String> {
                 if idx > 0 {
                     var k = 0
                     while k < sep_len {
-                        buf[pos] = separator.byte_at(k)
+                        buf[pos] = to_c_char(separator.byte_at(k))
                         pos = pos + 1
                         k = k + 1
                     }
@@ -995,7 +1034,7 @@ extension Vector<String> {
                     let s_len = s.len()
                     var j = 0
                     while j < s_len {
-                        buf[pos] = s.byte_at(j)
+                        buf[pos] = to_c_char(s.byte_at(j))
                         pos = pos + 1
                         j = j + 1
                     }
@@ -1054,9 +1093,9 @@ public struct StringBytes {
 }
 
 extension StringBytes: Iterator {
-    type Item = Int8
+    type Item = Byte
 
-    public func next(&var self) -> Int8? {
+    public func next(&var self) -> Byte? {
         if self.index < self.length {
             let b = self.s.byte_at(self.index)
             self.index = self.index + 1

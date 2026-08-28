@@ -151,7 +151,7 @@ func check_bytes_item() {
     var j = 0
     while j < 2 {
         match dec.read_byte() {
-            case Ok(b) -> try! text.append_char(Int8.from(truncating: b)),
+            case Ok(b) -> try! text.append(Byte(UInt8.from(truncating: b))),
             case Err(e) -> {
                 print("read_byte failed: {}", e)
                 return

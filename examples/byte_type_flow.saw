@@ -1,0 +1,66 @@
+// Design 250: `Byte` is a prelude distinct alias over `UInt8`, and the flow is
+// one-way. This pins the cells the design rests on — a `Byte` reads as its
+// `UInt8` everywhere an integer is wanted, so decoder math pays no tax, while
+// the way IN is `Byte(...)` or a byte-producing API.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// cmp ok
+// mask 1
+// degrade 65
+// sink 65
+// sink 7
+// widen 200
+// print 200
+// from string 104
+// iterated 5 bytes, last 169
+// needle at 1
+// last needle at 3
+
+// No import: `Byte` is prelude vocabulary, like `Vector` or `Duration`.
+func sink(u: UInt8) -> Int {
+    u as Int
+}
+
+func main() {
+    let b = Byte(65)
+
+    // Comparisons and masks: the literal adopts on the UNDERLYING side, so a
+    // byte compares against a plain number with nothing written.
+    if b < 100 {
+        print("cmp ok")
+    }
+    let m: UInt8 = b & 0x1F
+    print("mask {}", m)
+
+    // Outward flow at an annotation and at a call.
+    let u: UInt8 = b
+    print("degrade {}", u)
+    print("sink {}", sink(b))
+    print("sink {}", sink(7))
+
+    // A byte at or above 0x80 is a plain 200, not a negative number.
+    let high = Byte(200)
+    print("widen {}", high as Int)
+    print("print {}", high)
+
+    // Byte-producing APIs hand one back already typed.
+    print("from string {}", "hello".byte_at(0) as Int)
+
+    var count = 0
+    var last = 0
+    for e in "café".bytes() {
+        count = count + 1
+        last = e as Int
+    }
+    print("iterated {} bytes, last {}", count, last)
+
+    // The byte needles: a literal is legal, because the parameter is the
+    // underlying `UInt8` (design 250 §5 Q4's sink rule) and nothing named
+    // `index_of` renders digits.
+    if let at = "a/b/c".index_of(47) {
+        print("needle at {}", at)
+    }
+    if let at = "a/b/c".last_index_of(47) {
+        print("last needle at {}", at)
+    }
+}

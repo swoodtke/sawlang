@@ -741,7 +741,7 @@ grows the section one landed row at a time and can never show what is missing.
 | A07 | a refused `Set.insert` reports; the set is untouched | `alloc_map_set_reports_oom.saw` | 234 §1 — `Set` rides `Map`'s path, so one file checks both and shows they agree |
 | A08 | a refused `Data.push` / `Data.append` reports; the bytes already in it are unchanged | `alloc_data_reports_oom.saw` | 234 §1 |
 | A09 | a refused `Data(capacity:)` reports as a value | `alloc_data_reports_oom.saw` | 234 §1 + DF-245a |
-| A10 | a refused `StringBuilder.append` / `append_char` reports; the builder is unchanged | `alloc_stringbuilder_reports_oom.saw` | 234 §1 |
+| A10 | a refused `StringBuilder.append(String)` / `append(Byte)` reports; the builder is unchanged | `alloc_stringbuilder_reports_oom.saw` | 234 §1 (`append_char` became the `Byte` overload of `append` in 250 §4) |
 | A11 | a refused `Box.make` / `Arc(value:)` reports, and the payload handed to it is destroyed exactly once | `box_make_reports_oom.saw` (`Arc` in `alloc_channel_taskgroup_reports_oom.saw`) | 234 §1 — the refusal path owns a value it never stored, so "reports" and "does not leak" are one guarantee here |
 | A12 | a refused `Channel()` / `TaskGroup(threads:)` reports as a value | `alloc_channel_taskgroup_reports_oom.saw` | 234 §1 + DF-245a |
 | A13 | the alloc `try_` twins are GONE: `try_push` names no method, and `try_` means non-blocking and nothing else | `errors/alloc_try_twins_are_retired.saw` | 234 §4 — the prefix carried two unrelated meanings; a retirement nothing checks is a retirement that grows back |

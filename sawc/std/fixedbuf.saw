@@ -133,10 +133,14 @@ extension FixedStringBuilder<N> {
         try! self.builder.append(value)
     }
 
-    /// Appends one byte.
-    public func append_char(&var self, c: Int8) unsafe {
+    /// Appends one raw byte.
+    ///
+    /// The `Byte` parameter is the discrimination against the `Int`/`UInt`
+    /// siblings above, which render digits: `append(65)` writes `65` and
+    /// `append(Byte(65))` writes `A` (design 250 §4). This was `append_char`.
+    public func append(&var self, b: Byte) unsafe {
         self._aim()
-        try! self.builder.append_char(c)
+        try! self.builder.append(b)
     }
 
     /// The number of bytes written so far.

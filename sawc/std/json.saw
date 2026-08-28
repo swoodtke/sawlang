@@ -209,8 +209,13 @@ extension JsonEncoder {
 
     // ---- internals ----------------------------------------------------
 
-    func raw_char(&var self, c: Int8) sync -> Result<Void, EncodeError> {
-        __json_encoded(self.out.append_char(c))
+    // One raw byte of output. The parameter is `UInt8` rather than `Byte`
+    // because every caller here passes a punctuation LITERAL and this name has
+    // no digits sibling to be confused with — design 250 §5 Q4's sink rule. A
+    // `Byte` flows in unchanged, which is what the string copier at
+    // `write_json_string` relies on.
+    func raw_byte(&var self, b: UInt8) sync -> Result<Void, EncodeError> {
+        __json_encoded(self.out.append(Byte(b)))
     }
 
     func raw(&var self, s: String) sync -> Result<Void, EncodeError> {
@@ -233,9 +238,9 @@ extension JsonEncoder {
         }
         if self.levels[last].wrote_any {
             if is_map && not at_key {
-                try self.raw_char(58 as Int8)   // ':'
+                try self.raw_byte(58)   // ':'
             } else {
-                try self.raw_char(44 as Int8)   // ','
+                try self.raw_byte(44)   // ','
             }
         }
         self.levels[last].wrote_any = true
@@ -256,9 +261,9 @@ extension JsonEncoder {
             let is_map = self.levels[last].is_map
             let _ = self.levels.pop()
             if is_map {
-                try self.raw_char(125 as Int8)   // '}'
+                try self.raw_byte(125)   // '}'
             } else {
-                try self.raw_char(93 as Int8)    // ']'
+                try self.raw_byte(93)    // ']'
             }
         }
         return
@@ -270,15 +275,15 @@ extension JsonEncoder {
         }
         try self.before_item(false)
         if is_map {
-            try self.raw_char(123 as Int8)   // '{'
+            try self.raw_byte(123)   // '{'
         } else {
-            try self.raw_char(91 as Int8)    // '['
+            try self.raw_byte(91)    // '['
         }
         if count == 0 {
             if is_map {
-                try self.raw_char(125 as Int8)
+                try self.raw_byte(125)
             } else {
-                try self.raw_char(93 as Int8)
+                try self.raw_byte(93)
             }
             return self.charge_and_close()
         }
@@ -296,12 +301,15 @@ extension JsonEncoder {
     // as-is — `s` is a Saw `String`, always valid UTF-8, so a multi-byte
     // scalar's bytes travel unexamined and stay valid UTF-8 on the way out.
     func write_json_string(&var self, s: String) sync -> Result<Void, EncodeError> {
-        try self.raw_char(BYTE_QUOTE as Int8)
+        try self.raw_byte(BYTE_QUOTE as UInt8)
         var i = 0
         let n = s.len()
         while i < n {
             let b = s.byte_at(i)
-            let u = if b < 0 { (b as Int) + 256 } else { b as Int }
+            // The `BYTE_*` table is written at `Int` width, so the byte widens
+            // to meet it. This used to fold a negative `Int8` back into 0..255
+            // as well — the sign correction design 250 deleted.
+            let u = b as Int
             if u == BYTE_QUOTE {
                 try self.raw("\\\"")
             } else if u == BYTE_BACKSLASH {
@@ -319,11 +327,11 @@ extension JsonEncoder {
             } else if u < 32 {
                 try self.write_u_escape(u)
             } else {
-                try self.raw_char(b)
+                try self.raw_byte(b)
             }
             i = i + 1
         }
-        try self.raw_char(BYTE_QUOTE as Int8)
+        try self.raw_byte(BYTE_QUOTE as UInt8)
         return
     }
 
@@ -331,16 +339,16 @@ extension JsonEncoder {
         try self.raw("\\u00")
         let hi = u / 16
         let lo = u % 16
-        try self.raw_char(self._hex_digit(hi))
-        try self.raw_char(self._hex_digit(lo))
+        try self.raw_byte(self._hex_digit(hi))
+        try self.raw_byte(self._hex_digit(lo))
         return
     }
 
-    func _hex_digit(&self, d: Int) -> Int8 {
+    func _hex_digit(&self, d: Int) -> UInt8 {
         if d < 10 {
-            Int8.from(truncating: 48 + d)
+            UInt8.from(truncating: 48 + d)
         } else {
-            Int8.from(truncating: 65 + (d - 10))
+            UInt8.from(truncating: 65 + (d - 10))
         }
     }
 }
@@ -465,9 +473,11 @@ extension JsonDecoder {
 
     // ---- byte-level plumbing -------------------------------------------
 
+    // The byte at `i`, WIDENED to the `Int` the `BYTE_*` table is written at.
+    // It used to fold a negative `Int8` back into 0..255 as well — the sign
+    // correction design 250 deleted.
     func _ubyte_at(&self, i: Int) -> Int {
-        let raw = self.input.byte_at(i) as Int
-        if raw < 0 { raw + 256 } else { raw }
+        self.input.byte_at(i) as Int
     }
 
     func peek(&self) -> Int? {
@@ -828,28 +838,28 @@ extension JsonDecoder {
                     return DecodeError(offset: esc_at, fault: DecodeFault.Truncated)
                 }
                 if e == BYTE_QUOTE {
-                    let _ = try __json_encoded_local(out.append_char(34 as Int8), esc_at)
+                    let _ = try __json_encoded_local(out.append(Byte(34)), esc_at)
                     self.pos = self.pos + 1
                 } else if e == BYTE_BACKSLASH {
-                    let _ = try __json_encoded_local(out.append_char(92 as Int8), esc_at)
+                    let _ = try __json_encoded_local(out.append(Byte(92)), esc_at)
                     self.pos = self.pos + 1
                 } else if e == BYTE_SLASH {
-                    let _ = try __json_encoded_local(out.append_char(47 as Int8), esc_at)
+                    let _ = try __json_encoded_local(out.append(Byte(47)), esc_at)
                     self.pos = self.pos + 1
                 } else if e == 98 {   // 'b'
-                    let _ = try __json_encoded_local(out.append_char(8 as Int8), esc_at)
+                    let _ = try __json_encoded_local(out.append(Byte(8)), esc_at)
                     self.pos = self.pos + 1
                 } else if e == 102 {  // 'f'
-                    let _ = try __json_encoded_local(out.append_char(12 as Int8), esc_at)
+                    let _ = try __json_encoded_local(out.append(Byte(12)), esc_at)
                     self.pos = self.pos + 1
                 } else if e == 110 {  // 'n'
-                    let _ = try __json_encoded_local(out.append_char(10 as Int8), esc_at)
+                    let _ = try __json_encoded_local(out.append(Byte(10)), esc_at)
                     self.pos = self.pos + 1
                 } else if e == 114 {  // 'r'
-                    let _ = try __json_encoded_local(out.append_char(13 as Int8), esc_at)
+                    let _ = try __json_encoded_local(out.append(Byte(13)), esc_at)
                     self.pos = self.pos + 1
                 } else if e == 116 {  // 't'
-                    let _ = try __json_encoded_local(out.append_char(9 as Int8), esc_at)
+                    let _ = try __json_encoded_local(out.append(Byte(9)), esc_at)
                     self.pos = self.pos + 1
                 } else if e == BYTE_U {
                     self.pos = self.pos + 1
@@ -883,7 +893,7 @@ extension JsonDecoder {
                     return DecodeError(offset: esc_at, fault: DecodeFault.Malformed)
                 }
             } else {
-                let _ = try __json_encoded_local(out.append_char(self.input.byte_at(self.pos)), self.pos)
+                let _ = try __json_encoded_local(out.append(self.input.byte_at(self.pos)), self.pos)
                 self.pos = self.pos + 1
             }
         }
