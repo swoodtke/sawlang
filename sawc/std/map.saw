@@ -19,7 +19,11 @@
 // The old Vector-backed linear-scan Map is RETIRED (design 54): this hash table
 // is now the one `Map`. Iteration order is UNSPECIFIED (table order); sort a
 // `keys()` snapshot for deterministic output. Keys require `Hashable +
-// Equatable`; Map is NoCopy (transfer with `move`, no implicit `.copy()`).
+// Equatable`; Map is ExplicitCopy when `K` and `V` both are (design 251) —
+// transfer with `move`, duplicate with a spelled `.copy()`/`try_copy()`. A
+// `Map<K, V>` whose key or value cannot be duplicated at all stays
+// implicitly move-only, since the copy conformance simply does not
+// instantiate for it.
 
 // Slot state for open addressing. `Occupied` binds the key and value.
 enum MapSlot<K, V> {
@@ -511,16 +515,130 @@ extension Map<K: Hashable + Equatable, V: Copy, A: Allocator = GlobalAllocator> 
     }
 }
 
-// Map owns a Vector (Deinit), so it must declare a copy policy. It is
-// NoCopy (move-only): a hash table is not implicitly duplicated, and there is
-// no `.copy()` — transfer it with `move`. (The retired Vector-backed Map was
-// ExplicitCopy; the hash Map keeps things simple as move-only for now — an
-// ExplicitCopy conformance is future work if a consumer demands it.) Deinit is
-// registered first so the `NoCopy: Deinit` supertrait is satisfied; the empty
-// deinit body suffices because the compiler appends the field cleanup — the
-// slots Vector's own deinit drops every occupied slot's key/value and frees the
-// buffer.
-extension Map<K, V, A: Allocator = GlobalAllocator>: NoCopy {
+// Deinit applies to EVERY key/value type, not just ExplicitCopy ones:
+// destroying a Map must release each live key and value (drop glue) before
+// freeing the backing slots vector, otherwise an owning key or value leaks.
+// This conformance is deliberately unbounded (`<K, V>`, no `: ExplicitCopy`)
+// so it is instantiated even for a non-ExplicitCopy value type like
+// `Map<String, File>` — which has no `copy()` but still owns entries that
+// must be destroyed.
+//
+// design 131 (mirroring vector.saw's placement, design 251): Map's copy
+// POLICY is the bounded `ExplicitCopy` below, but its destruction is
+// unconditional. So the `deinit` body lives on the plain unconditional
+// extension rather than inside a conformance: `Deinit` is not declarable on
+// its own, and the bounded conformance is the wrong home for a requirement
+// that holds for every `K, V`.
+// The empty body suffices — the compiler appends the field cleanup, and the
+// slots Vector's own deinit drops every occupied slot's key/value and frees
+// the buffer.
+extension Map<K, V, A: Allocator = GlobalAllocator> {
     public func deinit(&var self) {
+    }
+}
+
+// Map is ExplicitCopy (design 251 — it used to be a blanket NoCopy, before
+// the container tier machinery Vector already uses existed): never
+// implicitly duplicated (a bitwise copy of the slots buffer would
+// double-free); transferring a Map requires `move`, and duplicating it is
+// always a visible `.copy()`, which builds a NEW table with each key and
+// value copied at its own tier. Iteration order and capacity are not part of
+// the contract.
+//
+// The bounds `<K: Hashable + Equatable + ExplicitCopy, V: ExplicitCopy>` are
+// what the body needs (design 219, judgment site 2, same reasoning as
+// Vector's own conformance below): `copy()` spells `k.copy()`/`v.copy()` and
+// re-inserts through `insert`, which itself demands `K: Hashable +
+// Equatable` — so both key and value must be duplicable, silently or with
+// ceremony, either is fine here because the ceremony is written. This is
+// also what keeps `Map<String, Int>.copy()` (both members silently Copy) and
+// `Map<String, Vector<Int>>.copy()` (a nested ExplicitCopy value) working:
+// every Copy-tier type satisfies `ExplicitCopy` too, so one bounded body
+// serves both.
+// A key or value that cannot be duplicated at all (`Map<String, File>`)
+// makes `.copy()` a compile error naming the type at monomorphization.
+// (The `deinit` body is on the unconditional extension above, so it covers
+// every `K, V`; the `ExplicitCopy: Deinit` requirement is satisfied by that
+// method.)
+extension Map<K: Hashable + Equatable + ExplicitCopy, V: ExplicitCopy, A: Allocator = GlobalAllocator>: ExplicitCopy {
+    // `self.slots[idx]` is a place whose payload's copy tier depends on `K`/
+    // `V` (design 146): a `match` arm that binds `k`/`v` and just USES them
+    // (`case Occupied(k, v) -> k.copy()`) is a VALUE READ of the binding, not
+    // a borrow, and is refused for an ExplicitCopy-tier `K`/`V` — the fix
+    // (design 146 DF-146d) is the same one `[]`/`get` above already use:
+    // `lend` the payload binding so the caller's `!` chains a borrow method
+    // call (`.copy()`) directly off the place instead of reading it out.
+    // These two are the INDEX-keyed twins of `[]`/`get`'s KEY-keyed lend.
+    func _key_ref(&self, idx: Int) borrows -> K? {
+        match self.slots[idx] {
+            case Occupied(k, _) -> { lend k },
+            case Empty -> { return None },
+            case Tombstone -> { return None }
+        }
+    }
+
+    func _value_ref(&self, idx: Int) borrows -> V? {
+        match self.slots[idx] {
+            case Occupied(_, v) -> { lend v },
+            case Empty -> { return None },
+            case Tombstone -> { return None }
+        }
+    }
+
+    // Regression guard, mirroring Vector's own (design 123, infallible
+    // tier): this must never silently come back missing entries.
+    //
+    // THE ONE PLACE DESIGN 234 LEAVES A PANIC IN A NAMED OPERATION (§5,
+    // conformance row A18, sibling of Vector's A17): `copy` is the
+    // `ExplicitCopy` HOOK, so its signature is the trait's and the compiler
+    // emits calls to it — a `Result` return would have to change the trait,
+    // and design 219's contract says the hook is infallible. The panic
+    // therefore stays, spelled by hand so it still NAMES the method rather
+    // than reading `try! failed` out of a std file the caller never opened.
+    // `try_copy` is the reporting spelling; DF-257b records that its prefix
+    // is the one §4 could not retire (unresolved by this brief — the naming
+    // is mirrored, not re-litigated).
+    /// Duplicates the map into a new table, copying each live key and value
+    /// at its own tier. Panics if the allocator refuses; `try_copy` reports
+    /// the failure instead. Iteration order and capacity are not part of the
+    /// contract — only the live entries are.
+    public func copy(&self) -> Map<K, V, A> {
+        var result = Map<K, V, A>()
+        var i = 0
+        while i < self.cap {
+            if self._slot_state(i) == 1 {
+                let k2 = self._key_ref(i)!.copy()
+                let v2 = self._value_ref(i)!.copy()
+                match result.insert(move k2, move v2) {
+                    case Ok(_) -> {},
+                    case Err(e) -> panic("Map.copy: {}", e)
+                }
+            }
+            i = i + 1
+        }
+        move result
+    }
+}
+
+// `try_copy` carries `copy`'s bound for `copy`'s reason: it spells the same
+// per-key/value `.copy()`, through the same `_key_ref`/`_value_ref` lends.
+extension Map<K: Hashable + Equatable + ExplicitCopy, V: ExplicitCopy, A: Allocator = GlobalAllocator> {
+    /// Duplicates the map, returning `Err(AllocError)` if the allocator
+    /// refuses while rehashing the new table.
+    public func try_copy(&self) -> Result<Map<K, V, A>, AllocError> {
+        var result = Map<K, V, A>()
+        var i = 0
+        while i < self.cap {
+            if self._slot_state(i) == 1 {
+                let k2 = self._key_ref(i)!.copy()
+                let v2 = self._value_ref(i)!.copy()
+                match result.insert(move k2, move v2) {
+                    case Ok(_) -> {},
+                    case Err(e) -> { return e }
+                }
+            }
+            i = i + 1
+        }
+        return move result
     }
 }

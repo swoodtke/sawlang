@@ -1,0 +1,24 @@
+// Map.copy() is a deep copy (design 251): the copy has its own table, so
+// mutating it leaves the original untouched. Mirrors vector_copy.saw.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10
+// 99
+// 20
+// 2
+// 2
+
+func main() {
+    var m = Map<String, Int>()
+    try! m.insert("a", 10)
+    try! m.insert("b", 20)
+
+    var w = m.copy()                  // deep copy - independent table
+    let _ = try! w.insert("a", 99)    // mutate the copy only
+
+    if let a = m.get("a") { print(a) }   // 10 - original unaffected
+    if let b = w.get("a") { print(b) }   // 99 - copy mutated
+    if let c = m.get("b") { print(c) }   // 20
+    print(m.len())                       // 2
+    print(w.len())                       // 2
+}

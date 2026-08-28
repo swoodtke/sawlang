@@ -1,0 +1,30 @@
+// Map<K, V>.copy() works when V is a NESTED ExplicitCopy container, not just
+// a silently-Copy scalar — the `Map<String, Vector<Int>>.copy()` precedent
+// design 251 names, restating what `Vector<Vector<Int>>.copy()` already
+// proves for Vector's own conformance. Each value copies at its OWN tier
+// (deep, its own buffer), so mutating the clone's inner vector never reaches
+// the original's.
+//
+// Every read/write below chains directly off the place (`m["nums"]!...`)
+// rather than binding through `if let` — an `if let` binding is a VALUE READ
+// of the payload (design 131), which an ExplicitCopy `Vector<Int>` refuses
+// without a spelled `.copy()`/`move`; chaining a method straight off the
+// place keeps it a borrow.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3
+// 4
+// 3
+
+func main() {
+    var m = Map<String, Vector<Int>>()
+    var v: Vector<Int> = [1, 2, 3]
+    try! m.insert("nums", move v)
+
+    var clone = m.copy()
+    try! clone["nums"]!.push(4)   // mutate the clone's inner vector only
+
+    print(m["nums"]!.len())       // 3 - original's inner vector unaffected
+    print(clone["nums"]!.len())   // 4 - clone's inner vector grew
+    print(m["nums"]!.len())       // 3 - re-read, still unaffected
+}

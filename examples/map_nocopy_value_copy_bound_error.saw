@@ -1,0 +1,13 @@
+// Design 251: `copy` lives in `extension Map<K: ..., V: ExplicitCopy>`, so a
+// value that cannot be duplicated at all makes the method simply not exist —
+// mirrors vector_file_copy_bound_error.saw's Vector<File> case.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: has no method `copy`: requires `V: ExplicitCopy`, and `File` does not conform
+
+import std.file.*
+
+func main() {
+    var m = Map<String, File>()
+    let w = m.copy()
+    print(1)
+}
