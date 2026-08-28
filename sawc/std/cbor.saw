@@ -76,27 +76,27 @@ static BYTE_MASK: UInt = 255
 // site, and a std-module static is not visible there (DF-169i). They are 64
 // levels of nesting, 16 MiB of input, and 100000 items.
 
-// UTF-8 lead and continuation boundaries, from RFC 3629's table.
+// UTF-8 lead and continuation boundaries, from RFC 3629's table. These are byte
+// VALUES, so they are `Byte` (design 250's census row), like the `byte_at`
+// accessor `utf8_width` compares them against. A `static` adopts a bare literal
+// at a `Byte` slot, which is why none of them carries a suffix.
 //
-// These are byte VALUES and design 250 would have them be `Byte`, along with
-// the `byte_at` accessor they are compared against. That row is HELD: an
-// ORDERED comparison whose left operand is a distinct alias over an unsigned
-// underlying is lowered SIGNED today (DF-270d), so `b0 <= UTF8_ASCII_MAX` would
-// answer true for every byte at or above 0x80 and this validator would accept
-// the malformed input it exists to reject. `compare_in`, the canonical map-key
-// ordering, sits on the same edge. Both flip when DF-270d lands;
-// `examples/unsigned_ordered_comparison.saw` is the pin.
-static UTF8_ASCII_MAX: UInt8 = 127u8
-static UTF8_LEAD_MIN: UInt8 = 194u8
-static UTF8_LEAD_3: UInt8 = 224u8
-static UTF8_LEAD_4: UInt8 = 240u8
-static UTF8_LEAD_MAX: UInt8 = 245u8
-static UTF8_CONT_MIN: UInt8 = 128u8
-static UTF8_CONT_MAX: UInt8 = 191u8
-static UTF8_E0_MIN: UInt8 = 160u8
-static UTF8_ED_MAX: UInt8 = 159u8
-static UTF8_F0_MIN: UInt8 = 144u8
-static UTF8_F4_MAX: UInt8 = 143u8
+// Every one of these comparisons is ORDERED, which is what held this row until
+// design 252: an ordered comparison over a distinct alias with an unsigned
+// underlying used to lower SIGNED, so `b0 <= UTF8_ASCII_MAX` answered true for
+// every byte at or above 0x80 and this validator accepted the malformed input
+// it exists to reject.
+static UTF8_ASCII_MAX: Byte = 127
+static UTF8_LEAD_MIN: Byte = 194
+static UTF8_LEAD_3: Byte = 224
+static UTF8_LEAD_4: Byte = 240
+static UTF8_LEAD_MAX: Byte = 245
+static UTF8_CONT_MIN: Byte = 128
+static UTF8_CONT_MAX: Byte = 191
+static UTF8_E0_MIN: Byte = 160
+static UTF8_ED_MAX: Byte = 159
+static UTF8_F0_MIN: Byte = 144
+static UTF8_F4_MAX: Byte = 143
 
 // =============================================================================
 // Encoder
@@ -715,15 +715,12 @@ extension CborDecoder {
     }
 
     // One byte of the input, for a position the caller has already bounded.
-    //
-    // `-> UInt8` rather than design 250's `Byte`: its two callers ORDER the
-    // bytes they read (`utf8_width`'s class boundaries, `compare_in`'s
-    // canonical key ordering), and an ordered comparison on an alias over an
-    // unsigned underlying is lowered signed today — DF-270d, pinned by
-    // `examples/unsigned_ordered_comparison.saw`. The `Byte?` `Data.get` hands
-    // back flows out into this `UInt8` unchanged.
-    func byte_at(&self, i: Int) sync -> UInt8 {
-        self.input.get(i) ?? 0u8
+    // `Byte`, like every other byte-valued read in std (design 250's census
+    // row); both callers ORDER what they read — `utf8_width`'s class
+    // boundaries and `compare_in`'s canonical key ordering — which is exactly
+    // what design 252 made answer unsigned.
+    func byte_at(&self, i: Int) sync -> Byte {
+        self.input.get(i) ?? Byte(0)
     }
 
     // The length in bytes of the UTF-8 sequence starting at `i`, or 0 if the
