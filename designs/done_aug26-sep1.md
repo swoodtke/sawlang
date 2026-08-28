@@ -136,3 +136,65 @@ history.
   name_encode.saw`. Ten new examples cover the matrix: qualified twins,
   bare-import merge, selective-of-one, the call-site tie naming both origins,
   DF-242b's two bare forms, and four design-150 ladder rungs.
+
+## Queue + backlog records (moved Aug 28, second rotation)
+
+- ~~Design 252 — the DF-270d fix~~ **LANDED Aug 28** (designs/252-unsigned-comparison.md; three commits, per-commit suite+freestanding gates, terminal battery green). Unsigned ordered comparisons lower unsigned at both faces, design 250's two held cbor rows are back, and the pin flipped. See the DF-270d entry below for the mechanism and the sweep. Agent DF range DF-275a+ — nothing filed by the branch itself; ONE unrelated candidate reported for the lead to file (a distinct alias over a primitive satisfies a `Comparable` bound through a std extension's receiver type argument but NOT through a free generic function's own bound, and the fixit the refusal offers is then rejected by the orphan rule as `std.builtin`'s to write — repro in the landing report)
+- ~~Design 253 — the Float↔text story~~ **LANDED Aug 28** (designs/253-float-text.md; four units, per-commit suite + freestanding green, terminal battery in the landing report). `sawc/std/float.saw` is new and owns the whole story: Ryū for shortest round-trip formatting, Eisel-Lemire over an exact decimal fallback (Clinger/Steele-White, no `leftcheats` table) for correctly-rounded parsing, `Float.to_bits`/`from(bits:)`, `String.to_float` (moved out of string.saw, naive body deleted) and `StringBuilder.append(value: Float)`. The SIX Float→text positions were TWO renderings that disagreed (`printf("%f")` for `print(f)`, `snprintf("%g")` for the rest, neither round-tripping); all six funnel through `_render_float_value` now, and the layout is CPython `repr`'s, which is also the vectors' oracle. The freestanding refusal is GONE — it was written at two of the six positions, so interpolation/`to_string()`/`format(into:)` left an undefined `snprintf` in a freestanding object; `tests/freestanding/cases/float_text.saw` replaces it on both arches, and `.fsmark` moved to ORIGIN + 512 KiB because the float image overlapped it. `JsonValue` gained a `Float` case under the pinned rule (the TOKEN decides: `1` is `Number`, `1.0` is `Float`), with `as_float`, a json-private `write_float` refusing non-finite values as `EncodeFault.Unsupported`, and JSON.md updated; the serde SEAM still has no `write_float`, as scoped. Oracle: `tools/sawfloat.py` (`gen`/`tables`/`verify`) + `tests/float_vectors/` (2897 round-trip + 175 parse rows, seed 253, byte-identical on regeneration) + the `floatvectors` battery lane, which also re-derives the 1236 committed Ryū table entries. Five EXPECT-OUTPUT files updated (the `%f` padding). Findings filed: DF-276a/b/c below. Agent DF range DF-276a+
+- ~~The sos RIDERS batch~~ **STRUCK Aug 28 — the line was STALE ON ARRIVAL** (lead recon error, caught by the dispatched verification agent): all three riders LANDED Aug 21-20 (`dcbd6ea2` clock_get `type:`, `ff3c9c5f`+`ee88d72d` the shift spellings, `718a9784` kcore re-narrowing; recorded at done_aug18-aug25.md:1841). The Aug-28 dispatch became a VERIFICATION run instead: all sites confirmed at HEAD, 99 abi + 6 imgformat case values probe-verified identical across the conversion, and an independent `battery.sh suite sos` gate green (2289/6 + 80 sos both arches) — which IS design 238's settled-tree precondition, now evidenced. One record correction from the run: the done-file entry's "all 46 rights-enum cases" is an insertion-line count; the true scope is 39 rights cases + 4 SegFlag = 43 (noted here per the never-rewrite-archives rule)
+- ~~Design 250 — the `Byte` type~~ **LANDED Aug 27 except one row** (designs/250-byte-type.md; census in its §8). `public type Byte = UInt8` lives in `sawc/builtin.saw` and needed NO compiler change — builtin is identity-exempt, loaded first, not import-required, and the only home that also works under `--runtime-build`. Landed: the String/StringBuilder flip through one read funnel (`byte_at`) and one write funnel per file, `append_char` -> `append(b: Byte)` (with `index_of`/`last_index_of` taking a `UInt8` needle per §5 Q4), three sign corrections deleted, `Data`/`FixedBuf` strict on reads and internals with `UInt8` sinks, and the serde/cbor/json `read_byte` family. **ONE ROW HELD: `std.cbor`'s `byte_at` + its UTF-8 boundary table stay `UInt8`** — its two callers ORDER bytes, and an ordered comparison on an alias over an unsigned underlying is lowered SIGNED today. That defect is DF-270d in the landing report, pinned by `examples/unsigned_ordered_comparison.saw` (XFAIL) and owed a tracker entry; it is one mechanism with a second, PRE-EXISTING face (`Comparable.compare()` is wrong on any unsigned integer), so it wants its own brief. Three brief errata are recorded in §8.6, the sharpest being that §4's stated digits spelling `append(b as UInt8)` is ambiguous (`as Int` is the working one). Agent DF range DF-270a+, all five findings in the landing report
+- Design 251 — Map and Set join the ExplicitCopy tier (designs/251-std-copyability.md; user-directed Aug 27: value containers copyable when their contents are, so containing types like `JsonValue` can be ExplicitCopy — the unit-1 landing was FORCED NoCopy by Map's blanket). Vector is the oracle (conditional conformance + unconditional deinit + panicking copy/reporting try_copy); Data/Arc/String already done; builders + resource types STAY NoCopy. ~~DISPATCHED Aug 27 IN PARALLEL with 250~~ **LANDED Aug 27** (four commits integrated at ca079494..1971dc3a; per-commit gates + terminal battery 22/22 green on the branch). Map + Set carry Vector's conditional-ExplicitCopy shape — with one earned divergence: Map's enum-payload copies go through private `_key_ref`/`_value_ref` `borrows` lends (DF-146d pattern; a match-arm binding's `.copy()` is a refused value-read at the tier, unlike Vector's pointer place). JsonValue is `@synthesize ExplicitCopy` with ZERO accessor-spelling changes; conformance rows A18/A19 beside Vector's A17; consumer-sweep cells a-d probed clean. Filed DF-271a (below). Sonnet, per-task model approval
+- ~~DF-267b fix + std.json `Object` serialization~~ **BOTH STAGES LANDED Aug 28.** Stage 1 (the typechecker default-type-arg fill at binding construction): see the DF-267b entry below for the funnel + sweep matrix. **STAGE 2 LANDED** (commit "std.json: Object serialization for JsonValue (DF-267b/DF-267d stage 2)"): `JsonValue._write`'s `Object` arm walks `Map.each`, writing each key via `write_text` and recursing into the value, with a `first_err: EncodeError?` capture standing in for the visitor's missing error channel (`each`'s closure is `Void`-returning and cannot short-circuit; every invocation past the first failure is a no-op). Routes around DF-272c exactly as scoped: `each` hands the key/value PAIR to the closure BY VALUE, never a `borrows` lend, so no place window is ever open while `_write` recurses. ONE THING THE DISPATCH DIDN'T ANTICIPATE: DF-267d's dissolution turned out to be shape-sensitive, not unconditional — `_write` recursing DIRECTLY (the `Array` arm's old `while` loop over `items[i]`) in ONE match arm while ALSO recursing THROUGH a visitor closure (the new `Object` arm) in ANOTHER still hit the builtins-pre-check refusal, reported at the DIRECT-call arm's line even though that arm is untouched — confirmed by direct probe (`cannot suspend in a sync closure context: closure calls JsonValue._write → Map.each → a call through a non-sync function value`). Fix: `Array` now ALSO recurses through `Vector.each`'s closure rather than a `while` loop, matching the THIRD dissolution probe shape the DF-267d entry already recorded ("Array arm recursing inside `Vector.each`'s closure") — once BOTH arms are closure-based, it compiles clean. No new DF filed: same "one effect signature per self-recursive function depending on a non-sync leaf API" mechanism DF-267d already names, not a new one — this is the shape that reaches it. Module header's stale "no `JsonValue` tree type in this file" paragraph rewritten (seam + tree, honestly describing the current file); JSON.md's status/OPEN list updated (Object closes; `Number` Float, pretty-printing, `max_items` parity stay open) — also caught JSON.md's stale `NoCopy` line (predated design 251's ExplicitCopy flip) on the same pass. Tests: `examples/json_value_object_serialize.saw` (basic/empty/nested/array-in-object/escaped-key/duplicate-key-survives-roundtrip/writer's-own-64-level-limit), `examples/json_value_object_deinit_no_copy.saw` (Carrier+Tag idiom, exactly-once deinit, twice-called `to_json_string` proving no consume/copy of the tree), `examples/json_value_roundtrip.saw`'s `check_object` flipped from expecting `Unsupported` to the real serialized text (that test IS the exact behavior landing here, so "stays green" meant updating it, not leaving it red). cbor: unaffected (checked at stage-1 landing, no sibling fix owed there either)
+- ~~DF-270d — ordered comparison over an UNSIGNED integer lowers SIGNED~~ **CLOSED Aug 28 by design 252**, entry below
+
+## ~~DF-270d — ordered comparison over an unsigned integer lowers SIGNED~~
+## FIXED Aug 28 by design 252 (filed Aug 28 by design 250; CORRECTNESS)
+
+- ONE mechanism (`_emit_int_compare`, `sawc/codegen/operators.py:818`,
+  hard-coded `icmp_signed`), TWO faces: (a) `<`/`<=`/`>`/`>=` with a
+  DISTINCT ALIAS over an unsigned underlying on the LEFT — the alias
+  carries `TypeKind.STRUCT`, so the dispatch at `operators.py:478` routes
+  it to the `compare()` path instead of the icmp branch that does consult
+  `_int_is_signed`: `Byte(255) <= Byte(127)` is TRUE. (b)
+  `Comparable.compare()` on ANY unsigned integer, no alias involved:
+  `UInt.max.compare(&1)` is `Less` — PRE-EXISTING, reaching every
+  `Comparable`-bounded generic, any sort over unsigned keys, and
+  `sos/kernel/abi`'s eight `type XHandle = UInt` (kernel handles order
+  wrongly today). Sound on the same values: `==`/`!=`, `/`, `%`, `>>`,
+  widening casts, printing. Pin: `examples/unsigned_ordered_comparison.saw`
+  (XFAIL, cited).
+- CONSEQUENCE HELD IN 250: `std.cbor`'s `byte_at` + UTF-8 table stay
+  `UInt8` — flipping them made `cbor169_vectors` accept `bad_utf8`, and
+  `compare_in`'s canonical map-key ordering sits on the same edge; both
+  call sites carry a comment naming the pin. The fix REOPENS those two
+  rows and completes 250's cbor flip.
+- Fix shape: signedness consulted at both faces' chokepoints
+  (`_emit_int_compare` gains the unsigned branch; the alias dispatch stops
+  mis-kinding a primitive-underlying alias into the struct path).
+  Obligation-4 sweep owed at dispatch: any OTHER operator lowering that
+  hard-codes signedness (shifts are recorded sound; the sweep proves the
+  rest), and the alias-mis-kinding dispatch's other consumers.
+- **LANDED Aug 28 as design 252, three commits.** `_int_type_is_signed` is the
+  one signedness authority (substitute THEN resolve aliases; `None` is signed),
+  its docstring naming every entry point per obligation 1 — `_int_is_signed`,
+  the two compare emitters, and `_widen_int_value`/`_coerce_int_to_field`, which
+  had their own copies of the same three lines in two different orders.
+  `_comparison_operand_type` resolves the alias before the dispatch reads its
+  kind (face a); `_emit_int_compare` takes the operand's signedness (face b).
+  The sweep found TWO further wrong cells at the same emitter, both fixed here:
+  an unsigned struct FIELD / enum PAYLOAD compared through a derived memberwise
+  compare, and a raw-backed `enum E: UInt8` whose case value passes 127
+  (`Backed.High(200) > Backed.Low(1)` was false) — the tag now reads its
+  DECLARED BACKING. Everything else the sweep probed is unchanged and re-proved
+  at the boundary values (`==`/`!=`, `/`, `%`, shifts, bitwise, wrapping and
+  checked arithmetic, casts both ways, `Vector.sort`); unary negation on
+  unsigned and an unsigned range `for` are clean refusals, and no unsigned
+  `min`/`max`/`abs` helper exists. Design 250's held cbor row is IN (see its
+  entry's "ONE ROW HELD", now superseded): `byte_at -> Byte` plus the eleven
+  UTF-8 boundary statics, proved by running THAT cbor.saw against the pre-fix
+  codegen, where `cbor169_vectors` reports `reject bad_utf8: accepted`. Pin
+  flipped (marker removed, header rewritten); matrix at
+  `examples/unsigned_ordered_comparison_matrix.saw`,
+  `unsigned_comparable_compare.saw` and `unsigned_handle_ordering.saw`;
+  conformance rows W25/W26 with rule 4 added to the W preamble.
+
