@@ -33,7 +33,7 @@ is scheduled and in what order is the whole of what they say.
 
 - ~~Design 250 — the `Byte` type~~ **LANDED Aug 27 except one row** (designs/250-byte-type.md; census in its §8). `public type Byte = UInt8` lives in `sawc/builtin.saw` and needed NO compiler change — builtin is identity-exempt, loaded first, not import-required, and the only home that also works under `--runtime-build`. Landed: the String/StringBuilder flip through one read funnel (`byte_at`) and one write funnel per file, `append_char` -> `append(b: Byte)` (with `index_of`/`last_index_of` taking a `UInt8` needle per §5 Q4), three sign corrections deleted, `Data`/`FixedBuf` strict on reads and internals with `UInt8` sinks, and the serde/cbor/json `read_byte` family. **ONE ROW HELD: `std.cbor`'s `byte_at` + its UTF-8 boundary table stay `UInt8`** — its two callers ORDER bytes, and an ordered comparison on an alias over an unsigned underlying is lowered SIGNED today. That defect is DF-270d in the landing report, pinned by `examples/unsigned_ordered_comparison.saw` (XFAIL) and owed a tracker entry; it is one mechanism with a second, PRE-EXISTING face (`Comparable.compare()` is wrong on any unsigned integer), so it wants its own brief. Three brief errata are recorded in §8.6, the sharpest being that §4's stated digits spelling `append(b as UInt8)` is ambiguous (`as Int` is the working one). Agent DF range DF-270a+, all five findings in the landing report
 - Design 251 — Map and Set join the ExplicitCopy tier (designs/251-std-copyability.md; user-directed Aug 27: value containers copyable when their contents are, so containing types like `JsonValue` can be ExplicitCopy — the unit-1 landing was FORCED NoCopy by Map's blanket). Vector is the oracle (conditional conformance + unconditional deinit + panicking copy/reporting try_copy); Data/Arc/String already done; builders + resource types STAY NoCopy. ~~DISPATCHED Aug 27 IN PARALLEL with 250~~ **LANDED Aug 27** (four commits integrated at ca079494..1971dc3a; per-commit gates + terminal battery 22/22 green on the branch). Map + Set carry Vector's conditional-ExplicitCopy shape — with one earned divergence: Map's enum-payload copies go through private `_key_ref`/`_value_ref` `borrows` lends (DF-146d pattern; a match-arm binding's `.copy()` is a refused value-read at the tier, unlike Vector's pointer place). JsonValue is `@synthesize ExplicitCopy` with ZERO accessor-spelling changes; conformance rows A18/A19 beside Vector's A17; consumer-sweep cells a-d probed clean. Filed DF-271a (below). Sonnet, per-task model approval
-- DF-267b fix + std.json `Object` serialization — EVENT-GATED on designs 250 AND 251 both integrating (user, Aug 27: queue after the existing agents complete). Stage 1: the typechecker default-type-arg fill at BINDING CONSTRUCTION for match payload bindings (mechanism + the sharper no-allocator-in-the-message cell in the DF-267b entry; obligation-4 sweep over sibling binding forms — if-let/guard-let payloads, closure parameters, for-loop bindings — rides the fix). Stage 2: std.json lands the recursive `Object` encoder (the lead's Aug-27 probe shapes compile in std today), drops the `Unsupported` stub, cleans the stale "no JsonValue in this file" module-header paragraph, and its landing CONFIRMS DF-267d's dissolution, closing that entry. cbor checked: no sibling fix owed
+- DF-267b fix + std.json `Object` serialization — EVENT-GATED on designs 250 AND 251 both integrating (user, Aug 27: queue after the existing agents complete). ~~Stage 1: the typechecker default-type-arg fill at BINDING CONSTRUCTION for match payload bindings~~ **STAGE 1 LANDED Aug 28** — the fill routes through `_variant_payload_types`, the obligation-4 sweep matrix is in the DF-267b entry below. STAGE 2 STILL QUEUED: std.json lands the recursive `Object` encoder (the lead's Aug-27 probe shapes compile in std today — re-verified Aug 28 post-stage-1), drops the `Unsupported` stub, cleans the stale "no JsonValue in this file" module-header paragraph, and its landing CONFIRMS DF-267d's dissolution, closing that entry. Stage 2 must route around DF-272c (below): the natural `fields.get(k)!._write(…)` spelling recurses inside a place window, which sawc/std refuses and a user file accepts. cbor checked: no sibling fix owed
 - Design 245 v1 — `Scalar` + `scalars()`, `chars()` and `append_scalar` REMOVED (designs/245-unicode-scalar-type.md §6; ruled Aug 27 — no literals in v1, prelude placement — and DISPATCHED same day on the user's "now", disjoint from the two items above). Literals + patterns stay open as later units
 - Design 218 unit 1.5 — monomorphization becomes a pre-codegen transform (RULED Aug 13; SCHEDULED Aug 24, user: MOVED UP, BEFORE the 238 split — the migration lands under the full in-tree gate battery and the sawos pin starts life post-1.5). Process per the 218 ruling: a FABLE SPEC AGENT authors the census first (every `_ensure_monomorphized_*` call site, the instance-re-check design, error attribution, the per-(template, type-args) cache), lead reviews, user rules, Opus implements. Expected closures ride it: DF-217i/j/k, S1 row p08a, plausibly DF-247a. Brief section: designs/218-enforcement-architecture.md unit 1.5. **SPEC AUTHORED Aug 25 (`designs/218c-monomorphization-spec.md`) and LEAD-RATIFIED same night under the overnight authorization — all six section-8 questions resolved as recommended (rationale in the spec's status header); none touched a user ruling. Probes: DF-247a NOT dissolved (own dispatch after 1.5, OQ5); two new findings (DF-258a: a nested unconditionally-suspending generic silently loses its yield — pinned at stage 0, flips stage 4; DF-258b: recursive instantiation growth HANGS the compiler — fixed by stage 1's depth limit). IMPLEMENTATION HELD (user, Aug 25 morning): the pipeline STOPS after the 234 flip integrates — 1.5's build dispatches on the user's go, against the ratified spec**
 - Design 238 — the sawos split (designs/238-sawos-split.md) — FULLY RULED Aug 24 (D-b1/b2/b3 ruled "absolute simplest, pre-1.0" — bin/ shims via make install; version-only `--version` check with the asymmetry documented + rigorous bumps as standing practice; the fetch creates its own venv). AFTER 218 unit 1.5 (re-ordered Aug 24), BEFORE the M3 ladder; UNITS 0-1 LANDED Aug 21, units 2-7 ready to dispatch when reached
@@ -84,7 +84,7 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-264a — the `Copy` tier's conformance check skips the deinit-signature validation its ExplicitCopy/NoCopy siblings both have, so a `deinit(&self)` inside a `@synthesize Copy` reaches codegen and ICEs (entry below, filed Aug 27 from the user's scratch example)
 - DF-266a — a bare leading-minus TAIL expression after a preceding `if { return }` block is an ICE at a BinaryOp node; the same tail after a `let` compiles (entry below, filed Aug 27 by the std.json build, lead-verified both cells)
 - DF-267a — an Optional method called DIRECTLY on a `borrows -> T?` lend's result resolves against the unwrapped payload type, contradicting DF-218a's tier-independent presence promise; `if let` is the working spelling (entry below, filed Aug 27 by std.json unit 1)
-- DF-267b — `Map.keys()` through an enum MATCH BINDING leaves the defaulted allocator parameter unresolved where the struct-field twin resolves (entry below, same filer). RE-CONFIRMED + PROMOTED Aug 27 (lead probes): with DF-267d dissolved, this is THE remaining `Object`-serialization blocker; fix scheduled in the queue's post-250/251 item
+- ~~DF-267b — `Map.keys()` through an enum MATCH BINDING leaves the defaulted allocator parameter unresolved where the struct-field twin resolves~~ **FIXED Aug 28** (entry below carries the sweep matrix and the funnel)
 - DF-267c — a hand-written `borrows` accessor cannot `lend` a place indexed FURTHER into a match-bound payload, though the docs' own field-projection twin works — blocks JsonValue's combined member/element accessors (entry below, same filer)
 - ~~DF-267d — a SELF-RECURSIVE function under sawc/std that transitively reaches a maybe-suspending closure API fails the builtins pre-check~~ **DISSOLVED-PENDING-CONFIRMATION Aug 27** (lead re-probe post-247/249: all three filed minimal shapes now compile under sawc/std — entry below has the cells; the Object-serialization landing is the confirming probe and closes this)
 - DF-270a — the alias literal rule differs by SLOT: `static X: Byte = 45` adopts, `static X: Byte = Byte(45)` is refused as non-constant, `let x: Byte = 45` is refused — 250 §5 Q1's assumption was wrong in BOTH directions (filed Aug 28 by design 250; repros in its report + the brief's §8). Wants ONE rule over the three slots
@@ -102,6 +102,9 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-261d — `Box` payload-method forwarding reaches a STRUCT payload's methods and NOT an ENUM payload's, so a box-linked recursive enum has no Saw-level traversal (entry below, filed Aug 27 by design 246; PRE-EXISTING)
 - DF-261e — an optional chain through a `Box<T>?` FIELD is `BindOptional lowered outside an optional chain`, with no recursion involved (entry below, filed Aug 27 by design 246; PRE-EXISTING)
 - DF-261f — a directly recursive SUSPENDING function makes the coroutine transform recurse forever, and escapes the ICE funnel as a raw Python traceback (entry below, filed Aug 27 by design 246; PRE-EXISTING, verified against main). Two halves: wrap the transform, then refuse the shape
+- DF-272a — an enum VARIANT construction does not push its declared payload type into a closure-literal argument, so `Holder.Handler(f: { c in c + 1 })` is "Cannot infer type for closure parameter `c`" while the struct-init twin `FnField(f: { c in c + 1 })` infers and runs (entry below, filed Aug 28 by the DF-267b sweep; PRE-EXISTING)
+- DF-272b — `_resolve_type` skips design 37's default fill entirely when a written type has NO type arguments, so a BARE reference to a generic whose every parameter is defaulted never gets one; the explicit spelling works and the bare one does not (entry below, same filer; PRE-EXISTING). Same design-37 family as DF-267b, different gap, and it moves type IDENTITY — wants a ruling before a fix
+- DF-272c — a maybe-suspending call made INSIDE a place window (`&m.get(k)!`, a `borrows` lend) is refused under `sawc/std/` with `cannot suspend in a sync closure context`, while the identical shape compiles and RUNS as a user file (entry below, same filer). FOURTH member of the builtins-vs-user-file divergence family with DF-257c (closed), DF-267d (dissolved) and DF-271a (open) — and the one that blocks stage 2's natural Object-walk spelling
 
 
 ## DF-270d — ordered comparison over an unsigned integer lowers SIGNED
@@ -180,21 +183,34 @@ tier-independent at every spelling"; `if let _ = <lend>` is the working
 presence test. Suspect: the conditional-lend spelling commits to opening the
 window before the member lookup ever sees `Optional`.
 
-**DF-267b — OPEN.** `Map<K, V, A = GlobalAllocator>.keys()` called on a value
-reached through an ENUM MATCH BINDING leaves `A` unresolved
-(`Vector<String, A>` at the use site, clean type error); the identical call
-through a struct FIELD resolves. Side-by-side confirmed; routing through a
-free-function parameter also resolves it. The default-type-param fill is
-skipped on the match-binding path — obligation-4 sweep at fix time: which
-other binding forms skip it. RE-CONFIRMED Aug 27 (lead, in-std probe): still
-live post-247/249, and a SHARPER cell — the mismatch message prints the
-binding's type as `Map<String, JsonValue>` with NO allocator argument at
-all, so the fill is skipped at BINDING CONSTRUCTION, not at method lookup.
-PROMOTED: with DF-267d dissolved this is the one remaining `Object`-
-serialization blocker (the free-function routing compiles but is
-defect-routing, not a landing spelling). Fix is typechecker-side, disjoint
-from designs 250/251's std files; scheduled in the queue's post-250/251
-item. cbor CHECKED Aug 27: needs no sibling fix — zero keys/each/match-
+**DF-267b — FIXED Aug 28** (commit "DF-267b: an enum case's declared payload
+types get the design-37 default fill"; stage 1 of the queue item — stage 2,
+`Object` serialization, remains QUEUED). MECHANISM: an enum case's payload
+types are one of the three RAW declaration slots, and `enum_info.variants`
+hands them out AS WRITTEN. The struct-field twin resolved because
+`_check_member_access` ends in `_resolve_type`, which is where design 37's
+fill lives; the match arm's payload binding read the raw list and never
+resolved, so `Map<String, Int>` reached the binding with two arguments where
+the type has three parameters and `keys()` answered `Vector<String, A>`.
+FUNNEL (obligation 1): `_variant_payload_types`
+(`sawc/typechecker/expressions.py:11609`) is now the one read, substitution
+then `_resolve_type`, docstring naming its four entry points — the classic
+enum-switch arm bindings + their consume gate, `_pattern_enum_variants` (the
+general pattern path), a variant CONSTRUCTION's expected argument types, and
+the `try(as Enum.Case)` routing payload (that last one already resolved on
+its own and now shares the funnel instead of keeping a private copy).
+SWEEP MATRIX (obligation 4) — ten rows failed pre-fix, all pass post-fix,
+carried by `examples/match_payload_binding_fills_default_type_args.saw` and
+`examples/payload_derived_binding_fills_default_type_args.saw`: the classic
+switch arm (the filed cell), the general path a guard routes to, a match
+nested in a match, a tuple-typed payload, a generic enum's own parameter, and
+— all DERIVED from a payload binding, so all fixed by the one funnel —
+`if let` / `guard let` / `while let` payloads, a closure PARAMETER, a tuple
+destructuring, and a `for` binding over a generic container. CONTROLS that
+already resolved and stay green: a struct FIELD, a function PARAMETER, an
+annotated LOCAL, and each derived form fed by one of those. TERRAIN
+re-verified: all three DF-267d dissolution shapes compile AND RUN in std with
+the fix. cbor CHECKED Aug 27: needs no sibling fix — zero keys/each/match-
 binding Map use in cbor.saw and no tree type; the fix being compiler-wide
 covers cbor USERS' hand-written Serialize code for free.
 
@@ -233,6 +249,74 @@ Consequence shipped meanwhile: `to_json_string` answers
 `EncodeFault.Unsupported` for any tree containing an `Object` (parse is
 full — parsing only calls `Map.insert`). The fix reopens JSON.md's Object
 serialization cell.
+
+## DF-272a..c — filed Aug 28 by the DF-267b fix's obligation-4 sweep; all
+## three PRE-EXISTING and probe-verified by direct compile/run
+
+**DF-272a — OPEN.** An enum VARIANT construction does not push its declared
+payload type into a closure-literal argument, so the closure's parameter type
+is never inferred — while the struct-init twin does, through
+`_check_init_field_value`. Same file, side by side:
+
+```saw
+struct FnField { f: (Int) -> Int }
+enum Holder { case Handler(f: (Int) -> Int) }
+
+let s = FnField(f: { c in return c + 1 })          // infers, runs
+let h = Holder.Handler(f: { c in return c + 1 })   // Cannot infer type for
+                                                   // closure parameter `c`
+```
+
+Mechanism, as far as the sweep took it: `_check_enum_init` checks each
+argument against `expected_params` but has no equivalent of the struct path's
+"if the value is a ClosureExpr and the expected type is a FUNCTION, check the
+closure AT that type" step. Probe `.build/scratch/probe_enuminit_closure.saw`
+(ephemeral; the four lines above are the whole of it). Reached while probing
+whether a closure parameter is one of the positions DF-267b's missing fill
+touched — it is not, and the fill does not change this cell either way.
+
+**DF-272b — OPEN.** `_resolve_type` (`sawc/typechecker/types.py:1707`) fills
+design-37 defaults only when the written type ALREADY has type arguments —
+`if saw_type.type_args:` guards the whole arm — so a BARE reference to a
+generic whose every parameter is defaulted never gets a fill at all. Written
+out it works; written bare it does not:
+
+```saw
+struct Drain<A: Allocator = GlobalAllocator> { left: Int }
+extension Drain<A: Allocator>: Iterator {
+    type Item = Vector<Int, A>
+    public func next(&var self) -> Vector<Int, A>? { … }
+}
+struct Explicit { d: Drain<GlobalAllocator> }   // for v in e.d { v.len() } OK
+struct Bare     { d: Drain }                    // `Vector<Int, A>` has no
+                                                // method `len`
+```
+
+Not the DF-267b mechanism — the struct-FIELD control fails here too, which is
+what separates them. Same design-37 family, and the fix moves type IDENTITY
+for a whole class of types (a bare `Drain` and a `Drain<GlobalAllocator>`
+would collapse to one mangled name), so it wants a ruling rather than a
+drive-by. Probe `.build/scratch/probe_bare_default.saw` (ephemeral; the
+snippet above is the whole of it). No pin: the shape needs an
+all-parameters-defaulted generic, which nothing in the corpus has.
+
+**DF-272c — OPEN.** A maybe-suspending call made INSIDE a place window is
+refused under `sawc/std/` and accepted in a user file. `Map.get` is a
+`borrows` accessor, so `&kids.get(k)!` opens a window whose body is a `sync`
+closure; a recursive callee that transitively reaches `Map.keys` (a closure
+parameter without `sync`, deliberate per design 216) is then
+``cannot suspend in a `sync` closure context: closure calls `count` →
+`Map.keys` → `Map.each_key` → a call through a non-`sync` function value``.
+The identical enum/`Map`/recursion shape as an ordinary source file compiles
+and RUNS (probe `.build/scratch/probe_window_suspend.saw`, ephemeral); the
+in-std twin was probed by temporarily adding it to `sawc/std/json.saw`,
+reverted after. FOURTH member of the builtins-vs-user-file divergence family
+— DF-257c (closed), DF-267d (dissolved), DF-271a (open) — and it carries that
+family's standing question unchanged: why does the builtins pass check
+differently from user-file checking AT ALL. CONSEQUENCE FOR THE QUEUE: stage
+2's natural Object-walk spelling is `fields.get(k)!._write(enc:)`, which is
+exactly this shape, so stage 2 either routes through `each_value` (which
+works in std today — it is DF-267d's shape 2) or waits on this.
 
 ## DF-261a..f — filed Aug 27 by design 246's implementer; a/b FIXED in that
 ## landing, c/d/e/f OPEN
