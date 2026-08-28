@@ -68,6 +68,7 @@ STAGES=(
     "ircontract|no|-c embeds what hosted embeds; seam widths match rt/ABI.md|$PY tools/test_ir_contract.py"
     "preludegate|no|the import gate matches LANGUAGE_SPEC's module table|$PY tools/test_prelude_gate_doc.py"
     "stdtypes|no|two std files may each own one private type name (design 204)|$PY tools/test_std_private_type_names.py"
+    "toolchain|no|the toolchain resolver: four steps, the version check, the refusal|$PY tools/test_toolchain.py"
     "floatvectors|no|the Float<->text vectors against CPython's own conversions|$PY tools/sawfloat.py verify --rule"
     "abidoc|no|rt/ABI.md describes exactly the frozen seam set|$PY tools/test_runtime_abi_doc.py"
     "bttable|no|the task-backtrace table against the frame layouts|$PY tools/test_bt_table.py"

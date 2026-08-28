@@ -1,6 +1,6 @@
 # Saw Language Makefile
 
-.PHONY: test test-verbose test-sequential clean help blade blade-bootstrap install sos-test freestanding-test lexdiff astdiff astgraft irdet irdet-all gmgate abidoc bttable bttable-sizes lldbtest ircontract preludegate icebreadcrumb
+.PHONY: test test-verbose test-sequential clean help blade blade-bootstrap install sos-test freestanding-test lexdiff astdiff astgraft irdet irdet-all gmgate abidoc bttable bttable-sizes lldbtest ircontract preludegate icebreadcrumb toolchain
 
 # Default target
 all: test
@@ -168,6 +168,14 @@ preludegate:
 icebreadcrumb:
 	@python3 tools/test_ice_breadcrumb.py
 
+# The toolchain resolver (design 238 unit 4): the one place a consumer of this
+# repository locates `sawc`, `blade` and the packages it compiles against. All
+# four resolution steps, the pin's version check and the refusal that names
+# them — driven with a fabricated environment, so no step depends on what
+# happens to be installed and the fetch never touches the network.
+toolchain:
+	@python3 tools/test_toolchain.py
+
 # The logical-backtrace table (design 158 unit 1): cross-check every frame
 # record against the frame-layout report the same compile produced. A wrong
 # offset there reads a live frame at the wrong place and prints a confident lie,
@@ -222,6 +230,7 @@ help:
 	@echo "  make abidoc          - rt/ABI.md describes exactly the frozen seam set"
 	@echo "  make ircontract      - -c embeds what hosted embeds; seam widths match rt/ABI.md"
 	@echo "  make preludegate     - The import gate matches LANGUAGE_SPEC's module table"
+	@echo "  make toolchain       - The toolchain resolver: four steps, version check, refusal"
 	@echo "  make icebreadcrumb   - An internal compiler error reports one located line"
 	@echo "  make bttable         - Task-backtrace table vs the frame layouts"
 	@echo "  make bttable-sizes   - What the always-linked backtrace table costs"

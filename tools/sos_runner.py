@@ -46,6 +46,13 @@ Blade-managed; the harness probes for them up front and fails with an install
 hint. It is deliberately separate from test_runner.py (a different execution
 model) but reports in the same pass/fail style.
 
+The SAWLANG side — the compiler, Blade, and the `imgformat`/`toml`/`semver`
+packages — is NOT a host prerequisite and is not a path computed here either:
+it comes from `tools/toolchain.py` (design 238 unit 4), which is the one place
+allowed to locate a sawlang artifact. In this repository it resolves to this
+checkout and nothing about running the harness changes; after design 238 unit 5
+the language lives in a different repository and the same call finds it there.
+
 `--arch <name>` runs one architecture, for development. The GATE is both.
 """
 
@@ -57,24 +64,45 @@ import sys
 import threading
 import time
 
+import toolchain
+
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SAWC = os.path.join(REPO_ROOT, "sawc", "sawc.py")
 KERNEL_DIR = os.path.join(REPO_ROOT, "sos", "kernel")
 CORE_DIR = os.path.join(KERNEL_DIR, "core")
 TESTS_DIR = os.path.join(REPO_ROOT, "sos", "tests")
 HAL_DIR = os.path.join(REPO_ROOT, "sos", "hal")
 
+# THE SAWLANG SIDE COMES FROM THE RESOLVER, NOT FROM `REPO_ROOT` (design 238
+# unit 4). The compiler, Blade, and the `imgformat`/`toml`/`semver` packages
+# live in the LANGUAGE repository, which unit 5 makes a different repository
+# from this harness's — so every one of them is a `tools/toolchain.py` call and
+# none is a path computed here. Everything above and below stays computed off
+# `REPO_ROOT`: those are SOS's own sources, which travel with this file.
+_TOOLCHAIN = None
+
+
+def tc():
+    """The resolved sawlang toolchain (design 238 D-b), resolved once.
+
+    Lazy rather than module-level so importing this file cannot exit: the
+    refusal is a message for an operator running the harness, and it is
+    printed once, here, rather than at each of the four use sites.
+    """
+    global _TOOLCHAIN
+    if _TOOLCHAIN is None:
+        try:
+            _TOOLCHAIN = toolchain.resolve()
+        except toolchain.ToolchainError as e:
+            print(f"\033[1;31merror\033[0m: {e}", file=sys.stderr)
+            sys.exit(1)
+        for note in _TOOLCHAIN.notes:
+            print(note)
+    return _TOOLCHAIN
+
+
 # The arch-free kernel module every image shares. It carries the trap handler
 # the HAL's boot code calls, so the module path is not optional for any case.
 CORE_MODULE = f"kcore={CORE_DIR}"
-
-# The sosimg layout, shared with the Blade target that emits images. The kernel
-# reaches it through --module-path; Blade reaches the same sources through a
-# manifest path-dependency. One definition, two consumption mechanisms. It lives
-# in `libs/` beside Blade's other path dependencies (design 238 D-a), so the
-# language repo builds Blade with no SOS tree present.
-IMGFORMAT_DIR = os.path.join(REPO_ROOT, "libs", "imgformat", "src")
-IMGFORMAT_MODULE = f"imgformat={IMGFORMAT_DIR}"
 
 # Arch-free, role-free Saw runtime helpers, shared with every process build.
 SOSRT_DIR = os.path.join(REPO_ROOT, "sos", "rt", "common", "src")
@@ -96,10 +124,8 @@ EXIT_PROCESS_FAULT = 5
 
 # Root-server packages. These are real Blade packages built by Blade — the
 # whole point of unit C is that root goes through the same package pipeline any
-# SOS process will, not a bespoke rule in this file.
-BLADE_DIR = os.path.join(REPO_ROOT, "blade")
-TOML_SRC = os.path.join(REPO_ROOT, "libs", "toml", "src")
-SEMVER_SRC = os.path.join(REPO_ROOT, "libs", "semver", "src")
+# SOS process will, not a bespoke rule in this file. (Blade itself, and the
+# packages it is built from, come through `tc()` above.)
 ROOT_PKG = os.path.join(REPO_ROOT, "sos", "root")
 FAULT_ROOT_PKG = os.path.join(TESTS_DIR, "faulting-root")
 # design 178 M2 unit 2: three root servers that exercise Thread and Process
@@ -1305,23 +1331,32 @@ def _build_shared(arch, clang):
 
 
 def _build_blade(build_dir):
-    """Build Blade once with the in-tree compiler; return the binary path.
+    """Get a Blade to drive: the resolver's, or one built from its sources.
 
     The `blade_bootstrap.py` stage0 step, reused: the SOS root packages are
     built BY BLADE, so the harness needs a Blade to drive.
+
+    A resolved binary (design 238 D-b: `BLADE=…`, or one found on `$PATH`)
+    is used as it is. Otherwise the toolchain came with a CHECKOUT and Blade
+    is built out of it — which is what keeps a sawlang checkout testing its
+    OWN package manager rather than whatever happens to be installed.
     """
+    resolved = tc().blade_binary()
+    if resolved:
+        return resolved
     blade_bin = os.path.join(build_dir, "blade")
-    _run([sys.executable, SAWC, os.path.join(BLADE_DIR, "src", "main.saw"),
+    _run(tc().sawc() +
+         [os.path.join(tc().blade_package_dir(), "src", "main.saw"),
           "-o", blade_bin,
-          "--module-path", f"toml={TOML_SRC}",
-          "--module-path", f"semver={SEMVER_SRC}",
-          "--module-path", IMGFORMAT_MODULE])
+          "--module-path", tc().module_path_arg("toml"),
+          "--module-path", tc().module_path_arg("semver"),
+          "--module-path", tc().module_path_arg("imgformat")])
     return blade_bin
 
 
 def _blade_env(clang):
     env = dict(os.environ)
-    env["SAWC"] = f"{sys.executable} {SAWC}"
+    env["SAWC"] = tc().sawc_env_value()
     # macOS's Apple clang mis-drives the riscv integrated assembler; hand Blade
     # the same clang this harness probed for.
     env["SOS_CLANG"] = clang
@@ -1403,14 +1438,14 @@ def _build_elf(case, arch, shared_objs, lld, clang):
     # --module-path, so THIS is the compile that defines them. Without it the
     # `@export`s are refused by name; with it every signature is checked against
     # sawc/rt/ABI.md.
-    cmd = [sys.executable, SAWC, case["src"], "-o", obj,
-           "--freestanding", "--no-hidden-alloc", "--runtime-provider",
-           "--target", arch["triple"]]
+    cmd = tc().sawc() + [case["src"], "-o", obj,
+                         "--freestanding", "--no-hidden-alloc",
+                         "--runtime-provider", "--target", arch["triple"]]
     if arch["features"]:
         cmd += ["--target-features", arch["features"]]
     cmd += ["--module-path", CORE_MODULE,
             "--module-path", f"hal={dirs['hal_kernel']}",
-            "--module-path", IMGFORMAT_MODULE,
+            "--module-path", tc().module_path_arg("imgformat"),
             "--module-path", SOSRT_MODULE,
             "--module-path", SOSABI_MODULE]
     _run(cmd)

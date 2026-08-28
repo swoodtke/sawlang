@@ -194,7 +194,9 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   `citations` (DF-248c, Aug 24: stale XFAIL/ledger citations against the
   tracker's closed set + committed conflict markers over tracked files —
   the gate for the files nothing compiles),
-  `forgetgate`, `ircontract`, `preludegate`, `stdtypes`, `abidoc`, `bttable`,
+  `forgetgate`, `ircontract`, `preludegate`, `stdtypes`, `toolchain` (design
+  238 unit 4: the sawlang-artifact resolver — four steps, the pin's version
+  check, the refusal), `abidoc`, `bttable`,
   `fuzz` (`sawfuzz --quick`), `corodiff` (`--quick`), `bench` (the warehouse
   benchmark — checksums GATE, timing report-only; devtools/bench/ +
   TESTING.md), `selfhostlex` (the selfhost lexer's own tests — the one tree

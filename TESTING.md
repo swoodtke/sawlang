@@ -515,6 +515,37 @@ cites a DF, the expectations state the INTENDED behavior, and an xfail case
 that PASSES fails the run. It is where a finding that only exists on a 32-bit
 target is pinned, since `test_runner.py` builds for the 64-bit host.
 
+### The toolchain stage
+
+```bash
+./.venv/bin/python tools/test_toolchain.py    # the lane
+make toolchain
+./.venv/bin/python tools/toolchain.py         # report what WOULD be resolved
+```
+
+`tools/toolchain.py` is the one place anything locates a sawlang artifact — the
+compiler, Blade, and the `imgformat`/`toml`/`semver` packages a consumer
+compiles against. `sos_runner.py` computes none of those paths any more, which
+is what lets it keep working after design 238 unit 5 moves it to a repository
+where the language is somewhere else.
+
+Resolution is four steps: what the operator named (`SAWC`, `BLADE`,
+`SAWLANG_ROOT` — with this checkout as the default root, since it is one),
+then `sawc` and `blade` on `$PATH`, then a fetch of the commit named in a
+`sawlang.pin`, then a refusal naming all three. In this repository step 1
+always answers, so nothing about `make sos-test` changes; the point of the
+lane is that the other three still work when it does not.
+
+Two things it checks that nothing else could. A `$PATH` compiler is verified
+against the pin's version and a disagreement is a refusal NAMING BOTH — never a
+silent build with the wrong compiler. And the step-4 refusal's text is asserted
+word by word, because it is what an operator with no toolchain reads.
+
+The lane fabricates its environment — a stand-in checkout, a stand-in `sawc` on
+a stand-in `$PATH`, a pre-populated fetch cache — so no step depends on what
+happens to be installed on the machine, and the fetch step is exercised without
+touching the network.
+
 ### The selfhostlex stage
 
 The Aug-10 coverage sweep mapped which battery stage semantically checks

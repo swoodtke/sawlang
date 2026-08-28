@@ -50,6 +50,9 @@ jobs:
       - name: Task-backtrace table (design 158)
         run: python tools/test_bt_table.py
 
+      - name: Toolchain resolver (design 238 unit 4)
+        run: python tools/test_toolchain.py
+
       - name: lldb task backtraces (design 158; skips where lldb is absent)
         run: python tools/test_lldb_saw.py
 
