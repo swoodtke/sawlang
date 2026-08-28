@@ -604,8 +604,9 @@ The standard library lives in `sawc/std/` and includes:
 - **Byte** — the type of a byte value, `type Byte = UInt8`. It is in the
   prelude, and every byte a std API hands back has it: `String.byte_at` and
   `bytes()`, `Data`'s `get`/`pop`/iteration, `FixedBuf.get`. Being a distinct
-  alias, it reads as its `UInt8` with nothing written (`b == 0x0A`, `b & 0x1F`,
-  a `UInt8` parameter) while a plain integer never becomes one implicitly.
+  alias, it reads as its `UInt8` with nothing written (`b == 0x0A`, `b < 0x80`,
+  `b & 0x1F`, a `UInt8` parameter) while a plain integer never becomes one
+  implicitly.
   That is what lets `StringBuilder.append(65)` render the digits `65` and
   `append(Byte(65))` write the byte `A` under one name.
 - **Vector / Map / Set** — the collection types, with `[...]`, `{k: v}`, and

@@ -1,0 +1,157 @@
+// Design 252 — the `Comparable.compare()` half of the unsigned comparison
+// matrix, and every position that recurses into the same three-way emitter.
+//
+// `_emit_int_compare` hard-coded `icmp_signed`, so `UInt.max.compare(&1)`
+// answered `Less` (DF-270d face (b), PRE-EXISTING and nothing to do with
+// `Byte`). It reaches further than the bound: a struct's memberwise compare, an
+// enum PAYLOAD field, and a raw-backed enum's TAG all land in it, and the last
+// of those made `Backed.High(200) > Backed.Low(1)` answer false — cells the
+// finding did not name, found by design 252's obligation-4 sweep.
+//
+// `Vector.sort` is the control on the other side: it orders with `>`, which
+// reached the icmp branch and was right throughout.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// bound compare u8 255 vs 127: Greater
+// bound compare u16 65535 vs 1: Greater
+// bound compare u32 4000000000 vs 1: Greater
+// bound compare u64 max vs 1: Greater
+// bound compare uint max vs 1: Greater
+// bound compare u8 1 vs 255: Less
+// bound compare u8 255 vs 255: Equal
+// bound compare int -5 vs 3: Less
+// bound compare i8 -128 vs 127: Less
+// generic min of uint max and 1: 1
+// generic min of u8 255 and 128: 128
+// struct with unsigned fields: Greater
+// enum payload u8 255 vs 1: Greater
+// raw-backed UInt8 Low(1) vs High(200): Less
+// raw-backed UInt8 High > Low: true
+// raw-backed UInt8 Mid(100) vs High(200): Less
+// raw-backed Int8 Neg(-5) vs Pos(5): Less
+// raw-backed Int8 Neg < Zero: true
+// unbacked enum A vs C: Less
+// sorted uint: 1 7 9223372036854775808 18446744073709551615
+// sorted u8: 1 7 128 255
+
+struct Key { hi: UInt, lo: UInt8 }
+
+@synthesize
+extension Key: Equatable {}
+@synthesize
+extension Key: Comparable {}
+
+enum Payload { case Empty, case Full(v: UInt8) }
+
+@synthesize
+extension Payload: Equatable {}
+@synthesize
+extension Payload: Comparable {}
+
+// A raw backing PINS the tag values (design 145 unit B2), so an unsigned
+// backing with a case past 127 is a genuinely unsigned tag.
+enum Backed: UInt8 { case Low = 1, case Mid = 100, case High = 200 }
+
+@synthesize
+extension Backed: Equatable {}
+@synthesize
+extension Backed: Comparable {}
+
+enum SignedBacked: Int8 { case Neg = -5, case Zero = 0, case Pos = 5 }
+
+@synthesize
+extension SignedBacked: Equatable {}
+@synthesize
+extension SignedBacked: Comparable {}
+
+enum Unbacked { case A, case B, case C }
+
+@synthesize
+extension Unbacked: Equatable {}
+@synthesize
+extension Unbacked: Comparable {}
+
+func rank<T: Comparable>(a: T, b: T) -> String {
+    match a.compare(&b) {
+        case Less -> { "Less" },
+        case Equal -> { "Equal" },
+        case Greater -> { "Greater" }
+    }
+}
+
+// The hand-written generic minimum: `compare()` through the bound, in the shape
+// a sort over unsigned keys would use.
+func smallest<T: Comparable + Copy>(a: T, b: T) -> T {
+    match a.compare(&b) {
+        case Less -> { a },
+        case Equal -> { a },
+        case Greater -> { b }
+    }
+}
+
+func main() {
+    let hi8: UInt8 = 255
+    let lo8: UInt8 = 127
+    print("bound compare u8 255 vs 127: {}", rank(hi8, lo8))
+
+    let hi16: UInt16 = 65535
+    let one16: UInt16 = 1
+    print("bound compare u16 65535 vs 1: {}", rank(hi16, one16))
+
+    let hi32: UInt32 = 4000000000
+    let one32: UInt32 = 1
+    print("bound compare u32 4000000000 vs 1: {}", rank(hi32, one32))
+
+    let hi64: UInt64 = 18446744073709551615
+    let one64: UInt64 = 1
+    print("bound compare u64 max vs 1: {}", rank(hi64, one64))
+
+    let himax: UInt = 18446744073709551615
+    let onemax: UInt = 1
+    print("bound compare uint max vs 1: {}", rank(himax, onemax))
+
+    print("bound compare u8 1 vs 255: {}", rank(lo8, hi8))
+    print("bound compare u8 255 vs 255: {}", rank(hi8, hi8))
+
+    // Signed controls.
+    let sa = -5
+    let sb = 3
+    print("bound compare int -5 vs 3: {}", rank(sa, sb))
+    let i8min: Int8 = -128
+    let i8max: Int8 = 127
+    print("bound compare i8 -128 vs 127: {}", rank(i8min, i8max))
+
+    print("generic min of uint max and 1: {}", smallest(himax, onemax))
+    let mid8: UInt8 = 128
+    print("generic min of u8 255 and 128: {}", smallest(hi8, mid8))
+
+    // A struct's memberwise compare recurses into the same emitter per field.
+    let ka = Key(hi: 18446744073709551615, lo: 255)
+    let kb = Key(hi: 1, lo: 1)
+    print("struct with unsigned fields: {}", rank(ka, kb))
+
+    // …and so does an enum's active-payload compare.
+    print("enum payload u8 255 vs 1: {}",
+          rank(Payload.Full(v: 255), Payload.Full(v: 1)))
+
+    print("raw-backed UInt8 Low(1) vs High(200): {}",
+          rank(Backed.Low, Backed.High))
+    print("raw-backed UInt8 High > Low: {}", Backed.High > Backed.Low)
+    print("raw-backed UInt8 Mid(100) vs High(200): {}",
+          rank(Backed.Mid, Backed.High))
+
+    print("raw-backed Int8 Neg(-5) vs Pos(5): {}",
+          rank(SignedBacked.Neg, SignedBacked.Pos))
+    print("raw-backed Int8 Neg < Zero: {}", SignedBacked.Neg < SignedBacked.Zero)
+
+    print("unbacked enum A vs C: {}", rank(Unbacked.A, Unbacked.C))
+
+    // The control: `Vector.sort` orders with `>`, never `compare()`.
+    var v: Vector<UInt> = [1, 18446744073709551615, 7, 9223372036854775808]
+    v.sort()
+    print("sorted uint: {} {} {} {}", v.get(0)!, v.get(1)!, v.get(2)!, v.get(3)!)
+
+    var w: Vector<UInt8> = [1, 255, 7, 128]
+    w.sort()
+    print("sorted u8: {} {} {} {}", w.get(0)!, w.get(1)!, w.get(2)!, w.get(3)!)
+}

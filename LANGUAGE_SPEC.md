@@ -5662,6 +5662,17 @@ trait Comparable {          // requires Equatable
 - **Float NaN:** a `NaN` is unordered, so every ordering operator involving it
   is `false` (matching the primitive `fcmp`); in a three-way `compare`, an
   unordered pair yields `Equal` (there is no total order over NaN — documented).
+- **An integer orders at its OWN signedness** (design 252). `UInt.max > 1` is
+  true, `UInt.max.compare(&1)` is `Greater`, and the two agree wherever an
+  unsigned integer is compared — an operator, a `T: Comparable` bound, a sort, a
+  struct field or enum payload reached by a derived memberwise compare. A
+  **distinct alias** over an unsigned underlying orders as that underlying
+  (`Byte(255) > Byte(127)`): an alias has no operator surface of its own, and
+  the underlying's is the contract. A **raw-backed enum** orders by its declared
+  case values read at the BACKING's signedness, so `enum E: UInt8` with a case
+  past 127 orders that case highest; an unbacked enum orders by
+  declaration-order ordinals, which are non-negative and read the same either
+  way.
 
 ### The comparison operand is a reference
 

@@ -1,20 +1,21 @@
-// XFAIL: DF-270d — an ordered comparison over an UNSIGNED integer is lowered
-// SIGNED down two paths. (1) `<`/`<=`/`>`/`>=` whose LEFT operand is a distinct
-// alias over an unsigned underlying: a distinct alias carries `TypeKind.STRUCT`,
-// so the ordering dispatch routes it to the `compare()` path instead of icmp.
-// (2) `Comparable.compare()` on ANY unsigned integer, alias or not: the
-// three-way integer compare that path lands in hard-codes `icmp_signed`.
-// Both are one mechanism — `_emit_int_compare` (sawc/codegen/operators.py) is
-// signed with no operand-signedness input, and the dispatch above it
-// (`expr.op in ('<', '>', '<=', '>=')`) sends alias operands there.
+// An ordered comparison over an UNSIGNED integer lowers UNSIGNED (design 252,
+// closing DF-270d). Two faces of one mechanism, both pinned here.
 //
-// Face (2) is PRE-EXISTING and has nothing to do with `Byte`: `UInt.max`
-// compares Less than 1. Face (1) is what design 250 made reachable, and it is
-// why `std.cbor`'s `byte_at` and its UTF-8 boundary table are still `UInt8` —
-// a `Byte` there would make the validator accept every malformed sequence.
+// (1) `<`/`<=`/`>`/`>=` whose LEFT operand is a distinct alias over an unsigned
+// underlying. A distinct alias carries `TypeKind.STRUCT`, so the ordering
+// dispatch used to route it to the `compare()` path instead of icmp;
+// `_comparison_operand_type` resolves the alias now, and the underlying's
+// operator surface is the contract.
+// (2) `Comparable.compare()` on ANY unsigned integer, alias or not. The
+// three-way `_emit_int_compare` hard-coded `icmp_signed` and now takes the
+// operand's signedness from `_int_type_is_signed`, the one authority.
 //
-// The `==`/`!=`, `/`, `%`, `>>` and widening-cast paths are all correct on the
-// same values; only the ordering is wrong.
+// Before the fix `Byte(255) <= Byte(127)` was TRUE and `UInt.max.compare(&1)`
+// was `Less` — face (2) PRE-EXISTING and nothing to do with `Byte`, face (1)
+// what design 250 made reachable, and why `std.cbor`'s `byte_at` and its UTF-8
+// boundary table were held at `UInt8` (a `Byte` there made the validator accept
+// every malformed sequence). The `==`/`!=`, `/`, `%`, `>>` and widening-cast
+// lines were correct throughout and are kept as the controls.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // alias 255 <= 127: false

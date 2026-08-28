@@ -125,26 +125,48 @@ class OperatorsMixin:
 
         self.builder.position_at_end(cont_bb)
 
-    def _int_is_signed(self, expr) -> bool:
-        """Whether `expr`'s (integer) type is signed.
+    def _int_type_is_signed(self, saw_type) -> bool:
+        """THE signedness authority: whether a Saw integer TYPE is signed.
 
-        Reads the typechecker annotation, resolving type aliases first. Anything
-        not explicitly one of the unsigned kinds -- including an unannotated
-        expression -- is treated as signed, matching the codebase's
-        signed-centric integer handling (comparisons use icmp_signed, division
-        sdiv). Only genuine unsigned arithmetic (`let u: UInt = ...`), which is
-        reliably annotated, needs the unsigned intrinsic; deferring to signed
-        elsewhere is both safe and correct for `Int`. This intentionally does NOT
-        use the fail-loud `_expr_type`: a missing annotation must not turn a
-        signedness hint into a hard compile error.
+        One question, one answer, one place (design 252). Substitutes the active
+        monomorphization FIRST and resolves type aliases SECOND, in that order --
+        a type parameter instantiated at a distinct alias over an unsigned
+        underlying (`T = Byte`) is unsigned, and resolving before substituting
+        would see a bare `T` and miss it. Anything not explicitly one of the
+        unsigned kinds -- including `None`, which is how an unannotated
+        expression arrives -- is SIGNED, matching the codebase's signed-centric
+        integer handling. Only genuine unsigned types, which are reliably
+        annotated, switch; deferring to signed elsewhere is correct for `Int`.
+
+        ENTRY POINTS (obligation 1 -- this is the funnel, and these are its
+        doors; a new signedness decision joins the list rather than growing a
+        copy):
+        - `_int_is_signed(expr)` below, which is the OPERAND door: checked
+          arithmetic (`+ - *`), `/`, `%`, `>>`, the ordered comparison icmp,
+          compound assignment (`statements.py`), the fixed-array bounds check,
+          and an optional-chain compound write (`optionals.py`).
+        - `_emit_compare` / `_emit_enum_compare`, the three-way `Comparable`
+          ordering: the operand TYPE for a primitive integer, the declared RAW
+          BACKING for a raw-backed enum's tag.
+        - `_widen_int_value` (`calls.py`), the implicit-widening extension.
+        - `_coerce_int_to_field` (`structs.py`), the struct-field coercion.
         """
-        resolved = expr.resolved_type
-        if resolved is None:
+        if saw_type is None:
             return True
         if self.type_param_context:
-            resolved = resolved.substitute(self.type_param_context)
-        resolved = self._resolve_type_alias(resolved)
-        return resolved.kind not in _UNSIGNED_INT_KINDS
+            saw_type = saw_type.substitute(self.type_param_context)
+        return self._resolve_type_alias(saw_type).kind not in _UNSIGNED_INT_KINDS
+
+    def _int_is_signed(self, expr) -> bool:
+        """Whether `expr`'s (integer) type is signed -- the OPERAND door onto
+        `_int_type_is_signed`.
+
+        Reads the typechecker annotation and hands it to the authority above; an
+        unannotated expression is signed by that rule. This intentionally does
+        NOT use the fail-loud `_expr_type`: a missing annotation must not turn a
+        signedness hint into a hard compile error.
+        """
+        return self._int_type_is_signed(expr.resolved_type)
 
     def _overflow_intrinsic(self, op: str, signed: bool, width: int):
         """Get (declaring on first use) the LLVM checked-arithmetic intrinsic
@@ -475,6 +497,11 @@ class OperatorsMixin:
                 return self.builder.fcmp_ordered(expr.op, left, right, name="fcmptmp")
             # String / struct / (payload-free or payload) enum: order via
             # `compare()`. Everything else (integers, raw pointers) uses icmp.
+            # `st` is ALIAS-RESOLVED (design 252), so a distinct alias over a
+            # primitive underlying kinds as that underlying and lands in the icmp
+            # branch: a distinct alias has no operator surface of its own, and
+            # the STRUCT kind it carries used to route `Byte(255) <= Byte(127)`
+            # into the `compare()` path, which answered TRUE.
             if st is not None and st.kind in (TypeKind.STRING, TypeKind.STRUCT,
                                               TypeKind.ENUM):
                 return self._ordering_to_bool(expr.op,
@@ -484,7 +511,7 @@ class OperatorsMixin:
             # `UInt64.max > 1` would be false (design 41 / mirror of the udiv
             # split above). Only genuine unsigned kinds switch; Int and raw
             # pointers stay signed as before.
-            icmp = (self.builder.icmp_signed if self._int_is_signed(expr.left)
+            icmp = (self.builder.icmp_signed if self._int_type_is_signed(st)
                     else self.builder.icmp_unsigned)
             return icmp(expr.op, left, right, name="icmptmp")
 
@@ -788,8 +815,17 @@ class OperatorsMixin:
 
     def _comparison_operand_type(self, expr: BinaryOp):
         """The Saw type a `< <= > >=` operand was checked at (same extraction as
-        the equality path), substituted for the active monomorphization."""
-        return self._equality_operand_type(expr)
+        the equality path), substituted for the active monomorphization and
+        ALIAS-RESOLVED.
+
+        The resolution is what keeps the ordering dispatch honest (design 252).
+        A distinct alias over a primitive carries `TypeKind.STRUCT`, and the
+        dispatch reads the kind to decide icmp-vs-`compare()`; unresolved, a
+        `Byte` operand took the `compare()` path, whose three-way integer
+        compare was unconditionally signed. The equality path resolves inside
+        `_emit_equals` instead, which is why `==` was never wrong here."""
+        st = self._equality_operand_type(expr)
+        return self._resolve_type_alias(st) if st is not None else None
 
     def _ordering_tags(self):
         """(less, equal, greater) tag ints for the builtin Ordering enum. Falls
@@ -815,13 +851,24 @@ class OperatorsMixin:
             return self.builder.icmp_signed('!=', cmp_i32, ir.Constant(i32, less), name="ge")
         raise ValueError(f"not an ordering operator: {op}")
 
-    def _emit_int_compare(self, left, right):
-        """Three-way integer compare -> Ordering tag (i32). Signed, matching the
-        rest of the comparison codegen."""
+    def _emit_int_compare(self, left, right, signed: bool = True):
+        """Three-way integer compare -> Ordering tag (i32), at the operand's own
+        SIGNEDNESS (design 252).
+
+        This is the ordering half of the icmp split `/` and `%` have carried
+        since design 41: an unsigned value with the high bit set reads as
+        negative under `icmp_signed`, so `UInt.max.compare(&1)` answered `Less`
+        and every `Comparable`-bounded generic, sort and raw-backed-enum
+        ordering over unsigned keys inherited that. The signedness is the
+        CALLER's to supply because this emitter sees LLVM values only; every
+        caller reads it off `_int_type_is_signed`, and `signed=True` is the
+        default for the tag compares whose operand is a compiler-assigned
+        non-negative ordinal (where both readings agree)."""
         less, equal, greater = self._ordering_tags()
         i32 = ir.IntType(32)
-        lt = self.builder.icmp_signed('<', left, right, name="cmp_lt")
-        gt = self.builder.icmp_signed('>', left, right, name="cmp_gt")
+        icmp = self.builder.icmp_signed if signed else self.builder.icmp_unsigned
+        lt = icmp('<', left, right, name="cmp_lt")
+        gt = icmp('>', left, right, name="cmp_gt")
         acc = self.builder.select(gt, ir.Constant(i32, greater),
                                   ir.Constant(i32, equal), name="cmp_ge")
         return self.builder.select(lt, ir.Constant(i32, less), acc, name="cmp3")
@@ -852,7 +899,11 @@ class OperatorsMixin:
             if k == TypeKind.ENUM:
                 return self._emit_enum_compare(left, right, st)
         # Integers (incl. payload-free enum tags reaching here as a fallback).
-        return self._emit_int_compare(left, right)
+        # `st` is alias-resolved above, so a `Byte`/`UInt` operand orders
+        # unsigned here and at every position that recurses into this emitter --
+        # a struct's memberwise compare, an enum payload field, a tuple element,
+        # and the `Comparable` bound's `a.compare(&b)` (design 252).
+        return self._emit_int_compare(left, right, self._int_type_is_signed(st))
 
     def _generate_bound_comparison_call(self, expr):
         """`a.equals(&b)` / `a.compare(&b)` reached through a trait BOUND.
@@ -954,6 +1005,16 @@ class OperatorsMixin:
             acc = self.builder.select(is_eq, acc, fc, name="lex_sel")
         return acc
 
+    def _enum_tag_is_signed(self, saw_type) -> bool:
+        """Whether a payload-free enum's tag orders signed: its DECLARED RAW
+        BACKING's signedness (design 145 unit B2 makes the enum BE that integer),
+        or signed for an unbacked enum, whose tags are non-negative ordinals.
+        Reads the backing the same way the `as` cast lowering does."""
+        name = getattr(saw_type, 'enum_name', None)
+        sym = self.namespace.lookup_enum(name) if name else None
+        raw = getattr(sym, 'raw_type', None) if sym else None
+        return self._int_type_is_signed(raw) if raw is not None else True
+
     def _emit_enum_compare(self, left, right, saw_type):
         """Enum ordering (design 48): order by variant tag (declaration order),
         then, for equal tags, lexicographically over the active variant's payload
@@ -965,11 +1026,20 @@ class OperatorsMixin:
         i32 = ir.IntType(32)
         less, equal, greater = self._ordering_tags()
 
-        # Payload-free enum: the value IS the tag; compare tags three-way.
+        # Payload-free enum: the value IS the tag; compare tags three-way, at
+        # the DECLARED BACKING's signedness (design 252). A raw backing pins the
+        # tag values, so `enum E: UInt8` with a case past 127 is a genuinely
+        # unsigned tag -- it read as negative under the old unconditional signed
+        # compare, and `Backed.High(200) > Backed.Low(1)` answered false. An
+        # unbacked enum's tags are compiler-assigned non-negative ordinals, where
+        # both readings agree, so it keeps the signed default.
         # design 246 Unit B: a payload-carrying enum is an IDENTIFIED struct.
         if not isinstance(llvm_enum_type, ir.BaseStructType):
-            return self._emit_int_compare(left, right)
+            return self._emit_int_compare(left, right,
+                                          self._enum_tag_is_signed(saw_type))
 
+        # A raw backing forbids payload cases, so a payload-carrying enum's tag
+        # is always the i32 ordinal: signed, and the reading does not matter.
         left_tag = self.builder.extract_value(left, 0, name="l_tag")
         right_tag = self.builder.extract_value(right, 0, name="r_tag")
         tag_cmp = self._emit_int_compare(left_tag, right_tag)

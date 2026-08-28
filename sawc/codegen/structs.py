@@ -168,7 +168,7 @@ class StructsMixin:
             return value
         if value.type.width == field_llvm.width:
             return value
-        signed = resolved.kind not in self._UNSIGNED_INT_KINDS
+        signed = self._int_type_is_signed(resolved)   # design 252's authority
         width = field_llvm.width
         if isinstance(value, ir.Constant):
             v = value.constant

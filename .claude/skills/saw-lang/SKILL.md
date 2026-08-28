@@ -3523,34 +3523,30 @@ construct in the owner and lend `&driver` down.
   the parameter and arrives in the generic body, never at one caller. Reach the
   place through a borrow if you cannot bound it.
 - **BYTE — the prelude type of a byte value (design 250).** `type Byte = UInt8`,
-  a distinct alias, no import. It flows OUT freely (equality, mask, arithmetic,
-  a `UInt8` parameter, `as Int` — ordered comparison is the one exception today,
-  see the warning below) and IN only through `Byte(...)` or a byte-producing
-  API, which is the whole design: decoder math pays no tax and no integer
-  becomes a raw byte by accident.
+  a distinct alias, no import. It flows OUT freely (equality, ordered
+  comparison, mask, arithmetic, a `UInt8` parameter, `as Int`) and IN only
+  through `Byte(...)` or a byte-producing API, which is the whole design:
+  decoder math pays no tax and no integer becomes a raw byte by accident.
   ```saw
   let b = s.byte_at(0)          // Byte; so are s.bytes(), d.get(i), d.pop(),
                                 //   d.iter()'s element, FixedBuf.get
   if b == 0x0A { }              // equality — the literal adopts as UInt8
+  if b < 0x80 { }               // ordered too, and it answers UNSIGNED
   let n = b as Int              // widen for scalar assembly (0..255, unsigned)
   let _ = try d.push(b)         // sinks take UInt8, so a Byte flows in
   let bad: Byte = 65            // error — write Byte(65)
   static LF: Byte = 10          // a `static` DOES adopt a bare literal
   ```
-  **DO NOT ORDER-COMPARE A `Byte` YET (DF-270d, open).** `<`/`<=`/`>`/`>=` with
-  a `Byte` (or any distinct alias over an unsigned type) on the LEFT is lowered
-  SIGNED, so `b <= 127` is TRUE for `b == 255` and `b > 127` is FALSE. A
-  distinct alias carries `TypeKind.STRUCT`, so the ordering dispatch sends it to
-  the `compare()` path, whose three-way integer compare hard-codes
-  `icmp_signed`. The SAME `_emit_int_compare` makes `Comparable.compare()` wrong
-  on ANY unsigned integer — `UInt.max.compare(&1)` is `Less` — which is
-  pre-existing and has nothing to do with `Byte`. Sound today on the same
-  values: `==`/`!=`, `/`, `%`, `>>`, widening casts, printing, `>` between two
-  plain `UInt8`s inside a `<T: Comparable>` body, and a two-sided range test
-  whose bounds are both above 127 (`b >= 128 && b < 192` maps to exactly the
-  same set under both lowerings). Widen first (`b as Int < 128`) until the fix lands;
-  `examples/unsigned_ordered_comparison.saw` is the pin. It is why `std.cbor`'s
-  `byte_at` and UTF-8 boundary table are still `UInt8`.
+  **ORDERED COMPARISON WORKS SINCE Aug 28 (design 252, closing DF-270d) —
+  SUSPECT IT IN OLDER BUILDS.** `<`/`<=`/`>`/`>=` with a `Byte` (or any distinct
+  alias over an unsigned type) on the LEFT used to be lowered SIGNED, so
+  `b <= 127` was TRUE for `b == 255` and `b > 127` was FALSE; and the same
+  emitter made `Comparable.compare()` wrong on ANY unsigned integer
+  (`UInt.max.compare(&1)` was `Less`), which reached every `Comparable`-bounded
+  generic, an unsigned struct FIELD or enum PAYLOAD compared memberwise, and a
+  raw-backed `enum E: UInt8` whose case value passes 127. All of it answers
+  unsigned now, and `b as Int < 128` is no longer the workaround it was.
+  `examples/unsigned_ordered_comparison.saw` is the regression test.
   SINKS keep `UInt8` parameters (`Data.set`/`push`, `FixedBuf.set`,
   `String.index_of`'s needle, `Encoder.write_byte`, `Data`'s `d[i]` place) —
   one declaration takes a `Byte`, a `UInt8` and a literal. A `Byte`-TYPED

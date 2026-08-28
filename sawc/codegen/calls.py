@@ -20,7 +20,6 @@ from ast_nodes import (
     NoneLiteral, expr_diverges
 )
 from .mangle import content_tag, mangle_type
-from .operators import _UNSIGNED_INT_KINDS
 
 
 @dataclass
@@ -187,13 +186,10 @@ class CallsMixin:
         """
         if value.type.width >= to_llvm.width:
             return value
-        unsigned = False
-        if from_type is not None:
-            resolved = self._resolve_type_alias(from_type)
-            if self.type_param_context:
-                resolved = resolved.substitute(self.type_param_context)
-            unsigned = resolved.kind in _UNSIGNED_INT_KINDS
-        if unsigned:
+        # Design 252 put the substitute-then-resolve order in one place; an
+        # absent `from_type` answers SIGNED there, which is this docstring's
+        # stated fallback.
+        if not self._int_type_is_signed(from_type):
             return self.builder.zext(value, to_llvm, name="widen_zext")
         return self.builder.sext(value, to_llvm, name="widen_sext")
 

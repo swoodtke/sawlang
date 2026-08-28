@@ -41,8 +41,10 @@ engine — the `Task.spawn` obligation, its provenance-keyed fault, the exit
 cancel-then-join, the borrow ban at the form, `detach` on both engines, and the
 spawn brace's explicit capture list; A01 plus A03-A17, design 234 unit 3's
 allocator-failure tier — one row per op family that now reports, and five for
-the edges the flip deliberately does not cross; and V50, design 247 unit 0's
-deinit-exactly-once row for a driven move-out.)
+the edges the flip deliberately does not cross; V50, design 247 unit 0's
+deinit-exactly-once row for a driven move-out; and W25-W26, design 252 unit 1's
+unsigned-comparison matrix — the two faces of DF-270d, both covered by
+`examples/` files rather than files here.)
 
 ## How to read it
 
@@ -573,7 +575,10 @@ change through the platform `Int`/`UInt` pair is refused wherever a value lands
 in a new home, and design 170's three spellings are how it is said. W06-W19 are
 design 195's operator matrix and W20-W24 design 205's transfer matrix, one per
 line; W11, W17 and W22-W24 are the CONTROLS that pin what the rules do not
-touch.
+touch. Rule 4 (design 252): once the operands DO agree, the operation is
+lowered at their own signedness — W09 refuses the mixed pair, W25 and W26 pin
+the ANSWER an agreeing unsigned pair gets, at the ordered operators and at
+`Comparable.compare()` respectively.
 
 | Row | Checks | Covered by | Ruling |
 |-----|--------|------------|--------|
@@ -596,6 +601,8 @@ touch.
 | W22 | control: a LOSSLESS widening through the platform pair stays legal at every transfer position, and extends by the SOURCE's signedness | `W22_lossless_widening_transfer_positions.saw`, `int_widening_transfer_preserves_unsigned.saw`, `int_widening_argument_positions.saw` | 205 — the fence on W20/W21, and what makes the admission POSITIONAL rather than a loosening of general assignability. Four positions were wrong when the row was written (DF-205a: the implicit TAIL return, a fixed-array LITERAL element, a tuple element, an optional payload — the array face an outright ICE), which is DF-195a's mechanism at the positions its census did not reach |
 | W23 | control: a BARE literal still adopts a fixed-width slot at every transfer position | `W23_bare_literal_adopts_transfer_positions.saw`, and the cross-module position at `qualified_call_literal_adopts_parameter_width.saw` + `qualified_call_threads_the_callee_signature.saw` | 205 — design 205's W17: the ergonomic the closed admission existed for, done properly by design 87's expected-type propagation. DF-238a was a POSITION this row's matrix could not reach, because it is only expressible across a module boundary: a MODULE-QUALIFIED free-function argument, where the callee's signature was never threaded, so the literal did not adopt and design 205's closing of the platform-pair admission turned a silent truncation into a refusal of an ordinary bare literal. Fixed Aug 21; the two files are the refusing and the accepting halves |
 | W24 | control: two FIXED widths never convert implicitly at a transfer, either direction, lossless or not | `W24_fixed_width_transfer_never_converts_error.saw` | 205 — the no-code-change row (design 53), and the reference the platform pair was brought into line with: if a later brief loosens one of the two it has to answer for the other |
+| W25 | an ORDERED OPERATOR over an unsigned integer answers unsigned, at all four operators x {`UInt8`, `UInt`, `Byte`, a user alias over `UInt16`/`UInt64`} x the boundary values, with the alias on either side | `unsigned_ordered_comparison_matrix.saw`, and the two-face repro at `unsigned_ordered_comparison.saw` | 252 — was DF-270d face (a), a WRONG ANSWER: `Byte(255) <= Byte(127)` was TRUE. A distinct alias carries `TypeKind.STRUCT`, so the ordering dispatch kinded it into the `compare()` path instead of the icmp branch that has consulted `_int_is_signed` since design 41. `_comparison_operand_type` resolves the alias now, which is the rule "a distinct alias has no operator surface of its own; the underlying's is the contract" applied at the one place the kind is read. The plain `UInt8`/`UInt` rows are the controls that were always right |
+| W26 | `Comparable.compare()` over an unsigned integer answers unsigned — through a generic bound, and at every position that recurses into the same three-way emitter (a struct's memberwise compare, an enum PAYLOAD field, a raw-backed enum's TAG) | `unsigned_comparable_compare.saw`, `unsigned_handle_ordering.saw` | 252 — was DF-270d face (b), PRE-EXISTING and nothing to do with `Byte`: `UInt.max.compare(&1)` answered `Less`, reaching every `Comparable`-bounded generic and `sos/kernel/abi`'s eight `type XHandle = UInt`. The obligation-4 sweep found two cells the finding did not name — an unsigned STRUCT FIELD / enum PAYLOAD compared through the memberwise recursion, and a raw-backed `enum E: UInt8` whose case value passes 127, where `Backed.High(200) > Backed.Low(1)` answered false. All three are `_emit_int_compare`, which now takes the operand's signedness from `_int_type_is_signed` (the enum tag reads its DECLARED BACKING, and an unbacked enum's non-negative ordinals keep the signed default). `Vector.sort` is the control: it orders with `>` and was right throughout |
 
 ## Comparison operators must not consume an operand
 

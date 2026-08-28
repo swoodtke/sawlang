@@ -1,0 +1,56 @@
+// Design 252 — the sos handle-ordering cell, as a plain compile-and-run example
+// (no kernel build involved).
+//
+// `sos/kernel/abi` declares eight `type XHandle = UInt` aliases. Under DF-270d
+// every ordered comparison over one lowered SIGNED, so a handle-table bound
+// test, a range check and a sorted-handle scan all read a high-bit handle as
+// negative: `ProcessHandle(1 << 63) < ProcessHandle(4)` answered TRUE and a
+// validity test of the shape `h < LIMIT` admitted every handle above 2^63.
+// This is that shape at the values that separate the two lowerings.
+//
+// NOTE on the last line: a distinct alias carries no conformances of its own
+// (`extension Byte` is refused for the same reason), so a `<T: Comparable>`
+// bound is satisfied by the UNDERLYING — `rank(h as UInt, ...)`. That is the
+// alias rule, not a consequence of this fix.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// high handle valid against limit 64: false
+// low handle valid against limit 64: true
+// max handle valid against limit 64: false
+// high handle sorts after low: true
+// handles in range 16..=48: false true false
+// ordering of high vs low: Greater
+
+type ProcessHandle = UInt
+
+static HANDLE_LIMIT: UInt = 64
+
+func valid(h: ProcessHandle) -> Bool {
+    h < HANDLE_LIMIT
+}
+
+func in_range(h: ProcessHandle) -> Bool {
+    h >= 16 && h <= 48
+}
+
+func rank<T: Comparable>(a: T, b: T) -> String {
+    match a.compare(&b) {
+        case Less -> { "Less" },
+        case Equal -> { "Equal" },
+        case Greater -> { "Greater" }
+    }
+}
+
+func main() {
+    let high = ProcessHandle(9223372036854775808)   // 1 << 63
+    let low = ProcessHandle(4)
+    let biggest = ProcessHandle(18446744073709551615)
+
+    print("high handle valid against limit 64: {}", valid(high))
+    print("low handle valid against limit 64: {}", valid(low))
+    print("max handle valid against limit 64: {}", valid(biggest))
+    print("high handle sorts after low: {}", high > low)
+    print("handles in range 16..=48: {} {} {}",
+          in_range(low), in_range(ProcessHandle(32)), in_range(high))
+    print("ordering of high vs low: {}", rank(high as UInt, low as UInt))
+}

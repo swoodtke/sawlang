@@ -1,0 +1,111 @@
+// Design 252 — the ORDERED-OPERATOR half of the unsigned comparison matrix:
+// all four of `<` `<=` `>` `>=` over {UInt8, UInt, Byte, a user alias over
+// UInt16}, at the boundary values that distinguish a signed lowering from an
+// unsigned one (a high-bit-set value against a clear one, and max against 1).
+//
+// Every alias row was WRONG before the fix (DF-270d face (a)): a distinct alias
+// carries `TypeKind.STRUCT`, so the ordering dispatch sent it to the `compare()`
+// path whose three-way integer compare was unconditionally signed, and
+// `Byte(255) <= Byte(127)` was TRUE. The plain `UInt8`/`UInt` rows were already
+// right — they reached the icmp branch, which has consulted `_int_is_signed`
+// since design 41 — and are the controls that pin what the fix must not move,
+// together with the signed rows at the bottom.
+//
+// Each line prints `<` `<=` `>` `>=` in that order for the pair it names.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// u8 255 vs 127: false false true true
+// u8 128 vs 127: false false true true
+// u8 0 vs 255: true true false false
+// u8 255 vs 255: false true false true
+// uint max vs 1: false false true true
+// uint 2^63 vs 1: false false true true
+// uint 0 vs max: true true false false
+// byte 255 vs 127: false false true true
+// byte 128 vs 127: false false true true
+// byte 0 vs 255: true true false false
+// byte 255 vs 255: false true false true
+// word 65535 vs 32767: false false true true
+// word 32768 vs 32767: false false true true
+// word 0 vs 65535: true true false false
+// mixed u8 255 vs byte 127: false false true true
+// mixed byte 255 vs u8 127: false false true true
+// alias over UInt64 max vs 1: false false true true
+// i8 -1 vs 1: true true false false
+// i8 -128 vs 127: true true false false
+// int -5 vs 3: true true false false
+// alias over Int8 -1 vs 1: true true false false
+
+type Word = UInt16
+type Big = UInt64
+type Small = Int8
+
+func u8s(a: UInt8, b: UInt8, label: String) {
+    print("{}: {} {} {} {}", label, a < b, a <= b, a > b, a >= b)
+}
+
+func uints(a: UInt, b: UInt, label: String) {
+    print("{}: {} {} {} {}", label, a < b, a <= b, a > b, a >= b)
+}
+
+func bytes(a: Byte, b: Byte, label: String) {
+    print("{}: {} {} {} {}", label, a < b, a <= b, a > b, a >= b)
+}
+
+func words(a: Word, b: Word, label: String) {
+    print("{}: {} {} {} {}", label, a < b, a <= b, a > b, a >= b)
+}
+
+func main() {
+    u8s(255, 127, "u8 255 vs 127")
+    u8s(128, 127, "u8 128 vs 127")
+    u8s(0, 255, "u8 0 vs 255")
+    u8s(255, 255, "u8 255 vs 255")
+
+    uints(18446744073709551615, 1, "uint max vs 1")
+    uints(9223372036854775808, 1, "uint 2^63 vs 1")
+    uints(0, 18446744073709551615, "uint 0 vs max")
+
+    bytes(Byte(255), Byte(127), "byte 255 vs 127")
+    bytes(Byte(128), Byte(127), "byte 128 vs 127")
+    bytes(Byte(0), Byte(255), "byte 0 vs 255")
+    bytes(Byte(255), Byte(255), "byte 255 vs 255")
+
+    words(Word(65535), Word(32767), "word 65535 vs 32767")
+    words(Word(32768), Word(32767), "word 32768 vs 32767")
+    words(Word(0), Word(65535), "word 0 vs 65535")
+
+    // The alias on each side in turn, against its own underlying. The dispatch
+    // reads the LEFT operand's type first, so both orders are a distinct cell.
+    let plain_hi: UInt8 = 255
+    let plain_lo: UInt8 = 127
+    let byte_hi = Byte(255)
+    let byte_lo = Byte(127)
+    print("mixed u8 255 vs byte 127: {} {} {} {}",
+          plain_hi < byte_lo, plain_hi <= byte_lo,
+          plain_hi > byte_lo, plain_hi >= byte_lo)
+    print("mixed byte 255 vs u8 127: {} {} {} {}",
+          byte_hi < plain_lo, byte_hi <= plain_lo,
+          byte_hi > plain_lo, byte_hi >= plain_lo)
+
+    let big_hi = Big(18446744073709551615)
+    let big_lo = Big(1)
+    print("alias over UInt64 max vs 1: {} {} {} {}",
+          big_hi < big_lo, big_hi <= big_lo, big_hi > big_lo, big_hi >= big_lo)
+
+    // Signed controls: nothing about these moves.
+    let sa: Int8 = -1
+    let sb: Int8 = 1
+    print("i8 -1 vs 1: {} {} {} {}", sa < sb, sa <= sb, sa > sb, sa >= sb)
+    let smin: Int8 = -128
+    let smax: Int8 = 127
+    print("i8 -128 vs 127: {} {} {} {}",
+          smin < smax, smin <= smax, smin > smax, smin >= smax)
+    let ia = -5
+    let ib = 3
+    print("int -5 vs 3: {} {} {} {}", ia < ib, ia <= ib, ia > ib, ia >= ib)
+    let ta = Small(-1)
+    let tb = Small(1)
+    print("alias over Int8 -1 vs 1: {} {} {} {}",
+          ta < tb, ta <= tb, ta > tb, ta >= tb)
+}
