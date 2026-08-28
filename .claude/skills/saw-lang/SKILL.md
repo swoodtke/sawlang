@@ -332,13 +332,16 @@ tier: trivial/POD (bitwise) and the refcounted family (String, Arc, Data,
 escaping closures — a free bump) are one tier, and which of the two a type uses
 is a codegen detail no rule above it sees. It is DERIVED, not declared — see the
 automatic tier below. **`NoCopy`** (File, Mutex, Box, StringBuilder,
-TcpListener/TcpStream, Command, TaskGroup, SpinLock, Once, Atomic — and
-currently Map/Set: their `ExplicitCopy` is future work, `.copy()` on them is a
-compile error) is the declared opt-OUT: `move` only. **`ExplicitCopy`** is an
-ordinary synthesizable trait naming the DUPLICABLE family — every `Copy` type
-satisfies it, plus the declared conformers (Vector, whose conformance is
-bounded `T: ExplicitCopy`). A type declaring `ExplicitCopy` and nothing else is
-move-only: `move v` or `v.copy()` at every transfer.
+TcpListener/TcpStream, Command, TaskGroup, SpinLock, Once, Atomic) is the
+declared opt-OUT: `move` only. **`ExplicitCopy`** is an ordinary
+synthesizable trait naming the DUPLICABLE family — every `Copy` type
+satisfies it, plus the declared conformers (Vector, Map, Set — Vector's
+conformance is bounded `T: ExplicitCopy`; Map's/Set's is bounded on their
+key/value or element type the same way, design 251, so `Map<K, V>`/`Set<T>`
+is `ExplicitCopy` exactly when `K`/`V`/`T` are and stays move-only otherwise
+— `Map<String, File>` has no `.copy()`, a compile error naming `File`). A
+type declaring `ExplicitCopy` and nothing else is move-only: `move v` or
+`v.copy()` at every transfer.
 The two bounds differ: `<T: Copy>` admits only what duplicates silently,
 `<T: ExplicitCopy>` reads "duplicable, possibly with ceremony" and is what
 licenses a spelled `.copy()` on an abstract `T`. An `ExplicitCopy` argument

@@ -485,9 +485,10 @@ Saw has three words for what happens when a value is transferred:
 - **Copy** — the compiler may duplicate it with nothing written at the site.
   Trivial types (copied bitwise) and the refcounted ones (`String`, `Arc`,
   `Data`) are both `Copy`.
-- **NoCopy** — can only be moved (`File`, `Mutex`, `Map`, `Set`).
+- **NoCopy** — can only be moved (`File`, `Mutex`, and a `Map`/`Set`/
+  `Vector` whose key, value, or element cannot be duplicated at all).
 - **ExplicitCopy** — can be duplicated, but only with a spelled `.copy()`
-  (`Vector`).
+  (`Vector`, and `Map`/`Set` when their key/value or element type is too).
 
 ```saw
 let a = Point(x: 1, y: 2)

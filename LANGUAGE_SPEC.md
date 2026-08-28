@@ -4424,10 +4424,12 @@ trait ExplicitCopy: Deinit {
 
 A type declaring `ExplicitCopy` and nothing else is **never** copied
 implicitly — the compiler demands `move` at a transfer out of an existing
-binding, and any duplication is a visible `v.copy()`. This is the policy for expensive,
-resource-owning types such as `Vector` — today the only conforming std type
-(`Map`/`Set` remain `NoCopy` pending their `copy()`). Enforcement reuses the
-`NoCopy` value-transfer checkpoint, with its own diagnostic:
+binding, and any duplication is a visible `v.copy()`. This is the policy for
+expensive, resource-owning types such as `Vector`, `Map` and `Set` (design
+251) — each conditionally, so `Map<K, V>`/`Set<T>` is `ExplicitCopy` exactly
+when its key/value type(s) are, and stays implicitly move-only otherwise
+(there is simply no `copy()` to call). Enforcement reuses the `NoCopy`
+value-transfer checkpoint, with its own diagnostic:
 
 ```saw
 extension Buf: ExplicitCopy {
@@ -5911,8 +5913,13 @@ Vector-backed linear-scan `Map` was **retired** in design 54; there is now one
 - Slots are an enum `{ Empty, Tombstone, Occupied(key, value) }`, so a fresh
   table is deinit-safe even for owning key/value types; slot updates/removals
   move the old slot out (`Vector.swap_out`, a refcount-neutral move), so nothing
-  leaks or double-frees. `Map` is **NoCopy** (move-only): transfer with `move`;
-  there is no implicit `.copy()` (an `ExplicitCopy` conformance is future work).
+  leaks or double-frees. `Map` is **`ExplicitCopy` when `K` and `V` both are**
+  (design 251): transfer with `move`, duplicate with a spelled `.copy()`
+  (panics if the allocator refuses — the trait's hook is infallible, mirroring
+  `Vector.copy`) or the reporting `try_copy()`. Each key and value copies at
+  its own tier into a brand-new table. A `Map<K, V>` whose key or value cannot
+  be duplicated at all (e.g. a `NoCopy` value) simply has no `copy()` to call,
+  and stays implicitly move-only.
 - **Iteration order is UNSPECIFIED** (table/bucket order). For deterministic
   output, sort a `keys()` snapshot (`String`/`Int` are `Comparable`).
 
@@ -5920,10 +5927,13 @@ Vector-backed linear-scan `Map` was **retired** in design 54; there is now one
 
 **Status: implemented** (`designs/54`). An unordered hash set, implemented as a
 thin wrapper over `Map<T, SetMark>` (a zero-field unit value), so there is one
-hash implementation to trust. `Set` is **NoCopy**; order is **UNSPECIFIED**
-(sort a `to_vector()` snapshot for deterministic output). Elements inherit the
-Map **key** rule: they must be copyable-with-retain (trivial/POD, `Copy`,
-or `ExplicitCopy`) — a NoCopy / move-only-Deinit element is a compile error.
+hash implementation to trust. `Set` is **`ExplicitCopy` when its element is**
+(design 251, riding `Map`'s own conformance — `Set.copy()` builds
+`Set(map: self.map.copy())`); order is **UNSPECIFIED** (sort a `to_vector()`
+snapshot for deterministic output). Elements inherit the Map **key** rule:
+they must be copyable-with-retain (trivial/POD, `Copy`, or `ExplicitCopy`) —
+a NoCopy / move-only-Deinit element is a compile error, which is also why a
+`Set`'s element bound already covers what its `copy()` needs.
 
 - Core: `insert(v) -> Result<Bool, AllocError>` (the `Ok` payload is true iff
   newly inserted), `remove(v) -> Bool`, `contains(v) -> Bool`, `len()`,
