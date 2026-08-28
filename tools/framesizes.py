@@ -95,21 +95,9 @@ def discover(groups):
                 "--module-path", f"toml={os.path.join(REPO, 'libs', 'toml', 'src')}",
                 "--module-path",
                 f"semver={os.path.join(REPO, 'libs', 'semver', 'src')}"]))
-    if "sos" in groups:
-        # Freestanding riscv32, exactly as tools/sos_runner.py builds it.
-        sos_flags = ["--freestanding", "--no-hidden-alloc",
-                     "--target", "riscv32-unknown-none-elf",
-                     "--target-features", "+m,+a,+c"]
-        for rel in [os.path.join("sos", "kernel", "main.saw")]:
-            path = os.path.join(REPO, rel)
-            if os.path.exists(path):
-                targets.append(("sos", "sos-kernel", path, sos_flags))
-        tests = os.path.join(REPO, "sos", "tests")
-        if os.path.isdir(tests):
-            for name in sorted(os.listdir(tests)):
-                if name.endswith(".saw"):
-                    targets.append(("sos", f"sos-{name[:-4]}",
-                                    os.path.join(tests, name), sos_flags))
+    # The `sos` measurement group left with the kernel (design 238 unit 5,
+    # Aug 28 2026 — sos/ lives in the sawos repository now). sawos can regrow
+    # the group beside its own harness if the measurement is wanted there.
     return targets
 
 

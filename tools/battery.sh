@@ -13,7 +13,7 @@
 # The exit code is the number of failing stages.
 #
 #   tools/battery.sh                    # everything
-#   tools/battery.sh --quick            # skip the slow lanes (sos, freestanding, bootstrap)
+#   tools/battery.sh --quick            # skip the slow lanes (freestanding, bootstrap, reemit, irdet, gmgate)
 #   tools/battery.sh suite irdet        # named stages only
 #   tools/battery.sh --list             # what the stages are
 #
@@ -80,7 +80,6 @@ STAGES=(
     "irdet|yes|IR determinism over the WHOLE corpus (not a sample)|__IRDET__"
     "gmgate|yes|ownership + concurrency oracles under Guard Malloc (macOS)|$PY tools/gmgate.py"
     "bootstrap|yes|Blade builds and tests Blade, stage0 through stage2|$PY tools/blade_bootstrap.py"
-    "sos|yes|the SOS kernel + root server, booted under QEMU|$PY tools/sos_runner.py"
     "freestanding|yes|the freestanding feature suite, booted under QEMU|$PY tools/freestanding_runner.py"
 )
 

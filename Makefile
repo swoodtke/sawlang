@@ -1,6 +1,6 @@
 # Saw Language Makefile
 
-.PHONY: test test-verbose test-sequential clean help blade blade-bootstrap install sos-test freestanding-test lexdiff astdiff astgraft irdet irdet-all gmgate abidoc bttable bttable-sizes lldbtest ircontract preludegate icebreadcrumb toolchain
+.PHONY: test test-verbose test-sequential clean help blade blade-bootstrap install freestanding-test lexdiff astdiff astgraft irdet irdet-all gmgate abidoc bttable bttable-sizes lldbtest ircontract preludegate icebreadcrumb toolchain
 
 # Default target
 all: test
@@ -50,26 +50,16 @@ install: blade
 	@echo "Installed sawc and blade -> $(PREFIX)"
 	@echo "  (add it to your PATH if it is not already there)"
 
-# SOS QEMU tests (designs 112, 140, 162): build the freestanding kernel AND the
-# root-server sosimg (via blade), stitch them, and run under QEMU `virt` on
-# EVERY architecture SOS targets — riscv32 and arm64 — asserting the console
-# transcript + emulator exit status. Either failing is red. Requires host tools
-# qemu-system-riscv32, qemu-system-aarch64, ld.lld, and clang (the harness
-# probes for them and prints install hints if missing). `--arch <name>` runs one,
-# for development.
-sos-test:
-	@python3 tools/sos_runner.py
-
 # The freestanding QEMU suite (design 238 unit 1): tiny programs that name the
 # compiler's freestanding features DIRECTLY — `--freestanding`,
 # `--no-hidden-alloc`, `--runtime-provider` + the rt/ABI.md check, cross-target
 # codegen (a 32-bit target from a 64-bit host), fixed-address linking,
 # `--module-path` composition, and `blade build --target <triple>` — built,
-# LINKED AND RUN under QEMU `virt` on riscv32 AND arm64. Same host tools as
-# sos-test; `--arch <name>` runs one, for development.
-#
-# It stands BESIDE sos-test rather than replacing it: design 238 unit 5 removes
-# `sos/` from this repository, and this is what keeps the coverage.
+# LINKED AND RUN under QEMU `virt` on riscv32 AND arm64. Requires
+# qemu-system-riscv32, qemu-system-aarch64, ld.lld, and clang (the harness
+# probes and prints install hints). `--arch <name>` runs one, for development.
+# This is the compiler's cross-target gate; the SOS kernel itself lives in the
+# sawos repository since design 238 unit 5 (Aug 28 2026) with its own harness.
 freestanding-test:
 	@python3 tools/freestanding_runner.py
 
@@ -219,7 +209,6 @@ help:
 	@echo "                         Example: make test-filter FILTER=enum"
 	@echo "  make blade           - Build the package manager into .build/blade"
 	@echo "  make install         - Put sawc + blade on a PATH (PREFIX=~/.local/bin)"
-	@echo "  make sos-test        - Build + boot the SOS kernel + root server under QEMU (riscv32 AND arm64)"
 	@echo "  make freestanding-test - Build + run the freestanding feature suite under QEMU (riscv32 AND arm64)"
 	@echo "  make lexdiff         - Diff the Saw lexer against sawc's over the corpus"
 	@echo "  make astdiff         - Dump every tracked .saw file and require stability"
