@@ -31,12 +31,8 @@ is scheduled and in what order is the whole of what they say.
 
 ## [QUEUE] — scheduled, in order (user-approved)
 
-- ~~DF-215f fix — the suspending-match moved-payload double release~~ **LANDED Aug 27** (designs/247-scrutinee-temp-migration.md, all three units; entry under design 215 below carries the landing note). `FAM_SCRUTINEE_TEMP` retired, every hoist temp take-read, the DF-218w residue SUBSUMED as predicted and DF-262a dissolved as a side effect. DF-242a/DF-255a were not subsumed and stay open
-- ~~Design 246~~ — recursive nominal types via indirection — LANDED Aug 27, entry below. `JsonValue` is writable; design 215 stage D unblocked
-- ~~DF-265a fix — MODULE-KEY the free-function registry~~ **LANDED Aug 27** (designs/249-module-keyed-functions.md, all three units; entry below carries the landing note). DF-242b CLOSED with it as predicted; DF-242c SURVIVED as predicted and stays open. `std.json.encode` has its natural name back, and DF-268a (std.json never joined the prelude gate) was found and fixed on the way
 - Design 250 — the `Byte` type (designs/250-byte-type.md; RULED IN PRINCIPLE Aug 27, user: "everything that uses bytes should use Byte" — SUPERSEDES 244's target, absorbs its census/funnels; OVERTURNS 245 §6's decline on probe evidence). Takes 244's queue slot. §5 sheet FULLY RESOLVED + DISPATCHED Aug 27 (constructor-form constants, prelude placement, rt out of v1, the SINK RULE with Data strict on reads/internals and lax at sinks); the naming rider dissolved — `append(b: Byte)` is the discrimination point, single-semantics sinks keep `UInt8` params. Agent DF range DF-270a+
 - Design 245 v1 — `Scalar` + `scalars()`, `chars()` and `append_scalar` REMOVED (designs/245-unicode-scalar-type.md §6; ruled Aug 27 — no literals in v1, prelude placement — and DISPATCHED same day on the user's "now", disjoint from the two items above). Literals + patterns stay open as later units
-- std.json unit 1 — the `JsonValue` tree (parse-to-DOM, DOM-to-text, Optional-returning accessors), EVENT-GATED on design 246 integrating rather than queue-ordered (user, Aug 27: resume once the recursive-types fix lands). GATE FIRED + DISPATCHED Aug 27, minutes after 246's integration gate went green — a FRESH Sonnet agent (the unit-2 agent could not be resumed once its integrated worktree was removed; the dispatch carries the context, and the lexical layer in sawc/std/json.saw was built for this reuse). MODEL RULING (user, Aug 27): the continuation stays SONNET deliberately — dogfood value, the design-203 logic (a simpler model surfaces more language pain as findings). Agent DF range DF-267a+. Pinned defaults carry over from the original dispatch: numbers Int-when-lexically-integral-and-in-range else Float, duplicate keys last-wins (matching the landed seam decode), get-shaped accessors return Optional; pretty-printing stays OUT of unit 1 (open). Landing owes the design-215 stage-D note an update
 - Design 218 unit 1.5 — monomorphization becomes a pre-codegen transform (RULED Aug 13; SCHEDULED Aug 24, user: MOVED UP, BEFORE the 238 split — the migration lands under the full in-tree gate battery and the sawos pin starts life post-1.5). Process per the 218 ruling: a FABLE SPEC AGENT authors the census first (every `_ensure_monomorphized_*` call site, the instance-re-check design, error attribution, the per-(template, type-args) cache), lead reviews, user rules, Opus implements. Expected closures ride it: DF-217i/j/k, S1 row p08a, plausibly DF-247a. Brief section: designs/218-enforcement-architecture.md unit 1.5. **SPEC AUTHORED Aug 25 (`designs/218c-monomorphization-spec.md`) and LEAD-RATIFIED same night under the overnight authorization — all six section-8 questions resolved as recommended (rationale in the spec's status header); none touched a user ruling. Probes: DF-247a NOT dissolved (own dispatch after 1.5, OQ5); two new findings (DF-258a: a nested unconditionally-suspending generic silently loses its yield — pinned at stage 0, flips stage 4; DF-258b: recursive instantiation growth HANGS the compiler — fixed by stage 1's depth limit). IMPLEMENTATION HELD (user, Aug 25 morning): the pipeline STOPS after the 234 flip integrates — 1.5's build dispatches on the user's go, against the ratified spec**
 - Design 238 — the sawos split (designs/238-sawos-split.md) — FULLY RULED Aug 24 (D-b1/b2/b3 ruled "absolute simplest, pre-1.0" — bin/ shims via make install; version-only `--version` check with the asymmetry documented + rigorous bumps as standing practice; the fetch creates its own venv). AFTER 218 unit 1.5 (re-ordered Aug 24), BEFORE the M3 ladder; UNITS 0-1 LANDED Aug 21, units 2-7 ready to dispatch when reached
 - M3 ladder — designs/232-sos-m3-sketch.md: unit 1.5 interruptibility, 2 CreateProcess, 2.75 handle lifecycle, 3 give, 4 Memory/IoMemory, 5 quotas, 5.5 death notifications, 6 money shot — runs IN sawos, after design 238
@@ -82,10 +78,8 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-259b — a reserved word in any declaration-name position gives a bare "Expected X name" that never says the word is reserved; five slots, one shared report (entry below, filed Aug 25 by the design-138 doc-sync sweep; PRE-EXISTING). Diagnostic-only, so no XFAIL pin
 - DF-259c — a TRAILING closure is not recognized inside a `try`/`try!`/`try?` operand, so `try! v.map { … }` collapses to a field access; the parenthesized argument is the workaround (entry below, filed Aug 25 by the design-138 doc-sync sweep; PRE-EXISTING, and the 234 flip is what makes it reachable from ordinary code). Pinned XFAIL, three cells and one control
 - DF-215g — a bare `None` compared `==` against a CALL expression's determined optional refuses to infer, where the annotated-local twin compiles (entry below, Aug 26)
-- ~~DF-262a — the container-head hoist's move-only refusal diagnostic names the compiler-internal frame field (`self.__head0…`) to the user~~ **DISSOLVED Aug 27 by design 247; LEAD-CONFIRMED CLOSED same day (probe re-run on main post-integration — both shapes compile, single release).** The refusal was the head temp's `value()` LEND meeting a move-only element; the head temp is take-read now, so there is no place to refuse and both filed shapes (`match get_maker("h0").build()` at a move-only tier, `if let r = try? suspending()` at `Res?`) compile and release exactly once. Probe: `.build/scratch/df262a.saw` on branch `worktree-agent-a15c1414bca26ee3b`
 - DF-262b — a suspending interpolation piece + `Task.spawn` at the same NoCopy result type + optional auto-wrap of the joined value is an LLVM-verifier ICE (filed Aug 27 by the DF-215f sweep; repro preserved verbatim in the 247 brief's appendix). NOT dissolved by design 247 — re-probed Aug 27 post-migration and it reproduces verbatim (`ret {i1, %"Res"} %"autowrap_val"` against `%Res = type { ptr }`), which is what places it in the ANF/auto-wrap machinery rather than the scrutinee-temp family
 - DF-264a — the `Copy` tier's conformance check skips the deinit-signature validation its ExplicitCopy/NoCopy siblings both have, so a `deinit(&self)` inside a `@synthesize Copy` reaches codegen and ICEs (entry below, filed Aug 27 from the user's scratch example)
-- DF-265a — two std files declaring same-named public generic free functions with DISTINGUISHABLE signatures is a hard `builtins failed to type-check` collision — a flat-namespace uniqueness check that predates the per-file-module scoping everything else follows (entry below, filed Aug 27 by the std.json build)
 - DF-266a — a bare leading-minus TAIL expression after a preceding `if { return }` block is an ICE at a BinaryOp node; the same tail after a `let` compiles (entry below, filed Aug 27 by the std.json build, lead-verified both cells)
 - DF-267a — an Optional method called DIRECTLY on a `borrows -> T?` lend's result resolves against the unwrapped payload type, contradicting DF-218a's tier-independent presence promise; `if let` is the working spelling (entry below, filed Aug 27 by std.json unit 1)
 - DF-267b — `Map.keys()` through an enum MATCH BINDING leaves the defaulted allocator parameter unresolved where the struct-field twin resolves (entry below, same filer)
@@ -101,70 +95,6 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-261e — an optional chain through a `Box<T>?` FIELD is `BindOptional lowered outside an optional chain`, with no recursion involved (entry below, filed Aug 27 by design 246; PRE-EXISTING)
 - DF-261f — a directly recursive SUSPENDING function makes the coroutine transform recurse forever, and escapes the ICE funnel as a raw Python traceback (entry below, filed Aug 27 by design 246; PRE-EXISTING, verified against main). Two halves: wrap the transform, then refuse the shape
 
-
-## Design 246 — recursive nominal types via indirection — LANDED Aug 27
-## (DF-260a CLOSED; authored + dispatched Aug 27)
-
-- STATUS: LANDED, four commits. All 14 matrix rows are
-  `examples/recursive_*.saw`; per-commit gate (full suite + freestanding, both
-  arches) green on each, and the terminal battery is 22 stages GREEN — including
-  the `reemit` and `irdet` lanes that police unit B's representation change
-  corpus-wide.
-  - Unit A — the typechecker inline-embedding funnel
-    (`_inline_embedding_edges` in `typechecker/types.py`, entry points named in
-    its docstring) plus `ErrorKind.RECURSIVE_TYPE` and the located diagnostic;
-    runs AHEAD of the containment checks in both `check` and `check_module`.
-    Staged so ONLY all-inline cycles changed behavior — the legal shapes still
-    ICEd after this commit, which is what kept it honest.
-  - Unit B — publish-before-lower in all four registration helpers
-    (`_register_struct`, `_register_concrete_enum`,
-    `_ensure_monomorphized_struct`, and `_ensure_monomorphized_enum` through
-    the concrete one), `_demand_register_type` for the cycle member the
-    ordering cannot reach, and `_finish_or_defer` for the body whose members
-    are not sized yet. Payload-carrying enums are IDENTIFIED structs now.
-  - Unit C — spec section "Recursive types", README, saw-lang skill, this
-    entry.
-  - Unit B follow-up — the catch union's LLVM name. `reemitdiff` caught two
-    files after unit B; the synthesized `_CatchError_{node_id}` name comes from
-    a process-global allocator (DF-164a's class) and unit B is what put it in
-    the IR text by making the enum an identified type. The name is the variant
-    SEQUENCE now, which identifies the union exactly.
-- THE TOPOSORT STAYS, as an ordering heuristic only. Its `get_deps` edge set
-  states a hard edge for every type ARGUMENT of a generic field, including the
-  ones a container reaches only through a pointer — a strict SUPERSET of the
-  layout relation, and what used to drop a cyclic type into the concession at
-  `core.py:2404`. Left overstated deliberately: registration no longer depends
-  on the order at all, and narrowing the edges to Unit A's inline relation
-  would reshuffle emitted type order corpus-wide for no correctness gain. The
-  comment at the sort says so, so the edge set is not mistaken for a layout
-  claim again.
-- DESIGN 218 UNIT 1.5 OVERLAP: the publish-before-lower discipline lives IN
-  `_register_struct` / `_register_concrete_enum` /
-  `_ensure_monomorphized_struct` and in the shared `_finish_or_defer`, never at
-  a call site, so relocating the monomorphization callers carries it along. The
-  ONE thing 1.5 must not lose is `_get_llvm_type`'s two demand hooks
-  (`codegen/types.py`, the `Undefined struct:` and `Undefined enum:` arms):
-  those are what register a cycle member the caller reached before the loop did.
-- FOUND ALONGSIDE: DF-261a and DF-261b (both FIXED here — a helper re-entering
-  a guarded structural walk with a FRESH visiting set, twice: `copy_tier`'s
-  `_has_abstract_type_arg` and `_send_sync`'s `_satisfies_thread_bound`);
-  DF-261c/d/e (filed, open); DF-261f (filed, open, pre-existing). DF-257c
-  closed as a side effect — see its entry.
-- Brief: designs/246-recursive-types.md. Filed when the std.json dispatch hit
-  the wall Aug 27: EVERY cyclic nominal shape is `internal compiler error:
-  Undefined enum/struct: X` once the demanded copy policy is declared —
-  including the finite ones (`Vector<Self>`/`Box<Self>` payloads, mutual
-  cycles through a container); acyclic forward references are fine. ONE
-  mechanism, lead-probed (five probes in the brief): registration lowers
-  member LLVM types BEFORE publishing the type, and the toposort concedes
-  cycles at `codegen/core.py:2404`. Rule (ruled by dispatch): a cycle is
-  legal iff it crosses a heap indirection, discovered STRUCTURALLY — no
-  container allowlist; an all-inline cycle is a clean located infinite-size
-  diagnostic, never an ICE. Units: A the typechecker inline-embedding funnel,
-  B publish-before-lower registration (payload enums become identified
-  structs), C the 14-row matrix + spec/skill/README. The json dispatch
-  pivoted to the serde-seam half meanwhile; `JsonValue` plugs into its
-  lexical layer when this lands. Agent DF range: DF-261a+.
 
 ## DF-264a — the Copy tier's checker misses the deinit-signature validation
 ## (filed Aug 27, lead-probed from the user's scratch example)
@@ -185,59 +115,6 @@ for sawos; "238 before more M3 work" is absolute.
   cited XFAIL pin when dispatched. Probes were
   `.build/scratch/probe_copy_deinit_m1-m7` (ephemeral; the matrix above is
   the record).
-
-## DF-265a — same-named public generic free functions in two std files are a
-## flat-namespace collision (filed Aug 27 by the std.json build)
-## **CLOSED Aug 27 — designs/249-module-keyed-functions.md, all three units**
-
-- Adding `public func encode<T: Serialize>(value: &T) sync -> Result<String,
-  EncodeError>` to `sawc/std/json.saw` while `sawc/std/cbor.saw` holds
-  `public func encode<T: Serialize>(value: &T) sync -> Result<Data,
-  EncodeError>` (different module, different return type) fails EVERY build:
-  `internal compiler error: builtins failed to type-check` / ``function
-  `encode` is already defined with an indistinguishable signature`` at
-  `builtins:1114:8`. The two are import-gated members of separate design-82
-  file-modules; nothing should collide. MECHANISM VERIFIED (lead, Aug 27):
-  `namespace.function_overloads` is ONE FLAT dict keyed by bare name
-  (`sawc/namespace.py:762-774`) — free-function symbols carry no module
-  key — and the design-53/55 declaration-site ambiguity check
-  (`typechecker/registration.py:925-949`) compares shape keys (params/arity
-  only; return type rightly excluded) against EVERY registration under the
-  name, cross-module. "builtins" in the message is only the reporting wrapper
-  (`sawc.py:467`) because std typechecks in the builtins pass — the registry
-  is compilation-wide, so the mechanism reaches USER modules too, where
-  DF-242b/c (cross-module overload sets bound bare as a single overload;
-  suffixed literals not disambiguating) are already-filed faces of the same
-  unkeyed-symbol family. The contrast is in the same file: STATICS got the
-  per-module overlay at DF-140h (`namespace.py:776-789`) and TYPE identity
-  is (module, name) since design 144 — free functions are the last unkeyed
-  symbol kind. Fix shape: module-key the function registry the way DF-140h
-  keyed statics; scope the ambiguity check to same-module declarations plus
-  genuine one-scope collisions (bare-import overlap reports at the
-  import/call, per design 150), and re-probe DF-242b/c against it — the fix
-  brief should treat all three as one family. std.json shipped `encode_json`
-  meanwhile — a rename, not a semantic workaround; the fix frees the
-  natural name. SCHEDULED Aug 27 (user): queued directly after DF-215f;
-  the fix brief is owed at dispatch, with DF-242b as an expected closure
-  and DF-242c re-probed (its same-module cell is likely a separate
-  resolution mechanism, not this registry).
-- **LANDED Aug 27, design 249.** The registry keeps design 144's two acts
-  apart: `module_function_overloads[def_module][name]` is the identity half,
-  `function_name_modules[name]` is which modules a bare name is bound to in
-  each namespace, and `register_function` files both so every binding path
-  records itself. `lookup_function_overloads` is the one funnel over the two
-  (docstring names its entry points); its filter engages only when candidates
-  span 2+ modules, so a single-owner name resolves exactly as before, and
-  `lookup_function` then applies design 150's ladder — a module's own
-  declaration outranks anything merged in under the same name. Codegen
-  naming follows: a `free_function_owners` census over the parsed module set
-  (std folded in) decides each declaration's `symbol_base` before any module
-  is checked, so a name more than one module owns is `$M$`-tagged per module
-  with no dependence on check order. Unit 2 renamed `std.json.encode_json`
-  back to `encode` — the live proof, `examples/d249_std_json_and_cbor_both_
-  name_encode.saw`. Ten new examples cover the matrix: qualified twins,
-  bare-import merge, selective-of-one, the call-site tie naming both origins,
-  DF-242b's two bare forms, and four design-150 ladder rungs.
 
 ## DF-266a — a leading-minus tail after an `if { return }` block is an ICE
 ## (filed Aug 27 by the std.json build; lead-verified)
@@ -4987,6 +4864,16 @@ main. The `JsonValue` tree half is the [QUEUE]'s event-gated unit 1,
 blocked on design 246; the build filed DF-265a/DF-266a and corroborated
 DF-260a's mechanism. OPEN riders recorded in the unit-1 queue line;
 `max_items` parity with CborDecoder was scope-narrowed out and stays open.
+UNIT 1 ALSO LANDED Aug 27 (e2464f70, after design 246 unblocked recursion):
+`JsonValue` (NoCopy, Vector/Map payloads) + `parse` with byte offsets over
+the shared lexical helpers + compact serialization + Optional-returning
+accessors, six tree tests; that build filed DF-267a-d. STILL OPEN AT THIS
+STAGE: `Object` SERIALIZATION (parked behind DF-267d — parse is full),
+combined member/element accessors (behind DF-267c), `Number` Float support
+(no correctly-rounded std Float<->text surface exists; Int-only meanwhile),
+pretty-printing, `max_items` parity. Design 249 later renamed the one-call
+`encode_json` -> `encode`; design 250's Byte migration counts json's byte
+internals among its census rows.
 
 ## Design 213 findings — the closure-callable sweep (Aug 13)
 

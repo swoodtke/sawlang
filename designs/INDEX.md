@@ -259,3 +259,4 @@ Navigation only. One line per design brief in `designs/` (number, file, the brie
 - **archive** — `done_aug1-aug9.md` — Aug 1 – Aug 9, 2026 — landed/closed tracker recaps, archived at the Aug-9 split
 - **archive** — `done_aug10-aug17.md` — Aug 10 – Aug 17, 2026 — landed/closed tracker recaps, archived at the Aug-17 split
 - **archive** — `done_aug18-aug25.md` — Aug 18 – Aug 25, 2026 — landed/closed tracker recaps, opened at the Aug-18 split
+- **archive** — `done_aug26-sep1.md` — Aug 26 – Sep 1, 2026 — landed/closed tracker recaps, opened at the Aug-26 split (first move Aug 27: designs 246/247/249, std.json units 1+2's queue records, DF-262a/265a)
