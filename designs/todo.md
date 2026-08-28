@@ -32,7 +32,7 @@ is scheduled and in what order is the whole of what they say.
 ## [QUEUE] — scheduled, in order (user-approved)
 
 - ~~Design 252 — the DF-270d fix~~ **LANDED Aug 28** (designs/252-unsigned-comparison.md; three commits, per-commit suite+freestanding gates, terminal battery green). Unsigned ordered comparisons lower unsigned at both faces, design 250's two held cbor rows are back, and the pin flipped. See the DF-270d entry below for the mechanism and the sweep. Agent DF range DF-275a+ — nothing filed by the branch itself; ONE unrelated candidate reported for the lead to file (a distinct alias over a primitive satisfies a `Comparable` bound through a std extension's receiver type argument but NOT through a free generic function's own bound, and the fixit the refusal offers is then rejected by the orphan rule as `std.builtin`'s to write — repro in the landing report)
-- Design 253 — the Float↔text story (designs/253-float-text.md; authored + DISPATCHED Aug 28, second at head — user: "brief the Float-text story"): pure-Saw correctly-rounded conversions both directions (shortest round-trip formatting; Eisel-Lemire + exact-fallback parsing), committed Python-generated vectors as the bit-exact oracle, `String.to_float` loses its naive body, `JsonValue.Number` Float support reopens under the pinned integral-vs-Float rule. Serde's wire-level Float stays a separate later design. Agent DF range DF-276a+
+- ~~Design 253 — the Float↔text story~~ **LANDED Aug 28** (designs/253-float-text.md; four units, per-commit suite + freestanding green, terminal battery in the landing report). `sawc/std/float.saw` is new and owns the whole story: Ryū for shortest round-trip formatting, Eisel-Lemire over an exact decimal fallback (Clinger/Steele-White, no `leftcheats` table) for correctly-rounded parsing, `Float.to_bits`/`from(bits:)`, `String.to_float` (moved out of string.saw, naive body deleted) and `StringBuilder.append(value: Float)`. The SIX Float→text positions were TWO renderings that disagreed (`printf("%f")` for `print(f)`, `snprintf("%g")` for the rest, neither round-tripping); all six funnel through `_render_float_value` now, and the layout is CPython `repr`'s, which is also the vectors' oracle. The freestanding refusal is GONE — it was written at two of the six positions, so interpolation/`to_string()`/`format(into:)` left an undefined `snprintf` in a freestanding object; `tests/freestanding/cases/float_text.saw` replaces it on both arches, and `.fsmark` moved to ORIGIN + 512 KiB because the float image overlapped it. `JsonValue` gained a `Float` case under the pinned rule (the TOKEN decides: `1` is `Number`, `1.0` is `Float`), with `as_float`, a json-private `write_float` refusing non-finite values as `EncodeFault.Unsupported`, and JSON.md updated; the serde SEAM still has no `write_float`, as scoped. Oracle: `tools/sawfloat.py` (`gen`/`tables`/`verify`) + `tests/float_vectors/` (2897 round-trip + 175 parse rows, seed 253, byte-identical on regeneration) + the `floatvectors` battery lane, which also re-derives the 1236 committed Ryū table entries. Five EXPECT-OUTPUT files updated (the `%f` padding). Findings filed: DF-276a/b/c below. Agent DF range DF-276a+
 - The sos RIDERS batch — the small in-tree sos edits (`clock_get` `type:`, the abi enum shifts, kcore re-narrowing; entries under DF-232f's neighborhood below), EVENT-GATED on designs 252+253 integrating (user, Aug 28: "queue the sos riders after the current agents"). Design 238's settled-tree precondition; lands on the simple in-repo flow, sos_runner gate
 - Design 238 — the sawos split, **MOVED TO HEAD-AFTER-RIDERS Aug 28 (user), SUPERSEDING the Aug-24 "1.5 first" ordering** — rationale + five fresh rulings recorded in the brief's Aug-28 section (designs/238-sawos-split.md): independent development is the goal, the freestanding suite makes the sos lane non-essential for 218/1.5, D-c/D-d ratified as recommended, D-e ruled FLATTEN (sos/'s contents to the new repo's ROOT, unit 5 absorbs the path-dep rewrite), D-f ruled global skill symlink (created). UNITS 0-1 LANDED Aug 21; units 2-7 dispatch in the brief's serialization order once the riders land; units 5-6's sawos side PARKS for user review
 - ~~Design 250 — the `Byte` type~~ **LANDED Aug 27 except one row** (designs/250-byte-type.md; census in its §8). `public type Byte = UInt8` lives in `sawc/builtin.saw` and needed NO compiler change — builtin is identity-exempt, loaded first, not import-required, and the only home that also works under `--runtime-build`. Landed: the String/StringBuilder flip through one read funnel (`byte_at`) and one write funnel per file, `append_char` -> `append(b: Byte)` (with `index_of`/`last_index_of` taking a `UInt8` needle per §5 Q4), three sign corrections deleted, `Data`/`FixedBuf` strict on reads and internals with `UInt8` sinks, and the serde/cbor/json `read_byte` family. **ONE ROW HELD: `std.cbor`'s `byte_at` + its UTF-8 boundary table stay `UInt8`** — its two callers ORDER bytes, and an ordered comparison on an alias over an unsigned underlying is lowered SIGNED today. That defect is DF-270d in the landing report, pinned by `examples/unsigned_ordered_comparison.saw` (XFAIL) and owed a tracker entry; it is one mechanism with a second, PRE-EXISTING face (`Comparable.compare()` is wrong on any unsigned integer), so it wants its own brief. Three brief errata are recorded in §8.6, the sharpest being that §4's stated digits spelling `append(b as UInt8)` is ambiguous (`as Int` is the working one). Agent DF range DF-270a+, all five findings in the landing report
@@ -109,6 +109,90 @@ for sawos; "238 before more M3 work" is absolute.
 - DF-272a — an enum VARIANT construction does not push its declared payload type into a closure-literal argument, so `Holder.Handler(f: { c in c + 1 })` is "Cannot infer type for closure parameter `c`" while the struct-init twin `FnField(f: { c in c + 1 })` infers and runs (entry below, filed Aug 28 by the DF-267b sweep; PRE-EXISTING)
 - DF-272b — `_resolve_type` skips design 37's default fill entirely when a written type has NO type arguments, so a BARE reference to a generic whose every parameter is defaulted never gets one; the explicit spelling works and the bare one does not (entry below, same filer; PRE-EXISTING). Same design-37 family as DF-267b, different gap, and it moves type IDENTITY — wants a ruling before a fix
 - DF-272c — a maybe-suspending call made INSIDE a place window (`&m.get(k)!`, a `borrows` lend) is refused under `sawc/std/` with `cannot suspend in a sync closure context`, while the identical shape compiles and RUNS as a user file (entry below, same filer). FOURTH member of the builtins-vs-user-file divergence family with DF-257c (closed), DF-267d (dissolved) and DF-271a (open) — and the one that blocks stage 2's natural Object-walk spelling
+- DF-276a — an UNREPRESENTABLE FLOAT LITERAL degrades silently (entry below, filed Aug 28 by design 253; PRE-EXISTING). `let over = 1<400 zeros>.0` compiles clean and is `inf`; `let under = 0.<400 zeros>1` compiles clean and is `0.0`. The integer literal beside it is checked — `let n: UInt8 = 300` is a clean located error — so this is the one literal kind whose conversion has no representability check. "Never hide errors", at the position a value enters the program
+- DF-276b — there is NO `Int` -> `Float` conversion in ANY spelling (entry below, same filer; PRE-EXISTING). `let a: Float = n`, `n as Float`, `Float.from(n)` and `Float(n)` are all errors. Design 170 promises `from`/`from(truncating:)` for "every source/target pair" and means the INTEGER pairs; the float axis is absent entirely. Costs already paid in the tree: `std.string` carried a ten-branch `_digit_to_float` for it (deleted by 253), `JsonValue` can have no combined `as_number()`, and no float parser can have a small-integer fast path. Wants a design, not a patch — the rounding mode of a wide `Int` -> `Float` is a ruling
+- DF-276c — a VALUE `if`/`match` whose arms are bare literals does not adopt the width of the operand it sits BESIDE (entry below, same filer; PRE-EXISTING). `wide + (if up { 1 } else { 0 })` on a `UInt64` is ``operator `+` requires both operands to have the same type … the right is `Int` ``, while `wide + 1` and `wide + (1 + 1)` both adopt (the second is DF-243a's fix). Probed siblings all WORK — an argument, an annotated `let`, a `return`, a compound-assign RHS — so the gap is exactly DF-243a's position with a branch construct in it rather than a const expression
+
+
+## DF-276a..c — filed Aug 28 by design 253 (the Float↔text build); all three
+## PRE-EXISTING and probe-verified by direct compile/run
+
+**DF-276a — an unrepresentable float literal degrades silently.** Repro,
+compiles clean and prints `inf` then `0.0`:
+
+```saw
+func main() {
+    let over = 1000…000.0        // 1 followed by 400 zeros
+    let under = 0.000…0001       // a point, 400 zeros, a 1
+    print(over.to_string())      // inf
+    print(under.to_string())     // 0.0
+}
+```
+
+MECHANISM: the decimal→binary64 conversion the lexer performs on a float
+literal has no representability check. The integer literal path does have one
+and reports it at the literal (`let n: UInt8 = 300` -> ``integer literal 300
+does not fit in `UInt8` (range 0..=255)``), so the two literal kinds disagree
+about whether a value that cannot be represented is an error.
+
+CLASS: one funnel, so every position a float literal can appear inherits it —
+a `let`, a `static`, a field, an argument, an arm. Two faces (overflow to an
+infinity, underflow to a zero), and the underflow one is the more dangerous:
+`inf` at least propagates visibly.
+
+Worth noting the lexer's conversion is otherwise CORRECTLY ROUNDED, verified
+by design 253's probes at both extremes (a 324-character literal for the min
+subnormal lexes to bits `1`). Only the range check is missing.
+
+**DF-276b — no `Int` -> `Float` conversion exists, in any spelling.**
+
+```saw
+let n = 7
+let a: Float = n      // error: cannot assign `Int` to variable of type `Float`
+let b = n as Float    // error: cannot cast `Int` to `Float`
+let c = Float.from(n) // error (and `Float(n)` is a struct-init error)
+```
+
+MECHANISM: design 170's conversion family is defined over the INTEGER
+source/target pairs; the float axis was never added. Not a defect in a check —
+an absent capability, which is why it reads as four different errors.
+
+CLASS: the whole axis, both directions. `Float` -> `Int` is equally absent
+(`f as Int` is `cannot cast`), and that half has the sharper question: a
+truncation, a round, and a floor are three different operations and Saw's
+naming rules would want three names.
+
+COSTS ALREADY PAID: `std.string` carried a ten-branch `_digit_to_float` purely
+to convert 0..9 (design 253 deleted it); `JsonValue` can offer no combined
+`as_number() -> Float?` over its two number cases; and a float parser can have
+no small-integer fast path (design 253's builds its results from BITS instead,
+which works but is the long way round). Wants a design rather than a patch:
+the rounding mode of an `Int` too wide for a `Float`'s 53 bits is a ruling,
+and so is whether the conversion is `as`, `from`, or both.
+
+**DF-276c — a value `if`/`match` does not adopt the width of the operand it
+sits beside.**
+
+```saw
+let wide: UInt64 = 40
+let a = wide + 1                        // fine: a bare literal adopts
+let b = wide + (1 + 1)                  // fine: DF-243a's fix
+let c = wide + (if up { 1 } else { 0 })
+// error: operator `+` requires both operands to have the same type,
+//        but the left is `UInt64` and the right is `Int`
+```
+
+MECHANISM: DF-243a threaded the expected type from a typed operand into a
+mixed-binop CONST expression. A value `if`/`match` is not a const expression,
+so nothing carries the width into its arms, and they type as platform `Int`.
+
+CLASS: probed siblings all WORK — an argument (`takes(if up { 1 } else { 0 })`
+at a `UInt64` parameter), an annotated `let`, a `return` at a `UInt64` return
+type, and a compound-assign RHS (`n += if up { 1 } else { 0 }`). So this is
+narrow: exactly DF-243a's position, with a branch construct where the const
+expression was. Design 253's code hit it four times and worked around it by
+binding the branch to an annotated `let` first, which is also the fixit the
+diagnostic should suggest.
 
 
 ## ~~DF-270d — ordered comparison over an unsigned integer lowers SIGNED~~

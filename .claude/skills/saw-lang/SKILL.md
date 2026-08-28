@@ -2641,6 +2641,10 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
   `Atomic<Int>` is prelude-bare too — a `builtin.saw` primitive, not a
   module, so there is nothing to import (it sat in NEITHER list until a
   design-203 dogfood reader had to guess; it belongs here).
+  `std.numeric` and `std.float` declare no top-level name at all — only
+  methods (`Float.sqrt`, `Float.to_string`, `String.to_float`,
+  `StringBuilder.append(value: Float)`) — so there is nothing to import there
+  either and `import std.float` is not a thing to write.
   IMPORT-REQUIRED:
   `File`/`Directory`/`Path` (std.file/directory/path), `Data` (std.data),
   `Channel` (std.channel), `Mutex` (std.mutex), `Once` (std.once — design 186),
@@ -3576,6 +3580,43 @@ construct in the owner and lend `&driver` down.
   `Int.max`/`Int.min`, `UInt.max`/`UInt.min`, `Int8.max`…`UInt64.max`. An
   unsigned value prints unsigned everywhere — `print`, `"{x}"` and `to_string()`
   agree across the whole `0..2^64-1` range (design 122).
+- **FLOAT ↔ TEXT IS CORRECTLY ROUNDED IN BOTH DIRECTIONS (design 253,
+  `std.float`, no import).** `f.to_string()` is the SHORTEST decimal that reads
+  back as `f`, and `s.to_float()` is the nearest `Float` to the whole string —
+  so the two are exact inverses, and `(0.1 + 0.2).to_string()` is
+  `"0.30000000000000004"`, not `"0.3"`.
+  ```saw
+  print(0.1 + 0.2)                        // 0.30000000000000004
+  print(1.0)                              // 1.0   — an integral float keeps its point
+  print("{}", 1000000000000000000000.0)   // 1e+21
+  let f = "5e-324".to_float()!            // the min subnormal, exactly
+  ```
+  EVERY position that shows a float produces those bytes — `print(f)`, `"{f}"`,
+  `print("{}", f)`, a `panic`/`assert` argument, `to_string()`,
+  `format(into:)` — and `StringBuilder.append(value: Float)` is the overload
+  under all of them. Layout: `0.0`/`-0.0` for zero; exponent form when the
+  decimal point sits more than four places left of the digits or more than
+  sixteen right of their start (`1e+16`, `5e-324`, `1.5e-07`, always a signed
+  exponent of at least two digits); a trailing `.0` when the fixed form would
+  end at the point; `nan` / `inf` / `-inf` for the non-finite values (JSON's
+  own rules differ — it rejects all three).
+  Parsing is whole-string with no trimming, like `to_int`: `"1e3"`, `"+.5"`,
+  `"1."` and `"-inf"` are numbers, while `" 1"`, `"1_000"`, `"0x1p3"`,
+  `"Infinity"` and `"NaN"` are `None`. Overflow saturates to an infinity and
+  underflow to a signed zero rather than answering `None` — that IS the IEEE
+  754 value — so `None` only ever means "not a number". It never panics, at any
+  input length.
+  `Float.to_bits()` / `Float.from(bits:)` are the reinterpretation (NOT a
+  conversion: `(1.0).to_bits()` is `4607182418800017408`), which is also how
+  you write a value the grammar cannot spell — there is no exponent form in a
+  float LITERAL. `is_nan()` / `is_finite()` / `is_infinite()` classify.
+  Treat all of it as working now and SUSPECT in older builds, where there were
+  TWO renderings and neither round-tripped: `print(1.0)` wrote `1.000000` while
+  `print("{}", 1.0)` wrote `1`, `0.1 + 0.2` printed `0.3` in both, and
+  `to_float` was a naive accumulation its own doc comment called not correctly
+  rounded. Freestanding refused a float `print` outright; it does not now.
+  STILL MISSING: any `Int` -> `Float` conversion (`Float.from(n)`, `n as Float`
+  are all errors), so a small-integer fast path has to be hand-written.
 - std.time/std.process/std.file/std.net are HOSTED-only (link libc).
   `Command` spawns a real ARGV — no shell, ever (design 122): one `arg(..)` call
   is exactly one argv element, so spaces, quotes, `;`, `*` and `$VAR` inside an

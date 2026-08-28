@@ -13,6 +13,9 @@
 // as_bool on number: none
 // as_int on number: 7
 // as_int on text: none
+// as_float on float: 1.5
+// as_float on int: none
+// as_int on float: none
 // as_text on text: hi
 // as_text on array: none
 // as_array on array: len=2
@@ -47,6 +50,16 @@ func main() {
 
     print("as_int on number: {}", num.as_int() ?? -1)
     print("as_int on text: {}", if let _ = txt.as_int() { "some" } else { "none" })
+
+    // The two number cases are disjoint: which one a token landed in is what
+    // decides which accessor answers (design 253).
+    let frac = match JsonValue.parse(text: "1.5") {
+        case Ok(v) -> move v,
+        case Err(_) -> JsonValue.Null
+    }
+    print("as_float on float: {}", (frac.as_float() ?? 0.0).to_string())
+    print("as_float on int: {}", if let _ = num.as_float() { "some" } else { "none" })
+    print("as_int on float: {}", if let _ = frac.as_int() { "some" } else { "none" })
 
     print("as_text on text: {}", txt.as_text() ?? "?")
     print("as_text on array: {}", if let _ = arr.as_text() { "some" } else { "none" })

@@ -39,9 +39,12 @@
 //!   (`\n` etc.) do not name — everything else is written as its own UTF-8
 //!   bytes.
 //! - `write_uint`/`write_int` write a plain integer literal (no exponent, no
-//!   fraction) — the seam has no `write_float` (neither does `std.cbor`'s;
-//!   `Float` has no settled serialization yet across the whole `std.serde`
-//!   family), so a `Serialize` value can never ask this encoder for one.
+//!   fraction). The SEAM still has no `write_float` — neither does
+//!   `std.cbor`'s, because what a `Float` looks like on a wire is a question
+//!   design 253 left open across the whole `std.serde` family — so a
+//!   `Serialize` value can never ask this encoder for one. `JsonValue`'s
+//!   `Float` case reaches its own `write_float` below, which is a TEXT
+//!   question and settled: the shortest decimal that reads back as the value.
 //! - A byte string (`begin_bytes`/`write_byte`) has no JSON representation
 //!   and is `EncodeFault.Unsupported` — JSON has no binary type and v1
 //!   invents no base64-style convention for one.
@@ -343,6 +346,29 @@ extension JsonEncoder {
         try self.raw_byte(self._hex_digit(hi))
         try self.raw_byte(self._hex_digit(lo))
         return
+    }
+
+    // Writes a JSON number from a `Float`, in its shortest round-trip form.
+    //
+    // NOT part of the `Encoder` seam: the serde seam has no `write_float`, and
+    // what a `Float` looks like on a WIRE is a question design 253 deliberately
+    // left open (`sawc/std/CBOR.md` refuses floats outright for the same
+    // reason). This is `JsonValue`'s own path to its `Float` case, which is a
+    // TEXT question and settled — `std.float` gives the shortest decimal that
+    // reads back as the value, and every spelling it produces for a finite
+    // number is a legal JSON number.
+    //
+    // The exception is the non-finite values, which JSON's grammar simply has
+    // no spelling for. Writing `Infinity` or `NaN` would produce a document
+    // most readers reject and some silently mis-read, so this reports
+    // `Unsupported` and the caller decides.
+    func write_float(&var self, v: Float) sync -> Result<Void, EncodeError> {
+        if not v.is_finite() {
+            return EncodeError(fault: EncodeFault.Unsupported)
+        }
+        try self.before_item(false)
+        try __json_encoded(self.out.append(v))
+        return self.charge_and_close()
     }
 
     func _hex_digit(&self, d: Int) -> UInt8 {
@@ -994,6 +1020,23 @@ extension JsonDecoder {
         return pos
     }
 
+    // `self.input[start..end)` as the nearest `Float`, correctly rounded.
+    //
+    // `scan_number` has already checked the token against JSON's own grammar,
+    // which is a SUBSET of what `String.to_float` takes (JSON has no leading
+    // `+`, no bare `.5`, no `nan`) — so the substring is always a number this
+    // accepts, and the `None` below is unreachable rather than a shape JSON
+    // permits and Saw refuses. It is written out anyway: a silent zero would
+    // be exactly the "sentinel that collides with a valid value" the failable
+    // rule exists to prevent.
+    //
+    // Overflow saturates to an infinity here, per IEEE 754 — which is a value
+    // `to_json_string` then refuses to write, since JSON has no spelling for
+    // one. That asymmetry is JSON's, not Saw's.
+    func float_span(&self, start: Int, end: Int) -> Float? {
+        self.input.substring(start, end).to_float()
+    }
+
     // The unsigned magnitude of `self.input[start..end)` — no sign is
     // present (checked by the caller), wrapping-overflow-checked like
     // `String._parse_uint`. `None` on overflow past `UInt`'s range.
@@ -1207,18 +1250,23 @@ public func encode<T: Serialize>(value: &T) sync -> Result<String, EncodeError> 
 /// walk had to route around. `Null`/`Bool`/`Number`/`Text`/`Array`/`Object`
 /// all serialize fully, nested arbitrarily deep in any combination.
 ///
-/// **Numbers are `Int`-only in v1 — see "What is OPEN" below.** A JSON number
-/// that is lexically integral AND fits `Int`'s range parses as `Number`; a
-/// fraction-/exponent-shaped token, or an integral one outside `Int`'s range,
-/// is a decode error (`TypeMismatch`/`OutOfRange` — the same faults
-/// `JsonDecoder.read_int` already reports for the identical shapes, since
-/// `parse` drives that exact method for the number case). This is a
-/// TEMPORARY restriction, not the originally pinned "else Float" rule: std
-/// has no correctly-rounded `Float`<->text conversion to build a `Number`
-/// case on (`String.to_float` is explicitly documented as NOT
-/// correctly-rounded naive accumulation, and there is no `Float`->text
-/// direction anywhere in std). `JsonValue` gains a `Number(value: Float)`
-/// case once that lands.
+/// **A number arrives as one of TWO cases, and which one is decided by the
+/// token, not by the value.** A JSON number that is lexically integral AND
+/// fits `Int`'s range is a `Number`; everything else — a fraction, an
+/// exponent form, an integral token too large for `Int` — is a `Float`,
+/// correctly rounded to the nearest double. So `1` is `Number(1)`, `1.0` is
+/// `Float(1.0)` and `1e2` is `Float(100.0)`, and a document round trips
+/// through the tree without a `1.0` quietly becoming an integer.
+///
+/// The `Float` half was parked until design 253 gave std a correctly-rounded
+/// `Float`<->text surface; before that a fraction-shaped token was a decode
+/// error, which is what `examples/json_value_number_edges.saw` used to pin.
+///
+/// A `Float` that is NOT FINITE cannot be serialized: JSON's grammar has no
+/// spelling for a NaN or an infinity, so `to_json_string` reports
+/// `EncodeFault.Unsupported` rather than emitting one. Parsing is the mirror
+/// — `NaN` and `Infinity` are not JSON tokens and are rejected — so a tree
+/// that came from `parse` can always be written back out.
 ///
 /// `ExplicitCopy` (design 251 — it used to be a forced `NoCopy`, before `Map`
 /// had a copy conformance for `Object`'s payload to lean on; see
@@ -1232,6 +1280,7 @@ public enum JsonValue {
     case Null,
     case Bool(value: Bool),
     case Number(value: Int),
+    case Float(value: Float),
     case Text(value: String),
     case Array(items: Vector<JsonValue>),
     case Object(fields: Map<String, JsonValue>)
@@ -1288,14 +1337,37 @@ extension JsonValue {
             return JsonValue.Null
         }
         if b == BYTE_MINUS || (b >= BYTE_ZERO && b <= BYTE_NINE) {
-            // Int-only in v1 — see the type's doc comment. `read_int` already
-            // rejects a fraction-/exponent-shaped or out-of-range token with
-            // exactly the fault this deviation is documented under, at the
-            // byte offset the token started.
-            let n = try dec.read_int()
-            return JsonValue.Number(value: n)
+            return JsonValue._read_number(dec: &var dec)
         }
         return DecodeError(offset: dec.offset(), fault: DecodeFault.Malformed)
+    }
+
+    // Reads one number token and picks the case the pinned rule names: a
+    // lexically integral token that fits `Int` is a `Number`, and everything
+    // else is a `Float`.
+    //
+    // It scans the token ONCE, through the same `scan_number` every typed
+    // `read_*` uses — so the grammar (no leading `+`, no leading zero except a
+    // lone `0`, a `.` needing digits on both sides) is enforced in exactly one
+    // place, and the span it advanced over is what both readings then convert.
+    static func _read_number(dec: &var JsonDecoder) sync -> Result<JsonValue, DecodeError> {
+        try dec.before_value()
+        let start = dec.offset()
+        let is_float = try dec.scan_number()
+        let end = dec.offset()
+        try dec.charge_item()
+        if not is_float {
+            if let n = dec.int_span(start, end) {
+                return JsonValue.Number(value: n)
+            }
+            // Integral, but past `Int`. The value is still exactly what the
+            // document said; only its Saw representation loses precision, and
+            // a rounded double is a better answer than a refusal.
+        }
+        guard let f = dec.float_span(start, end) else {
+            return DecodeError(offset: start, fault: DecodeFault.Malformed)
+        }
+        return JsonValue.Float(value: f)
     }
 
     static func _read_array(dec: &var JsonDecoder) sync -> Result<JsonValue, DecodeError> {
@@ -1382,6 +1454,7 @@ extension JsonValue {
             case Null -> { return enc.write_null() },
             case Bool(value) -> { return enc.write_bool(value) },
             case Number(value) -> { return enc.write_int(value) },
+            case Float(value) -> { return enc.write_float(value) },
             case Text(value) -> { return enc.write_text(value) },
             case Array(items) -> {
                 try enc.begin_array(items.len())
@@ -1440,10 +1513,30 @@ extension JsonValue {
         }
     }
 
-    /// `self`'s value if it is a JSON number, else `None`.
+    /// `self`'s value if it is an INTEGRAL JSON number, else `None`.
+    ///
+    /// A number that arrived as a fraction, an exponent form, or an integral
+    /// token too large for `Int` is a `Float` case and answers `None` here —
+    /// `as_float` is the one that reads it. `as_number` takes either.
     public func as_int(&self) -> Int? {
         match self {
             case Number(value) -> value,
+            case _ -> None
+        }
+    }
+
+    /// `self`'s value if it is a NON-INTEGRAL JSON number, else `None`.
+    ///
+    /// The mirror of `as_int`: this answers `None` for `1` and a value for
+    /// `1.0`, because which case a number landed in is decided by its TOKEN.
+    ///
+    /// There is no combined `as_number() -> Float?` yet, and the reason is a
+    /// language gap rather than a design choice: Saw has no `Int` -> `Float`
+    /// conversion in any spelling, so the `Number` case cannot be widened into
+    /// one. `match` on the two cases in the meantime.
+    public func as_float(&self) -> Float? {
+        match self {
+            case Float(value) -> value,
             case _ -> None
         }
     }

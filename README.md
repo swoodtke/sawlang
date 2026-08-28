@@ -609,6 +609,13 @@ The standard library lives in `sawc/std/` and includes:
   implicitly.
   That is what lets `StringBuilder.append(65)` render the digits `65` and
   `append(Byte(65))` write the byte `A` under one name.
+- **Float ↔ text** — shortest round-trip formatting and correctly-rounded
+  parsing, both without an import. `f.to_string()` gives the shortest decimal
+  that reads back as `f`, and `s.to_float()` gives the nearest `Float` to the
+  whole string. Every position that shows a float — `print(f)`, `"{f}"`,
+  `print("{}", f)`, a `panic` argument — produces the same bytes, so
+  `print(0.1 + 0.2)` writes `0.30000000000000004`. Pure Saw, so it works
+  freestanding.
 - **Vector / Map / Set** — the collection types, with `[...]`, `{k: v}`, and
   `{a, b}` literals.
 - **Arc / Box** — atomic reference counting and owned heap allocation.
@@ -624,6 +631,8 @@ The standard library lives in `sawc/std/` and includes:
 - **std.time** — `Instant` and `unix_timestamp` (hosted). `Duration` needs no
   import because `sleep` takes one.
 - **std.cbor** — CBOR (RFC 8949) in its deterministic encoding profile.
+- **std.json** — JSON (RFC 8259) over the same seam, plus `JsonValue`, a
+  parsed tree.
 - **Serialize / Deserialize** — over an `Encoder` / `Decoder` seam, with
   `@synthesize` derivation.
 

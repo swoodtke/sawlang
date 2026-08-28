@@ -1,56 +1,106 @@
-// std.json unit 1: number-token edges through `JsonValue.parse`. The
-// pinned rule is "integral and in Int range -> Number, else Float"; since
-// std has no correct Float<->text surface (see JsonValue's doc comment),
-// `parse` drives `JsonDecoder.read_int` directly for the number case, so a
-// fraction-/exponent-shaped token or an out-of-range integral one surfaces
-// read_int's own fault (`TypeMismatch`/`OutOfRange`) rather than becoming a
-// `Number(value: Float)` — this is the documented temporary substitute.
+// std.json: a number token becomes one of TWO `JsonValue` cases, and which
+// one is decided by the TOKEN rather than by the value — lexically integral
+// and inside `Int`'s range is a `Number`, everything else is a `Float`
+// (design 253 reopened this; it was Int-only, with a fraction-shaped token a
+// decode error, while std had no correctly-rounded Float<->text surface).
+//
+// So `1` and `1.0` are different cases carrying the same quantity, which is
+// what lets a document round trip through the tree without a `1.0` quietly
+// becoming an integer. The SPELLING is not preserved — `1e2` comes back as
+// `100.0` — because the tree holds values, not source text.
 // EXPECT: success
 // EXPECT-OUTPUT:
-// int_max: 9223372036854775807
-// int_min: -9223372036854775808
-// int_overflow: decode error at byte 0: the value does not fit the destination type
-// frac_form: decode error at byte 0: the item is not of the expected type
-// exp_form: decode error at byte 0: the item is not of the expected type
-// zero: 0
-// negative_zero: 0
-// in_array: [1,-1,9223372036854775807]
+// int_max: int 9223372036854775807
+// int_min: int -9223372036854775808
+// int_overflow: float 9.223372036854776e+18
+// frac_form: float 1.5
+// exp_form: float 100.0
+// zero: int 0
+// negative_zero: int 0
+// tiny: float 5e-324
+// huge: float 1.7976931348623157e+308
+// precise: float 0.30000000000000004
+// -- round trips through parse and serialize
+// [1,-1,9223372036854775807] -> [1,-1,9223372036854775807]
+// [1.5,-0.25,100.0] -> [1.5,-0.25,100.0]
+// 1e2 -> 100.0
+// 1.0 -> 1.0
+// 0.1 -> 0.1
+// 1e400 -> encode error: the value has no representation in this format
+// -- what JSON still refuses
+// nan_token: decode error at byte 0: the bytes are not a well-formed item
+// inf_token: decode error at byte 0: the bytes are not a well-formed item
+// leading_plus: decode error at byte 0: the bytes are not a well-formed item
+// bare_fraction: decode error at byte 0: the bytes are not a well-formed item
 
 import std.json.{JsonValue}
 
-func check_ok(label: String, text: String) {
+// Which CASE a number landed in, and its value.
+func show(label: String, text: String) {
     match JsonValue.parse(text: text) {
-        case Ok(v) -> print("{}: {}", label, v.as_int() ?? 0),
-        case Err(e) -> print("{}: parse failed: {}", label, e)
-    }
-}
-
-func check_reject(label: String, text: String) {
-    match JsonValue.parse(text: text) {
-        case Ok(v) -> print("{}: unexpectedly accepted -> {}", label, v.as_int() ?? 0),
+        case Ok(v) -> {
+            if let n = v.as_int() {
+                print("{}: int {}", label, n)
+            } else if let f = v.as_float() {
+                print("{}: float {}", label, f.to_string())
+            } else {
+                print("{}: not a number", label)
+            }
+        },
         case Err(e) -> print("{}: {}", label, e)
     }
 }
 
-func check_in_array() {
-    match JsonValue.parse(text: "[1,-1,9223372036854775807]") {
+func show_reject(label: String, text: String) {
+    match JsonValue.parse(text: text) {
+        case Ok(_) -> print("{}: unexpectedly accepted", label),
+        case Err(e) -> print("{}: {}", label, e)
+    }
+}
+
+// Parse, serialize, and report both — the value survives, the spelling need
+// not.
+func round_trip(text: String) {
+    match JsonValue.parse(text: text) {
         case Ok(v) -> {
             match v.to_json_string() {
-                case Ok(t) -> print("in_array: {}", t),
-                case Err(e) -> print("in_array: encode failed: {}", e)
+                case Ok(out) -> print("{} -> {}", text, out),
+                case Err(e) -> print("{} -> {}", text, e)
             }
         },
-        case Err(e) -> print("in_array: parse failed: {}", e)
+        case Err(e) -> print("{} -> parse error: {}", text, e)
     }
 }
 
 func main() {
-    check_ok("int_max", "9223372036854775807")
-    check_ok("int_min", "-9223372036854775808")
-    check_reject("int_overflow", "9223372036854775808")
-    check_reject("frac_form", "1.5")
-    check_reject("exp_form", "1e5")
-    check_ok("zero", "0")
-    check_ok("negative_zero", "-0")
-    check_in_array()
+    show("int_max", "9223372036854775807")
+    show("int_min", "-9223372036854775808")
+    // Integral but past `Int`: a rounded double beats a refusal, and it is
+    // still the value the document named.
+    show("int_overflow", "9223372036854775808")
+    show("frac_form", "1.5")
+    show("exp_form", "1e2")
+    show("zero", "0")
+    show("negative_zero", "-0")
+    show("tiny", "5e-324")
+    show("huge", "1.7976931348623157e308")
+    // The number nobody can write in binary: it survives the tree exactly.
+    show("precise", "0.30000000000000004")
+
+    print("-- round trips through parse and serialize")
+    round_trip("[1,-1,9223372036854775807]")
+    round_trip("[1.5,-0.25,100.0]")
+    round_trip("1e2")
+    round_trip("1.0")
+    round_trip("0.1")
+    // An exponent JSON accepts and IEEE 754 cannot hold: parsing saturates to
+    // an infinity, and JSON has no spelling for one, so writing it back is
+    // where the loss is reported rather than silently emitting `Infinity`.
+    round_trip("1e400")
+
+    print("-- what JSON still refuses")
+    show_reject("nan_token", "NaN")
+    show_reject("inf_token", "Infinity")
+    show_reject("leading_plus", "+1")
+    show_reject("bare_fraction", "-.5")
 }

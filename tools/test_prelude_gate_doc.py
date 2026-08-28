@@ -58,6 +58,8 @@ _PARTIAL_ROWS = {
     "string",          # `String` only — `Utf8Error` is the carved-out symbol
     "alloc",           # `Allocator` / `GlobalAllocator` bare, `AllocError` not
     "numeric",         # methods on primitives; nothing to import
+    "float",           # ditto, plus one `StringBuilder` overload: no top-level
+                       # name to import, so the gate has nothing to hold
 }
 
 

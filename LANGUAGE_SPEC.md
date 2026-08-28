@@ -1091,11 +1091,11 @@ language with no `move` discipline — `greet(s)` does not consume `s`.
   so these never panic: `to_int() -> Int?` (base 10),
   `to_int(radix: Int) -> Int?` (a design-55 overload, radix 2..=36, digits
   `0-9a-zA-Z`, no `0x` prefix — the caller strips it), and `to_float() -> Float?`
-  (`[+-]?digits[.digits][e[+-]digits]`). Overflow returns `None`: the integer
-  parser accumulates a **non-positive magnitude** with wrapping arithmetic and
-  divide-back checks (portable across Int widths, no `Int.max` constant needed;
-  `Int.min` round-trips). `to_float` is naive accumulation — fine for typical
-  input, but **not** a correctly-rounded `strtod` (the last ULP may differ).
+  (see [Float ↔ text](#float--text-stdfloat)). Overflow returns `None` for the
+  INTEGER parsers: they accumulate a **non-positive magnitude** with wrapping
+  arithmetic and divide-back checks (portable across Int widths, no `Int.max`
+  constant needed; `Int.min` round-trips). `to_float` saturates instead, to an
+  infinity or a signed zero, because that is what IEEE 754 says the value is.
   `to_uint() -> UInt?` and `to_uint(radix: Int) -> UInt?` are the unsigned
   companions (design 119). They accept an optional leading `+`, reject a leading
   `-`, and reach the full `0..UInt.max` range — the `2^63..2^64-1` magnitudes
@@ -6066,7 +6066,76 @@ methods are called with ordinary `value.method(...)` syntax.
 - `extension Float`: `abs()`, `floor()`, `ceil()`, `round()` (half away from
   zero), `sqrt()`, `min(other:)` / `max(other:)`. These lower to the libm math
   functions and follow **IEEE** semantics — a `NaN` propagates, and `min`/`max`
-  with one `NaN` operand return the non-`NaN` one.
+  with one `NaN` operand return the non-`NaN` one. `std.float` adds the text
+  conversions and the bit-level accessors (below).
+
+### Float ↔ text (`std.float`)
+
+**Status: implemented** (`designs/253`, `std/float.saw`). Both directions are
+pure Saw, correctly rounded, and available without an import.
+
+| Member | Meaning |
+|---|---|
+| `Float.to_string() -> String` | the shortest decimal that reads back as the value |
+| `StringBuilder.append(value: Float) -> Result<Void, AllocError>` | the same text, written into a builder |
+| `String.to_float() -> Float?` | the nearest `Float` to the whole string, or `None` |
+| `Float.to_bits() -> UInt64` / `Float.from(bits:) -> Float` | the IEEE 754 bit pattern, reinterpreted |
+| `Float.is_nan()` / `is_finite()` / `is_infinite()` | classification |
+
+**Formatting is shortest round-trip.** The text a `Float` renders as parses
+back to the identical bits, and no shorter decimal does. `0.1 + 0.2` prints
+`0.30000000000000004`, not `0.3`. The algorithm is Ryū (Adams, PLDI 2018).
+
+Every position that shows a `Float` produces those bytes: `print(f)`,
+`"{f}"`, `print("{}", f)`, a `panic`/`assert` format argument, `f.to_string()`
+and `f.format(into:)`. There is one formatter, so the six agree. (Before
+design 253 there were two, disagreeing: `print(1.0)` wrote `1.000000` and
+`print("{}", 1.0)` wrote `1`.)
+
+The layout, given the shortest digits and `decpt` — the decimal point's place,
+so the value is `0.<digits> * 10^decpt`:
+
+- zero is `0.0` or `-0.0`, keeping its sign;
+- `decpt <= -4` or `decpt > 16` uses the exponent form: one leading digit,
+  then `.` and the rest only if there is a rest, then `e`, a mandatory sign
+  and at least two exponent digits — `1e+16`, `5e-324`, `1.5e-07`;
+- otherwise the fixed form, with `0.` and zero padding when the point falls at
+  or left of the first digit (`0.001`), and a trailing `.0` when the digits run
+  out at or before it (`100.0`);
+- a NaN is `nan` and the infinities are `inf` / `-inf`. That is Saw-facing
+  text; JSON has no spelling for them and rejects them (`std/JSON.md`).
+
+**Parsing is correctly rounded.** Every finite input maps to the nearest
+double, ties to even, with overflow saturating to an infinity and underflow to
+a subnormal or a signed zero, per IEEE 754. The grammar is whole-string with
+no trimming, the same contract `to_int`/`to_uint` keep:
+
+```text
+sign? ( digits ('.' digits?)? | '.' digits ) ([eE] sign? digits)?
+sign? ('nan' | 'inf')
+```
+
+So `"1e3"`, `"+.5"`, `"1."` and `"-inf"` are numbers; `" 1"`, `"1 "`,
+`"1_000"`, `"0x1p3"`, `"Infinity"` and `"NaN"` are `None`. Hex floats are not
+accepted. The algorithm is Eisel-Lemire (Lemire, SPE 2021) with an exact
+decimal fallback (Clinger, PLDI 1990) for the inputs it declines. Parsing
+never panics, including on an 800-digit significand or `1e999999999`.
+
+```saw
+let text = (0.1 + 0.2).to_string()   // "0.30000000000000004"
+print(text.to_float()! == 0.1 + 0.2) // true
+```
+
+Both directions work in the **freestanding** profile: the algorithms are
+integer arithmetic over two read-only tables, and nothing in them calls libc.
+`Float.to_string` allocates once, for the `String`; the builder path allocates
+nothing at all, so a `panic` message may name a float.
+
+The vectors under `tests/float_vectors/` are the correctness ledger — 2897
+round-trip rows and 175 parse rows, generated from CPython's own conversions
+by `tools/sawfloat.py` and asserted BIT-EXACT by
+`examples/float_text_shortest_vectors.saw` and
+`examples/float_text_parse_vectors.saw`.
 
 #### Conformances on primitives
 
@@ -9915,6 +9984,7 @@ need one of the three [import forms](#imports).
 | `std.alloc` | `Allocator`, `GlobalAllocator`, `AllocError` | `Allocator`, `GlobalAllocator` |
 | `std.slab` | `SlabHead`, `slab_alloc`, `slab_dealloc` | no |
 | `std.numeric` | the `Int` / `Float` extensions | yes (methods on primitives) |
+| `std.float` | `Float` ↔ text, and the bit accessors | yes (methods only) |
 | `std.taskgroup` | `TaskGroup`, `Task<T>`, `VoidTask` | yes |
 | `std.task` | `yield_now`, `Thread<T>`, `VoidThread` (the `Thread.spawn` handles) | no |
 | `std.channel` | `Channel<T>`, `ChannelError` | no |
@@ -11301,7 +11371,7 @@ sawc <source.saw> [options]
                Overrides the freestanding profile's own default (below).
   --freestanding
                Freestanding profile: runtime seams as declarations only, no
-               hosted std modules, no Float printing, unlinked object output.
+               hosted std modules, unlinked object output.
                On aarch64 it also implies `--target-features -neon,-fp-armv8`
                (below).
   --no-hidden-alloc

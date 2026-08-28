@@ -56,24 +56,30 @@ let text = try v.to_json_string()   // every case, Object included
 ```
 
 `JsonValue` is `enum JsonValue { case Null, case Bool(value: Bool),
-case Number(value: Int), case Text(value: String),
+case Number(value: Int), case Float(value: Float), case Text(value: String),
 case Array(items: Vector<JsonValue>),
 case Object(fields: Map<String, JsonValue>) }`, `ExplicitCopy` (design 251 —
 `Map`/`Vector` gained a copy conformance for `Object`/`Array`'s payload to
 lean on; `@synthesize`d, so `copy()` recurses through both). `Object` key
 order is not preserved, matching `Map` everywhere else in std.
 
-**One thing remains incomplete, compiler-defect-shaped, filed:**
+**Numbers take the pinned rule, both halves of it** (design 253 landed the
+`Float` surface it was waiting on). A number token that is lexically integral
+AND fits `Int`'s range is a `Number`; everything else — a fraction, an
+exponent form, an integral token past `Int` — is a `Float`, correctly rounded
+to the nearest double. The TOKEN decides, not the value: `1` is `Number(1)`
+and `1.0` is `Float(1.0)`, which is what lets a document round trip through
+the tree without a `1.0` quietly becoming an integer. The SPELLING is not
+preserved (`1e2` comes back as `100.0`) — the tree holds values, not source
+text. `as_int` and `as_float` read the two cases; there is no combined
+`as_number`, because Saw has no `Int` -> `Float` conversion to widen the
+integral case with.
 
-- **Numbers are `Int`-only** — the pinned rule ("integral and in `Int`
-  range -> `Number`, else `Float`") cannot be honored: std has no
-  correctly-rounded `Float`<->text conversion (`String.to_float` is
-  explicitly documented as a NOT-correctly-rounded naive accumulation, and
-  there is no `Float`->text direction in std at all). A fraction-/
-  exponent-shaped token, or an integral one outside `Int`'s range, is a
-  decode error carrying `JsonDecoder.read_int`'s own fault
-  (`TypeMismatch`/`OutOfRange`) rather than becoming a `Number(value:
-  Float)`. Temporary, pending a correct `Float` parse/format surface in std.
+A `Float` that is not finite has no JSON spelling, so `to_json_string`
+reports `EncodeFault.Unsupported` rather than emitting `Infinity` or `NaN`.
+The one way to get one out of `parse` is an exponent JSON accepts and IEEE
+754 cannot hold (`1e400` saturates to an infinity), so the loss is reported
+where the document would be written rather than where it was read.
 
 `to_json_string` serializes every case now, `Object` included
 (`Null`/`Bool`/`Number`/`Text`/`Array`/`Object`, nested arbitrarily deep in
@@ -130,15 +136,20 @@ JSON regardless of which key type was intended — a key position that
 isn't a `"` is rejected structurally, before any typed read is even
 attempted).
 
-**No `Float`.** Neither `write_float` nor `read_float` exists on the
-`Encoder`/`Decoder` trait at all — this is the seam's own limit, not a
-JSON-specific one, and `std.cbor` is under the identical restriction for
-the identical reason (`Float` has no settled serialization story yet). A
-`Serialize` value can never ask this encoder for one. Consequently
-`read_int`/`read_uint` reject a fraction- or exponent-shaped JSON number
-token as `DecodeFault.TypeMismatch` — it parses as a well-formed number,
-just not an INTEGRAL one, which is the only shape either method can
-produce.
+**No `Float` ON THE SEAM.** Neither `write_float` nor `read_float` exists on
+the `Encoder`/`Decoder` trait — this is the seam's own limit, not a
+JSON-specific one, and `std.cbor` is under the identical restriction for the
+identical reason: what a `Float` looks like on a WIRE is a question design 253
+deliberately left open, having settled only the TEXT question. A `Serialize`
+value can never ask this encoder for one. Consequently `read_int`/`read_uint`
+reject a fraction- or exponent-shaped JSON number token as
+`DecodeFault.TypeMismatch` — it parses as a well-formed number, just not an
+INTEGRAL one, which is the only shape either method can produce.
+
+`JsonValue` is not bound by that: it reaches `JsonEncoder`'s own
+`write_float` and `JsonDecoder`'s own `float_span`, neither of which is a
+trait requirement. A tree is text in and text out, so nothing about it waits
+on a wire encoding.
 
 **No byte strings.** `begin_bytes`/`write_byte` and their decode twins are
 `EncodeFault.Unsupported` / `DecodeFault.Unsupported` unconditionally —
@@ -213,8 +224,10 @@ item-count budget on top is deferred.
 - Duplicate-key policy: pinned to last-wins above; needs ratification.
   Observed through `JsonValue` too now (`examples/json_value_structural_
   reject.saw`'s `duplicate_key_last_wins`).
-- `JsonValue.Number` is `Int`-only — no `Float` case — pending a correct
-  `Float`<->text surface in std (see the status section above).
+- A combined `JsonValue.as_number() -> Float?` reading either number case,
+  which needs an `Int` -> `Float` conversion the language does not have in
+  any spelling. (`JsonValue.Number`'s `Float` half itself is CLOSED —
+  design 253 landed it; see the status section above.)
 - `max_items` parity with `CborDecoder`: `std.cbor`'s decoder has one, this
   one does not (see the decoder-limits section above) — scope-narrowed out
   of this brief, stays open.
