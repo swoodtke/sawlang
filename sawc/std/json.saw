@@ -1211,11 +1211,14 @@ public func encode<T: Serialize>(value: &T) sync -> Result<String, EncodeError> 
 /// direction anywhere in std). `JsonValue` gains a `Number(value: Float)`
 /// case once that lands.
 ///
-/// `NoCopy`: an owning recursive type holding `Vector`/`Map` is move-only on
-/// the same terms as any other type built from them (see
-/// `examples/recursive_enum_through_vector_payload.saw`) — and `Map` has no
-/// `ExplicitCopy` conformance yet regardless, which would force the choice
-/// even without the recursion. Build once, `move` around; there is no `.copy()`.
+/// `ExplicitCopy` (design 251 — it used to be a forced `NoCopy`, before `Map`
+/// had a copy conformance for `Object`'s payload to lean on; see
+/// `examples/recursive_enum_through_vector_payload.saw` for the general
+/// owning-recursive-type shape). `@synthesize`d memberwise-deep: a `copy()`
+/// recurses through `Vector<JsonValue>.copy()` for `Array` and
+/// `Map<String, JsonValue>.copy()` for `Object`, exactly as
+/// `examples/recursive_enum_synthesized_deep_copy.saw` demonstrates for a
+/// smaller recursive enum. `move` still transfers ownership without copying.
 public enum JsonValue {
     case Null,
     case Bool(value: Bool),
@@ -1225,7 +1228,8 @@ public enum JsonValue {
     case Object(fields: Map<String, JsonValue>)
 }
 
-extension JsonValue: NoCopy {}
+@synthesize
+extension JsonValue: ExplicitCopy {}
 
 extension JsonValue {
     /// Parses `text` as one JSON value, rejecting anything left over

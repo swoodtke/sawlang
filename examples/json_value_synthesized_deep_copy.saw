@@ -1,0 +1,58 @@
+// Design 251 unit 3 — JsonValue becomes ExplicitCopy. The synthesized deep
+// copy recurses through BOTH `Vector<JsonValue>` (Array) and
+// `Map<String, JsonValue>` (Object) in the SAME tree, proving the two
+// newly-conforming containers (units 1/2) compose the way
+// `Vector<Vector<Int>>`/`Map<String, Vector<Int>>` already do individually.
+//
+// Mirrors recursive_enum_synthesized_deep_copy.saw's idiom: a Carrier wraps
+// each tree with a NoCopy resource that prints on deinit, so scope exit
+// proves EXACTLY-ONCE teardown per tree (no double free through a shared
+// buffer, no leak) alongside the mutation-based independence check below.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// original nums=2 name=hi
+// clone nums=3 name=hi
+// original nums=2 (still, after clone mutated)
+// DEINIT clone
+// DEINIT original
+
+import std.json.*
+
+struct Tag { name: String }
+extension Tag: NoCopy {
+    func deinit(&var self) { print("DEINIT {self.name}") }
+}
+
+struct Carrier { tag: Tag, tree: JsonValue }
+extension Carrier: NoCopy {}
+
+func build() -> JsonValue {
+    var arr = Vector<JsonValue>()
+    try! arr.push(JsonValue.Number(value: 1))
+    try! arr.push(JsonValue.Number(value: 2))
+    var obj = Map<String, JsonValue>()
+    try! obj.insert("nums", JsonValue.Array(items: move arr))
+    try! obj.insert("name", JsonValue.Text(value: "hi"))
+    return JsonValue.Object(fields: move obj)
+}
+
+func nums_len(v: &JsonValue) -> Int {
+    v.as_object()!["nums"]!.as_array()!.len()
+}
+
+func name_of(v: &JsonValue) -> String {
+    v.as_object()!["name"]!.as_text()!
+}
+
+func main() {
+    var original = Carrier(tag: Tag(name: "original"), tree: build())
+    var clone = Carrier(tag: Tag(name: "clone"), tree: original.tree.copy())
+
+    print("original nums={} name={}", nums_len(&original.tree), name_of(&original.tree))
+
+    // Mutate the clone's nested array only — a real deep copy, not a shared
+    // buffer, so the original's array is untouched.
+    try! clone.tree.as_object()!["nums"]!.as_array()!.push(JsonValue.Number(value: 3))
+    print("clone nums={} name={}", nums_len(&clone.tree), name_of(&clone.tree))
+    print("original nums={} (still, after clone mutated)", nums_len(&original.tree))
+}
