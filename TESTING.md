@@ -379,7 +379,7 @@ adds or updates its conformance rows as its FIRST unit.
 
 ```bash
 tools/battery.sh                     # everything
-tools/battery.sh --quick             # skip the slow lanes (irdet, gmgate, bootstrap, sos, freestanding)
+tools/battery.sh --quick             # skip the slow lanes (reemit, irdet, gmgate, bootstrap, freestanding)
 tools/battery.sh suite fuzz          # named stages only
 tools/battery.sh --list              # what the stages are
 ```
@@ -497,10 +497,11 @@ at a fixed load address with a custom linker script, `--module-path`
 composition, and `blade build --target <triple>`. Sources live in
 `tests/freestanding/`; the case table is in the runner.
 
-It exists because `sos` is a SYSTEM test doing a UNIT gate's job — red says
-"the OS did not boot", not which feature regressed — and because design 238
-moves `sos/` to its own repository, which would take the whole freestanding
-gate with it. The two stages run SIDE BY SIDE until that split lands.
+It exists because the old `sos` stage was a SYSTEM test doing a UNIT gate's
+job — red said "the OS did not boot", not which feature regressed — and
+because design 238 moved `sos/` to its own repository (unit 5, Aug 28
+2026), which took that stage with it. This suite is the compiler's
+cross-target gate; the SawOS kernel gates itself in the sawos repo.
 
 Compile-only would not do. A clean link proves the compiler emitted something,
 not that the something is correct: calling-convention, struct-layout and
@@ -525,16 +526,17 @@ make toolchain
 
 `tools/toolchain.py` is the one place anything locates a sawlang artifact — the
 compiler, Blade, and the `imgformat`/`toml`/`semver` packages a consumer
-compiles against. `sos_runner.py` computes none of those paths any more, which
-is what lets it keep working after design 238 unit 5 moves it to a repository
-where the language is somewhere else.
+compiles against. `sos_runner.py` computed none of those paths by the time it
+left, which is what let it move to the sawos repository (238 unit 5) — where
+the language is somewhere else — unchanged.
 
 Resolution is four steps: what the operator named (`SAWC`, `BLADE`,
 `SAWLANG_ROOT` — with this checkout as the default root, since it is one),
 then `sawc` and `blade` on `$PATH`, then a fetch of the commit named in a
 `sawlang.pin`, then a refusal naming all three. In this repository step 1
-always answers, so nothing about `make sos-test` changes; the point of the
-lane is that the other three still work when it does not.
+always answers (the checkout is its own root); the point of the lane is
+that the other three still work when it does not — sawos is the consumer
+that exercises them for real.
 
 Two things it checks that nothing else could. A `$PATH` compiler is verified
 against the pin's version and a disagreement is a refusal NAMING BOTH — never a
@@ -550,7 +552,8 @@ touching the network.
 
 The Aug-10 coverage sweep mapped which battery stage semantically checks
 each test tree: `blade/tests` and `libs/*/tests` run inside `bootstrap`
-(and ONLY there — `--quick` skips them), `sos/tests` inside `sos`, and
+(and ONLY there — `--quick` skips them; `sos/tests` gated inside the
+`sos` stage until both left for the sawos repo at 238 unit 5), and
 `selfhost/lexer/tests` ran NOWHERE — nine passing tests no stage
 compiled. `selfhostlex` closes that: each `selfhost/lexer/tests/*.saw`
 is compiled and run, exit 0 = pass, same contract as `blade test`.

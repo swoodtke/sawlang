@@ -15,8 +15,9 @@ see [TESTING.md](TESTING.md).
 - **Bare metal is a first-class target.** The freestanding profile links no
   libc and uses a small, fixed set of functions the host environment provides.
   Allocators are a type parameter, memory-mapped registers get a typed view,
-  and `@export` gives a function an exact C symbol. The SOS kernel in this repo
-  is built this way and boots under QEMU (`make sos-test`).
+  and `@export` gives a function an exact C symbol. SawOS, a capability-based
+  microkernel written in Saw, is built this way and boots under QEMU on
+  riscv32 and arm64 (it lives in its own repository since design 238).
 - **Memory safety without a garbage collector or lifetimes.** There are no null
   pointers. Ownership is checked where a value is transferred, and mutable
   aliasing is caught at compile time: many readers or one writer, never both at

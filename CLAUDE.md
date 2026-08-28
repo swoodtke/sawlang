@@ -33,39 +33,19 @@ blade/             # Blade package manager (written in Saw)
 libs/              # Real Saw library packages (semver, toml)
 tools/blade_bootstrap.py  # Self-hosting bootstrap loop
 designs/           # Design briefs + todo.md tracker
-sos/               # SOS microkernel (design 140). spec.md is authoritative.
-  kernel/          #   main.saw + core/lib.saw — the module EVERY kernel
-                   #   image shares (drivers, trap frame, ktrap, the
-                   #   object-op dispatch, the sosimg loader)
-  kernel/abi/      #   KERNEL-INTERNAL: every op number/right/status, in one
-                   #   place, shared by the dispatch and the wrappers below
-  kernel/sysapi/   #   the PUBLIC `sos` module the kernel EXPORTS to userspace
-                   #   (vDSO discipline: numbers are not ABI). Typed Saw +
-                   #   @export'd C surface; a process depends on this only
-  hal/riscv32/     #   the arch-aware code, one dir per arch (riscv32 +
-  hal/arm64/       #   arm64, landed by design 162/M1b): kernel/ (boot.S trap
-                   #   entry, board sinks, PMP, virt.ld) + user/ (the ecall
-                   #   stub — design 172 part 2 left nothing else in
-                   #   syscall.c — plus root.ld), each with an ABI.md.
-                   #   virt.ld/root.ld live per-arch here, not under kernel/
-                   #   or root/
-  rt/common/       #   `sosrt`: THE SOS RUNTIME, arch-free + role-free Saw —
-                   #   the four `__saw_rt_*` seams + the bump arena, over two
-                   #   per-side hooks, plus hex/ascii helpers. Kernel + every
-                   #   process. Its exports need `--runtime-provider` (design
-                   #   149): sos_runner passes it, a process image says
-                   #   `[package] runtime = true`
-  rt/common_c/     #   support.c — the C that must stay C: mem* + the atomic
-                   #   libcalls, ONE copy, see DF-140g
-  imgformat/       #   the sosimg layout, shared by BOTH consumers: Blade via a
-                   #   path dependency, the kernel via --module-path
-  root/            #   the root server: a real Blade package, `[sos] emit =
-                   #   "sosimg"`, banners via a System op and shuts down
-  tests/           #   kernel entries + hand-assembled payloads/images
-                   # `make sos-test` (tools/sos_runner.py) builds kernel AND
-                   # root, stitches them, boots them under QEMU. Kernel builds
-                   # need --module-path kcore=/imgformat=/sosrt=
+libs/imgformat/    # the sosimg layout (design 238 unit 2, moved from sos/):
+                   # Blade consumes it via a path dependency, the sawos
+                   # kernel via --module-path. Its tests run in LIB_DIRS.
+bin/, tools/toolchain.py  # `make install` shims + the toolchain resolver
+                   # (design 238 units 3-4): SAWLANG_ROOT / $PATH+pin /
+                   # cached fetch, one funnel, `toolchain` battery lane
 ```
+SawOS left this repository (design 238 unit 5, Aug 28 2026): the kernel,
+HALs, runtime, root server and their tests live in the sawos repo
+(`../sawos` locally), flattened to its root, building against a sawlang
+checkout through the resolver (`SAWLANG_ROOT` is the everyday spelling).
+sawlang references sawos nowhere; the freestanding suite is the compiler's
+cross-target gate.
 
 ## Python environment
 Dependencies live in `.venv/` (Python 3.14, llvmlite). ALWAYS use it:
@@ -102,27 +82,18 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
 - `make test` (venv active) or `./.venv/bin/python test_runner.py` —
   full compiler suite, ~1 min uncontended. Multi-pattern filter:
   `./.venv/bin/python test_runner.py -f test_a,test_b`.
-- **PER-COMMIT GATE POLICY (user, Aug 17; AMENDED Aug 21 — the
-  freestanding suite supersedes sos as the compiler's cross-target
-  gate):** a COMPILER change gates on the full compiler suite AND
+- **PER-COMMIT GATE POLICY (user, Aug 17; amended Aug 21; NARROWED to
+  sawlang Aug 28 when design 238 unit 5 moved sos/ out):** a COMPILER
+  change gates on the full compiler suite AND
   `tools/freestanding_runner.py` (both arches, ~80s) before every
   commit — the design-238-unit-1 suite names the freestanding/
-  cross-target features directly, which is the coverage sos_runner
-  provided incidentally. AGENTS no longer run sos_runner per commit on
-  compiler branches; the LEAD may still run it at INTEGRATION (a cheap
-  system-level residue check — trap frames, user-mode crossing, sosimg
-  — until design 238 unit 5 moves sos/ out). A change that TOUCHES
-  sos/ still gates on sos_runner; an SOS-ONLY change (everything under
-  sos/) gates on sos_runner ONLY — the compiler suite does not
-  exercise it. TERMINAL gates
-  scope the same way (user, Aug 17): a compiler branch owes the FULL
-  battery (which still carries the `sos` stage until 238 unit 5); an
-  SOS-only branch owes `battery.sh suite sos` — the five
-  slow lanes are compiler oracles and test nothing such a branch
-  changed; the suite runs once because new .saw files (tests, pins)
-  join the corpus and must prove they behave. Harness edits
-  (tools/sos_runner.py, tools/freestanding_runner.py) and examples/
-  pin files do not make a branch a compiler branch. XFAIL policy (user, Aug 7): a
+  cross-target features directly and IS the compiler's cross-target
+  gate. TERMINAL gates: a compiler branch owes the FULL battery; the
+  suite runs once because new .saw files (tests, pins) join the corpus
+  and must prove they behave. Harness edits
+  (tools/freestanding_runner.py) and examples/ pin files do not make a
+  branch a compiler branch. SawOS work happens in the sawos repo under
+  its own gate (`make sos-test` there) and its own CLAUDE.md. XFAIL policy (user, Aug 7): a
   `// XFAIL: reason` test is legal ONLY as a pin of a filed finding —
   the reason MUST cite the DF number, the body is the minimal repro
   with EXPECT directives stating the intended behavior (so the XPASS
@@ -185,8 +156,8 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   an untracked scratch file each session rewrote from this prose:
   ```bash
   SAW_PYTHON=/path/to/main/.venv/bin/python tools/battery.sh   # from a worktree
-  tools/battery.sh --quick        # skips the slow six (reemit/irdet/gmgate/
-                                  # bootstrap/sos/freestanding)
+  tools/battery.sh --quick        # skips the slow five (reemit/irdet/gmgate/
+                                  # bootstrap/freestanding)
   tools/battery.sh suite fuzz     # named stages
   tools/battery.sh --list
   ```
@@ -200,18 +171,20 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   `fuzz` (`sawfuzz --quick`), `corodiff` (`--quick`), `bench` (the warehouse
   benchmark — checksums GATE, timing report-only; devtools/bench/ +
   TESTING.md), `selfhostlex` (the selfhost lexer's own tests — the one tree
-  the Aug-10 coverage sweep found NO stage ran), then the slow six
+  the Aug-10 coverage sweep found NO stage ran), `floatvectors` (design
+  253: the committed Float↔text vectors, bit-exact, plus the Ryū table
+  re-derivation), then the slow five
   `reemit` (design 221 A2: TWO compiles in ONE process, byte-comparing the
   unopt IR, the OPTIMIZED IR and the object — the optimized IR is the
   artifact DF-220a moved and the only one nothing checked),
   `irdet` (`--all`, whole corpus), `gmgate` (both lanes), `bootstrap`,
-  `sos`, `freestanding` (the design-238-unit-1 feature suite under QEMU,
-  both arches). Every stage RUNS even after one fails; the exit code is the
+  `freestanding` (the design-238-unit-1 feature suite under QEMU,
+  both arches; the `sos` stage left with the kernel at 238 unit 5).
+  Every stage RUNS even after one fails; the exit code is the
   number of failing stages. Adding a lane means editing `STAGES`.
   Coverage map (Aug-10 sweep): blade/tests + libs/*/tests are
   typechecked+run by `bootstrap` ONLY (so `--quick` skips them);
-  sos/tests by `sos` only; lexdiff/astdiff lex/parse EVERY tracked .saw
-  but check no semantics.
+  lexdiff/astdiff lex/parse EVERY tracked .saw but check no semantics.
 - The AST contract (design 126, gated by design 194): every attribute a pass
   stamps on an AST node is a DECLARED `annotation(...)` field on the node
   class, never a runtime graft — `tools/test_ast_graft.py` (the `astgraft`
@@ -298,16 +271,21 @@ finding filed by a differential/fuzz harness removes the harness's
 known-ledger entry (corodiff_known.txt, sawfuzz_known.txt) in the SAME
 commit, and its gate includes that harness's lane.
 
-**THE SUITE LOCK (machine-wide):** all suite-shaped invocations
-(test_runner, battery.sh, sos_runner) serialize through a mkdir lock at
-`/private/tmp/claude-<uid>/saw-suite-lock` (uid = `id -u`; create the
-parent once per machine). Acquire + gate + release in ONE chained
-FOREGROUND command: `until mkdir <lock> 2>/dev/null; do sleep 15; done;
-<gate>; rc=$?; rmdir <lock>; echo GATE=$rc`. Never background the wait
-or the gate (a stopped agent's background waiters die silently); never
-hold the lock while editing; if the command times out, rerun the same
-command. Clear a stale lock only VERIFIED-DEAD: no suite process exists
-(pgrep) AND the holder is identified dead.
+**THE SUITE LOCK (machine-wide, sawlang's):** all suite-shaped invocations
+in THIS repo (test_runner, battery.sh, freestanding_runner) serialize
+through a mkdir lock at `/private/tmp/claude-<uid>/saw-suite-lock`
+(uid = `id -u`; create the parent once per machine; the sawos repo has
+its OWN lock path so the two never queue on each other). Acquire + gate +
+release in ONE chained FOREGROUND command: `until mkdir <lock>
+2>/dev/null; do sleep 15; done; <gate>; rc=$?; rmdir <lock>; echo
+GATE=$rc` — in SANDBOXED agent worktrees, where the chained form is
+refused, SPLIT it: the bare mkdir-wait as its own call, each gate as its
+own call, the bare rmdir immediately after; the never-background and
+never-stop-while-waiting-or-holding rules apply unchanged. Never
+background the wait or the gate (a stopped agent's background waiters die
+silently); never hold the lock while editing; if the command times out,
+rerun the same command. Clear a stale lock only VERIFIED-DEAD: no suite
+process exists (pgrep) AND the holder is identified dead.
 
 **DESIGN DOCTRINE (user rulings, standing):**
 - **Never hide errors** — failures surface as Result/Optional; no
