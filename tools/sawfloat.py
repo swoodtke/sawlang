@@ -66,6 +66,7 @@ canonical quiet NaN and `parse.tsv` carries the other spellings.
 """
 
 import argparse
+import decimal
 import math
 import os
 import random
@@ -303,6 +304,48 @@ def parse_rows():
     ok(long_digits)
     ok("0." + "0" * 320 + "5")
     ok("1" + "0" * 400 + "e-400")
+    # --- inputs that FORCE the exact path -----------------------------------
+    #
+    # Eisel-Lemire declines on about one input in a hundred and fifty, so a
+    # corpus of ordinary spellings exercises the exact decimal path barely at
+    # all — and that path is where a rounding rule can be subtly wrong for
+    # years. These rows go straight to it, three per sampled double:
+    #
+    #   * the double's OWN exact decimal expansion, which for a subnormal runs
+    #     to some 750 digits and must read back as the value it expands;
+    #   * the exact midpoint between it and its successor, which is a TIE and
+    #     must round to even;
+    #   * that midpoint with one more digit on the end, which is just past the
+    #     tie and must round up whatever the parity says.
+    rng = random.Random(SEED + 7)
+    ctx = decimal.Context(prec=1200)
+    seen = set()
+    samples = []
+    for _ in range(24):
+        b = rng.getrandbits(63)          # positive finite, any magnitude
+        x = double_of(b)
+        if math.isnan(x) or math.isinf(x) or x == 0.0:
+            continue
+        samples.append(x)
+    # …plus the places a rounding rule is most likely to be wrong.
+    samples += [1.0, 2.0, 0.5, 5e-324, 2.2250738585072014e-308,
+                1.7976931348623157e308, 9007199254740992.0, 1e22]
+    for x in samples:
+        if x in seen:
+            continue
+        seen.add(x)
+        nxt = math.nextafter(x, math.inf)
+        if math.isinf(nxt):
+            continue
+        exact = ctx.create_decimal(x)
+        mid = ctx.divide(ctx.add(exact, ctx.create_decimal(nxt)),
+                         decimal.Decimal(2))
+        for text in ("{:f}".format(exact), "{:f}".format(mid),
+                     "{:f}".format(mid) + "1"):
+            if not saw_accepts(text):
+                continue
+            ok(text)
+
     # the non-finite spellings `to_string` produces
     rows.append(("nan", "%016X" % QUIET_NAN))
     rows.append(("inf", "%016X" % POS_INF))
@@ -361,15 +404,44 @@ def pow5_split(i: int) -> int:
     return v
 
 
-def _table_block(name: str, count: int, value_of) -> list:
-    """One `static NAME: [UInt64; 2*count] = [...]` declaration, low word then
-    high word per entry — the layout `mul[0]`/`mul[1]` has in the reference
-    implementation, so the indexing reads the same."""
+LEMIRE_MIN_Q = -342              # below it every input is zero
+LEMIRE_MAX_Q = 308               # above it every input is infinite
+
+
+def pow5_truncated(q: int) -> int:
+    """5^q truncated to 128 bits — Eisel-Lemire's `power_of_five_128` entry.
+
+    For a negative exponent the table holds `floor(2^k / 5^-q)` instead, which
+    is the same thing read as a reciprocal: what the algorithm needs either way
+    is 128 bits of 10^q's significand, and the ERROR BOUND that makes the
+    method decidable is what the truncation direction is chosen for.
+    """
+    if q >= 0:
+        v = 5 ** q
+        b = v.bit_length()
+        return v << (128 - b) if b <= 128 else v >> (b - 128)
+    d = 5 ** (-q)
+    v = (1 << (127 + d.bit_length())) // d
+    while v.bit_length() > 128:
+        v >>= 1
+    assert v.bit_length() == 128, q
+    return v
+
+
+def _table_block(name: str, count: int, value_of, first: int = 0,
+                 high_first: bool = False) -> list:
+    """One `static NAME: [UInt64; 2*count] = [...]` declaration, two words per
+    entry. Ryu's tables are (low, high) — the layout `mul[0]`/`mul[1]` has in
+    its reference implementation — and Eisel-Lemire's is (high, low), which is
+    the layout ITS reference uses. Each matches its own paper's indexing, so
+    neither transcription has to remember a swap."""
     lines = ["static %s: [UInt64; %d] = [" % (name, count * 2)]
     for i in range(count):
-        v = value_of(i)
-        lines.append("    0x%016X, 0x%016X,   // %d"
-                     % (v & 0xFFFFFFFFFFFFFFFF, v >> 64, i))
+        v = value_of(first + i)
+        hi, lo = v >> 64, v & 0xFFFFFFFFFFFFFFFF
+        pair = (hi, lo) if high_first else (lo, hi)
+        lines.append("    0x%016X, 0x%016X,   // %d" % (pair[0], pair[1],
+                                                        first + i))
     lines.append("]")
     return lines
 
@@ -380,6 +452,10 @@ def table_lines() -> list:
                           pow5_inv_split)
     lines.append("")
     lines += _table_block("FLOAT_POW5_SPLIT", POW5_TABLE_SIZE, pow5_split)
+    lines.append("")
+    lines += _table_block("FLOAT_POW5_TRUNCATED",
+                          LEMIRE_MAX_Q - LEMIRE_MIN_Q + 1, pow5_truncated,
+                          first=LEMIRE_MIN_Q, high_first=True)
     lines += ["", TABLE_END]
     return lines
 

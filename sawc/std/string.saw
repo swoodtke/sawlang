@@ -681,121 +681,17 @@ extension String {
         self._parse_uint(radix)
     }
 
-    // Single decimal digit (0..9) as a Float — Saw has no Int->Float cast yet,
-    // and `to_float` only ever converts one digit at a time, so a small match
-    // suffices.
-    func _digit_to_float(&self, d: Int) -> Float {
-        if d == 0 { return 0.0 }
-        if d == 1 { return 1.0 }
-        if d == 2 { return 2.0 }
-        if d == 3 { return 3.0 }
-        if d == 4 { return 4.0 }
-        if d == 5 { return 5.0 }
-        if d == 6 { return 6.0 }
-        if d == 7 { return 7.0 }
-        if d == 8 { return 8.0 }
-        9.0
-    }
-
-    // Parse the whole string as a Float in the form `[+-]?digits[.digits][e[+-]digits]`.
-    // Naive accumulation (design 57 note): fine for typical inputs, but NOT a
-    // correctly-rounded strtod — the last ULP may differ for long/extreme
-    // inputs. Panic-free: mantissa uses IEEE Float arithmetic (overflows to inf,
-    // never traps) and the exponent accumulator is clamped so it cannot overflow.
-    public func to_float(&self) -> Float? {
-        let len = self.len()
-        if len == 0 {
-            return None
-        }
-        var i = 0
-        var neg = false
-        let first = self._ubyte_at(0)
-        if first == 45 {            // '-'
-            neg = true
-            i = 1
-        } else if first == 43 {     // '+'
-            i = 1
-        }
-        var mantissa = 0.0
-        var any_digits = false
-        // Integer part.
-        while i < len {
-            let b = self._ubyte_at(i)
-            if b < 48 || b > 57 {
-                break
-            }
-            mantissa = mantissa * 10.0 + self._digit_to_float(b - 48)
-            any_digits = true
-            i = i + 1
-        }
-        // Fractional part.
-        if i < len && self._ubyte_at(i) == 46 {   // '.'
-            i = i + 1
-            var scale = 1.0
-            while i < len {
-                let b = self._ubyte_at(i)
-                if b < 48 || b > 57 {
-                    break
-                }
-                mantissa = mantissa * 10.0 + self._digit_to_float(b - 48)
-                scale = scale * 10.0
-                any_digits = true
-                i = i + 1
-            }
-            mantissa = mantissa / scale
-        }
-        if not any_digits {
-            return None             // "", ".", "+", "e5", etc.
-        }
-        // Exponent.
-        if i < len && (self._ubyte_at(i) == 101 || self._ubyte_at(i) == 69) {  // 'e'/'E'
-            i = i + 1
-            var eneg = false
-            if i < len && self._ubyte_at(i) == 45 {
-                eneg = true
-                i = i + 1
-            } else if i < len && self._ubyte_at(i) == 43 {
-                i = i + 1
-            }
-            var exp = 0
-            var edigits = false
-            while i < len {
-                let b = self._ubyte_at(i)
-                if b < 48 || b > 57 {
-                    break
-                }
-                // Clamp so the accumulator cannot overflow; 10^1000000 is inf
-                // anyway, so a larger exponent changes nothing observable.
-                if exp < 1000000 {
-                    exp = exp * 10 + (b - 48)
-                }
-                edigits = true
-                i = i + 1
-            }
-            if not edigits {
-                return None         // 'e' with no exponent digits
-            }
-            var factor = 1.0
-            var e = 0
-            while e < exp {
-                factor = factor * 10.0
-                e = e + 1
-            }
-            if eneg {
-                mantissa = mantissa / factor
-            } else {
-                mantissa = mantissa * factor
-            }
-        }
-        // Whole-string match: every byte must have been consumed.
-        if i != len {
-            return None
-        }
-        if neg {
-            return -mantissa
-        }
-        return mantissa
-    }
+    // `String.to_float` IS NOT IN THIS FILE. It is declared in
+    // `sawc/std/float.saw`, beside `Float.to_string` and the bit-level layer
+    // both directions share (design 253) — one module owns the whole
+    // `Float`<->text story, and splitting it would mean inventing a second
+    // public spelling for each direction just to cross a file boundary.
+    //
+    // What used to be here was a naive left-to-right accumulation in `Float`
+    // arithmetic, documented as NOT a correctly-rounded strtod: the last ULP
+    // could differ, and a long or extreme input was simply wrong. It is
+    // Eisel-Lemire over an exact decimal fallback now, and nothing about the
+    // signature changed.
 
     // =========================================================================
     // UTF-8 decoding / validation (brief 38 items 1 & 2)

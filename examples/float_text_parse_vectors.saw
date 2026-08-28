@@ -1,0 +1,123 @@
+// design 253 unit 2, the Saw half: `tests/float_vectors/` gates the parser the
+// way `tools/sawfloat.py verify` gates the Python side.
+//
+// Two files, two questions.
+//
+// `shortest.tsv` is the ROUND TRIP: each row is one value's bits and its
+// shortest text, so parsing that text must give back exactly those bits. Every
+// row is checked, which is what makes this the inverse of
+// `float_text_shortest_vectors.saw` rather than a separate sample.
+//
+// `parse.tsv` is everything a formatter never emits and a parser must still
+// read: exponent spellings, a leading `+`, `.5`, `1.`, an 800-digit
+// significand, exponents that saturate to an infinity or a zero — plus the
+// inputs that are NOT numbers, which must answer `None` rather than a
+// best-effort value.
+//
+// BIT EQUALITY, never a tolerance: a parser that is one ULP off on one input
+// in three thousand is broken, not close.
+//
+// Run from the repo root; the paths are relative to it.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// round trip: 0 failures over 2897 vectors
+// parse: 0 failures over 175 vectors
+
+import std.file.{File}
+import std.path.{Path}
+import std.net.{IoError}
+
+func read_text(p: Path) -> Result<String, IoError> {
+    var f = try File.open(p)
+    let bytes = try f.read()
+    // The vector files are generated ASCII, so a UTF-8 fault in one is a broken
+    // checkout rather than input to handle.
+    return try! bytes.to_string()
+}
+
+func bits_of(hex: String) -> UInt64? {
+    guard let v = hex.to_uint(16) else {
+        return None
+    }
+    return v as UInt64
+}
+
+// One row of `shortest.tsv`: the text must parse back to exactly its bits.
+func check_round_trip(bits_text: String, text: String) -> Bool {
+    guard let want = bits_of(bits_text) else {
+        print("unreadable bits: {}", bits_text)
+        return false
+    }
+    guard let got = text.to_float() else {
+        print("{}: refused {}", bits_text, text)
+        return false
+    }
+    if got.to_bits() != want {
+        print("{}: parsed {} as {}", bits_text, text, got.to_bits())
+        return false
+    }
+    true
+}
+
+// One row of `parse.tsv`: `reject` means `None`, anything else means bits.
+func check_parse(text: String, want_text: String) -> Bool {
+    let got = text.to_float()
+    if want_text.equals("reject") {
+        if let value = got {
+            print("{}: should be refused, parsed as {}", text, value.to_string())
+            return false
+        }
+        return true
+    }
+    guard let want = bits_of(want_text) else {
+        print("unreadable bits: {}", want_text)
+        return false
+    }
+    guard let value = got else {
+        print("{}: refused, want {}", text, want_text)
+        return false
+    }
+    if value.to_bits() != want {
+        print("{}: parsed as {} want {}", text, value.to_bits(), want_text)
+        return false
+    }
+    true
+}
+
+func run(path: String, label: String, round_trip: Bool) -> Result<Void, IoError> {
+    let text = try read_text(Path(s: path))
+    let lines = try! text.split("\n")
+    var checked = 0
+    var failures = 0
+    var i = 0
+    while i < lines.len() {
+        let line = lines[i]
+        i = i + 1
+        if line.len() == 0 || line.starts_with("#") {
+            continue
+        }
+        let fields = try! line.split("\t")
+        if fields.len() != 2 {
+            print("malformed row: {}", line)
+            failures = failures + 1
+            continue
+        }
+        checked = checked + 1
+        let ok = if round_trip {
+            check_round_trip(fields[0], fields[1])
+        } else {
+            check_parse(fields[0], fields[1])
+        }
+        if not ok {
+            failures = failures + 1
+        }
+    }
+    print("{}: {} failures over {} vectors", label, failures, checked)
+    return
+}
+
+func main() -> Result<Void, IoError> {
+    try run("tests/float_vectors/shortest.tsv", "round trip", true)
+    try run("tests/float_vectors/parse.tsv", "parse", false)
+    return
+}
