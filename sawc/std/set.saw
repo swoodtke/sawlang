@@ -12,8 +12,9 @@
 //
 // ORDER IS UNSPECIFIED (table order, inherited from Map): sort a `to_vector()`
 // snapshot for deterministic output. Elements require `Hashable + Equatable`
-// (the same bound as a Map key). Set is NoCopy — transfer with `move`, no
-// implicit `.copy()`.
+// (the same bound as a Map key). Set is ExplicitCopy when its element is
+// (design 251, riding Map's own conformance) — transfer with `move`,
+// duplicate with a spelled `.copy()`/`try_copy()`.
 
 // The Map value type for a Set: a zero-field unit (trivially Copy). Private to
 // this file, so under design 204 the name is this file's alone and a user type
@@ -209,11 +210,52 @@ extension Set<T: Hashable + Equatable + Copy, A: Allocator = GlobalAllocator> {
     }
 }
 
-// Set owns a Map (Deinit), so it is NoCopy (move-only). The empty deinit body
-// suffices — the compiler appends the field cleanup, and the Map's own deinit
-// drops every element. Deinit is registered before NoCopy so the
-// `NoCopy: Deinit` supertrait is satisfied.
-extension Set<T, A: Allocator = GlobalAllocator>: NoCopy {
+// Set owns a Map (Deinit), so destroying one must run the Map's own deinit —
+// unconditional on `T`, mirroring Map's own unconditional deinit extension
+// (design 251, same placement reasoning as map.saw's). The empty body
+// suffices — the compiler appends the field cleanup, and the Map field's own
+// deinit drops every element.
+extension Set<T, A: Allocator = GlobalAllocator> {
     public func deinit(&var self) {
+    }
+}
+
+// Set is ExplicitCopy when its element is (design 251 — it used to be a
+// blanket NoCopy). Set is a thin wrapper over `Map<T, SetMark, A>` (this
+// file's own header comment), so its copy just rides the Map's: `SetMark` is
+// a zero-field struct and trivially Copy (so it always satisfies
+// `ExplicitCopy`), which means the bound Set needs is exactly `T`'s own —
+// `Hashable + Equatable + ExplicitCopy`, the same bound `Map`'s conformance
+// carries for its key.
+// (The `deinit` body is on the unconditional extension above, so it covers
+// every `T`; the `ExplicitCopy: Deinit` requirement is satisfied by that
+// method.)
+extension Set<T: Hashable + Equatable + ExplicitCopy, A: Allocator = GlobalAllocator>: ExplicitCopy {
+    /// Duplicates the set into a new table, copying each live element at its
+    /// own tier. Panics if the allocator refuses (conformance row A19,
+    /// sibling of Map's A18 and Vector's A17 — `copy` is delegated straight
+    /// to `Map.copy`, so the panic message names `Map.copy`); `try_copy`
+    /// reports the failure instead.
+    public func copy(&self) -> Set<T, A> {
+        Set<T, A>(map: self.map.copy())
+    }
+}
+
+// `try_copy` carries `copy`'s bound for `copy`'s reason.
+extension Set<T: Hashable + Equatable + ExplicitCopy, A: Allocator = GlobalAllocator> {
+    /// Duplicates the set, returning `Err(AllocError)` if the allocator
+    /// refuses while rehashing the new table.
+    ///
+    /// Spelled as a `match` rather than a propagating `try` (DF-257c, the
+    /// same reason every other method in this file's snapshot block uses
+    /// `match self.to_vector() { ... }` instead of `try`): this body and
+    /// `Map.try_copy` are two different generic types sharing type
+    /// parameters, which is exactly the shape that confuses `try`'s
+    /// single-instantiation Result extraction.
+    public func try_copy(&self) -> Result<Set<T, A>, AllocError> {
+        match self.map.try_copy() {
+            case Ok(m) -> { return Set<T, A>(map: move m) },
+            case Err(e) -> { return e }
+        }
     }
 }

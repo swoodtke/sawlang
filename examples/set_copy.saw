@@ -1,0 +1,23 @@
+// Set.copy() is a deep copy (design 251), delegating to Map's own
+// conformance since Set is a thin wrapper over `Map<T, SetMark, A>`: the
+// copy has its own table, so mutating it leaves the original untouched.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// true
+// false
+// 2
+// 3
+
+func main() {
+    var s = Set<Int>()
+    try! s.insert(1)
+    try! s.insert(2)
+
+    var w = s.copy()          // deep copy - independent table
+    let _ = try! w.insert(3)  // mutate the copy only
+
+    print(s.contains(1))      // true - original still has 1
+    print(s.contains(3))      // false - original unaffected by the copy's insert
+    print(s.len())            // 2
+    print(w.len())            // 3
+}

@@ -1,0 +1,40 @@
+// Conformance row A19 — `Set.copy()` panics too. Set is a thin wrapper over
+// `Map<T, SetMark, A>` (set.saw's own header comment) and forwards its copy
+// policy the same way it forwards insert/remove: `Set.copy()` builds
+// `Set(map: self.map.copy())`, so a refused rehash panics INSIDE `Map.copy`
+// and the message names `Map.copy`, not `Set.copy` — nothing about the
+// wrapper owes its own panic text, exactly as nothing about `Set.insert`
+// rewrites `Map.insert`'s `AllocError`.
+// EXPECT: panic
+// EXPECT-PANIC-CONTAINS: Map.copy: allocation of
+
+// Room for the source set's one grow (cap 0 -> 8) and nothing more.
+static BUDGET: Atomic<Int> = Atomic(1)
+
+struct FailAlloc {}
+extension FailAlloc: Allocator {
+    func alloc(&self, size: Int, align: Int) unsafe -> UnsafePointer<Int8>? {
+        let left = BUDGET.load()
+        if left <= 0 {
+            return None
+        }
+        BUDGET.store(left - 1)
+        GlobalAllocator().alloc(size, align)
+    }
+    func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) unsafe {
+        GlobalAllocator().dealloc(ptr, size, align)
+    }
+}
+
+func main() {
+    var s = Set<Int, FailAlloc>()
+    match s.insert(1) {
+        case Ok(_) -> {},
+        case Err(e) -> panic("setup insert failed: {}", e)
+    }
+    print(s.len())      // 1 — the source is real
+
+    // The duplicate needs a table of its own and the budget is gone.
+    let dup = s.copy()
+    print(dup.len())
+}

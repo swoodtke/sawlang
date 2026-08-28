@@ -1,0 +1,24 @@
+// Set.try_copy() is the reporting twin of Set.copy() (design 251, mirroring
+// Vector.try_copy verbatim): Ok on success, carrying an independent deep
+// copy exactly like `copy()`'s.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// ok
+// 2
+// 3
+
+func main() {
+    var s = Set<Int>()
+    try! s.insert(1)
+    try! s.insert(2)
+
+    match s.try_copy() {
+        case Ok(w) -> {
+            print("ok")
+            print(w.len())
+            let _ = try! s.insert(3)
+            print(s.len())     // the original grew; the copy did not share storage
+        },
+        case Err(e) -> print("err: {}", e)
+    }
+}
