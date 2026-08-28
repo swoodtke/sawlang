@@ -476,6 +476,41 @@ change in both repos, not code.
   Copy into sawos's `.claude/skills/` (drifts) or leave the sawos worktree
   pointing at sawlang's (requires the checkout). Open.
 
+## Aug-28 rulings (user) — the reorder to queue head
+
+1. **THE ORDERING SUPERSESSION: 238 now runs BEFORE 218 unit 1.5**,
+   reversing the Aug-24 ruling. Rationale (user): the goal of the split is
+   INDEPENDENT DEVELOPMENT — sawos has seen little recent work and the user
+   wants back to it; and "now that we have the baremetal tests" (unit 1's
+   freestanding suite, landed, plus the Aug-21 gate amendment making it the
+   compiler's cross-target gate) "the sos tests are less important for
+   218/1.5". Accepted consequence: sawos's initial pin predates 1.5 and its
+   first rigorous pin bump (D-b2 standing practice) lands after 1.5 does.
+2. **The sos riders batch is SCHEDULED**, directly after the currently
+   running agents (designs 252/253) and before unit 2 — the brief's
+   settled-tree precondition holds.
+3. **D-c RATIFIED** as recommended: sos design briefs STAY in sawlang
+   (archival, cited by number); sawos opens its own numbering at 1 and
+   cites `sawlang#NNN`. **D-d RATIFIED**: `filter-repo`, partial history.
+4. **D-e RULED THE OTHER WAY: FLATTEN.** Everything under `sos/` moves to
+   the ROOT of the new repo (`kernel/`, `hal/`, `rt/`, `root/`, `tests/`,
+   …) — no `sos/` prefix survives. Unit 5's scope therefore INCLUDES the
+   rewrite the agenda priced: every internal `../..` path dep (the
+   re-sweep's 20 sysapi + 21 sosrt consumers lose one level), the ld/board
+   paths, the Makefile, sos_runner's resolver-fed paths, and the doc
+   cross-references — rewritten IN the extraction, verified against the
+   unit-0 transcript like everything else.
+5. **D-f RULED: the skill goes GLOBAL on this machine.** A user-level
+   symlink `~/.claude/skills/saw-lang ->
+   <sawlang>/.claude/skills/saw-lang` (created Aug 28) makes the ONE
+   in-repo, version-controlled copy visible to every local project incl.
+   sawos — zero drift. sawos's CLAUDE.md documents the dependency (the
+   symlink dangles without a sawlang checkout; a machine without one
+   re-creates it or copies the skill).
+6. **Design 245 v1 (Scalar) WAITS until after the split** (user: sos does
+   not depend on string/character manipulation). Its Aug-27 dispatch never
+   landed and is presumed stale; re-dispatch is rescheduled post-238.
+
 ## Scheduling
 
 AFTER queue item 7 (the sos riders batch — `clock_get` `type:`, abi enum
