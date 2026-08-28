@@ -34,6 +34,8 @@ enum Msg { case Quit, case Move(x: Int, y: Int) }
 extension Msg { func is_quit(&self) -> Bool { match self { case Quit -> true,
                                                            case _ -> false } } }
 type UserId = Int          // DISTINCT type; flows TO Int; back via UserId(i)
+                           // `Byte` (= UInt8) is std's own, in the PRELUDE —
+                           // see BYTE below
                            // `type` is CONTEXTUAL (DF-232b, Aug 17): a keyword
                            // only where an alias begins (module level, or a
                            // trait/extension member). Elsewhere it is an
@@ -1178,7 +1180,8 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   does NOT fold and takes the runtime check). GOTCHA: same-width sign flips are
   checked, so `-1 as UInt8` (255) and `255u8 as Int8` (-1) are no longer how you
   reinterpret a byte — write `UInt8.from(truncating:)` / `Int8.from(truncating:)`.
-  That is the `Int8`↔`UInt8` idiom whenever C `char` bytes meet `Data`.
+  That is the `Int8`↔`Byte` idiom wherever C `char` storage meets a byte value,
+  and inside std it is confined to two funnels per file (see BYTE below).
   A raw-backed enum's `e as Backing` stays TOTAL; narrowing BELOW the backing
   takes the ordinary rule. An alias projects to its underlying first, then these
   rules apply. Saturating is deliberately not offered.
@@ -1247,7 +1250,7 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   `append(value: UInt)` render digits directly (no intermediate String), and
   forwarding to a field's own `format` (`self.n.format(into: &var into)`) is
   alloc-free too since design 135 — either spelling is safe in a body. In fixed
-  mode `append`/`append_char` never return `Err`: nothing refused them, and
+  mode no `append` overload returns `Err`: nothing refused them, and
   truncation is reported by the marker, not by a fake `AllocError`. That is why
   a `format` body spells `try!` — the storage it writes into cannot refuse, and
   the trait's signature leaves no error channel anyway.
@@ -2739,7 +2742,7 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
 ## Allocation failure (design 234 — one tier, and it reports)
 **Every allocating std operation returns `Result<_, AllocError>`.** One spelling
 per operation; the signature says whether it can fail. That is
-`push`/`append`/`append_char`/`insert`/`reserve`/`set`/`detached`/`map`/
+`push`/`append`/`insert`/`reserve`/`set`/`detached`/`map`/
 `keys`/`values`/`Box.make`/`String.split`/`String.to_data`/`Env.args`/
 `Command.arg`/`env`/`output`, and the constructors `Vector(capacity:)`,
 `Data(capacity:)`, `StringBuilder(capacity:)`, `Arc(value:)`, `Channel()`,
@@ -3519,6 +3522,51 @@ construct in the owner and lend `&driver` down.
   when the bounds prove every instantiation copies (`K: Copy`). The error names
   the parameter and arrives in the generic body, never at one caller. Reach the
   place through a borrow if you cannot bound it.
+- **BYTE — the prelude type of a byte value (design 250).** `type Byte = UInt8`,
+  a distinct alias, no import. It flows OUT freely (equality, mask, arithmetic,
+  a `UInt8` parameter, `as Int` — ordered comparison is the one exception today,
+  see the warning below) and IN only through `Byte(...)` or a byte-producing
+  API, which is the whole design: decoder math pays no tax and no integer
+  becomes a raw byte by accident.
+  ```saw
+  let b = s.byte_at(0)          // Byte; so are s.bytes(), d.get(i), d.pop(),
+                                //   d.iter()'s element, FixedBuf.get
+  if b == 0x0A { }              // equality — the literal adopts as UInt8
+  let n = b as Int              // widen for scalar assembly (0..255, unsigned)
+  let _ = try d.push(b)         // sinks take UInt8, so a Byte flows in
+  let bad: Byte = 65            // error — write Byte(65)
+  static LF: Byte = 10          // a `static` DOES adopt a bare literal
+  ```
+  **DO NOT ORDER-COMPARE A `Byte` YET (DF-270d, open).** `<`/`<=`/`>`/`>=` with
+  a `Byte` (or any distinct alias over an unsigned type) on the LEFT is lowered
+  SIGNED, so `b <= 127` is TRUE for `b == 255` and `b > 127` is FALSE. A
+  distinct alias carries `TypeKind.STRUCT`, so the ordering dispatch sends it to
+  the `compare()` path, whose three-way integer compare hard-codes
+  `icmp_signed`. The SAME `_emit_int_compare` makes `Comparable.compare()` wrong
+  on ANY unsigned integer — `UInt.max.compare(&1)` is `Less` — which is
+  pre-existing and has nothing to do with `Byte`. Sound today on the same
+  values: `==`/`!=`, `/`, `%`, `>>`, widening casts, printing, `>` between two
+  plain `UInt8`s inside a `<T: Comparable>` body, and a two-sided range test
+  whose bounds are both above 127 (`b >= 128 && b < 192` maps to exactly the
+  same set under both lowerings). Widen first (`b as Int < 128`) until the fix lands;
+  `examples/unsigned_ordered_comparison.saw` is the pin. It is why `std.cbor`'s
+  `byte_at` and UTF-8 boundary table are still `UInt8`.
+  SINKS keep `UInt8` parameters (`Data.set`/`push`, `FixedBuf.set`,
+  `String.index_of`'s needle, `Encoder.write_byte`, `Data`'s `d[i]` place) —
+  one declaration takes a `Byte`, a `UInt8` and a literal. A `Byte`-TYPED
+  parameter appears only where an integer-rendering sibling shares the name:
+  `StringBuilder.append`. So `append(65)` writes `65`, `append(Byte(65))` and
+  `append(s.byte_at(0))` write a raw byte, and a byte's DIGITS are
+  `append(b as Int)` — `as UInt8` is AMBIGUOUS (it ties the `Int` and `UInt`
+  renderers). `enum E: Byte` is refused; a raw backing is a fixed-width integer,
+  so wire enums stay `UInt8`. `extension Byte` is refused too — an alias carries
+  no methods.
+  GOTCHA: `Vector<Byte>` where `Vector<UInt8>` is expected type-checks and then
+  ICEs in codegen (a `let` transfer silently succeeds) — byte BUFFERS are
+  `Data`, and there is no `Vector<UInt8>` in the tree for that reason.
+- `index_of_char`/`last_index_of_char`/`append_char` are GONE (design 250):
+  `index_of(b: UInt8)`, `last_index_of(b: UInt8)`, `append(b: Byte)`. The
+  "char" names lied — each was one byte of a possibly multi-byte scalar.
 - String `chars()` yields Int scalars (no Char type); the inverse is
   `StringBuilder.append_scalar(scalar: Int) -> Result<Int?, AllocError>`
   (design 119, reshaped by 234) — UTF-8 encodes + appends a scalar, answers the

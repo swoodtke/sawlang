@@ -279,7 +279,23 @@ fortunate, because it is DF-270b rather than a clean refusal.
    only `append_char` anywhere whose argument was a bare literal. Every other of
    ~107 sites carried an explicit `as Int8` / `Int8.from(truncating:)` / `to_i8`
    and broke loudly. It is now `c.append(Byte(100))`.
-6. **`blade/src/lock.saw:114`'s manifest hash changes value once.** Its djb2
+6. **§1's evidence table is INCOMPLETE, and one row of the design is HELD.**
+   `Byte(65) < 100` works, but only because both sides are below 128: an ORDERED
+   comparison whose LEFT operand is a distinct alias over an unsigned underlying
+   is lowered SIGNED, so `Byte(255) <= Byte(127)` is `true` and
+   `Byte(255) > Byte(127)` is `false` (DF-270d). It is one mechanism with a
+   second, PRE-EXISTING face that needs no alias at all —
+   `UInt.max.compare(&1)` answers `Less` — so `Comparable.compare()` is wrong
+   on every unsigned integer today. Consequence for this brief: `std.cbor`'s
+   `byte_at` and its UTF-8 boundary table STAY `UInt8`, because `utf8_width`
+   and `compare_in` order the bytes they read and a `Byte` there makes the
+   validator accept the malformed input it exists to reject (caught by
+   `cbor169_vectors`, not by review). Everything design 250 did land is
+   comparison-safe, verified by run rather than by reading: `to_uppercase`,
+   `to_lowercase`, `trim` and the fixed builder's UTF-8 cut all behave on
+   `"café"`, because each of their ordered tests happens to map identically
+   under both lowerings. Pin: `examples/unsigned_ordered_comparison.saw`.
+7. **`blade/src/lock.saw:114`'s manifest hash changes value once.** Its djb2
    folds `byte as Int`, which was a sign-extend and is now a zero-extend. No
    test pins a literal hash (every `blade/tests/lock_*` compares
    computed-against-computed), so the change is self-healing; `bootstrap` is the
@@ -299,6 +315,6 @@ fortunate, because it is DF-270b rather than a clean refusal.
 | `selfhost/lexer/tests/*.saw` | 47 `append_char(N as Int8)` -> `append(Byte(N))` |
 | `devtools/dogfood/programs/llm_client.saw` | ZERO edits (every comparison is a bare literal or `as Int`) |
 | `devtools/dogfood/programs/w1_filesearch.saw` | `d.push(UInt8.from(truncating: b))` -> `d.push(b)` |
-| `blade/src/lock.saw` | no edit; hash value changes (§8.6 #6) |
+| `blade/src/lock.saw` | no edit; hash value changes (§8.6 #7) |
 | `examples/` | 11 files; the discrimination site is §8.6 #5 |
 | `examples/conformance/INDEX.md` | row A10's text names `append_char` |

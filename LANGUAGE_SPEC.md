@@ -781,6 +781,9 @@ Char        // (planned) Unicode scalar value — today a scalar is just an Int
 String      // Immutable, refcounted byte string (see "String" below)
 Never       // Bottom type (a diverging `panic` or `while { }` with no `break`;
             // usable as a return type)
+
+// And one prelude type that is not a primitive but names one:
+Byte        // `type Byte = UInt8` — a distinct alias (see "Byte" below)
 ```
 
 **`Int`/`UInt` are pointer-width** (Swift's model, design 47): 64-bit on
@@ -876,6 +879,41 @@ division libcalls (`__divdi3`) on a 32-bit chip. Consequently:
   structures, and device/MMIO register maps. Their widths never change, and D1's
   checked arithmetic makes any narrow-width overflow a loud panic rather than a
   silent wrap. `Int64` is the escape hatch for a value wider than a 32-bit word.
+
+#### `Byte`
+
+`Byte` is the type of a byte value: `type Byte = UInt8`, a **distinct alias** in
+the prelude, so it needs no import and follows the ordinary one-way flow
+(see [Type Definitions](#type-definitions)). A `Byte` reads as its `UInt8`
+wherever an integer is wanted — comparisons, masks, arithmetic, a `UInt8`
+parameter — and the way back in is `Byte(...)` or an API that produces bytes.
+
+```saw
+let b = "hi".byte_at(0)      // Byte
+if b == 0x0A { }             // reads as UInt8; the literal adopts there
+let n = b as Int             // 0..255 — a byte is unsigned, so 0xC3 widens to 195
+let u: UInt8 = b             // flows out with nothing written
+var d = try Data(capacity: 1)
+let _ = try d.push(b)        // a UInt8 parameter takes it
+
+let bad: Byte = 65           // error: cannot assign `UInt8` to variable of type `Byte`
+let ok = Byte(65)            // the constructor is the way in
+```
+
+Every byte-valued surface in std speaks it: `String.byte_at` and `bytes()`,
+`Data.get`/`pop`/iteration, `FixedBuf.get`, and the wire decoders' byte reads.
+Byte-consuming PARAMETERS stay `UInt8` — `Data.set`, `Data.push`,
+`FixedBuf.set`, `String.index_of`'s needle, `Encoder.write_byte` — because one
+`UInt8` parameter accepts all three arrivals (a `Byte` flows in, a `UInt8`
+passes, a bare literal adopts) and a byte buffer has no second reading for a
+number. A `Byte`-typed parameter appears only where an integer-rendering
+sibling shares the name; `StringBuilder.append` is that case.
+
+Two consequences. A bare literal never becomes a `Byte`, which is what makes
+`append(65)`-renders-digits and `append(Byte(65))`-writes-a-raw-byte an
+unambiguous pair rather than a trap. And `Byte` may not be an enum's raw backing
+(`enum E: Byte` is an error, since a raw backing is a fixed-width integer), so
+wire enums keep `UInt8`.
 
 ### Never
 
@@ -1011,15 +1049,18 @@ language with no `move` discipline — `greet(s)` does not consume `s`.
   interpolates and boxes at an erased `Result<T, Box<any Error>>` boundary.
 - **Access views, never `s[i]`.** There is deliberately no integer indexing (it
   conflates bytes with scalars). Two iterator views are provided instead:
-  `bytes()` yields the raw bytes and `chars()`
-  yields Unicode scalar values decoded from UTF-8. Bytes are `Int8` — from
-  `byte_at(i)` and from `bytes()` alike — so a byte at or above 0x80 reads
-  NEGATIVE, and a comparison against a `u8`-suffixed literal is a type error
-  (`Data`'s bytes are `UInt8`; `String`'s are not). Scalars are yielded as `Int` —
-  there is no `Char` primitive type yet (a scalar is just an `Int`). `String`
-  itself *is* `Comparable` (byte-lexicographic ordering, design 48). Each iterator
-  holds its OWN retain on the source string, so iterating a temporary
-  (`for c in makeString().chars()`) is safe.
+  `bytes()` yields the raw bytes and `chars()` yields Unicode scalar values
+  decoded from UTF-8. Bytes are [`Byte`](#byte) — from `byte_at(i)` and from
+  `bytes()` alike, the same type `Data` yields — so a byte at or above 0x80 is
+  the number it is: `"café".byte_at(4) as Int` is 169, not -87. Scalars are yielded
+  as `Int` — there is no `Char` primitive type yet (a scalar is just an `Int`).
+  `String` itself *is* `Comparable` (byte-lexicographic ordering, design 48).
+  Each iterator holds its OWN retain on the source string, so iterating a
+  temporary (`for c in makeString().chars()`) is safe.
+- **Byte search.** `index_of(b: UInt8) -> Int?` and `last_index_of(b: UInt8)`
+  give the offset of the first and last byte equal to `b`, or `None`. The needle
+  is the underlying `UInt8`, so `index_of(47)` is written with no ceremony and a
+  `Byte` from any source flows in.
 - **Encoding a scalar** (`designs/119`). `StringBuilder.append_scalar(scalar:
   Int) -> Result<Int?, AllocError>` is the inverse of `chars()`: it UTF-8-encodes
   one Unicode scalar and appends it, answering the byte count (1..4). An invalid
@@ -1122,9 +1163,17 @@ shared until written.
   owner of a whole buffer that is the buffer's capacity. For shared storage, or
   a slice that starts partway in, the next write separates the bytes, so the
   answer is `len()`.
-- **Reads never separate.** `d[i]`, `get(i) -> UInt8?`, `len()`, `is_empty()`,
-  `pop()`, `clear()` and `byte_ptr()` leave the storage shared. `pop` and
-  `clear` only narrow this window, so a sibling keeps every byte it could see.
+- **Reads never separate.** `d[i]`, `get(i) -> Byte?`, `len()`, `is_empty()`,
+  `pop() -> Byte?`, `clear()` and `byte_ptr()` leave the storage shared. `pop`
+  and `clear` only narrow this window, so a sibling keeps every byte it could
+  see.
+- **Reads yield [`Byte`](#byte); writes take `UInt8`.** `get`, `pop` and
+  `iter()`'s element are `Byte`, so a byte read off a `Data` arrives knowing what
+  it is. `set` and `push` declare `UInt8` instead, which accepts a `Byte`, a
+  `UInt8` and a bare literal from one declaration — `Data` deals in nothing but
+  bytes, so a number arriving at one has no second reading. `d[i]` is the
+  exception on the read side: a place has one type for reading and writing, and
+  it is `UInt8` so that `d[i] = 42` stays writable.
 - **`d[i]` is a place, and reading one costs nothing.** The accessor is `&self`,
   so a read works on a `let` binding, a `&Data` parameter, or a slice several
   `Data`s share. A write opens an exclusive window, so it needs a `var` root and
@@ -2411,12 +2460,27 @@ extension Other: Printable {
 `append(value: Int)` and `append(value: UInt)` render digits directly, with no
 intermediate `String`. Forwarding to a builtin's own `format` —
 `self.n.format(into: &var into)` — is allocation-free too, so either spelling of
-a field is safe inside a `format` body. In fixed mode `append` and
-`append_char` never
-report `Err`: there is no allocator to refuse them, and truncation is reported
+a field is safe inside a `format` body. In fixed mode no `append` overload
+reports `Err`: there is no allocator to refuse them, and truncation is reported
 by the marker and `is_truncated()` rather than by an `AllocError` naming a
 failure that did not happen. That is why a `format` body may spell `try!` — the
 storage it writes into cannot refuse.
+
+`append(b: Byte)` is the fourth overload, and the one that writes a RAW byte
+rather than a rendering. The parameter is a [`Byte`](#byte) and not a `UInt8`
+precisely so the two readings cannot be confused: an integer never becomes a
+`Byte` implicitly, so `append(65)` writes `65` through the `Int` overload and
+`append(Byte(65))` writes `A`. To render a byte's digits, widen it on purpose
+with `as Int` — `as UInt8` is ambiguous, since a `UInt8` matches the `Int` and
+`UInt` renderers equally.
+
+```saw
+var sb = StringBuilder()
+let b = "hello".byte_at(0)
+try! sb.append(b)             // "h"      — the raw byte
+try! sb.append(b as Int)      // "104"    — the digits
+try! sb.append(104)           // "104"    — a literal is an Int
+```
 
 #### `Error` and erased Results
 
@@ -2515,7 +2579,11 @@ underlying at runtime, and the distinction is the typechecker's alone.
 An alias over an unsigned or fixed-width underlying has no other spelling. An
 annotated `let` accepts an underlying-typed initializer only for the four
 primitive kinds (`Int`, `Float`, `Bool`, `String`), so `type Handle = UInt` is
-constructible through `Handle(...)` and nothing else.
+constructible through `Handle(...)` and nothing else. A module `static` is the
+one slot that differs: a bare literal DOES adopt there, so
+`static MINUS_SIGN: Byte = 45` is legal while `let m: Byte = 45` is not, and
+`static MINUS_SIGN: Byte = Byte(45)` is refused because a constructor call is
+not a constant expression.
 
 ```saw
 type Handle = UInt
@@ -2524,6 +2592,14 @@ type Small = Int64
 let h = Handle(7)        // the only spelling for an unsigned underlying
 let s = Small(99)        // the literal adopts Int64 and is checked there
 ```
+
+**`Byte` is std's own distinct alias**: `type Byte = UInt8` (see
+[`Byte`](#byte)). It shows what the rule buys. Because a byte flows OUT freely,
+decoding code pays no tax: `b == 0x0A`, `b & 0x1F`, `b - 32` and a `UInt8`
+parameter all work with nothing written. Because nothing flows IN implicitly,
+`StringBuilder.append(65)` and `append(Byte(65))` can mean different operations
+under one name without ambiguity. That pair is what a distinct alias is for — a
+type that costs nothing to read and cannot be entered by accident.
 
 Going the other way needs no ceremony. A distinct type flows to its underlying
 implicitly at a call site or an annotation, and `as` projects it explicitly:
@@ -9854,7 +9930,9 @@ cooperative one. See [§6 Concurrency](#6-concurrency) for the real API.
 `Iterator`, `Equatable`, `Comparable`, `Hashable`, `Printable`, `Error`, `Send`
 and `Sync` are prelude traits declared in `builtin.saw`, not module contents.
 `Atomic<Int>` is likewise a builtin, not a module: prelude-bare, nothing to
-import. There is no `Deque`, no `RwLock`, and no `UdpSocket` yet.
+import, and so is [`Byte`](#byte) — every byte API in std names it, so there is
+no module it could sensibly be imported from. There is no `Deque`, no `RwLock`,
+and no `UdpSocket` yet.
 
 `std.slab` and `std.spinlock` were the two rows this table got wrong: both
 documented as gated, and neither listed in the compiler's set, so `SlabHead` and
@@ -10922,7 +11000,7 @@ match frames.push(Frame(id: 1)) {
 
 The operations are `Vector.push`/`reserve`/`map`, `Map.insert`/`keys`/`values`,
 `Set.insert` and its algebra, `Data.push`/`set`/`append`/`append_bytes`/
-`reserve`/`detached`, `StringBuilder.append`/`append_char`/`append_scalar`,
+`reserve`/`detached`, `StringBuilder.append`/`append_scalar`,
 `Box.make`, `String.split`/`to_data`, `Env.args`, `Command.arg`/`env`/`output`,
 and the constructors `Vector(capacity:)`, `Data(capacity:)`,
 `StringBuilder(capacity:)`, `Arc(value:)`, `Channel()` and

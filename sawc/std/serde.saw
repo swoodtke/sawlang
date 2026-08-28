@@ -140,6 +140,10 @@ public trait Encoder {
     func begin_bytes(&var self, count: Int) sync -> Result<Void, EncodeError>
 
     /// Writes one byte of an open byte string.
+    ///
+    /// `b` is a `UInt8` and not a `Byte` so that all three arrivals pass one
+    /// declaration: a `Byte` degrades in, a `UInt8` passes, and a bare literal
+    /// adopts. A byte string has one reading, so nothing is lost by it.
     func write_byte(&var self, b: UInt8) sync -> Result<Void, EncodeError>
 
     /// Opens an array of exactly `count` items.
@@ -173,7 +177,7 @@ public trait Decoder {
     func begin_bytes(&var self) sync -> Result<Int, DecodeError>
 
     /// Reads one byte of an open byte string.
-    func read_byte(&var self) sync -> Result<UInt8, DecodeError>
+    func read_byte(&var self) sync -> Result<Byte, DecodeError>
 
     /// Opens an array, returning how many items follow.
     func begin_array(&var self) sync -> Result<Int, DecodeError>

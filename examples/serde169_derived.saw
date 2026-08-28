@@ -224,7 +224,7 @@ extension MiniDecoder: Decoder {
         return self.fault(DecodeFault.Unsupported)
     }
 
-    func read_byte(&var self) sync -> Result<UInt8, DecodeError> {
+    func read_byte(&var self) sync -> Result<Byte, DecodeError> {
         return self.fault(DecodeFault.Unsupported)
     }
 

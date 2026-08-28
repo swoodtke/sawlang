@@ -13,6 +13,8 @@
 #
 # Format: DF-NUMBER <TAB> signature   (the signature sawfuzz prints for it)
 
+DF-270e	internal-compiler-error: error: internal compiler error at <src>:N:N (FunctionCall): Undefined function: UIntN
+
 # DF-192d's signature was deleted here by design 198: an exact duplicate match
 # arm is a clean compile error now, reported at the second arm and naming the
 # first's line, so the enum spelling never reaches the LLVM switch that used to

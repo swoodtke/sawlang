@@ -77,6 +77,15 @@ static BYTE_MASK: UInt = 255
 // levels of nesting, 16 MiB of input, and 100000 items.
 
 // UTF-8 lead and continuation boundaries, from RFC 3629's table.
+//
+// These are byte VALUES and design 250 would have them be `Byte`, along with
+// the `byte_at` accessor they are compared against. That row is HELD: an
+// ORDERED comparison whose left operand is a distinct alias over an unsigned
+// underlying is lowered SIGNED today (DF-270d), so `b0 <= UTF8_ASCII_MAX` would
+// answer true for every byte at or above 0x80 and this validator would accept
+// the malformed input it exists to reject. `compare_in`, the canonical map-key
+// ordering, sits on the same edge. Both flip when DF-270d lands;
+// `examples/unsigned_ordered_comparison.saw` is the pin.
 static UTF8_ASCII_MAX: UInt8 = 127u8
 static UTF8_LEAD_MIN: UInt8 = 194u8
 static UTF8_LEAD_3: UInt8 = 224u8
@@ -600,7 +609,7 @@ extension CborDecoder {
 
     // Read one byte and advance. Running off the end is `Truncated` at the byte
     // that was wanted.
-    func next_byte(&var self) sync -> Result<UInt8, DecodeError> {
+    func next_byte(&var self) sync -> Result<Byte, DecodeError> {
         guard let b = self.input.get(self.pos) else {
             return DecodeError(offset: self.pos, fault: DecodeFault.Truncated)
         }
@@ -706,6 +715,13 @@ extension CborDecoder {
     }
 
     // One byte of the input, for a position the caller has already bounded.
+    //
+    // `-> UInt8` rather than design 250's `Byte`: its two callers ORDER the
+    // bytes they read (`utf8_width`'s class boundaries, `compare_in`'s
+    // canonical key ordering), and an ordered comparison on an alias over an
+    // unsigned underlying is lowered signed today — DF-270d, pinned by
+    // `examples/unsigned_ordered_comparison.saw`. The `Byte?` `Data.get` hands
+    // back flows out into this `UInt8` unchanged.
     func byte_at(&self, i: Int) sync -> UInt8 {
         self.input.get(i) ?? 0u8
     }
@@ -1037,7 +1053,7 @@ extension CborDecoder: Decoder {
         return n
     }
 
-    func read_byte(&var self) sync -> Result<UInt8, DecodeError> {
+    func read_byte(&var self) sync -> Result<Byte, DecodeError> {
         if self.bytes_left <= 0 {
             return DecodeError(offset: self.pos, fault: DecodeFault.CountMismatch)
         }
