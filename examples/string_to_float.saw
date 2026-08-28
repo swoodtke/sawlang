@@ -1,30 +1,30 @@
 // String.to_float() (design 57): [+-]?digits[.digits][e[+-]digits], whole-string
-// match, panic-free. Naive accumulation (not correctly-rounded strtod). None on
-// empty/junk/incomplete forms. Print renders Float with 6 fractional digits.
+// match, panic-free. None on empty/junk/incomplete forms. Print renders the
+// SHORTEST decimal that reads back as the value (design 253).
 // EXPECT: success
 // EXPECT-OUTPUT:
-// 3.140000
-// -2.500000
-// 10.000000
-// 1000.000000
-// 150.000000
-// 0.020000
-// -1.000000
-// -1.000000
-// -1.000000
-// -1.000000
+// 3.14
+// -2.5
+// 10.0
+// 1000.0
+// 150.0
+// 0.02
+// -1.0
+// -1.0
+// -1.0
+// -1.0
 
 func showf(o: Float?) {
     if let v = o { print(v) } else { print(0.0 - 1.0) }
 }
 
 func main() {
-    showf("3.14".to_float())     // 3.140000
-    showf("-2.5".to_float())     // -2.500000
-    showf("10".to_float())       // 10.000000
-    showf("1e3".to_float())      // 1000.000000
-    showf("1.5e2".to_float())    // 150.000000
-    showf("2e-2".to_float())     // 0.020000
+    showf("3.14".to_float())     // 3.14
+    showf("-2.5".to_float())     // -2.5
+    showf("10".to_float())       // 10.0
+    showf("1e3".to_float())      // 1000.0
+    showf("1.5e2".to_float())    // 150.0
+    showf("2e-2".to_float())     // 0.02
     showf("".to_float())         // None
     showf("abc".to_float())      // None
     showf("1.2.3".to_float())    // None (trailing junk)

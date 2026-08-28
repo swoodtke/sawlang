@@ -155,7 +155,13 @@ ARCHES = [
 # The offset `hal/<arch>/link.ld` places `.fsmark` at. One number, two scripts,
 # and `cases/link_address.saw` reads the resulting ADDRESS back — so this is the
 # harness's half of a claim the program makes.
-FSMARK_OFFSET = 0x1_0000
+#
+# It was 64 KiB until design 253's `float_text` case, whose image is ~118 KiB
+# (std's float formatter carries two power-of-five tables and pulls the String
+# layer in). The overlap was a clean LINK error naming both sections, which is
+# what a fixed placement is supposed to do; the number moved rather than the
+# case shrinking to fit a bound that was only ever "big enough so far".
+FSMARK_OFFSET = 0x8_0000
 
 
 def arch_dirs(arch):
@@ -262,7 +268,10 @@ XMARK = f"{YELLOW}x{RESET}"
 # ONE NOTE ON WHAT THE CASES DELIBERATELY DO NOT DO: none of them divides or
 # checked-multiplies a 64-bit value beyond what `hal/support.c` supplies
 # libcalls for, because the rest reach compiler-rt entries a freestanding link
-# does not carry. (The cases used to prefer `import fscore.*` / `import
+# does not carry. (`float_text` is the case that comes closest and is the one
+# that now HOLDS that rule honest: std's float formatter divides `UInt64`s, and
+# `__udivdi3` is supplied. If a future change to it reaches, say, `__muldi3`,
+# this suite fails at the LINK rather than in the answer.) (The cases used to prefer `import fscore.*` / `import
 # fscore.{…}` over the qualifier for a second reason — a module-qualified call
 # carried neither its parameter's width nor its type arguments — which DF-238a
 # closed on Aug 21. The mixed spellings stay: they exercise both.)
@@ -451,6 +460,40 @@ TEST_CASES = [
                        "fs check closure_captures_on_the_stack=1",
                        "fs check escaping_closure_without_captures=1",
                        "fs done format_no_alloc ok"],
+        "expect_clean_exit": True,
+    },
+    {
+        # Float TEXT with no libc (design 253). The profile used to refuse
+        # `print(f)` and a `{}` float argument outright — the renderer was
+        # snprintf — while leaving interpolation, `to_string()` and
+        # `format(into:)` ungated on the same snprintf, so an object could
+        # carry an undefined libc symbol. The formatter is Saw now, so the
+        # refusal is gone and this is what stands in its place.
+        #
+        # It also holds the case list's 64-bit note honest at the one place
+        # that reaches for it: the formatter divides `UInt64`s, and
+        # `hal/support.c` supplies `__udivdi3`. A violation of that rule is a
+        # link failure, not a wrong answer.
+        "name": "float_text",
+        "src": "float_text.saw",
+        "expect_out": ["fs check integral=1",
+                       "fs check negative=1",
+                       "fs check drift=1",
+                       "fs check thirds=1",
+                       "fs check fixed_high=1",
+                       "fs check exp_high=1",
+                       "fs check fixed_low=1",
+                       "fs check exp_low=1",
+                       "fs check min_subnormal=1",
+                       "fs check max_finite=1",
+                       "fs check infinity=1",
+                       "fs check negative_infinity=1",
+                       "fs check not_a_number=1",
+                       "fs check zero=1",
+                       "fs check negative_zero=1",
+                       "fs value fmt_arg=0.30000000000000004",
+                       "fs value print_arm=\n1.5",
+                       "fs done float_text ok"],
         "expect_clean_exit": True,
     },
     # --- the linker script ----------------------------------------------------

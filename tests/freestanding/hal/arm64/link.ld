@@ -30,8 +30,9 @@ SECTIONS {
         *(.data .data.*)
     }
 
-    /* The placement assertion, 64 KiB into the image. */
-    . = 0x40010000;
+    /* The placement assertion, 512 KiB into the image — see the riscv32
+     * script for why it is not 64 KiB any more. */
+    . = 0x40080000;
     .fsmark : {
         KEEP(*(.fsmark))
     }

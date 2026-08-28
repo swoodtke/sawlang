@@ -3333,6 +3333,40 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
         return buf
 
+    # The scratch a float rendering gets. `std.float`'s formatter is a FIXED
+    # `StringBuilder`, which holds `capacity - 4` bytes of text, and the widest
+    # shortest-round-trip rendering is 24 bytes (`-1.2345678901234567e-308`).
+    FLOAT_TEXT_BUF = 32
+
+    def _render_float_value(self, value, in_entry: bool = True):
+        """Render a Float to a `(i8* ptr, word len)` byte range — NUL-terminated,
+        so a caller that wants a C string can use the pointer alone.
+
+        THE float rendering, and the only one (design 253). Every position that
+        shows a float goes through here — `print(f)`, `"{f}"`, `print("{}", f)`,
+        a `panic`/`assert` argument, `f.to_string()` and `f.format(into:)` — so
+        one number has one spelling. Before design 253 there were two: `print`
+        was `printf("%f")` (six FRACTIONAL digits) and everything else was
+        `snprintf("%g")` (six SIGNIFICANT ones), so `print(1.0)` said
+        `1.000000` and `print("{}", 1.0)` said `1`, and neither round-tripped.
+
+        The work is in Saw, in `sawc/std/float.saw`: `__float_to_chars` writes
+        through a fixed `StringBuilder` and answers the byte count. Nothing here
+        touches libc, which is what lets the freestanding profile render a float
+        at all.
+        """
+        zero = ir.Constant(ir.IntType(32), 0)
+        n = self.FLOAT_TEXT_BUF
+        buf = self._entry_alloca(ir.ArrayType(ir.IntType(8), n),
+                                 name="float_buf") if in_entry else \
+            self.builder.alloca(ir.ArrayType(ir.IntType(8), n), name="float_buf")
+        buf_ptr = self.builder.gep(buf, [zero, zero], inbounds=True)
+        length = self.builder.call(
+            self.functions["__float_to_chars"],
+            [value, buf_ptr, ir.Constant(self.int_type, n)],
+            name="float_len")
+        return buf_ptr, length
+
     def _value_to_string(self, value, saw_type: SawType):
         """Convert an LLVM value to a string pointer using snprintf."""
         zero = ir.Constant(ir.IntType(32), 0)
@@ -3378,10 +3412,12 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             return buf_ptr
 
         elif saw_type.kind == TypeKind.FLOAT:
-            fmt = self._create_string_constant("%g")
-            fmt_ptr = self.builder.gep(fmt, [zero, zero], inbounds=True)
-            self.builder.call(self.snprintf, [buf_ptr, size, fmt_ptr, value])
-            return buf_ptr
+            # The shortest round-trip rendering, in Saw (design 253). This used
+            # to be `snprintf("%g")`, which showed six significant digits — so
+            # `"{0.1 + 0.2}"` read `0.3` and nothing that came out of here could
+            # be read back.
+            float_ptr, _length = self._render_float_value(value)
+            return float_ptr
 
         else:
             # Fallback for unknown types
@@ -3451,8 +3487,10 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             inbounds=True, name=f"{name}_bytes")
         return bytes_ptr, len_slot
 
-    # Widest rendering `_value_to_string` can produce for a Float (`%g`), plus
-    # room for a NUL. Integers never reach that path here — they append directly.
+    # Widest rendering `_value_to_string` can produce for the `<?>` unknown-type
+    # fallback, plus room for a NUL. Integers never reach that path here — they
+    # append directly — and neither does a Float since design 253, which
+    # streams one through `StringBuilder.append(value: Float)`.
     FLOAT_FMT_MAX = 64
 
     def _emit_format(self, value, saw_type: SawType, sb_ptr):
@@ -3511,9 +3549,17 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             append(TypeKind.UINT if is_unsigned else TypeKind.INT, value)
             return
 
-        # Float (hosted only — freestanding rejects it at typecheck) and the
-        # unknown-type `<?>` fallback: render to C bytes in stack scratch, then
-        # wrap those bytes in a frame-resident immortal String to append.
+        if kind == TypeKind.FLOAT:
+            # `StringBuilder.append(value: Float)` IS the formatter (design
+            # 253), so this is the same one-call shape the integer arm above
+            # has. It used to render to C bytes and copy them into a
+            # frame-resident String, which was the shape a snprintf rendering
+            # forced.
+            append(TypeKind.FLOAT, value)
+            return
+
+        # The unknown-type `<?>` fallback: render to C bytes in stack scratch,
+        # then wrap those bytes in a frame-resident immortal String to append.
         c_ptr = self._value_to_string(value, saw_type)
         strlen_fn = self._libc_func("strlen", word, [i8ptr])
         length = self.builder.call(strlen_fn, [c_ptr], name="fmt_len")

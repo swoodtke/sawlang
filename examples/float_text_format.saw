@@ -1,0 +1,107 @@
+// design 253: ONE float formatter, reached from every position that shows a
+// float, producing the shortest decimal that reads back as the value.
+//
+// The six positions used to be two renderings that disagreed: `print(f)` was
+// `printf("%f")` — six FRACTIONAL digits — and interpolation, format
+// arguments, `to_string()` and `format(into:)` were `snprintf("%g")` — six
+// SIGNIFICANT ones. So `print(1.0)` said `1.000000` while `print("{}", 1.0)`
+// said `1`, `0.1 + 0.2` said `0.3` in both, and `%g` emitted `1e+21`, an
+// exponent form Saw's own lexer cannot read back (design 161).
+//
+// The bit-exact vector corpus is `float_text_shortest_vectors.saw`; this file
+// pins the SHAPES a corpus of values does not: that every position agrees,
+// what the special values print as, and where the layout switches form.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -- every position agrees
+// 0.30000000000000004
+// 0.30000000000000004
+// 0.30000000000000004
+// 0.30000000000000004
+// 0.30000000000000004
+// tag=0.30000000000000004
+// -- round trip
+// true
+// true
+// -- special values
+// 0.0
+// -0.0
+// inf
+// -inf
+// nan
+// nan
+// -- the layout switch
+// 1000000000000000.0
+// 1e+16
+// 0.0001
+// 1e-05
+// 5e-324
+// 1.7976931348623157e+308
+// -- integral values keep a point
+// 1.0
+// 100.0
+// -2.5
+
+struct Tag { f: Float }
+
+extension Tag: Printable {
+    func format(&self, into: &var StringBuilder) {
+        try! into.append("tag=")
+        self.f.format(into: &var into)
+    }
+}
+
+// The one value everybody knows is not 0.3.
+func drift() -> Float {
+    0.1 + 0.2
+}
+
+func show(f: Float) {
+    print(f.to_string())
+}
+
+func main() {
+    print("-- every position agrees")
+    let d = drift()
+    print(d)                     // single-argument print
+    print("{d}")                 // interpolation
+    print("{}", d)               // a design-137 format argument
+    print(d.to_string())         // the `to_string` synthesis
+    var sb = StringBuilder()
+    let _ = try! sb.append(d)    // the std overload directly
+    print(sb.build())
+    print(Tag(f: d))             // through `Printable.format`
+
+    print("-- round trip")
+    // The point of "shortest ROUND TRIP": the text names the same double.
+    // The exhaustive version of this — every vector, both directions — is
+    // `float_text_parse_vectors.saw`.
+    print(d.to_string().to_float()! == d)
+    print((1.0 / 3.0).to_string().to_float()! == 1.0 / 3.0)
+
+    print("-- special values")
+    show(0.0)
+    show(Float.from(bits: 9223372036854775808))     // -0.0 keeps its sign
+    show(1.0 / 0.0)
+    show(0.0 - 1.0 / 0.0)
+    show(0.0 / 0.0)
+    // A NaN's payload bits are not part of the value: every one reads `nan`.
+    show(Float.from(bits: 9221120237041090561))
+
+    print("-- the layout switch")
+    // Fixed form up to a decimal point sixteen places right of the digits,
+    // exponent form past it; and the mirror, four places to the left.
+    show(1000000000000000.0)
+    show(10000000000000000.0)
+    show(0.0001)
+    show(0.00001)
+    show(Float.from(bits: 1))                       // the min subnormal
+    show(Float.from(bits: 9218868437227405311))     // the max finite value
+
+    print("-- integral values keep a point")
+    // `1` would read as an Int, and would not round-trip through a reader
+    // that has to tell the two apart.
+    show(1.0)
+    show(100.0)
+    show(0.0 - 2.5)
+}

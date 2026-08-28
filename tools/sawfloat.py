@@ -321,6 +321,118 @@ def parse_rows():
 
 
 # ---------------------------------------------------------------------------
+# The Ryu power-of-five tables, which live INSIDE `sawc/std/float.saw`
+#
+# A shortest-round-trip formatter is only as correct as its tables, and a
+# mistyped hex digit in 1236 of them would show up as one wrong value in a
+# hundred million rather than as a broken build. So the tables are GENERATED
+# here, spliced into the Saw source between sentinel comments, and `verify`
+# re-derives them and compares — a hand-edited digit fails the gate.
+
+POW5_INV_BITCOUNT = 125
+POW5_BITCOUNT = 125
+POW5_INV_TABLE_SIZE = 292        # indices 0..290 are reached
+POW5_TABLE_SIZE = 326            # indices 1..325 are reached
+
+TABLE_BEGIN = ("// BEGIN GENERATED TABLES — regenerate with "
+               "`tools/sawfloat.py tables`")
+TABLE_END = "// END GENERATED TABLES"
+FLOAT_SAW = os.path.join(REPO, "sawc", "std", "float.saw")
+
+
+def _pow5bits(e: int) -> int:
+    """ceil(log2(5^e)) for 0 <= e < 3529 — the same closed form the Saw side
+    uses, so the table and the code that indexes it agree by construction."""
+    return ((e * 1217359) >> 19) + 1
+
+
+def pow5_inv_split(i: int) -> int:
+    """`floor(2**(pow5bits(i) - 1 + 125) / 5**i) + 1`, 128 bits."""
+    v = ((1 << (_pow5bits(i) - 1 + POW5_INV_BITCOUNT)) // (5 ** i)) + 1
+    assert v < (1 << 128)
+    return v
+
+
+def pow5_split(i: int) -> int:
+    """`5**i` shifted to 128 bits."""
+    shift = _pow5bits(i) - POW5_BITCOUNT
+    v = (5 ** i) >> shift if shift > 0 else (5 ** i) << (-shift)
+    assert v < (1 << 128)
+    return v
+
+
+def _table_block(name: str, count: int, value_of) -> list:
+    """One `static NAME: [UInt64; 2*count] = [...]` declaration, low word then
+    high word per entry — the layout `mul[0]`/`mul[1]` has in the reference
+    implementation, so the indexing reads the same."""
+    lines = ["static %s: [UInt64; %d] = [" % (name, count * 2)]
+    for i in range(count):
+        v = value_of(i)
+        lines.append("    0x%016X, 0x%016X,   // %d"
+                     % (v & 0xFFFFFFFFFFFFFFFF, v >> 64, i))
+    lines.append("]")
+    return lines
+
+
+def table_lines() -> list:
+    lines = [TABLE_BEGIN, ""]
+    lines += _table_block("FLOAT_POW5_INV_SPLIT", POW5_INV_TABLE_SIZE,
+                          pow5_inv_split)
+    lines.append("")
+    lines += _table_block("FLOAT_POW5_SPLIT", POW5_TABLE_SIZE, pow5_split)
+    lines += ["", TABLE_END]
+    return lines
+
+
+def _splice(path, lines):
+    with open(path, encoding="utf-8") as fh:
+        src = fh.read().splitlines()
+    try:
+        start = src.index(TABLE_BEGIN)
+        end = src.index(TABLE_END)
+    except ValueError:
+        print("%s: no `%s` / `%s` sentinel pair" % (path, TABLE_BEGIN, TABLE_END))
+        return None
+    return src[:start] + lines + src[end + 1:]
+
+
+def cmd_tables():
+    if not os.path.exists(FLOAT_SAW):
+        print("missing %s" % FLOAT_SAW)
+        return 1
+    out = _splice(FLOAT_SAW, table_lines())
+    if out is None:
+        return 1
+    with open(FLOAT_SAW, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write("\n".join(out) + "\n")
+    print("spliced %d table entries into %s"
+          % (POW5_INV_TABLE_SIZE + POW5_TABLE_SIZE, FLOAT_SAW))
+    return 0
+
+
+def verify_tables():
+    """The committed tables, re-derived. Returns a list of failures."""
+    if not os.path.exists(FLOAT_SAW):
+        return []                      # unit 1 has not landed the module yet
+    with open(FLOAT_SAW, encoding="utf-8") as fh:
+        src = fh.read().splitlines()
+    if TABLE_BEGIN not in src:
+        return ["%s carries no generated-table sentinel" % FLOAT_SAW]
+    have = src[src.index(TABLE_BEGIN):src.index(TABLE_END) + 1]
+    want = table_lines()
+    if have == want:
+        return []
+    n = min(len(have), len(want))
+    first = next((i for i in range(n) if have[i] != want[i]), n)
+    return ["sawc/std/float.saw's generated tables differ from what "
+            "tools/sawfloat.py derives, first at offset %d:\n    committed: "
+            "%s\n    generated: %s\n  Re-run `tools/sawfloat.py tables`." % (
+                first,
+                have[first] if first < len(have) else "<end>",
+                want[first] if first < len(want) else "<end>")]
+
+
+# ---------------------------------------------------------------------------
 # files
 
 
@@ -378,7 +490,7 @@ def _read(name):
 
 
 def cmd_verify(check_rule: bool):
-    failures = []
+    failures = verify_tables()
 
     for name, want_lines in ((SHORTEST, _shortest_lines()),
                              (PARSE, _parse_lines())):
@@ -482,12 +594,15 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd")
     sub.add_parser("gen", help="rewrite the golden vectors")
+    sub.add_parser("tables", help="splice the Ryu tables into sawc/std/float.saw")
     v = sub.add_parser("verify", help="check the committed vectors")
     v.add_argument("--rule", action="store_true",
                    help="also re-check the documented render rule against repr")
     args = ap.parse_args()
     if args.cmd == "gen":
         return cmd_gen()
+    if args.cmd == "tables":
+        return cmd_tables()
     if args.cmd == "verify":
         return cmd_verify(args.rule)
     ap.print_help()

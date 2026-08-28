@@ -639,13 +639,13 @@ class ExpressionsMixin:
             arg_type = self._check_expression(arg.value)
             if arg_type is None:
                 continue
-            if self.freestanding and arg_type.kind == TypeKind.FLOAT:
-                self._error(
-                    ErrorKind.TYPE_MISMATCH,
-                    "Float formatting requires the hosted profile; "
-                    "freestanding formatting supports integers, Bool, and String only",
-                    arg.value.line, arg.value.column)
-                continue
+            # A Float used to be refused here: the renderer was `snprintf`, and
+            # freestanding has no libc. Design 253 made it Saw — integer
+            # arithmetic over two read-only tables, written through a fixed
+            # `StringBuilder` — so there is nothing left to refuse. (The refusal
+            # was never at every position anyway: interpolation, `to_string()`
+            # and `format(into:)` reached the same snprintf and were not gated,
+            # so a freestanding object could carry an undefined `snprintf`.)
             self._check_renderable_operand(arg_type, arg.value, "cannot format")
 
     def _type_display_name(self, saw_type: SawType) -> str:
@@ -3750,21 +3750,15 @@ class ExpressionsMixin:
                 return SawType(TypeKind.VOID)
             for arg in expr.arguments:
                 arg_type = self._check_expression(arg.value)
-                # Freestanding has no dtoa: Float printing requires the hosted
-                # profile (see design 20 item 2/4).
-                if (self.freestanding and arg_type is not None
-                        and arg_type.kind == TypeKind.FLOAT):
-                    self._error(
-                        ErrorKind.TYPE_MISMATCH,
-                        "Float formatting requires the hosted profile; "
-                        "freestanding `print` supports integers, Bool, and String only",
-                        arg.value.line, arg.value.column
-                    )
+                # Freestanding used to refuse a Float here for want of a dtoa
+                # (design 20 item 2/4). Design 253 wrote one, in Saw, so the
+                # profile question is gone — see `_check_format_call`.
+                #
                 # design 132 unit D: the same renderability question interpolation
                 # asks. Codegen can lower a builtin or a Printable `to_string()`
                 # and nothing else, so anything else was an ICE here (DF-128d /
                 # DF-129a).
-                elif arg_type is not None:
+                if arg_type is not None:
                     self._check_renderable_operand(arg_type, arg.value,
                                                    "cannot print")
                     # design 135: a builtin argument formats into stack scratch,

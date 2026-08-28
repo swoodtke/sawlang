@@ -244,6 +244,13 @@ extension StringBuilder {
     /// This was `append_char(c: Int8)` before design 250. The name said
     /// "character" for something that is one byte of a possibly multi-byte
     /// scalar; `append_scalar` is the one that speaks characters.
+    ///
+    /// THE FIFTH `append` OVERLOAD IS NOT IN THIS FILE: `append(value: Float)`
+    /// is declared in `sawc/std/float.saw`, beside `String.to_float` and the
+    /// shortest-round-trip machinery both directions share (design 253). It
+    /// behaves exactly as these do — writes bytes, stages nothing, reports the
+    /// growable builder's refusal — and it is what every float rendering in
+    /// the language goes through.
     public func append(&var self, b: Byte) -> Result<Void, AllocError> {
         let needed = self.length + 2
         if not self._reserve(needed) {

@@ -1,13 +1,13 @@
 // LINKING AT A FIXED LOAD ADDRESS with a custom linker script (design 238
 // unit 1), asserted by the running program rather than taken on trust.
 //
-// `tests/freestanding/hal/<arch>/link.ld` puts `.fsmark` at ORIGIN + 64 KiB.
+// `tests/freestanding/hal/<arch>/link.ld` puts `.fsmark` at ORIGIN + 512 KiB.
 // This case declares an `@section(".fsmark")` static, reads its ADDRESS back,
 // and checks two things:
 //
-//   - the OFFSET within the image is 0x1_0000 on both targets, which is a
+//   - the OFFSET within the image is 0x8_0000 on both targets, which is a
 //     claim the case can make itself because the two scripts agree about it;
-//   - the ADDRESS is the target's own (0x8001_0000 / 0x4001_0000), which the
+//   - the ADDRESS is the target's own (0x8008_0000 / 0x4008_0000), which the
 //     case cannot know, so it reports it and the runner matches per
 //     architecture.
 //
@@ -29,7 +29,7 @@ func fs_main() unsafe {
     let address = ((&MARK) as UnsafeConstPointer<UInt32>) as UInt
 
     // What both scripts agree about, so the case can assert it.
-    check_unsigned("fsmark_offset", address & 0x0FFF_FFFF, 0x0001_0000)
+    check_unsigned("fsmark_offset", address & 0x0FFF_FFFF, 0x0008_0000)
     // What differs per target, so the runner asserts it.
     report_unsigned("fsmark_address", address)
     // The section was loaded, not merely placed.

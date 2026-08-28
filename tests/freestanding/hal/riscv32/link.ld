@@ -42,9 +42,16 @@ SECTIONS {
         *(.sdata .sdata.*)
     }
 
-    /* The placement assertion, 64 KiB into the image — well clear of the text
-     * and data of any case in this suite, and a round number a test can spell. */
-    . = 0x80010000;
+    /* The placement assertion, 512 KiB into the image — well clear of the text
+     * and data of any case in this suite, and a round number a test can spell.
+     *
+     * It was 64 KiB until design 253 added `float_text`, whose image is ~118
+     * KiB: std's float formatter carries two 128-bit power-of-five tables and
+     * pulls the String layer in behind `to_string`. The overlap was a LINK
+     * error naming both sections, which is the failure mode a fixed placement
+     * should have — so the number moved rather than the case shrinking. Four
+     * places spell it; see `cases/link_address.saw`. */
+    . = 0x80080000;
     .fsmark : {
         KEEP(*(.fsmark))
     }

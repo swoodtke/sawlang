@@ -1,24 +1,26 @@
 // Float numeric extensions (design 57): abs / floor / ceil / round / sqrt /
-// min / max, with IEEE NaN semantics. Print renders 6 fractional digits.
+// min / max, with IEEE NaN semantics. Print renders the SHORTEST decimal that
+// reads back as the value (design 253), so an integral float shows one `.0`
+// rather than the six fractional digits `printf("%f")` used to pad it to.
 // EXPECT: success
 // EXPECT-OUTPUT:
-// 2.500000
-// 2.000000
-// 3.000000
-// 3.000000
-// 4.000000
-// 1.000000
-// 5.000000
+// 2.5
+// 2.0
+// 3.0
+// 3.0
+// 4.0
+// 1.0
+// 5.0
 // true
 
 func main() {
-    print((0.0 - 2.5).abs())    // 2.500000
-    print((2.7).floor())        // 2.000000
-    print((2.1).ceil())         // 3.000000
-    print((2.5).round())        // 3.000000 (half away from zero)
-    print((16.0).sqrt())        // 4.000000
-    print((1.0).min(5.0))       // 1.000000
-    print((1.0).max(5.0))       // 5.000000
+    print((0.0 - 2.5).abs())    // 2.5
+    print((2.7).floor())        // 2.0
+    print((2.1).ceil())         // 3.0
+    print((2.5).round())        // 3.0 (half away from zero)
+    print((16.0).sqrt())        // 4.0
+    print((1.0).min(5.0))       // 1.0
+    print((1.0).max(5.0))       // 5.0
 
     // IEEE: min with a NaN returns the non-NaN operand.
     let real_nan = sqrt_nan()

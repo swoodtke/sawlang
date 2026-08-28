@@ -1062,11 +1062,10 @@ class CallsMixin:
             return self._render_int_value(value, is_unsigned, in_entry=in_entry)
 
         if isinstance(value.type, ir.DoubleType):
-            # Float stays snprintf-based, into stack scratch (hosted only —
-            # freestanding rejects it at typecheck, as `print` already did).
-            c_ptr = self._value_to_string(value, saw_type)
-            strlen_fn = self._libc_func("strlen", word, [i8.as_pointer()])
-            return (c_ptr, self.builder.call(strlen_fn, [c_ptr], name="fmt_f_len"))
+            # The shortest round-trip rendering, in Saw (design 253), which
+            # hands back its own length — so this arm no longer needs the
+            # `strlen` the snprintf shape did, and no longer needs libc at all.
+            return self._render_float_value(value, in_entry=in_entry)
 
         raise ValueError(f"Cannot format type: {value.type}")
 
@@ -1174,10 +1173,10 @@ class CallsMixin:
     def _generate_print(self, arguments: List[Argument]):
         """Generate code for the print built-in function.
 
-        Int family / Bool / String / interpolation all lower to saw_write (the
-        output seam); only Float remains printf-based (dtoa is out of scope).
-        Both paths share C stdio in the hosted profile, so mixed int/float print
-        output keeps its exact order and formatting.
+        Every arm — Int family, Bool, String, Float, interpolation — lowers to
+        saw_write (the output seam). Float was the last one to join, in design
+        253: it was `printf` until std grew a float formatter, which is why the
+        seam's hosted default had to stay on C stdio's buffer.
         """
         saw_write = self.functions["__saw_rt_write"]
         # print() is a Void builtin, but it is frequently the tail expression of
@@ -1286,12 +1285,16 @@ class CallsMixin:
                     self.builder.call(self.functions[fmt_fn], [value])
 
         elif isinstance(value.type, ir.DoubleType):
-            # Float stays printf-based (identical %f formatting; shares stdio with
-            # saw_write's hosted default). Freestanding rejects this at typecheck.
-            fmt = self._create_string_constant("%f\n")
-            zero = ir.Constant(ir.IntType(32), 0)
-            fmt_ptr = self.builder.gep(fmt, [zero, zero], inbounds=True)
-            self.builder.call(self.printf, [fmt_ptr, value])
+            # Design 253: the same rendering `print("{}", f)` and `"{f}"` use,
+            # written to the same output seam every other `print` arm writes to.
+            # It used to be `printf("%f\n")` — six FRACTIONAL digits, on C
+            # stdio rather than the seam — so `print(1.0)` said `1.000000`
+            # while `print("{}", 1.0)` said `1`, and `print(1e21)` wrote 29
+            # characters that no reader could turn back into the value.
+            seg_ptr, seg_len = self._render_float_value(value)
+            self.builder.call(saw_write, [seg_ptr, seg_len])
+            nl_ptr, nl_len = self._raw_bytes_ptr("\n")
+            self.builder.call(saw_write, [nl_ptr, nl_len])
 
         elif isinstance(value.type, ir.PointerType):
             # String: write the exact byte range (ptr + header len), then newline.

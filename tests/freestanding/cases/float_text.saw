@@ -1,0 +1,68 @@
+// Float text WITHOUT a hosted profile (design 253).
+//
+// Rendering a float used to be `printf`/`snprintf`, so the freestanding
+// profile refused `print(f)` and `print("{}", f)` at typecheck — and did NOT
+// refuse interpolation, `to_string()` or `format(into:)`, which reached the
+// same `snprintf` and left an undefined libc symbol in the object. Design 253
+// made the formatter Saw: integer arithmetic over two read-only tables,
+// written through a fixed `StringBuilder`. So there is nothing left to gate,
+// and this case is the proof — it renders floats on a bare machine, under
+// `--no-hidden-alloc`, on both architectures.
+//
+// The arithmetic stays inside what `hal/support.c` supplies libcalls for: the
+// formatter divides 64-bit values (`__udivdi3`) and nothing else 64-bit-wide
+// reaches a compiler-rt entry the link does not carry. That is the constraint
+// the case list's note names, checked here rather than assumed — a link
+// failure is what a violation looks like.
+//
+// The values are the ones that break a formatter first: an integral value
+// (which must keep its `.0`), the classic `0.1 + 0.2`, both sides of the
+// fixed/exponent switch, the min subnormal, the max finite value, and the
+// three non-finite spellings.
+
+import fscore.*
+
+@export("fs_main")
+func fs_main() unsafe {
+    // A float rendered through a FIXED builder — no allocator anywhere.
+    check_text("integral", 1.0, "1.0")
+    check_text("negative", 0.0 - 2.5, "-2.5")
+    check_text("drift", 0.1 + 0.2, "0.30000000000000004")
+    check_text("thirds", 1.0 / 3.0, "0.3333333333333333")
+
+    // The layout switch, from both sides.
+    check_text("fixed_high", 1000000000000000.0, "1000000000000000.0")
+    check_text("exp_high", 10000000000000000.0, "1e+16")
+    check_text("fixed_low", 0.0001, "0.0001")
+    check_text("exp_low", 0.00001, "1e-05")
+
+    // The extremes: the min subnormal and the max finite value, reached by
+    // their bit patterns because Saw's grammar has no exponent form to write
+    // them with.
+    check_text("min_subnormal", Float.from(bits: 1), "5e-324")
+    check_text("max_finite", Float.from(bits: 9218868437227405311),
+               "1.7976931348623157e+308")
+
+    // The non-finite spellings, which no hosted-only path is involved in.
+    check_text("infinity", 1.0 / 0.0, "inf")
+    check_text("negative_infinity", 0.0 - 1.0 / 0.0, "-inf")
+    check_text("not_a_number", 0.0 / 0.0, "nan")
+    check_text("zero", 0.0, "0.0")
+    check_text("negative_zero", Float.from(bits: 9223372036854775808), "-0.0")
+
+    // And the two positions that lower differently from `to_string`: a design
+    // 137 format argument (stack scratch, no allocation) and a `print` of the
+    // bare value (the output seam). Their text is asserted by the runner
+    // against these lines rather than by a comparison here, which is what
+    // makes them a check of the PATH and not just of the formatter.
+    print("fs value fmt_arg={}", 0.1 + 0.2)
+    print("fs value print_arm=")
+    print(1.5)
+
+    finish("float_text")
+}
+
+// One check per value: render through `to_string` and compare the bytes.
+func check_text(claim: String, value: Float, want: String) unsafe {
+    check(claim, value.to_string().equals(want))
+}

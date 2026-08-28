@@ -1,7 +1,7 @@
 // EXPECT: success
 // EXPECT-OUTPUT:
 // Pi:
-// 3.141590
+// 3.14159
 // Counter:
 // 2
 // Absolute value of -42:

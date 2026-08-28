@@ -1,0 +1,81 @@
+// design 253 unit 1, the Saw half: `tests/float_vectors/shortest.tsv` gates
+// the formatter the way `tools/sawfloat.py verify` gates the Python side.
+//
+// Each row is `<IEEE 754 bits, 16 hex digits>TAB<the shortest round-trip
+// text>`, generated from CPython's own `repr` — which IS a correctly-rounded
+// shortest round-trip conversion, so the two implementations are independent.
+// This walks every row and asserts BYTE EQUALITY, never a tolerance: a
+// formatter that is one digit off on one value in three thousand is broken,
+// not close.
+//
+// The rows include 0/-0, the min subnormal and its neighbours, both sides of
+// the min normal (`2.2250738585072011e-308` among them), the max finite value,
+// every exact power of ten in range, sampled powers of two across the whole
+// exponent range with both neighbours of each, the 2^53 integer boundary, both
+// sides of the fixed/exponent switch, and 2000 PRNG rows.
+//
+// The parse direction of the same rows is `float_text_parse_vectors.saw`.
+//
+// Run from the repo root; the path is relative to it.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// shortest: 0 failures over 2897 vectors
+
+import std.file.{File}
+import std.path.{Path}
+import std.net.{IoError}
+
+func read_text(p: Path) -> Result<String, IoError> {
+    var f = try File.open(p)
+    let bytes = try f.read()
+    // The vector file is generated ASCII, so a UTF-8 fault in it is a broken
+    // checkout rather than input to handle.
+    return try! bytes.to_string()
+}
+
+// `<16 hex digits>` as the bits they spell. The vector file is generated, so a
+// row that does not parse is a broken file rather than bad input — but saying
+// so beats a silent zero.
+func bits_of(hex: String) -> UInt64? {
+    guard let v = hex.to_uint(16) else {
+        return None
+    }
+    return v as UInt64
+}
+
+func main() -> Result<Void, IoError> {
+    let text = try read_text(Path(s: "tests/float_vectors/shortest.tsv"))
+    let lines = try! text.split("\n")
+    var checked = 0
+    var failures = 0
+    var i = 0
+    while i < lines.len() {
+        let line = lines[i]
+        i = i + 1
+        if line.len() == 0 || line.starts_with("#") {
+            continue
+        }
+        let fields = try! line.split("\t")
+        if fields.len() != 2 {
+            print("malformed row: {}", line)
+            failures = failures + 1
+            continue
+        }
+        guard let bits = bits_of(fields[0]) else {
+            print("unreadable bits: {}", line)
+            failures = failures + 1
+            continue
+        }
+        let want = fields[1]
+        let got = Float.from(bits: bits).to_string()
+        checked = checked + 1
+        if not got.equals(want) {
+            failures = failures + 1
+            if failures <= 10 {
+                print("{}: formatted {} want {}", fields[0], got, want)
+            }
+        }
+    }
+    print("shortest: {} failures over {} vectors", failures, checked)
+    return
+}
