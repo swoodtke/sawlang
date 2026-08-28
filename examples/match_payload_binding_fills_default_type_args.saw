@@ -1,0 +1,139 @@
+// EXPECT: success
+// EXPECT-OUTPUT:
+// field 2
+// param 2
+// classic 2
+// guarded 2
+// nested 2
+// tuple 2 7
+// generic 2
+
+// DF-267b: a match arm's payload BINDING is one of the positions that turns a
+// declared enum-case payload type into a type the checker reasons with, and it
+// skipped design 37's default-type-argument fill. `Map<K, V, A =
+// GlobalAllocator>` written as `Map<String, Int>` in a payload therefore
+// reached the binding with `A` unapplied, and `fields.keys()` — declared
+// `-> Result<Vector<K, A>, AllocError>` — answered `Vector<String, A>`, whose
+// every method fails its `A: Allocator` bound. The struct-field twin resolved,
+// which is what named the missing call.
+//
+// Rows: the two forms that already worked (a struct FIELD, a function
+// PARAMETER) beside every match spelling — the classic enum switch, the
+// general pattern path a guard routes to, a match nested inside a match, a
+// tuple-typed payload, and a generic enum whose payload names its own
+// parameter.
+
+enum Node {
+    case Leaf(n: Int),
+    case Object(fields: Map<String, Int>),
+    case Both(pair: (Map<String, Int>, Int))
+}
+extension Node: NoCopy {}
+
+enum Outer {
+    case In(inner: Node)
+}
+extension Outer: NoCopy {}
+
+enum Wrap<T> {
+    case Held(t: T)
+}
+extension Wrap<T>: NoCopy {}
+
+struct Holder {
+    fields: Map<String, Int>
+}
+extension Holder: NoCopy {}
+
+func fresh() -> Map<String, Int> {
+    var m = Map<String, Int>()
+    let _ = m.insert("a", 1)
+    let _ = m.insert("b", 2)
+    return move m
+}
+
+// Control: through a struct FIELD.
+func through_field() {
+    let h = Holder(fields: fresh())
+    let ks = try! h.fields.keys()
+    print("field {}", ks.len())
+}
+
+// Control: through a function PARAMETER.
+func through_param(m: &Map<String, Int>) {
+    let ks = try! m.keys()
+    print("param {}", ks.len())
+}
+
+// The filed cell: the classic enum-switch arm binding.
+func through_match_classic() {
+    match Node.Object(fields: fresh()) {
+        case Leaf(n) -> print("leaf {}", n),
+        case Both(_) -> print("both"),
+        case Object(fields) -> {
+            let ks = try! fields.keys()
+            print("classic {}", ks.len())
+        }
+    }
+}
+
+// The general pattern path: a guard routes the match away from the switch.
+func through_match_guarded() {
+    match Node.Object(fields: fresh()) {
+        case Object(fields) if true -> {
+            let ks = try! fields.keys()
+            print("guarded {}", ks.len())
+        },
+        case _ -> print("other")
+    }
+}
+
+// A match inside a match: the inner scrutinee is itself a payload binding.
+func through_match_nested() {
+    match Outer.In(inner: Node.Object(fields: fresh())) {
+        case In(inner) -> {
+            match inner {
+                case Leaf(n) -> print("leaf {}", n),
+                case Both(_) -> print("both"),
+                case Object(fields) -> {
+                    let ks = try! fields.keys()
+                    print("nested {}", ks.len())
+                }
+            }
+        }
+    }
+}
+
+// A tuple-typed payload: the fill is owed inside the tuple's elements too.
+func through_tuple_payload() {
+    match Node.Both(pair: (fresh(), 7)) {
+        case Both(pair) -> {
+            let (m, n) = move pair
+            let ks = try! m.keys()
+            print("tuple {} {}", ks.len(), n)
+        },
+        case _ -> print("other")
+    }
+}
+
+// A generic enum: the payload names the enum's own parameter, and the fill is
+// owed to the ARGUMENT the instantiation supplied.
+func through_generic_payload() {
+    match Wrap<Map<String, Int>>.Held(t: fresh()) {
+        case Held(t) -> {
+            let ks = try! t.keys()
+            print("generic {}", ks.len())
+        }
+    }
+}
+
+func main() {
+    through_field()
+    var m = fresh()
+    through_param(&m)
+    through_match_classic()
+    through_match_guarded()
+    through_match_nested()
+    through_tuple_payload()
+    through_generic_payload()
+}

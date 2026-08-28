@@ -10999,10 +10999,8 @@ class ExpressionsMixin:
                 expr.line, expr.column
             )
             return None
-        expected_params = enum_info.variants[expr.variant_name]
-        if type_mapping:
-            expected_params = [(name, typ.substitute(type_mapping))
-                               for name, typ in expected_params]
+        expected_params = self._variant_payload_types(
+            enum_info, expr.variant_name, type_mapping)
         if len(expr.arguments) != len(expected_params):
             self._error(
                 ErrorKind.TYPE_MISMATCH,
@@ -11113,10 +11111,9 @@ class ExpressionsMixin:
                     and scrut_info.type.kind != TypeKind.REFERENCE
                     and self.namespace.read_policy(matched_type) in ('nocopy', 'explicit')):
                 has_owning_payload = False
-                for variant_params_raw in enum_info.variants.values():
-                    for _, ftype in variant_params_raw:
-                        if type_mapping:
-                            ftype = ftype.substitute(type_mapping)
+                for _vname in enum_info.variants:
+                    for _, ftype in self._variant_payload_types(
+                            enum_info, _vname, type_mapping):
                         if self.namespace.copy_tier(ftype) != 'free':
                             has_owning_payload = True
                             break
@@ -11158,10 +11155,8 @@ class ExpressionsMixin:
                 )
                 continue
             matched_variants.add(arm.variant_name)
-            variant_params = enum_info.variants[arm.variant_name]
-            if type_mapping:
-                variant_params = [(name, typ.substitute(type_mapping))
-                                  for name, typ in variant_params]
+            variant_params = self._variant_payload_types(
+                enum_info, arm.variant_name, type_mapping)
             if len(arm.bindings) != len(variant_params):
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
@@ -11611,6 +11606,50 @@ class ExpressionsMixin:
             return
         self._define_irrefutable_bindings(pattern, inner_type, mutable)
 
+    def _variant_payload_types(self, enum_info, variant_name, type_mapping=None):
+        """THE read of one enum case's declared payload types (DF-267b).
+
+        An enum case's payload types are one of the three declaration slots
+        stored RAW (a struct FIELD's type and a `type` alias right-hand side are
+        the other two — see `_resolve_qualified_symbol`). Raw means WRITTEN: a
+        `Map<String, Int>` payload has two type arguments where the type has
+        three parameters, because design 37's default fill happens at
+        RESOLUTION, not at the declaration. So every position that turns a
+        declared payload into a type the checker reasons with owes the same
+        `_resolve_type` the struct-field twin does at `_check_member_access` —
+        and the one that did not, the match arm's payload BINDING, gave the
+        binding a `Map<String, Int>` whose `A` was nothing, so `fields.keys()`
+        answered `Vector<String, A>` and every method on it failed its
+        `A: Allocator` bound.
+
+        Entry points, all four — every position a declared payload type is read
+        out of `enum_info.variants` for its TYPE rather than for its arity:
+
+          - the classic enum-switch `match` arm's payload bindings, and the
+            owning-payload test of its consume gate (`_check_match_expr`)
+          - the general pattern checker's variant table
+            (`_pattern_enum_variants`), which is what serves a guarded /
+            literal / range / tuple match and every nested subpattern
+          - a variant CONSTRUCTION's expected argument types
+            (`_check_enum_init`)
+          - a `try(as Enum.Case)` routing target's payload (`_check_try_route`)
+
+        `type_mapping` substitutes a generic enum's parameters FIRST, so a
+        `case Wrap(v: T)` at `Wrap<Map<String, Int>>` resolves the argument the
+        instantiation supplied rather than the abstract `T`. Answers None when
+        the enum has no such variant, so a caller's own "no variant" diagnostic
+        stays where it is.
+        """
+        params = enum_info.variants.get(variant_name)
+        if params is None:
+            return None
+        out = []
+        for pname, ptype in params:
+            if type_mapping:
+                ptype = ptype.substitute(type_mapping)
+            out.append((pname, self._resolve_type(ptype)))
+        return out
+
     def _pattern_enum_variants(self, expected_type: SawType):
         """Return {variant_name: [(param_name, param_type), ...]} for an enum or
         Optional scrutinee, or None if the type is not variant-matchable."""
@@ -11627,10 +11666,9 @@ class ExpressionsMixin:
                 for tp, ta in zip(enum_info.type_params, et.type_args):
                     type_mapping[tp.name] = ta
             variants = {}
-            for vname, params in enum_info.variants.items():
-                if type_mapping:
-                    params = [(n, t.substitute(type_mapping)) for n, t in params]
-                variants[vname] = params
+            for vname in enum_info.variants:
+                variants[vname] = self._variant_payload_types(
+                    enum_info, vname, type_mapping)
             return variants
         return None
 
@@ -13167,7 +13205,7 @@ class ExpressionsMixin:
             )
             return None
 
-        payload = enum_info.variants[case_name]
+        payload = self._variant_payload_types(enum_info, case_name)
         if len(payload) != 1:
             shape = ("carries no payload" if not payload
                      else f"carries {len(payload)} payload fields")
@@ -13182,7 +13220,7 @@ class ExpressionsMixin:
             )
             return None
 
-        payload_type = self._resolve_type(payload[0][1])
+        payload_type = payload[0][1]
         if not self._transfer_compatible(err_type, payload_type):
             self._error(
                 ErrorKind.TYPE_MISMATCH,
