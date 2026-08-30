@@ -1,0 +1,18 @@
+// Design 254 row 4 — a PLAIN import in the facade forwards nothing. The
+// design-142 transitive-dependency rule is what the closure widens, not what it
+// replaces: `ext254_facade_plain` merely USES `ext254_knobs` (its own
+// `kind_here` calls the method), so `kind` is out of scope here and the
+// existing diagnostic names the module to import.
+//
+// Row 5 of the matrix — a plain transitive dep with no facade at all — is
+// `ext142_transitive_leak_error.saw`, which passes unchanged.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: has no method `kind` in scope here
+// EXPECT-ERROR-CONTAINS: add `import modules.ext254_knobs`
+
+import modules.ext254_facade_plain.{Panel}
+
+func main() {
+    let p = Panel(raw: 10)
+    print(p.kind())
+}

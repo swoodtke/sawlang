@@ -1,0 +1,17 @@
+// Design 254 row 3 — the SELECTIVE facade forwards its dependency's extension
+// scope WHOLE. `ext254_facade_sel` re-exports one name out of each leaf; the
+// edge that forwards is the module-level one, so `add(knob:key:)` is in scope
+// here exactly as it would be under `import modules.ext254_knobs` — mirroring
+// how a selective DIRECT import already brings a module's extensions.
+// EXPECT: success
+// EXPECT-OUTPUT: 20
+// EXPECT-OUTPUT: 18
+
+import modules.ext254_facade_sel.{Panel, Knob}
+
+func main() {
+    let p = Panel(raw: 10)
+    let k = Knob(id: 3)
+    print(p.doubled())
+    print(p.add(knob: &k, key: 5))
+}

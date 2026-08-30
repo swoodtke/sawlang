@@ -554,6 +554,15 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # …and the design-142 direct imports each module was checked with, which
         # `Namespace` does not carry. Same lifetime, same reader.
         self._direct_imports_by_module: Dict[Tuple[str, ...], Set[Tuple[str, ...]]] = {}
+        # design 254: module -> the modules it `public import`s, any form. Design
+        # 229 records a re-export only NEGATIVELY (an ordinary import is noted, a
+        # public one simply is not), and extension scope needs the POSITIVE edge:
+        # `_close_over_public_imports` walks this graph to widen the direct-import
+        # set above. Filled by `check_module` as each module finishes its import
+        # list, and read by the modules that import it — which is well-ordered,
+        # since modules are checked in dependency order (a cycle is DF-232e's
+        # error, reported before any of this).
+        self._public_imports_by_module: Dict[Tuple[str, ...], Set[Tuple[str, ...]]] = {}
 
         # design 194 unit 4: the prelude-gate reports already made, keyed by
         # (module, name, line, column). The front half re-enters the same AST
@@ -1302,11 +1311,47 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
     #    modules for privacy (design 82), but they extend each other's types on
     #    purpose (`std.string` defines `Vector<String>.join`), and the prelude
     #    rules already govern which std NAMES a file may write unimported.
+    #
+    # Design 254 widened the SECOND place, and only that one: the direct-import
+    # set is closed over `public import` edges, transitively. A facade that
+    # republishes a module republishes its extension neighbourhood with it — the
+    # hazard design 142 exists to stop is an UNRELATED transitive dependency
+    # changing what a call resolves to, and a `public import` is the facade
+    # author's deliberate statement that the module is part of their surface.
+    # The widening happens once, in `_close_over_public_imports`, before any body
+    # of the module is checked; nothing here knows the difference.
     # ------------------------------------------------------------------ #
+    def _close_over_public_imports(self, direct: Set[Tuple[str, ...]]) -> None:
+        """Widen `direct` (a file's design-142 direct imports) with every module
+        reachable from it along `public import` edges (design 254). In place.
+
+        THE ONE CHOKEPOINT, called from `check_module` once the import list has
+        been walked — never per import form, which is how the three forms stay
+        one rule: each records its module-level edge and this decides what the
+        edges mean.
+
+        Transitive, so a chain of facades forwards the whole way, and cycle-safe
+        by the visited set. A malformed graph is DF-232e's error upstream, but
+        this may not HANG on one: it runs on the same pass that reports it."""
+        frontier = list(direct)
+        visited = set(direct)
+        while frontier:
+            module = frontier.pop()
+            for onward in self._public_imports_by_module.get(module, ()):
+                if onward in visited:
+                    continue
+                visited.add(onward)
+                direct.add(onward)
+                frontier.append(onward)
+
     def _ext_scope_allows(self, method_info, struct_info) -> bool:
         """Whether an extension method is IN SCOPE for the code being checked
         (design 142). Orthogonal to `_member_gate_allows`, which asks whether its
-        visibility permits the access; a method must pass both."""
+        visibility permits the access; a method must pass both.
+
+        `current_direct_imports` arrives already closed over `public import`
+        (design 254), so the final clause covers both the file's own imports and
+        the modules its facades hand on."""
         # The coroutine transform re-checks its own output, splicing bodies from
         # every module into one AST — provenance no longer describes an import
         # graph there. The rule is a source-level one, like the unsafe trigger.
@@ -3294,6 +3339,21 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # transitive dependency injects nothing.
         direct_imports: Set[Tuple[str, ...]] = set()
 
+        # Design 254: the module-level `public import` edges this file declares.
+        # EVERY form contributes one — `public import m.{A}` re-exports a single
+        # NAME but forwards m's extension scope whole, mirroring how a selective
+        # DIRECT import already brings the whole module's extensions. Recorded
+        # here, at the same four points the direct import is; what the edges MEAN
+        # is `_close_over_public_imports`' business, below the loop.
+        public_edges: Set[Tuple[str, ...]] = set()
+
+        def _note_direct(imp, target):
+            """Record `target` as a direct import of this file (design 142), and
+            as a `public import` edge when the line said so (design 254)."""
+            direct_imports.add(target)
+            if getattr(imp, 'is_public', False):
+                public_edges.add(target)
+
         # Design 229: what an ordinary import binds here is this module's own
         # business. `_note_import` records each binding against the path it came
         # from unless the line said `public import`, and `Namespace.
@@ -3322,13 +3382,13 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             if imp.path and imp.path[0] == 'std':
                 std_leaf = self._process_std_import(imp, ns, builtin_namespace)
                 if std_leaf is not None:
-                    direct_imports.add(("<std>", std_leaf))
+                    _note_direct(imp, ("<std>", std_leaf))
                 continue
 
             if imp.is_glob:
                 # import foo.* -> copy all public symbols to local namespace
                 base_path = imp_path[:-1] if imp_path and imp_path[-1] == '*' else imp_path
-                direct_imports.add(base_path)
+                _note_direct(imp, base_path)
                 if base_path in checked_modules:
                     source_ast, source_ns = checked_modules[base_path]
                     glob_label = '.'.join(base_path) if base_path else "<entry>"
@@ -3391,7 +3451,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                             _note_import(imp, name, glob_label)
             elif imp.symbols:
                 # import foo.{A, B} -> copy specific symbols to local namespace
-                direct_imports.add(imp_path)
+                _note_direct(imp, imp_path)
                 if imp_path in checked_modules:
                     _, source_ns = checked_modules[imp_path]
                     aliases = imp.symbol_aliases or {}
@@ -3514,7 +3574,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                         sel_alias, (sel_source, "selective"))
             else:
                 # import foo.bar -> register module for qualified access
-                direct_imports.add(imp_path)
+                _note_direct(imp, imp_path)
                 if imp_path in checked_modules:
                     _, source_ns = checked_modules[imp_path]
                     # design 229: the whole-module form binds no bare name, so
@@ -3544,6 +3604,15 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                         path=list(mod_path),
                         visibility=mod_visibility
                     )
+
+        # Design 254: the import list is complete, so publish this module's
+        # `public import` edges and close its direct-import set over the graph.
+        # ONE call, ahead of every body check below (and of the per-module save
+        # at the end, so a generic instantiation re-checked in this module's
+        # scope sees the same set its own file did). Dependencies are checked
+        # first, so their edges are already on the table.
+        self._public_imports_by_module[module_path] = set(public_edges)
+        self._close_over_public_imports(direct_imports)
 
         # Register this module's own declarations
 

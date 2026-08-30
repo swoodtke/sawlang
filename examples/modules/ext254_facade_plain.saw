@@ -1,0 +1,11 @@
+//! Design 254 fixture: the NEGATIVE facade. `ext254_knobs` is imported PLAINLY,
+//! so this module uses it and hands nothing of it on — the design-142
+//! transitive-dependency rule, untouched.
+// EXPECT: skip
+
+public import modules.ext254_panel.{Panel}
+import modules.ext254_knobs
+
+public func kind_here(p: &Panel) -> Int {
+    p.kind()
+}

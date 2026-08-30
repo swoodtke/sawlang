@@ -1,0 +1,14 @@
+// Design 254 row 2 — the closure is TRANSITIVE. `ext254_facade_outer`
+// `public import`s `ext254_facade_sel`, which `public import`s `ext254_panel`
+// and `ext254_knobs`. Two hops from this file to the module that declares
+// `add(knob:key:)`, and the extension is in scope at the end of the chain.
+// EXPECT: success
+// EXPECT-OUTPUT: 18
+
+import modules.ext254_facade_outer.{Panel, Knob}
+
+func main() {
+    let p = Panel(raw: 10)
+    let k = Knob(id: 3)
+    print(p.add(knob: &k, key: 5))
+}

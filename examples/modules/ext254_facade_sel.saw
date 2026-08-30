@@ -1,0 +1,7 @@
+//! Design 254 fixture: the SELECTIVE facade — the sawos `sos` shape. It hands on
+//! two NAMES and binds no qualifier of its own; the module-level edge is what
+//! forwards each dependency's extension scope, whole.
+// EXPECT: skip
+
+public import modules.ext254_panel.{Panel}
+public import modules.ext254_knobs.{Knob}

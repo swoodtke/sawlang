@@ -1,0 +1,5 @@
+//! Design 254 fixture: a facade over a facade. The closure is transitive, so an
+//! importer of THIS module sees what `ext254_facade_sel` forwards.
+// EXPECT: skip
+
+public import modules.ext254_facade_sel.{Panel, Knob}

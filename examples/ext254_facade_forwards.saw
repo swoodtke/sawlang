@@ -1,0 +1,21 @@
+// Design 254 row 1 — the WHOLE-MODULE facade, one hop. `ext254_panel` owns
+// `Panel`; `ext254_knobs` extends it with `kind`; `ext254_facade`
+// `public import`s both. This file imports the facade and nothing else, so
+// before design 254 `kind` was out of scope — rule 3 consults the RECEIVER's
+// module, which is `ext254_panel`, and a re-export handed on the NAME only.
+//
+// The methods this row calls are single, not overloaded, on purpose: a receiver
+// reached through a module QUALIFIER loses its overload set (DF-280a, filed
+// against a mechanism older than this brief and independent of it), so the
+// forwarded-overload dimension is row 8's, over the selective facade.
+// EXPECT: success
+// EXPECT-OUTPUT: 20
+// EXPECT-OUTPUT: 7
+
+import modules.ext254_facade
+
+func main() {
+    let p = ext254_facade.ext254_panel.Panel(raw: 10)
+    print(p.doubled())
+    print(p.kind())
+}
