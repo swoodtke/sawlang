@@ -49,6 +49,75 @@ Functions were re-keyed by design 249 and may already behave; statics
 have DF-140h's overlay; the probe says, the brief doesn't guess. Every
 cell that reproduces the asymmetry is covered by unit 1's fix + a test.
 
+## Unit 0 — SWEEP RESULTS (filled in at implementation, Aug 30)
+
+Generated and run by `.build/scratch/probe_255_matrix.py` /
+`probe_255_ab.py` / `probe_255_rest.py` — one entry file per cell, each
+using a member only the module's own declaration has, so COMPILES proves
+which declaration the bare name resolved to. Verdicts BEFORE the fix:
+
+| name (kind, tier) | declared locally | `import x.{N}` | `import x.*` | `import x.{N as M}` |
+|---|---|---|---|---|
+| `Thread` (generic struct, gated) | x's, prints 7 | AMBIGUITY, `<unknown>` + `modules.x_thread` | AMBIGUITY | x's, prints 7 |
+| `File` (struct, gated) | x's | **std's, silently** ("no matching initializer") | AMBIGUITY | **std's, silently** |
+| `Instant` (struct, gated) | — | **std's, silently** | AMBIGUITY | **std's, silently** |
+| `SpinLock` (generic struct, gated) | — | **std's, silently** | AMBIGUITY | **std's, silently** |
+| `IoErrorKind` (enum, gated) | x's | **std's** ("has no variant `Marker`") | AMBIGUITY | **std's** |
+| `ChannelError` (enum, gated) | x's | **std's** | AMBIGUITY | **std's** |
+| `Duration` (struct, PRELUDE) | "defined multiple times" | **std's, silently** | **std's** | **std's** |
+| `Vector` (generic struct, PRELUDE) | "defined multiple times" | **std's** | **std's** | **std's** |
+| `Error` (trait, PRELUDE) | "defined multiple times" | "`Error` is private in `modules.x_error`" | **std's** ("no method `tag`") | "`Error` is private in …" |
+| `Byte` (type alias, PRELUDE) | "defined multiple times" | **std's** ("300 does not fit in `Byte`") | **std's** | **std's** |
+| `encode` (function, gated: std.cbor + std.json) | x's, prints 8 | x's | x's | x's |
+| `slot` (static) | — see below — | | | |
+
+Three facts the matrix settles, none of them guessed:
+
+1. **The FUNCTION row is already symmetric.** Design 249's module-keyed
+   free functions cover it: all four paths take the module's own `encode`
+   with std's two `encode`s merged in. No fix owed. (`yield_now` and
+   `sleep` are the wrong probes — they are compiler BUILTINS, refused at
+   the declaration in the module, so the cell never reaches this
+   question.)
+2. **The STATIC row has no collision surface.** Every `static` in
+   `sawc/std/*.saw` is module-PRIVATE, and DF-140h puts a private static
+   in a per-module overlay rather than the shared slot, so no std static
+   reaches a user namespace's bare name table. Declared locally and
+   selectively imported both compile.
+3. **PRELUDE and GATED are two different tiers, and only the GATED one is
+   asymmetric.** A prelude name refuses in BOTH directions (conformance
+   row B12 pins the declaration half), so there is no asymmetry to fix
+   there; a gated name's declaration WINS and its import loses. The
+   ruling therefore lands on the gated tier, and the ladder in the docs
+   says "the std names an import gate keeps hidden" rather than "the
+   prelude".
+
+MECHANISM, wider than the brief's first reading. `bind_type_name`'s
+first-wins is only ONE of three answers to "whose declaration does this
+spelling name":
+
+* `Namespace._lookup_type` is IDENTITY-FIRST, and std's public types are
+  exempt from qualification (design 144), so `structs["File"]` is std's
+  symbol and the selective-import binder never reached `type_names`,
+  where the source module's own `File` is bound. That is why the
+  `File`/`Instant`/`SpinLock`/enum cells bound std's type SILENTLY while
+  `Thread` — a `COMPILER_EMITTED_STD_TYPES` member, hence qualified —
+  reached the ambiguity path instead. Fixed by a spelling-first
+  `_lookup_own_type`, used by `_lookup_selectable` only.
+* The same shortcut answers the USE side, so rebinding `type_names`
+  alone leaves every use of the spelling still resolving to std's.
+  Fixed by `_hide_ambient_type`, which drops the merged entries under an
+  UNQUALIFIED previous identity (a qualified one is left alone: the
+  compiler emits references to `Thread`/`Poll`/`Slot` by identity).
+* `bind_type_name` itself, which now shadows an ambient GATED binding
+  and keeps the ambiguity for everything else.
+
+RESIDUE, filed as DF-280b: on the PRELUDE tier the collision is recorded
+and then not reported at the construction site, so `import x.{Duration}`
+still fails with "no matching initializer for `Duration`" rather than
+naming the collision. Both are refusals, so nothing that compiled stopped
+compiling; the wording is the open half.
+
 ## The ruling to encode (unit 1)
 
 **The prelude is the weakest bare-name tier short of qualifiers.** The

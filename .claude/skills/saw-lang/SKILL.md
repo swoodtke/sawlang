@@ -2496,9 +2496,10 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
   leans on (`std.path.*` in a file that is all paths); qualified for
   occasional use or where the bare name would collide — `import std.time`
   costs one word per use and never fights your own `Instant`.
-- **A QUALIFIER IS THE WEAKEST NAME IN SCOPE (design 150 pin 4).**
-  Resolution runs local scopes -> module-level declarations -> imported bare
-  names -> qualifiers LAST, so a local, param or loop var named `data`,
+- **A QUALIFIER IS THE WEAKEST NAME IN SCOPE (design 150 pin 4, extended by
+  design 255).** Resolution runs local scopes -> module-level declarations ->
+  imported bare names -> **the std names an import gate keeps hidden** ->
+  qualifiers LAST, so a local, param or loop var named `data`,
   `path`, `time` or `net` shadows one with NO shadowing error. The shadow is
   lexical — the next function's `data.` reaches the module again. So writing
   `import std.data` never costs you the word `data`:
@@ -2514,6 +2515,22 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
   declaration that took the name and the three ways out. `sawc -W
   shadowed-qualifier` flags the DECLARATION instead of waiting for the use
   (warnings are off by default and never affect the exit code).
+  **THE GATED-STD TIER IS WHY `import mine.{Thread}` MEANS YOURS (design 255).**
+  `Thread` is `std.task`'s and is merged into every program, but no program may
+  write the name before `import std.task` — so a file that names its own,
+  by DECLARING one or by IMPORTING one, has said which it means and std's steps
+  aside, silently, at every form (`{N}`, `.*`, `{N as M}`) and every kind
+  (struct, generic struct, enum). `task.Thread<Int>` still names std's in the
+  same file, which is what a weak tier means. Treat it as working now and
+  SUSPECT in older builds, where the DECLARATION won and the IMPORT lost: the
+  generic-struct case tied and errored ``ambiguous struct `Thread`: defined in
+  both `<unknown>` and `mine` ``, and the plain-struct and enum cases bound
+  STD's type under your name with NOTHING said, failing later on a field or a
+  variant it does not have. The workaround was the qualifier at every use.
+  TWO LIMITS: a PRELUDE name (`Vector`, `Duration`, `Error`, `Byte`) is
+  RESERVED, not weak — redeclaring one is "defined multiple times" and importing
+  one is refused too; and two EXPLICIT imports of one name stay ambiguous, now
+  reported at the USE with both module labels.
 - Two imports binding ONE qualifier is an error AT THE IMPORT naming both
   paths; `as` fixes it. Any import form makes the module a DIRECT import, so
   choosing qualified access never loses its design-142 extensions.
@@ -2686,7 +2703,8 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
   and `import std.X` alone gives you `X.Name` instead (design 150; the module
   paths above are the leaf, not the spelling to copy). Because a
   non-imported std module isn't compiled in, you may define your OWN `IoError`/
-  `File`/etc. with no clash. The prelude itself is untouched by all of this:
+  `File`/etc. with no clash — and, since design 255, IMPORT one of that name
+  from your own module too. The prelude itself is untouched by all of this:
   `import std.vector` just binds a harmless `vector` qualifier.
   **THE GATE RUNS ON ANNOTATIONS, not only where a VALUE is built (design 194).**
   A signature that merely RECEIVES a gated type needs the import too —

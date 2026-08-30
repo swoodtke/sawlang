@@ -1,0 +1,12 @@
+// Design 255 test 3 — the GLOB path shadows too. Every import form is the
+// author naming what they mean; the ruling is about the tier the name comes
+// from, not about which brace shape brought it.
+// EXPECT: success
+// EXPECT-OUTPUT: 105
+
+import modules.shadow255_thread.*
+
+func main() {
+    let t = Thread<Int>(tag: 5)
+    print(t.tagged())
+}

@@ -9810,22 +9810,58 @@ no qualifier of its own to hand on — so `public import wire.{Header}` publishe
 made of: a module can publish the handful of types its callers need and keep the
 internals they sit beside unreachable.
 
-Two things a re-export does not change. The module's own view of its imports is
-the same either way: `public` on an import controls what flows through the
-module, not what the module sees. And it does not widen extension scope — a
-re-exported type keeps its own module's extensions, which travel with the type
-(see [Extension scoping](#extension-scoping-design-142)), and no other module's
-extensions come with it.
+One thing a re-export does not change: the module's own view of its imports is
+the same either way. `public` on an import controls what flows through the
+module, not what the module sees.
+
+What it does carry beside the name is extension SCOPE. A file that imports a
+facade sees the extension methods of every module the facade `public import`s,
+transitively — see [Import form and extension
+visibility](#import-form-and-extension-visibility).
 
 `public(package) import` and the other scoped visibilities are not accepted;
 re-export is all or nothing.
 
+#### Name precedence
+
+Resolution runs local scopes, then module-level declarations, then imported bare
+names, then the std names an import gate keeps hidden, and consults qualifiers
+last.
+
+The gated-std tier is what makes `import mine.{Thread}` mean yours. `Thread` is
+`std.task`'s and is merged into every program, but no program may write that
+name until it says `import std.task` — so a file that names its own `Thread`,
+by declaring one or by importing one, has said which it means and the merged one
+steps aside, silently. Declaring and importing behave alike on purpose: one
+intent must not produce two outcomes depending on which spelling the author
+reached for.
+
+```saw
+import std.task                                 // the gated module's qualifier
+import mine.{Thread}                            // ...and this file's own Thread
+
+func run(t: &Thread<Int>) -> Int { t.tag }      // yours
+func park(t: &task.Thread<Int>) -> Int { 0 }    // std's, qualified
+```
+
+Two limits. A PRELUDE name is not in that tier — it is in scope with nothing
+written, a second declaration of `Vector` or `Duration` is a redefinition error,
+and an import of one is refused for the same reason. And two EXPLICIT imports
+binding one name to two identities are genuinely ambiguous, since neither is the
+weaker: that is the use-site error, reported where the name is written and
+naming both modules.
+
+```
+error: ambiguous struct `Widget`: defined in both `modules.wire` and `modules.disk`
+  --> app.saw:18:13
+hint: qualify the use (e.g. `modules.wire.Widget`), or import `Widget` from a
+      single module
+```
+
 #### Qualifier bindings are weak
 
-A qualifier is the lowest-priority name in scope. Resolution runs local scopes,
-then module-level declarations, then imported bare names, and consults
-qualifiers last. So a local, parameter, or loop variable may take a qualifier's
-name, with no shadowing error:
+A qualifier is the lowest-priority name in scope, so a local, parameter, or loop
+variable may take a qualifier's name, with no shadowing error:
 
 ```saw
 import std.data

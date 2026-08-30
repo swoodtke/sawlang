@@ -215,8 +215,17 @@ class SignatureVisibilityMixin:
             return
         for (t, what, decl_what, reach, line, column, source_file) in (
                 self._signature_visibility_positions(program)):
-            self._check_signature_type(t, what, decl_what, reach,
-                                       line, column, source_file)
+            # Design 255 / SL-4: this walk runs over a whole module AFTER its
+            # bodies, so design 192's expression/statement breadcrumb is empty
+            # and a use-site diagnostic raised from one of the lookups below
+            # (a type-name AMBIGUITY, most of all) has nothing to anchor on.
+            # The position is right here.
+            self._name_anchor = (line, column)
+            try:
+                self._check_signature_type(t, what, decl_what, reach,
+                                           line, column, source_file)
+            finally:
+                self._name_anchor = None
 
     def _check_signature_type(self, t, what: str, decl_what: str,
                               reach, line: int, column: int,

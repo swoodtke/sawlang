@@ -569,7 +569,11 @@ A curated core is available without an import (primitives, `Vector`/`Map`/`Set`,
 the concurrency primitives, `StringBuilder`). Everything else (`File`, `Data`,
 `Channel`, `Mutex`, `TcpStream`, and so on) needs an import, which also means
 your own type named `File` or `IoError` never collides with the standard
-library's.
+library's — whether you declare it or import it from a module of your own. A
+gated name is the weakest bare name there is: name your own and the merged one
+steps aside, while `file.File` still reaches the standard library's in the same
+file. Prelude names are reserved, so `Vector` and `Duration` are not yours to
+redeclare.
 
 See [Module System](LANGUAGE_SPEC.md#8-module-system) in the spec.
 

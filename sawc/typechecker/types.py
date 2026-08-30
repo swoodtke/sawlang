@@ -335,7 +335,16 @@ class TypeUtilsMixin:
         With real identities two same-named public types coexist, so the merge
         no longer refuses the program — but a BARE use still cannot pick one.
         That is the design-142 use-site error, raised here once per name, with
-        the wording and hint the merge-time diagnostic used."""
+        the wording and hint the merge-time diagnostic used.
+
+        Design 255 / SL-4 gave the report its POSITION back. It used to anchor
+        at a hardcoded `1, 1` and go through `self.reporter` directly, which
+        also skipped the source-file detection every other diagnostic gets — so
+        a real finding read as line 1 of an arbitrary file. The anchor is
+        design 192's ICE breadcrumb (`_current_node`), the innermost expression
+        or statement being checked, which IS the use; the enclosing declaration
+        is the fallback for a name written in a signature, where no expression
+        is in flight."""
         ns = getattr(self, 'namespace', None)
         entry = ns.ambiguous_types.get(name) if ns is not None else None
         if entry is None:
@@ -349,15 +358,49 @@ class TypeUtilsMixin:
             return True
         reported.add(key)
         _cat, src1, src2 = entry
-        self.reporter.error(
+        line, column = self._use_anchor()
+        # The label is for READING (`std.duration (prelude)` says which tier the
+        # other side is); the hint is for WRITING, so it may only offer a
+        # spelling the author can type.
+        qualifier = src1.split(" (")[0]
+        if " " in qualifier:
+            hint = (f"import `{name}` from a single module, or qualify the use "
+                    f"with the module it should come from")
+        else:
+            hint = (f"qualify the use (e.g. `{qualifier}.{name}`), or import "
+                    f"`{name}` from a single module")
+        self._error(
             ErrorKind.UNKNOWN_TYPE,
             f"ambiguous {_cat or category} `{name}`: defined in both "
             f"`{src1}` and `{src2}`",
-            1, 1,
-            hint=f"qualify the use (e.g. `{src1}.{name}`), or import "
-                 f"`{name}` from a single module",
-        )
+            line, column, hint=hint)
         return True
+
+    def _use_anchor(self):
+        """`(line, column)` of the construct being checked right now.
+
+        Design 192 unit 2 stamps `_current_node` at both dispatch chokepoints
+        (`_check_expression`, `_check_statement`) for the ICE report; a
+        use-site diagnostic raised from a lookup deep under them wants exactly
+        the same node. Falls back to the DECLARATION being registered or
+        checked — a type NAME written in a signature is resolved before any
+        body is entered — and never to a made-up position.
+
+        `_name_anchor` is the explicit override, for a walk that holds a
+        position but no node: the signature-visibility audit (sigvis) runs over
+        a whole module's declarations after its bodies, so neither breadcrumb is
+        in force there and its per-position `(line, column)` is the answer."""
+        explicit = getattr(self, '_name_anchor', None)
+        if explicit:
+            return explicit
+        for node in (getattr(self, '_current_node', None),
+                     getattr(self, '_declaring_node', None),
+                     getattr(self, 'current_method', None),
+                     getattr(self, 'current_function', None)):
+            line = getattr(node, 'line', 0) or 0
+            if line:
+                return line, getattr(node, 'column', 0) or 0
+        return 0, 0
 
     def get_struct_info(self, name: str, qualified_path: str = None, from_type: 'SawType' = None) -> Optional[StructSymbol]:
         """Lookup struct info via namespace, supporting qualified names.

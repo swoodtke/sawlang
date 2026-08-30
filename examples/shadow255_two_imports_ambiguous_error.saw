@@ -1,0 +1,20 @@
+// Design 255 test 5 — the fence. Two EXPLICIT imports binding one name to two
+// identities are genuinely ambiguous: neither is a weaker tier than the other,
+// and the author has said the name twice. That is the design-142 use-site
+// error, kept — and it now carries what SL-4 said it did not: a real span on
+// the USE, and a real module label on each side (it used to report at line 1
+// column 1 of an arbitrary file, with `<unknown>` for whichever side the
+// prelude merge had bound).
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: ambiguous struct `Widget`
+// EXPECT-ERROR-CONTAINS: modules.d144_pub_a
+// EXPECT-ERROR-CONTAINS: modules.d144_pub_b
+// EXPECT-ERROR-CONTAINS: shadow255_two_imports_ambiguous_error.saw:18:13
+
+import modules.d144_pub_a.{Widget}
+import modules.d144_pub_b.{Widget}
+
+func main() {
+    let w = Widget(size: 7)
+    print(w.describe())
+}

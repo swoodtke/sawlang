@@ -1,0 +1,15 @@
+// Design 255 test 2 — the regression row. A locally DECLARED type whose name
+// std keeps behind an import gate has always won (design 82 Part B rebinds the
+// spelling), and that is the behaviour the import now matches. It must not have
+// moved.
+// EXPECT: success
+// EXPECT-OUTPUT: 7
+
+struct Thread {
+    tag: Int
+}
+
+func main() {
+    let t = Thread(tag: 7)
+    print(t.tag)
+}

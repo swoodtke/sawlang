@@ -738,13 +738,21 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
     @contextmanager
     def _declaring(self, decl):
         """Register/check `decl` with its own source file in force, so a bare
-        name in its signature resolves against ITS module's private types."""
+        name in its signature resolves against ITS module's private types.
+
+        Also the declaration ANCHOR (design 255 / SL-4): a name written in a
+        SIGNATURE is resolved before any body is entered, so design 192's
+        expression/statement breadcrumb is empty there and a use-site
+        diagnostic raised from the lookup has nothing else to point at."""
         saved = self._decl_source_file
+        saved_node = getattr(self, '_declaring_node', None)
         self._decl_source_file = getattr(decl, 'source_file', None) or saved
+        self._declaring_node = decl
         try:
             yield
         finally:
             self._decl_source_file = saved
+            self._declaring_node = saved_node
 
     def _lend_instantiation_types(self, src_ns, dst_ns, type_map):
         """Make the concrete TYPE ARGUMENTS of an instantiation resolvable in the
@@ -1532,11 +1540,17 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
 
     @staticmethod
     def _lookup_selectable(source_ns, kind, name):
-        """`source_ns`'s binding of `name` in category `kind`, or None."""
+        """`source_ns`'s binding of `name` in category `kind`, or None.
+
+        The TYPE categories ask the source module's own SPELLING view
+        (design 255): an import names what the author wrote in braces, and the
+        ordinary identity-first lookup answers with the merged std symbol
+        whenever a std public name's identity is its spelling — so
+        `import m.{File}` used to bind std's `File` rather than m's, silently."""
         if kind == "struct":
-            return source_ns.lookup_struct(name)
+            return source_ns.lookup_own_struct(name)
         if kind == "enum":
-            return source_ns.lookup_enum(name)
+            return source_ns.lookup_own_enum(name)
         if kind == "function":
             return source_ns.functions.get(name)
         if kind == "static":
@@ -1545,9 +1559,9 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             # reachable by asking as the declaring module.
             return source_ns.get_static(name, tuple(source_ns.module_path))
         if kind == "trait":
-            return source_ns.lookup_trait(name)
+            return source_ns.lookup_own_trait(name)
         if kind == "type alias":
-            return source_ns.lookup_type_alias(name)
+            return source_ns.lookup_own_type_alias(name)
         return None
 
     def _selective_import_entry(self, source_ns, name):
@@ -3289,6 +3303,13 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # Clone builtins into this module's namespace (all directly accessible)
         ns.merge_into(builtin_namespace)
         ns.directly_accessible = set(builtin_namespace.directly_accessible)
+        # Design 255: everything the merge just bound is AMBIENT — the prelude
+        # core, plus the std names design 82 Part B keeps behind an import gate.
+        # Recorded here, before any import or declaration of this module runs,
+        # so `bind_type_name` can tell an ambient binding from one this file
+        # made. Both facts it needs come from this moment: the label (which std
+        # file, and whether the name is in scope unwritten) and the membership.
+        ns.note_builtin_type_bindings(builtin_namespace)
 
         # Inherit from parent if this is a nested module
         if parent_namespace:

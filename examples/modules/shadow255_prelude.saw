@@ -1,0 +1,8 @@
+//! Design 255 fixture: a module declaring a TRUE-PRELUDE name. `Duration` is
+//! `std.duration`'s and is in scope in every program with nothing written, so
+//! it is the tier the shadow ruling does NOT reach.
+// EXPECT: skip
+
+public struct Duration {
+    public tag: Int
+}

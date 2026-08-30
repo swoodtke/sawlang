@@ -421,7 +421,11 @@ class RegistrationMixin:
             type_identity=identity,
             def_module=self._vis_module_for_source(
                 getattr(type_def, 'source_file', None))
-        ))
+        ),
+            # Design 255 / SL-4: this module's label, so a collision names it.
+            source_label=self._module_label(
+                self._vis_module_for_source(
+                    getattr(type_def, 'source_file', None))))
 
     def _register_struct(self, struct: Struct):
         """Register a struct definition."""
@@ -517,7 +521,12 @@ class RegistrationMixin:
             line=struct.line,
             column=struct.column,
             ast_node=struct if struct.type_params else None
-        ))
+        ),
+            # Design 255 / SL-4: a declaration made HERE carries this module's
+            # label, so a collision report names both sides instead of one
+            # `<unknown>` (or, for a prelude name declared in a non-entry
+            # module, two of them).
+            source_label=self._module_label(def_module))
 
     def _register_enum(self, enum: Enum):
         """Register an enum definition."""
@@ -609,7 +618,10 @@ class RegistrationMixin:
             ast_node=enum if enum.type_params else None,
             raw_type=raw_type,
             raw_values=raw_values
-        ))
+        ),
+            # Design 255 / SL-4: this module's label, so a collision names it.
+            source_label=self._module_label(
+                self._vis_module_for_source(getattr(enum, 'source_file', None))))
 
     # Integer kinds a raw backing may name (design 145 unit B2). Any
     # fixed-width int plus platform `Int`/`UInt`; the design-47 wire discipline
@@ -875,7 +887,10 @@ class RegistrationMixin:
             def_module=self._vis_module_for_source(
                 getattr(trait, 'source_file', None)),
             type_identity=identity
-        ))
+        ),
+            # Design 255 / SL-4: this module's label, so a collision names it.
+            source_label=self._module_label(
+                self._vis_module_for_source(getattr(trait, 'source_file', None))))
 
     def _register_function(self, func: Function):
         """Register a function signature.

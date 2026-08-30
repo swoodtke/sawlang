@@ -9,7 +9,7 @@ from enum import Enum, auto
 from ast_nodes import (SawType, TypeKind, Function, Struct, Enum as SawEnum,
                        Extension, TypeParameter, Visibility,
                        PRIMITIVE_EXT_KINDS)
-from type_identity import declaration_base
+from type_identity import declaration_base, is_qualified
 
 
 class SymbolKind(Enum):
@@ -424,6 +424,15 @@ class Namespace:
         # diagnostic is raised once, where the author wrote the name.
         self.type_provenance: Dict[str, str] = {}
         self.ambiguous_types: Dict[str, Tuple[str, str, str]] = {}
+        # Design 255: the type names the BUILTIN MERGE bound here — the prelude
+        # core plus the std names an import gate keeps hidden (design 82 Part B).
+        # An ambient binding is not the same act as this file naming something,
+        # and `bind_type_name` needs to tell them apart: an explicit import
+        # SHADOWS a gated std name (SL-5) instead of tying with it, and any
+        # collision that does remain names a real module instead of `<unknown>`
+        # (SL-4). Filled by `note_builtin_type_bindings`, and a name leaves the
+        # set the moment something in this file claims it.
+        self.builtin_type_names: Set[str] = set()
         # Module-level `static` declarations (design 41), keyed by simple name.
         # Holds only the statics a simple name may legitimately resolve to from
         # ANY module: the public ones, plus the root module's own (which has no
@@ -976,14 +985,97 @@ class Namespace:
         module = tuple(getattr(symbol, 'def_module', ()) or ())
         return module if is_module_local(identity, module) else None
 
+    def _own_module_label(self) -> str:
+        """This namespace's own module, spelled the way a reader would write it.
+
+        The label a binding made HERE carries, so a collision report names both
+        sides (design 255 / SL-4). The entry module has no path to spell."""
+        module = tuple(self.module_path or ())
+        if not module:
+            return "this module"
+        if module[:1] == ("<std>",):
+            return "std." + ".".join(module[1:])
+        return ".".join(module)
+
+    def note_builtin_type_bindings(self, builtin_ns):
+        """Mark every type name the builtin merge just bound here as AMBIENT,
+        and give it a real source label (design 255).
+
+        Called once per namespace, straight after `merge_into(builtin_ns)` and
+        the accessibility copy, so `type_names` still holds exactly what the
+        merge put there. The label distinguishes the two ambient tiers, because
+        they behave differently: a PRELUDE name is in scope with nothing
+        written, and a gated one is merely merged and needs `import std.<leaf>`
+        before a program may write it (design 82 Part B). `bind_type_name`
+        shadows the second and reports a collision with the first."""
+        symbol_file = getattr(builtin_ns, '_std_symbol_file', {}) or {}
+        for name in self.type_names:
+            self.builtin_type_names.add(name)
+            leaf = symbol_file.get(name)
+            if leaf is None:
+                label = "the prelude"
+            elif name in self.directly_accessible:
+                label = "std.%s (prelude)" % leaf
+            else:
+                label = "std.%s" % leaf
+            self.type_provenance.setdefault(name, label)
+
+    def _hide_ambient_type(self, identity: str):
+        """Forget the ambient std entries this namespace merged in under
+        `identity`, because a shadowing binding supersedes them here.
+
+        The counterpart of `hide_struct`, and needed for the same reason: the
+        type tables are keyed by IDENTITY and `_lookup_type` consults them
+        BEFORE the name view, so rebinding `type_names` alone leaves every use
+        of the spelling still answering with the std symbol. std's PUBLIC types
+        are exempt from qualification (design 144), so their identity IS the
+        spelling and the shortcut always hits.
+
+        A QUALIFIED identity is left alone: it is unreachable by the spelling
+        anyway, and it may be one the compiler itself emits references to
+        (`Thread`, `Poll`, `Slot` — `COMPILER_EMITTED_STD_TYPES`), which must
+        keep resolving whatever a user program calls its own types. Every
+        namespace owns its own tables, so the removal is local to this
+        module's view."""
+        if not identity or is_qualified(identity):
+            return
+        self.structs.pop(identity, None)
+        self.enums.pop(identity, None)
+        self.traits.pop(identity, None)
+        self.type_aliases.pop(identity, None)
+        self.conformances.pop(identity, None)
+
+    def _shadows_ambient_binding(self, local: str) -> bool:
+        """Whether binding `local` here SHADOWS an ambient std name rather than
+        colliding with it (design 255, the SL-5 ruling).
+
+        Two conditions, and both are the ruling: the current binding was made
+        by the builtin merge and nothing in this file has claimed the name
+        since, AND std keeps that name behind an import gate — it is not in
+        scope until a program writes `import std.<leaf>`. Such a name is the
+        weakest bare-name tier there is, so an author who writes
+        `import mine.{Thread}` gets theirs, exactly as an author who DECLARES
+        `struct Thread` already does (design 82 Part B's `rebind_type_name`).
+
+        A PRELUDE name is not shadowed: it is in scope with nothing written,
+        redeclaring one is a redefinition error (conformance row B12), and an
+        import that quietly won where a declaration is refused would be the
+        same asymmetry pointing the other way. Nor is a name an EARLIER import
+        bound: two explicit imports of one name are genuinely ambiguous, and
+        that is the design-142 use-site error, kept."""
+        return (local in self.builtin_type_names
+                and local not in self.directly_accessible)
+
     def bind_type_name(self, local: str, identity: str, category: str = "type",
                        source_label: Optional[str] = None,
                        module_local: Optional[Tuple[str, ...]] = None):
         """Bind the source-visible name `local` to `identity` here.
 
-        First-wins, matching every other binding in this namespace. A second
-        binding to a DIFFERENT identity is recorded in `ambiguous_types` rather
-        than dropped silently: the name is genuinely ambiguous at any bare use,
+        First-wins, matching every other binding in this namespace, with ONE
+        exception: a binding over an ambient GATED std name shadows it
+        (`_shadows_ambient_binding`, design 255). Otherwise a second binding to
+        a DIFFERENT identity is recorded in `ambiguous_types` rather than
+        dropped silently: the name is genuinely ambiguous at any bare use,
         which is the design-142 use-site error, raised once where it is written.
 
         `module_local` (design 204) diverts the binding into that module's own
@@ -1002,10 +1094,17 @@ class Namespace:
             return
         if prev == identity or local in self.ambiguous_types:
             return
+        if self._shadows_ambient_binding(local):
+            self._hide_ambient_type(prev)
+            self.rebind_type_name(local, identity)
+            if source_label is not None:
+                self.type_provenance[local] = source_label
+            return
         self.ambiguous_types[local] = (
             category,
             self.type_provenance.get(local, "<unknown>"),
-            source_label if source_label is not None else "<unknown>",
+            source_label if source_label is not None
+            else self._own_module_label(),
         )
 
     def register_struct(self, name: str, symbol: StructSymbol,
@@ -1035,9 +1134,18 @@ class Namespace:
         declaration's identity differs from its spelling (design 218 unit 1's
         compiler-emitted types), because then first-wins leaves the name
         pointing at std's identity and the user's declaration reads as an
-        ambiguity instead of a shadow."""
+        ambiguity instead of a shadow.
+
+        Design 255 gave this a second caller: `bind_type_name` performs the
+        same act when an explicit IMPORT lands on an ambient gated std name,
+        which is the whole of the SL-5 ruling — one act, two spellings of the
+        author's intent. The name leaves `builtin_type_names` either way: it is
+        this file's from here on, so a LATER binding of it collides normally
+        rather than shadowing a second time."""
         self.type_names[local] = identity
         self.ambiguous_types.pop(local, None)
+        self.builtin_type_names.discard(local)
+        self.type_provenance[local] = self._own_module_label()
 
     def hide_type_conformances(self, identity: str):
         """Forget the conformances THIS namespace merged in for `identity`,
@@ -1363,6 +1471,45 @@ class Namespace:
         if identity != name:
             return table.get(identity)
         return None
+
+    def _lookup_own_type(self, table: Dict[str, Any], name: str):
+        """Look a type up in `table` by the SOURCE SPELLING `name`, as THIS
+        module writes it (design 255).
+
+        The mirror of `_lookup_type`, which is identity-first. That order is
+        right for everything downstream of type checking, which holds
+        identities — and wrong for an importer, which holds a spelling. std's
+        PUBLIC types are exempt from qualification (design 144: their identity
+        IS their spelling), so the identity-first shortcut hands back the
+        MERGED std symbol for `File`, `Duration` or `Instant` before it ever
+        consults `type_names`, where this module's own declaration of that name
+        is bound. `import m.{File}` then bound std's `File` under the name,
+        silently, and the program failed later on a field the wrong type does
+        not have.
+
+        Used by the selective-import binder, whose argument is always a name
+        the author wrote in braces."""
+        identity = self.resolve_type_identity(name, tuple(self.module_path or ()))
+        sym = table.get(identity)
+        if sym is not None:
+            return sym
+        return table.get(name)
+
+    def lookup_own_struct(self, name: str) -> Optional[StructSymbol]:
+        """This module's own binding of the struct spelling `name`."""
+        return self._lookup_own_type(self.structs, name)
+
+    def lookup_own_enum(self, name: str) -> Optional[EnumSymbol]:
+        """This module's own binding of the enum spelling `name`."""
+        return self._lookup_own_type(self.enums, name)
+
+    def lookup_own_trait(self, name: str) -> Optional[TraitSymbol]:
+        """This module's own binding of the trait spelling `name`."""
+        return self._lookup_own_type(self.traits, name)
+
+    def lookup_own_type_alias(self, name: str) -> Optional[TypeAliasSymbol]:
+        """This module's own binding of the type-alias spelling `name`."""
+        return self._lookup_own_type(self.type_aliases, name)
 
     def lookup_struct(self, name: str,
                       module: Optional[Tuple[str, ...]] = None) -> Optional[StructSymbol]:
