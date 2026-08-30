@@ -9266,7 +9266,9 @@ A scoped name is reachable by every spelling its scope allows, not just the
 qualified one. From inside the package, `public(package) func internal_api`
 answers to `m.internal_api()`, to `import m.{internal_api}` and to the glob
 `import m.*` alike; from outside, all three are refused, through a facade's
-`public import` re-export as much as directly — a re-export hands on the NAME,
+`public import` re-export as much as directly. A re-export hands on the NAME
+and the extension scope of the module it publishes (see
+[Import form and extension visibility](#import-form-and-extension-visibility)),
 never a wider tier. The import forms are sugar for the qualified reach and are
 never the stricter of the set. A refusal names the tier and the DEFINING
 module, so the reader learns which modifier to change and where:
@@ -9274,7 +9276,8 @@ module, so the reader learns which modifier to change and where:
 ```
 error: `internal_api` is public(package) in `pkg.secret`
 hint: mark it `public` in `pkg.secret` to expose it — a `public import`
-      re-export hands on the NAME, never a wider tier
+      re-export hands on the name and its module's extension scope, never a
+      wider tier
 ```
 
 #### Member visibility (design 80)
@@ -9409,13 +9412,19 @@ visible at all. Method lookup on a receiver consults extensions from exactly
 three places:
 
 1. the current module;
-2. the modules the current file imports DIRECTLY;
+2. the modules the current file imports DIRECTLY, closed over `public import`;
 3. the receiver type's own defining module — its inherent API, which travels
    with the value.
 
+Rule 2's closure is the facade case, and it is transitive: a module the file
+imports carries with it every module that one `public import`s, and so on down
+a chain of facades. [Import form and extension
+visibility](#import-form-and-extension-visibility) has the rule and an example.
+
 A transitive dependency contributes nothing. If your package depends on `net`
 and `net` depends on `codec`, a `public` method on `codec`'s `extension Data` is
-invisible to you until you import `codec` yourself. So `public` on an extension
+invisible to you until you import `codec` yourself, unless `net` publishes
+`codec` with a `public import`. So `public` on an extension
 METHOD means what it means on every other declaration: importers of my module
 get this. (The extension's HEAD carries no modifier — see Member visibility.)
 Without
@@ -9893,6 +9902,55 @@ Extension methods and conformances are import-scoped (see
 [Extension scoping](#extension-scoping-design-142)). Every import form makes the module a
 direct import, so choosing qualified access never silently loses a module's
 extensions.
+
+A `public import` forwards extension scope, transitively. If a file imports
+module M and M `public import`s module P, P's extensions are in scope in the
+file, and so on along a chain of facades. A facade that publishes a module
+publishes the methods that module puts on the values it hands out; the hazard
+scoping exists to prevent is an unrelated transitive dependency changing what a
+call resolves to, and a `public import` is the author saying the module is part
+of their surface.
+
+Every form of the re-export carries the edge, because the edge is
+module-granular. `public import wire.{Header}` re-exports one name and still
+forwards `wire`'s extensions whole, the way a selective DIRECT import already
+brings a module's extensions along with the names it lists.
+
+```saw
+// panel.saw — owns the type
+public struct Panel { public raw: Int }
+
+// knobs.saw — owns `Knob`, and gives `Panel` the overload that names it
+import panel.{Panel}
+public struct Knob { public id: Int }
+extension Panel {
+    public func add(&self, knob: &Knob, key: Int) -> Int {
+        self.raw + knob.id + key
+    }
+}
+
+// facade.saw — the module callers import
+public import panel.{Panel}
+public import knobs.{Knob}
+
+// app.saw — one import, and the forwarded overload resolves
+import facade.{Panel, Knob}
+func main() {
+    let p = Panel(raw: 10)
+    let k = Knob(id: 3)
+    print(p.add(knob: &k, key: 5))   // prints: 18
+}
+```
+
+A plain `import` in the facade forwards nothing: this widens the
+transitive-dependency rule, it does not replace it. Two things the closure
+leaves alone. Name binding is unchanged, so no name becomes bare-visible or
+qualifier-reachable that was not already; only extension methods on values you
+can already reach come into scope. And member visibility still gates each
+method separately, so a forwarded extension method that is not `public` is
+refused by its tier rather than by scope. Where the widened scope puts two
+indistinguishable signatures in one overload set, the call-site ambiguity error
+above covers it.
 
 ### Compiler warnings
 

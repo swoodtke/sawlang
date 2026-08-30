@@ -1277,8 +1277,8 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             f"`{refusal.module_label}`",
             line, column,
             hint=f"mark it `public` in `{refusal.module_label}` to expose it — "
-                 f"a `public import` re-export hands on the NAME, never a "
-                 f"wider tier")
+                 f"a `public import` re-export hands on the name and its "
+                 f"module's extension scope, never a wider tier")
         return True
 
     def _member_gate_allows(self, def_module: Tuple[str, ...],

@@ -111,6 +111,79 @@ split landed; M3 runs in the sawos repo from here.
 - DF-276a — an UNREPRESENTABLE FLOAT LITERAL degrades silently (entry below, filed Aug 28 by design 253; PRE-EXISTING). `let over = 1<400 zeros>.0` compiles clean and is `inf`; `let under = 0.<400 zeros>1` compiles clean and is `0.0`. The integer literal beside it is checked — `let n: UInt8 = 300` is a clean located error — so this is the one literal kind whose conversion has no representability check. "Never hide errors", at the position a value enters the program
 - DF-276b — there is NO `Int` -> `Float` conversion in ANY spelling (entry below, same filer; PRE-EXISTING). `let a: Float = n`, `n as Float`, `Float.from(n)` and `Float(n)` are all errors. Design 170 promises `from`/`from(truncating:)` for "every source/target pair" and means the INTEGER pairs; the float axis is absent entirely. Costs already paid in the tree: `std.string` carried a ten-branch `_digit_to_float` for it (deleted by 253), `JsonValue` can have no combined `as_number()`, and no float parser can have a small-integer fast path. Wants a design, not a patch — the rounding mode of a wide `Int` -> `Float` is a ruling
 - DF-276c — a VALUE `if`/`match` whose arms are bare literals does not adopt the width of the operand it sits BESIDE (entry below, same filer; PRE-EXISTING). `wide + (if up { 1 } else { 0 })` on a `UInt64` is ``operator `+` requires both operands to have the same type … the right is `Int` ``, while `wide + 1` and `wide + (1 + 1)` both adopt (the second is DF-243a's fix). Probed siblings all WORK — an argument, an annotated `let`, a `return`, a compound-assign RHS — so the gap is exactly DF-243a's position with a branch construct in it rather than a const expression
+- DF-280a — a receiver reached through a module QUALIFIER loses its method OVERLOAD SET, so only the first-registered overload is a candidate and a labeled call to any other is ``` `add` has no parameter named `knob` ``` (entry below, filed Aug 30 by design 254's unit-1 tests; PRE-EXISTING and independent of that brief — no `public import` is involved in the repro). Instance and static faces both; the mechanism is a lookup keyed on the receiver's WRITTEN SPELLING where its sibling path reads the resolved symbol, and the design-142 call-site ambiguity rides the same list
+
+
+## DF-280a — a module-QUALIFIED receiver loses its method overload set
+## (filed Aug 30 by design 254 unit 1; PRE-EXISTING, and nothing to do with
+## `public import` — the repro is one module and one plain import)
+
+MECHANISM (obligation 4). TWO paths answer "which methods does this receiver
+have", and they key on different things. `_scoped_method`
+(`sawc/typechecker/expressions.py:8025`) reads `struct_info.methods` /
+`struct_info.method_overloads` off the SYMBOL the call already resolved;
+`_scoped_method_overloads` (`expressions.py:8039`) re-resolves the set by NAME
+through `Namespace.lookup_method_overloads(struct_name, …)`, where
+`struct_name` is `obj_type.struct_name` — the spelling as WRITTEN. A qualified
+spelling resolves in the first and nowhere in the second (`method_owner` does a
+simple-name `lookup_struct`), so the overload list comes back EMPTY, the
+`len(...) > 1` guard at `expressions.py:10135` is False, and the call collapses
+onto the representative in `methods`, which is whichever overload registered
+first. Every sibling in the set is unreachable.
+
+POSITIONS the mechanism reaches (each probed by direct compile,
+`.build/scratch/p254c/`):
+
+* **the INSTANCE call.** `pc_leaf.Panel(raw: 10)` then
+  `p.add(knob: &k, key: 5)` against `{add(&self, n: Int), add(&self, knob:
+  &Knob, key: Int)}` is ``` `add` has no parameter named `knob` ```;
+  `p.add(n: 4)` (the representative) resolves, and so does the whole set in a
+  file that imports the names bare. One hop or two through a facade makes no
+  difference.
+* **`_instance_method_alternative`** (DF-217q's static-vs-instance
+  disambiguation) asks the same helper, so a qualified receiver whose
+  representative is a static has no instance alternative to find.
+* **the STATIC call.** `pc_stat.Bag.make(from: &a, bump: 3)` is
+  ``` `Bag.make` has no parameter named `from` ```. Different code — the
+  qualified-type route at `expressions.py:9730` — same shape: it takes
+  `struct_info.methods[name]` and never consults an overload set AT ALL. The
+  BARE static route one arm down (`expressions.py:9896`) does resolve
+  overloads, which is exactly why only the qualified spelling is broken.
+* **the design-142 call-site ambiguity** rides that same list, so a qualified
+  receiver silently takes one of two indistinguishable extension methods where
+  the bare receiver reports the ambiguity.
+
+Repro, one module, no facade:
+
+```saw
+// modules/pc_leaf.saw
+public struct Knob { public id: Int }
+public struct Panel { public raw: Int }
+extension Panel {
+    public func add(&self, n: Int) -> Int { self.raw + n }
+    public func add(&self, knob: &Knob, key: Int) -> Int { self.raw + knob.id + key }
+}
+
+// entry
+import modules.pc_leaf
+func main() {
+    let p = pc_leaf.Panel(raw: 10)
+    let k = pc_leaf.Knob(id: 3)
+    print(p.add(n: 4))                 // 14 — the representative
+    print(p.add(knob: &k, key: 5))     // error: `add` has no parameter named `knob`
+}
+```
+
+THE FIX SHAPE: one chokepoint answering "the overloads of this receiver, in
+scope here" off the resolved `struct_info`, with the qualified-static route
+joining it instead of keeping its representative-only lookup. Design 150
+promises a qualifier works in every position a name appears, so this is that
+promise at the method-call position.
+
+Design 254's row-1 test (`examples/ext254_facade_forwards.saw`) calls only
+un-overloaded methods for this reason and says so in its header; the
+forwarded-OVERLOAD dimension is row 8's, over a facade whose names arrive bare
+(`examples/ext254_facade_overload_set.saw`).
 
 
 ## DF-276a..c — filed Aug 28 by design 253 (the Float↔text build); all three

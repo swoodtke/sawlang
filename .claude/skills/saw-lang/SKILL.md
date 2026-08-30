@@ -2539,9 +2539,12 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
   import wire.{Header}` re-exports that NAME and only it (it binds no
   qualifier of its own to hand on, which is what makes a curated facade
   possible), `public import wire.*` re-exports the whole vocabulary. Your own view of
-  your imports is unchanged either way, and a re-export widens no extension
-  scope (a re-exported type keeps its own module's inherent API and brings
-  nothing else).
+  your imports is unchanged either way. A re-export DOES widen extension
+  SCOPE (design 254): an importer of your facade sees the extension methods of
+  every module you `public import`, transitively — see the import-scoped bullet
+  below. It was the other way round until Aug 30 (a re-export handed on the
+  NAME and nothing else), so a build that refuses a facade-forwarded extension
+  method predates it.
   **IDIOM**: prefer the CONSUMER importing the dependency directly — it
   states intent and survives your refactor. Reach for `public import` only
   when your module genuinely IS the facade for that dependency (a system-call
@@ -2559,12 +2562,25 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
   than making it `public` on a std type from a package.
 - **Extension methods are IMPORT-SCOPED (design 142).** Lookup consults
   exactly three places: your own module, the modules your FILE imports
-  DIRECTLY, and the receiver type's own defining module (its inherent API —
+  DIRECTLY — **closed over `public import`, transitively (design 254)** —
+  and the receiver type's own defining module (its inherent API —
   a `Data` you were handed keeps every `std.data` method whether or not you
   wrote `import std.data`, which you may not even be able to write). A
   TRANSITIVE dependency contributes NOTHING: if you import `net` and `net`
   imports `codec`, a `public` method on `codec`'s `extension Data` is
-  invisible to you until you import `codec` yourself. So `public` on an
+  invisible to you until you import `codec` yourself — UNLESS `net` writes
+  `public import codec`, which publishes codec's extension neighbourhood along
+  with whatever names it re-exports. Every form of the re-export carries that
+  edge (`public import codec.{Frame}` forwards codec's extensions WHOLE), a
+  chain of facades forwards the whole way, and a PLAIN import in the facade
+  forwards nothing. This is what makes the facade idiom work: a method whose
+  parameter type lives in a sibling module can be declared on the receiver that
+  reads best, instead of being receiver-flipped to whichever module the module
+  graph allowed. Nothing else widens — the design-80 member gate still refuses
+  a forwarded method that is not `public`, and a collision is the ordinary
+  call-site ambiguity. Treat it as working now and SUSPECT in older builds,
+  where the facade shape was ```type `Waiter` has no method `add` in scope
+  here```. So `public` on an
   extension METHOD means what it means everywhere else — importers of my
   module get this — and the
   calling-it-without-the-import error names the module to add

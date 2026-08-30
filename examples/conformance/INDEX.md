@@ -528,7 +528,7 @@ Claim source: spec 6 *Send and Sync* + *Cooperative tasks*; designs 75, 88, 103,
 
 ## Visibility and module boundaries
 
-Claim source: spec 8 *Visibility* + *The prelude*; designs 80, 82, 142, 188 u7, 204
+Claim source: spec 8 *Visibility* + *The prelude*; designs 80, 82, 142, 188 u7, 204, 254
 
 | Row | Checks | Covered by | Ruling |
 |-----|--------|------------|--------|
@@ -538,6 +538,7 @@ Claim source: spec 8 *Visibility* + *The prelude*; designs 80, 82, 142, 188 u7, 
 | B04 | calling a private extension method cross-module | `vis80_method_private_error.saw` |  |
 | B05 | orphan conformance: a foreign type to a foreign trait | `B05_orphan_conformance.saw` |  |
 | B06 | an extension method from a TRANSITIVE dep is invisible (design 142) | `B06_transitive_extension_invisible.saw` |  |
+| B21 | a `public import` FORWARDS extension scope — one hop, a chain of facades, and every re-export form (whole-module, selective) — while a PLAIN import in the facade forwards nothing, the design-80 member gate still refuses a non-`public` forwarded method, and a collision is still the call-site ambiguity | `ext254_facade_forwards.saw`, `ext254_facade_chain.saw`, `ext254_facade_selective.saw`, `ext254_facade_overload_set.saw`, `ext254_plain_import_no_forward_error.saw`, `ext254_facade_visibility_error.saw`, `ext254_facade_collision_error.saw` | 254 — the fence on B06, and B06 is the fence on this: the hazard design 142 exists to stop is an UNRELATED transitive dependency changing what a call resolves to, and a `public import` is the facade author publishing that module deliberately. Widening scope alone was checked against the two rules that could have gone with it and did not — name binding (nothing becomes reachable that was not) and the visibility tier |
 | B07 | control: the public surface IS reachable cross-module | `vis80_public_members_ok.saw` |  |
 | B08 | control: importing `deep` DIRECTLY makes its extension visible | `B08_direct_import_extension_visible.saw` |  |
 | W01 | review item 4: is `SpinLock` reachable BARE, without importing std.spinlock? | `spinlock_import_gate.saw` | 188 u7 — was a DEVIATION (`SpinLock` resolved bare against a spec that said otherwise); gated now |

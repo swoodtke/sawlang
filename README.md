@@ -542,7 +542,9 @@ module's surface is what it declares `public` — importing `parser` reaches
 `parser`'s own public declarations and nothing `parser` imported. `public
 import` hands a name on, on every form: `public import wire` re-exports the
 qualifier, `public import wire.{Header}` re-exports that one name, and
-`public import wire.*` re-exports the module's whole vocabulary.
+`public import wire.*` re-exports the module's whole vocabulary. A re-export
+also hands on extension scope, so a file that imports your facade sees the
+extension methods of the modules you publish, without importing them itself.
 
 Visibility is scoped: besides `public` and the private default, a declaration
 can be `public(package)` — visible to the other files of its package and

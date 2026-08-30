@@ -2530,8 +2530,8 @@ class TypeUtilsMixin:
                 f"`{refusal.module_label}`",
                 line, column, source_file=source_file,
                 hint=f"mark it `public` in `{refusal.module_label}` to expose "
-                     f"it — a `public import` re-export hands on the NAME, "
-                     f"never a wider tier")
+                     f"it — a `public import` re-export hands on the name and "
+                     f"its module's extension scope, never a wider tier")
             return
         module, _, simple = name.rpartition('.')
         self._error(
