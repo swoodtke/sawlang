@@ -9451,6 +9451,27 @@ still a `Data`, with every method `std.data` gave it, whether or not you wrote
 `import std.data` — and you may not even be able to write it, since the prelude
 rules gate the NAME `Data` separately from the value.
 
+All three rules are answered against the receiver's TYPE, never against the
+name the call site happened to write, and that holds for the whole overload set
+a method name stands for. A receiver reached through a module qualifier
+(`shapes.Circle`), and one whose type name this file never spells at all,
+carry exactly the methods the bare spelling would — every overload of each
+name, resolving by signature and reporting the same call-site ambiguity:
+
+```saw
+import modules.panels                    // the qualifier, no bare names
+import modules.panels.{hand}             // …or only the function
+
+let p = panels.Panel(raw: 10)
+print(p.add(n: 4))                       // both overloads are candidates
+print(p.add(knob: &k, key: 5))           // …at either spelling
+```
+
+This is design 150's promise — a qualifier works in every position a name
+appears — at the method-call position. A static spelled on the type
+(`panels.Bin.make(from:, bump:)`, `panels.Grade.of(seed: 1)`) is the same
+question and takes the same answer.
+
 The standard library is one scoping domain. Its files are separate modules for
 privacy, but they extend each other's types deliberately (`std.string` defines
 `join` on `Vector<String>`), so std's public surface is in scope wherever its
@@ -9706,7 +9727,9 @@ annotations (including behind `&`/`&var` and inside `Optional`), return types,
 generic arguments, call heads, constructors, static-method chains, enum
 construction, `any` existentials, and generic bounds. Declaration slots take it
 too: a struct field's type, an enum case payload's type, and a `type` alias
-right-hand side.
+right-hand side. A value reached through a qualifier keeps its whole method
+surface, overload sets included — see [Extension
+scoping](#extension-scoping-design-142).
 
 ```saw
 import shapes

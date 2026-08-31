@@ -2482,6 +2482,24 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
   enum construction, `any` existentials (`&any shapes.Named`) and generic
   bounds (`<T: shapes.Named>`). A bare name that only a qualifier is in
   scope for is a clean error naming all three forms.
+  **INCLUDING THE METHOD-CALL POSITION, WITH THE WHOLE OVERLOAD SET
+  (design 256, Aug 31).** Which methods a receiver has is answered against
+  its TYPE, never against the spelling at the call site — so a value
+  reached through a qualifier (`panels.Panel(raw: 10)`), and a value whose
+  type name the file NEVER writes (`import dep.{hand}`, the `Crate` arrives
+  through the call), both carry every overload of every name, resolving by
+  signature. A static spelled on the type is the same question:
+  `mod.Bin.make(from:, bump:)` and `mod.Grade.of(seed: 1)` work, on an
+  enum as on a struct. Treat all of it as working now and SUSPECT in older
+  builds, where only the FIRST-REGISTERED overload was a candidate at those
+  spellings: a labeled call to any other was ``` `add` has no parameter
+  named `knob` ```, a qualified enum static was "cannot be called on a
+  value", and two indistinguishable extension methods SILENTLY took the
+  first where the bare receiver reported the design-142 ambiguity. Importing
+  the type's name — a name the file never writes — was the workaround.
+  Overloaded methods on an ENUM extension were their own separate wall until
+  the same day (DF-283a): two members of one name were an internal compiler
+  error at the declaration, single file and all.
   **EACH FORM BINDS EXACTLY WHAT IT NAMES (DF-247b, Aug 24).** Only the
   whole-module form binds a qualifier. A selective import used to bind one
   too, for reaching what it did not list — an undocumented reach into the
@@ -3348,6 +3366,12 @@ construct in the owner and lend `&driver` down.
   enum. Import-scoped lookup and the orphan rule apply unchanged. The ONE
   difference: no `init` — the cases are the constructors, and writing one is a
   clean error naming a static method as the way to compute which case to build.
+  OVERLOADS work here too (`note(n:)` beside `note(base:, step:)`, `of(seed:)`
+  beside `of(a:, b:)`, instance and static alike) — but only since DF-283a
+  (Aug 31), and in an older build two members of one name are an INTERNAL
+  COMPILER ERROR at the declaration, in a single file with nothing imported.
+  So distrust an overloaded enum extension there; the struct twin always
+  worked, which is what made it look like a spelling problem.
 - **A TYPE MAY NAME ITSELF, THROUGH AN INDIRECTION (design 246).** A tree, a
   list or a JSON value is written directly; the rule is that every cycle
   crosses a heap indirection, because storage may not transitively contain its
