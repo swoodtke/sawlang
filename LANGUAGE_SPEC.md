@@ -5517,12 +5517,12 @@ the enum is. An enum is a set of tags; a bit set over those tags is the integer
 they are tags for. Swift draws this line with `OptionSet` and Rust with
 `bitflags`; Saw states it and does not ship a bit-set type.
 
-**A fixed-width slot is a constant position too** (amended Aug 21 2026). Where a
-declared narrower type is in force — an annotated `let`, a field, an argument, a
-`return`, a `static`, an arm — the combination folds and is range-checked
-against that type, so `let mask: UInt8 = Perm.Read | Perm.Write` is a `UInt8`
-holding 3, and a combination too wide for the slot is a compile error rather
-than a truncation:
+**An integer slot is a constant position too** (amended Aug 21 2026; widened to
+the platform pair Aug 31). Where a declared integer type is in force — an
+annotated `let`, a field, an argument, a `return`, a `static`, an arm — the
+combination folds and is range-checked against that type, so
+`let mask: UInt8 = Perm.Read | Perm.Write` is a `UInt8` holding 3, and a
+combination too wide for the slot is a compile error rather than a truncation:
 
 ```saw
 let mask: UInt8 = Perm.Read | Perm.Write     // 3
@@ -5531,6 +5531,11 @@ enum Cfg: UInt16 { case Mask = 0x000F, case Wide = 0x1000 }
 let narrow: UInt8 = Cfg.Wide | Cfg.Mask
 // error: constant expression 4111 does not fit in `UInt8` (range 0..=255)
 ```
+
+**A LONE case folds there too**, on exactly those terms: it is a constant of the
+backing whether one case is written or three, so `static Y: UInt32 = Perm.Read`
+is 1. It was refused until Aug 31, which meant adding a second flag removed a
+cast.
 
 The same rule covers a module `static` named in such a slot
 (`let e: UInt16 = 1 << PAGE_SHIFT`), which is what the size-in-one-place idiom
@@ -9119,11 +9124,13 @@ carrying the message**, a true result emits **zero code**.
 One evaluator answers everywhere a constant is required — a `static_assert`
 condition, an array length `[T; N]`, a repeat-literal count `[v; N]`, a const
 generic argument, a `static` initializer — so the same expression cannot mean
-different things in two positions. A **fixed-width slot** is on that list too
-(amended Aug 21 2026): where a declared `Int8`…`UInt64` type is in force, an
-operator expression over constants folds and is range-checked against the
-declared type, with the same names in scope every other constant position has.
-It accepts:
+different things in two positions. An **integer slot** is on that list too
+(amended Aug 21 2026; widened Aug 31): where a declared integer type is in
+force — `Int8`…`UInt64` and the platform `Int`/`UInt` alike — an expression over
+constants folds and is range-checked against the declared type, with the same
+names in scope every other constant position has. So
+`static M: UInt = (1 << BITS) - 1` derives its mask from a `static BITS: Int`
+exactly as the `UInt32` spelling of it does. It accepts:
 
 - integer and `Bool` literals, in every notation (`0xFF`, `0b1010`, `0o755`,
   `1_000_000`);
@@ -9146,11 +9153,14 @@ platform `Int`: signed, pointer-wide, the type a bare integer literal already
 has. `<<` wraps at that width exactly as the emitted `shl` does, so `1 << 63` is
 `Int.min` on a 64-bit target and `1 << 31` is `Int.min` on a 32-bit one. A shift
 count that is negative or `>=` the width is a compile error, which is the
-compile-time form of the "shift out of range" panic. A narrower destination is
-range-checked where the constant lands (an `as`, a fixed-width slot, an array
+compile-time form of the "shift out of range" panic. The destination is
+range-checked where the constant lands (an `as`, an integer slot, an array
 length), not inside the arithmetic — so `~0` is `-1`, and `0xFF & ~0` is the way
-to say 255. Division and modulo truncate toward zero, matching the runtime
-semantics above.
+to say 255. That check applies to an **unsigned** slot of any width, the
+platform `UInt` included: a fold that goes negative does not fit one, which is
+why `1 << 63` is refused at a `UInt64` and `~0` at a `UInt` — write the value
+(`UInt.max`) or mask it back. Division and modulo truncate toward zero, matching
+the runtime semantics above.
 
 Array lengths and const arguments are resolved during type checking, which is
 earlier than struct layout is known, so `sizeof<T>()` is rejected in those

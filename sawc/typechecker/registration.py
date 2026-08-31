@@ -1461,6 +1461,23 @@ class RegistrationMixin:
         deinit). There is no `static mut`; the no-mutation rule is enforced at
         assignment / `&var` lend sites, not here.
         """
+        registering = getattr(self, '_registering_static', False)
+        self._registering_static = True
+        try:
+            self._register_static_body(static)
+        finally:
+            self._registering_static = registering
+
+    def _register_static_body(self, static: StaticDecl):
+        """`_register_static`'s work, under DF-283b's declaration-order fence.
+
+        The fence is the whole reason for the split: statics register in
+        declaration order, so while one is being registered the const-static
+        DECLARATION TABLE — which is built whole, ahead of registration, for the
+        type positions that resolve before any symbol exists — may not answer
+        for a name that has no symbol yet. That name is one declared BELOW, and
+        design 186 unit 7 forbids reading it. See `_const_static_lookup`.
+        """
         # DF-140h: the duplicate check is asked from the DECLARING module, so it
         # sees that module's own statics and the shared (public/root) ones —
         # never another module's private constants. Before this, every private

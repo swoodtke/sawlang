@@ -112,6 +112,27 @@ the same funnel's coverage:
   than what a constant means; 185's refusal of an operator over enum-typed
   VALUES outside one is unchanged and still pinned by
   `../enum_bitwise_value_error.saw`.
+- The two axes design 257 widened (Aug 31), each a completeness gap in this
+  same ladder rather than a new position. **The SLOT axis** (DF-282a): a
+  PLATFORM-WIDTH `Int`/`UInt` slot is an adoption target for an S3 source
+  exactly as a fixed-width one is, so the whole S3 column above holds at
+  `UInt` too — `adopt_platform_width_slot_const.saw` walks the position
+  families (derived statics, annotated `let`, argument, `return`, `if`/`match`
+  arm, compound-assign RHS) and
+  `adopt_platform_width_slot_range_error.saw` is the range check that comes
+  with it (a fold that goes negative into a `UInt`). **The SOURCE axis**
+  (DF-282b): a LONE raw-backed enum CASE is an S3 source, where only a
+  COMBINATION of them was — `adopt_lone_enum_case.saw` puts each lone case
+  beside the combination that always worked, at the same slot, and adds the
+  `static_assert` operand position that the bitwise arm reached and the
+  comparison arm did not. `adopt_lone_enum_case_range_error.saw` is its range
+  check and `adopt_lone_enum_case_value_error.saw` its fence: an enum-typed
+  VALUE still needs `as`, at a transfer and in a runtime comparison alike.
+  The regression cells both widenings had to leave alone are cited, not
+  duplicated — the design-205 runtime-operand refusal is
+  `existing: ../int_sign_flip_transfer_through_platform_int.saw` (conformance
+  row W21), and the design-185 signed-domain gotcha is
+  `const_expression_signed_domain_error.saw` above.
 
 **Cell counts, grid 1** (22 positions × 8 sources = 176 nominal cells): 44
 green (own file or a same-shape existing-file cite: 22 on S1 + 22 on S3 —

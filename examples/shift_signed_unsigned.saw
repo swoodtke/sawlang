@@ -1,5 +1,13 @@
 // Shifts `<< >>`: `>>` is arithmetic (sign-extending) on a signed left operand
 // and logical (zero-filling) on an unsigned one (design 50).
+//
+// The all-ones value is spelled `UInt.max` since design 257 §1 (DF-283c). It
+// was `~(0 as UInt)`, which worked only because a platform-width slot was not
+// an adoption target: with `UInt` on the ladder the const expression folds, and
+// design 185's fold domain is the SIGNED platform `Int`, so `~0` is `-1` and
+// does not fit — the same refusal `~(0 as UInt32)` has always given at the
+// fixed widths. Design 185's own advice for a mask under that domain is to
+// write the value; `UInt.max` is that, and it says what it means.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 16
@@ -22,6 +30,6 @@ func main() {
     // Unsigned >> zero-fills (logical shift). All-ones UInt >> 62 == 3? use 63.
     let u: UInt = 16
     print(u >> 2)         // 4
-    let allones: UInt = ~(0 as UInt)
+    let allones: UInt = UInt.max
     print(allones >> 63)  // 1 (logical: high bits are zero-filled)
 }

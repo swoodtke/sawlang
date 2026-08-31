@@ -2088,12 +2088,25 @@ class TypeUtilsMixin:
         of the name would ask it — so a module-private static of another module
         is invisible here, and a `public` one reached through an import is not.
         The declaration table is the fallback for the case the symbol table
-        cannot cover: a static of THIS module that has not been registered yet.
+        cannot cover: a static of THIS module that has not been registered yet
+        — a LENGTH in type position, resolved before registration runs.
+
+        DF-283b: that fallback is OFF inside a static's own registration, where
+        "not registered yet" means something else entirely — statics register in
+        DECLARATION ORDER, so the only names it could answer for are the ones
+        declared BELOW, which design 186 unit 7 forbids. The table is built
+        whole before registration, so it answered with the forward value and
+        `static EARLY: UInt32 = LATER * 2` folded to 128 and compiled, past the
+        refusal `_check_identifier` raises for exactly that program. With the
+        fallback off the fold declines, the ordinary check runs, and the
+        declaration-order error is reported as it always was at a platform slot.
         """
         sym = self.namespace.get_static(name, self._accessor_vis_module())
         if sym is not None and self.namespace.is_accessible(name):
             return getattr(sym, 'const_value', None), \
                 getattr(sym, 'const_reject', None)
+        if getattr(self, '_registering_static', False):
+            return None, None
         table = getattr(self, '_const_static_decls', None) or {}
         return table.get((self._accessor_vis_module(), name), (None, None))
 

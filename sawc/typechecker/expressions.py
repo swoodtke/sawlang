@@ -1654,8 +1654,8 @@ class ExpressionsMixin:
         # one, while the funnel's own annotations survive. Re-deriving it here is
         # what makes the second pass agree with the first.
         folded_type = expr.expected_type
-        if (expr.const_folded_value is not None and folded_type is not None
-                and folded_type.kind in self._FIXED_INT_RANGES):
+        if (expr.const_folded_value is not None
+                and self._const_adoption_slot(folded_type)):
             expr.resolved_type = SawType(folded_type.kind)
             return expr.resolved_type
 
@@ -1812,6 +1812,20 @@ class ExpressionsMixin:
             # same-kind-only, the pre-check fired FIRST on a correct comparison
             # (`probe >= 10` on a `UInt`, whose literal adopts) with the worse of
             # the two messages and no way out named.
+            # design 257 §2: in a CONST position a raw-backed enum's CASE reads
+            # as its backing integer HERE too. The bitwise arm above has always
+            # done this, so a COMBINATION was already an integer by the time a
+            # comparison saw it (`static_assert((Perm.Read | Perm.Write) == 3)`)
+            # while the lone case beside it was ``cannot compare `Perm` with
+            # `Int` `` — DF-282b's asymmetry at the operand position the ruling
+            # names. Same predicate, same fence: only a CASE, only in a const
+            # position, and an enum-typed VALUE anywhere is refused as ever.
+            backing = self._flag_enum_backing(expr.left, left_type)
+            if backing is not None:
+                left_type = left_underlying = backing
+            backing = self._flag_enum_backing(expr.right, right_type)
+            if backing is not None:
+                right_type = right_underlying = backing
             both_int = (left_underlying.kind in self._AGREEMENT_INT_KINDS
                         and right_underlying.kind in self._AGREEMENT_INT_KINDS)
             if not both_int and not self._types_compatible(left_type, right_type):
@@ -1898,8 +1912,8 @@ class ExpressionsMixin:
         # a fixed-width slot and range-checked it there, so it IS that type. See
         # `_check_binary_op` for why the two annotations are what is read.
         folded_type = expr.expected_type
-        if (expr.const_folded_value is not None and folded_type is not None
-                and folded_type.kind in self._FIXED_INT_RANGES):
+        if (expr.const_folded_value is not None
+                and self._const_adoption_slot(folded_type)):
             expr.resolved_type = SawType(folded_type.kind)
             return expr.resolved_type
 
@@ -5799,7 +5813,7 @@ class ExpressionsMixin:
             # written as `-(1 << 7)` on a program that compiled on pass one.
             if value_expr.const_folded_value is not None:
                 return
-            if (rt.kind in self._FIXED_INT_RANGES
+            if (self._const_adoption_slot(rt)
                     and self._fold_const_expression_into(
                         value_expr, rt, expected_type)):
                 return
@@ -5827,9 +5841,12 @@ class ExpressionsMixin:
         #      type, so the declared width is the width stored.
         #
         #      SCOPE, deliberately drawn:
-        #      - FIXED-WIDTH targets only. A platform `Int`/`UInt` expectation is
-        #        what the expression already had, so there is nothing to adopt
-        #        and nothing to check — the invariant in this method's docstring.
+        #      - EVERY integer target, since design 257 §1 — see
+        #        `_const_adoption_slot` for why the platform pair belongs and
+        #        what stayed out. It was fixed widths only until then, on the
+        #        reasoning that a platform expectation is what the expression
+        #        already had; true of `Int`, false of `UInt`, and DF-282a is
+        #        the `UInt` half.
         #      - Whatever `const_eval` answers from the AST it is handed. A
         #        `BinaryOp` naming a module `static` or a raw-backed enum case
         #        folds only where an earlier pass stamped its value, so a runtime
@@ -5841,33 +5858,26 @@ class ExpressionsMixin:
         #        is exactly what `(1 << 63) as UInt64` already says and what a
         #        bare `-9223372036854775808` in the same slot already says.
         #      - `~mask` rides here too (`UnaryOp` with `~`); a leading `-` is
-        #        case (2)'s, which folds through the same helper.
-        if ((isinstance(value_expr, BinaryOp)
-             or (isinstance(value_expr, UnaryOp) and value_expr.op == '~'))
-                and rt.kind in self._FIXED_INT_RANGES):
+        #        case (2)'s, which folds through the same helper. A LONE
+        #        raw-backed enum case rides here since design 257 §2 — see
+        #        `_const_adoption_shape`.
+        #
+        #      A SHIFT that does NOT fold forwards its LEFT operand's type: the
+        #      count is exempt from operand agreement (design 195) and
+        #      contributes nothing to the result, so an expected type reaches
+        #      the SHIFTEE exactly as it reaches a unary minus's operand.
+        #      `reg.write(1 << n)` for a runtime `n` is that shape — not a
+        #      constant, nothing folds, and without the forward the `1` stays
+        #      platform `Int` and the write is refused. That was a separate arm
+        #      (2c) carrying the platform targets while this one carried the
+        #      fixed widths; design 257 §1 gave this arm every integer slot, so
+        #      the two are one and the miss path below IS (2c).
+        if (self._const_adoption_shape(value_expr)
+                and self._const_adoption_slot(rt)):
             if value_expr.const_folded_value is None:
                 if not self._fold_const_expression_into(value_expr, rt,
                                                         expected_type):
                     self._apply_shift_expected_type(value_expr, rt)
-            return
-
-        # (2c) A SHIFT forwards its LEFT operand's type — the count is exempt
-        #      from operand agreement (design 195) and contributes nothing to the
-        #      result — so an expected type reaches the SHIFTEE exactly as it
-        #      reaches a unary minus's operand. `reg.write(1 << n)` for a runtime
-        #      `n` is the shape case (2b) cannot answer: the expression is not a
-        #      constant, so nothing folds, and without this the `1` stays platform
-        #      `Int` and the write is refused. It used to be admitted by
-        #      `_types_compatible`'s platform-pair permission, which design 205
-        #      closed — so the ergonomic the skill already documents ("a shift
-        #      passed DIRECTLY as the argument adopts and does not [need a
-        #      suffix]") is real adoption now rather than a laundered mismatch.
-        #      This arm carries the PLATFORM targets; case (2b) returns before it
-        #      for a fixed-width one and calls the same helper on its own miss.
-        #      The COUNT is deliberately not stamped.
-        if (isinstance(value_expr, BinaryOp)
-                and rt.kind in self._AGREEMENT_INT_KINDS):
-            self._apply_shift_expected_type(value_expr, rt)
             return
 
         # (3) if / match / block whose arm results merge to the expected type.
@@ -6411,6 +6421,19 @@ class ExpressionsMixin:
 
     def _check_member_access(self, expr: MemberAccess) -> Optional[SawType]:
         """Check member access for struct fields, enum variants, or module symbols."""
+        # design 257 §2, the `BinaryOp`/`UnaryOp` rule's third twin: the
+        # adoption funnel folded this LONE raw-backed enum case against an
+        # integer slot and range-checked it there, so it IS that type — asking
+        # the member would answer the ENUM, which is the refusal DF-282b
+        # reported. `expected_type` is read rather than `resolved_type` for the
+        # reason `_check_binary_op` gives: the place lowering unchecks the tree
+        # between the front half's two passes, so only the funnel's own
+        # annotations survive to the second.
+        folded_type = expr.expected_type
+        if (expr.const_folded_value is not None
+                and self._const_adoption_slot(folded_type)):
+            expr.resolved_type = SawType(folded_type.kind)
+            return expr.resolved_type
         if isinstance(expr.object, MemberAccess):
             obj_type = self._check_member_access(expr.object)
             # Design 40 item 3 (L6): this recursion bypasses the
@@ -6912,10 +6935,65 @@ class ExpressionsMixin:
         if isinstance(expr, _BinaryOp) and expr.op in ('<<', '>>'):
             self._apply_literal_expected_type(expr.left, rt)
 
+    def _const_adoption_slot(self, rt) -> bool:
+        """Is this slot an ADOPTION TARGET for a constant expression?
+
+        THE slot predicate of the adoption ladder (DF-235a/b -> DF-240a ->
+        DF-243a), asked at every arm that folds. Design 257 §1 widened it from
+        the fixed widths alone to EVERY integer slot: a platform `Int`/`UInt`
+        is an adoption target exactly as a `UInt32` is.
+
+        DF-235a/b drew the line at the fixed widths on the reasoning that a
+        platform expectation "is what the expression already had, so there is
+        nothing to adopt and nothing to check". That is true of `Int` and false
+        of `UInt` — the fold is in design 185's SIGNED platform-`Int` domain, so
+        a `UInt` slot is a real target with a real range check, and
+        `static M: UInt = (1 << BITS) - 1` was refused where its `UInt32` twin
+        folded (DF-282a, the sawos HANDLE_INDEX_MASK shape). Folding at `Int`
+        too costs nothing and keeps one rule: the folded value range-checks
+        against the slot either way.
+
+        What does NOT move is which expressions are constants — a RUNTIME
+        operand is not one, so design 205's written-conversion rule still
+        refuses `let i: Int = u` on a runtime `u: UInt`.
+        """
+        return rt is not None and rt.kind in self._AGREEMENT_INT_KINDS
+
+    def _const_adoption_shape(self, expr) -> bool:
+        """Is this expression a shape the const-adoption arm should TRY?
+
+        THE leaf/operator predicate of the same ladder. An operator expression
+        (`(1 << B) - 1`, `Perm.Read | Perm.Write`, `~mask`) has always been on
+        it; design 257 §2 added the LONE raw-backed enum CASE, which is a leaf
+        and matched no operator shape — so `static X: UInt32 = E.A | E.B`
+        folded to 3 while `static Y: UInt32 = E.A` was ``has type `UInt32` but
+        its initializer has type `E` ``, and adding a second flag REMOVED a
+        cast (DF-282b). A case is a constant of its BACKING in a const
+        position (design 185 unit 4's own reading, which the combination
+        already relies on); this makes one case and two agree about that.
+
+        Answering the enum question means resolving the member, so the walk
+        that does it runs here — `_stamp_const_names` is idempotent, writes
+        only its own annotations, and `const_eval` is their only reader (see
+        `_fold_const_expression_into`). A member access that is anything else —
+        a field read, an `Int.max`, a module `static` — stamps what it always
+        stamped and answers False, so it reaches this arm no differently than
+        before.
+        """
+        from ast_nodes import MemberAccess as _MemberAccess
+        if isinstance(expr, BinaryOp):
+            return True
+        if isinstance(expr, UnaryOp) and expr.op == '~':
+            return True
+        if isinstance(expr, _MemberAccess):
+            self._stamp_const_names(expr)
+            return expr.enum_raw_value is not None
+        return False
+
     def _fold_const_expression_into(self, expr, rt, expected_type) -> bool:
-        """Adopt a CONSTANT operator expression into a fixed-width slot
-        (DF-235a/b). True when it folded (range-checked and stamped), False when
-        the expression is not a constant this pass can answer.
+        """Adopt a CONSTANT expression into an integer slot (DF-235a/b, widened
+        by design 257). True when it folded (range-checked and stamped), False
+        when the expression is not a constant this pass can answer.
 
         The other half of `_apply_literal_expected_type`'s case (2b) — kept here,
         beside `_FIXED_INT_RANGES`, because it is the same range check case (1)
@@ -6970,7 +7048,11 @@ class ExpressionsMixin:
         expr.const_folded_value = value
         expr.expected_type = rt
         expr.resolved_type = SawType(rt.kind)
-        lo, hi = self._FIXED_INT_RANGES[rt.kind]
+        # design 257 §1: `_int_range_for`, not `_FIXED_INT_RANGES` — the
+        # platform pair's range is a fact about the effective TARGET (DF-137d),
+        # so a fold into a `UInt` is checked against the target's word exactly
+        # as a fold into a `UInt32` is against 32 bits.
+        lo, hi = self._int_range_for(rt.kind)
         if not (lo <= value <= hi):
             self._error(
                 ErrorKind.TYPE_MISMATCH,

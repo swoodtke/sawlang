@@ -1371,6 +1371,12 @@ class MemberAccess(Expression):
     # compiler may renumber — so this is the constant a `static_assert` may
     # read, and an unbacked enum's case stays non-constant.
     enum_raw_value: Optional[int] = annotation(None)
+    # design 257 §2: the same stamp `BinaryOp`/`UnaryOp` carry (DF-235a/b), for
+    # the leaf case. A LONE raw-backed enum case in an integer slot IS that
+    # slot's type, folded to its declared value and range-checked there, so
+    # codegen emits the constant rather than building an enum value the store
+    # would then have to narrow.
+    const_folded_value: Optional[int] = annotation(None)
     # The QUALIFIED spelling of DF-172j's stamps: `dep.REGION_SIZE` in a
     # constant. Same two halves and same reader as the `Identifier` pair — the
     # bare and qualified spellings of one name have to fold to one number, which

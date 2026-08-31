@@ -1,0 +1,71 @@
+// Design 257 §2 — a LONE raw-backed enum case is a constant of its BACKING in
+// every const position a COMBINATION already reaches.
+//
+// DF-282b: `static X: UInt32 = Perm.Read | Perm.Write` folded to 3 (DF-240a's
+// flag-enum rule types the operator result as the backing) while
+// `static Y: UInt32 = Perm.Read` was ``has type `UInt32` but its initializer
+// has type `Perm` `` — so adding a second flag REMOVED a cast, which is
+// backwards. A case is a constant either way; the operator was never what made
+// it one.
+//
+// Each pair below is the lone case beside the combination that always worked,
+// at the same slot. Outside a const or adoption position nothing moved: an
+// enum-typed VALUE still needs `as` (`../enum_bitwise_value_error.saw`,
+// `adopt_lone_enum_case_value_error.saw`).
+// EXPECT: success
+// EXPECT-OUTPUT: 1
+// EXPECT-OUTPUT: 3
+// EXPECT-OUTPUT: 2
+// EXPECT-OUTPUT: 1
+// EXPECT-OUTPUT: 2
+// EXPECT-OUTPUT: 3
+// EXPECT-OUTPUT: 1
+// EXPECT-OUTPUT: 2
+// EXPECT-OUTPUT: 4
+// EXPECT-OUTPUT: 1
+// EXPECT-OUTPUT: 7
+
+enum Perm: UInt32 { case Read = 1, case Write = 2, case Exec = 4 }
+
+// The slot's own width decides, not the backing: a `UInt32`-backed case lands
+// in a `UInt8` slot iff the value fits, the same rule the combination takes
+// (`adopt_lone_enum_case_range_error.saw` is the one that does not).
+static PLATFORM_UNSIGNED: UInt = Perm.Read
+static PLATFORM_UNSIGNED_PAIR: UInt = Perm.Read | Perm.Write
+static PLATFORM_SIGNED: Int = Perm.Write
+static NARROW: UInt8 = Perm.Read
+
+static_assert(Perm.Read == 1, "a lone case reads as its backing here too")
+static_assert((Perm.Read | Perm.Write) == 3, "…as the combination always did")
+
+func want(m: UInt8) -> UInt8 { m }
+func give() -> UInt { Perm.Exec }
+
+func main() {
+    print("{}", PLATFORM_UNSIGNED)
+    print("{}", PLATFORM_UNSIGNED_PAIR)
+    print("{}", PLATFORM_SIGNED)
+    print("{}", NARROW)
+
+    let bound: UInt8 = Perm.Write
+    print("{}", bound)
+    let combined: UInt8 = Perm.Read | Perm.Write
+    print("{}", combined)
+
+    print("{}", want(m: Perm.Read))
+    let arm: UInt8 = if bound > 0 { Perm.Write } else { Perm.Read }
+    print("{}", arm)
+    print("{}", give())
+
+    let picked: UInt8 = match bound {
+        case 2 -> Perm.Read,
+        case _ -> Perm.Exec
+    }
+    print("{}", picked)
+
+    var acc: UInt8 = 0
+    acc += Perm.Read
+    acc += Perm.Write
+    acc += Perm.Exec
+    print("{}", acc)
+}

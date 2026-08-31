@@ -157,13 +157,27 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   refused outright, and a mixed array literal or a Result payload was a
   codegen ICE.
   **AND THE NAMES A CONSTANT MAY READ COME WITH IT (DF-240a, ruled + fixed
-  Aug 21):** a fixed-width slot is a FULL const position, so the expression's
+  Aug 21):** an integer slot is a FULL const position, so the expression's
   leaves may be a module `static` or a raw-backed enum CASE, exactly as in a
   `static_assert` or an array length. `let e: UInt16 = 1 << PAGE_SHIFT` is the
   clean "does not fit" error (the size-in-one-place idiom stops losing the
   check), and `let mask: UInt8 = Perm.Read | Perm.Write` is legal with the
   value 3 — see FLAG ENUMS below for what that amends. Both were wrong before
   Aug 21: the first compiled and printed `0`, the second was refused.
+  **AND THE PLATFORM PAIR IS ON THE SLOT LIST (design 257 §1, Aug 31):** a
+  platform `Int`/`UInt` slot adopts a const expression exactly as a fixed-width
+  one does, so the derived-size idiom works at pointer width:
+  ```saw
+  static BITS: Int = 8
+  static HANDLE_INDEX_MASK: UInt = (1 << BITS) - 1     // 255
+  ```
+  It was refused before that date (``static `M` has type `UInt` but its
+  initializer has type `Int` ``) — a `UInt` slot needed an `as UInt` its
+  `UInt32` twin did not — so a build that demands the cast predates it. The
+  range check comes with the adoption and the fold is still SIGNED, which
+  is the gotcha above at pointer width: a fold that goes negative does not fit
+  a `UInt`, so `~(0 as UInt)` is refused (it used to compile, DF-283c) and
+  all-ones is spelled `UInt.max`.
   **AND SO DOES A MIXED-BINOP OPERAND (DF-243a, fixed Aug 22)** — the one
   position on the bare literal's list that ladder had not reached. A const
   expression beside a typed operand adopts that operand's width in a
@@ -3288,30 +3302,45 @@ construct in the owner and lend `&driver` down.
   ```
   Folded at the TARGET's integer width in the signed platform-`Int` domain:
   `1 << 63` is `Int.min` on a 64-bit target and `1 << 31` is `Int.min` on
-  riscv32, `~0` is `-1` (mask it back — `0xFF & ~0` is 255), and a shift count
-  outside `0..<width` is a compile error rather than a folded surprise.
+  riscv32, `~0` is `-1` (mask it back — `0xFF & ~0` is 255 — or write the value,
+  `UInt.max`), and a shift count
+  outside `0..<width` is a compile error rather than a folded surprise. The
+  domain is the SLOT's business only for the range check, so a fold that goes
+  negative does not fit ANY unsigned slot, the platform `UInt` included: since
+  Aug 31 that reaches `~(0 as UInt)`, which used to compile because a platform
+  slot was not an adoption target at all (DF-283c).
   Precedence is Saw's, NOT C's: the bitwise tier sits BELOW comparison, so a
   compared mask needs its parentheses (`(a | b) == 3`, never `a | b == 3`).
   **FLAG ENUMS**: a raw-backed case is a constant, so `Perm.Read | Perm.Write`
   folds — and its type is the BACKING INTEGER, never the enum, because 3 need
   not be a declared case (typing it `Perm` would break `from(raw:)` and
   exhaustiveness). An enum is a set of tags; a bit set over them is the integer
-  they are tags for, and Saw ships no OptionSet type. A FIXED-WIDTH SLOT IS A
+  they are tags for, and Saw ships no OptionSet type. AN INTEGER SLOT IS A
   CONST POSITION (DF-240a, ruled Aug 21 — an amendment to 185 unit 4, which
-  widens WHICH positions are const, not what a constant means), so an annotated
+  widens WHICH positions are const, not what a constant means; the platform
+  pair joined the fixed widths on Aug 31), so an annotated
   `let`, a field, an argument, a `return` and an arm all fold a combination and
-  range-check it against the declared type. Outside a const or adoption
+  range-check it against the declared type. **A LONE CASE IS A CONSTANT THERE
+  TOO** (design 257 §2, Aug 31): one case or three, it is a constant of the
+  backing, so `static Y: UInt32 = Perm.Read` is 1 and a `static_assert` may
+  compare a bare case against a number. Before that date only a COMBINATION
+  folded — the lone case was ``has type `UInt32` but its initializer has type
+  `Perm` `` — so adding a second flag REMOVED a cast, and a build where the
+  one-flag line needs `as UInt32` predates the fix. Outside a const or adoption
   position the operands are enum-typed VALUES carrying no number and the
-  operator is REFUSED — write `(a as UInt8) | (b as UInt8)`, the same total
-  projection design 145 gives.
+  operator (and the transfer, and a comparison against an integer) is REFUSED —
+  write `(a as UInt8) | (b as UInt8)`, the same total projection design 145
+  gives.
   ```saw
   enum Perm: UInt8 { case Read = 0x01, case Write = 0x02, case Exec = 0x04 }
   static_assert((Perm.Read | Perm.Write) == 3, "rw")   // UInt8, folds
+  static_assert(Perm.Read == 1, "r")                   // …and so does one case
   let mask: UInt8 = Perm.Read | Perm.Write             // 3 — the slot is const
+  let one: UInt8 = Perm.Read                           // 1 — same rule, one leaf
   let flags = (held as UInt8) | (Perm.Exec as UInt8)   // runtime: say `as`
   ```
-  The `let mask` line was refused before Aug 21, so a build that rejects it
-  predates the amendment.
+  The `let mask` line was refused before Aug 21 and the `let one` line before
+  Aug 31, so a build that rejects either predates its amendment.
   The generic-ARGUMENT position keeps the smaller design-148 grammar (`>` is the
   shift token, so `FixedBuf<1 << 8>` cannot parse) — write `FixedBuf<2 * 128>`
   or a `static`.
@@ -3768,7 +3797,14 @@ construct in the owner and lend `&driver` down.
   struct Region { bytes: [UInt8; REGION_SIZE] }
   static ARENA: [UInt8; REGION_SIZE] = [0; REGION_SIZE]
   var half: [UInt8; REGION_SIZE / 2] = [0; REGION_SIZE / 2]   // in a body
+  static HANDLE_MASK: UInt = (1 << 12) - 1             // derives at ANY width
   ```
+  The derived static may be a `UInt` (or any fixed width) since design 257 §1,
+  and it range-checks there — before Aug 31 only the fixed widths adopted, so
+  the `UInt` spelling alone needed an `as UInt` and a build that demands one
+  predates the fix. Statics fold in DECLARATION ORDER and always did; naming
+  one declared BELOW is `static `LATER` is declared after this point`, which
+  a fixed-width slot silently folded past until DF-283b (same day).
   What does NOT fold: an `unsafe static var` (mutable), a static of a
   non-integer type, and one with no initializer — each a clean error NAMING
   which static and why (``the mutable static `ARENA_BYTES` is not allowed

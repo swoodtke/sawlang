@@ -1,0 +1,23 @@
+// Design 257 §2's fence, the half that did NOT move. A lone case is a
+// constant only where a constant is what the position asks for; an enum-typed
+// VALUE carries no number, so it still needs design 145's `as` projection —
+// at a transfer, and in a comparison against an integer outside a const
+// position.
+//
+// This is the boundary that keeps `from(raw:)` and exhaustiveness honest
+// (design 185 unit 4): a raw-backed enum value is always a declared case.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot assign `Perm` to variable of type `UInt8`
+// EXPECT-ERROR-CONTAINS: cannot compare `UInt32` with `Perm`
+
+enum Perm: UInt32 { case Read = 1, case Write = 2 }
+
+func main() {
+    let held = Perm.Read
+    let narrowed: UInt8 = held
+
+    let raw: UInt32 = 1
+    let same = raw == Perm.Read
+
+    print("{} {}", narrowed, same)
+}

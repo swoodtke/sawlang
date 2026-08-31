@@ -192,6 +192,17 @@ class StructsMixin:
 
     def _generate_member_access(self, expr: MemberAccess):
         """Generate code for member access on structs or enum variant access."""
+        # design 257 §2: a LONE raw-backed enum case the adoption funnel folded
+        # into an integer slot. The same opening `_generate_binary_op` and
+        # `_generate_unary_op` have (DF-235a/b), and for the same reason: the
+        # typechecker range-checked the value AT the slot's type, so emit the
+        # constant there rather than building an enum value at the backing
+        # width for the store to reconcile.
+        folded_type = expr.resolved_type or expr.expected_type
+        if expr.const_folded_value is not None and folded_type is not None:
+            return ir.Constant(self._get_llvm_type(folded_type),
+                               expr.const_folded_value)
+
         # Design 53: integer limits `Int.max`/`Int.min` (and every fixed-width
         # type). Platform `Int`/`UInt` use the target word width so a riscv32
         # build gets 32-bit bounds; fixed-width types use their own width.
