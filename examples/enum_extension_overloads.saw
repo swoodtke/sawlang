@@ -1,0 +1,31 @@
+// DF-283a — an ENUM extension may carry OVERLOADED methods, instance and
+// static, exactly as a struct extension does (design 145 gave enums the same
+// method tables).
+//
+// The design-55 pass that assigns each member of a 2+ overload set its
+// signature-suffixed codegen symbol walked `namespace.structs` alone, so both
+// enum members were declared under the plain `Tone_note` mangling and codegen
+// died with a duplicated-name error at the DECLARATION — before any call site
+// was reached, and in the simplest single-file program.
+// EXPECT: success
+// EXPECT-OUTPUT: 4
+// EXPECT-OUTPUT: 5
+// EXPECT-OUTPUT: 1
+// EXPECT-OUTPUT: 2
+
+enum Tone { case Low, case High }
+extension Tone {
+    func note(&self, n: Int) -> Int { n }
+    func note(&self, base: Int, step: Int) -> Int { base + step }
+    static func of(seed: Int) -> Tone { Tone.Low }
+    static func of(a: Int, b: Int) -> Tone { Tone.High }
+    func rank(&self) -> Int { match self { case Low -> 1, case High -> 2 } }
+}
+
+func main() {
+    let t = Tone.Low
+    print("{}", t.note(n: 4))
+    print("{}", t.note(base: 3, step: 2))
+    print("{}", Tone.of(seed: 1).rank())
+    print("{}", Tone.of(a: 1, b: 2).rank())
+}

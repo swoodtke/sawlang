@@ -1281,7 +1281,16 @@ class RegistrationMixin:
                         sym.mangled_name = mangled
                         if sym.decl_node is not None:
                             sym.decl_node.mangled_symbol = mangled
-        for struct_name, struct_sym in self.namespace.structs.items():
+        # DF-283a: enums carry `methods`/`method_overloads` on exactly the same
+        # terms since design 145 (`Namespace.method_owner` is written once for
+        # both), but this pass walked `structs` alone — so an enum extension's
+        # overload set never got its design-55 signature symbols, both members
+        # were declared under the plain `E_name` mangling, and codegen died in
+        # `_declare_extension_methods` with a DuplicatedNameError before any
+        # call site was reached. Instance and static alike, single-file and
+        # cross-module alike.
+        for struct_name, struct_sym in list(self.namespace.structs.items()) \
+                + list(self.namespace.enums.items()):
             for mname, overloads in struct_sym.method_overloads.items():
                 if len(overloads) < 2:
                     continue

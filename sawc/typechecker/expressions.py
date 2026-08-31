@@ -10543,6 +10543,15 @@ class ExpressionsMixin:
         scope filter admits nothing — no candidate is in scope, so refusing here
         would report a scope failure the diagnostics downstream are better
         placed to explain, and the route behaves exactly as it did before."""
+        # Design 144: the receiver type's IDENTITY is what its method symbols
+        # are mangled against, and — for a module-qualified receiver — the only
+        # stamp codegen's static dispatch can read (the member access carries
+        # `resolved_struct_name` for a struct alone). Stamped HERE, at the
+        # funnel, so it does not depend on which of the two resolvers below
+        # runs: `_check_static_method_call` set it and the OVERLOADED twin
+        # never did, so a qualified static with 2+ overloads generated its
+        # QUALIFIER as a receiver expression.
+        expr.resolved_type_identity = self._sym_identity(type_info, type_name)
         statics = self._static_method_overloads(type_info, expr.method_name)
         if len(statics) > 1:
             return self._check_overloaded_static_method_call(

@@ -1,0 +1,24 @@
+// Design 256 — the funnel's ENUM dimension. A qualified enum receiver reaches
+// both instance overloads, and the qualified enum STATIC route reaches both
+// static ones; the identity the funnel stamps is what codegen's
+// module-qualified static dispatch reads, on the overloaded path as well as
+// the single one.
+//
+// Untestable until DF-283a landed: an enum extension's overload set had no
+// design-55 codegen symbols at all, so two members of one name were a
+// declaration-time duplicated-name error whatever the call site wrote.
+// EXPECT: success
+// EXPECT-OUTPUT: 4
+// EXPECT-OUTPUT: 5
+// EXPECT-OUTPUT: 1
+// EXPECT-OUTPUT: 2
+
+import modules.overload280_dep
+
+func main() {
+    let t = overload280_dep.Tier.Base
+    print("{}", t.note(n: 4))
+    print("{}", t.note(base: 3, step: 2))
+    print("{}", overload280_dep.Tier.of(seed: 1).rank())
+    print("{}", overload280_dep.Tier.of(a: 1, b: 2).rank())
+}

@@ -44,3 +44,16 @@ extension Grade {
         match self { case Low -> 1, case High -> 2 }
     }
 }
+
+// The same shapes on an ENUM receiver, OVERLOADED (DF-283a): design 145 gave
+// enums the same method tables, so the same funnel answers for them.
+public enum Tier { case Base, case Peak }
+extension Tier {
+    public func note(&self, n: Int) -> Int { n }
+    public func note(&self, base: Int, step: Int) -> Int { base + step }
+    public static func of(seed: Int) -> Tier { Tier.Base }
+    public static func of(a: Int, b: Int) -> Tier { Tier.Peak }
+    public func rank(&self) -> Int {
+        match self { case Base -> 1, case Peak -> 2 }
+    }
+}
