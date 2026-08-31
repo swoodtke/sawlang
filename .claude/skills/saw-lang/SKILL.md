@@ -915,6 +915,10 @@ let rows: Vector<Result<Int, String>> = [1, 2]   // …and every declared slot
 // There is no `Ok(x)`/`Err(e)` to write: the wrap IS the construction. `T == E`
 // is the one ambiguity, and it is a compile error — spell the variant then.
 try! f()   try? f()   try f() catch { fallback }
+let x = try f() catch { print("{error}")  return -1 }   // the GUARD form: the
+// catch binds `error` and its body may DIVERGE (return/continue/break/panic)
+// instead of supplying a fallback — a diverging block satisfies any expected
+// type (design 228) — so "bind on Ok, handle-and-exit on Err" needs no `match`
 try(as LocalError.Alloc) alloc(4096)     // ROUTE the error channel (design 234)
 try { let a = try f()  let b = try g() } catch {
     match error { case ParseError(e) -> ..., case IoError(e) -> ... }
@@ -1269,14 +1273,21 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   means the file had nothing left, distinct from a failure), `File.write` →
   `Result<Int, IoError>` (bytes written), `File.seek_*`/`position` →
   `Result<Int, IoError>`, `Directory.list` → `Result<Vector<Path>, IoError>`.
-  There is no `if let` over a Result, so bind them with `match`/`try`:
+  There is no `if let` over a Result, so bind them with `try`, an inline
+  catch, or `match`:
   ```saw
   var f = try File.open(p)            // in a Result-returning function
   let text = match f.read() {
       case Ok(bytes) -> move bytes,
       case Err(e) -> { return "" }    // a `return` arm needs its own block
   }
+  let body = try f.read() catch {     // same binding, guard-shaped: handle
+      print("read failed: {error}")   // the error, then diverge
+      return ""
+  }
   ```
+  Reach for `match` when both arms are peer control flow; the inline catch
+  reads better when the Err path handles and leaves.
   `Directory.current` stays `Path?` — `None` means getcwd(2) failed, and since
   design 132 a long path is returned whole rather than becoming that `None`.
 

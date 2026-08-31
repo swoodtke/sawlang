@@ -4992,7 +4992,21 @@ let content = try read_file("config.txt") catch {
     print("Error code: {error.code}")
     "default config"
 }
+
+// Handle the error, then leave: the guard form
+let content = try read_file("config.txt") catch {
+    print("cannot read config: {error.code}")
+    return
+}
 ```
+
+The catch block either produces the fallback value or diverges. A body that
+ends in `return`, `break`, `continue` or `panic(...)` has type `Never`, which
+satisfies any expected type (see the Never section), so "bind on
+success, handle the error and exit on failure" is written as an inline catch
+with no `match`. This is the Result counterpart of `guard let x = maybe else
+{ ... }` — with the difference that the failure's cause is in scope as
+`error`.
 
 ### Block Try-Catch
 
