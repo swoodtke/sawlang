@@ -1,0 +1,25 @@
+// Design 256 — a receiver reached through a module QUALIFIER carries its whole
+// method overload set. The set is keyed on the receiver's resolved type
+// identity now, not on the spelling written at the call site, so the qualified
+// receiver resolves exactly what the bare one does.
+//
+// Before the fix (DF-280a face 1) `p.add(knob:, key:)` was ``add` has no
+// parameter named `knob`` — the name-keyed re-resolution missed and the call
+// collapsed onto the first-registered `add(n:)`. The last row is DF-217q's
+// static-vs-instance alternative riding the same list: `pick`'s representative
+// is the STATIC, so an empty set left the instance call with nothing to mean.
+// EXPECT: success
+// EXPECT-OUTPUT: 14
+// EXPECT-OUTPUT: 18
+// EXPECT-OUTPUT: 7
+
+import modules.overload280_dep
+
+func main() {
+    let p = overload280_dep.Panel(raw: 10)
+    let k = overload280_dep.Knob(id: 3)
+    print("{}", p.add(n: 4))
+    print("{}", p.add(knob: &k, key: 5))
+    let r = overload280_dep.Rack.pick(seed: 4)
+    print("{}", r.pick(add: 3))
+}

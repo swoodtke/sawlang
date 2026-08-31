@@ -1,0 +1,19 @@
+// Design 256 — the design-142 call-site ambiguity rides the overload set, so a
+// receiver reached through a QUALIFIER reports it exactly as the bare receiver
+// does (`ext142_two_modules_duplicate_error.saw` is the bare twin).
+//
+// This is DF-280a's soundness half: before the fix the qualified spelling
+// SILENTLY took `ext142_dup_a`'s `kind` and printed 1, because the empty set
+// never reached the clash check while the representative resolved fine.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: ambiguous method `kind` on `Reading`
+// EXPECT-ERROR-CONTAINS: modules.ext142_dup_a
+
+import modules.ext142_base
+import modules.ext142_dup_a
+import modules.ext142_dup_b
+
+func main() {
+    let r = ext142_base.Reading(raw: 3)
+    print(r.kind())
+}

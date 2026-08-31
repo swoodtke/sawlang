@@ -1647,7 +1647,16 @@ class CallsMixin:
 
             # Check if it's module.Struct.static_method()
             # The MemberAccess resolves to a struct type (not a module)
-            resolved_struct = getattr(expr.object, 'resolved_struct_name', None)
+            #
+            # design 256: `resolved_struct_name` is stamped by the member-access
+            # checker for a qualified STRUCT only; a qualified ENUM carries its
+            # identity on the call node instead (`_check_static_method_call`),
+            # which is the stamp the new qualified-enum static route leaves.
+            # Without the second reading `mod.Tone.of(seed: 1)` fell through to
+            # the instance path and generated the QUALIFIER as a receiver
+            # expression (`Undefined variable: mod`).
+            resolved_struct = (getattr(expr.object, 'resolved_struct_name', None)
+                               or expr.resolved_type_identity)
             if resolved_struct:
                 # This is a static method call on a module-qualified struct
                 if self.namespace.is_static_method(resolved_struct, expr.method_name):

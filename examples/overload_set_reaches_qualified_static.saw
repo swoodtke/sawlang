@@ -1,0 +1,24 @@
+// Design 256 — the STATIC side of the same funnel. `mod.Bin.make(from:, bump:)`
+// was ``Bin.make` has no parameter named `from`` (DF-280a face 2): the
+// qualified-type route took `methods[name]`, the lone first-registered
+// representative, and consulted no overload set at all, while the bare route
+// one arm down resolved one.
+//
+// The enum rows are the route that did not EXIST. The qualified arm answered
+// VARIANTS only, so `mod.Grade.of(seed: 1)` fell through to the instance path
+// and came back as DF-217q's "static method ... cannot be called on a value"
+// for a call that plainly names the type.
+// EXPECT: success
+// EXPECT-OUTPUT: 4
+// EXPECT-OUTPUT: 5
+// EXPECT-OUTPUT: 2
+// EXPECT-OUTPUT: 1
+
+import modules.overload280_dep
+
+func main() {
+    print("{}", overload280_dep.Bin.make(seed: 4).n)
+    print("{}", overload280_dep.Bin.make(from: 3, bump: 2).n)
+    print("{}", overload280_dep.Grade.of(seed: 1).score())
+    print("{}", overload280_dep.Grade.Low.score())
+}

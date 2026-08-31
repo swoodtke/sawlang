@@ -4,13 +4,18 @@
 // before design 254 `kind` was out of scope — rule 3 consults the RECEIVER's
 // module, which is `ext254_panel`, and a re-export handed on the NAME only.
 //
-// The methods this row calls are single, not overloaded, on purpose: a receiver
-// reached through a module QUALIFIER loses its overload set (DF-280a, filed
-// against a mechanism older than this brief and independent of it), so the
-// forwarded-overload dimension is row 8's, over the selective facade.
+// This row called only un-overloaded methods until design 256, because a
+// receiver reached through a module QUALIFIER lost its overload set (DF-280a,
+// a mechanism older than design 254 and independent of it). That restriction is
+// dead: the set is keyed on the receiver's resolved type identity now, so the
+// last two calls join a FORWARDED overload (`add(knob:key:)`, from
+// `ext254_knobs`) to the receiver module's own two — the sawos `Waiter` shape,
+// through a two-qualifier facade path.
 // EXPECT: success
 // EXPECT-OUTPUT: 20
 // EXPECT-OUTPUT: 7
+// EXPECT-OUTPUT: 14
+// EXPECT-OUTPUT: 18
 
 import modules.ext254_facade
 
@@ -18,4 +23,7 @@ func main() {
     let p = ext254_facade.ext254_panel.Panel(raw: 10)
     print(p.doubled())
     print(p.kind())
+    print(p.add(n: 4))
+    let k = ext254_facade.ext254_knobs.Knob(id: 3)
+    print(p.add(knob: &k, key: 5))
 }

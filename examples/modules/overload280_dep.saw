@@ -1,6 +1,46 @@
+//! Design 256 fixture: a type whose extension methods are OVERLOADED, so a
+//! call site that loses the set collapses onto whichever member registered
+//! first. `hand()` exists so a file can hold a `Crate` without ever spelling
+//! `Crate` — DF-280a's third face.
+// EXPECT: skip
+
 public struct Crate { public n: Int }
 extension Crate {
     public func make(&self, entry: Int, top: Int) -> Int { entry + top }
     public func make(&self, top: Int) -> Int { self.make(entry: 7, top: top) }
 }
 public func hand() -> Crate { Crate(n: 1) }
+
+public struct Knob { public id: Int }
+public struct Panel { public raw: Int }
+extension Panel {
+    public func add(&self, n: Int) -> Int { self.raw + n }
+    public func add(&self, knob: &Knob, key: Int) -> Int {
+        self.raw + knob.id + key
+    }
+}
+
+public struct Bin { public n: Int }
+extension Bin {
+    public static func make(seed: Int) -> Bin { Bin(n: seed) }
+    public static func make(from: Int, bump: Int) -> Bin { Bin(n: from + bump) }
+}
+
+// A static and an instance method sharing one name: the representative in
+// `methods` is the static, so the instance call needs the SET to find its
+// alternative (DF-217q, riding DF-280a's broken list).
+public struct Rack { public v: Int }
+extension Rack {
+    public static func pick(seed: Int) -> Rack { Rack(v: seed) }
+    public func pick(&self, add: Int) -> Int { self.v + add }
+}
+
+public enum Grade { case Low, case High }
+extension Grade {
+    public static func of(seed: Int) -> Grade {
+        if seed > 0 { Grade.High } else { Grade.Low }
+    }
+    public func score(&self) -> Int {
+        match self { case Low -> 1, case High -> 2 }
+    }
+}

@@ -8036,15 +8036,58 @@ class ExpressionsMixin:
 
         return None
 
-    def _scoped_method_overloads(self, struct_name: str, method_name: str,
-                                 struct_info) -> List:
-        """The overloads of `method_name` this file may see (design 142)."""
-        return [s for s in self.namespace.lookup_method_overloads(
-                    struct_name, method_name)
-                if self._ext_scope_allows(s, struct_info)]
+    def _receiver_method_overloads(self, struct_info, method_name: str) -> List:
+        """THE overload set of a RESOLVED receiver, in scope here (design 256).
 
-    def _instance_method_alternative(self, struct_name: str, method_name: str,
-                                     struct_info):
+        Keyed on the receiver's design-144 IDENTITY — the resolved symbol
+        itself — never on the spelling the source happened to write. This
+        replaced a `Namespace.lookup_method_overloads(struct_name, …)` that
+        re-resolved the set by WRITTEN NAME while its sibling `_lookup_method`
+        read the same tables off the symbol the call had already resolved. Every
+        way of naming a receiver whose type name is not bound as a simple name
+        HERE missed in that lookup — a module QUALIFIER (`pc_leaf.Panel`), a
+        value whose type the file never spells (`import dep.{hand}`) — the set
+        came back EMPTY, and the call collapsed onto whichever overload
+        registered first (DF-280a, three faces).
+
+        ENTRY POINTS, all of them:
+          * `_instance_method_alternative` — DF-217q's static-vs-instance
+            disambiguation.
+          * the instance call's design-55 resolver and the design-142 call-site
+            ambiguity check, both in `_check_instance_method_call`.
+          * `_static_method_overloads`, which is the STATIC side's own funnel:
+            the bare `Bag.make(...)` / `Tone.of(...)` routes and the qualified
+            `mod.Bag.make(...)` / `mod.Tone.of(...)` ones.
+        `_out_of_scope_method_modules` is the COMPLEMENT (the modules a
+        candidate was filtered OUT for) and reads the same tables inverted; it
+        is not a consumer of this list.
+
+        Filtering is design 142's scope predicate and nothing else — which
+        candidates EXIST here, never whether their visibility permits the
+        access (`_check_method_visible` still asks that). `methods` keeps the
+        first-registered overload as a representative and is always also in
+        `method_overloads`; the union is the belt-and-braces
+        `_out_of_scope_method_modules` uses for the same reason."""
+        candidates = list(struct_info.method_overloads.get(method_name, []))
+        rep = struct_info.methods.get(method_name)
+        if rep is not None and rep not in candidates:
+            candidates.append(rep)
+        return [s for s in candidates if self._ext_scope_allows(s, struct_info)]
+
+    def _static_method_overloads(self, struct_info, method_name: str) -> List:
+        """The STATIC overloads of a resolved receiver TYPE (design 256).
+
+        The static routes used to read `struct_info.methods[name]` — the lone
+        representative — or re-resolve by written name; the qualified one
+        consulted no set AT ALL, which is why `mod.Bag.make(from:, bump:)` was
+        ``has no parameter named `from` `` while the bare spelling resolved.
+        An instance overload sharing the name is not a candidate here (DF-217q's
+        rule, read the other way)."""
+        return [s for s in self._receiver_method_overloads(
+                    struct_info, method_name)
+                if getattr(s, 'is_static', False)]
+
+    def _instance_method_alternative(self, struct_info, method_name: str):
         """An INSTANCE method of this name, when the representative the lookup
         returned was a static one (DF-217q).
 
@@ -8053,8 +8096,7 @@ class ExpressionsMixin:
         `b.make(...)` can hand a static back to an instance call site. That is
         an overload-set question, not a refusal: only when NO instance overload
         of the name is visible here does the call have nothing to mean."""
-        for cand in self._scoped_method_overloads(struct_name, method_name,
-                                                  struct_info):
+        for cand in self._receiver_method_overloads(struct_info, method_name):
             if not getattr(cand, 'is_static', False):
                 return cand
         return None
@@ -9733,7 +9775,13 @@ class ExpressionsMixin:
                 if struct_info and expr.method_name in struct_info.methods:
                     method_info = struct_info.methods[expr.method_name]
                     if method_info.is_static:
-                        return self._check_static_method_call(expr, struct_name, struct_info, method_info)
+                        # design 256: this route used to take the lone
+                        # representative and consult no overload set AT ALL,
+                        # while its BARE twin below resolved one — which is
+                        # exactly why only the qualified spelling of
+                        # `mod.Bag.make(from:, bump:)` was refused.
+                        return self._check_resolved_static_call(
+                            expr, struct_name, struct_info, method_info)
                     elif method_info.is_init:
                         # design 27 item 3: an `init` reached through the
                         # member-access form (`pkg.Struct.init(...)`) is not the
@@ -9768,6 +9816,19 @@ class ExpressionsMixin:
                     # Attach to AST so codegen can use it
                     expr.resolved_enum_init = enum_init
                     return self._check_enum_init(enum_init)
+                # design 256: the qualified ENUM's STATIC route, which did not
+                # exist — the arm above answered VARIANTS only, so
+                # `mod.Tone.of(seed: 1)` fell through to the instance path and
+                # came back as DF-217q's "cannot be called on a value" for a
+                # call that names the type. Mirrors the bare enum arm below,
+                # including its ordering: a case always wins a name clash, so a
+                # static gets first refusal only where no variant answers.
+                if (enum_info and expr.method_name not in enum_info.variants
+                        and expr.method_name in enum_info.methods):
+                    static_info = enum_info.methods[expr.method_name]
+                    if static_info.is_static:
+                        return self._check_resolved_static_call(
+                            expr, obj_type.enum_name, enum_info, static_info)
             if obj_type and obj_type.kind == TypeKind.MODULE:
                 inner_module_sym = getattr(expr.object, 'resolved_module_symbol', None)
                 if inner_module_sym and inner_module_sym.namespace:
@@ -9892,13 +9953,12 @@ class ExpressionsMixin:
                 if expr.method_name in struct_info.methods:
                     method_info = struct_info.methods[expr.method_name]
                     if method_info.is_static:
-                        # Overloading (design 55): resolve among static overloads.
-                        so = self.namespace.lookup_method_overloads(
-                            struct_name, expr.method_name)
-                        if len(so) > 1:
-                            return self._check_overloaded_static_method_call(
-                                expr, struct_name, struct_info, so)
-                        return self._check_static_method_call(expr, struct_name, struct_info, method_info)
+                        # Overloading (design 55): resolve among static
+                        # overloads, through design 256's funnel so the set is
+                        # the RESOLVED receiver's rather than a re-resolution of
+                        # the written name.
+                        return self._check_resolved_static_call(
+                            expr, struct_name, struct_info, method_info)
         if isinstance(expr.object, Identifier) and self.get_enum_info(expr.object.name):
             # Design 145: a STATIC method on the enum gets first refusal —
             # otherwise `SysError.from(raw: b)` is read as a variant named
@@ -9910,14 +9970,8 @@ class ExpressionsMixin:
                     and expr.method_name in enum_info.methods):
                 static_info = enum_info.methods[expr.method_name]
                 if static_info.is_static:
-                    enum_name = expr.object.name
-                    so = self.namespace.lookup_method_overloads(
-                        enum_name, expr.method_name)
-                    if len(so) > 1:
-                        return self._check_overloaded_static_method_call(
-                            expr, enum_name, enum_info, so)
-                    return self._check_static_method_call(
-                        expr, enum_name, enum_info, static_info)
+                    return self._check_resolved_static_call(
+                        expr, expr.object.name, enum_info, static_info)
             # Design 145 unit B2: the synthesized inverse of the `as` cast.
             # `E.from(raw: u)` is a LOOKUP, not a constructor — an unrecognized
             # value is DATA (a bad wire byte), never a trap, so it returns `E?`
@@ -10091,7 +10145,7 @@ class ExpressionsMixin:
         # method two call shapes with no gain.
         if method_info is not None and getattr(method_info, 'is_static', False):
             instance_alt = self._instance_method_alternative(
-                struct_name, expr.method_name, struct_info)
+                struct_info, expr.method_name)
             if instance_alt is None:
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
@@ -10129,8 +10183,8 @@ class ExpressionsMixin:
             # never reach the resolver — a mixed set resolves among the instance
             # methods alone rather than letting a static win on arity.
             method_overloads = [
-                m for m in self._scoped_method_overloads(
-                    struct_name, expr.method_name, struct_info)
+                m for m in self._receiver_method_overloads(
+                    struct_info, expr.method_name)
                 if not getattr(m, 'is_static', False)]
             if len(method_overloads) > 1:
                 # Design 142: two visible extensions of one type may share a name
@@ -10471,6 +10525,39 @@ class ExpressionsMixin:
         self._check_call_exclusivity([a.value for a in expr.arguments], aligned_types,
                                      param_names=aligned_names)
         return return_type
+
+    def _check_resolved_static_call(self, expr, type_name: str, type_info,
+                                    representative):
+        """A static call spelled on a TYPE, resolved over that type's whole
+        in-scope static overload set (design 256).
+
+        The ONE place the four static routes meet — bare struct, bare enum,
+        module-qualified struct, module-qualified enum — so the set a call sees
+        no longer depends on which of them the spelling happened to take. The
+        qualified struct route consulted no set at all and the qualified enum
+        route did not exist; the two bare ones re-resolved by written name,
+        which is the same DF-280a lookup the instance side had.
+
+        `representative` is `methods[name]`, the first-registered overload the
+        route already had in hand. It is the answer only where design 142's
+        scope filter admits nothing — no candidate is in scope, so refusing here
+        would report a scope failure the diagnostics downstream are better
+        placed to explain, and the route behaves exactly as it did before."""
+        statics = self._static_method_overloads(type_info, expr.method_name)
+        if len(statics) > 1:
+            return self._check_overloaded_static_method_call(
+                expr, type_name, type_info, statics)
+        chosen = statics[0] if statics else representative
+        # The instance path's DF-142 stamp, at the static position: a symbol can
+        # carry a signature- or module-discriminated codegen name while only ONE
+        # candidate reaches this call — the set holds an instance sibling of the
+        # same name, or a second module's copy this file does not import. The
+        # overload path never runs, so the plain-name mangling codegen would
+        # fall back to names no definition was emitted under.
+        if getattr(chosen, 'mangled_name', ''):
+            expr.resolved_symbol = chosen.mangled_name
+        return self._check_static_method_call(
+            expr, type_name, type_info, chosen)
 
     def _check_overloaded_static_method_call(self, expr, struct_name,
                                              struct_info, candidates):

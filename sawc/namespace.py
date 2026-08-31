@@ -1386,12 +1386,16 @@ class Namespace:
             if method_name not in s.methods:
                 s.methods[method_name] = symbol
 
-    def lookup_method_overloads(self, struct_name: str, method_name: str) -> List[FunctionSymbol]:
-        """All overloads of `method_name` on `struct_name` (design 55)."""
-        owner = self.method_owner(struct_name)
-        if owner:
-            return owner.method_overloads.get(method_name, [])
-        return []
+    # DELETED by design 256: `lookup_method_overloads(struct_name, method_name)`.
+    # It answered "the overloads of `method_name` on `struct_name`" by
+    # re-resolving the WRITTEN spelling through `method_owner`'s simple-name
+    # lookup, so every receiver whose type name is not bound as a simple name at
+    # the call site — a module qualifier, a value whose type the file never
+    # spells — got an EMPTY set and the call collapsed onto the first-registered
+    # overload (DF-280a). The question is now asked of the RESOLVED symbol, by
+    # `TypeChecker._receiver_method_overloads`, which reads the same
+    # `method_overloads` table off the receiver's own identity. Nothing is left
+    # here to key an overload set on a spelling again.
 
     def register_init_method(self, struct_name: str, symbol: FunctionSymbol):
         """Register an init method on a struct."""
