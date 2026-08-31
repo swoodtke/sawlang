@@ -24,4 +24,4 @@ mismatch against a consumer's pin is a loud refusal naming both, never a silent
 build — see `tools/toolchain.py`.
 """
 
-SAWC_VERSION = "0.2.0"
+SAWC_VERSION = "0.2.1"

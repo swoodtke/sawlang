@@ -1,0 +1,39 @@
+// DF-281a: an inline catch over a Result<Void, E> was a codegen ICE — the
+// merge built a phi over the Ok value's type, and a Void Ok extracts to no
+// value at all ('NoneType' object has no attribute 'type'). Both catch-body
+// shapes crashed: the diverging (guard-form) body and the Void fallback body.
+// Found writing sawos code, Aug 31.
+// EXPECT: success
+// EXPECT-OUTPUT: 1
+// EXPECT-OUTPUT: step failed: refused
+// EXPECT-OUTPUT: -1
+// EXPECT-OUTPUT: fallback: refused
+// EXPECT-OUTPUT: done
+
+enum StepError { case Refused }
+extension StepError: Printable {
+    func format(&self, into: &var StringBuilder) { try! into.append("refused") }
+}
+extension StepError: Error {}
+
+func step(ok: Bool) -> Result<Void, StepError> {
+    if not ok { return StepError.Refused }
+    return
+}
+
+// The guard form: bind nothing, handle the error, diverge.
+func run(ok: Bool) -> Int {
+    try step(ok) catch {
+        print("step failed: {error}")
+        return -1
+    }
+    return 1
+}
+
+func main() {
+    print(run(true))
+    print(run(false))
+    try step(true) catch { print("unreached: {error}") }
+    try step(false) catch { print("fallback: {error}") }
+    print("done")
+}

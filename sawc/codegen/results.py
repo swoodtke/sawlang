@@ -277,9 +277,12 @@ class ResultsMixin:
         self.builder.branch(merge_bb)
         ok_end_bb = self.builder.block
 
-        # Err block - return None
+        # Err block - return None. A `Result<Void, E>`'s Ok extracts to no
+        # value (DF-281a); its `Void?` carries the i8 placeholder payload
+        # `_wrap_in_optional` built on the Some side, so match it here.
         self.builder.position_at_end(err_bb)
-        none_result = self._create_none_for_type(ok_value.type)
+        none_result = self._create_none_for_type(
+            ir.IntType(8) if ok_value is None else ok_value.type)
         self.builder.branch(merge_bb)
         err_end_bb = self.builder.block
 
@@ -434,7 +437,8 @@ class ResultsMixin:
             del self.variables["error"]
 
         # Ensure catch result has same type as ok_value
-        if catch_result is not None and catch_result.type != ok_value.type:
+        if (catch_result is not None and ok_value is not None
+                and catch_result.type != ok_value.type):
             # Type mismatch - should have been caught by typechecker
             pass
 
@@ -451,6 +455,13 @@ class ResultsMixin:
 
         # Merge
         self.builder.position_at_end(merge_bb)
+        # A `Result<Void, E>`'s Ok extracts to no value (DF-281a), so the
+        # branches carry control only and the whole expression is Void — a
+        # value position was already refused by the typechecker. DF-196c
+        # guarded this merge against a DIVERGING catch; the Void Ok is the
+        # same merge's other unmergeable half.
+        if ok_value is None:
+            return None
         phi = self.builder.phi(ok_value.type, name="try_catch_result")
         phi.add_incoming(ok_value, ok_end_bb)
         if catch_diverged:

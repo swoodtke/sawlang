@@ -1,0 +1,37 @@
+// DF-281a's suspending twin: the same inline catch over a Result<Void, E>,
+// in a spawned body — the coroutine transform's lowering reaches the same
+// codegen merge, so it crashed identically and is covered by the same guard.
+// EXPECT: success
+// EXPECT-OUTPUT: 1
+// EXPECT-OUTPUT: worker: refused
+// EXPECT-OUTPUT: -1
+
+import std.task.*
+
+enum StepError { case Refused }
+extension StepError: Printable {
+    func format(&self, into: &var StringBuilder) { try! into.append("refused") }
+}
+extension StepError: Error {}
+
+func step(ok: Bool) -> Result<Void, StepError> {
+    if not ok { return StepError.Refused }
+    return
+}
+
+func worker(ok: Bool) -> Int {
+    yield_now()
+    try step(ok) catch {
+        print("worker: {error}")
+        return -1
+    }
+    return 1
+}
+
+func main() {
+    var group = TaskGroup()
+    let a = group.spawn(worker(true))
+    let b = group.spawn(worker(false))
+    print(a.join())
+    print(b.join())
+}
