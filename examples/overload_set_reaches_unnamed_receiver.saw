@@ -1,0 +1,18 @@
+// XFAIL: DF-280a — the method overload set is re-resolved by the receiver's
+// WRITTEN name, so a receiver whose type name is not bound in this file (the
+// value arrived through `hand()`, only `hand` is imported) loses every
+// overload but the first-registered one: `make(top: 1)` is refused with
+// "missing argument for parameter `entry`". Third face of the finding, hit
+// in the wild by sawos (Aug 31); the workaround is importing `Crate`, a name
+// this file never writes. Both scoping rules already put the whole set in
+// scope: the selective import makes the module a DIRECT import, and the
+// receiver's inherent API travels with the value.
+// EXPECT: success
+// EXPECT-OUTPUT: 8
+
+import modules.overload280_dep.{hand}
+
+func main() {
+    let c = hand()
+    print("{}", c.make(top: 1))
+}

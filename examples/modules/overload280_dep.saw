@@ -1,0 +1,6 @@
+public struct Crate { public n: Int }
+extension Crate {
+    public func make(&self, entry: Int, top: Int) -> Int { entry + top }
+    public func make(&self, top: Int) -> Int { self.make(entry: 7, top: top) }
+}
+public func hand() -> Crate { Crate(n: 1) }
