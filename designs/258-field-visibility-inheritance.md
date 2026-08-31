@@ -21,11 +21,18 @@ ordering). Agent DF range: assigned at dispatch.
    On any other declaration it is a clean error naming the default ("a
    declaration with no modifier is already module-private").
 3. **Fields only — extension members are EXPLICITLY EXCLUDED** (user ruling,
-   over the lead's own-module-inheritance alternative): methods, inits and
-   statics keep design 80's per-member marking. Two idioms depend on the
-   exclusion and stand: the Aug-5 safe-utility-extension idiom (a private
-   helper on a foreign/std type is safe BECAUSE bare means private there) and
-   the Aug-20 no-visibility-on-extension-heads ruling.
+   over the lead's own-module-inheritance alternative). THE RATIONALE, in the
+   user's own frame (Aug 31): **extension methods are FUNCTIONS — they just
+   happen to act on a struct — so they need a DECLARED visibility or else
+   they are per-module helpers.** A field is the type's own data and rides
+   the type's tier; a method is a declaration in its own right, and a bare
+   one is a module-private helper exactly as a bare free function is. So
+   methods, inits and statics keep design 80's per-member marking, and the
+   principle generalizes: nothing function-shaped ever inherits reach from a
+   type. Two standing idioms are consequences that fall out and stand: the
+   Aug-5 safe-utility-extension idiom (a bare helper on a foreign/std type is
+   safe BECAUSE bare means private there) and the Aug-20
+   no-visibility-on-extension-heads ruling.
 4. **Widening stays capped**: a field marked wider than its type is
    legal-but-inert exactly as today (gotcha 3 of design 80).
 5. **The public-API-needs-public-types rule (Aug 21) applies to the INHERITED
