@@ -918,6 +918,52 @@ def _zip_params(params, args):
     return {tp.name: arg for tp, arg in zip(params or [], args or [])}
 
 
+def substituted_param_names(template, type_map):
+    """The by-value parameters of `template` whose declared type NAMES one of
+    `type_map`'s parameters — §1c skip 4's input.
+
+    Computed HERE, at the clone, because it is the last place both artifacts
+    exist: the substituted clone has no type parameters left to read the answer
+    off. A REFERENCE parameter is excluded — a borrow is not a transfer, so it
+    never reaches the checkpoint the skip guards — and so is `self`.
+    """
+    names = set()
+    keys = set(type_map or ())
+    if not keys:
+        return frozenset()
+    for p in getattr(template, 'parameters', None) or ():
+        name = getattr(p, 'name', None)
+        t = getattr(p, 'type', None)
+        if not name or name == 'self' or t is None:
+            continue
+        if t.kind == TypeKind.REFERENCE:
+            continue
+        if _type_names_param(t, keys):
+            names.add(name)
+    return frozenset(names)
+
+
+def _type_names_param(t, keys, depth=0):
+    """Whether `t` spells one of `keys` anywhere — the same reach
+    `SawType.substitute` has, which is what makes the answer agree with it."""
+    if t is None or not isinstance(t, SawType) or depth > 12:
+        return False
+    if t.kind == TypeKind.TYPE_PARAM and t.type_param_name in keys:
+        return True
+    # design 37: a bare type parameter also arrives STRUCT-kinded, spelled by
+    # name, which is the shape `Vector<T>.push(value: T)` actually parses to.
+    if t.kind == TypeKind.STRUCT and t.struct_name in keys:
+        return True
+    for child in (t.inner_type, t.array_element_type, t.func_return_type):
+        if _type_names_param(child, keys, depth + 1):
+            return True
+    for group in (t.type_args, t.element_types, t.param_types):
+        for child in (group or ()):
+            if _type_names_param(child, keys, depth + 1):
+                return True
+    return False
+
+
 def _apply(saw_type, subst):
     if saw_type is None or not subst or not isinstance(saw_type, SawType):
         return saw_type
@@ -1042,10 +1088,12 @@ def _measure_type_instance(mono, tc, inst, copier):
                 if declared in base_map:
                     type_map[alias] = base_map[declared]
             tc._add_associated_type_bindings(type_map, struct_tps, inst.args)
+            substituted = substituted_param_names(entry[0], type_map)
             clone = copier(entry[0], type_map)
             clone.type_params = []
             clone.is_mono_instance = True
-            with tc._checking_instance(f"{inst.display}.{m.name}"):
+            with tc._checking_instance(f"{inst.display}.{m.name}",
+                                       substituted_params=substituted):
                 with tc._home_module_scope(clone, type_map):
                     tc._check_method(ext.struct_name, clone, type_map)
 
@@ -1057,12 +1105,13 @@ def _measure_fn_instance(mono, tc, inst, copier):
     tps = getattr(pristine, 'type_params', None) or []
     type_map = _zip_params(tps, inst.args)
     tc._add_associated_type_bindings(type_map, tps, inst.args)
+    substituted = substituted_param_names(pristine, type_map)
     clone = copier(pristine, type_map)
     clone.name = inst.key
     clone.type_params = []
     clone.mangled_symbol = None
     clone.is_mono_instance = True
-    with tc._checking_instance(inst.display):
+    with tc._checking_instance(inst.display, substituted_params=substituted):
         with tc._home_module_scope(clone, type_map):
             tc._check_function(clone)
 

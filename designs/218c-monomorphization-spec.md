@@ -154,6 +154,40 @@ substitution — each skip is named and per-rule, never a blanket bool):
   a legal generic body illegal at one instantiation with no spelling
   available in the template). NOTE: this is a rule-by-rule judgment the
   implementer applies from THIS list; new checker rules default to RUN.
+- **skip 3 — a `.copy()` the SILENT tier answers** (`_mono_copy_is_a_retain`,
+  typechecker/core.py; read at the `.copy()` receiver test in
+  expressions.py). The receiver test asks for a `copy` METHOD or a trivially
+  copyable type, and the refcounted half of the Copy tier (`String`, an
+  escaping closure) is neither — its copy is a retain codegen emits with
+  nothing to look up. In an AUTHORED body the refusal is right (`s.copy()` on
+  a local `String` is a real error today). In a substituted clone the spelling
+  is not the author's choice at this type: the template wrote
+  `buf[i].copy()` under a declared `<T: ExplicitCopy>` bound — design 219's
+  licence for the spelling — and every Copy type satisfies that bound, so the
+  call site discharged it and codegen lowers the element copy BY TIER. That is
+  why `Vector<String>.copy()` compiles and runs today and the re-check is the
+  only thing that disagrees.
+- **skip 4 — a transfer of a by-value parameter whose type arrived by
+  SUBSTITUTION** (`_transfer_is_substituted_param`, typechecker/core.py; read
+  at `_check_value_transfer` in types.py, ahead of the tier chain). In the
+  template that parameter's type is a type PARAMETER, so the checkpoint takes
+  design 219 wave C's `'abstract'` arm: it RAISES A REQUIREMENT that every
+  call site discharges against its concrete argument, per PATH — so a body
+  that forwards its parameter once (`buf[i] = value`,
+  `self.swap_out(i, value)`) duplicates nothing and requires nothing. The
+  concrete tier test on the clone is a SECOND, coarser judgment of the same
+  transfer. Its input is computed at the clone by the one funnel
+  `monomorphize.substituted_param_names`, whose entry points its docstring
+  names; it fires only for an `Identifier` naming such a parameter, so a
+  local, a field read, a place read and a concretely-typed parameter are all
+  re-judged unchanged.
+
+Skips 3 and 4 are the A3 OUTCOME's triage, lead-signed at the stage-3c
+dispatch; the residue counts and the evidence are in that section. The third
+family the sign-off named — the `__window` argument-type pair on
+`Map.copy`/`try_copy` — needed no rule: it is a CASCADE of skip 3 (the window
+closure's result type is inferred from a body whose `.copy()` had just failed,
+so it came out `Void`), and it disappeared when skip 3 landed.
 
 The `check_module` skip of `is_mono_instance` functions (typechecker/core.py,
 the "re-checking it HERE would report those suppressed errors as the author's"
@@ -797,3 +831,13 @@ rule:
   to §1c's named per-rule skip list with LEAD sign-off, per stage 2's rule
   — the lead validates each rule is genuinely an artifact-of-recheck class
   before signing, at 3c dispatch.
+
+**A3 CLOSED (Sep 1, stage 3c-0 + 3c-1).** The `Box<any Trait>.value` family
+went first, as its own unit: the accessor BORROWS, so the six diagnostics have
+no carrier and the residue dropped 30 -> 24, exactly the three pre-authorized
+families and nothing new. The 24 then went to §1c as TWO named skips, not
+three — skip 3 (a `.copy()` the silent tier answers) covered its six, skip 4
+(a transfer of a substituted by-value parameter) covered its sixteen, and the
+third family's two `__window` diagnostics turned out to be a CASCADE of skip 3
+and vanished with it. The probe answers 292 pairs materialized, 292 clean, 0
+reported.

@@ -247,6 +247,10 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # Whether THIS instance's diagnostics are muted because the abstract
         # layer already reported one — see `_checking_instance`.
         self._instance_muted: bool = False
+        # §1c skip 4's input: the by-value parameters of the instance under
+        # check whose declared type ARRIVED BY SUBSTITUTION. Empty outside an
+        # instance. See `_transfer_is_substituted_param`.
+        self._mono_substituted_params: frozenset = frozenset()
         # DF-232f: the top-level names bound by `--module-path name=dir`. Each
         # one IS a package (ruled Aug 17): every file under the mapped
         # directory is a sibling, and the entry file — which never appears
@@ -2870,9 +2874,13 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
     # ------------------------------------------------------------------ #
 
     @contextmanager
-    def _checking_instance(self, display: str, demand: Optional[str] = None):
+    def _checking_instance(self, display: str, demand: Optional[str] = None,
+                           substituted_params=()):
         """Check one instance. `display` is its source spelling
         (`launder<Res>`); `demand` is where the first demand for it came from.
+        `substituted_params` names the by-value parameters whose declared type
+        arrived by substitution — §1c skip 4's input, computed once at the
+        clone rather than re-derived at every transfer.
         Nests: an instance's body may itself demand another.
 
         ABSTRACT-FIRST (design 218c §3): an instance is only worth reporting in
@@ -2889,7 +2897,9 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         """
         previous = self._mono_instance
         previous_muted = self._instance_muted
+        previous_params = self._mono_substituted_params
         self._mono_instance = (display, demand)
+        self._mono_substituted_params = frozenset(substituted_params)
         self._instance_muted = (previous_muted
                                 or not INSTANCE_ERRORS_ARE_REAL
                                 or self.reporter.has_errors())
@@ -2898,6 +2908,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         finally:
             self._mono_instance = previous
             self._instance_muted = previous_muted
+            self._mono_substituted_params = previous_params
 
     def _mono_instance_note(self) -> Optional[str]:
         if self._mono_instance is None:
@@ -2911,6 +2922,90 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         """Whether a §1c provenance skip applies here. Read it at ONE rule with
         a comment saying which, never as a general permission."""
         return self._mono_instance is not None
+
+    # ------------------------------------------------------------------ #
+    # §1c SKIPS 3 AND 4 — the two ARTIFACT-OF-RECHECK predicates (design
+    # 218c's A3 OUTCOME, lead-signed at the stage-3c dispatch).
+    #
+    # Stage 3c materializes and checks EVERY registered instance in every
+    # compile (the Sep-1 splice-all ruling), so std's own type closure is
+    # re-judged on `hello.saw`. Twenty-four diagnostics survived that, over
+    # code the corpus compiles and RUNS, and the triage put them in three
+    # families. Two of the families are these predicates; the third turned out
+    # to be a CASCADE of the first and needed no rule of its own (see
+    # `_mono_copy_is_a_retain`).
+    #
+    # Each is a NAMED question asked at exactly ONE rule, with the rule's own
+    # comment saying which and why — never a blanket "is this an instance"
+    # suppression, and never keyed on "is this std". A new checker rule
+    # defaults to RUNNING, which is what keeps the list auditable.
+    # ------------------------------------------------------------------ #
+
+    def _mono_copy_is_a_retain(self, obj_type) -> bool:
+        """§1c SKIP 3 — a `.copy()` the SILENT tier answers, on a clone.
+
+        The `.copy()` receiver test asks for a `copy` METHOD, or a trivially
+        copyable type. A `String` is neither: it is on the silent Copy tier,
+        where a copy is a refcount bump codegen emits with no method to look
+        up. In an AUTHORED body that refusal is right — `s.copy()` on a local
+        `String` is a real error today, because nothing there said a copy was
+        wanted. In a substituted clone the spelling is not the author's choice
+        at this type: the template wrote `buf[i].copy()` under a declared
+        `<T: ExplicitCopy>` bound, which is design 219's licence for the
+        spelling, and every Copy type satisfies that bound. The abstract layer
+        judged it once, the call site discharged the bound against the concrete
+        argument, and codegen lowers the element copy BY TIER — which is why
+        `Vector<String>.copy()` compiles and runs today and the re-check is the
+        only thing that disagrees.
+
+        Six of the twenty-four: `Vector`/`Map` `.copy`/`.try_copy` at a
+        `String` key or element, and `VectorIterator`/`EnumeratedIterator`
+        `.next`.
+        """
+        if self._mono_instance is None:
+            return False
+        return self.namespace.copy_tier(obj_type) == 'implicit'
+
+    def _transfer_is_substituted_param(self, expr) -> bool:
+        """§1c SKIP 4 — a transfer of a by-value parameter whose type arrived
+        by substitution.
+
+        In the template that parameter's type is a type PARAMETER, so
+        `copy_tier` answers `'abstract'` and the transfer takes design 219 wave
+        C's arm: it RAISES A REQUIREMENT on the parameters it names, and every
+        call site discharges that requirement against its concrete argument.
+        The abstract layer therefore has a judgment for this position already,
+        and it is the one that fits — per PATH, so a body that forwards its
+        parameter once (`buf[i] = value`, `self.swap_out(i, value)`) duplicates
+        nothing and requires nothing. Asking the concrete tier again on the
+        clone is a SECOND, coarser judgment of the same transfer, and it
+        refuses bodies whose call sites the first judgment already cleared.
+
+        Sixteen of the twenty-four: `Vector.set`/`push`/`swap_out` and
+        `Arc.init` at every non-Copy element the corpus instantiates.
+
+        Narrow on purpose. It fires only for an `Identifier` naming a by-value
+        parameter of the instance's OWN signature whose declared type named a
+        substituted type parameter — computed at the clone, in
+        `monomorphize.substituted_param_names`. A local, a field read, a place
+        read and a parameter of a written concrete type are all re-judged
+        exactly as they were.
+
+        WHAT SUPPLIES IT (obligation 1 — `substituted_param_names` is the one
+        funnel, and these are its entry points): the two instance
+        materializations in `monomorphize` and the four design-70/74 builders
+        in `effects.py`, each of which holds the pristine template and the type
+        map at the moment it clones. The one `_checking_instance` that supplies
+        NOTHING is `check_module`'s re-check of an ALREADY-SPLICED instance:
+        the template is gone by then, so the answer cannot be re-derived
+        there. That path re-reads a body whose splicing check already reported,
+        and stage 3c-2's single materialization funnel is what removes the
+        second reading rather than teaching it the skip.
+        """
+        if self._mono_instance is None or not self._mono_substituted_params:
+            return False
+        return (isinstance(expr, Identifier)
+                and expr.name in self._mono_substituted_params)
 
     def _validate_exports(self, program: Program):
         """`export` statements are only permitted in init.saw facade files.

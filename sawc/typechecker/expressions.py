@@ -8449,6 +8449,20 @@ class ExpressionsMixin:
             )
             return True, None
 
+        # PROVENANCE SKIP (design 218c §1c, skip 3) — A `.copy()` THE SILENT
+        # TIER ANSWERS, ON A SUBSTITUTED CLONE. The chain above asks for a
+        # `copy` METHOD or a trivially copyable type, and the refcounted half
+        # of the Copy tier (`String`, an escaping closure) is neither: its copy
+        # is a retain codegen emits with nothing to look up. In an AUTHORED
+        # body the refusal is right. In an instance the spelling is not the
+        # author's choice at this type — the template wrote it under an
+        # `ExplicitCopy` bound, which every Copy type satisfies and every call
+        # site already discharged. `_mono_copy_is_a_retain` is the whole
+        # question; its docstring carries the triage.
+        if self._mono_copy_is_a_retain(obj_type):
+            expr.resolved_type = obj_type
+            return True, obj_type
+
         # Anything else is not Copy.
         self._error(
             ErrorKind.CANNOT_COPY,

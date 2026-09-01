@@ -4244,6 +4244,18 @@ class TypeUtilsMixin:
         if getattr(expr, 'frame_place_read', False):
             return
 
+        # PROVENANCE SKIP (design 218c §1c, skip 4) — A TRANSFER OF A BY-VALUE
+        # PARAMETER WHOSE TYPE ARRIVED BY SUBSTITUTION. In the template that
+        # parameter is a type PARAMETER, so this checkpoint took the
+        # `'abstract'` arm below and raised a design-219 wave-C REQUIREMENT
+        # that every call site discharged against its concrete argument —
+        # per PATH, so a body that forwards its parameter once duplicates
+        # nothing. The tier test here is a second, coarser judgment of the same
+        # transfer. `_transfer_is_substituted_param` is the whole question; its
+        # docstring carries the triage and says why it is this narrow.
+        if self._transfer_is_substituted_param(expr):
+            return
+
         # design 131: a type carrying a deinit but NO copy policy used to fall
         # through every arm below and take the default bitwise path — an alias
         # whose two halves each ran `deinit` (DF-128a). Declaring `Deinit` alone

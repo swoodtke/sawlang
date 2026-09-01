@@ -35,6 +35,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 from errors import ErrorKind
 from mono_copy import substitute_constructed_type_param, substituting_copy
+from monomorphize import substituted_param_names
 
 
 def substitute_ast_types(node, type_map):
@@ -673,8 +674,10 @@ class EffectsMixin:
         # was found by nothing at all. `_checking_instance` names which
         # instance a diagnostic belongs to (§3) and turns on the §1c
         # provenance skips.
-        with self._checking_instance(_instance_display(struct_name, method_name,
-                                                       resolved_args, method_args)):
+        with self._checking_instance(
+                _instance_display(struct_name, method_name,
+                                  resolved_args, method_args),
+                substituted_params=substituted_param_names(pristine, type_map)):
             with self._home_module_scope(clone, type_map):
                 self._check_method(struct_name, clone, type_map)
         # The re-check stamps `resolved_type` on the body's expressions, but member
@@ -793,8 +796,9 @@ class EffectsMixin:
         #
         # design 218 unit 1.5 stage 2: ERRORS ARE REAL (this was one of the
         # four sites that deleted its own).
-        with self._checking_instance(_instance_display(template_name, None,
-                                                       resolved_args, None)):
+        with self._checking_instance(
+                _instance_display(template_name, None, resolved_args, None),
+                substituted_params=substituted_param_names(pristine, type_map)):
             with self._home_module_scope(clone, type_map):
                 self._check_function(clone)
         return True
@@ -880,8 +884,10 @@ class EffectsMixin:
             # (That "the suppressed errors hide it" is past tense now: design
             # 218 unit 1.5 stage 2 made this check's errors REAL, which is what
             # would have named DF-206e where it happened.)
-            with self._checking_instance(_instance_display(template_name, None,
-                                                           resolved_args, None)):
+            with self._checking_instance(
+                    _instance_display(template_name, None, resolved_args, None),
+                    substituted_params=substituted_param_names(pristine,
+                                                               type_map)):
                 with self._home_module_scope(clone, type_map):
                     self._check_function(clone)
         finally:
@@ -913,8 +919,9 @@ class EffectsMixin:
         ext.methods.append(clone)
         # design 210 unit 4: in the template's home module scope.
         # design 218 unit 1.5 stage 2: errors are real.
-        with self._checking_instance(_instance_display(struct_name, method_name,
-                                                       None, resolved_args)):
+        with self._checking_instance(
+                _instance_display(struct_name, method_name, None, resolved_args),
+                substituted_params=substituted_param_names(pristine, type_map)):
             with self._home_module_scope(clone, type_map):
                 self._check_method(struct_name, clone, {})
         return True
