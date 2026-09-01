@@ -1694,7 +1694,20 @@ class StatementsMixin:
         # Design 122 unit D: binding a `Void` expression produces no value, so
         # there is nothing to name. It used to type-check and then ICE in codegen
         # on `alloca(void)` with an empty reason; it is a plain type error.
-        if value_type is not None and value_type.kind == TypeKind.VOID:
+        #
+        # PROVENANCE SKIP (design 218c §1c) — THE ONE RULE THE INSTANCE MARK IS
+        # LOAD-BEARING FOR. Design 132 made this line SYNTACTIC on purpose: a
+        # Void you can SEE is a visible mistake, a Void that arrives by
+        # INSTANTIATION is a zero-sized binding and legal, which is what keeps
+        # generic code instantiation-uniform ("a body that type-checks
+        # generically compiles for every instantiation, `Void` included, so no
+        # call site can produce an error the definition did not"). Inside an
+        # instance every type arrived by substitution, so the author saw
+        # nothing: `let result = body(n)` in a `func f<R>() -> R` at `R = Void`
+        # is the rule's own worked example, and refusing it here would make the
+        # instance check contradict the rule it is checking.
+        if (value_type is not None and value_type.kind == TypeKind.VOID
+                and not self._in_mono_instance()):
             self._error(
                 ErrorKind.TYPE_MISMATCH,
                 f"cannot bind `{stmt.name}` to an expression of type `Void` "

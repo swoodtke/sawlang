@@ -109,6 +109,65 @@ is scheduled and in what order is the whole of what they say.
 - ~~DF-284a — the corodiff PRELUDE stopped compiling, so all 2408 pairs refused on both twins and the lane scored them CLEAN~~ **FILED + FIXED Aug 31 (design 218 unit 1.5's agent, stage 0, fix-on-discovery)**: design 234's fallible `Arc(value:)` left the harness's `mk_tag`/`mk_tag_s`/`derive_tag` building a `Tag` out of a `Result<Arc<Res>, AllocError>`, so EVERY generated program refused identically and check 2 exempts exactly that. `corodiff --quick` was green in the battery while testing nothing. MECHANISM (obligation 4): the corpus is GENERATED, so nothing else in the tree ever compiles the shared declarations, and the one oracle that could notice ("both twins refuse") is the one deliberately turned off. Not one-off — it is the SECOND time (commit 2e62f55d, "the corodiff harness survives the rename (its lane had gone dead)", design 219 wave B), and the sibling harnesses do not admit it: sawfuzz mutates the tracked `examples/` corpus, which the suite gates, and irdet compiles that same corpus, so only corodiff owns a corpus nothing else compiles. FIX, both halves in the same commit: `try!` on the three `Arc<Res>(value:)` sites, and a COMPILE FLOOR — `check_prelude` compiles `PRELUDE + func main() { }` before any combo is judged and fails the run outright with the compiler's own output, which is the assertion the refusal exemption was missing. Baselined by the stage-0 `corodiff --all`; this line is the record
 
 
+## DF-284c — a trait REQUIREMENT has no callable method on a PRIMITIVE
+## receiver, so a bound-resolved call stops resolving the moment the type
+## argument is concrete (filed Sep 1 by design 218 unit 1.5 stage 2, the first
+## thing ever to look at an instance's diagnostics; PRE-EXISTING)
+
+```saw
+let a: Int = 3
+let b: Int = 9
+a.compare(&b)            // error: type `Int` has no method `compare`
+                         // hint: available methods: abs, clamp, is_even, …
+a.equals(&b)             // error: type `Int` has no method `equals`
+```
+
+THE MATRIX, probed cell by cell (`.build/scratch/spec218c/p11_matrix.saw`):
+`equals`, `compare` and `hash` are ALL missing on `Int`, `UInt8`, `Float` and
+`Bool` — and by the same mechanism on every other fixed-width integer.
+`String` is the exception and has them, because they are its OWN API rather
+than a conformance (design 239 records that asymmetry deliberately). A USER
+type is unaffected in both spellings: a hand-written conformance has a real
+method, and a `@synthesize`d one has a synthesized real method, so
+`p.equals(&q)` compiles on a concrete receiver.
+
+MECHANISM (obligation 4): a primitive conforms to Equatable/Comparable/
+Hashable BUILTIN, and the bodies for those conformances are synthesized in
+CODEGEN (`_emit_equals` / `_emit_compare`) with no AST call node and no
+checker-visible method — design 218's own charter names this as one of the
+three shapes it exists to end ("Codegen decides"). The ABSTRACT path never
+notices, because `<T: Comparable>` resolves the call against the TRAIT's
+requirement signature rather than against the receiver; the concrete path has
+only the receiver. So the gap is invisible in every position except one: a
+generic body whose bound-resolved call is re-checked with the type argument
+substituted in.
+
+WHY IT SURFACED NOW. Design 218 unit 1.5 stage 2 makes a monomorphized
+instance's diagnostics real (they were deleted, unread, by four sites in
+effects.py). The instance clone has no type parameters and therefore no
+bounds, so `rank<T: Comparable>`'s `a.compare(&b)` at `T = UInt8` is refused —
+in a program that compiles and runs correctly today, because codegen supplies
+the body the checker cannot see. FOUR corpus tests are exactly this:
+`unsigned_comparable_compare`, `unsigned_ordered_comparison`,
+`unsigned_handle_ordering`, `comparison_requirement_call_through_bound`.
+
+NOT 1.5's TO FIX, and the reason is a SEQUENCING fact worth having: moving
+those bodies out of codegen and into checked AST synthesis IS design 218 unit
+3 in its own words ("`a > b` becomes `a.compare(b)` as an AST rewrite BEFORE
+checking … Memberwise/enum/tuple equality synthesis moves from codegen
+emitters to synthesized AST bodies checked like any `@synthesize` output").
+1.5's instance check needs unit 3's desugar underneath it — the brief ordered
+1.5 before 3 because 1.5 "defines the validated form", and this is the one
+place that ordering costs something.
+
+STATUS: stage 2's machinery is BUILT AND LANDED — the four deletion sites are
+gone, §3's attribution note is attached, the §1c provenance skips are named
+per rule — with the last step held behind `INSTANCE_ERRORS_ARE_REAL` in
+typechecker/core.py, a module constant whose comment names this finding.
+Flipping it to True is stage 2's landing, and it is a one-line change once
+this closes. Held rather than pinned: an XFAIL here would be a brief xfailing
+breakage IT introduced, which the policy forbids. [218, 218c §1c/§3, 239]
+
 ## DF-284b — the immediately-invoked closure `{ ... }()` does not parse, in any
 ## position (filed Aug 31 by design 218 unit 1.5's agent, stage 0; PRE-EXISTING,
 ## and never covered — `grep '}()' examples/` comes back empty)

@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
-"""The stale-citation lint, and the committed-conflict-marker check (DF-248c).
+"""The stale-citation lint, the committed-conflict-marker check (DF-248c), and
+the diagnostic-suppression gate (design 218 unit 1.5).
 
-TWO CHECKS, ONE BLIND SPOT. Every gate in this tree compiles something. A file
-that nothing compiles — a tracker entry, an INDEX row, an XFAIL citation — can
-say anything at all and no lane will notice, which is how a pin came to cite a
-finding that had closed two days earlier and how three git conflict-marker
-blocks came to sit on `main`, one of them in `designs/todo.md` since Aug 22.
-This lane is what reads the files nothing compiles.
+THREE CHECKS, ONE BLIND SPOT. Every gate in this tree observes BEHAVIOUR. A
+file that nothing compiles — a tracker entry, an INDEX row, an XFAIL citation
+— can say anything at all and no lane will notice, which is how a pin came to
+cite a finding that had closed two days earlier and how three git
+conflict-marker blocks came to sit on `main`, one of them in `designs/todo.md`
+since Aug 22. Check 3 is the same blind spot inside the compiler: a pass that
+runs a check and then DELETES its diagnostics behaves exactly like a pass that
+never ran one, so only reading the source can tell them apart. This lane is
+what reads what nothing else can see.
 
 CHECK 2 — COMMITTED CONFLICT MARKERS — is the simpler one, so it goes first. A
 line beginning `<<<<<<<` PAIRED with a later line beginning `>>>>>>>` in the
@@ -333,7 +337,61 @@ def self_test() -> list[str]:
                  "<<<<<<<<< nine of them"):
         if CONFLICT_OPEN_RE.match(line) or CONFLICT_CLOSE_RE.match(line):
             failures.append(f"must NOT be read as a marker: {line}")
+
+    # The suppression recogniser, against the exact four lines design 218 unit
+    # 1.5 stage 2 deleted from `typechecker/effects.py` — this check reports
+    # zero on a healthy tree, so without a self-test it would be
+    # indistinguishable from a check that recognises nothing.
+    for line in ("        del self.reporter.errors[saved_errors:]",
+                 "            del self.reporter.warnings[saved_warnings:]",
+                 "        del reporter.errors[n:]"):
+        if not SUPPRESSION_RE.match(line):
+            failures.append(f"a suppression must be recognised: {line}")
+    for line in ("        del self.errors[0]",
+                 "        # del self.reporter.errors[saved:]",
+                 "        self.reporter.errors.clear()"):
+        if SUPPRESSION_RE.match(line):
+            failures.append(f"must NOT be read as a suppression: {line}")
     return failures
+
+
+# CHECK 3 — DIAGNOSTIC SUPPRESSION (design 218 unit 1.5 stage 2).
+#
+# `del self.reporter.errors[saved:]` — a pass runs a check and then throws the
+# check's answer away. Four of these sat in `typechecker/effects.py` for
+# months: the per-instantiation re-check reported real faults into a list it
+# then truncated, so a soundness error in a monomorphized instance was found by
+# NOTHING, and the 218 charter's "no judgment with real errors ever runs on any
+# instance" is the sentence they wrote.
+#
+# It belongs in THIS lane for the same reason the other two checks do: nothing
+# else can see it. Every gate in the tree observes BEHAVIOUR, and the behaviour
+# of a check whose diagnostics are deleted is identical to the behaviour of no
+# check at all. Only reading the source says otherwise.
+#
+# The pattern is deliberately narrow — a `del` against a reporter's own
+# `errors`/`warnings` list. Adding a diagnostic to the list and removing it is
+# the whole shape; a pass that legitimately decides not to report simply does
+# not call the reporter.
+SUPPRESSION_RE = re.compile(
+    r"^\s*del\s+\S*\.?reporter\.(errors|warnings)\s*\[")
+
+
+def find_diagnostic_suppressions() -> list[tuple[str, int, str]]:
+    """Every tracked `sawc/**.py` line that deletes reported diagnostics."""
+    out: list[tuple[str, int, str]] = []
+    for rel in tracked_files():
+        if not rel.startswith("sawc/") or not rel.endswith(".py"):
+            continue
+        path = REPO_ROOT / rel
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for i, line in enumerate(text.splitlines(), 1):
+            if SUPPRESSION_RE.match(line):
+                out.append((rel, i, line.strip()))
+    return out
 
 
 def main() -> int:
@@ -356,6 +414,8 @@ def main() -> int:
         print(f"check_citations: `git ls-files` failed ({exc}) — the "
               "conflict-marker check cannot enumerate the tree")
         return 2
+
+    suppressions = find_diagnostic_suppressions()
 
     citations = collect_citations()
     todo_anchors, done_anchors = collect_anchors()
@@ -386,7 +446,21 @@ def main() -> int:
     print(f"citations: {len(citations)} "
           f"({sum(1 for c in citations if c.kind == 'xfail')} xfail, "
           f"{sum(1 for c in citations if c.kind == 'ledger')} ledger); "
-          f"conflict markers: {len(conflicts)}")
+          f"conflict markers: {len(conflicts)}; "
+          f"diagnostic suppressions: {len(suppressions)}")
+
+    if suppressions:
+        print()
+        print(f"DIAGNOSTIC SUPPRESSION ({len(suppressions)}) — a pass deletes "
+              "its own diagnostics:")
+        for name, lineno, text in suppressions:
+            print(f"  {name}:{lineno}  {text}")
+        print()
+        print("Design 218 unit 1.5 stage 2 removed the last of these. A check "
+              "that reports and then deletes is a type-stamping device wearing "
+              "a checker's clothes: it cannot catch anything, and nothing "
+              "downstream knows it did not. Report the diagnostic, or do not "
+              "run the check.")
 
     if conflicts:
         print()
@@ -422,7 +496,7 @@ def main() -> int:
               "drop the marker — or the finding is not closed after all and the "
               "tracker entry is what needs correcting.")
 
-    if stale or conflicts:
+    if stale or conflicts or suppressions:
         return 1
 
     print(f"citations: {ok} open, {len(info)} undecided, 0 stale; "

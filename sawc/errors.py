@@ -109,6 +109,16 @@ class CompilerError:
     # The `-W` category this warning belongs to, printed alongside it so the
     # reader knows which flag turned it on and which would turn it off.
     category: Optional[str] = None
+    # design 218 unit 1.5 §3: a diagnostic raised while checking a
+    # MONOMORPHIZED INSTANCE anchors in the template's own body — that is where
+    # the author wrote the code, and `substitute_ast_types` preserves the spans
+    # — so on its own it says nothing about WHICH instantiation is wrong. The
+    # note names it and the demand path that reached it. A separate field
+    # rather than text appended to the hint: the hint tells you what to DO, the
+    # note tells you where you ARE, and one instance's note is what makes two
+    # errors at one template line two different programs rather than a
+    # duplicate (see `error`'s dedupe key).
+    note: Optional[str] = None
 
 
 class ErrorReporter:
@@ -146,7 +156,8 @@ class ErrorReporter:
         return cls._QUALIFIER_RE.sub("", text)
 
     def error(self, kind: ErrorKind, message: str, line: int, column: int,
-              hint: Optional[str] = None, source_file: Optional[str] = None):
+              hint: Optional[str] = None, source_file: Optional[str] = None,
+              note: Optional[str] = None):
         """Report an error, unless this exact one was already reported.
 
         Two diagnostics identical in kind, message, hint AND position are one
@@ -165,8 +176,13 @@ class ErrorReporter:
         filename = source_file if source_file else self.filename
         loc = SourceLocation(line, column, filename)
         err = CompilerError(kind, self.humanize(message), loc,
-                            self.humanize(hint), is_warning=False)
-        key = (kind, err.message, err.hint, filename, line, column)
+                            self.humanize(hint), is_warning=False,
+                            note=self.humanize(note))
+        # The note is part of the key: two INSTANCES of one template raising
+        # the same error at the same template line are two different programs
+        # (design 218c §3), and dropping the second as a duplicate would report
+        # one of them and hide the other.
+        key = (kind, err.message, err.hint, err.note, filename, line, column)
         if key in self._reported:
             return
         self._reported.add(key)
@@ -231,6 +247,11 @@ class ErrorReporter:
             caret_padding = ' ' * (err.location.column - 1)
             caret_color = "1;33" if err.is_warning else "1;31"
             lines.append(f"   \033[1;34m{'|':>{gutter_width}}\033[0m {caret_padding}\033[{caret_color}m^\033[0m")
+
+        # Note (design 218c §3): where this diagnostic IS — the instantiation
+        # and the demand path — ahead of the hint, which says what to do.
+        if err.note:
+            lines.append(f"   \033[1;34mnote\033[0m: {err.note}")
 
         # Hint
         if err.hint:

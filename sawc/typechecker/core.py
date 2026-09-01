@@ -44,6 +44,37 @@ from .tierreq import TierRequirementsMixin
 from .sigvis import SignatureVisibilityMixin
 
 
+# design 218 unit 1.5 stage 2 — THE FLIP, HELD ON ONE BLOCKER.
+#
+# Stage 2's whole content is that a MONOMORPHIZED INSTANCE's diagnostics are
+# real: the four `del self.reporter.errors[...]` sites in effects.py are GONE,
+# the §3 attribution note is attached, and the §1c provenance skips are named
+# per rule. Everything that machinery needs is built and live. What is held is
+# only the last step — letting the diagnostics reach the reporter — and the
+# reason is DF-284c, a PRE-EXISTING gap this stage was the first thing ever to
+# look at:
+#
+#   a trait REQUIREMENT has no callable method on a PRIMITIVE receiver.
+#   `Int`/`UInt8`/`Float`/`Bool` conform to Equatable/Comparable/Hashable
+#   BUILTIN — the bodies are synthesized in codegen (`_emit_equals`/
+#   `_emit_compare`), never in the checker — so `a.compare(&b)` resolves
+#   abstractly through `T: Comparable`'s BOUND and does not resolve at all
+#   once `T` is `UInt8`. Four corpus tests that compile and run correctly
+#   today are refused by the instance check for that reason and no other.
+#
+# It is not this unit's to fix: moving those bodies out of codegen and into
+# checked AST synthesis is design 218 UNIT 3 in so many words ("Memberwise/
+# enum/tuple equality synthesis moves from codegen emitters to synthesized AST
+# bodies checked like any `@synthesize` output"). So stage 2 discovers a
+# SEQUENCING fact — 1.5's instance check needs unit 3's desugar under it — and
+# holds here rather than either shipping a red suite or teaching the instance
+# check to look away from a call it cannot resolve, which would be exactly the
+# vacuous validation this whole unit exists to end.
+#
+# Flipping this to True is the landing of stage 2 once DF-284c closes.
+INSTANCE_ERRORS_ARE_REAL = False
+
+
 _BINDING_ID_COUNTER = itertools.count(1)
 
 
@@ -221,6 +252,14 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                  package_identities: Optional[
                      Dict[Tuple[str, ...], str]] = None):
         self.reporter = reporter
+        # design 218 unit 1.5: the MONOMORPHIZED INSTANCE being checked, as
+        # `(display, demand-site)`, or None outside one. Set only by
+        # `_checking_instance`; read by `_error` for §3's attribution note and
+        # by each §1c provenance skip at its own rule.
+        self._mono_instance: Optional[Tuple[str, Optional[str]]] = None
+        # Whether THIS instance's diagnostics are muted because the abstract
+        # layer already reported one — see `_checking_instance`.
+        self._instance_muted: bool = False
         # DF-232f: the top-level names bound by `--module-path name=dir`. Each
         # one IS a package (ruled Aug 17): every file under the mapped
         # directory is a sibling, and the entry file — which never appears
@@ -2669,10 +2708,18 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         If source_file is not provided, attempts to determine it from the
         current method or function context, then from the module being checked
         (DF-243b — see `_diagnostic_source_file`).
+
+        design 218 unit 1.5 §3: while an INSTANCE is being checked, every error
+        carries the instantiation note. Attached here rather than at the
+        hundreds of `_error` call sites, which is the only way the rule can be
+        total — a diagnostic written next year gets it too.
         """
+        if self._instance_muted:
+            return          # abstract-first — see `_checking_instance`
         if source_file is None:
             source_file = self._diagnostic_source_file()
-        self.reporter.error(kind, message, line, column, hint, source_file)
+        self.reporter.error(kind, message, line, column, hint, source_file,
+                            note=self._mono_instance_note())
 
     def _warning(self, kind: ErrorKind, message: str, line: int, column: int,
                  hint: Optional[str] = None, source_file: Optional[str] = None,
@@ -2680,10 +2727,77 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         """Report a warning with automatic source file detection. A `category`
         names a `-W` opt-in (design 150); without one the warning is
         unconditional."""
+        # PROVENANCE SKIP (design 218c §1c) — THE DESIGN-150 WARNING CATEGORIES.
+        # A warning is a remark about what an author WROTE, and nothing in a
+        # monomorphized instance was written: every type there arrived by
+        # substitution, and the template's own text was judged where the author
+        # put it. The one category that exists, `shadowed-qualifier`, is the
+        # worked example — it fires at a DECLARATION, and the instance's
+        # declarations are clones. Named per-rule at the funnel because the
+        # whole warning system is one row of §1c's list.
+        if self._mono_instance is not None:
+            return
         if source_file is None:
             source_file = self._diagnostic_source_file()
         self.reporter.warning(kind, message, line, column, hint, source_file,
                               category=category)
+
+    # ------------------------------------------------------------------ #
+    # design 218 unit 1.5 — checking a MONOMORPHIZED INSTANCE.
+    #
+    # An instance is a clone of a template with the type arguments substituted
+    # in. It keeps the template's source spans, so a diagnostic it raises
+    # anchors at the author's own line — right, and by itself silent about
+    # which of the instantiations is the broken one. `_checking_instance` names
+    # that, and it is also the flag the §1c PROVENANCE SKIPS read: a rule about
+    # what an author WROTE does not apply to code that arrived by
+    # substitution. Every skip is written at its own rule with its own reason;
+    # a new checker rule defaults to RUNNING, which is what makes the list
+    # auditable.
+    # ------------------------------------------------------------------ #
+
+    @contextmanager
+    def _checking_instance(self, display: str, demand: Optional[str] = None):
+        """Check one instance. `display` is its source spelling
+        (`launder<Res>`); `demand` is where the first demand for it came from.
+        Nests: an instance's body may itself demand another.
+
+        ABSTRACT-FIRST (design 218c §3): an instance is only worth reporting in
+        a compile the abstract layer ACCEPTED. Every template body in every
+        module is checked before the first instance is built, so a reporter
+        that already holds an error holds the BETTER one — at the definition or
+        the call, anchored on what the author wrote — and everything the
+        instance then derives from the same fault is noise. Two corpus tests
+        assert an exact error COUNT and found this immediately.
+        `_instance_muted` is that decision, taken once per instance and read at
+        the `_error` funnel; it is not a return to deleting diagnostics, which
+        threw away the instance's verdict even when the compile was otherwise
+        clean.
+        """
+        previous = self._mono_instance
+        previous_muted = self._instance_muted
+        self._mono_instance = (display, demand)
+        self._instance_muted = (previous_muted
+                                or not INSTANCE_ERRORS_ARE_REAL
+                                or self.reporter.has_errors())
+        try:
+            yield
+        finally:
+            self._mono_instance = previous
+            self._instance_muted = previous_muted
+
+    def _mono_instance_note(self) -> Optional[str]:
+        if self._mono_instance is None:
+            return None
+        display, demand = self._mono_instance
+        if demand:
+            return f"in the instantiation `{display}`, required from {demand}"
+        return f"in the instantiation `{display}`"
+
+    def _in_mono_instance(self) -> bool:
+        """Whether a §1c provenance skip applies here. Read it at ONE rule with
+        a comment saying which, never as a general permission."""
+        return self._mono_instance is not None
 
     def _validate_exports(self, program: Program):
         """`export` statements are only permitted in init.saw facade files.
@@ -3888,23 +4002,22 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         for func in module_ast.functions:
             if getattr(func, 'is_mono_instance', False):
                 # A synthesized instantiation spliced in by the effect pass
-                # (design 70). It was already checked where it was built, with
-                # errors suppressed on purpose: this clone exists to harvest
-                # effect edges, and a genuine instantiation error surfaces
-                # through codegen's own monomorphization.
+                # (design 70). Only the place lowering's re-entry gets this far
+                # — a first pass builds the clone after this loop — and it must
+                # reach the same verdict the first pass did.
                 #
-                # Re-checking it HERE would report those suppressed errors as
-                # the author's, and they are not the author's — every type in a
-                # clone arrived by substitution, so design 132's "a Void you can
-                # SEE" rule reads `let result = body(n)` at `R = Void` as a
-                # binding of nothing. Only the place lowering's re-entry gets
-                # this far (a first pass builds the clone after this loop), and
-                # it must reach the same verdict the first pass did.
-                kept_errors = len(self.reporter.errors)
-                kept_warnings = len(self.reporter.warnings)
-                self._check_function(func)
-                del self.reporter.errors[kept_errors:]
-                del self.reporter.warnings[kept_warnings:]
+                # design 218 unit 1.5 stage 2 (§1c, T11): this used to check
+                # the clone and then DELETE the diagnostics, on the grounds
+                # that they were not the author's. That rationale is RETIRED:
+                # the errors an instance raises are real now, and the reason
+                # they were not the author's — every type here arrived by
+                # substitution — is stated as NAMED PER-RULE SKIPS instead, so
+                # design 132's "a Void you can SEE" stands down while the
+                # ownership rules do not. What survives is the SCHEDULING role
+                # the entry always had: an instance is checked as an instance,
+                # with its attribution and its skips, wherever it is checked.
+                with self._checking_instance(func.name):
+                    self._check_function(func)
                 continue
             self._check_function(func)
 

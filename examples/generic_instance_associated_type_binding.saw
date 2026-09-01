@@ -1,0 +1,48 @@
+// A DRIVEN generic's instance clone binds its bounds' ASSOCIATED TYPES.
+//
+// `pull<T: Source>` names `Item`, which is not a type PARAMETER: the abstract
+// check resolves it through the bound, and the clone the effect pass builds has
+// no bounds left (`clone.type_params = []`). Substituting the parameters alone
+// therefore leaves `-> Item` standing in the instance's signature while its
+// body returns `Int` — the instance was checked against a signature it did not
+// have, and the wrong type was stamped on every expression that mentioned it.
+//
+// Nothing said so, because that check DELETED its own diagnostics (design 218
+// unit 1.5 stage 2 removed the four sites that did). Codegen has bound the same
+// associated types since brief 36 — `_instantiate_generic_function` reads them
+// straight out of `namespace.conformances` — so this is the typechecker's side
+// of a binding the compiler already had, not a new rule.
+//
+// Driven on purpose: the effect pass is what builds a clone, so an ORDINARY
+// generic call never reaches the builder at all.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// pulled 7
+// pulled two
+
+trait Source {
+    type Item
+    func pull(&self) -> Item
+}
+
+struct Numbers { n: Int }
+extension Numbers: Source {
+    type Item = Int
+    func pull(&self) -> Int { self.n }
+}
+
+struct Words { w: String }
+extension Words: Source {
+    type Item = String
+    func pull(&self) -> String { self.w }
+}
+
+func relay<T: Source>(s: T) -> Item {
+    __saw_suspend()
+    s.pull()
+}
+
+func main() {
+    print("pulled {__saw_drive(relay(Numbers(n: 7)))}")
+    print("pulled {__saw_drive(relay(Words(w: "two")))}")
+}

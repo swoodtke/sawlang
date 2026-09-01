@@ -70,6 +70,23 @@ def _subst_ast_value(val, type_map):
     return val
 
 
+def _instance_display(base, method_name, type_args, method_type_args):
+    """One instance in SOURCE spelling, for design 218c §3's attribution note.
+
+    `launder<Res>`, `Holder<Int>.mix<Bool>` — the reader's name for it, never
+    the mangled symbol, which is the identity and is unreadable at any depth.
+    """
+    def spell(args):
+        return "<" + ", ".join(str(a) for a in args) + ">" if args else ""
+
+    name = f"{base}{spell(type_args)}"
+    if method_name:
+        name = f"{name}.{method_name}{spell(method_type_args)}"
+    # design 144's internal module qualifier is scrubbed by the reporter, but
+    # this string is also read by tests and traces, so keep it short here too.
+    return name.replace("$m$", "@")
+
+
 @dataclass
 class SuspendSource:
     """A place where a node suspends without going through another node."""
@@ -613,21 +630,28 @@ class EffectsMixin:
         # fields) plus the method's own type params (U->Bool, for its params/locals).
         type_map = {tp.name: arg for tp, arg in zip(struct_tps, resolved_args)}
         type_map.update({tp.name: arg for tp, arg in zip(method_tps, method_args)})
+        self._add_associated_type_bindings(type_map, struct_tps, resolved_args)
+        self._add_associated_type_bindings(type_map, method_tps, method_args)
         substitute_ast_types(clone, type_map)
         clone.name = mono_name
         clone.type_params = []
         clone.is_mono_instance = True
-        saved_errors = len(self.reporter.errors)
-        saved_warnings = len(self.reporter.warnings)
         # type_subst binds `self` to `Holder<Int>` so field access through `self`
         # resolves the struct's `T`-typed fields to their concrete types, and maps
         # the method's own type params to their concrete arguments. In the
         # template's HOME module scope (design 210 unit 4), so a method body that
         # names its own module's private helper still finds it.
-        with self._home_module_scope(clone, type_map):
-            self._check_method(struct_name, clone, type_map)
-        del self.reporter.errors[saved_errors:]
-        del self.reporter.warnings[saved_warnings:]
+        #
+        # design 218 unit 1.5 stage 2: ERRORS ARE REAL. This check used to
+        # delete its own diagnostics — it was a type-stamping device wearing a
+        # checker's clothes — so a genuine soundness fault in an instantiation
+        # was found by nothing at all. `_checking_instance` names which
+        # instance a diagnostic belongs to (§3) and turns on the §1c
+        # provenance skips.
+        with self._checking_instance(_instance_display(struct_name, method_name,
+                                                       resolved_args, method_args)):
+            with self._home_module_scope(clone, type_map):
+                self._check_method(struct_name, clone, type_map)
         # The re-check stamps `resolved_type` on the body's expressions, but member
         # access through `self` resolves the struct's `T`-typed fields to `T` (the
         # generic StructSymbol carries `T`, and `_resolve_type` doesn't apply the
@@ -730,6 +754,8 @@ class EffectsMixin:
         clone = copy.deepcopy(pristine)
         type_map = {tp.name: arg
                     for tp, arg in zip(pristine.type_params, resolved_args)}
+        self._add_associated_type_bindings(type_map, pristine.type_params,
+                                           resolved_args)
         substitute_ast_types(clone, type_map)
         clone.name = mangled
         clone.type_params = []
@@ -738,17 +764,51 @@ class EffectsMixin:
         if splice:
             self._register_function(clone)
             module_ast.functions.append(clone)
-        # Re-check the body with errors suppressed (effect harvest only), in the
-        # TEMPLATE's home module scope (design 210 unit 4) — a template naming
-        # its own module's private helper must find it here, or the harvest is
-        # silently empty and the instantiation carries no types at all.
-        saved_errors = len(self.reporter.errors)
-        saved_warnings = len(self.reporter.warnings)
-        with self._home_module_scope(clone, type_map):
-            self._check_function(clone)
-        del self.reporter.errors[saved_errors:]
-        del self.reporter.warnings[saved_warnings:]
+        # Check the body in the TEMPLATE's home module scope (design 210 unit
+        # 4) — a template naming its own module's private helper must find it
+        # here, or the instantiation carries no types at all.
+        #
+        # design 218 unit 1.5 stage 2: ERRORS ARE REAL (this was one of the
+        # four sites that deleted its own).
+        with self._checking_instance(_instance_display(template_name, None,
+                                                       resolved_args, None)):
+            with self._home_module_scope(clone, type_map):
+                self._check_function(clone)
         return True
+
+    def _add_associated_type_bindings(self, type_map, type_params, resolved_args):
+        """Bind each bound's ASSOCIATED TYPES for this instantiation.
+
+        A generic body may name an associated type of one of its bounds —
+        `func getItem<T: Container>(c: T) -> Item` — and `Item` is not a type
+        PARAMETER, so substituting the parameters leaves it standing. The
+        abstract check resolves it through the bound; the clone has no bounds
+        left (`clone.type_params = []`), so without this the instance's
+        signature says `-> Item` while its body returns `Int` and the instance
+        check reports a mismatch in code that is correct.
+        (Found by design 218 unit 1.5 stage 2, the moment those errors stopped
+        being deleted. Codegen's `_instantiate_generic_function` has done
+        exactly this since brief 36 — the same three lines against
+        `namespace.conformances` — so this is the typechecker side catching up
+        to a binding codegen already builds, not a new rule.)
+        """
+        from ast_nodes import TypeKind
+        for tp, arg in zip(type_params or (), resolved_args or ()):
+            concrete = None
+            if arg is None:
+                continue
+            if arg.kind == TypeKind.STRUCT:
+                concrete = arg.struct_name
+            elif arg.kind == TypeKind.ENUM:
+                concrete = arg.enum_name
+            if not concrete:
+                continue
+            per_trait = self.namespace.conformances.get(concrete)
+            if not per_trait:
+                continue
+            for bound in (tp.bounds or ()):
+                for assoc_name, assoc_type in (per_trait.get(bound) or {}).items():
+                    type_map.setdefault(assoc_name, assoc_type)
 
     def _splice_fn_mono(self, module_ast, template_name, resolved_args, mangled):
         """design 74 (A5-rest, shape 3): splice a concrete instantiation of a
@@ -770,6 +830,8 @@ class EffectsMixin:
         clone = copy.deepcopy(pristine)
         type_map = {tp.name: arg
                     for tp, arg in zip(pristine.type_params, resolved_args)}
+        self._add_associated_type_bindings(type_map, pristine.type_params,
+                                           resolved_args)
         substitute_ast_types(clone, type_map)
         clone.name = mangled
         clone.type_params = []
@@ -784,8 +846,6 @@ class EffectsMixin:
         if entry_ns is not None:
             self.namespace = entry_ns
             self.current_module_path = getattr(self, '_entry_module_path', saved_path)
-        saved_errors = len(self.reporter.errors)
-        saved_warnings = len(self.reporter.warnings)
         try:
             self._register_function(clone)
             module_ast.functions.append(clone)
@@ -794,13 +854,16 @@ class EffectsMixin:
             # answers here: the symbol is the entry module's, the body's names
             # are the template's. Doing both under the entry scope is DF-206e's
             # generic costume — `boost` does not resolve, the suppressed errors
-            # hide it, and `local `b` in driven `amplify$1$Lo` has no resolved
-            # type` is what the frame builder says about it three phases later.
-            with self._home_module_scope(clone, type_map):
-                self._check_function(clone)
+            # hid it, and `local `b` in driven `amplify$1$Lo` has no resolved
+            # type` is what the frame builder said about it three phases later.
+            # (That "the suppressed errors hide it" is past tense now: design
+            # 218 unit 1.5 stage 2 made this check's errors REAL, which is what
+            # would have named DF-206e where it happened.)
+            with self._checking_instance(_instance_display(template_name, None,
+                                                           resolved_args, None)):
+                with self._home_module_scope(clone, type_map):
+                    self._check_function(clone)
         finally:
-            del self.reporter.errors[saved_errors:]
-            del self.reporter.warnings[saved_warnings:]
             self.namespace = saved_ns
             self.current_module_path = saved_path
         return clone
@@ -822,18 +885,19 @@ class EffectsMixin:
         clone = copy.deepcopy(pristine)
         type_map = {tp.name: arg
                     for tp, arg in zip(pristine.type_params, resolved_args)}
+        self._add_associated_type_bindings(type_map, pristine.type_params,
+                                           resolved_args)
         substitute_ast_types(clone, type_map)
         clone.name = mono_name
         clone.type_params = []
         clone.is_mono_instance = True
         ext.methods.append(clone)
-        saved_errors = len(self.reporter.errors)
-        saved_warnings = len(self.reporter.warnings)
         # design 210 unit 4: in the template's home module scope.
-        with self._home_module_scope(clone, type_map):
-            self._check_method(struct_name, clone, {})
-        del self.reporter.errors[saved_errors:]
-        del self.reporter.warnings[saved_warnings:]
+        # design 218 unit 1.5 stage 2: errors are real.
+        with self._checking_instance(_instance_display(struct_name, method_name,
+                                                       None, resolved_args)):
+            with self._home_module_scope(clone, type_map):
+                self._check_method(struct_name, clone, {})
         return True
 
     # ------------------------------------------------ design 206: the std seam
