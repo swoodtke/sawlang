@@ -323,3 +323,96 @@ per-arch stubs (`boot.S` + `link.ld`), a Blade package, and a case table of
 tiny QEMU-EXECUTED programs, one or more per row of the brief's inventory.
 `tools/sos_runner.py` is UNTOUCHED — the generic half was COPIED, per the
 brief's fork ruling. Units 2-7 remain open and are user-reserved.
+
+
+## Queue + DF records (moved Aug 31, fourth rotation — the 256/257 landing)
+
+- Design 256 — the overload set of a RESOLVED receiver, the DF-280a fix — **LANDED Aug 31** (agent worktree, per-unit gates green: full suite 2303→2310→2312 passed / 6 xfailed + freestanding 33 both arches at each commit). `_receiver_method_overloads` is the funnel — the set off the resolved `struct_info`, filtered by design 142's scope predicate alone, docstring naming its entry points — and `Namespace.lookup_method_overloads` is DELETED with its zero callers, so nothing is left to key an overload set on a spelling. `_check_resolved_static_call` is the static side's own meeting point for all FOUR routes: bare struct, bare enum, qualified struct, and the qualified-ENUM one that did not EXIST (the qualified arm answered variants only, so `mod.Grade.of(seed: 1)` fell through to the instance path and came back as DF-217q's "cannot be called on a value" for a call naming the type). Two codegen halves followed: the module-qualified static dispatch reads the call node's `resolved_type_identity` beside the member access's struct-only `resolved_struct_name`, and the funnel stamps that identity for BOTH resolvers (the overloaded twin never did). The ambiguity face is the one real flip and it is the finding's soundness half — silently took `dup_a`'s method and printed 1, now reports the design-142 error. Filed + fixed DF-283a on the way (enum extension overloads were an ICE, so the enum dimension was untestable). Tests: `overload_set_reaches_qualified_receiver`, `_qualified_static`, `_qualified_enum`, `ext142_two_modules_duplicate_qualified_error`, `enum_extension_overloads`, the `_unnamed_receiver` XFAIL REMOVED, and `ext254_facade_forwards`' DF-280a restriction replaced by the forwarded-overload calls. Docs: spec §"Extension scoping" (the three rules are answered against the TYPE) + the design-150 position list, saw-lang skill (import bullet + the enum-extension bullet); README states neither rule, untouched. **Closes sawos SL-11 upstream; the sawos-side pin bump is USER-OWNED** — brief: designs/256-resolved-receiver-overloads.md
+- Design 257 — const-adoption ladder completeness, the DF-282a/b fix — **LANDED Aug 31** (same worktree as 256, per-unit gates green: full suite 2317 passed / 6 xfailed + freestanding 33 both arches). The ladder IS a funnel and both widenings are one edit each in it, as the brief hoped: `_const_adoption_slot` is the slot predicate (widened from the fixed widths to EVERY integer kind — DF-235a/b's "a platform expectation is what the expression already had" is true of `Int` and false of `UInt`) and `_const_adoption_shape` the leaf/operator one (widened to the LONE raw-backed case, which matched no operator shape and so reached no arm). The range check follows the slot through `_int_range_for`, the `BinaryOp`/`UnaryOp` folded-constant early returns gained a `MemberAccess` twin with its `const_folded_value` annotation and codegen arm, and `_flag_enum_backing` reached the COMPARISON operands so a lone case works in a `static_assert` where a combination always did. The old case (2c) — the platform half of the shift-forward — folded into (2b), which now owns every integer slot. Regressions all proved by test: design 205's runtime-operand refusal, `1 << 63` into `UInt64`, an enum-typed VALUE needing `as`, a runtime comparison against a case. Rows in `examples/coercion/` with the ledger updated (two supplementary bullets, one per axis). **TWO FINDINGS FROM THE CORPUS SWEEP, both entered below: DF-283b (filed + FIXED)** — the funnel folded a FORWARD-referencing static past design 186 unit 7, which the fixed-width slot had done silently since DF-235a/b — **and DF-283c (filed, RULING OPEN for the user)**, the dispatch's one works→refusal: `~(0 as UInt)` now folds signed and is refused as its `UInt32` twin always was, which the brief's §1 ruling covers explicitly but obligation 2 did not predict. One in-tree casualty, `examples/shift_signed_unsigned.saw`, now `UInt.max`. **Closes sawos SL-2/SL-9 upstream; the sawos-side pin bump is USER-OWNED** — brief: designs/257-const-adoption-completeness.md
+- ~~DF-282a — a PLATFORM-WIDTH slot does not adopt a const expression~~ (sawos SL-2, filed upstream Aug 31) **CLOSED Aug 31 by design 257 §1**: the slot predicate takes every integer kind now, so `static M: UInt = (1 << BITS) - 1` folds and range-checks like its `UInt32` twin, at the static, the annotated `let`, the argument, the `return`, the arm and the compound-assign RHS (`examples/coercion/adopt_platform_width_slot_const.saw`, `_range_error.saw`). The sos-side `as UInt` workarounds stay legal and are the user's to remove. Original line, for the record: `static M: UInt = (1 << BITS) - 1` is refused where the `UInt32` twin folds — the DF-235/240 adoption ladder reaches FIXED-WIDTH slots only
+- ~~DF-282b — a LONE raw-backed enum case does not adopt where a COMBINATION does~~ (sawos SL-9, filed upstream Aug 31) **CLOSED Aug 31 by design 257 §2**: the leaf predicate takes a lone case, so `static Y: UInt32 = E.A` is 1 wherever `E.A | E.B` is 3 — including the `static_assert` operand, which needed `_flag_enum_backing` at the comparison arm (`examples/coercion/adopt_lone_enum_case.saw` puts each lone case beside its combination; `_range_error.saw` is the check, `_value_error.saw` the fence). Original line, for the record: `static X: UInt32 = E.A | E.B` folds to 3, `static Y: UInt32 = E.A` is refused naming the enum type — the operator result is typed as the backing, a bare case is not, so adding a second flag REMOVES a cast
+- ~~DF-280a — a receiver reached through a module QUALIFIER loses its method OVERLOAD SET~~ **CLOSED Aug 31 by design 256** (entry below, struck): one identity-keyed funnel behind every entry point, the qualified-enum static route added, `lookup_method_overloads` deleted. All five positions the entry's matrix names have tests — the instance call, `_instance_method_alternative`, the qualified static, the design-142 ambiguity (the silent-wrong-answer face, now an error) and the unbound-name receiver, whose XFAIL pin was removed in the landing. Original line, for the record: so only the first-registered overload is a candidate and a labeled call to any other is ``` `add` has no parameter named `knob` ``` (entry below, filed Aug 30 by design 254's unit-1 tests; PRE-EXISTING and independent of that brief — no `public import` is involved in the repro). Instance and static faces both; the mechanism is a lookup keyed on the receiver's WRITTEN SPELLING where its sibling path reads the resolved symbol, and the design-142 call-site ambiguity rides the same list. **Aug 31: sawos hit the THIRD face in the wild** — a receiver whose type NAME is not bound in the importing file at all (`import dep.{hand}`; the value arrived through the call) loses the set the same way, and the workaround is importing a name the file never writes, DF-247b's phantom-dependency shape. Pinned by `examples/overload_set_reaches_unnamed_receiver.saw` (cited XFAIL; the fix's XPASS flip validates it). User asked whether the fix is a better diagnostic — ruled-by-the-rules NO (lead, Aug 31): the selective import makes the module a DIRECT import and the receiver's inherent API travels with the value, so the program is legal and must resolve; the fix stays the entry's funnel shape
+- ~~DF-283b — the const-adoption funnel folds a FORWARD-REFERENCING static, past design 186 unit 7's refusal~~ **FILED + FIXED Aug 31 (design 257's agent, fix-on-discovery)**: found by the corpus sweep — widening the ladder to platform slots (design 257 §1) broke `examples/errors/static_forward_reference.saw`, and the probe showed the FIXED-WIDTH spelling had the hole all along. `static EARLY: UInt32 = LATER * 2` above `static LATER: Int = 64` COMPILES and prints 128, reading a static "declared after this point" — the exact program design 186 unit 7 exists to refuse, and the refusal is still raised for the platform spelling one line away. MECHANISM (obligation 4): `_const_static_decls` is built WHOLE before registration (it has to be — a length in TYPE position resolves before any symbol exists), and `_const_static_lookup` falls back to it for "a static of this module not registered yet". Inside a static's OWN registration that phrase means the opposite: registration runs in declaration order, so the only names the fallback can answer for are the ones declared BELOW. The fold then succeeded and `_check_binary_op`'s folded-constant early return meant `_check_identifier` — where the diagnostic lives — never ran. Sweep of the fallback's other readers: the type-position length (`_const_length`) and the enum-case-value fold both run BEFORE registration and legitimately need it; `_check_identifier`'s own forward-reference report reads the table directly and is unaffected. Fix: a declaration-order fence around `_register_static`, so the symbol table is the sole authority while a static is being registered. Pinned by the existing `examples/errors/static_forward_reference.saw` (which now also covers the fixed-width slot through the shared mechanism). This line is the record
+- ~~DF-283a — an ENUM extension's OVERLOADED methods are a codegen ICE~~ **FILED + FIXED Aug 31 (design 256's agent, fix-on-discovery)**: found probing the brief's "enums take the same treatment — probe, don't assume" clause, and PRE-EXISTING back to design 145. `enum Tone` with two `note` overloads (or two `of` statics) dies at the DECLARATION with `internal compiler error: Tone_note`, in a single file with no module or qualifier involved — so the enum dimension of design 256 was untestable until it landed. MECHANISM (obligation 4): design 145 gave enums the same `methods`/`method_overloads` tables and `Namespace.method_owner` is written once for both, but `_stamp_overload_symbols` (registration.py) walks `namespace.structs` ALONE, so no enum overload set ever gets its design-55 signature symbols, both members are declared under the plain `E_name` mangling and `_declare_extension_methods` raises `DuplicatedNameError`. Sweep of the same walk's siblings: the free-function half is module-keyed and covers everything; `_stamp_module_private_symbols` is free-functions-only by construction; the design-142 `$M$` module discrimination sits INSIDE the same loop and was equally enum-blind. Fix: the loop walks structs and enums. Tests: `examples/enum_extension_overloads.saw` (instance + static, single file), `examples/overload_set_reaches_qualified_enum.saw` (the design-256 enum row). This line is the record
+
+## ~~DF-280a — a module-QUALIFIED receiver loses its method overload set~~
+## (filed Aug 30 by design 254 unit 1; PRE-EXISTING, and nothing to do with
+## `public import` — the repro is one module and one plain import)
+## **CLOSED Aug 31 by design 256** — the mechanism and the position matrix
+## below are what the fix targeted, row by row; kept verbatim as the record.
+
+MECHANISM (obligation 4). TWO paths answer "which methods does this receiver
+have", and they key on different things. `_scoped_method`
+(`sawc/typechecker/expressions.py:8025`) reads `struct_info.methods` /
+`struct_info.method_overloads` off the SYMBOL the call already resolved;
+`_scoped_method_overloads` (`expressions.py:8039`) re-resolves the set by NAME
+through `Namespace.lookup_method_overloads(struct_name, …)`, where
+`struct_name` is `obj_type.struct_name` — the spelling as WRITTEN. A qualified
+spelling resolves in the first and nowhere in the second (`method_owner` does a
+simple-name `lookup_struct`), so the overload list comes back EMPTY, the
+`len(...) > 1` guard at `expressions.py:10135` is False, and the call collapses
+onto the representative in `methods`, which is whichever overload registered
+first. Every sibling in the set is unreachable.
+
+POSITIONS the mechanism reaches (each probed by direct compile,
+`.build/scratch/p254c/`):
+
+* **the INSTANCE call.** `pc_leaf.Panel(raw: 10)` then
+  `p.add(knob: &k, key: 5)` against `{add(&self, n: Int), add(&self, knob:
+  &Knob, key: Int)}` is ``` `add` has no parameter named `knob` ```;
+  `p.add(n: 4)` (the representative) resolves, and so does the whole set in a
+  file that imports the names bare. One hop or two through a facade makes no
+  difference.
+* **`_instance_method_alternative`** (DF-217q's static-vs-instance
+  disambiguation) asks the same helper, so a qualified receiver whose
+  representative is a static has no instance alternative to find.
+* **the STATIC call.** `pc_stat.Bag.make(from: &a, bump: 3)` is
+  ``` `Bag.make` has no parameter named `from` ```. Different code — the
+  qualified-type route at `expressions.py:9730` — same shape: it takes
+  `struct_info.methods[name]` and never consults an overload set AT ALL. The
+  BARE static route one arm down (`expressions.py:9896`) does resolve
+  overloads, which is exactly why only the qualified spelling is broken.
+* **the design-142 call-site ambiguity** rides that same list, so a qualified
+  receiver silently takes one of two indistinguishable extension methods where
+  the bare receiver reports the ambiguity.
+* **the UNBOUND-NAME receiver** (third face, hit in the wild by sawos Aug 31).
+  `import dep.{hand}` and `let c = hand()`: the value is a `Crate`, both
+  scoping rules put its whole extension surface in scope (the selective form
+  is a direct import; the inherent API travels with the value), but nothing
+  binds the SPELLING `Crate` in the file, so the name-keyed re-resolution
+  misses and `c.make(top: 1)` is ``missing argument for parameter `entry` ``
+  — the two-parameter sibling is the sole candidate. Adding `Crate` to the
+  import braces "fixes" it, which is how the mechanism was confirmed: the
+  fix imported a name the file never writes.
+
+Repro, one module, no facade:
+
+```saw
+// modules/pc_leaf.saw
+public struct Knob { public id: Int }
+public struct Panel { public raw: Int }
+extension Panel {
+    public func add(&self, n: Int) -> Int { self.raw + n }
+    public func add(&self, knob: &Knob, key: Int) -> Int { self.raw + knob.id + key }
+}
+
+// entry
+import modules.pc_leaf
+func main() {
+    let p = pc_leaf.Panel(raw: 10)
+    let k = pc_leaf.Knob(id: 3)
+    print(p.add(n: 4))                 // 14 — the representative
+    print(p.add(knob: &k, key: 5))     // error: `add` has no parameter named `knob`
+}
+```
+
+THE FIX SHAPE: one chokepoint answering "the overloads of this receiver, in
+scope here" off the resolved `struct_info`, with the qualified-static route
+joining it instead of keeping its representative-only lookup. Design 150
+promises a qualifier works in every position a name appears, so this is that
+promise at the method-call position.
+
+Design 254's row-1 test (`examples/ext254_facade_forwards.saw`) calls only
+un-overloaded methods for this reason and says so in its header; the
+forwarded-OVERLOAD dimension is row 8's, over a facade whose names arrive bare
+(`examples/ext254_facade_overload_set.saw`).
