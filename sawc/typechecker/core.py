@@ -855,7 +855,15 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
     #     instances on `hello.saw`).
     # ------------------------------------------------------------------ #
     def _capture_pristine_templates(self, module_ast) -> None:
-        """Snapshot every generic template in `module_ast`, pre-body-check."""
+        """Snapshot every generic template in `module_ast`, pre-body-check.
+
+        THE ONE CAPTURE POINT, and its two ENTRY POINTS (obligation 1 — the
+        block above says why each exists):
+          * `check_module` — the entry file and every user module it imports.
+          * `check` — the whole-program path, which is what STD goes through.
+        A third caller would be a third store, so add one here rather than
+        beside it.
+        """
         # design 70 (A5): pristine (pre-body-check) copies of every generic
         # function template, so a suspending instantiation can be cloned +
         # substituted + re-checked for per-instantiation effect inference.

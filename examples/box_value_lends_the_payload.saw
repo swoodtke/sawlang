@@ -1,0 +1,58 @@
+// `Box<T, A>.value()` LENDS the heap payload where it sits (design 218 unit 1.5
+// stage 3c, on the Sep-1 ruling). It was `T: ExplicitCopy` + a body spelling
+// `self.ptr[0].copy()`, which is sound only for a payload that HAS a `copy()` —
+// and the bound did not fence the ERASED box, so the compiler's own
+// `Box<any Error>` reached it and asked an existential for a method its trait
+// does not declare. A place needs no bound: nothing is duplicated, so nothing
+// has to be duplicable.
+//
+// Both faces are here. The COPY TIER is unchanged — a value read out of the
+// place retains, so every call site that already read a `Box<Int>` or a
+// `Box<String>` reads it the same way (`box_basic.saw`, `box_string.saw` are the
+// standing regressions). The MOVE-ONLY payload, which used to have no `value()`
+// at all, now has the place surface: borrow through it, write through it, and a
+// value read out of it is the ordinary place-read refusal
+// (`errors/box_value_move_only_read.saw`).
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// hello
+// r
+// 1
+// 6
+// gone r
+
+struct Res {
+    name: String,
+    hits: Int
+}
+
+extension Res: NoCopy {
+    func deinit(&var self) { print("gone {self.name}") }
+}
+
+extension Res {
+    func label(&self) -> String { self.name }
+    func bump(&var self) { self.hits = self.hits + 1 }
+}
+
+func main() {
+    // The Copy tier: a value read out of the place retains, exactly as before.
+    let n = try! Box<Int>.make(42)
+    let read: Int = n.value()
+    print(read)
+
+    let s = try! Box<String>.make("hello")
+    let text: String = s.value()
+    print(text)
+
+    // Move-only: reached THROUGH the window, never taken out.
+    var b = try! Box<Res>.make(Res(name: "r", hits: 0))
+    print(b.value().label())      // a `&self` method through a shared window
+    b.value().bump()              // a `&var self` method: exclusive window
+    print("{b.value().hits}")     // 1 — a field read through the window
+    b.value().hits += 5           // a compound write, in the box's own heap
+    print("{b.value().hits}")     // 6
+    // b dies here: the payload's own deinit runs once, then the chunk is freed.
+}

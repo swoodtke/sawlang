@@ -4343,6 +4343,20 @@ let boxed = try! Box<Int>.make(42)
 print(boxed.value())          // 42
 ```
 
+`value()` is a `borrows` accessor: it lends the heap payload where it sits, so
+the use site decides what the window is for. Reading the place out as a value
+follows the payload's copy tier (bitwise for a trivial payload, a retain for a
+`String`), and a move-only payload is reached through the window instead:
+
+```saw
+var b = try! Box<Res>.make(Res(name: "r", hits: 0))
+print(b.value().label())      // borrows the payload for the call
+b.value().hits += 5           // writes it in the box's own allocation
+let taken = b.value()
+// error: `b.value(…)` lends a place of type `Res`, which is move-only —
+//        reading it out as a value would alias storage the container still owns
+```
+
 ### Synchronized Access
 
 **Status: `Mutex<T>` implemented (hosted); `RwLock` planned.** `Mutex<T>` is

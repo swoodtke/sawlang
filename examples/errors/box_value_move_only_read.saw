@@ -1,0 +1,21 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: lends a place of type `Res`, which is move-only
+//
+// The second face of design 218 unit 1.5 stage 3c's `Box.value` flip (the first
+// is `examples/box_value_lends_the_payload.saw`). `value()` is a `borrows`
+// accessor, so it EXISTS at every payload type — including a move-only one,
+// which the old `T: ExplicitCopy` bound simply hid. Taking the lent place out as
+// a VALUE is then the ordinary place-read refusal, naming the way through the
+// window; what it replaces is an unsound `.copy()` the payload does not have.
+
+struct Res {
+    name: String
+}
+
+extension Res: NoCopy {}
+
+func main() {
+    let b = try! Box<Res>.make(Res(name: "r"))
+    let taken = b.value()
+    print(taken.name)
+}

@@ -3591,6 +3591,15 @@ construct in the owner and lend `&driver` down.
   `String.substring(s, e)` ALL PANIC out of range — no silent no-op
   (`set`/`swap` used to be) and no clamp (`substring` used to be). An empty
   `substring(i, i)` is still legal; a REVERSED range panics.
+  **`Box<T, A>.value()` IS ONE TOO** (design 218 unit 1.5 stage 3c): it lends the
+  heap payload where it sits, at EVERY payload type. `b.value().method()`
+  borrows it, `b.value().n += 1` writes it in the box's own allocation, and a
+  value read follows the copy tier — a `Box<Int>`/`Box<String>` reads out
+  exactly as before, a move-only payload gets the place-read refusal naming the
+  window. It used to be bounded `T: ExplicitCopy` with a body spelling
+  `.copy()`, so a move-only payload had NO `value()` at all and the erased
+  `Box<any Error>` asked an existential for a method its trait does not declare
+  — so distrust both shapes in an older build.
 - **RENDERING or COMPARING a place is a BORROW, not a read** (DF-218i,
   DF-248d). Both positions hand the element to a `&self` callee and keep
   nothing — `format(&self, into:)` for one, `equals`/`compare`'s `other: &Self`

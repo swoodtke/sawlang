@@ -63,16 +63,25 @@ extension Box<T, A: Allocator = GlobalAllocator>: NoCopy {
     }
 }
 
-// Read accessor for a duplicable payload (design 42 item 1). Bounded
-// `T: ExplicitCopy`: the body SPELLS `.copy()`, and that bound is the one that
-// licenses the spelling (design 219). It admits the whole duplicable family —
-// bitwise for a trivial T, a retain for a `String`, the type's own `copy()` for
-// a `Vector` — and hands back a copy, leaving the box's own `T` intact. A
-// move-only payload has no `.copy()`, so `value()` is simply unavailable there;
-// reach such a payload through method forwarding (below) instead.
-extension Box<T: ExplicitCopy, A: Allocator = GlobalAllocator> {
-    public func value(&self) unsafe -> T {
-        self.ptr[0].copy()
+// Read accessor for the payload (design 42 item 1), as a PLACE (design 141/146).
+//
+// It LENDS the heap `T` where it sits rather than handing back a duplicate, so
+// there is no bound to owe and no payload it cannot serve. The USE SITE decides
+// what the window is for: `b.value().method()` borrows it, `b.value().n += 1`
+// writes it in the box's own allocation, and reading the place OUT as a value
+// follows the payload's copy tier — bitwise for a trivial `T`, a retain for a
+// `String`, and the ordinary place-read refusal (naming `move`/`.copy()`) for an
+// `ExplicitCopy`/`NoCopy` payload.
+//
+// It was `T: ExplicitCopy` + a body spelling `.copy()` until design 218 unit 1.5
+// stage 3c. That body is only sound for a payload that HAS a `copy()`, and the
+// bound did not fence the erased box: `Box<any Error>` — which the compiler's own
+// erased-error channel builds — reached it and the substituted body asked an
+// existential for a method its trait does not declare. Lending the storage is the
+// answer the surface wanted all along; nothing copies, so nothing has to.
+extension Box<T, A: Allocator = GlobalAllocator> {
+    public func value(&self) unsafe borrows -> T {
+        lend self.ptr[0]
     }
 }
 
