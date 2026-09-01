@@ -737,3 +737,63 @@ materialized eagerly, the post-copier cost). The result selects the path:
 The 3b landing note RECORDS the number and names the branch it selects; the
 lead confirms the branch before 3c dispatches. Nothing else in this amendment
 is conditional — A1, A2(a), A3 and 3a/3b proceed as written either way.
+
+### A5(b) OUTCOME — measured Sep 1, then USER-OVERRIDDEN the same day
+
+The instrument answered OVER the envelope: full-suite compile median +18.8%
+(330.8 → 393.0 s), bootstrap +16.8% (232.9 → 272.0 s), RSS nowhere close to
+its +25%. By A5(b)'s own rule that selected lazy. **THE USER OVERRODE IT
+(Sep 1): splice-all anyway.** The ruling, in the user's frame: an 18%
+slowdown is acceptable now; it gets recovered later by TARGETED performance
+work and/or the self-hosted compiler rewrite's own gains. What the override
+buys is exactly A2(b)'s cell never shipping — every registered instance is
+materialized and instance-checked in every build, `-c` and `-o` report
+identically, and checking aligns with EXISTENCE, the strictest reading and
+the one the never-hide-errors doctrine prefers. Consequences, all binding
+on 3c:
+
+- **The eager set is EVERYTHING.** Phase 2 splices every registered
+  instance; the demand-time materialization funnel of A2(b) is NOT built;
+  codegen's lookups hit already-spliced bodies, ICE-on-miss unchanged.
+- **`SAWC_MONO_MATERIALIZE` is not built** — the default IS materialize-all,
+  so A5(a)'s switch has nothing to switch. What survives of A5(a) is the
+  PIN: an examples/ test asserting that a diagnostic living in a
+  demanded-but-never-emitted instance's body fires in an `-o` build.
+- **The §5 envelope is RE-BASED at 3c, not waived silently**: 3c's gate
+  measurement compares against 3b's measured splice-all numbers (+18.8% /
+  +16.8%), as a regression guard on 3c's own work — the +10% envelope is
+  SUPERSEDED by this ruling for this landing, and a 3c result materially
+  worse than the accepted figures still pauses for the lead.
+- **Lazy materialization remains the recorded future perf remedy** — the
+  registry-and-funnel architecture supports it unchanged, and taking it
+  later would put A2(b)'s semantic cell back on the user's desk; it is not
+  authorized by this ruling. §5 remedies 2/3 and the design-168 narrowing
+  stay unauthorized too.
+- **A3's residue is now a HARD 3c blocker in full**: under splice-all every
+  compile checks all 30 type-closure instances, so every residue must be
+  resolved — fixed, or a named §1c per-rule skip — before 3c can be green
+  on `hello.saw`.
+
+### A3 OUTCOME (Sep 1) — the hypothesis failed; the ruling on the real catch
+
+3a's re-probe answered 30/30 IDENTICAL diagnostics before and after the
+scope fix — A1's hypothesis is NOT confirmed; the residues are artifacts of
+re-checking substituted/lowered std bodies, not of the missing scope. (Six
+additional diagnostics present at filing time were FALSE, produced by
+DF-286a's inflated registry, and died with its fix.) Triage per stage 2's
+rule:
+
+- **The `Box<any Trait>.value` family (6) is a REAL CATCH, and the fix is
+  USER-RULED (Sep 1): `value` BORROWS.** The method returns the payload by
+  value and an existential has no `copy`, so the body is only sound for a
+  copyable payload — the check is right and std's API is the defect. It
+  becomes a `borrows` accessor (lend the payload where it sits); Copy-tier
+  call sites keep working (a place value-read retains), move-only payloads
+  get the place surface instead of an unsound copy. Lands as 3c's FIRST
+  unit with obligation 2's consumer sweep (who calls `.value`, both
+  profiles) — a behavioral by-value→place flip on a std surface.
+- **The remaining 24 (three families: tier tests on substituted clones,
+  transfer checks on lowered bodies, one window-closure re-inference)** go
+  to §1c's named per-rule skip list with LEAD sign-off, per stage 2's rule
+  — the lead validates each rule is genuinely an artifact-of-recheck class
+  before signing, at 3c dispatch.
