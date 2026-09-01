@@ -105,7 +105,118 @@ is scheduled and in what order is the whole of what they say.
 - DF-276c — a VALUE `if`/`match` whose arms are bare literals does not adopt the width of the operand it sits BESIDE (entry below, same filer; PRE-EXISTING). `wide + (if up { 1 } else { 0 })` on a `UInt64` is ``operator `+` requires both operands to have the same type … the right is `Int` ``, while `wide + 1` and `wide + (1 + 1)` both adopt (the second is DF-243a's fix). Probed siblings all WORK — an argument, an annotated `let`, a `return`, a compound-assign RHS — so the gap is exactly DF-243a's position with a branch construct in it rather than a const expression
 - DF-280b — a collision with a PRELUDE type name is recorded and then not REPORTED at the construction site, so `import mine.{Duration}` fails with ``no matching initializer for `Duration` with parameters: tag`` instead of naming the collision (filed Aug 30 by design 255 unit 0's sweep; PRE-EXISTING). The prelude tier is reserved in both directions — a local declaration is "defined multiple times" (conformance B12) and an import is refused too — so nothing that compiled stopped compiling; what is missing is the SENTENCE. `ambiguous_types` holds the entry and `_report_type_ambiguity` is only reached from `get_struct_info`/`get_enum_info`, which the struct-init path does not go through. Now that both sides carry real labels the report would read ``ambiguous struct `Duration`: defined in both `std.duration (prelude)` and `modules.mine` ``, which is the whole fix. Pinned by `examples/shadow255_prelude_name_reserved_error.saw`, which asserts only the refusal. No entry below, this line is the record
 - DF-283c — a const expression whose operands are ALREADY unsigned-typed still folds in the SIGNED platform-`Int` domain, so `~(0 as UInt)` is refused (filed Aug 31 by design 257's corpus sweep; the FIXED-WIDTH twin `~(0 as UInt32)` has behaved this way since DF-235a/b and is PRE-EXISTING). Design 257 §1 put platform slots on the adoption ladder, and the brief's ruling covers the outcome explicitly ("a negative fold into a `UInt` is the same clean `does not fit`"), so the refusal is INTENDED and landed — but it is the dispatch's one works→refusal, against obligation 2's expectation that the pair was refusal→works throughout. The in-tree casualty was `examples/shift_signed_unsigned.saw`'s all-ones `UInt`, now `UInt.max` with the reason in its header; nothing else in the corpus, blade, libs or the freestanding suite used the shape. THE OPEN QUESTION, for the user: an expression whose operand carries an explicit unsigned type has said what domain it means, and folding it signed reads past that. Either the fold honours the operand's own signedness (a design-185 amendment) or the language keeps one domain and `UInt.max` / a written mask is the spelling — the second is the status quo at every fixed width, which is why it is what landed. This line is the record
+- DF-284b — `{ ... }()`, the spelling BOTH the spec and the diagnostic name as the fix, does not exist (entry below, filed Aug 31 by design 218 unit 1.5's agent while repairing DF-284a; PRE-EXISTING and never once tested — no `examples/` file contains the form). The postfix call is never applied to a closure literal in ANY position: statement position is the bogus refusal whose own hint names it, argument position is a parse error, and `let x = { 1 }()` SILENTLY binds the closure and drops the `()`. Not this unit's to fix (it is a parser question with a trailing-closure interaction); corodiff's `nested_block_tail` wrapper, which was written around the form and had therefore never compiled, moved to a nested `if true` scope
+- ~~DF-284a — the corodiff PRELUDE stopped compiling, so all 2408 pairs refused on both twins and the lane scored them CLEAN~~ **FILED + FIXED Aug 31 (design 218 unit 1.5's agent, stage 0, fix-on-discovery)**: design 234's fallible `Arc(value:)` left the harness's `mk_tag`/`mk_tag_s`/`derive_tag` building a `Tag` out of a `Result<Arc<Res>, AllocError>`, so EVERY generated program refused identically and check 2 exempts exactly that. `corodiff --quick` was green in the battery while testing nothing. MECHANISM (obligation 4): the corpus is GENERATED, so nothing else in the tree ever compiles the shared declarations, and the one oracle that could notice ("both twins refuse") is the one deliberately turned off. Not one-off — it is the SECOND time (commit 2e62f55d, "the corodiff harness survives the rename (its lane had gone dead)", design 219 wave B), and the sibling harnesses do not admit it: sawfuzz mutates the tracked `examples/` corpus, which the suite gates, and irdet compiles that same corpus, so only corodiff owns a corpus nothing else compiles. FIX, both halves in the same commit: `try!` on the three `Arc<Res>(value:)` sites, and a COMPILE FLOOR — `check_prelude` compiles `PRELUDE + func main() { }` before any combo is judged and fails the run outright with the compiler's own output, which is the assertion the refusal exemption was missing. Baselined by the stage-0 `corodiff --all`; this line is the record
 
+
+## DF-284b — the immediately-invoked closure `{ ... }()` does not parse, in any
+## position (filed Aug 31 by design 218 unit 1.5's agent, stage 0; PRE-EXISTING,
+## and never covered — `grep '}()' examples/` comes back empty)
+
+Three faces, one mechanism, and the middle one is the loudest:
+
+```saw
+{ print("hi") }()          // error: closure literal is never called: `{ ... }`
+                           //   in statement position ... builds a closure and
+                           //   discards it — hint: call it — `{ ... }()`
+print({ 2 }())             // Parse error: Expected RPAREN, got LPAREN
+let x = { 1 }()            // SILENT: binds the CLOSURE; the `()` is dropped
+```
+
+The statement-position diagnostic (design 122 unit D, typechecker/statements.py
+`visit_ExpressionStatement`) fires on `isinstance(stmt.expression, ClosureExpr)`
+and its fixit names `{ ... }()` — which is refused by the same rule, because the
+parser never built a call node. LANGUAGE_SPEC says the same thing in the same
+words ("that is a compile error naming the two real spellings (call it,
+`{ ... }()`, or bind it)").
+
+MECHANISM (obligation 4): the postfix loop is not applied to a closure literal
+`parse_primary` returns (parser/expressions.py, the `LBRACE` arm) — so every
+postfix operator is lost after a `{ ... }`, not just the call. The positions the
+mechanism reaches are therefore all of them, and the three probes above are the
+three distinct OUTCOMES (refusal / parse error / silent drop) rather than three
+separate bugs. The `let` face is the one that hides: it type-checks, binds a
+`() escaping -> Int` and only surfaces at whatever the value is used for.
+
+NOT FIXED HERE. The repair is a parser change with a real interaction to settle
+— a statement-initial `{` versus the trailing-closure rule, and the design-129
+newline significance of `}` followed by `(` — so it is a ruling, not a patch.
+The only in-tree consumer was corodiff's `nested_block_tail` wrapper, which had
+consequently never compiled a single pair; it now uses a nested `if true` scope,
+which is what that row was measuring anyway. Either the form is made to work or
+the two documents stop offering it; the status quo promises a spelling the
+language does not have. [122, 129]
+
+## DF-258a — a NESTED call to an unconditionally-suspending GENERIC silently
+## loses its yield (filed Aug 25 by the 218c spec's probes P3/P3b; PRE-EXISTING
+## — pinned at 218 unit 1.5 stage 0, flips at stage 4)
+
+```saw
+func hop<T>(x: T) -> T { yield_now()  x }
+func nested(tag: String) -> Int {
+    var i = 0
+    while i < 2 { let v = hop<Int>(i)  print("{tag} {v}")  i = i + 1 }
+    0
+}
+// two of these spawned into one TaskGroup print `A 0 / A 1 / B 0 / B 1`
+```
+
+Both tasks run to completion in turn instead of interleaving: the cooperative
+contract is dropped, silently, with no diagnostic. The direct-`yield_now()`
+twin interleaves, so the scheduler is not the variable. The emitted
+`hop$1$Int` is `ret i64 %x` — the yield is not merely unobserved, it is gone.
+
+MECHANISM: 218b's landing note (c), which found the hole while proving
+consumption symmetry sound. Promotion DECLINES for a template that suspends
+unconditionally WITHOUT calling a type-parameter method — such a template is
+not `poly_candidate`, so no per-instantiation effect node is built and the
+coroutine transform has nothing to classify — and codegen's late
+monomorphization is then what serves the call. Codegen has no frame machinery,
+so it emits the body as a plain function. The documented behaviour promises a
+refusal at worst ("suspending calls embed at any nesting depth … or error
+cleanly — never silently block"), and LANGUAGE_SPEC + the saw-lang skill both
+still carry the sentence that calls this shape a clean error.
+
+Pinned by `examples/coro_nested_generic_call_parks.saw` (cited XFAIL, the
+interleaving oracle) and carried as a corodiff axis value
+(`nested_generic_susp`), which is the ownership half the parity oracle can see.
+
+CLOSES AT 218 unit 1.5 stage 4, structurally: phase 2 splices the instantiation
+as an ordinary concrete function whose own effect node says it suspends, so the
+transform's classifier sees an ordinary concrete suspending callee and embeds a
+sub-frame — and the path that produced this ("codegen instantiates a suspending
+body late, outside the transform") is unrepresentable once codegen can only look
+instances up. [218c §6a]
+
+## DF-258b — unbounded RECURSIVE INSTANTIATION has no diagnostic (filed Aug 25
+## by the 218c spec's probe P4; PRE-EXISTING, fuzz-oracle class)
+
+```saw
+struct Wrap<T> { inner: T }
+func deepen<T>(x: T, n: Int) -> Int {
+    if n <= 0 { return 0 }
+    deepen(Wrap<T>(inner: x), n - 1)
+}
+```
+
+A template that demands ITSELF at a grown argument makes the instance set
+infinite. At filing the compiler produced no output in 120 s and was killed;
+re-probed Aug 31 it now dies as `internal compiler error … maximum recursion
+depth exceeded` at the recursive call, which is Python's own limit arriving
+first — an ICE rather than a hang, and the same finding either way. No corpus
+pin is legal for a hang, so the refusal test ships WITH the fix.
+
+MECHANISM: `_instantiate_generic_function` recurses through
+`_generate_function_call`, building `deepen$1$Wrap$1$…` forever. Nothing counts
+depth, because nothing decides the instance set as a whole — codegen discovers
+instances lazily and one at a time, so there is no place a chain length exists
+to be bounded.
+
+CLOSES AT 218 unit 1.5 stage 1: the demand fixpoint records `depth = demander's
+depth + 1` (roots at 0) and refuses past 64 per CHAIN with a clean error at the
+DEMANDING call site naming the elided chain. Per-chain, so wide-but-shallow
+programs are untouched, and it refuses only what today cannot finish.
+[218c §1d, §6b]
 
 ## DF-276a..c — filed Aug 28 by design 253 (the Float↔text build); all three
 ## PRE-EXISTING and probe-verified by direct compile/run

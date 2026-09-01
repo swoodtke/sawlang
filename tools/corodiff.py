@@ -10,6 +10,18 @@ the twins is a coroutine-transform bug, and no model of what the program
 exists: the DF-217 family are ownership bugs in generated code, and generated
 code is exactly what no reader reviews.
 
+THE COMPILE FLOOR runs FIRST, ahead of every combo: the shared PRELUDE must
+compile on its own, or the run fails outright (`check_prelude`). Check 2 below
+exempts a pair whose twins refuse identically, which is right for a shape the
+language refuses and blind to a prelude that has gone stale — and since the
+corpus is GENERATED, nothing else in the tree ever compiles these declarations.
+That blind spot took the whole lane down twice while the battery stayed green
+(design 219 wave B's rename; design 234's fallible `Arc(value:)`, DF-284a).
+THE DEAD-CONTEXT CHECK runs LAST and is the same assertion one level down: a
+context every one of whose pairs refused on both twins is a wrapper that stopped
+compiling, and it fails the run too. The floor cannot see one, because the
+prelude is fine; two contexts were in that state when the check was written.
+
 FOUR CHECKS, in the order they are applied:
 
   1. A traceback, an `internal compiler error`, a compile hang or a run hang is
@@ -138,12 +150,12 @@ func mk_bag_s(id: Int) -> Bag {
 }
 func mk_tag(id: Int) -> Tag {
     print("NEW t{id}")
-    Tag(cell: Arc<Res>(value: Res(name: "t{id}")))
+    Tag(cell: try! Arc<Res>(value: Res(name: "t{id}")))
 }
 func mk_tag_s(id: Int) -> Tag {
     yield_now()
     print("NEW t{id}")
-    Tag(cell: Arc<Res>(value: Res(name: "t{id}")))
+    Tag(cell: try! Arc<Res>(value: Res(name: "t{id}")))
 }
 func mk_vec(id: Int) -> Vector<Int> { [id, id + 1] }
 func mk_vec_s(id: Int) -> Vector<Int> {
@@ -176,7 +188,7 @@ func derive_triv(x: Int) -> Int { x + 1000 }
 func derive_bag(x: Bag) -> Bag { Bag(s: "d{x.s}") }
 func derive_tag(x: Tag) -> Tag {
     print("NEW d{x.cell.label()}")
-    Tag(cell: Arc<Res>(value: Res(name: "d{x.cell.label()}")))
+    Tag(cell: try! Arc<Res>(value: Res(name: "d{x.cell.label()}")))
 }
 func derive_vec(x: Vector<Int>) -> Vector<Int> { move x }
 func derive_res(x: Res) -> Res {
@@ -198,6 +210,19 @@ struct Holder {
 }
 
 func run_int(body: () sync -> Int) -> Int { body() }
+
+// The NESTED-GENERIC pair (design 218c stage 0, DF-258a). `ghop_s` suspends
+// UNCONDITIONALLY and calls no method on its type parameter, so its
+// instantiation gets no effect node and the coroutine transform DECLINES to
+// promote it (218b landing note (c)) — codegen's late monomorphization is what
+// serves the call, and it compiles the body as a plain function with the yield
+// erased. `ghop` is the sync sibling `desuspend` rewrites to, so the control
+// twin carries the same value flow through the same generic.
+func ghop<T>(x: T) -> T { x }
+func ghop_s<T>(x: T) -> T {
+    yield_now()
+    x
+}
 '''
 
 
@@ -724,10 +749,20 @@ def w_taskgroup_spawn(body):
 
 
 def w_nested_block_tail(body):
+    """The body in a nested SCOPE that closes before the marker prints.
+
+    Written as an inner `if true { ... }` rather than the immediately-invoked
+    closure `{ ... }()` it used to be: that spelling does not parse (DF-284b —
+    the postfix call is never applied to a closure literal, in any position),
+    so every one of this context's pairs refused on both twins and check 2
+    scored them clean. The closure DIMENSION is `closure_from_driven`'s; what
+    this row measures is scope-end release timing at a nested scope, which the
+    inner `if` gives with nothing else in the way.
+    """
     return (
         "func main() {\n"
         "    if true {\n"
-        "        {\n" + _indent(body, 12) + "\n        }()\n"
+        "        if true {\n" + _indent(body, 12) + "\n        }\n"
         f"        {CLOSED}\n"
         "    }\n"
         "}\n"
@@ -893,9 +928,14 @@ def w_group_teardown(body):
 
 
 def w_mt_spawn(body):
+    # `TaskGroup(threads:)` allocates, so design 234 made it a fallible `init`
+    # returning `Result<TaskGroup, AllocError>`; the bare spelling stopped
+    # compiling and took every pair of this context with it (DF-284a's family,
+    # at a WRAPPER rather than the prelude — which is what the dead-context
+    # check below exists for).
     return _worker(body) + (
         "\nfunc main() {\n"
-        "    var g = TaskGroup(threads: 2)\n"
+        "    var g = try! TaskGroup(threads: 2)\n"
         "    let h1 = g.spawn(worker())\n"
         "    let h2 = g.spawn(worker())\n"
         '    print("joined {h1.join()} {h2.join()}")\n'
@@ -941,6 +981,40 @@ def w_generic_ambient(body):
         '    print("returned {gworker(mk_res(9))}")\n'
         "}\n"
     )
+
+
+def w_nested_generic_susp(body):
+    """A CONCRETE driven root whose suspension travels through a nested call to
+    an unconditionally-suspending GENERIC (DF-258a's shape).
+
+    The other two generic contexts drive a generic ROOT; this one drives a plain
+    one and puts the generic UNDER it, which is the position 218b's landing note
+    (c) recorded as the hole in consumption symmetry: promotion declines for a
+    template that suspends without calling a type-parameter method, so codegen's
+    late monomorphization compiles the instantiation and the cooperative
+    contract is dropped on the floor. The parity oracle does not see the missing
+    park (the values still flow), and that is the point of the row: design 218
+    unit 1.5 moves this instantiation onto the ordinary concrete path, and the
+    ownership behaviour on either side of that move must be identical.
+    """
+    return _worker(body) + (
+        "\nfunc main() {\n"
+        "    var g = TaskGroup()\n"
+        "    let h = g.spawn(worker())\n"
+        '    print("joined {h.join()}")\n'
+        "}\n"
+    )
+
+
+def nested_generic_hop(lines):
+    """Prefix the body with the nested suspending-generic call.
+
+    In the BODY rather than the wrapper, so `desuspend` rewrites it for the
+    control twin — the twins must differ in exactly one thing, the suspension,
+    and a wrapper is shared verbatim by both.
+    """
+    return ['let hopped = ghop_s<Int>(1)',
+            'print("hop {hopped}")'] + list(lines)
 
 
 def observe_cancel(lines):
@@ -1047,6 +1121,13 @@ CONTEXTS = [
             note="the same generic driven function reached through the "
                  "AMBIENT entry executor instead of spawn — the other of the "
                  "two ways a generic frame gets driven"),
+    Context("nested_generic_susp", w_nested_generic_susp,
+            oracle_class="generic", void_return="return 0",
+            body_transform=nested_generic_hop,
+            note="a CONCRETE driven root calling a nested unconditionally-"
+                 "suspending generic (DF-258a) — the instantiation the "
+                 "transform declines to promote and codegen builds late, "
+                 "which design 218 unit 1.5 moves onto the ordinary path"),
 ]
 
 CONTEXT_BY_NAME = {c.name: c for c in CONTEXTS}
@@ -1057,6 +1138,10 @@ CONTEXT_BY_NAME = {c.name: c for c in CONTEXTS}
 # ---------------------------------------------------------------------------
 
 SUSP_CALL_RE = re.compile(r"\bmk_(triv|bag|tag|vec|res)_s\(")
+# The generic hop's twin rewrite. Separate from `SUSP_CALL_RE` because the call
+# carries an explicit type argument (`ghop_s<Int>(`), so the `_s` is not
+# followed by the open paren the maker pattern anchors on.
+GHOP_CALL_RE = re.compile(r"\bghop_s<")
 
 
 def desuspend(lines):
@@ -1071,7 +1156,8 @@ def desuspend(lines):
     for line in lines:
         if line.strip() == "yield_now()":
             continue
-        out.append(SUSP_CALL_RE.sub(lambda m: f"mk_{m.group(1)}(", line))
+        line = SUSP_CALL_RE.sub(lambda m: f"mk_{m.group(1)}(", line)
+        out.append(GHOP_CALL_RE.sub("ghop<", line))
     return out
 
 
@@ -1610,6 +1696,39 @@ def report_text(finding, combo, driven, control, driven_src, control_src,
     return "\n".join(parts) + "\n"
 
 
+def check_prelude(runner, work_dir):
+    """THE COMPILE FLOOR: the shared prelude must compile, on its own.
+
+    Check 2 exempts a pair whose twins refuse IDENTICALLY, because a shape the
+    language refuses is not a transform bug. That exemption cannot tell "the
+    language refuses this shape" from "the harness's own declarations stopped
+    compiling", and the corpus is GENERATED, so nothing else in the tree ever
+    compiles these lines — a prelude that goes stale takes the whole lane down
+    and scores it clean. It has happened TWICE: design 219 wave B's rename
+    (found by hand), and design 234's fallible `Arc(value:)`, which left every
+    one of the 2408 combos refusing on both twins with the battery green
+    (DF-284a). This is the assertion the exemption was missing: it fails the
+    run, loudly, before a single combo is judged.
+
+    Deliberately the PRELUDE alone — a body error belongs to its combo and is
+    the instrument working. Type errors in the prelude's own bodies fire
+    whether or not anything calls them, so an empty `main` is enough.
+    """
+    os.makedirs(work_dir, exist_ok=True)
+    path = os.path.join(work_dir, "prelude_floor.saw")
+    binary = os.path.join(work_dir, "prelude_floor")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(PRELUDE + "\nfunc main() { }\n")
+    proc = runner.start_compile(path, binary)
+    rc, out, _err, timed_out = runner.reap(
+        proc, time.monotonic() + runner.compile_timeout)
+    if timed_out:
+        return False, "the prelude compile TIMED OUT"
+    if rc != 0:
+        return False, out
+    return True, ""
+
+
 def run(args):
     combos, pruned_by_axes = all_combos()
     if args.filter:
@@ -1622,12 +1741,30 @@ def run(args):
 
     runner = Runner(sys.executable, args.sawc, args.compile_timeout,
                     args.run_timeout)
+    ok, why = check_prelude(runner, WORK_DIR)
+    if not ok:
+        print("corodiff: THE PRELUDE DOES NOT COMPILE — every generated pair "
+              "would refuse on both twins and be scored clean. Repair the "
+              "shared declarations before reading anything else.",
+              file=sys.stderr)
+        print(why, file=sys.stderr)
+        return 2
     known = {} if args.ignore_known else load_known(args.known)
     known_hits = {}
     seen_signatures = {}
     prune_reasons = {}
     counters = dict(pairs=0, pruned=0, compiled_ok=0, refused=0,
                     both_refused=0, matched=0)
+    # THE DEAD-CONTEXT CHECK, the compile floor's per-context half. `pairs` and
+    # `both_refused` per context name: a context every one of whose pairs
+    # refused on BOTH twins is testing nothing, and check 2's identical-refusal
+    # exemption scores it clean. This is the prelude floor's blind spot moved
+    # one level down — a WRAPPER that stops compiling takes only its own rows,
+    # so the floor cannot see it — and it is not hypothetical: design 234's
+    # fallible `TaskGroup(threads:)` killed `mt_spawn`, and `nested_block_tail`
+    # was written around `{ ... }()`, a spelling that has never parsed
+    # (DF-284b). Both were found by reading run summaries by hand.
+    per_context = {}
     new_findings = 0
     started = time.monotonic()
 
@@ -1649,10 +1786,13 @@ def run(args):
             prune_reasons[result] = prune_reasons.get(result, 0) + 1
             continue
         counters["pairs"] += 1
+        seen_ctx = per_context.setdefault(combo.context, [0, 0])
+        seen_ctx[0] += 1
         if driven.compiled and control.compiled:
             counters["compiled_ok"] += 1
         elif not driven.compiled and not control.compiled:
             counters["both_refused"] += 1
+            seen_ctx[1] += 1
         else:
             counters["refused"] += 1
         if not result:
@@ -1711,6 +1851,18 @@ def run(args):
           f"{counters['pruned']} pruned, "
           f"{sum(len(v) for v in known_hits.values())} known hit(s), "
           f"{new_findings} NEW finding(s)")
+    dead = sorted(name for name, (ran, refused) in per_context.items()
+                  if ran and ran == refused)
+    if dead:
+        print("\ncorodiff: DEAD CONTEXT(S) — every pair refused on BOTH twins, "
+              "so these rows\ntest nothing and check 2 scored them clean. "
+              "Repair the wrapper:", file=sys.stderr)
+        for name in dead:
+            print(f"  {name}  ({per_context[name][0]} pair(s), all refused)",
+                  file=sys.stderr)
+        print("  replay one to see the compiler's own words: "
+              "corodiff.py --replay <tag>", file=sys.stderr)
+
     if seen_signatures:
         print(f"\nWritten to {os.path.relpath(args.findings, REPO)}:")
         for sig, info in seen_signatures.items():
@@ -1719,7 +1871,7 @@ def run(args):
               "behavior name,\nXFAIL it citing the DF, and add the signature "
               "to tools/corodiff_known.txt.")
         return 1
-    return 0
+    return 1 if dead else 0
 
 
 def replay(args):

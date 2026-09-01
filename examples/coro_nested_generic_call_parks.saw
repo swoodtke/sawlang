@@ -1,0 +1,58 @@
+// A NESTED call to an unconditionally-suspending GENERIC must actually PARK.
+//
+// `hop<T>` suspends unconditionally and calls no method on its type parameter,
+// so its instantiation gets no per-instantiation effect node — and design
+// 218b's landing note (c) records what follows: the coroutine transform
+// DECLINES to promote it to a concrete spliced callee, and codegen's late
+// monomorphization is what serves the call. Codegen has no frame machinery, so
+// it compiles `hop$1$Int` as a plain function and the `yield_now()` inside it
+// EVAPORATES — the emitted body is `ret i64 %x`.
+//
+// Nothing says so. The program compiles, prints the right numbers and never
+// cedes, which contradicts the documented promise that suspending calls "embed
+// at any nesting depth ... or error cleanly — never silently block".
+//
+// The oracle is INTERLEAVING, because that is the whole of what is lost. Two
+// tasks in a single-threaded group take turns at every real suspension
+// (deterministic by design), so a task whose only suspension was erased runs to
+// completion before its sibling starts: today this prints `A 0 / A 1 / B 0 /
+// B 1`. Write the same body with `yield_now()` DIRECTLY in it and the twin
+// interleaves, which is what makes the expectation below a statement about the
+// nested generic rather than about the scheduler.
+//
+// XFAIL: DF-258a — the nested unconditionally-suspending generic's yield is
+// erased by codegen's late monomorphization. Design 218 unit 1.5 stage 4 flips
+// it: phase 2 splices the instantiation as an ordinary concrete function whose
+// own effect node says it suspends, and codegen can no longer instantiate
+// anything.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// A 0
+// B 0
+// A 1
+// B 1
+
+import std.task.*
+
+func hop<T>(x: T) -> T {
+    yield_now()
+    x
+}
+
+func nested(tag: String) -> Int {
+    var i = 0
+    while i < 2 {
+        let v = hop<Int>(i)
+        print("{tag} {v}")
+        i = i + 1
+    }
+    0
+}
+
+func main() {
+    var g = TaskGroup()
+    let a = g.spawn(nested("A"))
+    let b = g.spawn(nested("B"))
+    let _ = a.join()
+    let _ = b.join()
+}
