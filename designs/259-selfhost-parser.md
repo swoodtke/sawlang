@@ -1,8 +1,9 @@
 # Design 259 — The Self-Hosted Parser (selfhost ladder, rung 2)
 
 **Status: AUTHORED Sep 1 2026** (lead), from the user's Sep-1 direction and the
-same-day parser-surface census (187 probes, sweep agent, read-only). **Awaiting
-the user's §3 ruling batch**; nothing dispatches before it. Per the user
+same-day parser-surface census (187 probes, sweep agent, read-only). **§3
+BATCH RULED (user, Sep 1): R1–R6 and R8 as recommended; R7 SUPERSEDED by the
+user's own R7′ — arm bodies accept STATEMENTS** (rationale at R7). Per the user
 (Sep 1): this brief is **the source of the next queue batch** once the current
 queue drains (218/1.5 remainder → 258 → 245 v1 → DF-247a). Agent DF ranges:
 assigned at dispatch. The census's N-numbered findings get DF numbers when the
@@ -208,10 +209,27 @@ the OUTERMOST opener three deep.
 - **R6 (N3).** A bare trailing closure on a free function is a call.
   RECOMMEND: fix — the labelled form and the method form both already work;
   the gap is one position in design 138's matrix.
-- **R7 (N4).** RECOMMEND: keep `lend` statement-only (the braced arm is the
-  documented DF-146d spelling) and give the bare arm a real diagnostic naming
-  it, killing the two-line cascade. Promoting `lend` to an expression touches
-  design 141's suspension model for no found need.
+- **R7 (N4) — RULED R7′ (user, Sep 1), superseding the lead's
+  recommendation: a match arm body accepts a single STATEMENT in addition to
+  an expression or a block.** The user's frame: expecting the user to
+  understand the expression/statement distinction is asking a lot, and
+  always requiring a block is too heavy-handed — so accept statements. The
+  lead's probes established this is a FAMILY, not a `lend` gap: bare
+  `-> break`, `-> return 9` and `-> lend n` all died with the identical
+  `Unexpected token` + two-line cascade while `-> panic("gone")` (an
+  expression) compiled — so the ruling dissolves **DF-215j** (the bare
+  `return` arm becomes legal) and N4 together. IMPLEMENTATION SHAPE (U0):
+  the arm body becomes `block | statement`, with NO keyword list — an
+  expression-statement is a statement, a lone `let` arm is legal and inert
+  exactly as `{ let x = 5 }` is, and a value-match arm producing no value
+  keeps its existing type error; `return`/`break`/`continue` arms type as
+  diverging under design 228's rule and a `lend` arm checks under DF-146d's
+  rules unchanged, both exactly as their braced twins do. Multiple
+  statements still take the block. Pins owed: all four keywords as bare
+  arms, statement arms in VALUE matches (diverging-arm typing), the inert
+  `let` arm, and the arm-separator comma after a statement body. This is a
+  grammar CHANGE, so it lands in the Python parser at U0 and natively in
+  the Saw parser — pre-freeze, once, both sides.
 - **R8 (N8).** A labelled call parsing as `StructInit`, resolved in the
   typechecker, is a parse-time decision the freeze makes permanent — the Saw
   parser must emit the same shape or dumps diverge on a large fraction of the
