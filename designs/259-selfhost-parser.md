@@ -140,7 +140,13 @@ exhaustion is a bare SIGSEGV at both levels: Saw recursion ~1M frames, and a
 box-chain deep DROP at ~300k links on the 8 MB main-thread stack — design
 246's warning confirmed; pairs with R4: whatever depth limit is ruled must be
 enforced BY the parser, because neither the language nor the runtime catches
-the overflow).
+the overflow). Joined Sep 1, post-census, both sos-relayed and lead-verified
+with full matrices in their tracker entries: **DF-287a** (a `move` inside a
+DIVERGING catch poisons the fall-through — catch is the one diverging
+construct the move checker treats sequentially, and a parser's error paths
+are exactly catch-and-diverge over move-only nodes) and **DF-287b**
+(bare-literal adoption never runs at an OVERLOADED call site — DF-242c's
+matcher family; a parser leans on overloaded helpers throughout).
 
 ### 2c. Class 3, non-reproducers, OPEN cells
 

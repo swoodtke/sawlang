@@ -109,6 +109,8 @@ is scheduled and in what order is the whole of what they say.
 - ~~DF-285a — a type parameter CONSTRUCTED in the template (`A()`) survives substitution unrewritten, so a spliced instance names a function that does not exist~~ **FILED + FIXED Sep 1 (design 218 unit 1.5's stage-3 agent, fix-on-discovery)**: a REGRESSION THIS BRANCH INTRODUCED at stage 2 and invisible to the whole battery — main compiles the repro and prints `8`, the branch refused it with ``undefined function `M` `` carrying §3's own instantiation note. MECHANISM (obligation 4): `substitute_ast_types` rewrites `SawType`s, and a call's name is a `str`, so the one position where a type parameter is spelled OUTSIDE a type annotation — design 37's zero-argument construction `A()`, which `Vector._reserve` and `Box.make` are written around — is unreachable however completely the walker walks. While an instance's diagnostics were deleted this cost nothing (codegen re-derived the body from the template under `type_param_context`, reading the SUBSTITUTED `resolved_type` rather than the name); stage 2 made them real and turned it into a refusal of a legal program. POSITION MATRIX: the two neighbouring spellings are refused ABSTRACTLY, in the template, on this tree and on main alike — `M.seed()` (a static call on a parameter) is ``undefined variable `M` `` with no instance involved, and an enum-case spelling the same — so the mechanism has exactly one position. FIX: the funnel rewrites the call's NAME to the concrete type, which makes the clone an ordinary concrete program (`_check_function_call` then takes its struct-construction branch and stamps `resolved_type_identity`, and codegen lowers it as it lowers a hand-written `GlobalAllocator()`); gated on the argument list, since a construction takes none and function lookup wins over the type-param arm anyway. Pinned by `examples/generic_instance_constructs_type_param.saw`, which puts the spliced (spawned) instance and the ordinary codegen path side by side. This line is the record
 - DF-285b — the PRISTINE TEMPLATE STORE design 218c T1 names as the monomorphization phase's template source is EMPTY in an entry compile (entry below, filed Sep 1 by design 218 unit 1.5's stage-3 agent; PRE-EXISTING, and load-bearing for stage 3). Measured on `examples/hello.saw`: the three stores are 0 / 0 / 0 and `_module_scope_by_file` holds ONE entry, while the same compile demands 111 instances — every one of them std's
 - DF-285c — design 218c stage 3's splice-all fails §5's OWN acceptance test before it is built, by ~8x, and the instance check at type-closure granularity is not zero-delta (entry below, same filer). §5's rule for exactly this outcome is that the staging PAUSES for the lead, which is what stages 3-5 have done
+- DF-287a — a `move` inside a DIVERGING catch poisons the fall-through path (entry below, filed Sep 1 by the lead from an sos-relayed repro; PRE-EXISTING). Every non-catch diverging construct — `if`, `match` arm, `guard else` — already restores; catch is the one outside the rule, in all three of its forms
+- DF-287b — bare-literal ADOPTION never runs at an OVERLOADED call site (entry below, same filing; PRE-EXISTING; DF-242c's matcher family). `solo(len: 1)` adopts at a lone `UInt` param and `b.put(len: 1)` is refused ``expects `UInt` but got `Int` `` although every `put` candidate agrees the slot is `UInt` — with a hint teaching the `as UInt` conversion adoption should have made unnecessary
 - ~~DF-284a — the corodiff PRELUDE stopped compiling, so all 2408 pairs refused on both twins and the lane scored them CLEAN~~ **FILED + FIXED Aug 31 (design 218 unit 1.5's agent, stage 0, fix-on-discovery)**: design 234's fallible `Arc(value:)` left the harness's `mk_tag`/`mk_tag_s`/`derive_tag` building a `Tag` out of a `Result<Arc<Res>, AllocError>`, so EVERY generated program refused identically and check 2 exempts exactly that. `corodiff --quick` was green in the battery while testing nothing. MECHANISM (obligation 4): the corpus is GENERATED, so nothing else in the tree ever compiles the shared declarations, and the one oracle that could notice ("both twins refuse") is the one deliberately turned off. Not one-off — it is the SECOND time (commit 2e62f55d, "the corodiff harness survives the rename (its lane had gone dead)", design 219 wave B), and the sibling harnesses do not admit it: sawfuzz mutates the tracked `examples/` corpus, which the suite gates, and irdet compiles that same corpus, so only corodiff owns a corpus nothing else compiles. FIX, both halves in the same commit: `try!` on the three `Arc<Res>(value:)` sites, and a COMPILE FLOOR — `check_prelude` compiles `PRELUDE + func main() { }` before any combo is judged and fails the run outright with the compiler's own output, which is the assertion the refusal exemption was missing. Baselined by the stage-0 `corodiff --all`; this line is the record
 
 
@@ -161,7 +163,68 @@ a different artifact with a different invalidation story, and §4 is written
 about the other one. A lead/user correction to T1 and §4, not an
 implementation detail. [218c T1/§1c/§4]
 
-## DF-285c — design 218c stage 3's splice-all fails §5's own acceptance test
+## DF-287a — a `move` inside a DIVERGING catch poisons the fall-through path
+## (filed Sep 1 by the lead from an sos-relayed repro; PRE-EXISTING)
+
+```saw
+var owned = move r                      // Res, NoCopy
+try might(x) catch {
+    let back: (Int, Res) = (error, move owned)
+    return move back                    // the catch DIVERGES
+}
+owned.n = 0        // error: use of moved variable `owned` — WRONG: this line
+                   // is reachable only when the catch never ran
+```
+
+MECHANISM (obligation 4): the guard-else checker
+(`typechecker/statements.py:1912-1925`) snapshots `moved_bindings` before the
+else branch and RESTORES when the branch diverges — its comment names the
+protected idiom. `_check_try_catch_expr` (`typechecker/expressions.py:13628`)
+checks the catch block with NO snapshot, and the guard-form catch has the same
+gap, so catch-body moves flow into the fall-through unconditionally. THE
+MATRIX, all lead-probed Sep 1 (`.build/scratch/mv_*.saw`, ephemeral — cells
+recorded here): REFUSED in all three catch forms (statement guard-form, value
+guard-form `let v = try f() catch { }`, and the `try { } catch { }` block) and
+for both divergence kinds (`return`, `panic`); COMPILES AND RUNS for the same
+move in a diverging `if` branch, a diverging `match` arm, and a `guard let
+... else` — catch is the ONE diverging construct outside the rule, so the
+enumeration is closed. Wrong-refusal tier, never unsound. FIX SHAPE: the
+guard-else pattern conditioned on divergence — snapshot before the catch,
+restore iff the catch block diverges; a NON-diverging (fallback) catch keeps
+the poison, correctly, because fall-through then follows both paths. Also a
+design-259 CLASS 2 member: a Saw parser's error paths are exactly
+catch-and-diverge over move-only nodes.
+
+## DF-287b — bare-literal adoption never runs at an OVERLOADED call site
+## (filed Sep 1 by the lead from an sos-relayed repro; PRE-EXISTING;
+## DF-242c's matcher family)
+
+```saw
+extension Bag {
+    func put(&self, len: UInt) -> UInt { len }
+    func put(&self, len: UInt, extra: Int) -> UInt { len + (extra as UInt) }
+}
+func solo(len: UInt) -> UInt { len }
+solo(len: 1)        // adopts: one candidate
+b.put(len: 1)       // error: argument 1 expects `UInt` but got `Int`
+```
+
+MECHANISM (obligation 4): with 2+ candidates the overload matcher types the
+bare literal at platform `Int` and requires an exact match, so the adoption
+ladder (designs 195/205/257) never runs — the refusal fires even though every
+candidate agrees the slot is `UInt` and labels/arity select exactly one, and
+its hint teaches the `as UInt` conversion adoption exists to make unnecessary.
+The single-candidate path checks against the declared parameter and adopts.
+THE MATRIX (`.build/scratch/adopt_overload.saw`, lead-probed Sep 1): refused
+at the overloaded METHOD (both arities) and the overloaded FREE FUNCTION;
+adopts at the single free function and the single method; `1 as UInt`
+compiles. The documented `h(Int)`/`h(Int8)` ambiguity at `h(5)` shows the
+literal is MEANT to stay width-flexible across candidates — the intended
+shape is: a bare literal matches any integer-width slot during candidate
+filtering, adopts against the winner, and 2+ surviving widths stay the
+documented ambiguity error. Sweep owed at fix time: the static-method and
+init overload faces of the same funnel (unprobed), and DF-242c's suffixed
+face, which this mechanism plausibly explains too.
 ## before it is built, by ~8x, and the instance check at type-closure
 ## granularity is not zero-delta (filed Sep 1 by design 218 unit 1.5's
 ## stage-3 agent)
