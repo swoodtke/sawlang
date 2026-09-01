@@ -127,7 +127,7 @@ is scheduled and in what order is the whole of what they say.
 ## boundary values (255 vs 127 at `UInt8`, `UInt.max` vs 1), where a signed
 ## lowering answers wrongly; all three columns agree. Full suite 2320 passed /
 ## 8 xfailed, freestanding 33 both arches, bench checksums unmoved.
-## **SCOPE CORRECTION, for the record (lead ratification owed).** The ruling
+## **SCOPE CORRECTION, USER-RATIFIED Sep 1.** The ruling
 ## scoped the slice to "the integer family, Float, Bool", which is what THIS
 ## entry's original matrix probed. Two of the four blocked tests walked past
 ## that fence, so the set is a PREDICATE — "the conformance has no callable
