@@ -586,3 +586,106 @@ stage.
 | P3b | `p3b_interleave.saw` | `A 0, A 1, A 2, B 0, B 1, B 2` — the nested generic's yield never parks |
 | P3c | `p3c_control.saw` | `A 0, B 0, A 1, B 1, A 2, B 2` — the direct-yield control interleaves |
 | P4 | `p4_recursive.saw` | compiler produced no output in 120 s; killed — DF-258b |
+
+## Amendment A (Sep 1, post-stage-2) — the template store, the splice cost, and stage 3's shape
+
+**Status: PROPOSED by the lead, awaiting user ratification.** Two of its
+inputs are already USER-RULED (Sep 1): the process (amend the spec before
+stage 3 re-dispatches) and the perf direction (BOTH remedies below — the
+substituting copier AND lazy body materialization). What still needs the
+user's eye is marked OPEN. Stages 0-2 + the DF-285a fix are INTEGRATED to
+main (466812fe); stage 3 re-dispatches against this amendment once ratified.
+
+### A1. The false premise (DF-285b) and its fix
+
+Section 4 argues invalidation-free caching from "templates are captured
+pristine at `check_module`'s capture point" and section 1c checks instances
+"in the TEMPLATE's home module scope". Neither is true of std: std bodies are
+checked by a separate typechecker inside `build_builtin_namespace` whose
+result is cached, so on `examples/hello.saw` the pristine stores hold **zero**
+templates and `_module_scope_by_file` has one entry — against 111 demanded
+instances, every one std's. `_build_fn_mono` already declines a template with
+no pristine copy; stage 3 cannot.
+
+**The fix (RECOMMENDED): extend the capture, not the argument.** The std
+checker gains the same two capture points the entry checker has — pristine
+generic-template snapshot before body checks mutate annotations, and a
+per-file module scope entry — carried in `build_builtin_namespace`'s cache so
+the cost is paid once per cache build, not per compile. Section 4's
+invalidation argument then holds verbatim over the union store.
+**The fallback, only if the snapshot's cache cost measures prohibitive:**
+clone CHECKED templates out of the merged AST (probed: 276/306 clean). This
+is a different artifact from the one §4 argues about — a checked template's
+annotations are post-mutation — so taking it means rewriting §4's argument,
+and the probe's 30 failures (A3) suggest the real gap was scope, not the
+template body. OPEN: none — the recommendation decides unless measurement
+forces the fallback, which then returns here.
+
+### A2. The splice cost (DF-285c) and the two ruled remedies
+
+Splice-all measured ~+83% per compile (~1s absolute, 81% of it
+`copy.deepcopy`, on hello/serde/json alike — the cost is std's type closure,
+so every compile pays it). Envelope is +10%. The user ruled BOTH remedies:
+
+**(a) The substituting copier.** One purpose-built AST walker that produces
+the substituted clone in a single pass — copy and substitute together, no
+`copy.deepcopy`, no second rewrite walk. It lives beside `mono_identity.py`
+(same "one funnel, both sides" rationale) and MUST carry the DF-285a lesson:
+the one type-parameter spelling that is not a `SawType` — a zero-argument
+construction call's NAME (design 37) — is substituted by the copier itself,
+not by a patch-up pass. Oracle: while shadow mode still exists, an
+equivalence assertion (copier output vs deepcopy+substitute, whole corpus)
+rides one gate run, then the deepcopy path deletes.
+
+**(b) Lazy body materialization.** The registry still DECIDES every instance
+— the fixpoint walks every demand, assigns identity, depth-checks, and
+re-infers the per-instance effect node exactly as specced; nothing about
+sections 1b/1d/4-keys changes. What moves is WHEN the checked clone AST is
+built: eagerly (phase 2) only for the transform-relevant set — instances
+whose effect node suspends, plus the driven/spawned/poly set already cloned
+today — and for everything else at first BODY demand (design 168's existing
+demand, which for a hosted `-c` object is every instance, and for an
+executable is the reachable fraction). Materialization = copier + instance
+check (§1c's inventory, errors real, §3 attribution) + splice, ONE funnel;
+phases 5-7 consume only materialized bodies, and an unmaterialized instance
+reaching either is an ICE. Section 1b's sentence stays the law: instance
+EXISTENCE and body EMISSION are two questions, and lazy materialization
+aligns CHECKING with emission, not with existence.
+
+**The semantic cell this pins (OPEN — the user should see it):** under (b),
+an instance demanded but never emitted in an EXECUTABLE build is registered
+and depth/effect-validated but its body is never instance-checked — a
+diagnostic living only in such a body surfaces in a `-c` build and not in
+the executable. This matches today's stage-2 behavior (codegen demands are
+what get checked) and the compile's actual link surface; splice-all would
+have been stricter and is what the envelope rules out. Ratifying A2(b)
+ratifies this cell. It is NOT the design-168 narrowing the user declined —
+that one shrinks the `-c` instance SET; here the `-c` set is complete and
+untouched.
+
+### A3. The ~30 std-instance diagnostics
+
+At type-closure granularity the instance check reports ~30 diagnostics
+against std's own bodies on hello.saw; two classes verified refusals of code
+that compiles and runs (`Vector<String>.copy` — ``String is not Copy`` — and
+`Vector<Item>.push` for a `@synthesize`d ExplicitCopy `Item`). HYPOTHESIS:
+artifacts of the missing std module scope (A1) — the probe's check ran with
+no home scope, where conformance lookups fail closed. After A1 lands,
+re-run the probe (`.build/scratch/probe_std_instance_check.py`); whatever
+survives goes through stage 2's own triage rule, unchanged: each residue is
+either a REAL catch (kept, pinned) or a rule moved to §1c's named per-rule
+skip list with the lead's sign-off. No blanket suppression.
+
+### A4. Stage 3 restaged
+
+Stage 3 splits into three separately-gated commits; 4 and 5 are unchanged.
+
+| stage | content | gate |
+|-------|---------|------|
+| **3a — the store completed** | A1's std capture (pristine snapshot + module scopes in the builtin cache) | full suite under `SAWC_MONO_SHADOW=strict` (re-proof over the union store); the A3 probe re-run recorded in the landing note |
+| **3b — the copier** | A2(a), landed while shadow mode still exists | the corpus equivalence assertion rides one strict-shadow gate run; suite + freestanding |
+| **3c — the cutover** | the atomic remainder, now affordable: phase 2 splices the eager set; codegen G1/G2/M1-M4 become registry lookups that MATERIALIZE through the one funnel on first body demand; G3 + M6 delete; S-rows registry-driven, ICE-on-miss; the codegen template stores retire | original stage-3 gate (suite, freestanding, reemit + irdet --all at the boundary, gmgate) PLUS the §5 measurement at this boundary — the +10% envelope BINDS here |
+
+DF-251b's XFAIL flips at 3c (the generator deletion is 3c's). The §5
+measurement instrument and envelope are unchanged; remedies 2/3 and the
+design-168 set-narrowing remain unauthorized.
