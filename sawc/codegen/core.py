@@ -25,6 +25,7 @@ from ast_nodes import (
 )
 from namespace import Namespace
 from type_identity import decl_identity
+from mono_identity import PRIMITIVE_TYPE_NAMES, extension_specialization_key
 from const_eval import const_eval, ConstEvalError
 
 
@@ -432,31 +433,23 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         self._declare_external_functions()
 
     # Built-in type names for detecting specialized extensions
-    BUILTIN_TYPE_NAMES = {
-        'Int', 'UInt', 'Float', 'Bool', 'String',
-        'Int8', 'Int16', 'Int32', 'Int64',
-        'UInt8', 'UInt16', 'UInt32', 'UInt64',
-    }
+    BUILTIN_TYPE_NAMES = PRIMITIVE_TYPE_NAMES
 
     def _get_extension_specialization(self, extension: Extension) -> tuple:
         """Get the specialization key for an extension, or empty tuple if generic.
 
         Returns tuple of type arg names if specialized (e.g., ("String",)),
         or empty tuple if it's a generic extension.
+
+        DF-286a: the rule and its rationale live in
+        `mono_identity.extension_specialization_key`, which the monomorphization
+        phase calls too — the phase decides the instance set and codegen only
+        looks instances up, so the two would answer "is this extension a
+        specialization" separately if the answer lived here. Its own copy read
+        `Extension.type_args`, a field the parser never fills for an extension
+        head, and so called every specialization generic.
         """
-        if not extension.type_params:
-            return ()
-
-        # Check if all type params are known types (specialization)
-        type_args = []
-        for tp in extension.type_params:
-            if tp.name in self.BUILTIN_TYPE_NAMES or tp.name in self.struct_types:
-                type_args.append(tp.name)
-            else:
-                # Not a known type, this is a generic extension
-                return ()
-
-        return tuple(type_args)
+        return extension_specialization_key(self._identity_env, extension)
 
     def _pad_spec_key_with_defaults(self, struct_name, spec_key, struct_type_params_by_name):
         """Design 37: extend a specialized-extension key with the struct's

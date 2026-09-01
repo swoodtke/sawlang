@@ -35,6 +35,50 @@ import weakref
 from ast_nodes import SawType, TypeKind
 
 
+# The primitive type NAMES an extension head may specialize on. Codegen's
+# `BUILTIN_TYPE_NAMES` verbatim — the two must answer alike, so there is one
+# spelling and codegen's constant now delegates to it.
+PRIMITIVE_TYPE_NAMES = frozenset((
+    'Int', 'UInt', 'Float', 'Bool', 'String',
+    'Int8', 'Int16', 'Int32', 'Int64',
+    'UInt8', 'UInt16', 'UInt32', 'UInt64',
+))
+
+
+def extension_specialization_key(env: IdentityEnv, ext) -> tuple:
+    """Is this extension head a SPECIALIZATION, and under which key?
+
+    THE DECLARATION-SIDE twin of `ast_nodes.specialization_key` (which answers
+    the same question about a type's ARGUMENTS), and the answer to DF-286a.
+
+    An extension head is parsed as type PARAMETERS whichever it is: the parser
+    cannot know whether `<String>` names a type or declares a parameter called
+    `String`, so it fills `Extension.type_params` and leaves
+    `Extension.type_args` EMPTY — and the classification is re-decided later by
+    asking whether each parameter's name denotes a known type. `specialization_key`
+    over `ext.type_args` therefore answers "generic" for EVERY extension in the
+    program, which is what made the registry walk `Vector<String>.join` onto
+    every `Vector<T>` instantiation and left `specialized_extensions` empty.
+
+    One definition, both sides — the design-194-unit-2 lesson that
+    `specialization_key` already learned once. `is_known_type` is the only thing
+    the two callers differ on and it is behind `IdentityEnv`.
+
+    Returns the key (a tuple of type NAMES, unpadded — design 37's trailing
+    defaults are the caller's, since only the caller knows the declaration
+    table), or `()` for a genuinely generic extension.
+    """
+    params = getattr(ext, 'type_params', None)
+    if not params:
+        return ()
+    names = []
+    for tp in params:
+        if not env.is_known_type(tp.name):
+            return ()
+        names.append(tp.name)
+    return tuple(names)
+
+
 def is_erased_box(saw_type) -> bool:
     """True for `Box<any Trait, A>` — an owned erased value (a fat pointer).
 
@@ -73,6 +117,11 @@ class IdentityEnv:
         """
         return saw_type
 
+    def is_known_type(self, name) -> bool:
+        """Whether a bare NAME denotes a declared type rather than a type
+        parameter — the question `extension_specialization_key` asks."""
+        raise NotImplementedError
+
 
 class CodegenIdentityEnv(IdentityEnv):
     """The code generator's view. Reads its tables LIVE — `type_param_context`
@@ -99,6 +148,10 @@ class CodegenIdentityEnv(IdentityEnv):
     def substitute(self, saw_type):
         cg = self._cg
         return cg._substitute_saw_type(saw_type, cg.type_param_context)
+
+    def is_known_type(self, name) -> bool:
+        cg = self._cg
+        return name in PRIMITIVE_TYPE_NAMES or name in cg.struct_types
 
 
 def fill_default_type_args(env: IdentityEnv, base_name: str, type_args):

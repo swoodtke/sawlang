@@ -64,8 +64,9 @@ from codegen.mangle import (
     mangle_function, mangle_method, mangle_named, mangle_type,
 )
 from mono_identity import (
-    IdentityEnv, canonical_enum_args, canonical_struct_args,
-    canonicalize_type_kind, fill_default_type_args,
+    PRIMITIVE_TYPE_NAMES, IdentityEnv, canonical_enum_args,
+    canonical_struct_args, canonicalize_type_kind,
+    extension_specialization_key, fill_default_type_args,
 )
 from type_identity import decl_identity
 
@@ -136,6 +137,16 @@ class MonoIdentityEnv(IdentityEnv):
     def is_enum(self, name) -> bool:
         m = self._m
         return name in m.generic_enums or name in m.enum_names
+
+    def is_known_type(self, name) -> bool:
+        # Codegen answers from `BUILTIN_TYPE_NAMES | struct_types`, and
+        # `struct_types` is keyed by the design-144 identity every declaration
+        # in the merged AST carries — which is what `struct_decls` is keyed by
+        # here. Enums are excluded on BOTH sides (see DF-286a: the typechecker's
+        # third copy does accept them, a latent divergence this unit records
+        # rather than resolves).
+        m = self._m
+        return name in PRIMITIVE_TYPE_NAMES or name in m.struct_decls
 
     def substitute(self, saw_type):
         # Reached only for a declared DEFAULT being filled in. Codegen
@@ -236,7 +247,11 @@ class Monomorphizer:
                               for e in prog.enums})
         for ext in prog.extensions:
             name = ext.struct_name
-            key = specialization_key(getattr(ext, 'type_args', None) or [])
+            # DF-286a: from the extension's declared PARAMETERS, through the
+            # shared funnel — `Extension.type_args` is empty on every extension
+            # the parser produces, so keying on it called `extension
+            # Vector<String>` generic and walked `join` onto every `Vector<T>`.
+            key = extension_specialization_key(self.env, ext)
             if key:
                 # Pad with the type's trailing defaults so a specialization
                 # written at the short spelling still matches the filled
@@ -289,10 +304,12 @@ class Monomorphizer:
             if not getattr(func, 'type_params', None):
                 yield func, _site(func)
         for ext in prog.extensions:
+            # A specialized extension head is also spelled with type PARAMETERS
+            # (DF-286a), so this one test covers both: generic and specialized
+            # alike are reached through their receiver's instances, never as
+            # roots.
             if getattr(ext, 'type_params', None):
-                continue          # reached through its receiver's instances
-            if specialization_key(getattr(ext, 'type_args', None) or []):
-                continue          # a specialized extension is likewise reached
+                continue
             for m in ext.methods:
                 if getattr(m, 'type_params', None):
                     continue      # method-generic: reached through its calls
