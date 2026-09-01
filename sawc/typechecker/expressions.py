@@ -8849,6 +8849,98 @@ class ExpressionsMixin:
                     return True
         return False
 
+    # design 218 unit 3, the MINIMAL SLICE pulled forward into unit 1.5 (user
+    # ruling, Sep 1) — the requirement name to the trait that declares it.
+    # `hash` is deliberately absent: see `_builtin_requirement_call`.
+    _BUILTIN_REQUIREMENT_TRAITS = {"equals": "Equatable",
+                                   "compare": "Comparable"}
+
+    def _builtin_requirement_call(self, expr: MethodCall, obj_type, method_info):
+        """`a.compare(&b)` / `a.equals(&b)` where the CONFORMANCE BODY IS IN
+        CODEGEN.
+
+        THE GAP THIS CLOSES (DF-284c). Some conformances have no method
+        anywhere the checker can see, because their body is synthesized during
+        lowering instead: a primitive conforms to Equatable/Comparable BUILTIN
+        (`is_equatable` / `is_comparable` answer structurally off the KIND) and
+        `_emit_equals` / `_emit_compare` are the bodies. So the requirement
+        resolves through a BOUND — design 239 routes it there to the operator's
+        own emitter, stamping `comparison_dispatch` — and resolves NOWHERE once
+        the receiver is concrete: `let a: Int = 3; a.compare(&b)` was `type
+        `Int` has no method `compare``, hinting `abs, clamp, is_even, …`.
+
+        Invisible until design 218 unit 1.5 stage 2 made a monomorphized
+        instance's diagnostics real. A clone has no type parameters and
+        therefore no bounds, so `rank<T: Comparable>`'s `a.compare(&b)` at
+        `T = UInt8` reached exactly this concrete path and was refused — in a
+        program that compiles and runs correctly, because codegen supplies the
+        body the checker cannot see.
+
+        THE ANSWER IS THE ONE DESIGN 239 ALREADY BUILT, which is what makes
+        behavioural identity a property of the code rather than a claim: stamp
+        `comparison_dispatch` and codegen lowers with `_emit_equals` /
+        `_emit_compare` — the SAME emitters `==` and `<` use, so design 252's
+        unsigned ordering, Float's IEEE ordering, String's content order and
+        an enum's payload-deep order are all reached through the one path that
+        decides them. No symbol is minted and no body moves.
+
+        THE SET, and it is a PREDICATE rather than a list — "the conformance
+        has no callable method here". Probed cell by cell rather than assumed,
+        because the first spelling of this fence said `primitives only` and two
+        of the four blocked corpus tests walked straight past it:
+          * PRIMITIVES (`Int`, the fixed widths, `Float`, `Bool`) and any
+            distinct ALIAS over one — `type_satisfies_bound` resolves aliases,
+            which is the design-252 lesson restated;
+          * `@synthesize`d ENUM conformances, whose derived body is
+            `_emit_enum_compare` and which therefore have no method either. A
+            `@synthesize`d STRUCT is NOT in the set — it gets a real method, so
+            it never reaches here and keeps its own body;
+          * `String`, the one member that DOES have a same-named method:
+            `String.equals`/`compare` take `other` BY VALUE (design 239 records
+            that asymmetry deliberately), which is a different function from
+            the requirement, whose `other` is lent. Hence `method_info` is not
+            consulted for STRING and is required to be None for everything
+            else.
+
+        WHAT CANNOT BE INTERCEPTED, by construction: a type with a real
+        `equals`/`compare` — hand-written or struct-`@synthesize`d — keeps it,
+        because this is asked only where lookup found nothing (or found
+        String's by-value API). And `s.equals(t)`, the by-value spelling,
+        never enters: the `&` is required, so String's own API is untouched at
+        every spelling that works today.
+
+        `hash` is NOT here. It has the same shape, but it is not part of the
+        blocker: `k.hash(&var h)` through a `T: Hashable` bound compiles AND
+        lowers at a primitive today (probed), so nothing regressed and nothing
+        is owed. It stays with the rest of unit 3.
+
+        A missing `&` falls through to the ordinary refusal rather than
+        inventing a second diagnostic for a spelling that path already teaches.
+        """
+        if obj_type is None:
+            return None
+        is_string = obj_type.kind == TypeKind.STRING
+        if method_info is not None and not is_string:
+            return None
+        bound = self._BUILTIN_REQUIREMENT_TRAITS.get(expr.method_name)
+        if bound is None or len(expr.arguments) != 1:
+            return None
+        if not self.namespace.type_satisfies_bound(obj_type, bound):
+            return None
+        arg = expr.arguments[0].value
+        if not isinstance(arg, ReferenceExpr):
+            return None
+        expected = SawType(TypeKind.REFERENCE, inner_type=obj_type)
+        arg_type = self._check_expression(arg)
+        if arg_type is None or not self._arg_type_ok(arg, arg_type, expected):
+            return None
+        trait = self.namespace.lookup_trait(bound)
+        method_sym = trait.methods.get(expr.method_name) if trait else None
+        if method_sym is None or method_sym.return_type is None:
+            return None
+        expr.comparison_dispatch = bound
+        return method_sym.return_type
+
     def _check_bound_arg_reference_spelling(self, expr: MethodCall,
                                             obj_type: SawType,
                                             method_sym) -> None:
@@ -10319,6 +10411,14 @@ class ExpressionsMixin:
             if fwd is not None:
                 method_info, type_subst = fwd
                 expr.box_forward_payload_type = obj_type.type_args[0]
+        # design 218 unit 3 (the slice unit 1.5 pulled forward, user ruling
+        # Sep 1) — an Equatable/Comparable REQUIREMENT on a receiver whose
+        # conformance body lives in CODEGEN. Asked before the `method_info is
+        # None` refusal below because ONE member of that set does have a
+        # same-named method: `String`'s own by-value API.
+        requirement = self._builtin_requirement_call(expr, obj_type, method_info)
+        if requirement is not None:
+            return requirement
         if method_info is None:
             # A call through a function-typed struct field: `obj.field(args)`
             # where `field: (…) -> …` (design 24 item 3). Treated as an indirect

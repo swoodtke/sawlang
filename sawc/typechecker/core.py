@@ -44,35 +44,22 @@ from .tierreq import TierRequirementsMixin
 from .sigvis import SignatureVisibilityMixin
 
 
-# design 218 unit 1.5 stage 2 — THE FLIP, HELD ON ONE BLOCKER.
+# design 218 unit 1.5 stage 2 — A MONOMORPHIZED INSTANCE'S DIAGNOSTICS ARE REAL.
 #
-# Stage 2's whole content is that a MONOMORPHIZED INSTANCE's diagnostics are
-# real: the four `del self.reporter.errors[...]` sites in effects.py are GONE,
-# the §3 attribution note is attached, and the §1c provenance skips are named
-# per rule. Everything that machinery needs is built and live. What is held is
-# only the last step — letting the diagnostics reach the reporter — and the
-# reason is DF-284c, a PRE-EXISTING gap this stage was the first thing ever to
-# look at:
+# The four `del self.reporter.errors[...]` sites in effects.py are gone, §3's
+# attribution note is attached, and §1c's provenance skips are named per rule.
+# This constant is what the landing flipped, and it is kept as a NAMED SWITCH
+# rather than deleted because it is the one line that says which half of the
+# 218 charter's diagnosis is closed: "no judgment with real errors ever runs on
+# any instance" is no longer true of this compiler.
 #
-#   a trait REQUIREMENT has no callable method on a PRIMITIVE receiver.
-#   `Int`/`UInt8`/`Float`/`Bool` conform to Equatable/Comparable/Hashable
-#   BUILTIN — the bodies are synthesized in codegen (`_emit_equals`/
-#   `_emit_compare`), never in the checker — so `a.compare(&b)` resolves
-#   abstractly through `T: Comparable`'s BOUND and does not resolve at all
-#   once `T` is `UInt8`. Four corpus tests that compile and run correctly
-#   today are refused by the instance check for that reason and no other.
-#
-# It is not this unit's to fix: moving those bodies out of codegen and into
-# checked AST synthesis is design 218 UNIT 3 in so many words ("Memberwise/
-# enum/tuple equality synthesis moves from codegen emitters to synthesized AST
-# bodies checked like any `@synthesize` output"). So stage 2 discovers a
-# SEQUENCING fact — 1.5's instance check needs unit 3's desugar under it — and
-# holds here rather than either shipping a red suite or teaching the instance
-# check to look away from a call it cannot resolve, which would be exactly the
-# vacuous validation this whole unit exists to end.
-#
-# Flipping this to True is the landing of stage 2 once DF-284c closes.
-INSTANCE_ERRORS_ARE_REAL = False
+# It was held for one commit on DF-284c — a trait REQUIREMENT had no callable
+# method on a PRIMITIVE receiver, so `rank<T: Comparable>`'s `a.compare(&b)` at
+# `T = UInt8` resolved abstractly through the bound and nowhere once the clone
+# dropped it. That closed with the minimal unit-3 slice the user ruled forward
+# (`_primitive_requirement_call`), which routes the concrete receiver to the
+# same `comparison_dispatch` design 239 already built for the bound.
+INSTANCE_ERRORS_ARE_REAL = True
 
 
 _BINDING_ID_COUNTER = itertools.count(1)
