@@ -92,6 +92,26 @@ _SHADOW = os.environ.get("SAWC_MONO_SHADOW", "")
 _TRACE = _SHADOW == "trace"
 _DUMP = _SHADOW in ("dump", "trace")
 
+# SAWC_MONO_MEASURE — Amendment A5(b)'s cost model, off by default.
+#   splice-all   after the fixpoint, MATERIALIZE every registered instance
+#                (copier + the §1c instance check in the template's home module
+#                scope) and throw the result away.
+#
+# It is an instrument and not a mode, and the difference is worth stating
+# because the shape looks like the one design 218c's own `citations` lane
+# forbids. It judges nothing: it runs against a THROWAWAY reporter of its own
+# making, never the compile's, and its answers reach no user and gate no
+# program — which is exactly why it can run over a green suite while A3's ~30
+# std-instance diagnostics are still owed a ruling. A5(a)'s
+# `SAWC_MONO_MATERIALIZE=all`, which reports for real and takes a battery lane,
+# is 3c's and is a different thing.
+#
+# What it exists for: A5(b) rules that the MEASUREMENT decides whether lazy body
+# materialization is bought at all, and the number it needs is the per-compile
+# cost of materializing everything — which is this, run under §5's own
+# instrument (the suite's wall time, 3-run median, uncontended, one machine).
+_MEASURE = os.environ.get("SAWC_MONO_MEASURE", "")
+
 
 @dataclasses.dataclass
 class Instance:
@@ -963,8 +983,95 @@ def _render_chain(hops):
                       + list(hops[-_CHAIN_TAIL:]))
 
 
-def run_monomorphization(program, namespace, reporter, verbose=False):
+def measure_splice_all(mono, typechecker):
+    """A5(b)'s cost model: materialize EVERY registered instance, then discard.
+
+    Stage 3c's per-compile work, done here so its price can be read off §5's own
+    instrument before the shape of 3c is chosen: for each registered instance,
+    clone its template through the copier under the instance's binding and run
+    the §1c check on the clone in the template's home module scope. Both halves
+    matter — the clone is A2(a)'s cost and the check is §1c's — and neither is
+    guessable from the other.
+
+    Nothing is spliced and nothing is reported: a throwaway reporter of this
+    function's own making stands in for the compile's for the duration, so the
+    ~30 std-instance diagnostics A3 still owes a ruling on cannot reach a user
+    or a gate. See `_MEASURE`'s note on why that is an instrument and not the
+    suppression the `citations` lane refuses.
+    """
+    if typechecker is None:
+        return
+    from errors import ErrorReporter
+    from mono_copy import substituting_copy
+
+    saved_reporter = typechecker.reporter
+    typechecker.reporter = ErrorReporter("", "<mono-measure>")
+    try:
+        for key in list(mono.order):
+            inst = mono.instances[key]
+            if inst.kind in ("struct", "enum"):
+                _measure_type_instance(mono, typechecker, inst,
+                                       substituting_copy)
+            elif inst.kind == "fn":
+                _measure_fn_instance(mono, typechecker, inst, substituting_copy)
+    finally:
+        typechecker.reporter = saved_reporter
+
+
+def _measure_type_instance(mono, tc, inst, copier):
+    decl = (mono.generic_structs.get(inst.base)
+            or mono.generic_enums.get(inst.base))
+    if decl is None:
+        return
+    struct_tps = getattr(decl, 'type_params', None) or []
+    base_map = _zip_params(struct_tps, inst.args)
+    for ext, skip in mono._applicable_extensions(inst.base, inst.args):
+        aliases = ext_param_aliases(getattr(ext, 'type_params', None),
+                                    struct_tps)
+        for m in ext.methods:
+            if m.name in skip or getattr(m, 'type_params', None):
+                continue
+            entry = tc.pristine_generic_struct_method(ext.struct_name, m.name)
+            if entry is None or entry[1] is not ext:
+                # The design-70 store is keyed by (struct, method) alone, so
+                # two extensions on one type that declare the same name
+                # collide; take the snapshot only when it is THIS one's.
+                continue
+            type_map = dict(base_map)
+            for declared, alias in aliases:
+                if declared in base_map:
+                    type_map[alias] = base_map[declared]
+            tc._add_associated_type_bindings(type_map, struct_tps, inst.args)
+            clone = copier(entry[0], type_map)
+            clone.type_params = []
+            clone.is_mono_instance = True
+            with tc._checking_instance(f"{inst.display}.{m.name}"):
+                with tc._home_module_scope(clone, type_map):
+                    tc._check_method(ext.struct_name, clone, type_map)
+
+
+def _measure_fn_instance(mono, tc, inst, copier):
+    pristine = tc.pristine_generic(inst.base)
+    if pristine is None:
+        return
+    tps = getattr(pristine, 'type_params', None) or []
+    type_map = _zip_params(tps, inst.args)
+    tc._add_associated_type_bindings(type_map, tps, inst.args)
+    clone = copier(pristine, type_map)
+    clone.name = inst.key
+    clone.type_params = []
+    clone.mangled_symbol = None
+    clone.is_mono_instance = True
+    with tc._checking_instance(inst.display):
+        with tc._home_module_scope(clone, type_map):
+            tc._check_function(clone)
+
+
+def run_monomorphization(program, namespace, reporter, verbose=False,
+                         typechecker=None):
     """Phase 2. Returns the registry, or None if it produced errors."""
     mono = Monomorphizer(program, namespace, reporter, verbose=verbose)
     mono.run()
+    if _MEASURE == "splice-all":
+        measure_splice_all(mono, typechecker)
     return mono

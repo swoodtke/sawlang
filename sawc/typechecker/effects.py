@@ -34,78 +34,43 @@ import dataclasses
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 from errors import ErrorKind
+from mono_copy import substitute_constructed_type_param, substituting_copy
 
 
 def substitute_ast_types(node, type_map):
     """In-place: rewrite every `SawType` in an AST subtree through
-    `SawType.substitute(type_map)` (design 70). Used to monomorphize a pristine
-    generic function template into a concrete instantiation for per-instantiation
-    effect re-inference. `SawType.substitute` recurses through nested type
-    structure, so this walker only has to reach each SawType-valued field once.
-    Walks any dataclass node (AST nodes, `Parameter`, `Argument`, `StructField`,
-    …) but treats a `SawType` itself as a leaf (handled by `_subst_ast_value`).
+    `SawType.substitute(type_map)` (design 70). `SawType.substitute` recurses
+    through nested type structure, so this walker only has to reach each
+    SawType-valued field once. Walks any dataclass node (AST nodes,
+    `Parameter`, `Argument`, `StructField`, …) but treats a `SawType` itself as
+    a leaf (handled by `_subst_ast_value`).
 
-    ENTRY POINTS — every splice path (obligation 1; the same four
-    `_home_module_scope` names): `_build_fn_mono`, `_splice_fn_mono`,
-    `_build_method_mono`, `_build_generic_struct_method_mono`.
+    ENTRY POINT — exactly one, since design 218c Amendment A2(a) took the four
+    CLONE paths away: building an instance is `mono_copy.substituting_copy`,
+    which copies and substitutes in ONE pass instead of deep-copying a whole
+    template and then rewriting the copy. What is left is the caller that
+    substitutes a subtree it ALREADY owns — `_build_generic_struct_method_mono`'s
+    post-check re-stamp, which runs over the checked clone because
+    `_resolve_type` leaves a `self`-field read abstract and the frame layout
+    needs the concrete type. A caller that wants a CLONE must not reach here:
+    two walks over one subtree is what A2(a) removed.
     """
     from ast_nodes import SawType, FunctionCall
     if not dataclasses.is_dataclass(node) or isinstance(node, (SawType, type)):
         return
     # DF-285a: a type parameter is not always spelled as a TYPE. `A()` — design
-    # 37's zero-sized allocator construction, which `Vector._reserve` and
-    # `Box.make` are written around — spells one in CALL-NAME position, and a
-    # call's name is a `str`, so the loop below cannot reach it however
-    # completely it walks. The clone then names a function that does not exist,
-    # and stage 2 (which stopped deleting an instance's diagnostics) turned that
-    # into a refusal of a legal program.
+    # 37's zero-sized allocator construction — spells one in CALL-NAME position,
+    # and a call's name is a `str`, so the loop below cannot reach it however
+    # completely it walks. ONE definition of that rewrite, in `mono_copy`, where
+    # the copier applies it as it builds the node.
     if isinstance(node, FunctionCall):
-        _substitute_constructed_type_param(node, type_map)
+        substitute_constructed_type_param(node, type_map)
     # NOTE (design 126 R1): this deliberately walks `dataclasses.fields()`, not
     # `structural_fields()`. The typechecker's annotations carry SawTypes too, and
     # monomorphization must substitute those as well -- while they were runtime
     # grafts this walker could not see them at all.
     for f in dataclasses.fields(node):
         setattr(node, f.name, _subst_ast_value(getattr(node, f.name), type_map))
-
-
-def _substitute_constructed_type_param(call, type_map):
-    """`A()` in a template becomes `GlobalAllocator()` in the instance (DF-285a).
-
-    THE POSITION MATRIX (obligation 4). A type parameter can be written outside
-    a type annotation in exactly one place the language accepts: the zero-
-    argument construction `A()`, checked by `_check_function_call`'s type-param
-    arm, whose whole reason for existing is design 37's allocator model. The two
-    neighbouring spellings were probed and are refused ABSTRACTLY, in the
-    template, on this tree and on main alike — `M.seed()` (a static call on a
-    parameter) reports ``undefined variable `M` `` with no instantiation
-    involved, and so does an enum-case spelling — so there is no second position
-    for this mechanism to hide in.
-
-    Rewriting the NAME (rather than teaching the instance check to accept the
-    parameter's spelling) is what makes the clone an ordinary concrete program:
-    `_check_function_call` then takes its struct-construction branch, stamps
-    `resolved_type_identity`, and codegen lowers the instance exactly as it
-    lowers a hand-written `GlobalAllocator()`.
-
-    A construction takes no arguments (the checker refuses `A(1)` at the
-    template), so the argument test keeps a same-named ordinary call — which
-    the checker would have resolved to the function, function lookup coming
-    first — out of the rewrite.
-    """
-    from ast_nodes import TypeKind
-    if call.arguments:
-        return
-    bound = type_map.get(call.name)
-    if bound is None:
-        return
-    concrete = None
-    if bound.kind == TypeKind.STRUCT:
-        concrete = bound.struct_name
-    elif bound.kind == TypeKind.ENUM:
-        concrete = bound.enum_name
-    if concrete:
-        call.name = concrete
 
 
 def _subst_ast_value(val, type_map):
@@ -676,7 +641,6 @@ class EffectsMixin:
         `__recv: UnsafePointer<Holder<Int>>` from it. The re-check stamps the
         resolved (concrete) types the frame builder consumes. Errors suppressed
         (effect / annotation harvest only)."""
-        import copy
         key = (struct_name, mono_name)
         recv_type, existing = self._driven_generic_struct_methods.get(key, (None, None))
         if existing is not None:
@@ -687,14 +651,13 @@ class EffectsMixin:
         pristine, ext = entry
         struct_tps = ext.type_params or []
         method_tps = getattr(pristine, 'type_params', None) or []
-        clone = copy.deepcopy(pristine)
         # Combined substitution: the struct's type params (T->Int, for `self`'s
         # fields) plus the method's own type params (U->Bool, for its params/locals).
         type_map = {tp.name: arg for tp, arg in zip(struct_tps, resolved_args)}
         type_map.update({tp.name: arg for tp, arg in zip(method_tps, method_args)})
         self._add_associated_type_bindings(type_map, struct_tps, resolved_args)
         self._add_associated_type_bindings(type_map, method_tps, method_args)
-        substitute_ast_types(clone, type_map)
+        clone = substituting_copy(pristine, type_map)
         clone.name = mono_name
         clone.type_params = []
         clone.is_mono_instance = True
@@ -803,7 +766,6 @@ class EffectsMixin:
         double-defines it). `splice=False` (an effect-polymorphic plain call) only
         creates the effect node: the instantiation stays codegen's job (from the
         template), so the clone must NOT be left in the AST / namespace."""
-        import copy
         if ("fn", mangled) in self._suspend_nodes:
             return False  # effect node already built (a prior pass / dual role)
         if splice and self.namespace.has_function(mangled):
@@ -813,12 +775,11 @@ class EffectsMixin:
             # Cross-module generic template: not supported for effect re-inference
             # here (design 68 territory). Leave conservative; codegen still works.
             return False
-        clone = copy.deepcopy(pristine)
         type_map = {tp.name: arg
                     for tp, arg in zip(pristine.type_params, resolved_args)}
         self._add_associated_type_bindings(type_map, pristine.type_params,
                                            resolved_args)
-        substitute_ast_types(clone, type_map)
+        clone = substituting_copy(pristine, type_map)
         clone.name = mangled
         clone.type_params = []
         clone.mangled_symbol = None
@@ -883,18 +844,16 @@ class EffectsMixin:
         during checking) — re-checking just re-stamps types and re-adds edges
         (harmless post-fixpoint). Returns False if the template isn't in this module
         (cross-module is shape 4) or the symbol is already present."""
-        import copy
         if self.namespace.has_function(mangled):
             return False
         pristine = self._pristine_generics.get(template_name)
         if pristine is None:
             return False
-        clone = copy.deepcopy(pristine)
         type_map = {tp.name: arg
                     for tp, arg in zip(pristine.type_params, resolved_args)}
         self._add_associated_type_bindings(type_map, pristine.type_params,
                                            resolved_args)
-        substitute_ast_types(clone, type_map)
+        clone = substituting_copy(pristine, type_map)
         clone.name = mangled
         clone.type_params = []
         clone.mangled_symbol = None
@@ -936,7 +895,6 @@ class EffectsMixin:
         coroutine transform's Part-0c method driving finds it; re-checking stamps
         the resolved types the frame builder consumes. Errors suppressed (effect /
         annotation harvest only)."""
-        import copy
         entry = self._pristine_generic_methods.get((struct_name, method_name))
         if entry is None:
             return False
@@ -944,12 +902,11 @@ class EffectsMixin:
         # Already materialized on the extension (a prior pass / re-entry).
         if any(getattr(m, 'name', None) == mono_name for m in ext.methods):
             return False
-        clone = copy.deepcopy(pristine)
         type_map = {tp.name: arg
                     for tp, arg in zip(pristine.type_params, resolved_args)}
         self._add_associated_type_bindings(type_map, pristine.type_params,
                                            resolved_args)
-        substitute_ast_types(clone, type_map)
+        clone = substituting_copy(pristine, type_map)
         clone.name = mono_name
         clone.type_params = []
         clone.is_mono_instance = True

@@ -1687,7 +1687,8 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
     # singleton's plumbing — that demand instances the pre-transform AST never
     # named.
     from monomorphize import run_monomorphization
-    mono = run_monomorphization(merged_ast, merged_ns, reporter, verbose)
+    mono = run_monomorphization(merged_ast, merged_ns, reporter, verbose,
+                                typechecker=typechecker)
     if reporter.has_errors():
         reporter.print_all()
         sys.exit(1)
