@@ -330,6 +330,16 @@ class EffectsMixin:
         # template, keyed by name, so an instantiation can be cloned + substituted
         # + re-checked to get its OWN effect node keyed by the mangled symbol.
         self._pristine_generics: Dict[str, Any] = {}
+        # Amendment A1 (DF-285b): the same three stores for STD's templates,
+        # captured by the SEPARATE typechecker inside `build_builtin_namespace`
+        # and handed over with its cached namespace. Kept apart from the three
+        # above because they belong to two different compiles — see the union
+        # lookups `pristine_generic` / `pristine_generic_method` /
+        # `pristine_generic_struct_method` in `core.py`, which are how anything
+        # reads the store as one.
+        self._std_pristine_generics: Dict[str, Any] = {}
+        self._std_pristine_generic_methods: Dict[Any, Any] = {}
+        self._std_pristine_generic_struct_methods: Dict[Any, Any] = {}
         # Queued instantiation builds: list of (template_name, resolved_type_args,
         # mangled). Driven / spawned / method-generic roots queue eagerly (the
         # mangled name is needed at the site to rewrite the call); the build (clone

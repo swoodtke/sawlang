@@ -535,6 +535,23 @@ def build_builtin_namespace(verbose: bool = False, freestanding: bool = False,
 
     builtin_ns = builtin_tc.namespace
 
+    # Design 218c Amendment A1 (DF-285b): the TEMPLATE STORE and the per-file
+    # MODULE SCOPES std's own check just built, carried on the namespace so they
+    # ride the std cache. The entry compile never sees this typechecker — std
+    # bodies are checked exactly once, here — so without the handover the
+    # pristine store §1c/§4 write the instance check against is empty for the
+    # library that supplies almost every instance.
+    #
+    # ON THE NAMESPACE and not beside it, deliberately: `stdcache` pickles the
+    # `(builtin_ast, builtin_ns)` pair as ONE blob because the two SHARE
+    # `SawType` objects by identity, and the module scopes hold this very
+    # namespace. A second blob would restore a graph that no longer aliases.
+    builtin_ns._std_pristine_generics = builtin_tc._pristine_generics
+    builtin_ns._std_pristine_generic_methods = builtin_tc._pristine_generic_methods
+    builtin_ns._std_pristine_generic_struct_methods = (
+        builtin_tc._pristine_generic_struct_methods)
+    builtin_ns._std_module_scope_by_file = builtin_tc._module_scope_by_file
+
     # design 82 Part B: build the (std-file -> {symbol names}) map from the AST's
     # source_file provenance, so an `import std.<module>` can re-expose exactly
     # that module's symbols and the "did you mean import" hint can name the owner.
@@ -1427,6 +1444,19 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
     # reference to a non-prelude std symbol errors with a "did you mean import"
     # hint instead of resolving silently.
     typechecker._std_symbol_file = getattr(builtin_ns, '_std_symbol_file', {})
+    # Design 218c Amendment A1: std's half of the union template store, plus the
+    # home module scope each std file was checked in. Both were built by the
+    # builtin typechecker (which this compile never sees) and restored with the
+    # cached namespace, so the cost is one cache build rather than one compile.
+    # Read through `pristine_generic*` / `_module_scope_for_file`.
+    typechecker._std_pristine_generics = getattr(
+        builtin_ns, '_std_pristine_generics', {})
+    typechecker._std_pristine_generic_methods = getattr(
+        builtin_ns, '_std_pristine_generic_methods', {})
+    typechecker._std_pristine_generic_struct_methods = getattr(
+        builtin_ns, '_std_pristine_generic_struct_methods', {})
+    typechecker._std_module_scope_by_file = getattr(
+        builtin_ns, '_std_module_scope_by_file', {})
     # design 249: which MODULES declare each free-function name, taken over the
     # parsed module set (entry included) before the first module is checked, so
     # a name two modules own gets a per-module codegen symbol whichever order

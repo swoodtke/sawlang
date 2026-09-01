@@ -577,6 +577,10 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # GENERIC instantiation gets re-checked where its template was written
         # instead of where the call that reached it was.
         self._module_scope_by_file: Dict[str, Tuple[Tuple[str, ...], Any]] = {}
+        # Amendment A1 (DF-285b): the same map for STD's files, recorded by the
+        # builtin typechecker's own `check` and handed over with its cached
+        # namespace. Read through `_module_scope_for_file`, never directly.
+        self._std_module_scope_by_file: Dict[str, Tuple[Tuple[str, ...], Any]] = {}
         # …and the design-142 direct imports each module was checked with, which
         # `Namespace` does not carry. Same lifetime, same reader.
         self._direct_imports_by_module: Dict[Tuple[str, ...], Set[Tuple[str, ...]]] = {}
@@ -829,6 +833,118 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         for arg in type_map.values():
             lend(arg)
 
+    # ------------------------------------------------------------------ #
+    # THE TEMPLATE STORE — the capture funnel (design 218c T1 / Amendment A1,
+    # obligation 1).
+    #
+    # A generic template is snapshotted PRISTINE — before any body check has
+    # mutated an annotation — because that is the artifact §4's
+    # "invalidation: none" argument is written about: nothing edits a template
+    # after capture, so an instance cloned from one is reproducible and every
+    # cache hit stays valid.
+    #
+    # ENTRY POINTS — every path that checks a whole unit's bodies:
+    #   * `check_module` — the entry file and every user module it imports,
+    #     called once per module by the entry typechecker.
+    #   * `check` — the whole-program path, which is what STD goes through.
+    #     std's bodies are checked exactly once, by the separate typechecker
+    #     inside `build_builtin_namespace`, and its result is cached; before
+    #     Amendment A1 that typechecker took no snapshot at all, so the store
+    #     an entry compile inherited was EMPTY for the library that supplies
+    #     almost every instance (DF-285b: 0/0/0 against 111 demanded
+    #     instances on `hello.saw`).
+    # ------------------------------------------------------------------ #
+    def _capture_pristine_templates(self, module_ast) -> None:
+        """Snapshot every generic template in `module_ast`, pre-body-check."""
+        # design 70 (A5): pristine (pre-body-check) copies of every generic
+        # function template, so a suspending instantiation can be cloned +
+        # substituted + re-checked for per-instantiation effect inference.
+        import copy as _copy
+        for func in module_ast.functions:
+            if getattr(func, 'type_params', None) and not getattr(
+                    func, 'is_mono_instance', False):
+                # Design 105: a generic OVERLOAD carries a distinct `$OL$` base
+                # symbol; key its pristine template by that so two overloads of
+                # one name don't collide (a lone generic keeps its plain-name
+                # key).
+                key = getattr(func, 'mangled_symbol', None) or func.name
+                self._pristine_generics[key] = _copy.deepcopy(func)
+        # Method-level generic methods on a NON-generic extension: pristine
+        # snapshot keyed by (struct, method), with the owning extension
+        # (design 70).
+        for ext in module_ast.extensions:
+            if getattr(ext, 'type_params', None):
+                # design 74 (A5-rest, shape 2): an extension on a GENERIC struct
+                # (`extension Holder<T>`). Snapshot every method (not just
+                # method-level generics): driving `__saw_drive(b.run())` for a
+                # concrete receiver `Holder<Int>` monomorphizes the method over
+                # the STRUCT's type params so the coroutine frame's `__recv`
+                # gets a concrete layout. Keyed by (struct, method); the ext
+                # carries the struct's type params for substitution.
+                for m in ext.methods:
+                    if not getattr(m, 'is_mono_instance', False):
+                        self._pristine_generic_struct_methods[
+                            (ext.struct_name, m.name)] = (_copy.deepcopy(m), ext)
+                continue
+            for m in ext.methods:
+                if getattr(m, 'type_params', None) and not getattr(
+                        m, 'is_mono_instance', False):
+                    self._pristine_generic_methods[(ext.struct_name, m.name)] = (
+                        _copy.deepcopy(m), ext)
+
+    # ---------------------------------------------------------------- #
+    # THE UNION STORE (Amendment A1). The entry typechecker's own
+    # `_pristine_*` dicts hold the templates IT checked; the `_std_pristine_*`
+    # dicts hold the ones the builtin typechecker checked, handed over with the
+    # cached `(builtin_ast, builtin_ns)` pair. Two dicts and not one because
+    # the two capture points belong to two different compiles: a std template
+    # is snapshotted once per CACHE BUILD, an entry template once per compile,
+    # and merging them would make the existing design-70/74 builders — which
+    # decline a template with no pristine copy, and have never covered a std
+    # generic (`_build_fn_mono`'s "design 68 territory" comment) — silently
+    # start serving std. Widening THAT is stage 3c's cutover, not the store's.
+    # Reads go through these three lookups, entry first.
+    # ---------------------------------------------------------------- #
+    def pristine_generic(self, key):
+        """The pristine template for a generic free function, or None."""
+        found = self._pristine_generics.get(key)
+        if found is None:
+            found = self._std_pristine_generics.get(key)
+        return found
+
+    def pristine_generic_method(self, struct_name, method_name):
+        """(Method, Extension) for a method-level generic on a non-generic
+        extension, or None."""
+        found = self._pristine_generic_methods.get((struct_name, method_name))
+        if found is None:
+            found = self._std_pristine_generic_methods.get(
+                (struct_name, method_name))
+        return found
+
+    def pristine_generic_struct_method(self, struct_name, method_name):
+        """(Method, Extension) for a method on a GENERIC struct's extension, or
+        None."""
+        found = self._pristine_generic_struct_methods.get(
+            (struct_name, method_name))
+        if found is None:
+            found = self._std_pristine_generic_struct_methods.get(
+                (struct_name, method_name))
+        return found
+
+    def _module_scope_for_file(self, source_file):
+        """The (module path, namespace) a declaration's FILE was checked in.
+
+        The union of the entry compile's own record and std's, for the reason
+        the template store is a union — see above. Returns None for a file
+        neither compile placed (a single-file compile, a synthesized clone with
+        no source)."""
+        if not source_file:
+            return None
+        entry = self._module_scope_by_file.get(source_file)
+        if entry is None:
+            entry = self._std_module_scope_by_file.get(source_file)
+        return entry
+
     @contextmanager
     def _home_module_scope(self, decl, type_map=None):
         """Check `decl` under the scope of the module that DECLARED it.
@@ -859,11 +975,13 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             struct (design 74 shape 2)
 
         A declaration whose file was never recorded — a single-file compile, a
-        std template, a synthesized clone with no source — falls back to the
-        current scope, which is what every one of these did before.
+        synthesized clone with no source — falls back to the current scope,
+        which is what every one of these did before. A STD template used to
+        land in that fallback too; Amendment A1 gave the builtin typechecker
+        the same per-file record, so `_module_scope_for_file` answers for a std
+        file as it answers for a user module's.
         """
-        src = getattr(decl, 'source_file', None)
-        entry = self._module_scope_by_file.get(src) if src else None
+        entry = self._module_scope_for_file(getattr(decl, 'source_file', None))
         if entry is None:
             with self._declaring(decl):
                 yield
@@ -2988,6 +3106,24 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             )
         self._check_main_return_type(program)
 
+        # Amendment A1 (DF-285b): the two capture points `check_module` has,
+        # here too — because THIS is the path std goes through, and stage 3's
+        # instance check needs a pristine template to clone and the template's
+        # home module scope to check the clone in. Both are cheap enough to pay
+        # here precisely because `build_builtin_namespace`'s result is cached:
+        # the snapshot is taken once per cache BUILD and restored by
+        # `pickle.loads` on every compile after it.
+        self._capture_pristine_templates(program)
+        # Design 82 makes each std FILE its own module, and
+        # `_vis_module_for_source` is already the authority on which — so the
+        # per-file record is that answer paired with the namespace these bodies
+        # are about to be checked in. Recorded BEFORE the body checks for the
+        # same reason the snapshot is: nothing in the loops below may observe a
+        # half-filled store.
+        for _src in _module_source_files(program):
+            self._module_scope_by_file[_src] = (
+                self._vis_module_for_source(_src), self.namespace)
+
         # Seventh pass: type check function bodies
         for func in program.functions:
             self._check_function(func)
@@ -3951,39 +4087,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # Enable import checking for this module
         ns.enable_import_checking()
 
-        # design 70 (A5): snapshot pristine (pre-body-check) copies of every
-        # generic function template, so a suspending instantiation can be cloned +
-        # substituted + re-checked for per-instantiation effect inference.
-        import copy as _copy
-        for func in module_ast.functions:
-            if getattr(func, 'type_params', None) and not getattr(
-                    func, 'is_mono_instance', False):
-                # Design 105: a generic OVERLOAD carries a distinct `$OL$` base
-                # symbol; key its pristine template by that so two overloads of one
-                # name don't collide (a lone generic keeps its plain-name key).
-                key = getattr(func, 'mangled_symbol', None) or func.name
-                self._pristine_generics[key] = _copy.deepcopy(func)
-        # Method-level generic methods on a NON-generic extension: pristine snapshot
-        # keyed by (struct, method), with the owning extension (design 70).
-        for ext in module_ast.extensions:
-            if getattr(ext, 'type_params', None):
-                # design 74 (A5-rest, shape 2): an extension on a GENERIC struct
-                # (`extension Holder<T>`). Snapshot every method (not just
-                # method-level generics): driving `__saw_drive(b.run())` for a concrete
-                # receiver `Holder<Int>` monomorphizes the method over the STRUCT's
-                # type params so the coroutine frame's `__recv` gets a concrete
-                # layout. Keyed by (struct, method); the ext carries the struct's
-                # type params for substitution.
-                for m in ext.methods:
-                    if not getattr(m, 'is_mono_instance', False):
-                        self._pristine_generic_struct_methods[
-                            (ext.struct_name, m.name)] = (_copy.deepcopy(m), ext)
-                continue
-            for m in ext.methods:
-                if getattr(m, 'type_params', None) and not getattr(
-                        m, 'is_mono_instance', False):
-                    self._pristine_generic_methods[(ext.struct_name, m.name)] = (
-                        _copy.deepcopy(m), ext)
+        self._capture_pristine_templates(module_ast)
 
         # Type check function bodies
         for func in module_ast.functions:
