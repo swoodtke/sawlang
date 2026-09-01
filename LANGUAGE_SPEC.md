@@ -1451,6 +1451,23 @@ Generic code stays instantiation-uniform: a body that type-checks generically
 compiles for every instantiation, `Void` included, so no call site can produce
 an error the definition did not.
 
+**Instantiation depth is bounded (64 per chain).** A generic that instantiates
+ITSELF at a bigger type argument — `deepen<T>` calling `deepen<Wrap<T>>` — has
+no finite set of instantiations, and a runtime condition guarding the recursion
+decides nothing about which instantiations exist. The compiler refuses it at the
+demanding call site, naming the chain:
+
+```
+error: instantiation of `Wrap<Wrap<Wrap<Wrap<…>>>>` exceeds the instantiation
+depth limit (64): deepen<Int> → deepen<Wrap<Int>> → … → Wrap<Wrap<Wrap<…>>>
+```
+
+The limit is per CHAIN, not a cap on how many instantiations a program has, so
+wide-but-shallow programs are untouched; the deepest legitimate chain in the
+compiler's own corpus is single digits. Break the recursion by putting the
+growing part behind a `Box`, or by making the recursive call non-generic. It
+refuses only programs the compiler could not finish anyway.
+
 ### Structs
 
 ```saw

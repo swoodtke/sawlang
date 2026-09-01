@@ -1580,7 +1580,9 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
     # design 121 `--emit-docs`: the program is type-checked, which is all
     # documentation needs. Hand the caller the checked ASTs plus the namespaces
     # and stop here — before the coroutine transform, so the documented AST is
-    # the one the author wrote rather than its frame-struct rewrite.
+    # the one the author wrote rather than its frame-struct rewrite. The docs
+    # emitter reads TEMPLATES, never instances (218c's consumer sweep), so the
+    # monomorphization phase below is invisible to it.
     if docs_out is not None:
         docs_out.update({
             'entry_ast': entry_ast,
@@ -1631,6 +1633,34 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
         if reporter.has_errors():
             reporter.print_all()
             sys.exit(1)
+
+    # =========================================================================
+    # Phase 5.5: MONOMORPHIZATION (design 218 unit 1.5)
+    # =========================================================================
+    # The demand-driven instance fixpoint, over the merged program and the
+    # merged namespace — the same two artifacts codegen sees, which is what
+    # lets the registry and codegen agree about what an instance IS.
+    #
+    # PLACEMENT, and the one reconciliation with 218c's phase table. The spec
+    # numbers this phase 2 and place lowering phase 4, which is the LOGICAL
+    # order; the driver's place lowering is not a pass but a RE-ENTRY — it
+    # rewrites, then re-runs this whole front half and throws the first run's
+    # conclusions away — so a fixpoint above it would be computed twice per
+    # compile and the first result discarded. Sitting here it runs once per
+    # SETTLED front half, which is the same AST the spec's phase 2 describes,
+    # and it still precedes the coroutine transform, which is the ordering
+    # stages 3 and 4 actually rest on. (218c section 5's remedy list opens with
+    # "verify the re-check is not being run twice"; this is that, for the walk.)
+    #
+    # The post-transform re-entry runs it again, which IS the spec's phase 6:
+    # the transform synthesizes declarations — spawn helpers, the background
+    # singleton's plumbing — that demand instances the pre-transform AST never
+    # named.
+    from monomorphize import run_monomorphization
+    mono = run_monomorphization(merged_ast, merged_ns, reporter, verbose)
+    if reporter.has_errors():
+        reporter.print_all()
+        sys.exit(1)
 
     # design 44: the source-level coroutine transform. If the program drove any
     # suspending function (`__saw_drive(...)` recorded roots during the effect
@@ -1706,6 +1736,10 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
                             runtime_build=runtime_build,
                             target_features=target_features,
                             strip_unreachable=whole_program)
+    # design 218 unit 1.5 stage 1: the registry rides along in SHADOW mode —
+    # codegen still decides, and every decision is checked against the fixpoint
+    # on the way past. Stage 3 turns the check into the lookup.
+    codegen.mono_registry = mono
     return codegen, merged_ast
 
 

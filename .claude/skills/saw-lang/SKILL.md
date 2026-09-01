@@ -1535,6 +1535,21 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   writable — `StringBuilder.append` needs both. A bare literal's WIDTH stays
   flexible, so `h(Int)` vs `h(Int8)` called `h(5)` is still ambiguous (write
   `h(5i8)`).
+- **INSTANTIATION DEPTH IS BOUNDED — 64 per CHAIN (design 218 unit 1.5).** A
+  generic that instantiates ITSELF at a bigger type argument has no finite
+  instance set, and the runtime condition you wrote to stop the recursion
+  decides nothing about which instantiations exist:
+  ```saw
+  func deepen<T>(x: T, n: Int) -> Int {
+      if n <= 0 { return 0 }
+      deepen(Wrap<T>(inner: x), n - 1)   // error: exceeds the instantiation
+  }                                      //   depth limit (64): deepen<Int> → …
+  ```
+  Put the growing part behind a `Box`, or make the recursive call non-generic.
+  Per CHAIN, not a cap on how many instantiations a program has, so wide code is
+  untouched (the compiler's own corpus is single digits deep). It refuses only
+  what could not compile anyway: before the limit landed this HUNG the compiler
+  (DF-258b), so an older build gives no diagnostic at all.
 - **CONST GENERICS: a parameter that carries a VALUE (design 148).** `const` in
   the parameter position is what keeps it visually distinct from a bounded type
   param — and `<N: Int>`, the natural guess, is now a clean error pointing at

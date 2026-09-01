@@ -289,6 +289,14 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # resolves owning fields (e.g. Map's `slots: Vector<..., A>`) through the
         # value's OWN allocator `A`, not a default.
         self.mono_struct_args: dict = {}
+        # design 218 unit 1.5: the monomorphization phase's INSTANCE REGISTRY,
+        # attached by `sawc._prepare_codegen` after the fixpoint has run. None
+        # for a code generator nobody ran the phase for (the builtin compile, a
+        # tool). Stage 1 uses it in SHADOW mode — `_mono_shadow` compares every
+        # instantiation codegen decides on against it; stage 3 turns the
+        # comparison into the lookup and a miss into an ICE, which is the
+        # standing decides-vs-lowers gate.
+        self.mono_registry = None
 
         # Enum types (name -> (LLVM type, variant_tags, variant_info))
         # variant_tags: dict[variant_name, tag_value]

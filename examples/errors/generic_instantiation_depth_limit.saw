@@ -1,0 +1,34 @@
+// design 218 unit 1.5, spec section 1d — the instantiation DEPTH LIMIT, and
+// DF-258b's refusal.
+//
+// `deepen<T>` instantiates ITSELF at `Wrap<T>`, so its instance set is
+// infinite: `deepen<Int>`, `deepen<Wrap<Int>>`, `deepen<Wrap<Wrap<Int>>>`, on
+// forever. The `n <= 0` guard is a RUNTIME condition and decides nothing about
+// which instances exist.
+//
+// Nothing counted before this, because nothing decided the instance set as a
+// whole — codegen discovered instances lazily, one at a time, so there was no
+// place a chain length existed to be bounded. The compiler did not finish:
+// >120 s and killed when DF-258b was filed, an `internal compiler error …
+// maximum recursion depth exceeded` today, which is Python's own limit
+// arriving first. A hang cannot sit in the corpus as an XFAIL, so the refusal
+// ships with the fix rather than a pin preceding it.
+//
+// The limit is per CHAIN (64), not a global instance cap, so a program with
+// thousands of shallow instantiations is untouched — and it refuses only what
+// could not compile anyway.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exceeds the instantiation depth limit (64)
+// EXPECT-ERROR-CONTAINS: deepen<Int> → deepen<Wrap<Int>>
+// EXPECT-ERROR-CONTAINS: has no finite instance set
+
+struct Wrap<T> { inner: T }
+
+func deepen<T>(x: T, n: Int) -> Int {
+    if n <= 0 { return 0 }
+    deepen(Wrap<T>(inner: x), n - 1)
+}
+
+func main() {
+    print(deepen(1, 5))
+}

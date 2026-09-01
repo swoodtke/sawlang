@@ -18,6 +18,10 @@ from ast_nodes import (
     specialization_key, ext_param_aliases
 )
 from .mangle import mangle_function, mangle_named, mangle_method
+from mono_identity import (
+    CodegenIdentityEnv, canonicalize_type_kind, fill_default_type_args,
+    mark_stored_closure_escaping,
+)
 
 
 class GenericsMixin:
@@ -53,6 +57,7 @@ class GenericsMixin:
             raise ValueError(f"Unknown generic function: {func_name}")
 
         mangled_name = self._mangle_generic_name(func_name, type_args)
+        self._mono_shadow(mangled_name, "generic function", func_name)
 
         # Check if already instantiated
         if mangled_name in self.generated_instantiations:
@@ -129,30 +134,50 @@ class GenericsMixin:
         """
         return mangle_method(struct_name, method_name, param_names, method_type_args)
 
-    def _fill_default_type_args(self, base_name: str, type_args: List[SawType]) -> List[SawType]:
-        """Design 37 — append declared defaults for omitted trailing type args,
-        the codegen twin of the typechecker's identity rule.
+    def _mono_shadow(self, key: str, what: str, demander: str):
+        """design 218 unit 1.5 stage 1 — the registry-completeness proof.
 
-        The typechecker canonicalizes most types to their fully-applied form,
-        but codegen also derives struct identities from raw AST annotations and
-        substituted field/return types, so it must fill here too. This is the
-        chokepoint: because every mangling and monomorphization of a named type
-        funnels through the functions that call this, `Vector<Int>` and
-        `Vector<Int, Global>` produce ONE mangled name and ONE monomorphized
-        struct — the miscompile-class dual-identity hazard is closed. Idempotent:
-        already-full argument lists pass through unchanged.
+        Every codegen site that DECIDES an instantiation reports the identity
+        it decided on. Stage 1 only compares; stage 3 makes the comparison the
+        lookup and a miss an ICE, which is the standing decides-vs-lowers gate.
+        A no-op when no registry is attached (the builtin compile, a code
+        generator built by a tool).
         """
-        decl = self.generic_structs.get(base_name) or self.generic_enums.get(base_name)
-        params = getattr(decl, 'type_params', None) if decl is not None else None
-        if not params or len(type_args) >= len(params):
-            return type_args
-        filled = list(type_args)
-        for i in range(len(type_args), len(params)):
-            default = getattr(params[i], 'default', None)
-            if default is None:
-                break
-            filled.append(self._substitute_saw_type(default, self.type_param_context))
-        return filled
+        registry = getattr(self, 'mono_registry', None)
+        if registry is None:
+            return
+        # The LLVM function under construction, which is the body whose
+        # lowering raised the demand — the one piece of context a miss report
+        # cannot be read without.
+        builder = getattr(self, 'builder', None)
+        block = getattr(builder, 'block', None) if builder is not None else None
+        inside = getattr(getattr(block, 'parent', None), 'name', None)
+        registry.shadow(key, what, f"{demander} (in {inside or '<registration>'})")
+
+    @property
+    def _identity_env(self):
+        """This code generator, seen as a `mono_identity.IdentityEnv`.
+
+        Built once and cached; it reads `generic_structs` / `generic_enums` /
+        `enum_types` / `type_param_context` LIVE, so the cache is safe.
+        """
+        env = getattr(self, '_identity_env_cache', None)
+        if env is None:
+            env = CodegenIdentityEnv(self)
+            self._identity_env_cache = env
+        return env
+
+    def _fill_default_type_args(self, base_name: str, type_args: List[SawType]) -> List[SawType]:
+        """Design 37 — append declared defaults for omitted trailing type args.
+
+        The rule and its rationale live in `mono_identity`, which the
+        monomorphization phase calls too: design 218 unit 1.5 makes that phase
+        DECIDE the instance set and leaves codegen only looking instances up,
+        so the two would answer "what is this instance" separately if the
+        answer lived here. This method survives because it has many call sites
+        and reads better as one.
+        """
+        return fill_default_type_args(self._identity_env, base_name, type_args)
 
     def _mangle_generic_struct_name(self, base_name: str, type_args: List[SawType]) -> str:
         """Generate mangled name for a generic struct/enum monomorphization.
@@ -224,132 +249,18 @@ class GenericsMixin:
             return saw_type
 
     def _canonicalize_type_kind(self, saw_type: SawType) -> SawType:
-        """Re-tag a type whose *kind* was left STRUCT but whose name actually
-        denotes an ENUM (design 61, L14).
+        """Re-tag a STRUCT-kinded name that denotes an ENUM (design 61 L14) and
+        normalize an erased box to arity 1 (design 51).
 
-        A named type written in source (`Slot`, `MapSlot<K, V>`) is parsed as a
-        STRUCT-kinded `SawType` because the parser cannot know it is an enum. The
-        typechecker's `_resolve_type` rewrites such annotations to ENUM, but it
-        does NOT recurse through POINTER/ARRAY inner types, so a concrete type
-        argument that reaches codegen as a monomorphization binding (e.g. the `T`
-        of `Vector<Slot>`) can still be STRUCT-kinded. That wrong tag flows into
-        the monomorphization CONTEXT and then, via `_expr_type`, into the
-        drop-glue kind switch (`_emit_drop_at`), which selects struct field
-        cleanup instead of enum tag-switch cleanup — so owning enum payloads
-        (Map/Set slots, any `Vector<enum>`) never run their deinit.
-
-        Fixing the tag HERE — at the point the monomorphized binding is recorded
-        — keeps the enum an enum through every downstream site (container deinit,
-        remove/overwrite/grow) uniformly, rather than point-patching one cleanup
-        path. Mangling is kind-agnostic for named types (`mangle_named` keys on
-        the bare name), so this never splits or renames a monomorphization.
+        Delegates to `mono_identity`, which the monomorphization phase calls
+        too — see `_fill_default_type_args` for why the answer moved there.
         """
-        if saw_type is None:
-            return saw_type
-        kind = saw_type.kind
-        # An erased `Box<any Trait>` (design 51) never monomorphizes through
-        # box.saw — its layout is a fat pointer and its teardown is vtable-driven
-        # (arity-agnostic: `_emit_erased_box_drop` defaults a missing allocator to
-        # Global). Codegen's native canonical form is the arity-1 `Box<any Trait>`
-        # (the as-written annotation): every container/enum that embeds it is
-        # registered and torn down through this chokepoint at arity-1, so its
-        # element-drop lookups stay stable. The typechecker, however, canonicalizes
-        # `Box<any Trait>` to arity-2 `Box<any Trait, Global>` on expression types,
-        # so a `match`/`try` that mangles a typechecker-stamped `Result<T,
-        # Box<any Error>>` directly would look up the arity-2 name and mangle-miss
-        # the arity-1-registered enum — then the LLVM-type fallback silently selects
-        # a same-sized WRONG monomorphization (design 68, DF6(b)/DF9(c)). Normalize
-        # every erased box DOWN to the codegen-native arity-1 here (dropping a
-        # redundant trailing `Global`, the only default this wrapper has) so the
-        # match/try lookups — routed through this same canonicalizer — agree with
-        # registration. A non-default allocator arg is preserved.
-        if self._is_erased_box(saw_type):
-            targs = saw_type.type_args
-            if (len(targs) == 2 and targs[1].kind == TypeKind.STRUCT
-                    and targs[1].struct_name == "GlobalAllocator"
-                    and not targs[1].type_args):
-                return SawType(TypeKind.STRUCT, struct_name=saw_type.struct_name,
-                               type_args=[targs[0]], symbol=saw_type.symbol)
-            return saw_type
-        if kind == TypeKind.STRUCT and saw_type.struct_name:
-            name = saw_type.struct_name
-            args = ([self._canonicalize_type_kind(a) for a in saw_type.type_args]
-                    if saw_type.type_args else saw_type.type_args)
-            # Fill omitted trailing defaults (design 37) so the canonical identity
-            # matches the monomorphized one — e.g. an annotation `Map<Int, R>`
-            # becomes `Map<Int, R, Global>`, so its deinit lookup resolves.
-            if args:
-                args = self._fill_default_type_args(name, args)
-            if name in self.generic_enums or name in self.enum_types:
-                return SawType(TypeKind.ENUM, enum_name=name, type_args=args,
-                               symbol=saw_type.symbol)
-            if args is not saw_type.type_args:
-                return SawType(TypeKind.STRUCT, struct_name=name, type_args=args,
-                               symbol=saw_type.symbol)
-            return saw_type
-        if kind == TypeKind.ENUM and saw_type.type_args:
-            args = [self._canonicalize_type_kind(a) for a in saw_type.type_args]
-            args = self._fill_default_type_args(saw_type.enum_name, args)
-            return SawType(TypeKind.ENUM, enum_name=saw_type.enum_name,
-                           type_args=args, symbol=saw_type.symbol)
-        if kind == TypeKind.OPTIONAL and saw_type.inner_type:
-            return SawType(TypeKind.OPTIONAL,
-                           inner_type=self._canonicalize_type_kind(saw_type.inner_type))
-        if kind == TypeKind.POINTER and saw_type.inner_type:
-            return SawType(TypeKind.POINTER,
-                           inner_type=self._canonicalize_type_kind(saw_type.inner_type),
-                           pointer_mutable=saw_type.pointer_mutable)
-        if kind == TypeKind.REFERENCE and saw_type.inner_type:
-            return SawType(TypeKind.REFERENCE,
-                           inner_type=self._canonicalize_type_kind(saw_type.inner_type),
-                           reference_mutable=saw_type.reference_mutable)
-        if kind == TypeKind.TUPLE and saw_type.element_types:
-            return SawType(TypeKind.TUPLE,
-                           element_types=[self._canonicalize_type_kind(e)
-                                          for e in saw_type.element_types])
-        if kind == TypeKind.ARRAY and saw_type.array_element_type:
-            return SawType(TypeKind.ARRAY,
-                           array_element_type=self._canonicalize_type_kind(saw_type.array_element_type),
-                           array_size=saw_type.array_size)
-        return saw_type
+        return canonicalize_type_kind(self._identity_env, saw_type)
 
     def _mark_stored_closure_escaping(self, saw_type: SawType) -> SawType:
-        """Mark a function TYPE bound to a container's type parameter as escaping
-        (design 77 item 3).
-
-        A closure stored in a container (a Vector/Map/Set element, an Optional/
-        tuple/array payload of one) is an OWNING value: its refcounted env must be
-        retained on copy and released at teardown. The typechecker stamps the
-        escaping bit on such stored positions, but it is not part of the mangling,
-        so a type arg reconstructed from a mangled monomorphization key arrives
-        with the bit cleared — and then `_needs_cleanup`/the Copy-bound predicate
-        (which gate on `func_is_escaping`) treat the element as non-owning: the env
-        leaks and copies are unbalanced. Restore the bit for the STORED positions.
-        A function type in a genuine parameter role never reaches here (it lives in
-        a method signature, not a container type argument). Returns a fresh SawType
-        so no shared instance is mutated.
-        """
-        if saw_type is None:
-            return saw_type
-        k = saw_type.kind
-        if k == TypeKind.FUNCTION and not saw_type.func_is_escaping:
-            return SawType(TypeKind.FUNCTION, param_types=saw_type.param_types,
-                           func_return_type=saw_type.func_return_type,
-                           func_is_sync=saw_type.func_is_sync,
-                           func_is_unsafe=saw_type.func_is_unsafe,
-                           func_is_escaping=True)
-        if k == TypeKind.OPTIONAL and saw_type.inner_type is not None:
-            return SawType(TypeKind.OPTIONAL,
-                           inner_type=self._mark_stored_closure_escaping(saw_type.inner_type))
-        if k == TypeKind.ARRAY and saw_type.array_element_type is not None:
-            return SawType(TypeKind.ARRAY,
-                           array_element_type=self._mark_stored_closure_escaping(saw_type.array_element_type),
-                           array_size=saw_type.array_size)
-        if k == TypeKind.TUPLE and saw_type.element_types:
-            return SawType(TypeKind.TUPLE,
-                           element_types=[self._mark_stored_closure_escaping(e)
-                                          for e in saw_type.element_types])
-        return saw_type
+        """Mark a function TYPE bound to a container's type parameter as
+        escaping (design 77 item 3). Delegates to `mono_identity`."""
+        return mark_stored_closure_escaping(saw_type)
 
     def _ensure_monomorphized_struct(self, struct_name: str, type_args: List[SawType]) -> str:
         """Ensure a monomorphized version of a generic struct exists.
@@ -371,6 +282,7 @@ class GenericsMixin:
         # element as non-owning and the env leaks / is not retained.
         type_args = [self._mark_stored_closure_escaping(a) for a in type_args]
         mangled_name = self._mangle_generic_struct_name(struct_name, type_args)
+        self._mono_shadow(mangled_name, "generic struct", struct_name)
 
         # Already generated
         if mangled_name in self.struct_types:
@@ -428,6 +340,7 @@ class GenericsMixin:
         # a `MapSlot<K, V>` payload type) so nested enum drop glue is selected.
         type_args = [self._canonicalize_type_kind(a) for a in type_args]
         mangled_name = self._mangle_generic_struct_name(enum_name, type_args)
+        self._mono_shadow(mangled_name, "generic enum", enum_name)
 
         # Already generated
         if mangled_name in self.enum_types:
@@ -792,6 +705,8 @@ class GenericsMixin:
 
         mangled_name = self._mangle_method_name(mangled_struct_name, method_name,
                                                 method_type_args=method_type_args)
+        self._mono_shadow(mangled_name, "generic method",
+                          f"{mangled_struct_name}.{method_name}")
         if mangled_name in self.functions:
             return mangled_name
 

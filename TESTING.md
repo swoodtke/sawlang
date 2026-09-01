@@ -838,6 +838,37 @@ declarations and a runtime's definitions are held to one document.
 **Add a program to `EMBED_CORPUS` whenever a new coroutine embedding shape
 lands.**
 
+## The Monomorphization Shadow (`SAWC_MONO_SHADOW`)
+
+Design 218 unit 1.5 moves the decision of WHICH generic instantiations exist out
+of codegen and into a demand-driven fixpoint that runs before the transforms
+(`sawc/monomorphize.py`). While both pipelines coexist, the registry is proved
+COMPLETE by running beside the old one and comparing: every codegen site that
+decides an instantiation reports the identity it decided on, and a demand the
+fixpoint never discovered is a miss.
+
+```bash
+SAWC_MONO_SHADOW=strict ./.venv/bin/python test_runner.py   # the gate
+SAWC_MONO_SHADOW=1      ./.venv/bin/python sawc/sawc.py f.saw -o /tmp/f
+```
+
+| value | effect |
+|-------|--------|
+| unset | nothing; the phase still runs |
+| `1` | report every miss and keep compiling — a whole-corpus scan collects the demand CLASSES the walk is missing in one pass |
+| `strict` | a miss is an internal compiler error, so the suite fails on it |
+| `dump` | `1`, plus the registry in discovery order |
+| `trace` | `dump`, plus every method-call demand, every extension method walked, and every bounds refusal |
+
+A miss is a demand class the walk failed to enumerate, and it surfaces on the
+first full-suite run rather than as an internal error several stages later. The
+five classes found this way while stage 1 landed — the `Arc`/`Box` payload
+forward, the bare `self` receiver inside an already-instantiated body, a generic
+static on a NON-generic type, a method-level type argument that the identity
+funnel must NOT canonicalize (codegen does not), and the place lowering's
+window-result type argument — are each a row in the walk with a comment naming
+it. **Run the suite under `strict` whenever the walk changes.**
+
 ## Best Practices
 
 ### 1. Always Add Expected Output
