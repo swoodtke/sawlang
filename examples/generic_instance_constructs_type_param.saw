@@ -1,0 +1,57 @@
+// A monomorphized INSTANCE may construct its own type parameter (DF-285a).
+//
+// `A()` — a zero-argument construction of an in-scope type parameter — is the
+// one position where a type parameter is spelled outside a type annotation.
+// Design 37's allocator model is written around it: `Vector._reserve` and
+// `Box.make` both say `A().alloc(...)`.
+//
+// `substitute_ast_types` rewrites SawTypes, and a call's name is a `str`, so
+// the spelling used to survive into a spliced instance verbatim — where it
+// names nothing. While an instance's diagnostics were deleted that was
+// invisible (codegen re-derived the body from the template under
+// `type_param_context`, reading the substituted `resolved_type` rather than
+// the name); design 218 unit 1.5 stage 2 made them real, and this program was
+// refused with `undefined function M` carrying the instantiation note.
+//
+// The spawn is what routes the generic through a SPLICE: a spawn root is
+// cloned, substituted and re-checked as a concrete function before the
+// coroutine transform sees it. The direct call below it takes the ordinary
+// codegen path, so the two together pin both halves.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 8
+// 12
+
+import std.task.*
+
+trait Maker {
+    func value(&self) -> Int
+}
+
+struct Zero { }
+
+extension Zero: Maker {
+    func value(&self) -> Int { return 7 }
+}
+
+struct Ten { }
+
+extension Ten: Maker {
+    func value(&self) -> Int { return 10 }
+}
+
+func viaparam<M: Maker>(n: Int) -> Int {
+    return M().value() + n
+}
+
+func worker() -> Int {
+    yield_now()
+    return viaparam<Zero>(1)
+}
+
+func main() {
+    let t = Task.spawn(worker())
+    print("{}", t.join())
+    print("{}", viaparam<Ten>(2))
+}

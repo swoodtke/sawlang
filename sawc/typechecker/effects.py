@@ -44,16 +44,68 @@ def substitute_ast_types(node, type_map):
     structure, so this walker only has to reach each SawType-valued field once.
     Walks any dataclass node (AST nodes, `Parameter`, `Argument`, `StructField`,
     …) but treats a `SawType` itself as a leaf (handled by `_subst_ast_value`).
+
+    ENTRY POINTS — every splice path (obligation 1; the same four
+    `_home_module_scope` names): `_build_fn_mono`, `_splice_fn_mono`,
+    `_build_method_mono`, `_build_generic_struct_method_mono`.
     """
-    from ast_nodes import SawType
+    from ast_nodes import SawType, FunctionCall
     if not dataclasses.is_dataclass(node) or isinstance(node, (SawType, type)):
         return
+    # DF-285a: a type parameter is not always spelled as a TYPE. `A()` — design
+    # 37's zero-sized allocator construction, which `Vector._reserve` and
+    # `Box.make` are written around — spells one in CALL-NAME position, and a
+    # call's name is a `str`, so the loop below cannot reach it however
+    # completely it walks. The clone then names a function that does not exist,
+    # and stage 2 (which stopped deleting an instance's diagnostics) turned that
+    # into a refusal of a legal program.
+    if isinstance(node, FunctionCall):
+        _substitute_constructed_type_param(node, type_map)
     # NOTE (design 126 R1): this deliberately walks `dataclasses.fields()`, not
     # `structural_fields()`. The typechecker's annotations carry SawTypes too, and
     # monomorphization must substitute those as well -- while they were runtime
     # grafts this walker could not see them at all.
     for f in dataclasses.fields(node):
         setattr(node, f.name, _subst_ast_value(getattr(node, f.name), type_map))
+
+
+def _substitute_constructed_type_param(call, type_map):
+    """`A()` in a template becomes `GlobalAllocator()` in the instance (DF-285a).
+
+    THE POSITION MATRIX (obligation 4). A type parameter can be written outside
+    a type annotation in exactly one place the language accepts: the zero-
+    argument construction `A()`, checked by `_check_function_call`'s type-param
+    arm, whose whole reason for existing is design 37's allocator model. The two
+    neighbouring spellings were probed and are refused ABSTRACTLY, in the
+    template, on this tree and on main alike — `M.seed()` (a static call on a
+    parameter) reports ``undefined variable `M` `` with no instantiation
+    involved, and so does an enum-case spelling — so there is no second position
+    for this mechanism to hide in.
+
+    Rewriting the NAME (rather than teaching the instance check to accept the
+    parameter's spelling) is what makes the clone an ordinary concrete program:
+    `_check_function_call` then takes its struct-construction branch, stamps
+    `resolved_type_identity`, and codegen lowers the instance exactly as it
+    lowers a hand-written `GlobalAllocator()`.
+
+    A construction takes no arguments (the checker refuses `A(1)` at the
+    template), so the argument test keeps a same-named ordinary call — which
+    the checker would have resolved to the function, function lookup coming
+    first — out of the rewrite.
+    """
+    from ast_nodes import TypeKind
+    if call.arguments:
+        return
+    bound = type_map.get(call.name)
+    if bound is None:
+        return
+    concrete = None
+    if bound.kind == TypeKind.STRUCT:
+        concrete = bound.struct_name
+    elif bound.kind == TypeKind.ENUM:
+        concrete = bound.enum_name
+    if concrete:
+        call.name = concrete
 
 
 def _subst_ast_value(val, type_map):
