@@ -189,19 +189,24 @@ the OUTERMOST opener three deep.
   statement/expression — a closed block statement ends the expression; the ICE
   becomes moot and the value-`if` tail spelling is unaffected (it is inside a
   value position, not after a statement).
-- **R3 (DF-172d).** Binary wrap — the third brief has now paid it. RECOMMEND:
-  fix, narrowly — a line ENDING in a binary operator continues (`a +⏎ b`);
-  leading-operator continuation stays refused (it is the ambiguous half —
-  exactly R2's shape). Bless-forever is defensible; decided either way, not
-  inherited.
-- **R4 (N1).** The parser depth limit. RECOMMEND: **256** nesting depth, one
-  funnel counting all recursive-descent entry points, clean error at the
-  construct's OPENER (`nesting exceeds the parser depth limit (256)`), same
-  number enforced in the Saw parser explicitly (its native stack would
-  otherwise pick a different, larger, accidental limit — N11/N12 show nothing
-  downstream catches the overflow). 256 clears every probed real shape by 4x+
-  and the corpus by far more; the limit is contract, so it gates in astdiff's
-  ERROR records like any refusal.
+- **R3 (DF-172d) — RULED as recommended, individually confirmed (user,
+  Sep 1: "the narrow fix seems fine").** A line ENDING in a binary operator
+  continues (`a +⏎ b`); leading-operator continuation stays refused (it is
+  the ambiguous half — exactly R2's shape). The third-sighting postfix face
+  (`.method()` on the line after a `)`) is NOT covered — a leading `.` is
+  the same ambiguous half, and the `let` spelling stays the idiom there.
+- **R4 (N1) — RULED as recommended, individually confirmed (user, Sep 1:
+  "256 sounds good, and is easy to change in both parsers if necessary").**
+  **256** nesting depth, one funnel counting all recursive-descent entry
+  points, clean error at the construct's OPENER (`nesting exceeds the parser
+  depth limit (256)`), same number enforced in the Saw parser explicitly
+  (its native stack would otherwise pick a different, larger, accidental
+  limit — N11/N12 show nothing downstream catches the overflow). 256 clears
+  every probed real shape by 4x+ and the corpus by far more; the limit is
+  contract, so it gates in astdiff's ERROR records like any refusal. Per the
+  user's confirmation note, changeability is part of the design: the limit
+  is ONE named constant per parser, cited by the diagnostic, so a future
+  re-ruling is a two-line change plus the limit/limit+1 pins.
 - **R5 (N2).** RECOMMEND the principle: **spelling never depends on
   whitespace**; the grammar detail (re-splitting `??` after a type in a cast
   target, and whether `as Int??` gains a meaning or a tailored refusal) is
