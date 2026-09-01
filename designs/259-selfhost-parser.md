@@ -301,3 +301,48 @@ U0/U1 are compiler dispatches (serialize with the queue); U2–U5 are
 - Perf: no bar in v1 — correctness first; measure once parsediff is green.
 - The typechecker-port rung repeats this whole exercise (census → freeze
   doctrine → rulings) against its own surface; nothing here pre-commits it.
+
+## 7. The bootstrap endgame (USER-NOTED Sep 1 — direction, not a unit)
+
+Where the ladder ends: a self-hosted sawc, and the question of how a USER
+gets one. Recorded here because the answer shapes near-term work (the
+release pipeline) and because its central ruling is this brief's freeze
+doctrine applied to the whole compiler. Direction agreed Sep 1; the
+rulings themselves come due at the handoff, not before.
+
+**The model (Rust/Go's converged shape, adapted):**
+
+1. **Release binaries are the everyday bootstrap.** Each release N is built
+   by release N-1's binary; a user downloads the native artifact from a
+   GitHub Release and never meets the chicken-and-egg. The design-238
+   resolver is the consumer funnel — its pinned-fetch lane prefers the
+   release artifact over the clone+venv source fetch (that resolver change
+   is its own gated unit under the `toolchain` lane, brief-worthy as a 238
+   amendment — "lane B" of the Sep-1 release discussion; "lane A", the
+   tag-triggered release workflow with an interim bundled-Python payload,
+   can be built any time and IS the same pipeline the chain later rides,
+   with the payload swapping to the native binary at handoff).
+2. **The Python compiler FREEZES at a handoff tag as the seed — it is not
+   maintained as a sibling.** The from-source chain is: Python + llvmlite →
+   `sawc@handoff` → walk forward tag by tag (what distros and source-only
+   bootstrappers require). Maintaining two live compilers indefinitely is
+   two-compilers-with-different-results as a permanent institution — the
+   exact thing §0's doctrine exists to prevent, with more force for the
+   whole compiler than for one phase. LEAD RECOMMENDATION, not yet ruled:
+   freeze at handoff.
+3. **A minimum-bootstrap-compiler policy** (Go's rule): release N builds
+   with release N-1 (or an N-k window, to be ruled). Caps the tag walk and
+   disciplines how fast the compiler's own source adopts new language
+   features.
+4. **Reproducibility is the trust story, and it is nearly free here.** The
+   stage1==stage2 fixpoint byte-compare (the `blade_bootstrap.py` loop
+   shape, applied to the compiler) is only meaningful under deterministic
+   compilation — which `irdet --all` and `reemit` already gate on every
+   landing. Byte-reproducible self-builds answer trusting-trust by
+   VERIFICATION rather than trust: anyone rebuilds the released binary
+   from source and compares hashes. Whether this is a STATED release
+   property is a user ruling at handoff; the lead recommends yes.
+
+Rulings that come due at handoff: freeze-vs-maintain for the Python seed,
+the N-k window, reproducibility as a release property. None block any
+rung of this brief.
