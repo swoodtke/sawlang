@@ -589,12 +589,13 @@ stage.
 
 ## Amendment A (Sep 1, post-stage-2) — the template store, the splice cost, and stage 3's shape
 
-**Status: PROPOSED by the lead, awaiting user ratification.** Two of its
-inputs are already USER-RULED (Sep 1): the process (amend the spec before
-stage 3 re-dispatches) and the perf direction (BOTH remedies below — the
-substituting copier AND lazy body materialization). What still needs the
-user's eye is marked OPEN. Stages 0-2 + the DF-285a fix are INTEGRATED to
-main (466812fe); stage 3 re-dispatches against this amendment once ratified.
+**Status: USER-RATIFIED Sep 1**, in full, including A2(b)'s semantic cell —
+ratified together with A5, which adds the forced-eager escape hatch and makes
+3b's measurement decide whether laziness is bought at all. Its inputs were
+ruled the same day: the process (amend the spec before stage 3 re-dispatches)
+and the perf direction (BOTH remedies below — the substituting copier AND lazy
+body materialization). Stages 0-2 + the DF-285a fix are INTEGRATED to main
+(466812fe); stage 3 dispatches against this amendment as written.
 
 ### A1. The false premise (DF-285b) and its fix
 
@@ -652,16 +653,18 @@ reaching either is an ICE. Section 1b's sentence stays the law: instance
 EXISTENCE and body EMISSION are two questions, and lazy materialization
 aligns CHECKING with emission, not with existence.
 
-**The semantic cell this pins (OPEN — the user should see it):** under (b),
+**The semantic cell this pins (RATIFIED Sep 1, with A5):** under (b),
 an instance demanded but never emitted in an EXECUTABLE build is registered
 and depth/effect-validated but its body is never instance-checked — a
 diagnostic living only in such a body surfaces in a `-c` build and not in
 the executable. This matches today's stage-2 behavior (codegen demands are
 what get checked) and the compile's actual link surface; splice-all would
-have been stricter and is what the envelope rules out. Ratifying A2(b)
-ratifies this cell. It is NOT the design-168 narrowing the user declined —
-that one shrinks the `-c` instance SET; here the `-c` set is complete and
-untouched.
+have been stricter and is what the envelope rules out. It is NOT the
+design-168 narrowing the user declined — that one shrinks the `-c` instance
+SET; here the `-c` set is complete and untouched. The cell is ratified under
+A5: A5(a) keeps the strict answer computable and the reversal cheap, and
+A5(b) may retire the cell outright if the copier alone brings splice-all
+inside the envelope.
 
 ### A3. The ~30 std-instance diagnostics
 
@@ -683,9 +686,54 @@ Stage 3 splits into three separately-gated commits; 4 and 5 are unchanged.
 | stage | content | gate |
 |-------|---------|------|
 | **3a — the store completed** | A1's std capture (pristine snapshot + module scopes in the builtin cache) | full suite under `SAWC_MONO_SHADOW=strict` (re-proof over the union store); the A3 probe re-run recorded in the landing note |
-| **3b — the copier** | A2(a), landed while shadow mode still exists | the corpus equivalence assertion rides one strict-shadow gate run; suite + freestanding |
+| **3b — the copier** | A2(a), landed while shadow mode still exists | the corpus equivalence assertion rides one strict-shadow gate run; suite + freestanding; **plus A5(b)'s decisive re-measurement of splice-all**, recorded in the landing note with the branch it selects |
 | **3c — the cutover** | the atomic remainder, now affordable: phase 2 splices the eager set; codegen G1/G2/M1-M4 become registry lookups that MATERIALIZE through the one funnel on first body demand; G3 + M6 delete; S-rows registry-driven, ICE-on-miss; the codegen template stores retire | original stage-3 gate (suite, freestanding, reemit + irdet --all at the boundary, gmgate) PLUS the §5 measurement at this boundary — the +10% envelope BINDS here |
 
 DF-251b's XFAIL flips at 3c (the generator deletion is 3c's). The §5
 measurement instrument and envelope are unchanged; remedies 2/3 and the
 design-168 set-narrowing remain unauthorized.
+
+### A5. The forced-eager mode, and the measurement that picks the default
+
+USER-RATIFIED Sep 1, together with A2(b), on the user's ruling that **the
+measurement dictates which path we take**. Two clauses.
+
+**(a) The forced-eager escape hatch and its lane.** Materialization gains a
+forced mode — `SAWC_MONO_MATERIALIZE=all`, sibling to the existing
+`SAWC_MONO_SHADOW` instrument (`sawc/monomorphize.py:82-90`; same shape: an
+env switch, off by default, documented at the module header, run by the gate).
+When set, the eager set is EVERY registered instance, so every demanded
+instance is materialized and instance-checked whether or not its body is ever
+emitted. It lands with 3c, since the funnel is 3c's, and it takes ONE battery
+stage (`tools/battery.sh` STAGES — the whole suite under the forced mode).
+
+The lane exists for three reasons, and they are the reasons the cell is
+ratifiable: the strict answer stays computable on demand; the corpus is
+PROVED to carry no latent errors sitting in never-emitted instances, so the
+lax→strict ratchet never gets a chance to accumulate against us; and if the
+default is ever flipped back, the evidence that flipping is safe is already
+in the gate rather than owed as a migration.
+
+Reversal cost, recorded so a later session does not have to re-derive it: the
+default flips by WIDENING the eager-set predicate from transform-relevant to
+all-registered. It is a predicate, not a redesign — the registry decides every
+instance either way (1b/1d/4-keys untouched), and nothing 3c deletes blocks
+it, because G3, M6 and the codegen template stores are the OLD path, not the
+eager one.
+
+**(b) The measurement decides the default.** The +83% that bought laziness was
+measured with `copy.deepcopy`, and 81% of it WAS the deepcopy — which A2(a)
+removes. So at 3b's boundary, after the copier is in and before 3c is
+dispatched, §5's instrument re-measures splice-all (every registered instance
+materialized eagerly, the post-copier cost). The result selects the path:
+
+- **within the +10% envelope** → laziness is NOT bought. The eager set is
+  everything, A2(b)'s semantic cell is MOOT and never ships, the forced mode
+  of (a) degenerates to the default (keep the lane as the pin, drop the
+  switch), and 3c's row loses its materialize-on-first-body-demand clause.
+- **over the envelope** → A2(b) stands as ratified: lazy is the default, the
+  cell ships, and (a)'s lane is what keeps it honest and reversible.
+
+The 3b landing note RECORDS the number and names the branch it selects; the
+lead confirms the branch before 3c dispatches. Nothing else in this amendment
+is conditional — A1, A2(a), A3 and 3a/3b proceed as written either way.
