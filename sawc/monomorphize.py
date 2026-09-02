@@ -1261,11 +1261,13 @@ def _materialize_type_instance(mono, tc, inst, copier, hook):
         for m in ext.methods:
             if m.name in skip or getattr(m, 'type_params', None):
                 continue
-            entry = tc.pristine_generic_struct_method(ext.struct_name, m.name)
-            if entry is None or entry[1] is not ext:
-                # The design-70 store is keyed by (struct, method) alone, so
-                # two extensions on one type that declare the same name
-                # collide; take the snapshot only when it is THIS one's.
+            # DF-289c: the store is keyed by (struct, method NAME), which two
+            # `init`s, two overloads and two extensions can all share. Ask for
+            # the snapshot of THIS method by the mangler's own discriminators
+            # rather than by name.
+            entry = tc.pristine_method_for(ext.struct_name, m, ext,
+                                           on_generic_struct=True)
+            if entry is None:
                 continue
             type_map = dict(base_map)
             for declared, alias in aliases:

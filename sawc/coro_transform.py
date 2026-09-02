@@ -150,6 +150,7 @@ from ast_nodes import (
     structural_fields, expr_diverges,
 )
 from type_identity import type_identity as _type_identity
+from typechecker.effects import _first_pristine
 from ast_walk import (child_nodes, control_blocks, control_heads, map_nodes,
                       pattern_binding_names)
 
@@ -9674,7 +9675,7 @@ def _promote_nested_generic_methods(program, funcs_by_name, seed_names, all_exts
         return out_args
 
     def promote_generic_struct(mc, owner, recv_args):
-        entry = pristine_gs.get((owner, mc.method_name))
+        entry = _first_pristine(pristine_gs.get((owner, mc.method_name)))
         if entry is None:
             return None
         pristine, ext = entry
@@ -9702,7 +9703,7 @@ def _promote_nested_generic_methods(program, funcs_by_name, seed_names, all_exts
         return clone
 
     def promote_generic_method(mc, owner):
-        entry = pristine_m.get((owner, mc.method_name))
+        entry = _first_pristine(pristine_m.get((owner, mc.method_name)))
         if entry is None:
             return None
         _pristine, ext = entry

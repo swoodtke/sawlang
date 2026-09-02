@@ -38,6 +38,18 @@ from mono_copy import substitute_constructed_type_param, substituting_copy
 from monomorphize import substituted_param_names
 
 
+def _first_pristine(entries):
+    """The first (Method, Extension) of a pristine-store bucket, or None.
+
+    DF-289c made every bucket a LIST — the (struct, method NAME) key is not
+    unique. The design-70/74 builders ask by NAME and have always used whatever
+    that name answered with, so "first" is what keeps their behaviour identical;
+    a reader that must tell same-named siblings apart calls
+    `TypeChecker.pristine_method_for` instead.
+    """
+    return entries[0] if entries else None
+
+
 def substitute_ast_types(node, type_map):
     """In-place: rewrite every `SawType` in an AST subtree through
     `SawType.substitute(type_map)` (design 70). `SawType.substitute` recurses
@@ -315,6 +327,8 @@ class EffectsMixin:
         # Method-generic instantiations (design 70): pristine templates keyed by
         # (struct_name, method_name) -> (Method, owning Extension), and queued
         # concrete builds (struct_name, method_name, resolved_args, mono_name).
+        # (struct_name, method_name) -> LIST of (Method, owning Extension)
+        # (DF-289c: the name is not a unique key).
         self._pristine_generic_methods: Dict[Any, Any] = {}
         self._pending_method_mono: List[Any] = []
         # design 74 (A5-rest, shape 2): pristine methods on GENERIC-struct
@@ -323,6 +337,7 @@ class EffectsMixin:
         # method over the struct's type params and records the concrete driven
         # method here (keyed by a per-instantiation mono method name), carrying the
         # concrete receiver SawType (`Holder<Int>`) the frame's `__recv` needs.
+        # A LIST per key, for DF-289c's reason.
         self._pristine_generic_struct_methods: Dict[Any, Any] = {}
         # (base_struct, mono_method_name) -> (recv_saw_type, mono_method_ast).
         self._driven_generic_struct_methods: Dict[Any, Any] = {}
@@ -646,7 +661,8 @@ class EffectsMixin:
         recv_type, existing = self._driven_generic_struct_methods.get(key, (None, None))
         if existing is not None:
             return False
-        entry = self._pristine_generic_struct_methods.get((struct_name, method_name))
+        entry = _first_pristine(
+            self._pristine_generic_struct_methods.get((struct_name, method_name)))
         if entry is None:
             return False
         pristine, ext = entry
@@ -901,7 +917,8 @@ class EffectsMixin:
         coroutine transform's Part-0c method driving finds it; re-checking stamps
         the resolved types the frame builder consumes. Errors suppressed (effect /
         annotation harvest only)."""
-        entry = self._pristine_generic_methods.get((struct_name, method_name))
+        entry = _first_pristine(
+            self._pristine_generic_methods.get((struct_name, method_name)))
         if entry is None:
             return False
         pristine, ext = entry

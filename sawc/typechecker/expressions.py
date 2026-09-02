@@ -36,6 +36,7 @@ from errors import ErrorKind
 from const_eval import const_eval, ConstEvalError, CONST_LENGTH_HINT
 from namespace import Visibility, EnumSymbol
 from type_identity import type_identity as _type_identity
+from .effects import _first_pristine
 
 # design 242: the IDENTITIES of `std.task`'s two thread handles, not their
 # spellings. `Thread.spawn { … }` names no type at the source level — this pass
@@ -2137,8 +2138,8 @@ class ExpressionsMixin:
                 f"`{expr.name}(...)` of a method on generic struct `{struct_name}` "
                 f"requires a fully concrete receiver", inner.line, inner.column)
             return
-        entry = self._pristine_generic_struct_methods.get(
-            (struct_name, inner.method_name))
+        entry = _first_pristine(self._pristine_generic_struct_methods.get(
+            (struct_name, inner.method_name)))
         if entry is None:
             self._error(
                 ErrorKind.TYPE_MISMATCH,

@@ -37,7 +37,7 @@ from .types import TypeUtilsMixin
 from .registration import RegistrationMixin
 from .statements import StatementsMixin
 from .expressions import ExpressionsMixin
-from .effects import EffectsMixin
+from .effects import EffectsMixin, _first_pristine
 from .places import PlacesMixin
 from .serde import SerdeMixin
 from .tierreq import TierRequirementsMixin
@@ -1024,16 +1024,28 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                 # the STRUCT's type params so the coroutine frame's `__recv`
                 # gets a concrete layout. Keyed by (struct, method); the ext
                 # carries the struct's type params for substitution.
+                #
+                # DF-289c: a LIST per (struct, method), because the key is not
+                # unique. `std/vector.saw` declares `init()` and
+                # `init(capacity:)`; a generic extension may declare two
+                # OVERLOADS of one name; two extensions on one type may declare
+                # the same name. One slot per name kept whichever came last and
+                # the others were not in the store at all — invisible while the
+                # only readers took whatever a name answered with, and fatal to
+                # a cutover that splices one concrete body per (instance,
+                # method).
                 for m in ext.methods:
                     if not getattr(m, 'is_mono_instance', False):
-                        self._pristine_generic_struct_methods[
-                            (ext.struct_name, m.name)] = (_copy.deepcopy(m), ext)
+                        self._pristine_generic_struct_methods.setdefault(
+                            (ext.struct_name, m.name), []).append(
+                                (_copy.deepcopy(m), ext))
                 continue
             for m in ext.methods:
                 if getattr(m, 'type_params', None) and not getattr(
                         m, 'is_mono_instance', False):
-                    self._pristine_generic_methods[(ext.struct_name, m.name)] = (
-                        _copy.deepcopy(m), ext)
+                    self._pristine_generic_methods.setdefault(
+                        (ext.struct_name, m.name), []).append(
+                            (_copy.deepcopy(m), ext))
 
     # ---------------------------------------------------------------- #
     # THE UNION STORE (Amendment A1). The entry typechecker's own
@@ -1057,22 +1069,73 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
 
     def pristine_generic_method(self, struct_name, method_name):
         """(Method, Extension) for a method-level generic on a non-generic
-        extension, or None."""
-        found = self._pristine_generic_methods.get((struct_name, method_name))
-        if found is None:
-            found = self._std_pristine_generic_methods.get(
-                (struct_name, method_name))
-        return found
+        extension, or None — the FIRST snapshot under that name.
+
+        "First" is what every reader before DF-289c got, since the store held
+        one slot per name; the readers that must tell same-named siblings apart
+        ask `pristine_method_for` instead."""
+        return _first_pristine(self._pristine_generic_method_entries(
+            struct_name, method_name))
 
     def pristine_generic_struct_method(self, struct_name, method_name):
         """(Method, Extension) for a method on a GENERIC struct's extension, or
-        None."""
+        None — the FIRST snapshot under that name (see the sibling above)."""
+        return _first_pristine(self._pristine_generic_struct_method_entries(
+            struct_name, method_name))
+
+    def _pristine_generic_method_entries(self, struct_name, method_name):
+        found = self._pristine_generic_methods.get((struct_name, method_name))
+        if not found:
+            found = self._std_pristine_generic_methods.get(
+                (struct_name, method_name))
+        return found or ()
+
+    def _pristine_generic_struct_method_entries(self, struct_name, method_name):
         found = self._pristine_generic_struct_methods.get(
             (struct_name, method_name))
-        if found is None:
+        if not found:
             found = self._std_pristine_generic_struct_methods.get(
                 (struct_name, method_name))
-        return found
+        return found or ()
+
+    def pristine_method_for(self, struct_name, method, ext, on_generic_struct):
+        """THE SNAPSHOT OF ONE METHOD, told apart from its same-named siblings.
+
+        DF-289c: the store is keyed by (struct, method NAME), which is not a
+        unique key — `Vector` declares `init()` and `init(capacity:)`, a generic
+        extension may declare two overloads of one name, and two extensions on
+        one type may declare the same name. The discriminators, in order, are
+        the ones the MANGLER itself uses, so a caller that picks a template here
+        and a symbol there cannot disagree:
+
+          1. the OWNING extension (identity — the store holds the live node);
+          2. the design-55 overload symbol, where the method carries one;
+          3. the PARAMETER NAMES, which is what an `init`'s symbol is keyed on.
+
+        Returns (Method, Extension) or None. `on_generic_struct` picks the store:
+        design 74 shape 2's (every method of an `extension Vector<T>`) or design
+        70's (a method-level generic on a plain extension).
+        """
+        entries = (self._pristine_generic_struct_method_entries(
+                       struct_name, method.name)
+                   if on_generic_struct
+                   else self._pristine_generic_method_entries(
+                       struct_name, method.name))
+        same_ext = [e for e in entries if e[1] is ext]
+        if not same_ext:
+            return None
+        if len(same_ext) == 1:
+            return same_ext[0]
+        symbol = getattr(method, 'mangled_symbol', None)
+        if symbol:
+            for entry in same_ext:
+                if getattr(entry[0], 'mangled_symbol', None) == symbol:
+                    return entry
+        want = [p.name for p in (getattr(method, 'parameters', None) or ())]
+        for entry in same_ext:
+            if [p.name for p in (entry[0].parameters or ())] == want:
+                return entry
+        return None
 
     def _module_scope_for_file(self, source_file):
         """The (module path, namespace) a declaration's FILE was checked in.
