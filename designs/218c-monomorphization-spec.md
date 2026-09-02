@@ -849,8 +849,23 @@ reported.
 (224,768 instances / 667,851 pairs / 1,617 compilation units / 10,311
 merged-scope diagnostics in 20 classes; evidence preserved verbatim at
 `designs/reviews/splice-census-sep1.md`, per-diagnostic records
-regenerable via `.build/scratch/census_splice/`). Awaiting the user on B4
-and ratification of the rest.** The census's margin read: the class list
+regenerable via `.build/scratch/census_splice/`). **USER-RATIFIED IN FULL (Sep 2): B4
+ruled OPTION (a) in the sharpened FRESH-JOURNEY form — design 188 amends
+from "moves exactly once, constructor into binding" to "moves exactly
+once, INTO ITS HOME": a by-value parameter of the enclosing function may
+be placement-moved (`ptr[i] = move param`) at a NoMove type PROVIDED the
+body took no reference to the parameter before the placement. Sound
+because the caller-side rules already fence it — a bound NoMove value
+cannot be moved into an argument, so a NoMove by-value parameter is
+always a fresh temporary whose address was never observable; the journey
+construction → parameter → placement is one continuous trip to the
+value's first and only home. Blesses `Box.make` verbatim and nothing
+broader; `Vector<NoMove>`'s instance-check refusal STANDS as correct
+containment (realloc relocates), newly enforced in generics. Four pins
+owed: Box-of-NoMove legal; borrow-then-placement refused; bound-value
+argument already refused at the caller; a `Vector<NoMove>` method
+refusal as the containment witness. B1/B2/B3/B5/B6 ratified as
+recommended; 3c-2 dispatches per B6.** The census's margin read: the class list
 is CLOSED — `examples/` produced all 20 classes and the five later
 populations (blade, blade tests, libs, devtools, selfhost) added none;
 six classes have a single instance tree-wide. The open risk is IR-level
