@@ -966,6 +966,21 @@ def substituted_param_names(template, type_map):
     return frozenset(names)
 
 
+def substituted_return(template, type_map):
+    """Whether `template`'s declared RETURN TYPE names one of `type_map`'s
+    parameters — §1c skip 5's input, and `substituted_param_names`' sibling.
+
+    Computed HERE for the same reason: the substituted clone has no type
+    parameters left to read the answer off, and this is the last place both
+    artifacts exist. A BOOLEAN rather than a name set, because a return position
+    has no name — there is one of it per body.
+    """
+    keys = set(type_map or ())
+    if not keys:
+        return False
+    return _type_names_param(getattr(template, 'return_type', None), keys)
+
+
 def _type_names_param(t, keys, depth=0):
     """Whether `t` spells one of `keys` anywhere — the same reach
     `SawType.substitute` has, which is what makes the answer agree with it."""
@@ -1099,12 +1114,15 @@ def materialize_instance(mono, tc, inst, hook=None):
 
 def _run_body(tc, mono, inst, template, clone, type_map, display, method_name,
               flavor, check, hook):
-    # §1c skip 4 reads the TEMPLATE: the question is which by-value parameters
-    # were declared at a type PARAMETER, and the clone has none left to read.
+    # §1c skips 4 and 5 read the TEMPLATE: the questions are which by-value
+    # parameters, and whether the RETURN, were declared at a type PARAMETER —
+    # and the clone has none left to read.
     substituted = substituted_param_names(template, type_map)
+    subst_return = substituted_return(template, type_map)
     if hook is not None:
         hook.before(inst, method_name, flavor)
-    with tc._checking_instance(display, substituted_params=substituted):
+    with tc._checking_instance(display, substituted_params=substituted,
+                               substituted_return=subst_return):
         with tc._instance_check_scope(clone, type_map, mono.namespace):
             check()
     if hook is not None:

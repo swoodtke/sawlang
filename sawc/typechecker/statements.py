@@ -795,6 +795,15 @@ class StatementsMixin:
         The per-parameter wrap decision therefore monomorphizes consistently even
         when an instantiation makes `T == E` (brief 24).
         """
+        # PROVENANCE SKIP (design 218c §1c) — SKIP 5 at this rule. The note
+        # above is the skip's own argument: in the template `T` and `E` are
+        # distinct opaque parameters, so the wrap decision was made once,
+        # abstractly, and every instantiation inherits it. Refusing the
+        # instantiation that happens to make them coincide would make a legal
+        # generic body illegal at one type argument with no spelling available
+        # in the template. Census classes 11 and 13.
+        if self._mono_return_is_substituted():
+            return False
         ok_type = expected.unwrap_result_ok()
         err_type = expected.unwrap_result_err()
         if ok_type is None or err_type is None:
@@ -3391,11 +3400,22 @@ class StatementsMixin:
             self._apply_literal_expected_type(stmt.value, self._resolve_type(expected))
             value_type = self._check_expression(stmt.value)
             if value_type and expected.kind == TypeKind.VOID:
-                self._error(
-                    ErrorKind.TYPE_MISMATCH,
-                    f"function returns void but return has a value of type `{value_type}`",
-                    stmt.line, stmt.column
-                )
+                # PROVENANCE SKIP (design 218c §1c) — SKIP 5, a return-position
+                # judgment whose RETURN TYPE arrived by substitution. This is
+                # the rule the census's largest class fires at: the `borrows`
+                # lowering makes every accessor a method-generic over its window
+                # result type `__R`, and at a statement-position window
+                # `__R = Void`, so the clone's `return __window(...)` returns a
+                # value from a `-> Void` body. In the TEMPLATE `__R` is a type
+                # parameter and this rule never ran. See
+                # `_mono_return_is_substituted`.
+                if not self._mono_return_is_substituted():
+                    self._error(
+                        ErrorKind.TYPE_MISMATCH,
+                        f"function returns void but return has a value of type "
+                        f"`{value_type}`",
+                        stmt.line, stmt.column
+                    )
             elif value_type is not None and self._reaches_result_autowrap(
                     value_type, self._resolve_type(expected)):
                 # Check for Result auto-wrapping

@@ -328,6 +328,10 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # check whose declared type ARRIVED BY SUBSTITUTION. Empty outside an
         # instance. See `_transfer_is_substituted_param`.
         self._mono_substituted_params: frozenset = frozenset()
+        # §1c skip 5's input: whether the RETURN TYPE of the instance under
+        # check arrived by substitution. False outside an instance. See
+        # `_mono_return_is_substituted`.
+        self._mono_substituted_return: bool = False
         # DF-232f: the top-level names bound by `--module-path name=dir`. Each
         # one IS a package (ruled Aug 17): every file under the mapped
         # directory is a sibling, and the entry file — which never appears
@@ -1430,10 +1434,29 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         `__io_tok` latch casts `&self.__wake`, a method frame binds an
         `UnsafeRef`, a spawn root reaches its cell through one), so it SAYS
         `unsafe` and satisfies the rule rather than being excused from it — and a
-        wrong answer is a compile error on generated code."""
+        wrong answer is a compile error on generated code.
+
+        §1c SKIP 6 (design 218c Amendment B3) is the second standing reason, and
+        it MINTS NO POLICY — design 136 already ruled this position. Its rule is
+        that unsafety is judged on the type AS WRITTEN: "a generic `(&T) sync ->
+        R` slot is judged against `T` and NEVER RE-JUDGED for a
+        `T = UnsafePointer<Int8>` instantiation". A monomorphized clone is
+        exactly that re-judgment, so the trigger rule looks away from it for the
+        same authorship reason the derived bodies get: no author wrote the
+        signature it would name. The Sep-1 census's classes 4/6/7 are what that
+        costs when it is not applied — 118 raw records over three message
+        shapes, whose corpus carrier is not a user's
+        `Vector<UnsafePointer<Int8>>` at all but the COROUTINE FRAME's own
+        `Slot<T>` (`Slot<UnsafePointer<Bool>>.{empty,of,put,take,clear}`) and
+        the place lowering's window result type `__R`. Nobody wrote either; the
+        compiler's frame synthesis put the pointer there, which is why design
+        219 wave C's per-instance unsafe DERIVATION — a refusal anchored at the
+        CALL — never fires for them either. The template's own authored
+        signature is judged as it always was."""
         if getattr(node, 'unsafe_decl_checked', False):
             return False
-        return (getattr(node, 'is_synthesized', False)
+        return (getattr(node, 'is_mono_instance', False)
+                or getattr(node, 'is_synthesized', False)
                 or getattr(node, 'is_derived_copy', False)
                 or getattr(node, 'is_derived_equals', False)
                 or getattr(node, 'is_derived_compare', False)
@@ -3007,12 +3030,13 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
 
     @contextmanager
     def _checking_instance(self, display: str, demand: Optional[str] = None,
-                           substituted_params=()):
+                           substituted_params=(), substituted_return=False):
         """Check one instance. `display` is its source spelling
         (`launder<Res>`); `demand` is where the first demand for it came from.
         `substituted_params` names the by-value parameters whose declared type
         arrived by substitution — §1c skip 4's input, computed once at the
-        clone rather than re-derived at every transfer.
+        clone rather than re-derived at every transfer — and
+        `substituted_return` is skip 5's, the same question at the return.
         Nests: an instance's body may itself demand another.
 
         ABSTRACT-FIRST (design 218c §3): an instance is only worth reporting in
@@ -3030,8 +3054,10 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         previous = self._mono_instance
         previous_muted = self._instance_muted
         previous_params = self._mono_substituted_params
+        previous_return = getattr(self, '_mono_substituted_return', False)
         self._mono_instance = (display, demand)
         self._mono_substituted_params = frozenset(substituted_params)
+        self._mono_substituted_return = bool(substituted_return)
         self._instance_muted = (previous_muted
                                 or not INSTANCE_ERRORS_ARE_REAL
                                 or self.reporter.has_errors())
@@ -3041,6 +3067,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             self._mono_instance = previous
             self._instance_muted = previous_muted
             self._mono_substituted_params = previous_params
+            self._mono_substituted_return = previous_return
 
     def _mono_instance_note(self) -> Optional[str]:
         if self._mono_instance is None:
@@ -3124,9 +3151,9 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         exactly as they were.
 
         WHAT SUPPLIES IT (obligation 1 — `substituted_param_names` is the one
-        funnel, and these are its entry points): the two instance
-        materializations in `monomorphize` and the four design-70/74 builders
-        in `effects.py`, each of which holds the pristine template and the type
+        funnel, and these are its entry points): `monomorphize`'s
+        materialization funnel and the four design-70/74 builders in
+        `effects.py`, each of which holds the pristine template and the type
         map at the moment it clones. The one `_checking_instance` that supplies
         NOTHING is `check_module`'s re-check of an ALREADY-SPLICED instance:
         the template is gone by then, so the answer cannot be re-derived
@@ -3138,6 +3165,44 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             return False
         return (isinstance(expr, Identifier)
                 and expr.name in self._mono_substituted_params)
+
+    def _mono_return_is_substituted(self) -> bool:
+        """§1c SKIP 5 — a RETURN-POSITION judgment whose return type arrived by
+        substitution. The named sibling of skip 4's parameter rule (Amendment
+        B2), and the census's single largest class.
+
+        The argument is skip 4's, one position over. In the template the return
+        type is a type PARAMETER, so every return-position rule that depends on
+        what the type IS was answered ABSTRACTLY — design 24's decidability
+        rule defers what it cannot decide, design 219 wave C raises a
+        requirement each call site discharges, and design 30's own ambiguity
+        refusal argues in its docstring that the abstract per-parameter wrap
+        decision is what every instantiation must inherit. Re-asking the
+        concrete question on the clone is a SECOND, coarser judgment of a
+        transfer the first one already cleared.
+
+        WHAT IT COVERS, by census class
+        (`designs/reviews/splice-census-sep1.md` §5):
+
+          * class 1, 7,750 raw records in 1,538 of 1,617 programs — the
+            `borrows` LOWERING's own clones. `place_transform` rewrites every
+            accessor into a method-generic over its window result type `__R`
+            returning `__R`, and at the overwhelmingly common statement-position
+            window `__R = Void`, so the clone is a `-> Void` body whose
+            `return __window(...)` is refused as returning a value. Twelve of
+            them are USER accessors, not std's.
+          * classes 17 and 18 (DF-286b class 6 and its std twin) — a NoCopy
+            return without `move`, at `run_and_return<Res>` and
+            `Map._take_value`. Conformance row V47 pins the first program
+            LEGAL.
+          * classes 11 and 13 — the ambiguous Result auto-wrap, which exists
+            only because an instantiation made the Ok and Err types coincide.
+
+        NOT a blanket return-position suppression: a body whose declared return
+        type names NO type parameter is re-judged exactly as it was, which is
+        every concretely-typed return in every instance.
+        """
+        return self._mono_instance is not None and self._mono_substituted_return
 
     def _validate_exports(self, program: Program):
         """`export` statements are only permitted in init.saw facade files.

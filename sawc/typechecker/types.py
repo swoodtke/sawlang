@@ -4271,6 +4271,18 @@ class TypeUtilsMixin:
         if self._transfer_is_substituted_param(expr):
             return
 
+        # PROVENANCE SKIP (design 218c §1c) — SKIP 5, the same argument at the
+        # RETURN. The template returned a type PARAMETER, so design 219 wave C
+        # judged this transfer abstractly and every call site discharged the
+        # requirement against its concrete argument; the tier test here is the
+        # second, coarser judgment. Census classes 17 and 18 —
+        # `run_and_return<Res>` (conformance row V47 pins the program legal) and
+        # std's `Map._take_value`. Only the RETURN position, so an argument, a
+        # field write and a binding inside the same instance are re-judged
+        # unchanged. See `_mono_return_is_substituted`.
+        if is_return and self._mono_return_is_substituted():
+            return
+
         # design 131: a type carrying a deinit but NO copy policy used to fall
         # through every arm below and take the default bitwise path — an alias
         # whose two halves each ran `deinit` (DF-128a). Declaring `Deinit` alone
