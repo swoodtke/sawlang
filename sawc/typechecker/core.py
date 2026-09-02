@@ -82,26 +82,24 @@ _BINDING_ID_COUNTER = itertools.count(1)
 # namespace and puts these back from the template's HOME module for the
 # duration of one instance check.
 #
-# Adding a field to `Namespace` that is a per-module view means adding it here;
-# a field that is a fact about the program does not belong here.
-_VIEW_TABLES = (
-    'type_names',            # design 144: written name -> identity, per module
-    'type_provenance',
-    'ambiguous_types',       # design 26: which names two imports made ambiguous
-    'directly_accessible',   # design 82: the bare-name opt-in of THIS file
-    'allow_all_access',
-    'modules',               # bound qualifiers (design 150)
-    'nonbinding_qualifiers',
-    'glob_sources',
-    'selective_sources',
-    'import_private_names',
-    'import_private_modules',
-    'module_path',
-)
+# Adding a field to `Namespace` that is a per-module view means adding it to
+# BOTH functions below; a field that is a fact about the program does not
+# belong in either. Written out attribute by attribute rather than driven off a
+# name list, because a computed `setattr` is exactly what the design-126 AST
+# contract (the `astgraft` lane) refuses to let a pass do to an object.
 
 
 def _swap_view_tables(program_ns, home_ns):
     """Install `home_ns`'s view tables on `program_ns`; return what to restore.
+
+    THE VIEW TABLES, each with what it decides HERE:
+      `type_names` / `type_provenance` — which identity a written name denotes
+        (design 144); `ambiguous_types` — which names two imports collided on
+        (design 26); `directly_accessible` / `allow_all_access` — the bare-name
+        opt-in of this file (design 82); `modules` / `nonbinding_qualifiers` /
+        `glob_sources` / `selective_sources` / `import_private_names` /
+        `import_private_modules` — the qualifiers and import forms this file
+        bound (design 150); `module_path` — who is asking.
 
     A no-op returning None when there is no home module (a single-file compile,
     a synthesized clone with no source), where the program's own view is the
@@ -109,17 +107,37 @@ def _swap_view_tables(program_ns, home_ns):
     """
     if home_ns is None or home_ns is program_ns:
         return None
-    saved = {}
-    for name in _VIEW_TABLES:
-        if hasattr(home_ns, name):
-            saved[name] = getattr(program_ns, name)
-            setattr(program_ns, name, getattr(home_ns, name))
+    saved = (
+        program_ns.type_names, program_ns.type_provenance,
+        program_ns.ambiguous_types, program_ns.directly_accessible,
+        program_ns.allow_all_access, program_ns.modules,
+        program_ns.nonbinding_qualifiers, program_ns.glob_sources,
+        program_ns.selective_sources, program_ns.import_private_names,
+        program_ns.import_private_modules, program_ns.module_path,
+    )
+    program_ns.type_names = home_ns.type_names
+    program_ns.type_provenance = home_ns.type_provenance
+    program_ns.ambiguous_types = home_ns.ambiguous_types
+    program_ns.directly_accessible = home_ns.directly_accessible
+    program_ns.allow_all_access = home_ns.allow_all_access
+    program_ns.modules = home_ns.modules
+    program_ns.nonbinding_qualifiers = home_ns.nonbinding_qualifiers
+    program_ns.glob_sources = home_ns.glob_sources
+    program_ns.selective_sources = home_ns.selective_sources
+    program_ns.import_private_names = home_ns.import_private_names
+    program_ns.import_private_modules = home_ns.import_private_modules
+    program_ns.module_path = home_ns.module_path
     return saved
 
 
 def _restore_view_tables(program_ns, saved):
-    for name, value in saved.items():
-        setattr(program_ns, name, value)
+    """Put `program_ns`'s own view back — `_swap_view_tables`' exact inverse."""
+    (program_ns.type_names, program_ns.type_provenance,
+     program_ns.ambiguous_types, program_ns.directly_accessible,
+     program_ns.allow_all_access, program_ns.modules,
+     program_ns.nonbinding_qualifiers, program_ns.glob_sources,
+     program_ns.selective_sources, program_ns.import_private_names,
+     program_ns.import_private_modules, program_ns.module_path) = saved
 
 
 def _module_source_files(module_ast):
@@ -1097,7 +1115,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
            allowed to see it.
 
            The home module's contribution also includes the namespace's own
-           VIEW tables — `_VIEW_TABLES` below. A namespace holds two kinds of
+           VIEW tables — see `_swap_view_tables`. A namespace holds two kinds of
            thing and the distinction is the whole of B1: `structs`, `enums`,
            `functions`, `conformances`, `generic_*` are facts about the
            PROGRAM, and `type_names` / `ambiguous_types` / `directly_accessible`
