@@ -73,10 +73,28 @@ let report = (move b).finish()     // call: b is DEAD past this expression
 - **A TEMPORARY receiver needs no `move`** — `make_builder().finish()` is
   legal bare: there is no binding to invalidate, and the temp was already
   the callee's to end. The fixit fires only when the receiver is a binding.
-- **The callee releases the referent** — at body end the synthesized deinit
-  runs over what remains of it, through the reference (a hand-written
-  deinit body prefixes it, design 131, unchanged); the caller's binding
-  performs NO release, ever, on any path.
+- **The callee releases the referent, and the consuming body IS the deinit
+  body's replacement (sos-proposed, USER-RATIFIED Sep 1)** — design 131
+  slots a hand-written deinit body in the PREFIX position ahead of the
+  synthesized field drops; a consuming method occupies exactly that slot
+  for its endpoint. The hand-written deinit body does NOT run for a
+  consumed receiver: the consuming body runs where it would have (doing
+  whatever manual teardown the author intends — including deliberately
+  NONE, which is what makes `File.into_fd()`-style extraction writable),
+  and the synthesized drops then sweep the UNMOVED remainder, so memory
+  never leaks by accident. `consumes` is the visible marker that the
+  author took the deinit's responsibility. The caller's binding performs
+  NO release, ever, on any path.
+- **A `consumes` method is declarable ONLY in the receiver type's DEFINING
+  module (USER-RATIFIED Sep 1, uniform — no deinit-presence
+  special-casing)** — the same containment a deinit itself has (a deinit
+  rides the copy-policy conformance, which the orphan rule pins to the
+  defining module). Overriding a type's teardown is the type author's
+  privilege; a foreign `func leak(&var self) consumes {}` suppressing
+  another module's deinit contract (design 242's Thread fate panic
+  included) is exactly what this refuses, at the declaration, naming the
+  module. Foreign modules keep the open pattern: the by-value free
+  function (`consume(move obj)`).
 - **The move checkpoint is the funnel** (obligation 1): the consuming call
   charges the receiver's root through `_check_value_transfer` exactly as a
   by-value argument does — this must NOT be a new synthesized-call path that
@@ -135,18 +153,19 @@ half restates the design, the second is a SOUNDNESS completion):**
    in one branch, field B in the other) fails the all-paths test for BOTH
    fields — that is v1's excluded drop-flag shape; make each field's fate
    unconditional or diverge on the other branch.
-2. **A type with a HAND-WRITTEN `deinit` body refuses `move self.<field>`**
-   (Rust's E0509 analog, forced): design 131 makes the hand-written body
-   PREFIX the synthesized drops, and that body is a black box that may
-   read any field — running it against a moved-out field observes a dead
-   value, and skipping it breaks the type's cleanup contract. The error
-   fires at the `move`, names the type's `deinit`, and names the two
-   outs: consume the receiver WHOLE (the hand-written body + full drops
-   run at body end, unchanged), or extract through `self.field.take()` /
-   `swap_out` — which MUTATE to a valid state (`None`, the swapped-in
-   value) the deinit can legitimately see, and so stay legal on every
-   type. Whole-referent `self = v` inside a consuming body is unaffected
-   (the old referent deinits whole).
+2. ~~A type with a hand-written `deinit` body refuses `move self.<field>`
+   (the lead's E0509-analog draft)~~ **SUPERSEDED (sos-proposed,
+   USER-RATIFIED Sep 1) by §2's replacement rule**: the hand-written
+   deinit body does not run for a consumed receiver — the consuming body
+   occupies its design-131 prefix slot and takes manual responsibility —
+   so no dead-value observation is possible and field moves are legal on
+   EVERY type, hand-written deinit or not, under the same per-field
+   all-paths rule. The dissolved refusal's soundness worry is answered by
+   the module containment rule (§2): only the type's own module, i.e. the
+   deinit author's, may write a `consumes` method. Whole-referent
+   `self = v` inside a consuming body: the OLD referent deinits whole
+   (full deinit, hand-written body included — it is not the consumed
+   endpoint), the new value becomes the consumed referent.
 
 ## 4. v1 fences (each a clean error naming the fence)
 
