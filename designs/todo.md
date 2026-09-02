@@ -108,6 +108,7 @@ is scheduled and in what order is the whole of what they say.
 - DF-284b — `{ ... }()`, the spelling BOTH the spec and the diagnostic name as the fix, does not exist (entry below, filed Aug 31 by design 218 unit 1.5's agent while repairing DF-284a; PRE-EXISTING and never once tested — no `examples/` file contains the form). The postfix call is never applied to a closure literal in ANY position: statement position is the bogus refusal whose own hint names it, argument position is a parse error, and `let x = { 1 }()` SILENTLY binds the closure and drops the `()`. Not this unit's to fix (it is a parser question with a trailing-closure interaction); corodiff's `nested_block_tail` wrapper, which was written around the form and had therefore never compiled, moved to a nested `if true` scope
 - DF-287a — a `move` inside a DIVERGING catch poisons the fall-through path (entry below, filed Sep 1 by the lead from an sos-relayed repro; PRE-EXISTING). Every non-catch diverging construct — `if`, `match` arm, `guard else` — already restores; catch is the one outside the rule, in all three of its forms
 - DF-287b — bare-literal ADOPTION never runs at an OVERLOADED call site (entry below, same filing; PRE-EXISTING; DF-242c's matcher family). `solo(len: 1)` adopts at a lone `UInt` param and `b.put(len: 1)` is refused ``expects `UInt` but got `Int` `` although every `put` candidate agrees the slot is `UInt` — with a hint teaching the `as UInt` conversion adoption should have made unnecessary
+- DF-287c — no CONSUMING METHOD RECEIVER exists in any spelling (entry below, filed Sep 1 by the lead from an sos-relayed need; FEATURE GAP wanting a design brief + a user spelling ruling, not a fix). `obj.consume()` with `obj` dead after — the builder `finish()` / handle `close()` / `into_` shape. The free-function twin (`consume(move obj)`) works today and is the interim idiom; std itself wants the feature (`Task.join`'s consume-once contract is a runtime provenance panic where a consuming receiver is a compile error)
 - DF-286b — **THE STAGE-3c-2 BLOCKER**: A3's instance-check residue was measured on ONE program, and the corpus's population is larger and different in kind (entry below, filed Sep 1 by design 218 unit 1.5 stage 3c's agent). 115 diagnostics over 14 of 122 generic-named examples, in at least six classes, of which only two are the signed families — and two of the six are genuine funnel/registry DEFECTS, not artifacts. Needs a ruling before splice-all can be built
 - DF-286c — the materialization funnel does not reproduce what codegen's `type_param_context` path did, at four named positions (entry below, same filing; ONE mechanism, four faces — const-generic VALUES, associated-type annotations, the conditional-conformance bounds filter, and a `-> T?` tail's auto-wrap). Its matrix is stage 3c-2's test plan
 
@@ -291,7 +292,53 @@ documented ambiguity error. Sweep owed at fix time: the static-method and
 init overload faces of the same funnel (unprobed), and DF-242c's suffixed
 face, which this mechanism plausibly explains too.
 
+## DF-287c — no CONSUMING METHOD RECEIVER exists, in any spelling (filed Sep 1
+## by the lead from an sos-relayed need; FEATURE GAP — wants a brief + a user
+## spelling ruling)
 
+The shape sos needs: `obj.consume()` where `obj` is invalid after the call —
+builder `finish()`, handle `close()`-returning-a-value, `into_` conversions.
+
+THE MATRIX, lead-probed Sep 1 (`.build/scratch/consume_recv*.saw`,
+`consume_free.saw`; cells recorded here):
+- `func consume(self)` — ``Parse error: 'self' must be a reference: use
+  '&self' or '&var self'`` — a DELIBERATE rejection with a fixit (design
+  128's family), not an accident.
+- `func consume(move self)` — ``Parse error: Expected parameter name``.
+- The FREE-FUNCTION twin works TODAY and is the interim idiom:
+  `func consume(r: Res) -> Int { r.n }` called `consume(move r)` — compiles,
+  the receiver deinits inside the callee (probe prints `drop 5` then `5`),
+  and a later use of `r` is the ordinary use-after-move error.
+
+WHY IT IS A REAL FEATURE, not sugar: std already wants it. `Task.join(&self)`
+enforces consume-once with a RUNTIME provenance panic (design 242's
+drop-fate machinery) where a consuming receiver makes double-join a COMPILE
+error; `Optional.take(&var self)` is the field-safe move-out that exists
+partly because nothing can consume a receiver.
+
+DESIGN CELLS the brief must put to the user, pre-scouted:
+1. **The call-site visibility question is the crux.** Saw's doctrine is
+   reader-visibility-trumps (the call-site `&var` precedent), and the
+   by-value PARAMETER already demands `consume(move r)` spelled at the
+   call. A Rust-style `obj.consume()` that silently kills `obj` cuts
+   against both; the visible spellings on the table are ugly in different
+   ways (`(move obj).consume()` as a move-into-receiver expression, or
+   accepting the decl-visible-only asymmetry with the declaration carrying
+   the word). This is the user's ruling to make, not the lead's.
+2. Declaration spelling: bare `self` (Rust) vs `move self` (matches the
+   transfer vocabulary; the parse errors today reserve both).
+3. A `NoMove` type must REFUSE a consuming method (consumption is a move;
+   TaskGroup's family) — a derivation rule, not a per-type check.
+4. A consuming call through a FIELD (`h.res.consume()`) is a partial move
+   and stays refused like `move h.res`; `take()` remains the field
+   escape. A place (`v[i].consume()`) likewise follows the place rules
+   (`swap_out` remains the vector escape).
+5. Expected closures if built: `Task`/`Thread.join` + `detach` + `cancel`
+   migrate from runtime provenance panics to compile-time consumption
+   (design 242's fate rule becomes structural), and take-shaped APIs stop
+   needing an Optional wrapper.
+
+Not scheduled; BACKLOG until the user wants the brief. [128, 242, 219]
 
 ## DF-284b — the immediately-invoked closure `{ ... }()` does not parse, in any
 ## position (filed Aug 31 by design 218 unit 1.5's agent, stage 0; PRE-EXISTING,
