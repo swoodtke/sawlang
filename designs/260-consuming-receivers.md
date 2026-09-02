@@ -8,29 +8,43 @@ and the CALL SITE is visibly consuming (the user's sketch was
 job, already reserved — after the lead's identifier-breakage case:
 `consume` is an ordinary and LIKELY identifier, sos's own motivating method
 among them). Scheduled AHEAD of the queue by the user ("slot that in now")
-for the next sos pin bump. **One cell open below (§3, field extraction) —
-dispatch waits on it.** Filed record: DF-287c (matrix + motivation).
+for the next sos pin bump. **FULLY RULED (user, Sep 1, second pass): §3's Option A is
+RATIFIED, and the receiver spelling is AMENDED — the declaration keeps
+`&var self` (the exclusivity guarantees are `&var`'s; `consumes` does the
+heavy lifting in the effect slot), NOT the lead's bare-`self` draft.**
+Dispatch-ready. Filed record: DF-287c (matrix + motivation). sos pin is at
+0.3.0; this lands in the next bump.
 
 ## 1. The surface
 
 ```saw
 extension Builder {
-    func finish(self) consumes -> Report { ... }       // declaration: paired
-    func close(self) consumes unsafe -> Int { ... }    // slot order: consumes unsafe sync
+    func finish(&var self) consumes -> Report { ... }     // declaration
+    func close(&var self) consumes unsafe -> Int { ... }  // slot order: consumes unsafe sync
 }
 
 let report = (move b).finish()     // call: b is DEAD past this expression
 ```
 
-- **Declaration**: receiver spelled bare `self`, effect slot says `consumes`,
-  and the two REQUIRE each other (the `unsafe static var` pairing precedent —
-  each half alone is a clean error): bare `self` without `consumes` stays
-  today's parse error verbatim; `consumes` beside `&self`/`&var self` is
-  ``a consuming method takes its receiver by value — write `self` ``.
-  `consumes` is CONTEXTUAL (the slot position is unambiguous; the word stays
-  an ordinary identifier everywhere else, like `type`/`private`).
-  `consumes` and `borrows` are mutually exclusive (you cannot lend out of a
-  receiver you destroyed) — a declaration error naming both.
+- **Declaration (user-amended)**: the receiver stays `&var self` — the
+  receiver grammar stays CLOSED at its two modes, and the Law of
+  Exclusivity's path-charging covers the whole call exactly as for any
+  `&var self` method; `consumes` in the effect slot is what changes the
+  contract's ENDING (the exclusive borrow ends in the value's death: the
+  callee is the release point, the caller's binding is moved-from after).
+  Pairing: `consumes` REQUIRES `&var self` — on `&self` it is ``a consuming
+  method needs an exclusive receiver — write `&var self` ``, on a free
+  function or static it is a declaration error (nothing to consume), and
+  bare `self` stays today's parse error everywhere. `consumes` is
+  CONTEXTUAL (the slot position is unambiguous; the word stays an ordinary
+  identifier elsewhere, like `type`/`private`). `consumes` and `borrows`
+  are mutually exclusive (you cannot lend out of a receiver you destroyed)
+  — a declaration error naming both.
+- **Mechanically**: the receiver passes BY POINTER as every `&var self`
+  does; what `consumes` adds is release responsibility (the callee deinits
+  what remains of the referent at body end) and the caller-side
+  moved-from marking. No relocation happens, which is cheaper than a
+  by-value receiver for large types and is why the spelling is honest.
 - **Call**: `(move b).finish()` — `move` in receiver position, parenthesized,
   on the `(&x) as UnsafePointer<T>` operand-then-postfix precedent. The bare
   `b.finish()` on a consuming method is refused with the mirror fixit
@@ -44,16 +58,23 @@ let report = (move b).finish()     // call: b is DEAD past this expression
 
 ## 2. Rules that follow from existing law (no new machinery)
 
-- **Consumption is a move**, so: a `NoMove` receiver type REFUSES a consuming
-  method AT THE DECLARATION (derivation rule, TaskGroup's family, not a
-  per-type check); a Copy-tier receiver is legal and the call retires the
-  binding exactly as `move` on Copy does; through a FIELD
-  (`(move h.res).close()`) it is the no-partial-moves error with `take()` as
-  the named escape; through a PLACE (`(move v[i]).close()`) the design-35
-  refusal with `swap_out` named.
-- **The body owns `self`** — an owned binding, the callee's to release: fall
-  off the end and the synthesized deinit runs there (a hand-written deinit
-  body prefixes it, design 131, unchanged).
+- **The caller spelling IS the transfer**, so three rules come FREE from
+  `move`'s own axis: a `NoMove` receiver is refused at the CALL (`move` on a
+  NoMove binding is already that axis's error — no new declaration-side
+  check owed; whether in-place consumption of a NoMove type should ever be
+  allowed, since nothing relocates under the `&var` shape, is RECORDED as a
+  future question, not v1's); a Copy-tier receiver is legal and the call
+  retires the binding exactly as `move` on Copy does; through a FIELD
+  (`(move h.res).close()`) it is the no-partial-moves error with `take()`
+  as the named escape, and through a PLACE the design-35 refusal with
+  `swap_out` named.
+- **A TEMPORARY receiver needs no `move`** — `make_builder().finish()` is
+  legal bare: there is no binding to invalidate, and the temp was already
+  the callee's to end. The fixit fires only when the receiver is a binding.
+- **The callee releases the referent** — at body end the synthesized deinit
+  runs over what remains of it, through the reference (a hand-written
+  deinit body prefixes it, design 131, unchanged); the caller's binding
+  performs NO release, ever, on any path.
 - **The move checkpoint is the funnel** (obligation 1): the consuming call
   charges the receiver's root through `_check_value_transfer` exactly as a
   by-value argument does — this must NOT be a new synthesized-call path that
@@ -62,7 +83,7 @@ let report = (move b).finish()     // call: b is DEAD past this expression
   is frame-resident like any owned param. Effects re-infer per instantiation
   as ever.
 
-## 3. THE OPEN CELL — field extraction out of a consumed `self` (USER)
+## 3. Field extraction out of a consumed `self` — OPTION A RATIFIED (user, Sep 1)
 
 The motivating API is `finish()` RETURNING what the builder accumulated —
 which for a NoCopy field means moving it OUT of `self`:
@@ -81,21 +102,20 @@ a consuming method cannot extract a plain NoCopy field at all (the field
 would need to be stored as `Optional<Vector<Int>>` just to `take()` it —
 wrapping storage to satisfy a spelling, which is the tail wagging the dog).
 
-- **OPTION A (lead RECOMMENDS): `move self.<field>` is legal INSIDE a
-  consuming body, UNCONDITIONALLY per field.** The rule: each field is
-  moved-out on EVERY path or on NO path — statically checkable with no drop
-  flags, since the body's exits are known — and the synthesized deinit at
-  body end releases exactly the unmoved fields. This is the carve-out's
-  soundness story: `self` is the CALLEE's owned value and nobody observes it
-  after, so partial states never escape; the no-partial-moves rule exists to
-  protect OBSERVABLE bindings, and a consumed receiver is not one.
-  Conditional per-path moves stay refused in v1 (that is what would need
-  drop flags); a diverging path (panic/return-early) is exempt from the
-  all-paths test on the fields it never reaches, same as every liveness rule.
-- **OPTION B (smaller, weaker): no carve-out.** Extraction goes through
-  `Optional.take` / `swap_out`, i.e. APIs wrap their extractable fields in
-  `Optional`. Builds today's machinery only; makes the feature far less
-  useful for exactly its motivating shape.
+- **OPTION A — RATIFIED**: `move self.<field>` is legal INSIDE a consuming
+  body, per field on an EVERY-path-or-NO-path rule — statically checkable
+  with no drop flags, since the body's exits are known — and the callee's
+  end-of-body release covers exactly the unmoved fields. Under the amended
+  `&var self` receiver this is a `consumes`-licensed carve-out from BOTH
+  standing bans it crosses (no-partial-moves AND no-move-out-of-a-ref):
+  sound because the referent is the callee's to END — the caller's binding
+  is moved-from on return and performs no release, so a partially-emptied
+  state is never observable anywhere. Conditional per-path field moves stay
+  refused in v1 (they are what would need drop flags); a diverging path is
+  exempt from the all-paths test for the fields it never reaches, as in
+  every liveness rule.
+- Option B (Optional-wrapped fields, no carve-out) was DECLINED with A's
+  ratification.
 
 ## 4. v1 fences (each a clean error naming the fence)
 
