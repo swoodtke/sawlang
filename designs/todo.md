@@ -109,6 +109,7 @@ is scheduled and in what order is the whole of what they say.
 - DF-287a — a `move` inside a DIVERGING catch poisons the fall-through path (entry below, filed Sep 1 by the lead from an sos-relayed repro; PRE-EXISTING). Every non-catch diverging construct — `if`, `match` arm, `guard else` — already restores; catch is the one outside the rule, in all three of its forms
 - DF-287b — bare-literal ADOPTION never runs at an OVERLOADED call site (entry below, same filing; PRE-EXISTING; DF-242c's matcher family). `solo(len: 1)` adopts at a lone `UInt` param and `b.put(len: 1)` is refused ``expects `UInt` but got `Int` `` although every `put` candidate agrees the slot is `UInt` — with a hint teaching the `as UInt` conversion adoption should have made unnecessary
 - DF-287c — CLOSED Sep 1, design 260 LANDED (entry below): `func f(&var self) consumes` at the declaration, `(move b).f()` at the call. Two v1 fences the landing added beyond the brief's list are reported for ratification; the `Task`/`Thread` fate migration stays a separate brief (260 §5)
+- DF-288a — SOUNDNESS: a match arm may `move` its payload binding THROUGH A REFERENCE scrutinee — silent double free, exit 0 (entry below, filed Sep 2 by the lead from an sos repro; PRE-EXISTING, verified identical on the pre-260 compiler). Three faces silent (`&var` param, SHARED `&` param — theft through a shared borrow — and `&var self` receiver); the owned control is correct and the PLACE face is correctly refused by the value-read fence. Pairs with N10 as a move-checkpoint blind spot; one fix dispatch for both after 3c-2
 - DF-286b — **THE STAGE-3c-2 BLOCKER**: A3's instance-check residue was measured on ONE program, and the corpus's population is larger and different in kind (entry below, filed Sep 1 by design 218 unit 1.5 stage 3c's agent). 115 diagnostics over 14 of 122 generic-named examples, in at least six classes, of which only two are the signed families — and two of the six are genuine funnel/registry DEFECTS, not artifacts. Needs a ruling before splice-all can be built
 - DF-286c — the materialization funnel does not reproduce what codegen's `type_param_context` path did, at four named positions (entry below, same filing; ONE mechanism, four faces — const-generic VALUES, associated-type annotations, the conditional-conformance bounds filter, and a `-> T?` tail's auto-wrap). Its matrix is stage 3c-2's test plan
 
@@ -291,6 +292,56 @@ filtering, adopts against the winner, and 2+ surviving widths stay the
 documented ambiguity error. Sweep owed at fix time: the static-method and
 init overload faces of the same funnel (unprobed), and DF-242c's suffixed
 face, which this mechanism plausibly explains too.
+
+## DF-288a — SOUNDNESS: a match arm may `move` its payload binding through a
+## REFERENCE scrutinee — silent double free (filed Sep 2 by the lead from an
+## sos repro; PRE-EXISTING)
+
+```saw
+func take_it(s: &var Slot) -> Owned {
+    match s {
+        case Empty -> { Owned(w: 0) },
+        case Full(o) -> { move o },      // compiles; the referent KEEPS o
+    }
+}
+// var s = Slot.Full(o: Owned(w: 7)); let got = take_it(&var s)
+// -> got 7 / drop 7 / drop 7 — exit 0, silent
+```
+
+THE MATRIX, lead-probed Sep 2 (`.build/scratch/refmatch_*.saw`; cells
+recorded here). SILENT DOUBLE FREE at all three reference faces: a `&var`
+parameter scrutinee, a SHARED `&` parameter scrutinee (payload theft
+through a shared borrow — the worst face), and a `&var self` method
+receiver (`match self`). CORRECT at both controls: an OWNED by-value
+scrutinee consumes and drops once (the documented consuming match), and a
+PLACE scrutinee (`match v[0]`) is refused by the place value-read fence
+before the arm question arises. PRE-EXISTING: byte-identical behavior on
+the pre-260 compiler (`b17d35e4`), so design 260 is not implicated and the
+0.4.0 pin is not newly exposed — sos's 0.3.0 has it too.
+
+MECHANISM (obligation 4): `_check_match_general`'s binding registration
+(`typechecker/expressions.py:11495`) creates a plain owned
+`VariableInfo(type=param_type, mutable=False)` for every variant-pattern
+binding, MODE-BLIND — the scrutinee's reference-ness is never consulted —
+so `move o` sees an ordinary owned local and licenses the transfer, and
+codegen hands out a non-retained alias while the referent keeps its
+payload. The documented model ("matching through a `&`/`&var` binding
+stays a borrow — no consume") exists in the docs and in codegen's
+Copy-tier retain path, but the typechecker never fences the move. ONE
+registration site, so the fix is a funnel already: mark bindings from
+reference scrutinees as borrows (the `is_reference`-style flag the move
+checker already refuses), yielding the ordinary
+cannot-move-out-of-reference error, with `Optional`+`take()` /
+`swap_out`-shaped APIs as the named outs. FIX-SWEEP CELLS owed at
+dispatch: `if let`/`while let`/`guard let` payload bindings over a
+ref-reached optional (the same registration question at the other
+lowering), nested patterns and guards (same site, verify), and the
+DF-146d borrowing-arm lend path (must stay legal). WORKAROUND for sos
+until then: model the slot as `Optional<Owned>` and extract with
+`o.take()` — the field-safe move-out built for exactly this. PAIRS WITH
+N10 (the `as` transfer-check bypass) as the second member of "the move
+checkpoint is lied to" — one fix dispatch covers both, after 3c-2
+(typechecker surface). [146, 219, DF-146j's alias family]
 
 ## DF-287c — no CONSUMING METHOD RECEIVER exists, in any spelling (filed Sep 1
 ## by the lead from an sos-relayed need; FEATURE GAP — wants a brief + a user
