@@ -971,3 +971,51 @@ predicates, and the re-census gate is the completeness proof a whitelist
 inversion was supposed to buy; ENUMERATE stands, with inversion recorded
 as the fallback if the IR-level population (face 4's layer) ever
 surprises. RECOMMENDED, not yet ratified.
+
+### B7 (Sep 2, lead) — the DF-289e consumer sweep, and 3c-2c(2)'s staging
+
+**The flip, stated as a contract:** moving monomorphized method/init bodies
+onto the ordinary generators changes OWNERSHIP BOOKKEEPING — the ordinary
+path registers param cleanups (an owning by-value parameter no path consumed
+now RELEASES at body end, which is DF-251b's leak becoming the specced
+release), populates `variable_types`, and sets the ICE breadcrumb; the
+generic twins did none of those.
+
+**THE CONSUMER SWEEP (obligation 2), and why it is already substantially
+done:** the stopped branch RAN the flip against the full suite — a
+behavioral differential over 2,352 tests — and the blast radius is exactly
+FOUR sites: DF-251b's pin flipping to its INTENDED behavior (the
+confirmation, not a casualty), DF-289c's store collision (FIXED on the
+reverted branch; carry it), DF-289d's window-closure branch-layer
+disagreement (`Map<String, Int?>`, a place-lowering type mismatch — a
+defect, not a reliance), and the `df151c_optional_dest_copy` SIGTRAP — an
+`Arc<Res>` refcount balance across a SUSPENDING match arm, the one place
+the ownership flip meets the coroutine frame. No corpus test RELIES on the
+old (leaky) behavior; what remains are two defects and one frame
+interaction. THE RESIDUAL SWEEP the dispatch owes before its fix: enumerate
+std's generic methods/inits with an OWNING by-value parameter whose body
+SUSPENDS (the df151c family's siblings — the frame-resident-param cleanup
+interaction), probe each with a refcount/deinit witness, and run
+**`corodiff --all`** (not `--quick`) at the gate — the driven-vs-sync
+differential harness is purpose-built for ownership-timing changes in
+driven bodies and is the instrument the suite's sync bias undercovers.
+
+**3c-2c(2) STAGING (the final 218/1.5 stage-3 dispatch):**
+1. Re-apply the RECORDED shape from DF-289e verbatim (one concrete
+   Extension per mangled receiver; symbols stamped at the producer; layouts
+   registered up front — S5; M4 lookup ICE-on-miss; M6's six deletions;
+   `_receiver_saw_type` for drop glue), WITH the DF-289c fix.
+2. Fix DF-289d (the window closure's `-> T?` layer at the place lowering)
+   and the df151c frame interaction, each with the residual sweep's matrix
+   as its test plan.
+3. The deferred tail, in this dispatch: DF-251b's XFAIL marker removed in
+   the landing commit; A5(a)'s never-emitted-diagnostic pin; the deepcopy
+   path + `SAWC_MONO_COPY_ORACLE` retire (the old path is then gone);
+   `SAWC_MONO_SHADOW`'s disposition per the spec's stage-3 text.
+4. Gate at the completed cutover: suite + freestanding + `corodiff --all` +
+   `reemit` + `irdet --all` + `gmgate` + **the §5 measurement against the
+   re-based envelope (+18.8%/+16.8%)** — noting the half-cutover's
+   bootstrap already measured 226 s against the 232.9 s baseline, so the
+   envelope may hold with room. Terminal: the full battery.
+5. Serialization: dispatches only after the parked DF-288a branch
+   integrates (single-owner typechecker surface).
