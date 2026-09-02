@@ -568,17 +568,26 @@ class SawType:
             # Check if struct name is actually a type parameter
             if self.struct_name in type_map:
                 return type_map[self.struct_name]
-            # Substitute in type arguments
+            # Substitute in type arguments. The `symbol` RIDES ALONG (DF-289b):
+            # only the arguments changed, so the head still names the same
+            # declaration — and that symbol is design 144's identity, which
+            # `_resolve_type` prefers over whichever declaration the asking
+            # module's view maps the bare name to. Dropping it here is what
+            # let a substituted `Slot<Res>` re-point at `std.compiler.frame`'s
+            # `Slot` inside a std body and report ``expects `Slot<Res>` but got
+            # `Slot<Res>` ``.
             if self.type_args:
                 substituted_args = [t.substitute(type_map) for t in self.type_args]
-                return SawType(TypeKind.STRUCT, struct_name=self.struct_name, type_args=substituted_args)
+                return SawType(TypeKind.STRUCT, struct_name=self.struct_name,
+                               type_args=substituted_args, symbol=self.symbol)
             return self
 
         # Handle enum types (may have type args)
         if self.kind == TypeKind.ENUM and self.enum_name:
             if self.type_args:
                 substituted_args = [t.substitute(type_map) for t in self.type_args]
-                return SawType(TypeKind.ENUM, enum_name=self.enum_name, type_args=substituted_args)
+                return SawType(TypeKind.ENUM, enum_name=self.enum_name,
+                               type_args=substituted_args, symbol=self.symbol)
             return self
 
         # Handle optional types

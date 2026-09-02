@@ -490,6 +490,19 @@ class Monomorphizer:
         return None
 
     def _method_call_demands(self, node, subst, depth, chain, where):
+        # THE ERASED DOWNCAST IS NOT AN INSTANCE (Amendment B5). `b.is<Circle>()`
+        # and `b.take<Circle>()` on a `Box<any Trait>` carry method type
+        # arguments and look exactly like a method-generic call, but design 51
+        # lowers them INLINE from the vtable's type id — there is no Saw body
+        # anywhere, in std or out of it, so there is no template to clone and
+        # nothing to check. Registering one minted a body-less instance the
+        # materialization funnel then had to decline, which is the whole of the
+        # census's 14 `no_template_method` misses (five `erased_downcast_*`
+        # programs, `Box.is`/`Box.take` every time). Declining the DEMAND is the
+        # honest place to say so, and it is what lets the funnel's own miss arm
+        # be an internal error rather than a silent skip.
+        if getattr(node, 'erased_downcast', None) is not None:
+            return
         targs = getattr(node, 'type_args', None)
         # (a) The module-qualified FREE function call, which the checker parses
         #     as a member access and stamps like a `FunctionCall`.
@@ -1112,6 +1125,56 @@ def materialize_instance(mono, tc, inst, hook=None):
         tc.namespace = saved
 
 
+def identify(namespace, saw_type, depth=0):
+    """Give a registry type ARGUMENT the declaration symbol it denotes — the
+    second half of DF-289b.
+
+    A registry argument is an IDENTITY (design 144's (module, name) pair,
+    spelled as the name a program-wide lookup answers to), and the instance
+    check runs inside the TEMPLATE's module, where the same spelling may name
+    something else: `Slot<Res>` reaching `std/vector` is re-pointed at
+    `std.compiler.frame`'s `Slot` by that file's own view, and the diagnostic
+    reads ``expects `Slot<Res>` but got `Slot<Res>` `` (census classes 5/8/9/10,
+    mechanism M1a).
+
+    `_resolve_type` already prefers a carried symbol's identity over the
+    module's view of a name, which settles it wherever the argument HAS a
+    symbol. The ones the registry mints — a canonicalized argument, a name a
+    call site never resolved through a symbol — do not, so the symbol is
+    attached here, from the MERGED namespace, at the one place the merged
+    namespace is in hand and the argument is still the caller's.
+
+    Total and non-mutating: a type whose name the program does not declare, and
+    one that already carries a symbol, come back unchanged.
+    """
+    if saw_type is None or not isinstance(saw_type, SawType) or depth > 8:
+        return saw_type
+    changed = {}
+    kind = saw_type.kind
+    if saw_type.symbol is None and kind in (TypeKind.STRUCT, TypeKind.ENUM):
+        name = (saw_type.struct_name if kind == TypeKind.STRUCT
+                else saw_type.enum_name)
+        if name and '.' not in name:
+            found = (namespace.lookup_struct(name) if kind == TypeKind.STRUCT
+                     else namespace.lookup_enum(name))
+            if found is not None:
+                changed['symbol'] = found
+    args = saw_type.type_args
+    if args:
+        new_args = [identify(namespace, a, depth + 1) for a in args]
+        if any(n is not o for n, o in zip(new_args, args)):
+            changed['type_args'] = new_args
+    for field in ('inner_type', 'array_element_type'):
+        child = getattr(saw_type, field, None)
+        if child is not None:
+            new_child = identify(namespace, child, depth + 1)
+            if new_child is not child:
+                changed[field] = new_child
+    if not changed:
+        return saw_type
+    return dataclasses.replace(saw_type, **changed)
+
+
 def _run_body(tc, mono, inst, template, clone, type_map, display, method_name,
               flavor, check, hook):
     # §1c skips 4 and 5 read the TEMPLATE: the questions are which by-value
@@ -1135,7 +1198,12 @@ def _materialize_type_instance(mono, tc, inst, copier, hook):
     if decl is None:
         return
     struct_tps = getattr(decl, 'type_params', None) or []
-    base_map = _zip_params(struct_tps, inst.args)
+    # DF-289b: the SUBSTITUTION map carries identities, so its types carry the
+    # symbols that say so. The registry-facing calls below keep the registry's
+    # own arguments — identity and mangling are decided there and nothing here
+    # may perturb them.
+    ident_args = [identify(mono.namespace, a) for a in inst.args]
+    base_map = _zip_params(struct_tps, ident_args)
     for ext, skip in mono._applicable_extensions(inst.base, inst.args):
         aliases = ext_param_aliases(getattr(ext, 'type_params', None),
                                     struct_tps)
@@ -1152,11 +1220,11 @@ def _materialize_type_instance(mono, tc, inst, copier, hook):
             for declared, alias in aliases:
                 if declared in base_map:
                     type_map[alias] = base_map[declared]
-            tc._add_associated_type_bindings(type_map, struct_tps, inst.args)
+            tc._add_associated_type_bindings(type_map, struct_tps, ident_args)
             clone = copier(entry[0], type_map)
             clone.type_params = []
             clone.is_mono_instance = True
-            clone.mono_const_bindings = const_bindings(struct_tps, inst.args,
+            clone.mono_const_bindings = const_bindings(struct_tps, ident_args,
                                                        aliases)
             _run_body(tc, mono, inst, entry[0], clone, type_map,
                       f"{inst.display}.{m.name}", m.name, "type-method",
@@ -1165,21 +1233,38 @@ def _materialize_type_instance(mono, tc, inst, copier, hook):
                       hook)
 
 
+def _no_template(inst, kind):
+    """A registered instance whose template the store cannot answer for.
+
+    AN INTERNAL ERROR, not a skip (Amendment B5). The registry decides which
+    instances exist and this funnel is the only thing that materializes one, so
+    a miss here means the two disagree — and the shape a silent `return` takes
+    is an instance nothing ever checks, which is the state this whole unit
+    exists to end. The one class the census found is declined at the DEMAND
+    instead (see `_method_call_demands`'s erased-downcast arm), which is where
+    "this call has no body" is a fact rather than a lookup failure.
+    """
+    raise AssertionError(
+        f"internal compiler error: monomorphization has no pristine template "
+        f"for the {kind} instance `{inst.display}` (base `{inst.base}`"
+        + (f", method `{inst.method_name}`" if inst.method_name else "")
+        + f", key `{inst.key}`), demanded from {inst.demand}")
+
+
 def _materialize_fn_instance(mono, tc, inst, copier, hook):
     pristine = tc.pristine_generic(inst.base)
     if pristine is None:
-        if hook is not None:
-            hook.no_template(inst, "fn")
-        return
+        _no_template(inst, "function")
     tps = getattr(pristine, 'type_params', None) or []
-    type_map = _zip_params(tps, inst.args)
-    tc._add_associated_type_bindings(type_map, tps, inst.args)
+    ident_args = [identify(mono.namespace, a) for a in inst.args]
+    type_map = _zip_params(tps, ident_args)
+    tc._add_associated_type_bindings(type_map, tps, ident_args)
     clone = copier(pristine, type_map)
     clone.name = inst.key
     clone.type_params = []
     clone.mangled_symbol = None
     clone.is_mono_instance = True
-    clone.mono_const_bindings = const_bindings(tps, inst.args)
+    clone.mono_const_bindings = const_bindings(tps, ident_args)
     _run_body(tc, mono, inst, pristine, clone, type_map, inst.display, None,
               "fn", lambda: tc._check_function(clone), hook)
 
@@ -1192,22 +1277,24 @@ def _materialize_method_instance(mono, tc, inst, copier, hook):
     item 9's method-generic on a NON-generic type's extension.
     """
     name = inst.method_name
+    ident_args = [identify(mono.namespace, a) for a in inst.args]
+    ident_margs = [identify(mono.namespace, a)
+                   for a in (inst.method_args or [])]
     entry = tc.pristine_generic_struct_method(inst.base, name)
     if entry is not None:
         pristine, ext = entry
         struct_tps = getattr(ext, 'type_params', None) or []
         method_tps = getattr(pristine, 'type_params', None) or []
-        type_map = _zip_params(struct_tps, inst.args)
-        type_map.update(_zip_params(method_tps, inst.method_args or []))
-        tc._add_associated_type_bindings(type_map, struct_tps, inst.args)
-        tc._add_associated_type_bindings(type_map, method_tps,
-                                         inst.method_args or [])
+        type_map = _zip_params(struct_tps, ident_args)
+        type_map.update(_zip_params(method_tps, ident_margs))
+        tc._add_associated_type_bindings(type_map, struct_tps, ident_args)
+        tc._add_associated_type_bindings(type_map, method_tps, ident_margs)
         clone = copier(pristine, type_map)
         clone.name = inst.key
         clone.type_params = []
         clone.is_mono_instance = True
-        bindings = const_bindings(struct_tps, inst.args)
-        bindings.update(const_bindings(method_tps, inst.method_args or []))
+        bindings = const_bindings(struct_tps, ident_args)
+        bindings.update(const_bindings(method_tps, ident_margs))
         clone.mono_const_bindings = bindings
         _run_body(tc, mono, inst, pristine, clone, type_map,
                   f"{inst.display}.{name}", name,
@@ -1217,20 +1304,16 @@ def _materialize_method_instance(mono, tc, inst, copier, hook):
     entry = (tc.pristine_generic_method(inst.base, name)
              or tc.pristine_generic_method(inst.recv_key, name))
     if entry is None:
-        if hook is not None:
-            hook.no_template(inst, "method")
-        return
+        _no_template(inst, "method")
     pristine, _ext = entry
     method_tps = getattr(pristine, 'type_params', None) or []
-    type_map = _zip_params(method_tps, inst.method_args or [])
-    tc._add_associated_type_bindings(type_map, method_tps,
-                                     inst.method_args or [])
+    type_map = _zip_params(method_tps, ident_margs)
+    tc._add_associated_type_bindings(type_map, method_tps, ident_margs)
     clone = copier(pristine, type_map)
     clone.name = inst.key
     clone.type_params = []
     clone.is_mono_instance = True
-    clone.mono_const_bindings = const_bindings(method_tps,
-                                               inst.method_args or [])
+    clone.mono_const_bindings = const_bindings(method_tps, ident_margs)
     _run_body(tc, mono, inst, pristine, clone, type_map,
               f"{inst.display}.{name}", name,
               "method-generic-on-plain-extension",
