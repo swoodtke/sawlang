@@ -367,7 +367,7 @@ redefines it (``method `copy` is already defined for struct `T` with an
 indistinguishable signature``). Declare `Copy`; it already satisfies
 `T: ExplicitCopy`.
 **`NoMove` is a SEPARATE AXIS (design 188)** — relocation, not duplication. A
-`NoMove` value moves exactly once (constructor into binding): `move x` and
+`NoMove` value moves exactly once, INTO ITS HOME: `move x` and
 `Optional.take` of one are compile errors, whole-referent replacement through
 `&var` stays legal, and it REQUIRES a declared `NoCopy` beside it (`extension
 TaskGroup: NoCopy {}` + `extension TaskGroup: NoMove {}`; declaring it on a
@@ -376,6 +376,27 @@ holding one says both words itself, or holds it behind a `Box` for a movable
 handle over pinned storage. Not a generic bound. `TaskGroup` conforms: a group
 is a SCOPE (design 124) whose Deinit joins where it was born, so `move group`
 used to compile and abort in the runtime.
+**A home is usually the BINDING, and the other one is a HEAP PLACEMENT**
+(design 188's fresh-journey amendment, ruled Sep 2): a by-value PARAMETER may
+be placement-moved into freshly allocated storage at a NoMove type, provided
+the body took no reference to the parameter first.
+```saw
+func place(value: Anchor) unsafe -> UnsafePointer<Anchor> {
+    ...
+    ptr[0] = move value          // legal: the value's first and only home
+}
+```
+That is what `Box<T, A>.make` is written around, so the documented "hold a
+NoMove value behind a Box" idiom is writable in YOUR code and not only std's.
+Sound because the caller side fences it: a value that is already BOUND cannot
+be moved into an argument, so such a parameter is always a fresh temporary
+whose address was never observable — `observe(&value)` before the placement
+ends the trip and the ordinary refusal returns. It does not extend to storage
+that RELOCATES: `Vector.push` moves its elements on a growth, so a `Vector` at
+a NoMove element type is refused where that move is written. Both were refused
+before Sep 2 (the concrete twin of `Box.make` was unwritable, and the generic
+compiled only because nothing had ever instance-checked it), so distrust the
+shape in an older build.
 **`Data` MOVED OFF the NoCopy list (design 165)** and is now the COPY-ON-WRITE
 member of the Copy tier: a `Data` is a window (offset + length) onto
 `Arc`-owned storage, `let b = a` and `a.copy()` are retains, and the bytes

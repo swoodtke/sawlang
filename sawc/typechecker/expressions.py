@@ -1026,7 +1026,16 @@ class ExpressionsMixin:
         # position is funnelled through `move` by the NoCopy machinery, so
         # refusing the funnel refuses them all — and this is the one place the
         # funnel passes through.
-        if self._is_no_move_type(var_info.type):
+        #
+        # design 188's FRESH-JOURNEY amendment (218c Amendment B4, USER-RULED
+        # Sep 2) is the one exception, and it FALLS THROUGH rather than
+        # returning: the placement of a by-value parameter into freshly
+        # allocated storage is the value reaching its HOME, so it is a real
+        # move and takes every other thing this funnel does to one — the
+        # borrow check below, and the move record that retires the binding.
+        # `_no_move_is_fresh_journey` carries the soundness argument.
+        if (self._is_no_move_type(var_info.type)
+                and not self._no_move_is_fresh_journey(var_info)):
             self._error(
                 ErrorKind.CANNOT_COPY,
                 f"cannot `move` `{expr.variable}`: `{var_info.type}` is "
@@ -1128,6 +1137,20 @@ class ExpressionsMixin:
             # cascade behind it.
             return SawType(TypeKind.REFERENCE, inner_type=inner_type,
                            reference_mutable=expr.mutable)
+
+        # design 188's FRESH-JOURNEY amendment (218c Amendment B4): record that
+        # this binding's ADDRESS was observable. A `NoMove` by-value parameter
+        # may be placement-moved into its home only while nothing has taken a
+        # reference to it — the whole soundness argument is that the journey
+        # construction -> parameter -> placement is one continuous trip — and
+        # this is the one place a reference to a binding is created. Recorded
+        # for every binding, cheaply, because the question is asked later and
+        # the answer cannot be reconstructed then. See
+        # `_no_move_is_fresh_journey`.
+        if isinstance(expr.expr, Identifier):
+            _ref_info = self.current_scope.lookup(expr.expr.name)
+            if _ref_info is not None:
+                self._referenced_bindings.add(_ref_info.binding_id)
 
         # References can only be taken to lvalues
         if not self._is_lvalue(expr.expr):

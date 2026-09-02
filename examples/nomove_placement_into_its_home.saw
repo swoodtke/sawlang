@@ -1,0 +1,75 @@
+// design 188's FRESH-JOURNEY rule — a `NoMove` value moves exactly once, INTO
+// ITS HOME (218c Amendment B4, USER-RULED)
+//
+// Design 188 said "constructor into binding", and design 188's OWN documented
+// idiom is "hold a NoMove value behind a `Box` for a movable handle over pinned
+// storage" — but `Box.make`'s body is `ptr[0] = move value`, so the idiom's
+// construction path was unwritable as concrete code. `examples/nomove_tier.saw`
+// calls `Box<Anchor>.make` and runs only because nothing had ever
+// instance-checked the generic.
+//
+// The rule now: a by-value PARAMETER may be placement-moved into freshly
+// allocated storage at a NoMove type, provided the body took no reference to it
+// first. Sound because the caller side already fences it — a BOUND NoMove value
+// cannot be moved into an argument (`errors/nomove_bound_value_into_argument.saw`)
+// — so such a parameter is always a fresh temporary whose address was never
+// observable, and the journey construction -> parameter -> placement is one
+// continuous trip.
+//
+// Both carriers: std's own `Box.make`, and the hand-written concrete twin that
+// the ruling exists to make writable.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// boxed 5
+// pinned 12
+// DROP 12
+// DROP 5
+
+struct Anchor {
+    n: Int
+}
+
+extension Anchor: NoCopy {
+    func deinit(&var self) { print("DROP {self.n}") }
+}
+extension Anchor: NoMove {}
+
+extension Anchor {
+    func get(&self) -> Int { self.n }
+}
+
+// The hand-written twin of `Box<T, A>.make`: one allocation, one placement
+// write, and the parameter is never named before it.
+struct Pin {
+    at: UnsafePointer<Anchor>
+}
+
+extension Pin {
+    static func of(value: Anchor) unsafe -> Pin {
+        let raw = GlobalAllocator().alloc(sizeof<Anchor>(), alignof<Anchor>())
+        if let chunk = raw {
+            let ptr = chunk as UnsafePointer<Anchor>
+            ptr[0] = move value
+            return Pin(at: ptr)
+        }
+        panic("Pin.of: allocation failed")
+    }
+
+    func get(&self) unsafe -> Int { self.at[0].get() }
+}
+
+extension Pin: NoCopy {
+    func deinit(&var self) unsafe {
+        __saw_deinit_in_place(self.at)
+        GlobalAllocator().dealloc(self.at as UnsafePointer<UInt8>,
+                                  sizeof<Anchor>(), alignof<Anchor>())
+    }
+}
+
+func main() {
+    let boxed = try! Box<Anchor>.make(Anchor(n: 5))
+    print("boxed {boxed.value().get()}")
+
+    let pinned = Pin.of(Anchor(n: 12))
+    print("pinned {pinned.get()}")
+}

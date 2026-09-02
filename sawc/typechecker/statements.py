@@ -348,7 +348,10 @@ class StatementsMixin:
             if param.name != "self":
                 self._check_shadowing(param.name, None, method.line,
                                       method.column, site="param")
-            info = VariableInfo(param_type, mutable=False, line=method.line, column=method.column)
+            info = VariableInfo(param_type, mutable=False, line=method.line,
+                                column=method.column,
+                                is_parameter=(param.name != "self"
+                                              and not param.is_reference))
             self.current_scope.define(param.name, info)
 
         # Default parameter values (design 53): checked in isolation (no access
@@ -690,11 +693,25 @@ class StatementsMixin:
         the outcomes that are errors at ITS site, which is what makes a method,
         a function, a `return` and a closure each name themselves.
         """
-        if value_type is not None and value_type.is_result():
-            return ('result', None)
-
         ok_type = expected.unwrap_result_ok()
         err_type = expected.unwrap_result_err()
+
+        if value_type is not None and value_type.is_result():
+            # PROVENANCE SKIP (design 218c §1c) — SKIP 5 at the
+            # Result-into-Result guard. The guard exists so `return someResult`
+            # at a `-> Result<...>` is not silently Ok-wrapped when the author
+            # probably meant to propagate. In an INSTANCE whose Ok payload
+            # arrived by substitution there was no such choice to make: the
+            # template returned a bare `T` into `Result<T, E>`, the abstract
+            # layer wrapped it Ok, and `T` only became a Result at this
+            # instantiation. Census class 13 — `Channel<Result<Int, Boom>>`'s
+            # `_delivered`/`try_receive` (conformance row K47), whose bodies
+            # `return move v` at `v: T`. Narrow: the substituted Ok payload has
+            # to ACCEPT the value, so a genuine shape mismatch still reports.
+            if not (self._mono_return_is_substituted()
+                    and ok_type is not None
+                    and self._transfer_compatible(value_type, ok_type)):
+                return ('result', None)
 
         # A bare `None` (DF-140d, extended to the tail by DF-244b). It is
         # answered BEFORE the ambiguity check because the none-literal rule makes
@@ -1076,7 +1093,9 @@ class StatementsMixin:
             # is a flat error (a bare use would otherwise resolve to the param).
             self._check_shadowing(param.name, None, func.line, func.column,
                                   site="param")
-            info = VariableInfo(resolved_type, mutable=False, line=func.line, column=func.column)
+            info = VariableInfo(resolved_type, mutable=False, line=func.line,
+                                column=func.column,
+                                is_parameter=not param.is_reference)
             self.current_scope.define(param.name, info)
 
         # Resolve return type first (needed for None propagation)
@@ -3045,8 +3064,23 @@ class StatementsMixin:
             # adopts its width here exactly as it does at a `let` or a
             # parameter (DF-165b) — this arm is one of the three that reached
             # the propagation before DF-232a made all nine do it.
-            self._check_assign_rhs(stmt, element_type, "element",
-                                   "element assignment")
+            #
+            # design 188's FRESH-JOURNEY amendment (218c Amendment B4): a write
+            # through a MUTABLE pointer is the placement write — the one
+            # expression in the language that stores into uninitialized storage
+            # — and it is the only position at which a `NoMove` by-value
+            # parameter may be moved. Marked for the duration of the RHS only,
+            # so nothing nested in the INDEX or the container expression is
+            # covered. See `_no_move_is_fresh_journey`.
+            placement = (container_type.kind == TypeKind.POINTER
+                         and bool(container_type.pointer_mutable))
+            saved_placement = self._placement_move_target
+            self._placement_move_target = placement
+            try:
+                self._check_assign_rhs(stmt, element_type, "element",
+                                       "element assignment")
+            finally:
+                self._placement_move_target = saved_placement
 
         elif isinstance(stmt.target, SelfExpr):
             # Whole-receiver replacement `self = v` in a `&var self` method

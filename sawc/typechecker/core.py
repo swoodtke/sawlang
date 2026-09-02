@@ -179,6 +179,13 @@ class VariableInfo:
     # the Send-on-frames gate. The default `TaskGroup()` — and every other
     # construction — leaves it False and the gate skipped.
     is_mt_group: bool = False
+    # design 188's FRESH-JOURNEY amendment (218c Amendment B4): this binding is
+    # a BY-VALUE PARAMETER of the enclosing function or method, so — unlike a
+    # local — the value in it was constructed by the caller and handed over,
+    # never bound anywhere the program could still name. Read by
+    # `_no_move_is_fresh_journey`; see there for why that is the whole
+    # difference.
+    is_parameter: bool = False
 
 
 @dataclass
@@ -332,6 +339,16 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # check arrived by substitution. False outside an instance. See
         # `_mono_return_is_substituted`.
         self._mono_substituted_return: bool = False
+        # design 188's FRESH-JOURNEY amendment (218c Amendment B4), the two
+        # facts its rule is decided from. `_referenced_bindings` holds the
+        # `binding_id` of every binding a `&`/`&var` has named, filled at
+        # `_check_reference_expr` and never cleared (a `binding_id` is unique
+        # for the whole compile, so there is nothing to clear it BETWEEN);
+        # `_placement_move_target` is True only while the RHS of a
+        # `ptr[i] = ...` through a MUTABLE pointer is being checked. See
+        # `_no_move_is_fresh_journey`.
+        self._referenced_bindings: set = set()
+        self._placement_move_target: bool = False
         # DF-232f: the top-level names bound by `--module-path name=dir`. Each
         # one IS a package (ruled Aug 17): every file under the mapped
         # directory is a sibling, and the entry file — which never appears
@@ -3120,10 +3137,19 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         Six of the twenty-four: `Vector`/`Map` `.copy`/`.try_copy` at a
         `String` key or element, and `VectorIterator`/`EnumeratedIterator`
         `.next`.
+
+        BOTH HALVES OF THE SILENT TIER, which is what design 219 unified and
+        what the Sep-1 census's class 2 residue was: `'free'` (bitwise) as well
+        as `'implicit'` (refcounted). The predicate read `== 'implicit'` and
+        left `Vector<UnsafePointer<Int8>>.copy` refused — a raw pointer copies
+        by being copied, so its `.copy()` has no method to look up for exactly
+        the reason a `String`'s has none. Which of the two a type uses is a
+        codegen detail no rule above it sees, so a skip that distinguishes them
+        is drawing a line the tier does not have.
         """
         if self._mono_instance is None:
             return False
-        return self.namespace.copy_tier(obj_type) == 'implicit'
+        return self.namespace.copy_tier(obj_type) in ('free', 'implicit')
 
     def _transfer_is_substituted_param(self, expr) -> bool:
         """§1c SKIP 4 — a transfer of a by-value parameter whose type arrived
@@ -3203,6 +3229,51 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         every concretely-typed return in every instance.
         """
         return self._mono_instance is not None and self._mono_substituted_return
+
+    def _no_move_is_fresh_journey(self, var_info) -> bool:
+        """design 188's FRESH-JOURNEY rule — USER-RULED Sep 2 (218c B4).
+
+        Design 188 said a `NoMove` value moves exactly once, "constructor into
+        binding". It now says **moves exactly once, INTO ITS HOME**: a by-value
+        PARAMETER of the enclosing function may be placement-moved
+        (`ptr[i] = move param`) at a `NoMove` type, PROVIDED the body took no
+        reference to the parameter before the placement.
+
+        WHY THAT IS SOUND, and why it blesses nothing broader. The caller-side
+        rules already fence it: a BOUND `NoMove` value cannot be moved into an
+        argument (that is this same refusal, at the call), so a `NoMove`
+        by-value parameter is always a FRESH TEMPORARY — constructed in the
+        argument expression, handed straight over, its address never
+        observable. The journey construction -> parameter -> placement is one
+        continuous trip to the value's first and only home, which is exactly
+        what "moves once" was ever about. Take a reference to the parameter
+        first and the address WAS observable, so the trip is over and the
+        refusal stands.
+
+        WHAT IT BLESSES: `Box<T, A>.make`'s `ptr[0] = move value`, verbatim.
+        Design 188's own documented idiom is "hold a NoMove value behind a Box
+        for a movable handle over pinned storage", and the census found that
+        idiom's construction path unwritable as concrete code —
+        `examples/nomove_tier.saw` calls `Box<Anchor>.make` and RUNS only
+        because nothing had ever instance-checked the generic.
+
+        WHAT IT DOES NOT BLESS: a `Vector<NoMove>`. Its `push` relocates on
+        realloc, so its instance-check refusal STANDS as correct containment —
+        the rule is about a placement into freshly allocated storage the value
+        then lives in, not about a slot a later growth will move.
+
+        THE THREE CONDITIONS, each necessary:
+          1. a placement write is in flight — the RHS of `ptr[i] = ...` through
+             a MUTABLE pointer, which is the only expression in the language
+             that writes into uninitialized storage;
+          2. the moved binding is a by-value PARAMETER of the enclosing
+             function or method (a local was BOUND, and a binding is a home);
+          3. no `&`/`&var` has named that binding.
+        """
+        return (self._placement_move_target
+                and var_info is not None
+                and getattr(var_info, 'is_parameter', False)
+                and var_info.binding_id not in self._referenced_bindings)
 
     def _validate_exports(self, program: Program):
         """`export` statements are only permitted in init.saw facade files.

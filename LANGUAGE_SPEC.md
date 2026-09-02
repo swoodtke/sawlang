@@ -4730,8 +4730,8 @@ property is ever inferred from the other. That strictness is also where the
 model grows: `NoMove` beside `ExplicitCopy` (a pinned type with a hand-written
 `copy()` that re-registers the duplicate) opens by relaxing exactly that check.
 
-A `NoMove` value moves **once**, from its constructor into its binding, and
-never again:
+A `NoMove` value moves **once, into its home**, and never again. Its home is
+normally its binding, so the constructor's move is the only one:
 
 ```saw
 func make() -> TaskGroup {
@@ -4756,6 +4756,45 @@ func reset(g: &var TaskGroup) {
 
 That is not a relocation. The old value's `deinit` runs first — for a group,
 that is the structured join — and the new value is built where the old one was.
+
+##### Placement into heap storage
+
+The other home a `NoMove` value can have is a heap chunk it is placed into:
+
+```saw
+extension Box<T, A: Allocator = GlobalAllocator> {
+    public static func make(value: T) unsafe -> Result<Box<T, A>, AllocError> {
+        ...
+        let ptr = raw as UnsafePointer<T>
+        ptr[0] = move value      // legal at a NoMove `T`
+        return Box<T, A>(ptr: ptr)
+    }
+}
+```
+
+A by-value **parameter** may be placement-moved into freshly allocated storage
+at a `NoMove` type, provided the body took no reference to the parameter before
+the placement. The caller side is what makes that sound: a value that is
+already bound cannot be moved into an argument, so a `NoMove` by-value parameter
+is always a fresh temporary whose address was never observable. Construction,
+parameter, placement is one continuous trip to the value's first and only home.
+
+Take a reference to the parameter first and the trip is over:
+
+```saw
+func place(value: Anchor) unsafe -> UnsafePointer<Anchor> {
+    ...
+    let seen = observe(&value)
+    ptr[0] = move value
+    // error: cannot `move` `value`: `Anchor` is `NoMove`, so it lives where its
+    //        constructor built it and may not be relocated.
+}
+```
+
+This is what makes the `Box` idiom below writable rather than a std-only
+privilege. It does not extend to storage that relocates: `Vector`'s `push`
+moves its elements on a growth, so a `Vector` at a `NoMove` element type is
+refused where that move is written.
 
 Containment is a **declared cascade**, in the style of the copy tiers: a struct
 or enum with a `NoMove` member does not compile until it declares `NoMove` (and
