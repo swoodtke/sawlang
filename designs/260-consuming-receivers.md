@@ -12,8 +12,10 @@ for the next sos pin bump. **FULLY RULED (user, Sep 1, second pass): §3's Optio
 RATIFIED, and the receiver spelling is AMENDED — the declaration keeps
 `&var self` (the exclusivity guarantees are `&var`'s; `consumes` does the
 heavy lifting in the effect slot), NOT the lead's bare-`self` draft.**
-Dispatch-ready. Filed record: DF-287c (matrix + motivation). sos pin is at
-0.3.0; this lands in the next bump.
+Dispatch-ready (DISPATCHED same night). Filed record: DF-287c (matrix +
+motivation). sos pin is at 0.3.0; **this lands as 0.4.0 (user, Sep 1: a new
+language feature bumps MINOR — the standing pre-1.0 convention from here:
+minor for new surface, patch for fixes).**
 
 ## 1. The surface
 
