@@ -1696,7 +1696,20 @@ class TypeUtilsMixin:
         """
         self._gate_written_type(saw_type)
         if saw_type.kind == TypeKind.STRUCT and saw_type.struct_name:
-            struct_name = self._canonical_type_name(saw_type.struct_name)
+            # A RESOLVED SYMBOL IS THE IDENTITY (DF-289b). `_canonical_type_name`
+            # answers "what does this NAME denote in the module asking" — the
+            # right question for a name an author wrote, and the wrong one for a
+            # type that already knows which declaration it is. A substituted
+            # clone's types are of the second kind: the monomorphizer hands the
+            # instance check `Slot` carrying the ENTRY module's `EnumSymbol`, the
+            # check runs in `std/vector`'s scope where `Slot` is
+            # `std.compiler.frame`'s, and the name came back re-pointed at a
+            # declaration the type was never about — two `Slot`s in one body and
+            # a diagnostic that reads `expects `Slot` but got `Slot``. Census
+            # classes 5/8/9/10, mechanism M1a.
+            carried = getattr(saw_type.symbol, 'type_identity', None)
+            struct_name = (carried
+                           or self._canonical_type_name(saw_type.struct_name))
 
             # `Optional<T>` IS `T?` (DF-174d). `Result` was wired up as a name
             # from the start and `Optional` never was, so `let a: Optional<Int>`
@@ -1823,7 +1836,9 @@ class TypeUtilsMixin:
                     return dataclasses.replace(saw_type, const_value=value)
             return saw_type
         elif saw_type.kind == TypeKind.ENUM and saw_type.enum_name:
-            enum_name = self._canonical_type_name(saw_type.enum_name)
+            # DF-289b, the enum face — see the STRUCT arm above.
+            enum_name = (getattr(saw_type.symbol, 'type_identity', None)
+                         or self._canonical_type_name(saw_type.enum_name))
             if saw_type.type_args:
                 # Recursively resolve enum type args
                 resolved_args = [self._resolve_type(t) for t in saw_type.type_args]

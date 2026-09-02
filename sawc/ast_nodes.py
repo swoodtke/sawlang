@@ -2464,6 +2464,8 @@ class Method(ASTNode):
     # template, cloned and substituted for per-instantiation effect re-inference
     # rather than written by an author. See Function.is_mono_instance.
     is_mono_instance: bool = annotation(False)
+    # design 218c, DF-286c face 1: see Function.mono_const_bindings.
+    mono_const_bindings: Optional[dict] = annotation(None)
 
 
 @dataclass
@@ -2615,6 +2617,26 @@ class Function(ASTNode):
     # read it to skip re-registering, re-snapshotting or re-checking a clone as
     # if it were something the author wrote.
     is_mono_instance: bool = annotation(False)
+    # design 218c, DF-286c FACE 1 — A CONST GENERIC PARAMETER IS A VALUE, and a
+    # clone carries no type parameters to read it off.
+    #
+    # `<const N: Int>` puts `N` in the body as an ordinary integer expression
+    # (design 148). Codegen's old path answered it from a LIVE
+    # `type_param_context`, so nothing ever had to be carried; a substituted
+    # clone has `type_params = []` and `SawType.substitute` reaches only types,
+    # so `N` came out an undefined variable — 78 raw diagnostics over 20
+    # templates in the Sep-1 census, std's own `FixedBuf`/`FixedStringBuilder`
+    # among them.
+    #
+    # NAME -> (declared const type, the bound `CONST_VALUE` argument). The
+    # instance materializer fills it at the clone; `_enter_const_params` reads
+    # the first half so the body type-checks and `const_param_name` is stamped,
+    # and codegen reads the second so the identifier lowers to this
+    # instantiation's literal. Carrying the binding rather than folding the
+    # name to a literal in the copier is what keeps the CHECKER's own
+    # precedence — a local named `N` shadows the parameter in a template body,
+    # and only a scope walk knows that.
+    mono_const_bindings: Optional[dict] = annotation(None)
 
 
 @dataclass

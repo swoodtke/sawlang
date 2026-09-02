@@ -918,6 +918,29 @@ def _zip_params(params, args):
     return {tp.name: arg for tp, arg in zip(params or [], args or [])}
 
 
+def const_bindings(type_params, args, aliases=()):
+    """This instance's const VALUE parameters — DF-286c face 1's input.
+
+    NAME -> (declared const type, the bound `CONST_VALUE` argument), for every
+    `<const N: Int>` among `type_params`. Stamped on the clone as
+    `mono_const_bindings` (see `ast_nodes.Function`), because a clone has no
+    type parameters left and a const parameter is a VALUE in the body, which no
+    amount of substituting `SawType`s reaches.
+
+    `aliases` is `ext_param_aliases`' answer: an extension may RE-DECLARE the
+    type's parameters under its own names (DF-216h), and a method body is
+    written in the extension's names, so the binding is recorded under both.
+    """
+    out = {}
+    for tp, arg in zip(type_params or (), args or ()):
+        if getattr(tp, 'is_const', False) and arg is not None:
+            out[tp.name] = (tp.const_type, arg)
+    for declared_name, alias in aliases or ():
+        if declared_name in out:
+            out[alias] = out[declared_name]
+    return out
+
+
 def substituted_param_names(template, type_map):
     """The by-value parameters of `template` whose declared type NAMES one of
     `type_map`'s parameters — §1c skip 4's input.
@@ -1029,42 +1052,66 @@ def _render_chain(hops):
                       + list(hops[-_CHAIN_TAIL:]))
 
 
-def measure_splice_all(mono, typechecker):
-    """A5(b)'s cost model: materialize EVERY registered instance, then discard.
+# --------------------------------------------------------------------------
+# THE MATERIALIZATION FUNNEL (obligation 1).
+#
+# One instance, every body it owns: clone the pristine template through the
+# copier under this instance's binding, and run the §1c instance check on the
+# clone through `_instance_check_scope`. Three registry kinds, three template
+# stores, ONE funnel — because the two things that must never disagree about
+# what a materialized body IS are the instrument that measures the check and
+# the cutover that ships it.
+#
+# ENTRY POINTS:
+#   * `measure_splice_all` — A5(b)'s cost model / the §5 instrument, which
+#     throws the result away against a reporter of its own making.
+#   * the splice-all census (`.build/scratch/census_splice/census_lib.py`),
+#     which drives the same funnel with a per-body reporter so it can record
+#     every diagnostic rather than only the first of a compile.
+#
+# A `hook` sees each (instance, body) pair: `before(...)` runs ahead of the
+# check (the census installs its reporter there) and `after(...)` behind it.
+# --------------------------------------------------------------------------
 
-    Stage 3c's per-compile work, done here so its price can be read off §5's own
-    instrument before the shape of 3c is chosen: for each registered instance,
-    clone its template through the copier under the instance's binding and run
-    the §1c check on the clone in the template's home module scope. Both halves
-    matter — the clone is A2(a)'s cost and the check is §1c's — and neither is
-    guessable from the other.
-
-    Nothing is spliced and nothing is reported: a throwaway reporter of this
-    function's own making stands in for the compile's for the duration, so the
-    ~30 std-instance diagnostics A3 still owes a ruling on cannot reach a user
-    or a gate. See `_MEASURE`'s note on why that is an instrument and not the
-    suppression the `citations` lane refuses.
-    """
-    if typechecker is None:
-        return
-    from errors import ErrorReporter
+def materialize_instance(mono, tc, inst, hook=None):
+    """Materialize + instance-check every body `inst` owns. The one funnel."""
     from mono_copy import substituting_copy
-
-    saved_reporter = typechecker.reporter
-    typechecker.reporter = ErrorReporter("", "<mono-measure>")
+    # A CONFORMANCE IS A PROGRAM-WIDE FACT (Amendment B1), and the substitution
+    # MAP is built from one: `_add_associated_type_bindings` reads
+    # `namespace.conformances` to bind `Item -> String` for a `<T: Container>`
+    # instance. Building the map under the ambient namespace is DF-286c face 2 —
+    # the lookup found nothing, `Item` stayed unbound, and the clone's signature
+    # said `-> Item` while its body returned `String`. The check itself installs
+    # the same namespace through `_instance_check_scope`; this is the half that
+    # runs BEFORE the clone exists.
+    saved = tc.namespace
+    tc.namespace = mono.namespace
     try:
-        for key in list(mono.order):
-            inst = mono.instances[key]
-            if inst.kind in ("struct", "enum"):
-                _measure_type_instance(mono, typechecker, inst,
-                                       substituting_copy)
-            elif inst.kind == "fn":
-                _measure_fn_instance(mono, typechecker, inst, substituting_copy)
+        if inst.kind in ("struct", "enum"):
+            _materialize_type_instance(mono, tc, inst, substituting_copy, hook)
+        elif inst.kind == "fn":
+            _materialize_fn_instance(mono, tc, inst, substituting_copy, hook)
+        elif inst.kind == "method":
+            _materialize_method_instance(mono, tc, inst, substituting_copy, hook)
     finally:
-        typechecker.reporter = saved_reporter
+        tc.namespace = saved
 
 
-def _measure_type_instance(mono, tc, inst, copier):
+def _run_body(tc, mono, inst, template, clone, type_map, display, method_name,
+              flavor, check, hook):
+    # §1c skip 4 reads the TEMPLATE: the question is which by-value parameters
+    # were declared at a type PARAMETER, and the clone has none left to read.
+    substituted = substituted_param_names(template, type_map)
+    if hook is not None:
+        hook.before(inst, method_name, flavor)
+    with tc._checking_instance(display, substituted_params=substituted):
+        with tc._instance_check_scope(clone, type_map, mono.namespace):
+            check()
+    if hook is not None:
+        hook.after(inst, method_name, flavor, clone)
+
+
+def _materialize_type_instance(mono, tc, inst, copier, hook):
     decl = (mono.generic_structs.get(inst.base)
             or mono.generic_enums.get(inst.base))
     if decl is None:
@@ -1088,32 +1135,117 @@ def _measure_type_instance(mono, tc, inst, copier):
                 if declared in base_map:
                     type_map[alias] = base_map[declared]
             tc._add_associated_type_bindings(type_map, struct_tps, inst.args)
-            substituted = substituted_param_names(entry[0], type_map)
             clone = copier(entry[0], type_map)
             clone.type_params = []
             clone.is_mono_instance = True
-            with tc._checking_instance(f"{inst.display}.{m.name}",
-                                       substituted_params=substituted):
-                with tc._instance_check_scope(clone, type_map, mono.namespace):
-                    tc._check_method(ext.struct_name, clone, type_map)
+            clone.mono_const_bindings = const_bindings(struct_tps, inst.args,
+                                                       aliases)
+            _run_body(tc, mono, inst, entry[0], clone, type_map,
+                      f"{inst.display}.{m.name}", m.name, "type-method",
+                      lambda ext=ext, clone=clone, type_map=type_map:
+                          tc._check_method(ext.struct_name, clone, type_map),
+                      hook)
 
 
-def _measure_fn_instance(mono, tc, inst, copier):
+def _materialize_fn_instance(mono, tc, inst, copier, hook):
     pristine = tc.pristine_generic(inst.base)
     if pristine is None:
+        if hook is not None:
+            hook.no_template(inst, "fn")
         return
     tps = getattr(pristine, 'type_params', None) or []
     type_map = _zip_params(tps, inst.args)
     tc._add_associated_type_bindings(type_map, tps, inst.args)
-    substituted = substituted_param_names(pristine, type_map)
     clone = copier(pristine, type_map)
     clone.name = inst.key
     clone.type_params = []
     clone.mangled_symbol = None
     clone.is_mono_instance = True
-    with tc._checking_instance(inst.display, substituted_params=substituted):
-        with tc._instance_check_scope(clone, type_map, mono.namespace):
-            tc._check_function(clone)
+    clone.mono_const_bindings = const_bindings(tps, inst.args)
+    _run_body(tc, mono, inst, pristine, clone, type_map, inst.display, None,
+              "fn", lambda: tc._check_function(clone), hook)
+
+
+def _materialize_method_instance(mono, tc, inst, copier, hook):
+    """A method-GENERIC instance (`Dual<T>.mix<U>`), registry kind 'method'.
+
+    Two flavors, in `_process_method`'s own order: the method-generic on a
+    GENERIC struct's extension (design 74 shape 2's store) first, then design 40
+    item 9's method-generic on a NON-generic type's extension.
+    """
+    name = inst.method_name
+    entry = tc.pristine_generic_struct_method(inst.base, name)
+    if entry is not None:
+        pristine, ext = entry
+        struct_tps = getattr(ext, 'type_params', None) or []
+        method_tps = getattr(pristine, 'type_params', None) or []
+        type_map = _zip_params(struct_tps, inst.args)
+        type_map.update(_zip_params(method_tps, inst.method_args or []))
+        tc._add_associated_type_bindings(type_map, struct_tps, inst.args)
+        tc._add_associated_type_bindings(type_map, method_tps,
+                                         inst.method_args or [])
+        clone = copier(pristine, type_map)
+        clone.name = inst.key
+        clone.type_params = []
+        clone.is_mono_instance = True
+        bindings = const_bindings(struct_tps, inst.args)
+        bindings.update(const_bindings(method_tps, inst.method_args or []))
+        clone.mono_const_bindings = bindings
+        _run_body(tc, mono, inst, pristine, clone, type_map,
+                  f"{inst.display}.{name}", name,
+                  "method-generic-on-generic-struct",
+                  lambda: tc._check_method(inst.base, clone, type_map), hook)
+        return
+    entry = (tc.pristine_generic_method(inst.base, name)
+             or tc.pristine_generic_method(inst.recv_key, name))
+    if entry is None:
+        if hook is not None:
+            hook.no_template(inst, "method")
+        return
+    pristine, _ext = entry
+    method_tps = getattr(pristine, 'type_params', None) or []
+    type_map = _zip_params(method_tps, inst.method_args or [])
+    tc._add_associated_type_bindings(type_map, method_tps,
+                                     inst.method_args or [])
+    clone = copier(pristine, type_map)
+    clone.name = inst.key
+    clone.type_params = []
+    clone.is_mono_instance = True
+    clone.mono_const_bindings = const_bindings(method_tps,
+                                               inst.method_args or [])
+    _run_body(tc, mono, inst, pristine, clone, type_map,
+              f"{inst.display}.{name}", name,
+              "method-generic-on-plain-extension",
+              lambda: tc._check_method(inst.base, clone, {}), hook)
+
+
+def measure_splice_all(mono, typechecker):
+    """A5(b)'s cost model: materialize EVERY registered instance, then discard.
+
+    Stage 3c's per-compile work, done here so its price can be read off §5's own
+    instrument before the shape of 3c is chosen: for each registered instance,
+    clone its template through the copier under the instance's binding and run
+    the §1c check on the clone in the template's home module scope. Both halves
+    matter — the clone is A2(a)'s cost and the check is §1c's — and neither is
+    guessable from the other.
+
+    Nothing is spliced and nothing is reported: a throwaway reporter of this
+    function's own making stands in for the compile's for the duration, so the
+    ~30 std-instance diagnostics A3 still owes a ruling on cannot reach a user
+    or a gate. See `_MEASURE`'s note on why that is an instrument and not the
+    suppression the `citations` lane refuses.
+    """
+    if typechecker is None:
+        return
+    from errors import ErrorReporter
+
+    saved_reporter = typechecker.reporter
+    typechecker.reporter = ErrorReporter("", "<mono-measure>")
+    try:
+        for key in list(mono.order):
+            materialize_instance(mono, typechecker, mono.instances[key])
+    finally:
+        typechecker.reporter = saved_reporter
 
 
 def run_monomorphization(program, namespace, reporter, verbose=False,

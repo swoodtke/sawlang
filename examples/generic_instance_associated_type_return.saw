@@ -1,0 +1,46 @@
+// An instance's ASSOCIATED-TYPE annotation is bound from the PROGRAM's
+// conformances — DF-286c face 2
+//
+// `func item<T: Container>(c: &T) -> Item` names an associated type, not a type
+// parameter, so substituting the parameters leaves `Item` standing. The
+// instance materializer binds it from `namespace.conformances`, and that table
+// is a PROGRAM-wide fact: built under the ambient namespace the lookup found
+// nothing, `Item` stayed unbound, and the clone's signature said `-> Item`
+// while its body returned `Int`. Amendment B1's rule applied to the map build.
+//
+// Two conformers, so the same template resolves `Item` two different ways, and
+// each instance's return type has to be its own.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// hello
+// 42 hello
+
+trait Container {
+    type Item
+    func get(&self) -> Item
+}
+
+struct Counter { value: Int }
+extension Counter: Container {
+    type Item = Int
+    func get(&self) -> Int { self.value }
+}
+
+struct Label { value: String }
+extension Label: Container {
+    type Item = String
+    func get(&self) -> String { self.value }
+}
+
+// The associated type in RETURN position, which is the shape that failed.
+func item<T: Container>(c: &T) -> Item { c.get() }
+
+func main() {
+    let counter = Counter(value: 42)
+    let label = Label(value: "hello")
+    print(item(&counter))
+    print(item(&label))
+    // …and again, so a second demand of each instance hits the cache.
+    print("{item(&counter)} {item(&label)}")
+}

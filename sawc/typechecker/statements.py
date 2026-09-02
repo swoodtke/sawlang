@@ -136,18 +136,30 @@ class StatementsMixin:
             self.current_type_params = prev_type_params
             self.current_const_param_types = prev_const_params
 
-    def _enter_const_params(self, type_params):
+    def _enter_const_params(self, type_params, decl=None):
         """Bring a declaration's const VALUE parameters into scope (design 148).
 
         Returns the previous mapping, for the caller to restore. Types only —
         a generic body is checked once, abstractly, so `N` has a type here and
         never a value; the values arrive per instantiation, in codegen.
+
+        A MONOMORPHIZED INSTANCE has no type parameters left (DF-286c face 1),
+        so its const parameters arrive through `decl.mono_const_bindings`, which
+        the materializer filled at the clone. Same scope, same stamp: `N` type
+        checks and `_check_identifier` marks it `const_param_name`, which is
+        what tells codegen to lower it as this instantiation's literal. Read
+        AFTER the declared parameters so that an instance's own binding is the
+        one in force — the clone's list is empty either way, and a nested
+        template checked inside one keeps its abstract answer.
         """
         prev = getattr(self, 'current_const_param_types', {})
         self.current_const_param_types = dict(prev)
         for tp in (type_params or []):
             if getattr(tp, 'is_const', False):
                 self.current_const_param_types[tp.name] = tp.const_type
+        for name, (const_type, _value) in (
+                getattr(decl, 'mono_const_bindings', None) or {}).items():
+            self.current_const_param_types[name] = const_type
         return prev
 
     def _annotation_has_module_qualifier(self, t: SawType) -> bool:
@@ -229,7 +241,8 @@ class StatementsMixin:
         # exactly like a struct/extension type param). Restored below.
         prev_method_type_params = getattr(self, 'current_type_params', {})
         self.current_type_params = dict(prev_method_type_params)
-        prev_method_const_params = self._enter_const_params(method.type_params)
+        prev_method_const_params = self._enter_const_params(method.type_params,
+                                                              decl=method)
         for tp in (method.type_params or []):
             self.current_type_params[tp.name] = tp.bounds
 
@@ -1019,7 +1032,7 @@ class StatementsMixin:
         # them; today lookups on an opaque type parameter stay conservative.
         prev_type_params = getattr(self, 'current_type_params', {})
         self.current_type_params = dict(prev_type_params)
-        prev_const_params = self._enter_const_params(func.type_params)
+        prev_const_params = self._enter_const_params(func.type_params, decl=func)
         for tp in func.type_params:
             self.current_type_params[tp.name] = tp.bounds
 

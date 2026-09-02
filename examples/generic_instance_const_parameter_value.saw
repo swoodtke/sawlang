@@ -1,0 +1,41 @@
+// A const generic parameter is a VALUE the INSTANCE carries — DF-286c face 1
+//
+// `<const N: Int>` puts `N` in the body as an ordinary integer, and codegen's
+// old path answered it from a live monomorphization context. Design 218 unit
+// 1.5 checks a SUBSTITUTED CLONE instead, and a clone has no type parameters
+// left to read the value off — so `N` came out `undefined variable` in 78
+// diagnostics over 20 templates, `sawc/std/fixedbuf.saw`'s own
+// `FixedBuf`/`FixedStringBuilder` among them. The instance carries the binding
+// now (`Function.mono_const_bindings`), so the body type-checks against this
+// instantiation's value and lowers to this instantiation's literal.
+//
+// Both carriers are here, because they read the binding from two different
+// places: a STRUCT's parameter, reached through its extension's methods, and a
+// FREE FUNCTION's own.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 4 16
+// 9 81
+// 4 9
+
+struct Ring<const N: Int> { slots: [Int; N] }
+
+extension Ring<N> {
+    init() -> Ring<N> { Ring<N>(slots: [0; N]) }
+
+    // Reads N twice, in two shapes: bare, and as an operand.
+    func capacity(&self) -> Int { N }
+    func doubled(&self) -> Int { N * N }
+}
+
+func span<const N: Int>() -> Int { N }
+
+func main() {
+    let small = Ring<4>()
+    print("{small.capacity()} {small.doubled()}")
+
+    let large = Ring<9>()
+    print("{large.capacity()} {large.doubled()}")
+
+    print("{span<4>()} {span<9>()}")
+}
