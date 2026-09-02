@@ -1217,6 +1217,15 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   drops at the end of the statement, once). This is the core form the `_`-blessed
   presence test desugars to, so reach for it directly when the answer is a value
   you want rather than a branch you take.
+  **IDIOM (user ruling, Sep 2): the presence question picks its spelling by
+  what you WANT.** An ABSENCE branch is `if opt.is_none() { ... }` — always
+  (`if let` has no negative form; an empty then-block with an `else` is not a
+  spelling). A payload you'll use is `if let x = opt` / `guard let`. A
+  presence branch with no payload wanted is `is_some()`. `if let _ = opt`
+  earns its keep only where pattern position is REQUIRED — consuming a
+  chained assignment's `Void?` (`guard let _ = x?.y = v else { }`) — not as
+  a general presence test. No cost difference anywhere: all of them are one
+  tag read.
   `if let a = move o` is the consuming binding. A WHOLE-optional read follows the
   same table since design 139 — the optional's tier IS its payload's, so
   `let y = x` retains a `String?` and is REFUSED on a `Vector<Int>?`/`File?`
