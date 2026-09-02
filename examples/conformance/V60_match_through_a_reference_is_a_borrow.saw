@@ -1,0 +1,67 @@
+// Conformance row V60 — matching through a `&`/`&var` binding stays a BORROW,
+// so a payload binding may not be `move`d out
+//
+// DF-288a. The documented model has always said "matching through a `&`/`&var`
+// binding or a place stays a borrow (no consume)", and codegen has always
+// implemented it: for a borrowed scrutinee it takes neither the consume path
+// nor the Copy-tier retain path, and the arm binding is a bare alias into
+// storage the referent still owns. The TYPECHECKER never fenced the `move`,
+// because a `case Full(o)` binding is typed `Owned` whichever scrutinee it came
+// out of — the mode-blind registration is the whole defect. The result was a
+// silent double free at exit 0: the caller's `s` and the returned value both
+// released the payload.
+//
+// Both directions are here because the SHARED face is the worse one — theft of
+// an owned payload through a read-only borrow.
+//
+// The SUSPENDING face is here too, because the rule is judged on the FIRST
+// pass, over the body as written. The coroutine transform re-homes an arm
+// payload into a frame slot and emits a `move` of its own, and the program is
+// then re-checked — so the rule steps aside for compiler-synthesized code and
+// relies on pass 1 having judged the author's `move`. `q` is the proof that it
+// does.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot move out of `o`
+// EXPECT-ERROR-CONTAINS: only BORROWS
+// EXPECT-ERROR-CONTAINS: cannot move out of `p`
+// EXPECT-ERROR-CONTAINS: cannot move out of `q`
+
+import std.task.*
+
+struct Owned { w: Int }
+extension Owned: NoCopy {
+    func deinit(&var self) { print("drop {}", self.w) }
+}
+
+enum Slot { case Empty, case Full(o: Owned) }
+extension Slot: NoCopy {}
+
+func through_var(s: &var Slot) -> Owned {
+    match s {
+        case Empty -> { Owned(w: 0) },
+        case Full(o) -> { move o },
+    }
+}
+
+func through_shared(s: &Slot) -> Owned {
+    match s {
+        case Empty -> { Owned(w: 0) },
+        case Full(p) -> { move p },
+    }
+}
+
+func through_a_suspension(s: &var Slot) -> Owned {
+    yield_now()
+    match s {
+        case Empty -> { Owned(w: 0) },
+        case Full(q) -> { move q },
+    }
+}
+
+func main() {
+    var s = Slot.Full(o: Owned(w: 7))
+    print("{}", through_var(&var s).w)
+    print("{}", through_shared(&s).w)
+    print("{}", through_a_suspension(&var s).w)
+}

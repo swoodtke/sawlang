@@ -6,7 +6,7 @@ either a file in this directory or an existing `examples/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
-**507 rows: 260 carry a file here, 247 are covered elsewhere** (recounted Aug 25
+**511 rows: 264 carry a file here, 247 are covered elsewhere** (recounted Aug 25
 from the table itself — this header has now gone stale twice, so treat the
 table as the record and this line as a cache; a multi-file row is counted by
 its FIRST file). (The audit's 247 plus
@@ -46,7 +46,10 @@ deinit-exactly-once row for a driven move-out; and W25-W26, design 252 unit 1's
 unsigned-comparison matrix — the two faces of DF-270d, both covered by
 `examples/` files rather than files here; and V51-V56, design 260's consuming
 receivers — the four ownership rows U0 owed plus the mirror-fixit row and the
-deinit-replacement witness the Sep-1 re-ruling added.)
+deinit-replacement witness the Sep-1 re-ruling added; and V57-V60, DF-288a's
+borrowed-scrutinee match payload — three refusal rows for the faces the
+mode-blind registration left silent, and one control row for everything the
+fence must not reach.)
 
 ## How to read it
 
@@ -290,6 +293,10 @@ method receivers*; designs 34, 131, 139, 159, 202, 260
 | V57 | a `NoMove` by-value PARAMETER may be placement-moved into freshly allocated storage — the value reaching its HOME | `nomove_placement_into_its_home.saw` | 188's fresh-journey amendment, USER-RATIFIED Sep 2 (218c B4) — "moves exactly once, constructor into binding" becomes "moves exactly once, INTO ITS HOME". Both carriers in one program: std's `Box<T, A>.make`, whose body is the placement, and the hand-written concrete twin the ruling exists to make writable. Deinit-once is what the expected output checks |
 | V58 | …and the trip ENDS at the first reference to the parameter | `errors/nomove_placement_after_borrow.saw` | 188 fresh-journey — the address was observable from there on, so the ordinary NoMove refusal stands. This is the condition that keeps V57 from being a general permission |
 | V59 | the CALLER-SIDE FENCE V57 rests on: a BOUND `NoMove` value cannot be moved into an argument | `errors/nomove_bound_value_into_argument.saw` | 188 fresh-journey — unchanged design-188 behaviour, recorded because it is the whole soundness argument for V57: no caller can hand over a value whose address was ever observable, so a `NoMove` by-value parameter is always a fresh temporary |
+| V60 | matching through a `&`/`&var` binding stays a BORROW — a payload binding may not be `move`d out | `V60_match_through_a_reference_is_a_borrow.saw` | DF-288a — the documented model and codegen both said "borrow" (a borrowed scrutinee takes neither the consume path nor DF-190d's retain path, so the arm binding is a bare alias); only the typechecker's registration was mode-blind, creating a plain owned `VariableInfo` whatever the scrutinee was. Both directions are recorded because the SHARED `&` face is the worse one: theft of an owned payload through a read-only borrow, exit 0, silent |
+| V61 | `match self` in a reference receiver is a borrow, and a design-260 CONSUMING body does not license a payload move either | `V61_match_self_payload_move_refused.saw` | DF-288a — a receiver is its own AST node, so it reached neither the reference test that catches a `&var` parameter nor a scope lookup, and it stayed silent after the parameter faces were closed. The consuming half is a RULING recorded from evidence: `consumes` licenses `move self.<field>` and only that, and the end-of-body release still runs over the remainder, so a moved-out enum payload was released twice |
+| V62 | the borrowed-payload move refusal is TIER-BLIND, and a FIELD scrutinee is the same borrow | `V62_borrowed_payload_move_is_tier_blind.saw` | DF-288a — fencing only the owning tiers would have been wrong: DF-190d's Copy-tier RETAIN is gated on an owned named local, so a borrowed scrutinee's binding is un-retained at every tier. Probed on an `Arc` payload, `strong_count()` was UNCHANGED across the move while a second owner existed — an underflow, not merely a NoCopy problem. A PLACE scrutinee is deliberately NOT this rule's: design 146 already answers it at every tier (an arm-move drops the match onto the value-read path), and preempting it would have cost the better diagnostic and retired the DF-187b traversal pin |
+| V63 | control: an OWNED local, an owned TEMPORARY, a Copy-tier move out of an owned local, and every READ through a borrow are untouched | `V63_owned_match_still_consumes.saw` | DF-288a — the fence is correct only if it is narrow, so the four shapes it must not reach are counted against a printing `deinit`. The presence test (`case Full(_)`) and the payload field read are the ones a coarser rule would have caught, and DF-146d's lend arm (row P-series) is the fifth, checked where the place rows live |
 
 ## Places (`borrows` / `lend`) — window discipline
 

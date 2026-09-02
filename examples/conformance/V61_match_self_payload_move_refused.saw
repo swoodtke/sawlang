@@ -1,0 +1,47 @@
+// Conformance row V61 — `match self` in a reference receiver is a borrow, and
+// a design-260 CONSUMING body does not license a payload move either
+//
+// DF-288a. A receiver is its OWN AST node, so this face reached neither the
+// reference test that catches a `&var` PARAMETER nor a scope lookup: it stayed
+// silent after the parameter faces were closed, and it is recorded separately
+// for that reason.
+//
+// The consuming case is the interesting one. Design 260 licenses
+// `move self.<field>`, and only that: the consuming body's end-of-body release
+// still runs over what remains of the referent, so an enum PAYLOAD moved out of
+// a `match self` arm was released twice (probed — the deinit printed before the
+// moved-out value's own drop). `consumes` narrows WHO ends the receiver, not
+// what a match arm owns.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot move out of `o`
+// EXPECT-ERROR-CONTAINS: cannot move out of `c`
+
+struct Owned { w: Int }
+extension Owned: NoCopy {
+    func deinit(&var self) { print("drop {}", self.w) }
+}
+
+enum Slot { case Empty, case Full(o: Owned) }
+extension Slot: NoCopy {}
+
+extension Slot {
+    func steal(&var self) -> Owned {
+        match self {
+            case Empty -> { Owned(w: 0) },
+            case Full(o) -> { move o },
+        }
+    }
+    func into_owned(&var self) consumes -> Owned {
+        match self {
+            case Empty -> { Owned(w: 0) },
+            case Full(c) -> { move c },
+        }
+    }
+}
+
+func main() {
+    var s = Slot.Full(o: Owned(w: 7))
+    print("{}", s.steal().w)
+    print("{}", (move s).into_owned().w)
+}

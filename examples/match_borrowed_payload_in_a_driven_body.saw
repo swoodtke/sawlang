@@ -1,0 +1,62 @@
+// A SUSPENDING body may match a borrowed scrutinee and use the arm's payload
+// binding, exactly as the sync twin may.
+//
+// DF-288a's refusal is judged on the FIRST pass, over the body as written. The
+// coroutine transform then re-homes each arm payload into a frame slot and
+// emits a `move` OF ITS OWN — paired with `__saw_forget`, so the frame's
+// teardown does not drop the value twice — and the whole program is re-checked.
+// A rule that weighed in on that second pass would refuse the transform's own
+// bookkeeping for a program whose source never wrote a `move` at all. This is
+// `_check_payload_read`'s design-218-stage-1 reasoning at the neighbouring
+// rule, and blade's own `main` is what found it: `case Run(args) ->
+// b.run(args.copy())` failed at the ARM's position, with no `move` on the page.
+//
+// The shape below is blade's, reduced: a suspending body, a match on a FIELD of
+// an owned local, and an arm whose ExplicitCopy payload is handed on by copy.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: ran 2 args
+// EXPECT-OUTPUT: still holding 2
+// EXPECT-OUTPUT: idle
+// EXPECT-OUTPUT: 0
+
+import std.task.*
+
+enum Job {
+    case Idle,
+    case Run(args: Vector<String>)
+}
+
+@synthesize
+extension Job: ExplicitCopy {}
+
+struct Plan { job: Job }
+
+@synthesize
+extension Plan: ExplicitCopy {}
+
+func consume(args: Vector<String>) -> Int {
+    yield_now()
+    args.len()
+}
+
+func execute(plan: &Plan) -> Int {
+    match plan.job {
+        case Idle -> { print("idle")  0 },
+        case Run(args) -> { consume(args.copy()) }
+    }
+}
+
+func main() {
+    // Design 188: a borrowed root is declared BEFORE the group that borrows it.
+    var plan = Plan(job: Job.Run(args: ["build", "--release"]))
+    var empty = Plan(job: Job.Idle)
+    var group = TaskGroup()
+    print("ran {} args", group.spawn(execute(&plan)).join())
+    // The referent kept its payload: the arm borrowed, it did not consume.
+    match plan.job {
+        case Idle -> { print("still holding 0") },
+        case Run(args) -> { print("still holding {}", args.len()) }
+    }
+    print("{}", group.spawn(execute(&empty)).join())
+}

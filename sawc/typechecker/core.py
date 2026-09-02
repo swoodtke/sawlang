@@ -204,6 +204,16 @@ class VariableInfo:
     # `_no_move_is_fresh_journey`; see there for why that is the whole
     # difference.
     is_parameter: bool = False
+    # DF-288a: this binding NAMES storage somebody else still owns — it is an
+    # alias, not an owner, so `move`ing it would hand out a value the referent
+    # keeps and both halves would be released. The binding's TYPE cannot say
+    # this: a variant-pattern binding out of a `&var Slot` scrutinee is typed
+    # `Owned`, exactly as one out of an owned scrutinee is, and only the
+    # SCRUTINEE knew the difference. Set at the registration site that knows
+    # (`_match_payload_borrows` is the one oracle); read by `_check_move_expr`,
+    # beside the `TypeKind.REFERENCE` refusal it extends to the bindings a
+    # reference reaches THROUGH.
+    borrows_referent: bool = False
 
 
 @dataclass

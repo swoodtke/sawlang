@@ -191,7 +191,12 @@ func main() {
                     match manifest.Manifest.load() {
                         case Ok(m) -> {
                             let b = builder.Builder(m: m)
-                            match b.run(move args) {
+                            // `args` binds a payload inside `parsed_cli`, which
+                            // this match only borrows, so `move args` handed
+                            // `run` a vector `parsed_cli` still owned and both
+                            // released it (DF-288a). The argv vector is a
+                            // handful of retained strings; copy it.
+                            match b.run(args.copy()) {
                                 case Ok(_) -> {},
                                 case Err(e) -> fail(e.message, e.exit_code)
                             }

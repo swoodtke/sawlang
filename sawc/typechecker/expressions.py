@@ -1021,6 +1021,26 @@ class ExpressionsMixin:
             )
             return None
 
+        # DF-288a: the same refusal one level IN. A `&`/`&var` scrutinee's own
+        # binding is REFERENCE-typed and caught above; the match payload it
+        # hands to an arm is typed as the payload, so nothing here saw that it
+        # too is an alias into storage the referent keeps. `borrows_referent`
+        # is the mark `_match_payload_borrows` stamps at the registration site.
+        #
+        # SYNTHESIZED CODE IS EXEMPT, on `_check_payload_read`'s reasoning
+        # (design 218 stage 1). The coroutine transform re-homes an arm's
+        # payload binding into a frame slot and emits its OWN `move` — paired
+        # with `__saw_forget`, so the frame's teardown does not drop it twice —
+        # and the whole program is then re-checked. The author's `move` was
+        # already judged on the first pass, over the AST as written, so
+        # weighing in here would refuse the transform's bookkeeping for a
+        # program whose source is fine. (Found by blade's own `main`, whose
+        # suspending body made `case Run(args) -> b.run(args.copy())` fail at
+        # the arm's position with no `move` on the page.)
+        if var_info.borrows_referent and not self._in_synthesized_context():
+            self._borrowed_payload_move_error(expr, var_info)
+            return None
+
         # design 188 unit 4: a `NoMove` value moves exactly ONCE, from its
         # constructor into its binding, and never again. Every other transfer
         # position is funnelled through `move` by the NoCopy machinery, so
@@ -11481,6 +11501,9 @@ class ExpressionsMixin:
                 if has_owning_payload:
                     self._mark_binding_moved(scrut_info, expr.matched_expr.name,
                                              expr.line, expr.column)
+        # DF-288a: asked ONCE for the whole match — every arm binds out of the
+        # same scrutinee. See `_match_payload_borrows`.
+        payload_borrows = self._match_payload_borrows(expr.matched_expr)
         arm_types = []
         matched_variants = set()
         has_wildcard = False
@@ -11543,7 +11566,8 @@ class ExpressionsMixin:
                     type=param_type,
                     mutable=False,
                     line=arm.line,
-                    column=arm.column
+                    column=arm.column,
+                    borrows_referent=payload_borrows
                 )
                 if not self.current_scope.define(binding_name, var_info):
                     self._error(
@@ -12031,9 +12055,108 @@ class ExpressionsMixin:
             return variants
         return None
 
-    def _check_pattern(self, pattern, expected_type: SawType):
+    def _match_payload_borrows(self, scrutinee) -> bool:
+        """Does a variant-pattern binding out of `scrutinee` ALIAS storage the
+        scrutinee's owner keeps? (DF-288a)
+
+        THE ONE ANSWER FOR EVERY MATCH PAYLOAD BINDING (obligation 1). The
+        binding's own type cannot carry it — a `case Full(o)` binding is typed
+        `Owned` whether the scrutinee is an owned local or a `&var` parameter —
+        so the question is asked ONCE here and stamped onto the binding as
+        `VariableInfo.borrows_referent`.
+
+        ENTRY POINTS (the two registration sites, and only these):
+          * `_check_match_expr` — the enum-switch path's arm bindings.
+          * `_check_match_general` -> `_check_pattern` — the value/tuple/guarded
+            path's, nested subpatterns included.
+
+        The answer MIRRORS codegen's consume/retain gate (`codegen/match.py`,
+        DF-190d), which is the authority on whether the binding owns anything:
+        codegen consumes (or, for the Copy tier, retains) only for an OWNED
+        NAMED LOCAL and for an owned TEMPORARY, and hands out a bare
+        non-retained alias for everything else. Where codegen aliases, the
+        typechecker must refuse the `move` — and the refusal is TIER-BLIND,
+        because the alias is un-retained at every tier (a Copy-tier `move a`
+        through a `&Slot` left `strong_count()` unchanged while a second owner
+        existed, which is a refcount underflow, not merely a NoCopy problem).
+        """
+        if scrutinee is None:
+            return False
+        if isinstance(scrutinee, SelfExpr):
+            # `match self`. A receiver is its OWN node class, not an
+            # `Identifier`, so it reaches neither the aliasing set below nor a
+            # scope lookup — which is why this face stayed silent while the
+            # `&var` PARAMETER face was caught by the reference test. A `&self`
+            # / `&var self` receiver borrows storage the CALLER owns, including
+            # a design-260 CONSUMING one: that licence covers `move
+            # self.<field>` and not an enum payload, and the consuming body's
+            # end-of-body release still runs over the referent (probed: the
+            # payload was released there AND by the moved-out value).
+            cm = getattr(self, 'current_method', None)
+            return bool(cm is not None
+                        and getattr(cm, 'self_is_reference', False))
+        if self._reads_a_place(scrutinee):
+            # A PLACE scrutinee (`v[0]`, `m["k"]`, a named `borrows` accessor)
+            # is design 146's, and it is already right at every tier — so this
+            # rule stays out rather than duplicating it. `place_uses`'
+            # `_borrow_match` declines the borrowing lowering for an arm that
+            # MOVES one of its bindings, which drops the match onto the
+            # ordinary value-read path: a Copy-tier element is read out with a
+            # retain and the arm then consumes an owned temporary (sound), and
+            # an ExplicitCopy/NoCopy one is refused by `_value_read_ok` with
+            # the diagnostic that knows the receiver and can name
+            # `with_ref`/`swap_out` on it. Answering here instead would preempt
+            # that better message AND retire the DF-187b traversal pin, whose
+            # whole subject is that the arm-moves-a-binding walk finds the move.
+            return False
+        if not self._is_aliasing_expr(scrutinee):
+            # A fresh temporary (`match make()`, `match Slot.Full(...)`): the
+            # reader already owns it and codegen runs it through the consume
+            # model, so a payload `move` is a real transfer.
+            return False
+        if isinstance(scrutinee, Identifier):
+            info = self.current_scope.lookup(scrutinee.name)
+            if info is None:
+                return False
+            if info.type is not None and info.type.kind == TypeKind.REFERENCE:
+                # A `&T`/`&var T` parameter, and a forwarded re-borrow with it.
+                return True
+            if info.borrows_referent:
+                # A binding that is ITSELF an alias — a closure's `&var`
+                # parameter, a borrow capture, or an outer match payload.
+                return True
+            return False
+        # A field, a tuple element, or a projection of one (`o!`): the payload
+        # sits inside storage the scrutinee only NAMES. (A PLACE returned above
+        # — it is design 146's, not this rule's.)
+        return True
+
+    def _borrowed_payload_move_error(self, expr, var_info) -> None:
+        """The refusal `move`ing a match payload bound through a borrow."""
+        lead = (f"`{expr.variable}.copy()` makes an explicit deep copy; "
+                if self._is_explicit_copy_type(var_info.type) else "")
+        self._error(
+            ErrorKind.TYPE_MISMATCH,
+            f"cannot move out of `{expr.variable}`: it binds a payload inside "
+            f"a value this match only BORROWS — matching through a `&`/`&var` "
+            f"binding, a receiver or a place stays a borrow, so the referent "
+            f"keeps the payload and the move would release it twice",
+            expr.line, expr.column,
+            hint=lead + "to move a payload OUT, restructure the storage so it "
+                 "has a move-out: an `Optional` field empties with `take()` "
+                 "and an indexed place with `swap_out`. To consume the whole "
+                 "value, take the scrutinee BY VALUE, where the caller gives "
+                 "it up")
+
+    def _check_pattern(self, pattern, expected_type: SawType,
+                       borrows: bool = False):
         """Validate a pattern against the scrutinee (sub)type and define its
-        bindings in the current scope."""
+        bindings in the current scope.
+
+        `borrows` is `_match_payload_borrows`' answer for the whole match, and
+        it rides the recursion: a nested `case Wrap(Full(o))` binds `o` out of
+        the same borrowed storage the outer pattern names.
+        """
         from .core import VariableInfo
         underlying = self._get_underlying_type(expected_type)
         if isinstance(pattern, WildcardPattern):
@@ -12053,7 +12176,8 @@ class ExpressionsMixin:
                 expected_type, pattern,
                 "its body binds a value of unsafe type")
             var_info = VariableInfo(type=expected_type, mutable=False,
-                                    line=pattern.line, column=pattern.column)
+                                    line=pattern.line, column=pattern.column,
+                                    borrows_referent=borrows)
             if not self.current_scope.define(pattern.name, var_info):
                 self._error(ErrorKind.DUPLICATE_VARIABLE,
                             f"binding `{pattern.name}` is already defined in this scope",
@@ -12095,7 +12219,7 @@ class ExpressionsMixin:
                             pattern.line, pattern.column)
                 return
             for sub, et in zip(pattern.elements, underlying.element_types):
-                self._check_pattern(sub, et)
+                self._check_pattern(sub, et, borrows)
             return
         if isinstance(pattern, EnumPattern):
             variants = self._pattern_enum_variants(expected_type)
@@ -12118,7 +12242,7 @@ class ExpressionsMixin:
                             pattern.line, pattern.column)
                 return
             for sub, (_pn, pt) in zip(pattern.subpatterns, params):
-                self._check_pattern(sub, pt)
+                self._check_pattern(sub, pt, borrows)
             return
 
     def _check_match_general(self, expr: MatchExpr, matched_type: SawType) -> Optional[SawType]:
@@ -12134,6 +12258,9 @@ class ExpressionsMixin:
         has_catchall = False
         bool_true = False
         bool_false = False
+        # DF-288a: asked ONCE for the whole match, not per arm — every arm binds
+        # out of the same scrutinee.
+        payload_borrows = self._match_payload_borrows(expr.matched_expr)
         covered_variants = set()  # unguarded, fully-irrefutable variant arms
         for arm in expr.arms:
             p = arm.pattern
@@ -12141,7 +12268,7 @@ class ExpressionsMixin:
             self.current_scope = Scope(parent=old_scope)
             self.moved_bindings = dict(entry_moves)
             if p is not None:
-                self._check_pattern(p, matched_type)
+                self._check_pattern(p, matched_type, payload_borrows)
             if arm.guard is not None:
                 gtype = self._check_expression(arm.guard)
                 if gtype is not None and self._get_underlying_type(gtype).kind != TypeKind.BOOL:

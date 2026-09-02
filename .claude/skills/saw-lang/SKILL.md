@@ -980,6 +980,30 @@ while let job = queue.pop() { }      // DRAIN: one iteration per Some
   use-after-move error, exactly like a second `move s`. Matching
   through a `&`/`&var` binding or a place stays a borrow (no consume);
   keep an ExplicitCopy value with `match s.copy()`.
+  **A BORROWED SCRUTINEE'S ARM BINDING IS AN ALIAS, so `move` on one is a
+  compile error** (DF-288a, closed Sep 2). Every way a match reaches storage it
+  does not own is covered: a `&`/`&var` parameter and a re-borrow of one, a
+  `&self`/`&var self` receiver — a `consumes` receiver included, whose licence
+  is `move self.<field>` and nothing else — and a field or tuple element;
+  nested and guarded arms too. (A PLACE scrutinee, `match v[0]`, was already
+  refused by the place rule, which names `with_ref`/`swap_out` on the actual
+  receiver; that one is unchanged.)
+  ```saw
+  func take_it(s: &var Slot) -> Res {
+      match s {
+          case Filled(r) -> move r,   // error: cannot move out of `r`: it binds
+          case Empty -> Res(id: 0)    // a payload inside a value this match
+      }                               // only BORROWS ...
+  }
+  ```
+  It does NOT read the copy tier: a borrowed binding is un-retained at every
+  tier, so a Copy payload is refused beside a NoCopy one. To move a payload out,
+  give the storage a move-out (`take()` on an `Optional` field, `swap_out` on an
+  indexed place); to consume the whole value, take the scrutinee BY VALUE.
+  Untouched: reads (`o.w`), presence tests (`case Full(_)`), a lend arm, and
+  `move` out of an OWNED local or temporary scrutinee. Treat the refusal as
+  correct now and SUSPECT in older builds, where all of it compiled and DOUBLE
+  FREED at exit 0 — including payload theft through a SHARED `&`.
   A **Copy-tier enum is a BORROW instead**: each binding takes a retain
   of the payload and releases it at the arm's end, the scrutinee keeps its own
   reference and drops at ITS scope end, and matching one twice is fine. So an

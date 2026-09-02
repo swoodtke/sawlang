@@ -109,7 +109,8 @@ is scheduled and in what order is the whole of what they say.
 - DF-287a — a `move` inside a DIVERGING catch poisons the fall-through path (entry below, filed Sep 1 by the lead from an sos-relayed repro; PRE-EXISTING). Every non-catch diverging construct — `if`, `match` arm, `guard else` — already restores; catch is the one outside the rule, in all three of its forms
 - DF-287b — bare-literal ADOPTION never runs at an OVERLOADED call site (entry below, same filing; PRE-EXISTING; DF-242c's matcher family). `solo(len: 1)` adopts at a lone `UInt` param and `b.put(len: 1)` is refused ``expects `UInt` but got `Int` `` although every `put` candidate agrees the slot is `UInt` — with a hint teaching the `as UInt` conversion adoption should have made unnecessary
 - DF-287c — CLOSED Sep 1, design 260 LANDED (entry below): `func f(&var self) consumes` at the declaration, `(move b).f()` at the call. Two v1 fences the landing added beyond the brief's list are reported for ratification; the `Task`/`Thread` fate migration stays a separate brief (260 §5)
-- DF-288a — SOUNDNESS: a match arm may `move` its payload binding THROUGH A REFERENCE scrutinee — silent double free, exit 0 (entry below, filed Sep 2 by the lead from an sos repro; PRE-EXISTING, verified identical on the pre-260 compiler). Three faces silent (`&var` param, SHARED `&` param — theft through a shared borrow — and `&var self` receiver); the owned control is correct and the PLACE face is correctly refused by the value-read fence. Pairs with N10 as a move-checkpoint blind spot; one fix dispatch for both after 3c-2
+- DF-288a — CLOSED Sep 2, FIXED (entry below): the registration funnel stamps `VariableInfo.borrows_referent` and `_check_move_expr` refuses. Six faces closed, not three — the sweep added a FIELD scrutinee, a re-borrow, and the COPY TIER (un-retained too, so the refusal is tier-blind); blade's own `main` was a live latent double free and is migrated in the same commit. Conformance rows V60-V63. N10 remains open and is still unpaired
+- DF-290a — SOUNDNESS: a closure's `&`/`&var` PARAMETER may be `move`d — silent double free (entry below, filed Sep 2 by DF-288a's fix agent; PRE-EXISTING). The SAME mechanism as DF-288a at a different registration site: a reference parameter is bound with the REFERENT's type, so `{ &var e in move e }` sees an owned local. Not fixed with DF-288a — a different construct owing its own consumer sweep over the `with_ref`/`with_var_ref` idiom; the flag and the refusal it needs are already built. Corpus census: zero occurrences
 - DF-286b — **THE STAGE-3c-2 BLOCKER**: A3's instance-check residue was measured on ONE program, and the corpus's population is larger and different in kind (entry below, filed Sep 1 by design 218 unit 1.5 stage 3c's agent). 115 diagnostics over 14 of 122 generic-named examples, in at least six classes, of which only two are the signed families — and two of the six are genuine funnel/registry DEFECTS, not artifacts. Needs a ruling before splice-all can be built
 - DF-286c — the materialization funnel does not reproduce what codegen's `type_param_context` path did, at four named positions (entry below, same filing; ONE mechanism, four faces — const-generic VALUES, associated-type annotations, the conditional-conformance bounds filter, and a `-> T?` tail's auto-wrap). Its matrix is stage 3c-2's test plan. **CLOSED Sep 2 by stage 3c-2a/3c-2c(1): face 1 both halves, face 2, face 3 (reframed into B1) and face 4 all fixed and pinned; face 4 turned out to be a CONCRETE-path defect the generic path had been hiding — see DF-289d for its residue**
 - DF-289c — the PRISTINE TEMPLATE STORE is keyed by (struct, method NAME), so two same-named methods of one type COLLIDE (entry below, filed Sep 2 by design 218 unit 1.5 stage 3c-2's agent; PRE-EXISTING). `Vector` declares `init()` and `init(capacity:)` and the store holds one of them; a generic extension's overloads collide the same way. Invisible today — the design-70/74 builders take the first and the materializer's `entry[1] is not ext` guard skips the rest silently — and FATAL to 3c-2c's second half, where the missing `init()` is a `Vector$2$String$GlobalAllocator_init_` nothing declares. Blocks that half
@@ -442,9 +443,60 @@ documented ambiguity error. Sweep owed at fix time: the static-method and
 init overload faces of the same funnel (unprobed), and DF-242c's suffixed
 face, which this mechanism plausibly explains too.
 
-## DF-288a — SOUNDNESS: a match arm may `move` its payload binding through a
-## REFERENCE scrutinee — silent double free (filed Sep 2 by the lead from an
-## sos repro; PRE-EXISTING)
+## DF-288a — CLOSED Sep 2, FIXED. SOUNDNESS: a match arm may `move` its payload
+## binding through a REFERENCE scrutinee — silent double free (filed Sep 2 by
+## the lead from an sos repro; PRE-EXISTING)
+
+LANDED (agent branch, PARKED unbatteried for the lead to cherry-pick after
+design 218 stage 3c-2). The registration funnel asks ONE question —
+`_match_payload_borrows`, whose docstring names its two entry points — and
+stamps the answer on the binding as `VariableInfo.borrows_referent`;
+`_check_move_expr` refuses beside its existing `TypeKind.REFERENCE` test.
+
+SIX FACES, not the filed three. The sweep added: a FORWARDED re-borrow; a
+FIELD scrutinee off an OWNED local (`match h.s` — codegen aliases it exactly as
+it aliases a `&var` parameter); and the COPY TIER, which the filing's reading
+would have left out. That last one is the finding that shaped the rule: DF-190d's
+Copy-tier RETAIN is gated on the scrutinee being an owned NAMED LOCAL, so a
+borrowed scrutinee's binding is un-retained at every tier — probed on an `Arc`
+payload, `strong_count()` was UNCHANGED across the move while a second owner
+existed. The refusal is therefore TIER-BLIND. A `&var self` receiver is its own
+AST node and reached neither the reference test nor a scope lookup, so it
+stayed silent after the parameter faces closed and is handled by name.
+
+RULING RECORDED FROM EVIDENCE: a design-260 CONSUMING body does NOT license a
+match-payload move. `consumes` licenses `move self.<field>`; the end-of-body
+release still runs over the remainder, and the probe showed the payload
+released there AND by the moved-out value.
+
+TWO THINGS THE FIX DELIBERATELY DOES NOT DO. A PLACE scrutinee stays design
+146's: `place_uses._borrow_match` declines the borrowing lowering for an arm
+that moves a binding, which drops the match onto the value-read path, and that
+path is already right at every tier (Copy reads out with a retain and the arm
+consumes an owned temporary; move-only is refused by the diagnostic that can
+name `with_ref`/`swap_out` on the actual receiver). Answering here preempted
+that better message AND retired the DF-187b traversal pin, which is how the
+first suite run caught it. And SYNTHESIZED code is exempt, on
+`_check_payload_read`'s design-218-stage-1 reasoning: the coroutine transform
+re-homes an arm payload into a frame slot and emits a `move` of its own, and
+the program is re-checked — the author's `move` was judged on pass 1 (pinned by
+V57's suspending face and `examples/match_borrowed_payload_in_a_driven_body.saw`).
+
+CORPUS RISK: an AST census over all 2542 tracked `.saw` found exactly ONE site,
+and it was a live latent double free — `blade/src/main.saw`'s `case Run(args) ->
+b.run(move args)`, moving an `ExplicitCopy` `Vector<String>` out of a field
+`parsed_cli` still owned. Migrated to `args.copy()` in the same commit. std,
+examples, libs, devtools and selfhost are clean. (The census's FIRST run
+reported zero: its walk stopped at `Argument`, which is a plain dataclass and
+not an `ASTNode` — the freestanding gate's blade build is what found the site.)
+
+Conformance rows V57-V60 (three refusal rows, one control row counting the four
+shapes the fence must not reach). Spec + saw-lang skill updated; README carries
+no match-ownership prose, so it needed none.
+
+ONE FINDING FILED BY THE SWEEP AND NOT FIXED HERE: DF-290a, below.
+
+--- as filed ---
 
 ```saw
 func take_it(s: &var Slot) -> Owned {
@@ -491,6 +543,42 @@ until then: model the slot as `Optional<Owned>` and extract with
 N10 (the `as` transfer-check bypass) as the second member of "the move
 checkpoint is lied to" — one fix dispatch covers both, after 3c-2
 (typechecker surface). [146, 219, DF-146j's alias family]
+
+## DF-290a — SOUNDNESS: a closure's `&`/`&var` PARAMETER may be `move`d — silent
+## double free (filed Sep 2 by DF-288a's fix agent; PRE-EXISTING; NOT fixed
+## there)
+
+```saw
+var v = Vector<Owned>()
+try! v.push(Owned(w: 7))
+let got = v.with_var_ref(0, { &var e in move e })   // compiles
+// -> got 7 / drop 7 / drop 7 — exit 0, silent
+```
+
+The third member of "the move checkpoint is lied to", beside DF-288a and N10,
+and the SAME MECHANISM as DF-288a at a different registration site — which is
+why it is filed rather than assumed one-off (obligation 4).
+`_check_closure` binds a reference parameter with the REFERENT's type
+(`expressions.py`, the `param.is_reference` branch: ``VariableInfo(inner,
+param.reference_mutable, ...)``), so the closure body's `move e` sees an
+ordinary owned local exactly as DF-288a's arm binding did. The borrow CAPTURE
+spelling `[&x]`/`[&var x]` binds the same way one branch up and is the second
+face; both were probed, only the parameter face with a run.
+
+WHY NOT FIXED WITH DF-288a: a different construct with its own consumer
+surface. `with_ref`/`with_var_ref` closures are a std idiom and the DF-288a
+census did not cover them, so the fix owes its own consumer sweep before it can
+claim to be safe — and DF-288a's branch was scoped to the match funnel and
+parked for a stage-3c-2 cherry-pick.
+
+WHAT IS ALREADY BUILT FOR IT: `VariableInfo.borrows_referent` and
+`_check_move_expr`'s refusal beside it. Stamping the flag at those two
+registration sites is the whole fix; the diagnostic wants its own wording
+(a closure parameter is not a match payload).
+
+CORPUS: an AST census over all 2542 tracked `.saw` found ZERO occurrences of the
+shape (`.build/scratch/probe_corpus_df288.py`, the DF-290a section), so nothing
+migrates. [130, 146, 216, DF-288a]
 
 ## DF-287c — no CONSUMING METHOD RECEIVER exists, in any spelling (filed Sep 1
 ## by the lead from an sos-relayed need; FEATURE GAP — wants a brief + a user

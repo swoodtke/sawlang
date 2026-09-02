@@ -1563,6 +1563,29 @@ consumes nothing; to keep an ExplicitCopy value past the match, write
 `match s.copy()`. Enums whose payloads are trivial or Copy are not
 consumed.
 
+A borrowed scrutinee's arm bindings are aliases, so `move` on one is a compile
+error: a `&` or `&var` parameter, a re-borrow of one, a `&self`/`&var self`
+receiver (a `consumes` receiver too — its licence is `move self.<field>` and
+nothing else), and a field or tuple element. The refusal does not read the copy
+tier, because a borrowed binding is never retained at any tier. A place
+scrutinee (`match v[0]`) is refused by the place rule below instead, which names
+the receiver's own escape hatches.
+
+```saw
+func take_it(s: &var Slot) -> Res {
+    match s {
+        case Filled(r) -> move r,
+        // error: cannot move out of `r`: it binds a payload inside a value
+        // this match only BORROWS ...
+        case Empty -> Res(id: 0)
+    }
+}
+```
+
+To move a payload out, give the storage a move-out: an `Optional` field empties
+with `take()`, an indexed place with `swap_out`. To consume the whole value,
+take the scrutinee by value.
+
 ```saw
 enum Slot {
     case Filled(r: Res),    // Res is NoCopy
