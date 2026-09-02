@@ -1,26 +1,37 @@
 """
-Generic type handling for the Saw code generator.
+Generic type LOWERING for the Saw code generator.
 
-This module provides mixin methods for monomorphization of generic functions,
-structs, enums, and extensions. Generics in Saw are implemented via
-monomorphization - creating specialized versions of generic code for each
-concrete type instantiation.
+WHAT IS LEFT HERE, AND WHAT LEFT (design 218 unit 1.5 stage 3c-2c). This module
+used to DECIDE which instantiations exist and then build their bodies from the
+template under a live `type_param_context`. It decides nothing now: the
+monomorphization phase (`sawc/monomorphize.py`) walks the demand fixpoint,
+materializes every instance through one funnel — the substituting copier, then
+the §1c instance check with errors real — and splices each one into the merged
+program as an ordinary concrete declaration. So what survives is the LAYOUT of a
+type instance, the MANGLING both sides share, and lookups that raise an internal
+error on a miss.
+
+The generators that went (census row M6): `_monomorphize_extension`,
+`_monomorphize_single_extension`, `_declare_monomorphized_method`,
+`_generate_method_generic`, `_generate_init_method_generic` and the
+`pending_method_bodies` queue. A monomorphized method's body is now emitted by
+`_generate_method` / `_generate_init_method` / `_generate_static_method` — the
+same generators a hand-written extension's methods go through, which is what
+gives an instance the param-cleanup registration, the `variable_types` scope and
+the design-192 ICE breadcrumb the generic twins never had (DF-251b).
 
 Usage:
     class CodeGenerator(GenericsMixin, ...):
         pass
 """
 
-from typing import Optional, List
+from typing import List
 from llvmlite import ir
-from ast_nodes import (
-    SawType, TypeKind, Extension, EnumVariant, Method, self_by_pointer,
-    specialization_key, ext_param_aliases
-)
+from ast_nodes import SawType, TypeKind, EnumVariant
 from .mangle import mangle_function, mangle_named, mangle_method
 from mono_identity import (
     CodegenIdentityEnv, canonicalize_type_kind, fill_default_type_args,
-    mark_stored_closure_escaping,
+    instance_is_lowered_specially, mark_stored_closure_escaping,
 )
 
 
@@ -29,16 +40,15 @@ class GenericsMixin:
 
     Methods:
         _mangle_generic_name: Generate mangled name for generic function instantiation
-        _instantiate_generic_function: Instantiate a generic function with concrete types
+        _instantiate_generic_function: the symbol of a generic function's instance
         _mangle_method_name: Generate mangled name for methods
         _mangle_generic_struct_name: Generate mangled name for generic struct instantiation
         _substitute_saw_type: Substitute type parameters with concrete types
         _ensure_monomorphized_struct: Ensure monomorphized struct version exists
         _ensure_monomorphized_enum: Ensure monomorphized enum version exists
-        _monomorphize_extension: Generate monomorphized extension methods
-        _monomorphize_single_extension: Generate single extension's monomorphized methods
-        _generate_method_generic: Generate method code with type substitution
-        _generate_init_method_generic: Generate init method code with type substitution
+        _receiver_saw_type: the base+args type behind a mangled receiver name
+        _register_registry_type_instances: every registry instance's layout, up front
+        _ensure_monomorphized_generic_method: the symbol of a method instance
     """
 
     def _mangle_generic_name(self, func_name: str, type_args: List[SawType]) -> str:
@@ -280,14 +290,15 @@ class GenericsMixin:
         # its receiver's SawType for appended field cleanup (allocator leak fix).
         self.mono_struct_args[mangled_name] = (struct_name, list(type_args))
 
-        # Restore context before generating extensions
-        # (extensions will set their own context)
+        # Restore context.
         self.type_param_context = old_context
 
-        # If there's a generic extension for this struct, also monomorphize its methods
-        if struct_name in self.generic_extensions:
-            self._monomorphize_extension(struct_name, type_args, mangled_name, type_mapping)
-
+        # NOTHING FOLLOWS. Until design 218 unit 1.5 stage 3c-2c this went on to
+        # monomorphize the struct's extensions — which is codegen DECIDING that
+        # a set of method instances exists. The monomorphization phase decides
+        # that now, materializes each body through its one funnel and splices it
+        # in as an ordinary concrete extension method, so what is left here is
+        # the LAYOUT and nothing else.
         return mangled_name
 
     def _ensure_monomorphized_enum(self, enum_name: str, type_args: List[SawType]) -> str:
@@ -354,165 +365,72 @@ class GenericsMixin:
         # take its ordinal path however good the variants were).
         self._register_concrete_enum(mangled_name, substituted_variants,
                                      raw_type=generic_enum.raw_type)
-
-        # Design 145: a generic enum's extension methods monomorphize with it,
-        # exactly as `_ensure_monomorphized_struct` does for a generic struct.
-        # `generic_extensions` / `specialized_extensions` are already keyed by
-        # `extension.struct_name` regardless of kind, so an enum extension has
-        # been landing in them all along — it was simply never pulled back out.
-        if enum_name in self.generic_extensions:
-            self._monomorphize_extension(enum_name, type_args, mangled_name,
-                                         type_mapping)
+        # The struct map's twin, and what `_receiver_saw_type` reads to rebuild
+        # an ENUM-kinded receiver for the methods spliced onto this
+        # instantiation (design 145's extensions, which the monomorphization
+        # phase now materializes).
+        self.mono_enum_args[mangled_name] = (enum_name, list(type_args))
 
         return mangled_name
 
-    def _monomorphize_extension(self, struct_name: str, type_args: List[SawType],
-                                 mangled_struct_name: str, type_mapping: dict[str, SawType]):
-        """Generate monomorphized version of extension methods for a generic struct."""
-        # Check if there's a specialized extension for this exact type
-        spec_key = self._make_specialization_key(type_args)
-        full_key = (struct_name, spec_key)
+    def _receiver_saw_type(self, type_name: str) -> SawType:
+        """The RECEIVER's own `SawType` for an extension on `type_name`.
 
-        # Collect method names from specialized extensions (these override generic ones)
-        specialized_method_names = set()
-        if full_key in self.specialized_extensions:
-            for spec_ext in self.specialized_extensions[full_key]:
-                for method in spec_ext.methods:
-                    specialized_method_names.add(method.name)
+        A MANGLED NAME IS A SYMBOL, NOT A TYPE. `Vector$2$Int$GlobalAllocator`
+        answers no field lookup, resolves no variant and selects no drop glue;
+        the base plus its concrete arguments do all three, and
+        `mono_struct_args` / `mono_enum_args` are where that pair was recorded
+        when the instantiation registered its layout. Design 218 unit 1.5 stage
+        3c-2c makes this load-bearing: every monomorphized method body is now
+        generated by the ORDINARY generators, which are handed the receiver's
+        name and ask this for the type behind it.
 
-        # Process generic extensions, skipping methods that have specialized overrides
-        if struct_name in self.generic_extensions:
-            for generic_ext in self.generic_extensions[struct_name]:
-                # Conditional conformance: an extension declared with type-param
-                # bounds (e.g. `extension Vector<T: Copy>`) only exists for
-                # instantiations that satisfy those bounds. When a bound is
-                # unmet (e.g. Vector<File> — File is not Copy), its methods are
-                # simply not instantiated, so merely constructing the type no
-                # longer drags in an uninstantiable `copy()` body. A later call
-                # to the missing method is diagnosed by the typechecker.
-                if not self._extension_bounds_satisfied(generic_ext, type_args):
-                    continue
-                self._monomorphize_single_extension(
-                    generic_ext, type_args, mangled_struct_name, type_mapping,
-                    skip_methods=specialized_method_names
-                )
-
-        # Process specialized extensions (no skipping, no type substitution needed)
-        if full_key in self.specialized_extensions:
-            for spec_ext in self.specialized_extensions[full_key]:
-                self._monomorphize_single_extension(spec_ext, type_args, mangled_struct_name, {})
-
-    def _extension_bounds_satisfied(self, generic_ext: Extension,
-                                    type_args: List[SawType]) -> bool:
-        """Whether the concrete `type_args` satisfy an extension's declared
-        type-param bounds.
-
-        The extension's type params (`extension Vector<T: Copy>` -> [T: Copy])
-        line up positionally with the struct's type params, which is the same
-        order as `type_args`. Bound satisfaction is decided by the shared
-        namespace helper so it matches the typechecker exactly (`Copy` is
-        structural; any other trait is a conformance lookup).
+        A name no instantiation registered is not monomorphized, and its answer
+        is `_ext_self_types`' — which is what it always was.
         """
-        for i, tp in enumerate(generic_ext.type_params):
-            if not tp.bounds or i >= len(type_args):
-                continue
-            concrete = type_args[i]
-            for bound in tp.bounds:
-                if not self.namespace.type_satisfies_bound(concrete, bound):
-                    return False
-        return True
+        base_args = self.mono_struct_args.get(type_name)
+        if base_args is not None:
+            base, args = base_args
+            return SawType(TypeKind.STRUCT, struct_name=base,
+                           type_args=list(args))
+        base_args = self.mono_enum_args.get(type_name)
+        if base_args is not None:
+            base, args = base_args
+            return SawType(TypeKind.ENUM, enum_name=base,
+                           type_args=list(args))
+        return self._ext_self_types(type_name)[1]
 
-    def _make_specialization_key(self, type_args: List[SawType]) -> tuple:
-        """The shared definition — see `ast_nodes.specialization_key`. Kept as a
-        method because both dispatch sites read as `self.` calls; the LOGIC has
-        exactly one home, which is the point of design 194 unit 2."""
-        return specialization_key(type_args)
+    def _register_registry_type_instances(self):
+        """Register the LAYOUT of every type instance the registry holds.
 
-    def _declared_type_params(self, type_name: str):
-        """The type's OWN declared type parameters — struct or enum (design
-        145 keeps them in two tables). The positional order an extension
-        re-declares them in, which is what `ext_param_aliases` lines up."""
-        decl = (self.generic_structs.get(type_name)
-                or self.generic_enums.get(type_name))
-        return getattr(decl, 'type_params', None) or []
+        Census row S5, and the reason it has to happen UP FRONT: the
+        monomorphization phase splices each instantiation's methods in as an
+        ordinary concrete extension whose `struct_name` is the MANGLED name, and
+        `_declare_extension_methods` reads that name straight out of
+        `struct_types` / `enum_types` to type the `self` parameter. Lazily
+        registering the layout at the first use of the TYPE cannot serve a
+        declaration pass keyed on the symbol.
 
-    def _monomorphize_single_extension(self, generic_ext: Extension, type_args: List[SawType],
-                                        mangled_struct_name: str, type_mapping: dict[str, SawType],
-                                        skip_methods: set = None):
-        """Generate monomorphized version of a single extension's methods.
-
-        Args:
-            skip_methods: Set of method names to skip (because specialized versions exist)
+        Registration order is the registry's discovery order, which is the
+        program's own declaration order (see `Instance.demand`) — an irdet
+        obligation, since it is now the order the module's identified types are
+        created in.
         """
-        if skip_methods is None:
-            skip_methods = set()
-
-        # DF-216h: this extension may RENAME the type's parameters, and its
-        # method signatures + bodies are written in ITS names. `type_mapping`
-        # arrives keyed by the TYPE's declared names, so bind the aliases for
-        # the same positions beside them — otherwise every `U` in the extension
-        # reaches `_get_llvm_type` unsubstituted. A no-op for the same-named
-        # case, which is why the map is only rebuilt when an alias exists.
-        aliases = ext_param_aliases(
-            getattr(generic_ext, 'type_params', None),
-            self._declared_type_params(generic_ext.struct_name))
-        if aliases:
-            type_mapping = dict(type_mapping)
-            for declared_name, alias in aliases:
-                bound = type_mapping.get(declared_name)
-                if bound is not None:
-                    type_mapping[alias] = bound
-
-        # Set type param context
-        old_context = self.type_param_context
-        self.type_param_context = type_mapping
-
-        # First pass: register all methods (so methods can call each other)
-        methods_to_generate = []
-        for method in generic_ext.methods:
-            # Skip methods that have specialized overrides
-            if method.name in skip_methods:
+        registry = getattr(self, 'mono_registry', None)
+        if registry is None:
+            return
+        for key in registry.order:
+            inst = registry.instances[key]
+            if instance_is_lowered_specially(inst.base, inst.args):
+                # An instantiation `_get_llvm_type` intercepts has no layout of
+                # its own to register — see the predicate for the two families.
+                # The splice declines its methods on the same answer, so nothing
+                # looks one up either.
                 continue
-            # Method-level GENERIC methods (`func map<U>(...)`, brief 36) are NOT
-            # monomorphized at struct-instantiation time: their own type params
-            # (U) are only known at the call site, so they are specialized
-            # per (struct args, method args) pair on demand via
-            # _ensure_monomorphized_generic_method. Skip them here.
-            if getattr(method, 'type_params', None):
-                continue
-            symbol = self._declare_monomorphized_method(
-                mangled_struct_name, method, type_mapping)
-            methods_to_generate.append((symbol, method))
-
-        # Second pass: queue method bodies for later generation
-        # This ensures all method signatures are declared before any bodies are generated
-        for symbol, method in methods_to_generate:
-            entry = (mangled_struct_name, method, type_mapping.copy(), method.is_init)
-            if self._strip_unreachable:
-                # design 168 unit 2. NAMING a generic type is what runs this, so
-                # `let v: Vector<Int>` used to queue a body for every method of
-                # every matching extension — the single largest source of dead
-                # emitted IR. Register them behind their symbols instead: the
-                # instantiation still costs its layout and its full set of
-                # signatures (later bodies resolve callees by bare
-                # `self.functions[...]` lookup), but only the methods the program
-                # calls cost a body.
-                self._defer_body(self.functions[symbol],
-                                 self._mono_body_thunk(entry))
-            else:
-                self.pending_method_bodies.append(entry)
-
-        # Restore type param context (other state will be set up when generating bodies)
-        self.type_param_context = old_context
-
-    def _mono_self_llvm_type(self, struct_name: str):
-        """The LLVM type of a `self` receiver for a monomorphized method.
-
-        A plain/generic struct's self is its (possibly monomorphized) struct
-        type; `String`'s self is `i8*` (design 40 item 9 — String has no entry
-        in struct_types, matching the eager `_generate_method` path); a
-        monomorphized ENUM's is its tag/payload type (design 145)."""
-        return self._ext_self_types(struct_name)[0]
+            if inst.kind == 'struct':
+                self._ensure_monomorphized_struct(inst.base, list(inst.args))
+            elif inst.kind == 'enum':
+                self._ensure_monomorphized_enum(inst.base, list(inst.args))
 
     # The overload tag `mangle_overload` appends. Split on it to move an overload
     # signature from one base to another.
@@ -540,448 +458,33 @@ class GenericsMixin:
         suffix = stamped[stamped.index(GenericsMixin._OVERLOAD_TAG):]
         return mangled_name + suffix
 
-    def _declare_monomorphized_method(self, mangled_struct_name: str, method: Method,
-                                      type_mapping: dict[str, SawType]) -> str:
-        """Declare the LLVM signature for one monomorphized method; return its
-        mangled symbol.
-
-        Shared by struct-time extension monomorphization and the per-call-site
-        generic-method path (brief 36). `type_mapping` carries the FULL binding:
-        the struct's type params plus, for a generic method, its own type params.
-        Idempotent — a signature already declared is returned as-is.
-        """
-        # Method-level type args (brief 36): reconstruct from the mapping so the
-        # symbol composes struct specialization x method type args. Empty for an
-        # ordinary (non-generic) method, giving the unchanged `Struct_method`.
-        method_type_args = ([type_mapping[tp.name] for tp in method.type_params]
-                            if getattr(method, 'type_params', None) else None)
-        if method.is_init:
-            param_names = [p.name for p in method.parameters]
-            mangled_name = self._mangle_method_name(mangled_struct_name, method.name, param_names)
-        else:
-            mangled_name = self._mangle_method_name(mangled_struct_name, method.name,
-                                                    method_type_args=method_type_args)
-            mangled_name = self._compose_overload_suffix(mangled_name, method)
-        if mangled_name in self.functions:
-            return mangled_name
-
-        old_context = self.type_param_context
-        self.type_param_context = type_mapping
-        is_never = False
-        try:
-            if method.is_init:
-                param_types = []
-                for p in method.parameters:
-                    substituted = self._substitute_saw_type(p.type, type_mapping)
-                    param_types.append(self._get_llvm_type(substituted))
-                struct_type, _ = self.struct_types[mangled_struct_name]
-                # DF-245a: the fallible form lowers its declared `Result` at
-                # THIS instantiation, so `Result<Wrap<T>, E>` becomes
-                # `Result<Wrap<Int>, E>` rather than a template type.
-                return_type = self._init_llvm_return_type(
-                    method, struct_type, type_mapping)
-            else:
-                param_types = []
-                for i, p in enumerate(method.parameters):
-                    if i == 0 and p.name == "self":
-                        # Self type is the monomorphized struct — or i8* for a
-                        # generic method on `extension String` (C6).
-                        llvm_type = self._mono_self_llvm_type(mangled_struct_name)
-                    else:
-                        substituted = self._substitute_saw_type(p.type, type_mapping)
-                        llvm_type = self._get_llvm_type(substituted)
-                    if (i == 0 and p.name == "self"
-                            and self._self_by_pointer_for(mangled_struct_name, method)):
-                        llvm_type = llvm_type.as_pointer()
-                    param_types.append(llvm_type)
-                substituted_return = self._substitute_saw_type(method.return_type, type_mapping)
-                # design 228 leg 3: the specialized twin of
-                # `_declare_extension_methods` takes the same `-> Never` answer,
-                # so a monomorphized diverging method is `void` + `noreturn` too.
-                # The DECLARATION's own return type is what is asked — a `Never`
-                # that arrives by SUBSTITUTION is an ordinary value type, the
-                # same distinction design 132 draws for `Void`. Design 141's
-                # place accessor is the case: its window result `__R` is `Never`
-                # whenever the window body never falls through, and lowering
-                # that to `void` left the body returning an i8 from a `void`
-                # function.
-                is_never = (method.return_type is not None
-                            and method.return_type.kind == TypeKind.NEVER)
-                return_type = (ir.VoidType() if is_never
-                               else self._get_llvm_type(substituted_return))
-
-            func_type = ir.FunctionType(return_type, param_types)
-            llvm_func = ir.Function(self.module, func_type, name=mangled_name)
-            self._mark_noreturn(llvm_func, is_never)
-            self.functions[mangled_name] = llvm_func
-            # Mark &var params (and a &var self receiver) noalias; see
-            # _mark_noalias_params / _declare_extension_methods.
-            self._mark_noalias_params(llvm_func, [p.type for p in method.parameters])
-            if (not method.is_init and not method.is_static
-                    and method.self_mutable):
-                llvm_func.args[0].add_attribute('noalias')
-            # Design 108: register default parameter values under this mono's
-            # mangled name (the non-generic _declare_method path does this, but a
-            # per-call-site generic-method instantiation routes only through here).
-            # Without it, an omitted trailing default on a generic method
-            # (`x.f<Int>(1)` for `func f<T>(&self, a, b: T = 0)`) is never filled
-            # and the call is emitted with too few args (an llvmlite ICE).
-            defaults = [p.default_value for p in method.parameters]
-            if any(d is not None for d in defaults):
-                self.method_defaults[mangled_name] = defaults
-        finally:
-            self.type_param_context = old_context
-        return mangled_name
-
     def _ensure_monomorphized_generic_method(self, mangled_struct_name: str,
                                              recv_type: SawType, method_name: str,
                                              method_type_args: List[SawType]) -> str:
-        """Ensure a generic method (`func map<U>(...)`) is specialized for this
-        (struct args, method args) pair, and return its mangled symbol (brief 36).
+        """The MANGLED SYMBOL of a generic method's instantiation (brief 36).
 
-        Called at the call site, where the method's own type args are finally
-        known. Declares the signature synchronously (so the call can look it up)
-        and queues the body on the existing pending-body queue, which is drained
-        after all signatures exist — the same two-phase discipline the struct-time
-        path uses, so a generic method may call other (generic or not) methods.
+        A LOOKUP since design 218 unit 1.5 stage 3c-2c, on
+        `_instantiate_generic_function`'s terms and for its reason: the
+        monomorphization phase decides which (receiver args, method args) pairs
+        exist, materializes each body through the one funnel — the substituting
+        copier, then the §1c instance check with errors real — and splices it in
+        as an ordinary concrete method of a concrete extension, which the eager
+        declaration pass has already declared. `recv_type` survives in the
+        signature because the call sites read better passing it, and because a
+        MISS report is worth what it names.
+
+        A MISS IS AN INTERNAL ERROR — the standing decides-vs-lowers gate. It
+        says the fixpoint failed to enumerate a demand this lowering makes,
+        which is the one thing shadow mode existed to prove could not happen.
         """
-        # For a non-generic receiver type (a plain struct or String) the SawType
-        # carries no struct_name (STRING) or has no type args; fall back to the
-        # mangled name as the lookup key (design 40 item 9).
-        base_name = recv_type.struct_name or mangled_struct_name
-        struct_type_args = recv_type.type_args or []
-        # A receiver whose SawType carries no type args — `self` inside an
-        # already-monomorphized body is recorded as a bare `Vector` — leaves the
-        # struct's own parameters unbound, and every signature type mentioning
-        # one then reaches `_get_llvm_type` unsubstituted. The instantiation is
-        # known: it is the mangled struct we are generating into. (Design 146
-        # unit C: `self.get(i)` inside `Vector.each` is the first call to need
-        # this, because a place use in std compiles to exactly that shape.)
-        if not struct_type_args:
-            base_args = self.mono_struct_args.get(mangled_struct_name)
-            if base_args is not None:
-                base_name, struct_type_args = base_args[0], list(base_args[1])
-
         mangled_name = self._mangle_method_name(mangled_struct_name, method_name,
                                                 method_type_args=method_type_args)
-        self._mono_shadow(mangled_name, "generic method",
-                          f"{mangled_struct_name}.{method_name}")
         if mangled_name in self.functions:
             return mangled_name
+        base_name = recv_type.struct_name or mangled_struct_name
+        raise ValueError(
+            f"internal compiler error: monomorphization did not discover the "
+            f"instance `{mangled_name}` of generic method "
+            f"`{base_name}.{method_name}`, demanded while lowering "
+            f"{self._current_llvm_function_name() or '<registration>'}")
 
-        # Locate the generic method AST across the struct's generic extensions.
-        method = None
-        owning_ext = None
-        for generic_ext in self.generic_extensions.get(base_name, []):
-            for m in generic_ext.methods:
-                if m.name == method_name and getattr(m, 'type_params', None):
-                    method = m
-                    owning_ext = generic_ext
-                    break
-            if method is not None:
-                break
-        # Design 40 item 9 (C6): a generic method on a NON-generic-type extension
-        # lives in plain_generic_methods, keyed by the receiver's name.
-        if method is None:
-            method = (self.plain_generic_methods.get(base_name, {}).get(method_name)
-                      or self.plain_generic_methods.get(mangled_struct_name, {}).get(method_name))
-        if method is None:
-            raise ValueError(
-                f"Unknown generic method {base_name}.{method_name}"
-            )
-
-        # Build the FULL binding: struct type params, then the method's own.
-        type_mapping: dict[str, SawType] = {}
-        generic_struct = self.generic_structs.get(base_name)
-        if generic_struct is not None:
-            for i, tp in enumerate(generic_struct.type_params):
-                if i < len(struct_type_args):
-                    type_mapping[tp.name] = struct_type_args[i]
-        # DF-216h: bind the OWNING extension's aliases for the same positions —
-        # a method-generic method in `extension Pair<U>` writes `U` in its
-        # signature, and the map above is keyed by `struct Pair<A>`'s names.
-        if owning_ext is not None:
-            for declared_name, alias in ext_param_aliases(
-                    getattr(owning_ext, 'type_params', None),
-                    self._declared_type_params(base_name)):
-                bound = type_mapping.get(declared_name)
-                if bound is not None:
-                    type_mapping[alias] = bound
-        for tp, ta in zip(method.type_params, method_type_args):
-            type_mapping[tp.name] = ta
-
-        self._declare_monomorphized_method(mangled_struct_name, method, type_mapping)
-        self.pending_method_bodies.append(
-            (mangled_struct_name, method, type_mapping.copy(), method.is_init))
-        return mangled_name
-
-    def _mono_body_thunk(self, entry):
-        """The deferred generator for one monomorphized method body (design 168)."""
-        def emit():
-            self._generate_pending_method_body(entry)
-
-        return emit
-
-    def _generate_pending_method_body(self, entry):
-        """Generate ONE monomorphized method body under its type binding."""
-        mangled_struct_name, method, type_mapping, is_init = entry
-
-        # Set up type param context for this method
-        old_context = self.type_param_context
-        self.type_param_context = type_mapping
-
-        if is_init:
-            self._generate_init_method_generic(mangled_struct_name, method, type_mapping)
-        else:
-            self._generate_method_generic(mangled_struct_name, method, type_mapping)
-
-        self.type_param_context = old_context
-
-    def _generate_pending_method_bodies(self):
-        """Generate all pending monomorphized method bodies.
-
-        This is called after all method signatures have been declared,
-        ensuring that method calls within bodies can find their targets.
-
-        The queue is per-CALL-SITE work (`_ensure_monomorphized_generic_method`)
-        once the design-168 strip is on — the struct-instantiation half registers
-        deferred bodies instead — so draining it unconditionally stays right:
-        nothing reaches this list that a call site did not ask for.
-        """
-        while self.pending_method_bodies:
-            self._generate_pending_method_body(self.pending_method_bodies.pop(0))
-
-    def _generate_method_generic(self, struct_name: str, method: Method, type_mapping: dict[str, SawType]):
-        """Generate code for a method with type substitution."""
-        # Recompose the method's own type args from the binding so a generic
-        # method's body is looked up under the same composed symbol its signature
-        # was declared with (brief 36); empty for an ordinary method.
-        method_type_args = ([type_mapping[tp.name] for tp in method.type_params]
-                            if getattr(method, 'type_params', None) else None)
-        mangled_name = self._mangle_method_name(struct_name, method.name,
-                                                method_type_args=method_type_args)
-        mangled_name = self._compose_overload_suffix(mangled_name, method)
-        llvm_func = self.functions[mangled_name]
-
-        # Create entry block
-        block = llvm_func.append_basic_block(name="entry")
-        self.builder = ir.IRBuilder(block)
-
-        # design 69: attach the DISubprogram + prime the line location (mono body
-        # maps to the ORIGINAL method's source lines).
-        self._di_begin_function(llvm_func, f"{struct_name}.{method.name}",
-                                method.source_file,
-                                method.line)
-
-        # Clear variables for this method. Isolate the cleanup state too:
-        # drop-flag allocas (design 42) belong to THIS llvm function and must not
-        # leak into another; save/restore so the caller's scopes are untouched.
-        self.variables = {}
-        self.void_variables = set()
-        saved_cleanup_stack = self.cleanup_stack
-        saved_drop_flags = self.drop_flags
-        saved_moved_variables = self.moved_variables
-        self.cleanup_stack = []
-        self.drop_flags = {}
-        self.moved_variables = set()
-
-        # Set type param context for method body
-        old_context = self.type_param_context
-        self.type_param_context = type_mapping
-
-        # Design 145: name the concrete receiver for the body, matching what the
-        # non-generic `_generate_extension_methods` path sets. `match self` in a
-        # generic ENUM's method needs it to find the monomorphized variant tags,
-        # and `-> Self` resolves through it.
-        old_self_context = self.self_type_context
-        self.self_type_context = struct_name
-
-        # Set the (substituted) return type so return-position wrapping works
-        # inside the monomorphized body: `None` literals learn their optional
-        # inner type, and Result auto-wrap (`return T`/`return E` in a
-        # Result-returning method, e.g. Vector.try_with_capacity) can build the
-        # correct Ok/Err. Without this, current_return_type would leak in from
-        # the enclosing generation context and misclassify the method.
-        substituted_return = self._substitute_saw_type(method.return_type, type_mapping)
-        old_return_type = self.current_return_type
-        self.current_return_type = substituted_return
-
-        # Param cleanup scope (design 42 + design 65). An owned by-value param —
-        # whether of a static factory (`Box<T, A>.try_make`) OR an instance method
-        # (`Map._hash_code`/`_key_eq`'s owning KEY) — that is NOT moved out on some
-        # path must be RELEASED at scope exit rather than leaked. Each owning param
-        # is registered with a drop flag; every recognized move (explicit `move`,
-        # transfer into a construction, and now the placement-store `ptr[i]=value`
-        # primitive — design 65 clears the flag there) clears the flag, so a moved
-        # param is not double-freed. Before design 65 instance-method params were
-        # excluded because the placement-move a `Vector.push` performs could not be
-        # observed by a drop flag; now that it is, instance params are safe to
-        # register — which is what stops the map's owning-key probe copies leaking.
-        register_params = True
-        if register_params:
-            self.cleanup_stack.append([])
-
-        # Create allocas for parameters (including self)
-        for i, param in enumerate(method.parameters):
-            llvm_func.args[i].name = param.name
-            is_self = (i == 0 and param.name == "self")
-            if is_self and self._self_by_pointer_for(struct_name, method):
-                self.variables[param.name] = llvm_func.args[i]
-                continue
-            if is_self:
-                param_type = self._mono_self_llvm_type(struct_name)
-                substituted = None
-            else:
-                substituted = self._substitute_saw_type(param.type, type_mapping)
-                param_type = self._get_llvm_type(substituted)
-            alloca = self._entry_alloca(param_type, name=param.name)
-            self.builder.store(llvm_func.args[i], alloca)
-            self.variables[param.name] = alloca
-            if register_params and substituted is not None and self._needs_cleanup(substituted):
-                self._register_cleanup(param.name, substituted)
-
-        # design 260: THE CALLEE IS THE RELEASE POINT, per instance. The same
-        # registration `methods.py::_generate_method` makes on the non-generic
-        # path — see there for what the release is and why it bypasses the
-        # type's own `deinit`. A generic consuming method works at every
-        # instantiation, so it has to be made HERE too: the monomorphized body
-        # is a different function, generated by a different path, and a rule
-        # written only on the plain path would release the receiver at
-        # `Wrap<Int>` and leak it at `Wrap<Job>`.
-        saved_consumes_release = getattr(self, '_consumes_release_self', None)
-        self._consumes_release_self = None
-        if getattr(method, 'is_consumes', False):
-            self_ptr = self.variables.get("self")
-            base_args = self.mono_struct_args.get(struct_name)
-            if self_ptr is not None and base_args is not None:
-                base_name, targs = base_args
-                self_saw = SawType(TypeKind.STRUCT, struct_name=base_name,
-                                   type_args=list(targs))
-                self._consumes_release_self = (
-                    self_ptr,
-                    frozenset(getattr(method, 'consumes_moved_fields', ()) or ()))
-                self._register_cleanup("self", self_saw)
-
-        # Generate method body
-        result = self._generate_block(method.body)
-
-        # For a monomorphized `deinit`, append field cleanup exactly as the
-        # non-generic path does (methods.py `_generate_field_deinit_calls`). A
-        # user deinit body with owning by-value fields — e.g. Map/Set's backing
-        # `Vector<..., A>` — relies on this to drop them; without it the backing
-        # buffer leaks and never routes through the value's own allocator `A`.
-        # The receiver's concrete SawType (base + args) is rebuilt so the field
-        # types substitute `A` correctly and the right monomorphized field-deinit
-        # is selected.
-        if (method.name == "deinit"
-                and not method.is_static
-                and not self.builder.block.is_terminated):
-            self_ptr = self.variables.get("self")
-            base_args = self.mono_struct_args.get(struct_name)
-            if self_ptr is not None and base_args is not None:
-                base_name, targs = base_args
-                self_saw = SawType(TypeKind.STRUCT, struct_name=base_name,
-                                   type_args=list(targs))
-                self._emit_field_cleanup_at(self_ptr, self_saw)
-
-        # Handle return — for a static factory, clean the param scope on the
-        # fall-through path (explicit `return`s inside already ran cleanup).
-        if not self.builder.block.is_terminated:
-            if register_params:
-                self._cleanup_all_scopes()
-            if substituted_return.kind == TypeKind.VOID:
-                self.builder.ret_void()
-            elif result is not None:
-                self.builder.ret(self._coerce_ret_value(
-                    result, getattr(method.body, 'final_expr', None)))
-            else:
-                return_type = self._get_llvm_type(substituted_return)
-                self.builder.ret(ir.Constant(return_type, ir.Undefined))
-
-        # Restore context
-        self.current_return_type = old_return_type
-        self.type_param_context = old_context
-        self.self_type_context = old_self_context
-        self.cleanup_stack = saved_cleanup_stack
-        self.drop_flags = saved_drop_flags
-        self.moved_variables = saved_moved_variables
-        self._consumes_release_self = saved_consumes_release
-
-    def _generate_init_method_generic(self, struct_name: str, method: Method, type_mapping: dict[str, SawType]):
-        """Generate code for an init method with type substitution."""
-        param_names = [p.name for p in method.parameters]
-        mangled_name = self._mangle_method_name(struct_name, method.name, param_names)
-        llvm_func = self.functions[mangled_name]
-
-        # Create entry block
-        block = llvm_func.append_basic_block(name="entry")
-        self.builder = ir.IRBuilder(block)
-
-        # design 69: attach the DISubprogram + prime the line location.
-        self._di_begin_function(llvm_func, f"{struct_name}.{method.name}",
-                                method.source_file,
-                                method.line)
-
-        # Clear variables for this method. DF-251a: the CLEANUP state has to be
-        # isolated too, exactly as `_generate_method_generic` isolates it. This
-        # was the one body generator that reset neither the cleanup stack nor
-        # the drop flags, so a `_cleanup_all_scopes()` here — which every
-        # explicit `return` in the body runs — emitted the PREVIOUS function's
-        # registered drops into this one. A `String` param of some earlier
-        # `init` came out as `call String_deinit(i8** %text.1)` in a function
-        # with no `%text.1`, i.e. a module that does not verify. The scope is
-        # pushed but nothing is registered into it, which is the behavior a
-        # generic init already had (see DF-251b: the non-generic twin registers
-        # its owning params here and this one still does not).
-        self.variables = {}
-        self.void_variables = set()
-        saved_cleanup_stack = self.cleanup_stack
-        saved_drop_flags = self.drop_flags
-        saved_moved_variables = self.moved_variables
-        self.cleanup_stack = [[]]
-        self.drop_flags = {}
-        self.moved_variables = set()
-
-        # Set type param context
-        old_context = self.type_param_context
-        self.type_param_context = type_mapping
-
-        # The SUBSTITUTED return type, exactly as `_generate_method_generic`
-        # sets it and for the same reason — return-position wrapping has to be
-        # built at THIS instantiation, so a `None` learns its optional payload
-        # and a Result wrap names the monomorphization that actually exists.
-        # Nothing set it here AT ALL before, so the value leaked in from
-        # whatever body was generated last, exactly as the cleanup state did.
-        old_return_type = self.current_return_type
-        self.current_return_type = self._substitute_saw_type(
-            method.return_type, type_mapping)
-
-        # Create allocas for parameters
-        for i, param in enumerate(method.parameters):
-            llvm_func.args[i].name = param.name
-            substituted = self._substitute_saw_type(param.type, type_mapping)
-            param_type = self._get_llvm_type(substituted)
-            alloca = self._entry_alloca(param_type, name=param.name)
-            self.builder.store(llvm_func.args[i], alloca)
-            self.variables[param.name] = alloca
-
-        # Generate init body
-        result = self._generate_block(method.body)
-
-        # Return the result (the receiver, or the `Result` a fallible `init`
-        # declares — sized from the SIGNATURE, per DF-245a).
-        if not self.builder.block.is_terminated:
-            if result is not None:
-                self.builder.ret(self._coerce_ret_value(
-                    result, getattr(method.body, 'final_expr', None)))
-            else:
-                self.builder.ret(
-                    ir.Constant(llvm_func.function_type.return_type,
-                                ir.Undefined))
-
-        # Restore context
-        self.current_return_type = old_return_type
-        self.cleanup_stack = saved_cleanup_stack
-        self.drop_flags = saved_drop_flags
-        self.moved_variables = saved_moved_variables
-        self.type_param_context = old_context

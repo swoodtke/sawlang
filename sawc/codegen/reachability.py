@@ -30,11 +30,13 @@ bitcast into a `FormattedConstant` whose payload is a plain string, so an object
 walk has blind spots that the rendered text does not. A false positive (a string
 literal that happens to contain `@main`) over-keeps, which is free.
 
-The fixpoint also owns the two existing work queues. `pending_method_bodies` and
-`_pending_vtables` are both fed from inside body generation, and filling a
-vtable emits a thunk that calls the concrete impl — so a vtable PULLS its
-methods, which is the direction that makes over-stripping structurally
-impossible for dynamic dispatch.
+The fixpoint also owns the `_pending_vtables` queue, which is fed from inside
+body generation: filling a vtable emits a thunk that calls the concrete impl, so
+a vtable PULLS its methods, which is the direction that makes over-stripping
+structurally impossible for dynamic dispatch. It used to own a second queue,
+`pending_method_bodies`, which was how a monomorphized method body got emitted;
+design 218 unit 1.5 stage 3c-2c retired it — an instance is a spliced concrete
+method now, deferred behind its own symbol like any other.
 """
 
 import re
@@ -147,7 +149,6 @@ class ReachabilityMixin:
             name = next(iter(self._deferred_bodies))
             self._deferred_bodies.pop(name)()
             self._bodies_emitted += 1
-        self._generate_pending_method_bodies()
         self._emit_pending_vtables()
 
     def _emit_reachable_bodies(self):
@@ -170,12 +171,9 @@ class ReachabilityMixin:
                     self._bodies_emitted += 1
                     progressed = True
 
-            # Both queues are fed from inside body generation. A vtable fill
+            # The vtable queue is fed from inside body generation. A vtable fill
             # emits thunks that CALL their impls, so the next scan pulls those
             # impl bodies in — dispatch can never lose a method.
-            if self.pending_method_bodies:
-                self._generate_pending_method_bodies()
-                progressed = True
             if self._pending_vtables:
                 self._emit_pending_vtables()
                 progressed = True

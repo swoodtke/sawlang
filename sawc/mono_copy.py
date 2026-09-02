@@ -13,9 +13,9 @@ one producer. `substitute_ast_types` survives for the caller that does NOT
 copy — the post-check re-stamp in `_build_generic_struct_method_mono`, which
 substitutes an already-checked clone in place — and for nothing else.
 
-WHAT "EQUIVALENT" MEANS, precisely, because the oracle checks it (A2(a): an
-equivalence assertion against deepcopy+substitute over the whole corpus, riding
-one gate run):
+WHAT "EQUIVALENT" MEANS, precisely, because an oracle checked it over the whole
+corpus while the old order still existed to compare against (A2(a); the switch
+retired with that order at stage 3c-2c — see `substituting_copy`):
 
   * every AST node is fresh and carries a FRESH `node_id`, exactly as
     `ASTNode.__deepcopy__` gives one — a clone that shared its template's ids
@@ -50,30 +50,27 @@ the step that was missing when the bug was filed.
 import copy as _copy
 import dataclasses
 import enum
-import os
 
 from ast_nodes import ASTNode, FunctionCall, SawType, TypeKind, _next_node_id
-
-# SAWC_MONO_COPY_ORACLE — A2(a)'s equivalence assertion, off by default and run
-# by the gate over the whole corpus for exactly as long as the old path exists.
-# When set, every clone is built BOTH ways and the two are compared
-# structurally; a difference is an internal error naming the field path.
-_ORACLE = os.environ.get("SAWC_MONO_COPY_ORACLE", "") == "1"
 
 
 def substituting_copy(node, type_map):
     """A fresh, substituted clone of `node`. The one funnel; see the module doc.
 
-    ENTRY POINTS — every splice path (obligation 1), the same four
-    `_instance_check_scope` names: `_build_fn_mono`, `_splice_fn_mono`,
-    `_build_method_mono`, `_build_generic_struct_method_mono`.
+    ENTRY POINTS — every splice path (obligation 1): the design-70/74 builders
+    `_build_fn_mono`, `_build_method_mono` and `_build_generic_struct_method_mono`,
+    and the monomorphization phase's own `materialize_instance`, which is the
+    one that reaches every registered instance.
+
+    THE EQUIVALENCE ORACLE IS RETIRED (design 218 unit 1.5 stage 3c-2c).
+    A2(a) shipped `SAWC_MONO_COPY_ORACLE=1` — every clone built BOTH ways and
+    compared structurally, plus the assertion that it shares nothing with its
+    template but the caller's own types — "for exactly as long as the old path
+    exists". That path is the codegen body generators, and the cutover deleted
+    them: there is no second copier left to compare against, so the switch is
+    gone rather than left as a lane that tests one implementation against
+    itself. It ran green over the whole corpus on the gate that landed it.
     """
-    if _ORACLE:
-        return _oracle_copy(node, type_map)
-    return _substituting_copy(node, type_map)
-
-
-def _substituting_copy(node, type_map):
     memo = {}
     if type_map:
         # The caller's concrete types are INSERTED by substitution, never
@@ -248,159 +245,3 @@ def _remember(memo, original, copied):
     """
     memo[id(original)] = copied
     memo.setdefault(id(memo), []).append(original)
-
-
-# ---------------------------------------------------------------- the oracle
-#
-# A2(a) ships the copier "while shadow mode still exists" for exactly this
-# reason: the old path is still there to be compared against, over the whole
-# corpus, in one gate run. Two properties, because structural equality alone
-# would not notice the one that matters most:
-#
-#   1. the two clones are structurally identical, field for field, with
-#      `node_id` exempt (both fresh, and deliberately different);
-#   2. the copier's clone SHARES nothing with the template except the caller's
-#      own concrete types — which is §4's "nothing edits a template after
-#      capture" stated as a checkable property of one clone, and is what a
-#      single-pass copier could plausibly get wrong where a copy-then-rewrite
-#      cannot.
-
-
-def _oracle_copy(node, type_map):
-    from typechecker.effects import substitute_ast_types
-    mine = _substituting_copy(node, type_map)
-    theirs = _copy.deepcopy(node)
-    substitute_ast_types(theirs, type_map)
-    where = _first_difference(mine, theirs, "clone", set())
-    if where is not None:
-        raise AssertionError(
-            f"internal compiler error: monomorphization copier oracle: "
-            f"{where}")
-    shared = _template_object_shared(mine, node, type_map)
-    if shared is not None:
-        raise AssertionError(
-            f"internal compiler error: monomorphization copier oracle: the "
-            f"clone shares a template object with its template at {shared}")
-    return mine
-
-
-def _oracle_kind(v):
-    if v is None:
-        return "none"
-    cls = type(v)
-    if cls in _ATOMIC or isinstance(v, enum.Enum):
-        return "atom"
-    if cls is SawType:
-        return "type"
-    if cls is list:
-        return "list"
-    if cls is tuple:
-        return "tuple"
-    if cls is dict:
-        return "dict"
-    if isinstance(v, ASTNode) or (dataclasses.is_dataclass(v)
-                                  and not isinstance(v, type)):
-        return "node"
-    return "opaque"
-
-
-def _first_difference(a, b, path, seen):
-    """The first field path at which the two clones differ, or None."""
-    ka, kb = _oracle_kind(a), _oracle_kind(b)
-    if ka != kb:
-        return f"{path}: {ka} vs {kb} ({type(a).__name__}/{type(b).__name__})"
-    if ka == "none":
-        return None
-    if ka == "atom":
-        return None if a == b else f"{path}: {a!r} vs {b!r}"
-    if ka == "opaque":
-        # A symbol, or anything else neither side's walker interprets. Both
-        # sides produced it with the same `copy.deepcopy`, so the CLASS is the
-        # whole claim; walking a symbol would walk the namespace.
-        return (None if type(a) is type(b)
-                else f"{path}: {type(a).__name__} vs {type(b).__name__}")
-    mark = (id(a), id(b))
-    if mark in seen:
-        return None
-    seen.add(mark)
-    if ka in ("list", "tuple"):
-        if len(a) != len(b):
-            return f"{path}: length {len(a)} vs {len(b)}"
-        for i, (x, y) in enumerate(zip(a, b)):
-            found = _first_difference(x, y, f"{path}[{i}]", seen)
-            if found is not None:
-                return found
-        return None
-    if ka == "dict":
-        if set(a) != set(b):
-            return f"{path}: keys {sorted(map(str, a))} vs {sorted(map(str, b))}"
-        for k in a:
-            found = _first_difference(a[k], b[k], f"{path}[{k!r}]", seen)
-            if found is not None:
-                return found
-        return None
-    # `type` and `node` both compare field-wise over `__dict__`.
-    if type(a) is not type(b):
-        return f"{path}: {type(a).__name__} vs {type(b).__name__}"
-    keys = set(a.__dict__) | set(b.__dict__)
-    for k in sorted(keys):
-        if k == "node_id":
-            continue          # fresh on both sides, by design
-        if k not in a.__dict__ or k not in b.__dict__:
-            return f"{path}.{k}: present on one side only"
-        found = _first_difference(a.__dict__[k], b.__dict__[k],
-                                  f"{path}.{k}", seen)
-        if found is not None:
-            return found
-    return None
-
-
-def _template_object_shared(clone, template, type_map):
-    """A path in `clone` at which a TEMPLATE object was reused, or None."""
-    allowed = set()
-    for value in (type_map or {}).values():
-        _collect_ids(value, allowed)
-    template_ids = set()
-    _collect_ids(template, template_ids)
-    stack = [(clone, "clone")]
-    seen = set()
-    while stack:
-        node, path = stack.pop()
-        kind = _oracle_kind(node)
-        if kind in ("none", "atom", "opaque"):
-            continue
-        if id(node) in seen:
-            continue
-        seen.add(id(node))
-        # A TUPLE is exempt from the identity half and not from the walk: it is
-        # immutable, so sharing one cannot edit a template, and `copy.deepcopy`
-        # shares it too whenever its elements copy to themselves — `()` most of
-        # all, which CPython interns.
-        if (kind != "tuple" and id(node) in template_ids
-                and id(node) not in allowed):
-            return f"{path} ({type(node).__name__})"
-        if kind in ("list", "tuple"):
-            stack.extend((v, f"{path}[{i}]") for i, v in enumerate(node))
-        elif kind == "dict":
-            stack.extend((v, f"{path}[{k!r}]") for k, v in node.items())
-        else:
-            stack.extend((v, f"{path}.{k}") for k, v in node.__dict__.items())
-    return None
-
-
-def _collect_ids(value, out):
-    stack = [value]
-    while stack:
-        v = stack.pop()
-        kind = _oracle_kind(v)
-        if kind in ("none", "atom", "opaque"):
-            continue
-        if id(v) in out:
-            continue
-        out.add(id(v))
-        if kind in ("list", "tuple"):
-            stack.extend(v)
-        elif kind == "dict":
-            stack.extend(v.values())
-        else:
-            stack.extend(v.__dict__.values())

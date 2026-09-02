@@ -11,12 +11,13 @@
 // The witness is a `deinit` print, so the leak is visible in stdout rather than
 // under a leak checker: the missing `drop 9` below is the whole finding.
 //
-// XFAIL: DF-251b — `_generate_init_method_generic` registers no param
-// cleanups (nor `variable_types`, nor the design-192 `_current_decl`
-// breadcrumb: one fix, three faces). Design 218 unit 1.5 stage 3 flips it by
-// DELETING that generator — a generic init instance becomes an ordinary
-// concrete method AST emitted through `_generate_init_method`, so there is no
-// second body path left to lack the scope.
+// DF-251b, CLOSED by design 218 unit 1.5 stage 3c-2c: the generator that
+// registered nothing — `_generate_init_method_generic` — is DELETED. A generic
+// init instance is a concrete method spliced onto a concrete extension and
+// emitted through `_generate_init_method`, which has pushed the param cleanup
+// scope AND registered each owning parameter into it since DF-217m. There is
+// no second body path left to lack it, which is why the fix is a deletion
+// rather than a second copy of the registration.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // drop 7

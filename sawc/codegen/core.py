@@ -290,6 +290,11 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # resolves owning fields (e.g. Map's `slots: Vector<..., A>`) through the
         # value's OWN allocator `A`, not a default.
         self.mono_struct_args: dict = {}
+        # The same pair for a monomorphized generic ENUM (design 145). Kept
+        # apart from the struct map because `_receiver_saw_type` has to rebuild
+        # the right KIND — a STRUCT-kinded `Code<Int>` has no variants, so every
+        # `match self` in its methods would fail to resolve.
+        self.mono_enum_args: dict = {}
         # design 218 unit 1.5: the monomorphization phase's INSTANCE REGISTRY,
         # attached by `sawc._prepare_codegen` after the fixpoint has run. None
         # for a code generator nobody ran the phase for (the builtin compile, a
@@ -355,9 +360,6 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         self.plain_generic_methods: dict[str, dict[str, Method]] = {}
         # Tracks which monomorphized functions have been generated
         self.generated_instantiations: set[str] = set()
-        # Queue for pending method body generation: (mangled_struct_name, method, type_mapping, is_init)
-        # Bodies are generated after all signatures are declared
-        self.pending_method_bodies: List[tuple] = []
 
         # design 126 R1: llvmlite values codegen produces for a ClosureExpr and
         # then needs again at the `spawn` site (the generated body function, the
@@ -2008,6 +2010,15 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # Register types in dependency order (structs and enums can reference each other)
         self._register_types_in_order(program.structs, program.enums)
 
+        # …then every INSTANCE the monomorphization registry holds (census row
+        # S5). Up front, because the phase splices an instantiation's methods in
+        # as an extension whose `struct_name` is the MANGLED name, and the
+        # declaration pass below reads that name straight out of `struct_types`
+        # / `enum_types` to type the `self` parameter — a layout registered
+        # lazily at the first USE of the type cannot serve a pass keyed on the
+        # symbol.
+        self._register_registry_type_instances()
+
         # Interfaces, type conformances, and type assignments are in namespace from typechecker
 
         # Declare extern functions (FFI)
@@ -2953,7 +2964,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             param_types = [ir.IntType(32), ir.IntType(8).as_pointer().as_pointer()]
         # A `-> Never` function diverges: lower to `void` + `noreturn` (the
         # `_start`/noreturn C shape). The body terminates with `unreachable`.
-        return_type, is_never = self._lower_declared_return(func.return_type)
+        return_type, is_never = self._lower_declared_return_of(func)
 
         # The C entry returns `int`, WHATEVER `main` was declared to return
         # (design 221 unit B4). It used to be overridden only for `Void`, so a
@@ -3138,7 +3149,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             elif method.is_static:
                 # Static methods have no self parameter
                 param_types = [self._get_llvm_type(p.type) for p in method.parameters]
-                return_type, is_never = self._lower_declared_return(method.return_type)
+                return_type, is_never = self._lower_declared_return_of(method)
             else:
                 # Regular instance methods include self as first parameter
                 # Determine the Self type for this extension
@@ -3158,7 +3169,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                             and self._self_by_pointer_for(extension.struct_name, method)):
                         llvm_type = llvm_type.as_pointer()
                     param_types.append(llvm_type)
-                return_type, is_never = self._lower_declared_return(method.return_type)
+                return_type, is_never = self._lower_declared_return_of(method)
 
             # Create function type
             func_type = ir.FunctionType(return_type, param_types)

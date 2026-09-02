@@ -931,12 +931,34 @@ class CallsMixin:
         back None, exactly as `_generate_panic` does).
         """
         diverges = "noreturn" in getattr(callee, "attributes", ())
-        if not diverges and closure_call is not None:
+        if (not diverges and closure_call is not None
+                and not self._substituted_never_body()):
             diverges = expr_diverges(closure_call)
         if not diverges:
             return False
         self.builder.unreachable()
         return True
+
+    def _substituted_never_body(self) -> bool:
+        """Whether the declaration being generated has a SUBSTITUTED `Never`.
+
+        The one case the closure arm above cannot judge from the call's stamped
+        type (design 228 leg 3, DF-291a). Design 141 makes every `borrows`
+        accessor a method-generic over its window result `__R`, so at
+        `__R = Never` — every `match` arm of a coroutine frame's dispatch — the
+        accessor's own body calls its `__window` closure at a `Never` result and
+        then RETURNS the value normally. The instantiation is what made that
+        type `Never`; nothing about it says the closure diverges, and
+        terminating there is a call that does return followed by `unreachable`:
+        a SIGTRAP with no message.
+
+        `mono_substituted_never` is that fact, stamped on the clone at the
+        materialization funnel — see `ast_nodes.Function.mono_substituted_never`
+        — and the accessor's declared return IS the window closure's result
+        type, so one bit answers for both. A body the author wrote is untouched.
+        """
+        return getattr(getattr(self, '_current_decl', None),
+                       'mono_substituted_never', False)
 
     def _raw_bytes_ptr(self, data: str):
         """Private global holding exactly `data`'s bytes (no added NUL).

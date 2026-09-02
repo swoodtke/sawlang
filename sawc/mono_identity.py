@@ -90,6 +90,35 @@ def is_erased_box(saw_type) -> bool:
             and saw_type.type_args[0].kind == TypeKind.EXISTENTIAL)
 
 
+def instance_is_lowered_specially(base, args) -> bool:
+    """Whether codegen lowers this instantiation with NO monomorphized body.
+
+    Design 218 unit 1.5 stage 3c-2c is what makes the question have to be asked
+    out loud: the registry now drives both the LAYOUT registration and the body
+    splice, so an instantiation codegen intercepts before either would mint a
+    named struct nothing has that shape and a method symbol nothing can call.
+    Two families, both compiler-known and both older than the registry:
+
+      * a LAYOUT-TRANSPARENT wrapper (`UnsafeMutableInterior<T>`, design 46's
+        `ReadOnly`/`WriteOnly`) OCCUPIES EXACTLY ITS PAYLOAD, so a field of one
+        is a bare payload and a method taking a pointer to the WRAPPER could
+        never be called with that field's address;
+      * the ERASED BOX `Box<any Trait, A>` (design 51), whose payload is
+        UNSIZED — an owned erased value IS the fat pointer `{data, vtable}`,
+        and construction, dispatch and teardown are all special-cased, so it
+        "never monomorphizes through box.saw" (`_get_llvm_type`'s own words at
+        the interception).
+
+    Asked on the REGISTRY's identity — base plus canonical arguments — so both
+    consumers get the same answer.
+    """
+    from type_identity import is_layout_transparent
+    if is_layout_transparent(base):
+        return True
+    return (base == "Box" and bool(args)
+            and args[0].kind == TypeKind.EXISTENTIAL)
+
+
 class IdentityEnv:
     """What the funnel has to ask about DECLARATIONS, and nothing more.
 

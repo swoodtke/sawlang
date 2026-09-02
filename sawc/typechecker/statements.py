@@ -16,7 +16,7 @@ from ast_nodes import (
     BreakStatement, ContinueStatement, ExpressionStatement,
     WhileExpr, ForLoop, RangeExpr,
     Identifier, MemberAccess, ArrayIndex, TupleIndex, MoveExpr, IntLiteral,
-    ForceUnwrap, BindOptional, OptionalEvalExpr,
+    ForceUnwrap, BindOptional, OptionalEvalExpr, NoneLiteral,
     FunctionCall, StructInit, SelfExpr, ClosureExpr,
     IfExpr, IfLetExpr, MatchExpr, MethodCall, TryExpr,
     SawType, TypeKind,
@@ -481,12 +481,8 @@ class StatementsMixin:
                 if (not body_type.is_none_literal()
                         and self._tail_owes_optional_wrap(body_type,
                                                           expected_return)):
-                    method.body.final_expr = OptionalWrap(
-                        value=method.body.final_expr,
-                        target_type=expected_return,
-                        line=method.body.final_expr.line,
-                        column=method.body.final_expr.column
-                    )
+                    method.body.final_expr = self._wrap_tail_into_optional(
+                        method.body.final_expr, expected_return)
 
         # Check NoCopy return - must use move for variable references
         # Check both the return type and the inner type if optional
@@ -641,12 +637,8 @@ class StatementsMixin:
             if (not body_type.is_none_literal()
                     and self._tail_owes_optional_wrap(body_type,
                                                       resolved_return_type)):
-                func.body.final_expr = OptionalWrap(
-                    value=func.body.final_expr,
-                    target_type=resolved_return_type,
-                    line=func.body.final_expr.line,
-                    column=func.body.final_expr.column
-                )
+                func.body.final_expr = self._wrap_tail_into_optional(
+                    func.body.final_expr, resolved_return_type)
 
     def _autowrap_into_result(self, value_expr, value_type, expected,
                               context_desc, line, column):
@@ -910,9 +902,8 @@ class StatementsMixin:
             return
         if not self._tail_owes_optional_wrap(body_type, resolved_return_type):
             return
-        func.body.final_expr = OptionalWrap(
-            value=tail, target_type=resolved_return_type,
-            line=tail.line, column=tail.column)
+        func.body.final_expr = self._wrap_tail_into_optional(
+            tail, resolved_return_type)
 
     def _tail_owes_optional_wrap(self, value_type, expected) -> bool:
         """Whether a value landing at an OPTIONAL `expected` owes one `Some`.
@@ -943,6 +934,77 @@ class StatementsMixin:
                                     == self._type_key(payload)):
             return True
         return not value_type.is_optional()
+
+    def _wrap_tail_into_optional(self, tail, target):
+        """THE TAIL'S OPTIONAL WRAP, distributed into a value BRANCH's arms.
+
+        THE ONE FUNNEL (obligation 1), and its ENTRY POINTS are the four places
+        a body's tail value lands at a declared optional: `_check_method`'s tail
+        reconciliation, `_reconcile_return_type`'s (the free-function twin),
+        `_wrap_optional_tail` (the generic body whose return type decidability
+        defers), and `_check_closure`'s tail.
+
+        WHY IT IS NOT ONE WRAP ROUND THE WHOLE TAIL (DF-289d). A bare `None` arm
+        of a value `if`/`match` means the OUTER absence — `case Empty -> None`
+        in a `-> V?` accessor is "no value here", not "a present `None`" — while
+        a VALUE arm is the payload and owes the wrap. The contextual-`None`
+        funnel already stamps the arms with the return type on exactly that
+        reading. Wrapping the merged expression instead adds the layer a second
+        time wherever the merge landed on the payload, which is precisely the
+        case a wrap is owed:
+
+            func f(flag: Bool, x: Int?) -> Int?? {
+                if flag { None } else { x }
+            }
+
+        returned a three-layer value from a two-layer function and LLVM refused
+        the module; `std/map.saw`'s `_get_value` and `std/vector.saw`'s `pop` are
+        the same body at `V = Int?`, which is how the generic side found it.
+        Those two were judged ABSTRACTLY before design 218 unit 1.5 made an
+        instance an ordinary concrete body — at an abstract `V` the merge lands
+        on `V?`, the tail owes nothing, and the arms were reconciled honestly by
+        the merge itself. Distributing restores that answer at every
+        instantiation, including `V = Int?`, and gives the concrete twin the same
+        one it always should have had.
+
+        Per LEAF, so nesting composes (`pop`'s inner `if let` is an arm of its
+        outer `if`), and a leaf the merge already brought to the target is left
+        alone — an arm's own stamp is what says so, and an unstamped one is
+        wrapped, which is what the single wrap did.
+        """
+        if tail is None:
+            return tail
+        if isinstance(tail, NoneLiteral):
+            # The absence itself: the contextual funnel owns its type.
+            self._propagate_optional_type(tail, target)
+            return tail
+        if isinstance(tail, (IfExpr, IfLetExpr)):
+            for branch in (tail.then_branch, tail.else_branch):
+                if branch is not None and branch.final_expr is not None:
+                    branch.final_expr = self._wrap_tail_into_optional(
+                        branch.final_expr, target)
+            return tail
+        if isinstance(tail, MatchExpr):
+            for arm in tail.arms:
+                body = arm.body
+                if isinstance(body, Block):
+                    if body.final_expr is not None:
+                        body.final_expr = self._wrap_tail_into_optional(
+                            body.final_expr, target)
+                elif body is not None:
+                    arm.body = self._wrap_tail_into_optional(body, target)
+            return tail
+        if isinstance(tail, Block):
+            if tail.final_expr is not None:
+                tail.final_expr = self._wrap_tail_into_optional(
+                    tail.final_expr, target)
+            return tail
+        stamped = getattr(tail, 'resolved_type', None)
+        if (stamped is not None
+                and not self._tail_owes_optional_wrap(stamped, target)):
+            return tail
+        return OptionalWrap(value=tail, target_type=target,
+                            line=tail.line, column=tail.column)
 
     def _return_type_is_decidable(self, resolved_return_type, body_type) -> bool:
         """Design 24 item 2 decidability rule.

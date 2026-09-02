@@ -1,0 +1,73 @@
+// A `Never` that arrives by SUBSTITUTION is an ordinary value type, not the
+// diverging DECLARATION `-> Never` makes (DF-291a).
+//
+// `-> Never` says "control does not continue past a call to this", and codegen
+// spends that promise twice: the declaration lowers to `void` + `noreturn`, and
+// a call site terminates its block with `unreachable`. Neither is true of a
+// `Never` an INSTANTIATION supplied — design 132 rules exactly that for `Void`,
+// and the return position is the same question.
+//
+// THE CARRIER is design 141's place accessor. Every `borrows` accessor is a
+// method-generic over its window result `__R`, and the coroutine transform
+// calls one on the frame's own `Slot<T>` storage: a local bound before a
+// `match` whose arm suspends becomes a frame field, and the dispatch reads it
+// through `Slot<T>.value()`. Every arm of that dispatch either resumes or
+// returns, so the window body never falls through and `__R` is inferred
+// `Never` — while `Slot<T>.value` itself returns perfectly normally.
+//
+// It was invisible while a monomorphized body was built from the TEMPLATE under
+// a live type-parameter binding: the accessor's declared return read `__R`, a
+// type PARAMETER, so neither spending fired. Design 218 unit 1.5 stage 3c-2c
+// makes an instance an ordinary concrete declaration whose return type IS
+// `Never`, so both fired at once — `define void ... noreturn` for a function
+// that returns, and `unreachable` after a closure call that comes back. The
+// program died with SIGTRAP and no message.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// text n7 2
+// empty 0
+// -- done
+
+import std.task.*
+
+enum Note { case Text(s: String), case Empty }
+
+// `note` is a LOCAL bound ahead of the match, so it lives across the suspension
+// as a frame field — which is what puts a `Slot<Note>.value` window in the
+// dispatch. Matching a temporary (`match make(n) { ... }`) does not.
+func read(n: Int) -> Int {
+    let note = Note.Text(s: "n{n}")
+    match note {
+        case Text(v) -> {
+            yield_now()
+            print("text {v} {v.len()}")
+            v.len()
+        },
+        case Empty -> 0
+    }
+}
+
+func read_empty() -> Int {
+    let note = Note.Empty
+    match note {
+        case Text(v) -> {
+            yield_now()
+            v.len()
+        },
+        case Empty -> {
+            yield_now()
+            print("empty 0")
+            0
+        }
+    }
+}
+
+func main() {
+    var group = TaskGroup()
+    let a = group.spawn(read(7))
+    let b = group.spawn(read_empty())
+    let _ = a.join()
+    let _ = b.join()
+    print("-- done")
+}

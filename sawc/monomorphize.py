@@ -56,7 +56,7 @@ import os
 import weakref
 
 from ast_nodes import (
-    SawType, TypeKind, EnumInit, FunctionCall, MethodCall,
+    SawType, TypeKind, EnumInit, Extension, FunctionCall, MethodCall,
     StructInit, ext_param_aliases, specialization_key,
 )
 from errors import ErrorKind
@@ -67,6 +67,7 @@ from mono_identity import (
     PRIMITIVE_TYPE_NAMES, IdentityEnv, canonical_enum_args,
     canonical_struct_args, canonicalize_type_kind,
     extension_specialization_key, fill_default_type_args,
+    instance_is_lowered_specially,
 )
 from type_identity import decl_identity
 
@@ -1233,6 +1234,14 @@ def _run_body(tc, mono, inst, template, clone, type_map, display, method_name,
     substituted = substituted_param_names(template, type_map)
     subst_return = substituted_return(template, type_map)
     clone.mono_result_roles = result_roles(template, type_map) or None
+    # design 228 leg 3: a `Never` the TEMPLATE did not write is an ordinary
+    # value type, not the diverging DECLARATION — see
+    # `ast_nodes.Function.mono_substituted_never`.
+    clone.mono_substituted_never = (
+        getattr(clone, 'return_type', None) is not None
+        and clone.return_type.kind == TypeKind.NEVER
+        and (getattr(template, 'return_type', None) is None
+             or template.return_type.kind != TypeKind.NEVER))
     if hook is not None:
         hook.before(inst, method_name, flavor)
     with tc._checking_instance(display, substituted_params=substituted,
@@ -1419,11 +1428,29 @@ class _SpliceHook:
     instance with neither skip 4's nor skip 5's input in hand (see
     `_transfer_is_substituted_param`'s note on the one `_checking_instance`
     that supplies nothing).
+
+    A METHOD BODY IS SPLICED ONTO ONE CONCRETE EXTENSION PER MANGLED RECEIVER.
+    `Vector<Int, GlobalAllocator>`'s materialized methods all land on a single
+    `extension Vector$2$Int$GlobalAllocator`, which carries no type parameters
+    and is therefore an ordinary extension to every pass downstream: codegen
+    declares its signatures in the eager pass and defers each body behind its
+    own symbol, exactly as it does for a hand-written one.
+
+    THE SYMBOL IS STAMPED HERE, AT THE PRODUCER, because a mangled name is the
+    one thing the two sides must agree on and there is no second place to
+    compute it: an `init` by its PARAMETER NAMES (which is what lets two inits
+    differ by label), a method-generic by its own type arguments — already
+    computed, since that IS the registry key — and an overload by the design-55
+    `$OL$` signature the typechecker stamped against the GENERIC type's name,
+    moved onto the instantiation's base.
     """
 
     def __init__(self, program):
         self.program = program
         self.existing = {f.name for f in program.functions}
+        # mangled receiver -> the one concrete Extension carrying its instances
+        self.extensions: dict = {}
+        self.symbols: set = set()
         self.spliced = 0
 
     def skip(self, inst):
@@ -1444,20 +1471,83 @@ class _SpliceHook:
             self.program.functions.append(clone)
             self.existing.add(clone.name)
             self.spliced += 1
+            return
+        if flavor == "type-method":
+            self._splice_method(inst.key, clone, key=None)
+            return
+        # A method-GENERIC instance. `_materialize_method_instance` renamed the
+        # clone to the registry key for the instance check's diagnostics; the
+        # generators read `name` for what the method IS (`deinit` selects the
+        # field-drop epilogue), so the name goes back and the key becomes the
+        # symbol — which is what it already is, `mangle_method(recv, name,
+        # method_type_args=...)`.
+        clone.name = inst.method_name
+        self._splice_method(inst.recv_key, clone, key=inst.key)
+
+    def _splice_method(self, recv_name, clone, key):
+        symbol = self._symbol_for(recv_name, clone, key)
+        if symbol in self.symbols:
+            return
+        self.symbols.add(symbol)
+        self._extension_for(recv_name).methods.append(clone)
+        self.spliced += 1
+
+    @staticmethod
+    def _symbol_for(recv_name, clone, key):
+        if clone.is_init:
+            # An init's symbol is keyed on its PARAMETER NAMES and never on a
+            # stamped one; clear what the copier carried over from the template
+            # so `_declare_extension_methods` and `_ext_method_symbol` — which
+            # disagree about whether to consult it — cannot disagree here.
+            clone.mangled_symbol = None
+            return mangle_method(recv_name, clone.name,
+                                 [p.name for p in clone.parameters])
+        if key is None:
+            stamped = getattr(clone, 'mangled_symbol', None) or ""
+            key = mangle_method(recv_name, clone.name)
+            if _OVERLOAD_TAG in stamped:
+                key += stamped[stamped.index(_OVERLOAD_TAG):]
+        clone.mangled_symbol = key
+        return key
+
+    def _extension_for(self, recv_name):
+        ext = self.extensions.get(recv_name)
+        if ext is None:
+            ext = Extension(struct_name=recv_name, methods=[], type_params=[],
+                            line=0, column=0)
+            self.extensions[recv_name] = ext
+            self.program.extensions.append(ext)
+        return ext
+
+
+# Design 105's overload tag, as `codegen.mangle` appends it. Split on it to move
+# an overload's signature from the template's base onto the instantiation's.
+_OVERLOAD_TAG = "$OL$"
 
 
 def splice_instances(mono, typechecker, verbose=False):
-    """Materialize and splice every registered instance (spec stage 3c).
+    """Materialize and splice EVERY registered instance (spec stage 3c).
 
-    Free functions only so far; the type-instance and method-generic halves
-    follow, and until they land codegen still builds those from the template.
+    Free functions become concrete functions; a type instance's methods and a
+    method-generic's instances become methods of one concrete extension per
+    mangled receiver. In registry order, which is the program's own declaration
+    order — the order the spliced declarations are emitted in, and therefore an
+    irdet obligation.
     """
     if typechecker is None:
         return
     hook = _SpliceHook(mono.program)
     for key in list(mono.order):
         inst = mono.instances[key]
-        if inst.kind != 'fn' or hook.skip(inst):
+        if hook.skip(inst):
+            continue
+        if instance_is_lowered_specially(inst.base, inst.args):
+            # An instantiation codegen intercepts has no receiver layout for a
+            # method of one to take: an `UnsafeMutableInterior<Int?>` FIELD is a
+            # bare `{i1, i64}`, and an owned `Box<any Trait>` IS the fat pointer.
+            # A body spliced onto either would be a symbol nothing can call.
+            # Codegen's layout pass declines the same instances on the same
+            # answer — see `mono_identity.instance_is_lowered_specially`.
             continue
         materialize_instance(mono, typechecker, inst, hook=hook)
     if verbose and hook.spliced:

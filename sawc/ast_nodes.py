@@ -2477,6 +2477,8 @@ class Method(ASTNode):
     mono_const_bindings: Optional[dict] = annotation(None)
     # design 218c, design 30 Ruling 1: see Function.mono_result_roles.
     mono_result_roles: Optional[dict] = annotation(None)
+    # design 218c, design 228 leg 3: see Function.mono_substituted_never.
+    mono_substituted_never: bool = annotation(False)
 
 
 @dataclass
@@ -2661,6 +2663,22 @@ class Function(ASTNode):
     # TEMPLATE's own annotations (which name the abstract parameters even in a
     # pristine, never-checked snapshot) and read by `_autowrap_into_result`.
     mono_result_roles: Optional[dict] = annotation(None)
+    # design 218c + design 228 leg 3 — A `Never` THAT ARRIVED BY SUBSTITUTION.
+    #
+    # `-> Never` is a DECLARATION about control flow: it lowers to `void` plus
+    # `noreturn`, and the caller terminates after the call. A `Never` that
+    # arrives by substituting a type PARAMETER is not that declaration — it is
+    # an ordinary value type, exactly as design 132 rules for a substituted
+    # `Void`. Design 141's place accessor is the case: a window closure's result
+    # `__R` is `Never` whenever the window body never falls through, so
+    # `Slot<ArcE>.value<Never>` is a real function that returns a value nobody
+    # reads, and lowering it to `void noreturn` made its caller `unreachable`
+    # after a call that DOES return — a silent trap at run time.
+    #
+    # True on a clone whose TEMPLATE did not write `Never`, and read by the
+    # declaration funnel `_lower_declared_return_of`. The template's own
+    # `-> Never` declarations are untouched.
+    mono_substituted_never: bool = annotation(False)
 
 
 @dataclass

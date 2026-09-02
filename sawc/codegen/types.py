@@ -11,7 +11,7 @@ Usage:
 
 from llvmlite import ir
 from ast_nodes import SawType, TypeKind
-from type_identity import declaration_base
+from type_identity import declaration_base, is_layout_transparent
 
 
 class TypesMixin:
@@ -70,6 +70,29 @@ class TypesMixin:
         if saw_return_type.kind == TypeKind.NEVER:
             return ir.VoidType(), True
         return self._get_llvm_type(saw_return_type), False
+
+    def _lower_declared_return_of(self, decl):
+        """`_lower_declared_return`, asked about a DECLARATION rather than a type.
+
+        The one thing a type cannot answer: whether its `Never` was WRITTEN.
+        Design 228's rule is about the declaration ("this function does not
+        return"), and a `Never` that arrives by SUBSTITUTION is an ordinary
+        value type — design 132's ruling for `Void`, at the return position.
+        Design 141's place accessor is the case: a window closure's result `__R`
+        is `Never` whenever the window body never falls through, so
+        `Slot<ArcE>.value<Never>` is a real function that returns a value nobody
+        reads. `_declare_monomorphized_method` asked the TEMPLATE's return type
+        and got that right by accident of where it stood; the ordinary
+        declaration pass is handed the substituted CLONE, so the clone carries
+        the answer (`mono_substituted_never`) and this is where it is read.
+
+        Every DECLARATION site goes through here; `_lower_declared_return` stays
+        for the two that have a type and no declaration (a trait vtable slot).
+        """
+        saw_return_type = getattr(decl, 'return_type', None)
+        if getattr(decl, 'mono_substituted_never', False):
+            return self._get_llvm_type(saw_return_type), False
+        return self._lower_declared_return(saw_return_type)
 
     def _init_llvm_return_type(self, method, struct_llvm_type,
                                type_mapping=None):
@@ -213,19 +236,15 @@ class TypesMixin:
             # `from_raw` are intercepted.
             if saw_type.struct_name == "FuncPointer":
                 return self._funcpointer_llvm_type(saw_type)
-            # design 46: ReadOnly<T> / WriteOnly<T> are LAYOUT-TRANSPARENT field
-            # markers — a `ReadOnly<UInt32>` field occupies exactly a `UInt32`,
-            # so it lowers to the inner type's layout (no wrapper struct). This is
-            # what makes projection offsets land on the real register.
-            if (saw_type.struct_name in ("ReadOnly", "WriteOnly")
-                    and saw_type.type_args):
-                return self._get_llvm_type(saw_type.type_args[0])
-            # design 186: `UnsafeMutableInterior<T>` is LAYOUT-TRANSPARENT — it
-            # holds an INLINE `T` and occupies exactly a `T`, so a cell field
-            # costs no wrapper and `ptr()` is the address of the field itself.
-            # This is what lets `Atomic<T>` and `SpinLock<T>` carry a real cell
-            # with byte-identical layout to the versions that did not.
-            if (declaration_base(saw_type.struct_name) == "UnsafeMutableInterior"
+            # THE LAYOUT-TRANSPARENT WRAPPERS, through the shared predicate:
+            # design 46's `ReadOnly<T>`/`WriteOnly<T>` MMIO markers (a
+            # `ReadOnly<UInt32>` field occupies exactly a `UInt32`, which is what
+            # makes projection offsets land on the real register) and design
+            # 186's `UnsafeMutableInterior<T>` (an INLINE `T`, so a cell field
+            # costs no wrapper and `ptr()` is the address of the field itself —
+            # what lets `Atomic<T>`/`SpinLock<T>` carry a real cell with
+            # byte-identical layout to the versions that did not).
+            if (is_layout_transparent(saw_type.struct_name)
                     and saw_type.type_args):
                 return self._get_llvm_type(saw_type.type_args[0])
             # Check if it's a type alias (use namespace)

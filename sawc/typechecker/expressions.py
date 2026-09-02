@@ -12909,17 +12909,24 @@ class ExpressionsMixin:
             if (return_type.kind == TypeKind.OPTIONAL
                     and return_type.inner_type is None):
                 return_type = expected_ret
-            elif (not return_type.is_optional()
-                    and return_type.kind not in (TypeKind.VOID, TypeKind.NEVER)
-                    and expr.body.final_expr is not None):
+            elif (return_type.kind not in (TypeKind.VOID, TypeKind.NEVER)
+                    and expr.body.final_expr is not None
+                    and self._tail_owes_optional_wrap(return_type,
+                                                      expected_ret)):
                 # A tail value where an optional is expected AUTO-WRAPS, exactly
                 # as it does in a function body — `{ __p in __p }` against
                 # `(&var T) sync -> T?` is the present path of a conditional
                 # lend, and the wrap is what makes it a `Some` place read.
-                expr.body.final_expr = OptionalWrap(
-                    value=expr.body.final_expr, target_type=expected_ret,
-                    line=expr.body.final_expr.line,
-                    column=expr.body.final_expr.column)
+                #
+                # THROUGH THE SAME TWO FUNNELS the named tail uses (DF-286c face
+                # 4 and DF-289d). "Wrap unless the value is already an optional"
+                # is right at one layer and wrong at two — a `V?` tail landing
+                # at a declared `V??` IS the payload and owes exactly one wrap —
+                # and the wrap is distributed into the arms of a value branch so
+                # a bare `None` arm keeps meaning the OUTER absence. That is the
+                # shape a `Map<String, Int?>` window closure has.
+                expr.body.final_expr = self._wrap_tail_into_optional(
+                    expr.body.final_expr, expected_ret)
                 return_type = expected_ret
         elif (expected_ret is not None and expected_ret.is_result()
                 and expr.body.final_expr is not None

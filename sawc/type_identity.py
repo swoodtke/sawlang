@@ -246,6 +246,33 @@ def declaration_base(name: Optional[str]) -> Optional[str]:
     return '$'.join(out)
 
 
+# The compiler-known wrappers that OCCUPY EXACTLY THEIR PAYLOAD. A field of one
+# costs no wrapper word and its address IS the payload's, which is what makes
+# `Atomic<T>`/`SpinLock<T>` byte-identical to the versions with no cell and what
+# makes an MMIO register block's offsets land on the real registers.
+_LAYOUT_TRANSPARENT = frozenset((
+    "UnsafeMutableInterior",     # design 186 — the interior-mutability cell
+    "ReadOnly", "WriteOnly",     # design 112 — MMIO access markers
+))
+
+
+def is_layout_transparent(name: Optional[str]) -> bool:
+    """Whether a (possibly monomorphized) type NAME occupies exactly its payload.
+
+    ONE DEFINITION, both sides, for the reason `mono_identity` exists: codegen
+    lowers such a type to its payload's LLVM type, and the monomorphization
+    phase must not splice methods onto an instantiation whose layout no wrapper
+    struct describes. `Mutex<Int?>`'s `value: UnsafeMutableInterior<Int?>` field
+    is a bare `{i1, i64}`, so a synthesized `UnsafeMutableInterior$1$$Opt$Int_deinit`
+    taking a pointer to the WRAPPER is a symbol nothing can call with the field's
+    own address — which is what the drop glue tried to do the moment the
+    instance registry started registering these instantiations up front.
+
+    Answered on the DECLARATION, so an instantiation and its template agree.
+    """
+    return declaration_base(name) in _LAYOUT_TRANSPARENT
+
+
 def is_module_local(identity: Optional[str],
                     module: Optional[Tuple[str, ...]]) -> bool:
     """Whether a type's NAME is nameable only from inside `module` itself.

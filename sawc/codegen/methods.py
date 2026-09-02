@@ -128,8 +128,13 @@ class MethodsMixin:
         # `_emit_consumes_aware_drop`.
         self._consumes_release_self = None
 
-        # Determine the Self type for this extension
-        self_llvm_type, self_saw_type = self._ext_self_types(struct_name)
+        # Determine the Self type for this extension. The SawType comes from
+        # `_receiver_saw_type` rather than from the pair, because `struct_name`
+        # may be a MANGLED instantiation since design 218 unit 1.5 stage 3c-2c —
+        # `Vector$2$Int$GlobalAllocator` is a symbol, and only the base plus its
+        # arguments answers a field lookup or selects drop glue.
+        self_llvm_type, _ = self._ext_self_types(struct_name)
+        self_saw_type = self._receiver_saw_type(struct_name)
 
         # DF-217m: a param cleanup scope, which an INSTANCE method was the one
         # callable shape never to push. A free function, a static method and an
@@ -269,11 +274,15 @@ class MethodsMixin:
         self_ptr = self.variables.get("self")
         if self_ptr is None:
             return
-        # Non-generic structs key struct_types by their plain name, which is also
-        # the SawType.struct_name; monomorphized deinit bodies don't reach here
-        # (see _generate_method_generic), so a plain STRUCT SawType suffices.
-        self_type = SawType(TypeKind.STRUCT, struct_name=struct_name)
-        self._emit_field_cleanup_at(self_ptr, self_type)
+        # THROUGH `_receiver_saw_type`, which is the whole reason it exists. A
+        # monomorphized `deinit` reaches here since design 218 unit 1.5 stage
+        # 3c-2c — it used to have a copy of this inside
+        # `_generate_method_generic` — and a MANGLED name resolves no field
+        # type, so `Map`'s backing `Vector<..., A>` would be dropped through a
+        # DEFAULT allocator rather than the value's own. A non-generic name
+        # answers with the plain STRUCT SawType this always built.
+        self._emit_field_cleanup_at(self_ptr,
+                                    self._receiver_saw_type(struct_name))
 
     def _generate_derived_copy_body(self, struct_name: str):
         """Emit the body of a compiler-derived memberwise copy().
@@ -395,7 +404,7 @@ class MethodsMixin:
         other_ptr = self.variables.get("other")
         self_val = self.builder.load(self_ptr, name="self_val")
         other_val = self._load_comparison_operand(other_ptr)
-        saw_type = SawType(TypeKind.STRUCT, struct_name=struct_name)
+        saw_type = self._receiver_saw_type(struct_name)
         result = self._emit_memberwise_equals(self_val, other_val, saw_type)
         self.builder.ret(self._coerce_ret_value(result))
 
@@ -418,7 +427,7 @@ class MethodsMixin:
         other_ptr = self.variables.get("other")
         self_val = self.builder.load(self_ptr, name="self_val")
         other_val = self._load_comparison_operand(other_ptr)
-        saw_type = SawType(TypeKind.STRUCT, struct_name=struct_name)
+        saw_type = self._receiver_saw_type(struct_name)
         result = self._emit_memberwise_compare(self_val, other_val, saw_type)
         self.builder.ret(self._coerce_ret_value(result))
 
@@ -431,7 +440,7 @@ class MethodsMixin:
         self_val = self.builder.load(self_ptr, name="self_val")
         hasher_slot = self.variables.get("h")
         hasher_ptr = self.builder.load(hasher_slot, name="hasher_ptr")
-        saw_type = SawType(TypeKind.STRUCT, struct_name=struct_name)
+        saw_type = self._receiver_saw_type(struct_name)
         self._emit_memberwise_hash(self_val, saw_type, hasher_ptr)
         self.builder.ret_void()
 

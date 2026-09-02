@@ -1,0 +1,36 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot `move` `old`: `Anchor` is `NoMove`
+// EXPECT-ERROR-CONTAINS: in the instantiation `Vector<Anchor, GlobalAllocator>.swap_out`
+//
+// A DIAGNOSTIC LIVING ONLY IN A DEMANDED-BUT-NEVER-EMITTED INSTANCE'S BODY
+// FIRES IN AN EXECUTABLE BUILD — design 218c Amendment A5(a)'s pin, and the
+// only thing that survives of A5 after the Sep-1 SPLICE-ALL ruling.
+//
+// A2(b) would have aligned CHECKING with EMISSION: an instance demanded but
+// never emitted in an executable would have been registered, depth-checked and
+// effect-validated and never instance-checked, so a diagnostic living only
+// there would surface in a `-c` object and not in the program. The user
+// overrode the measurement that selected it: checking aligns with EXISTENCE,
+// `-c` and `-o` report identically, and this is the test that says so.
+//
+// `wire` is never called, so design 168's reachability strip emits no body for
+// it and none for the `Vector<Anchor, GlobalAllocator>` methods it demands. The
+// instance still EXISTS — the fixpoint's roots are every concrete declaration —
+// so it is materialized and checked, and the refusal below is what a
+// `Vector` at a `NoMove` element type owes: `Vector` RELOCATES its elements on
+// a growth and on a `swap_out`, which is the containment design 188 states and
+// which nothing had ever enforced through a generic.
+
+struct Anchor { n: Int }
+extension Anchor: NoCopy {}
+extension Anchor: NoMove {}
+
+func wire() -> Int {
+    var v = Vector<Anchor>()
+    let _ = v.swap_out(0, Anchor(n: 1))
+    v.len()
+}
+
+func main() {
+    print("nothing calls `wire`")
+}
