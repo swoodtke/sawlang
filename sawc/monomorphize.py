@@ -979,6 +979,56 @@ def substituted_param_names(template, type_map):
     return frozenset(names)
 
 
+def result_roles(template, type_map):
+    """Design 30 Ruling 1's GENERIC LOCK-IN, computed where its inputs exist.
+
+    A generic `-> Result<T, E>` body decides Ok or Err from the SPELLING: in
+    `func wrapErr<T, E>(e: E) -> Result<T, E> { return e }` the returned
+    parameter's declared type is the return's ERR parameter, so the answer is
+    Err — and design 30 Ruling 1 says every instantiation inherits it, "even
+    when an instantiation makes T == E". At that instantiation the clone can no
+    longer derive it: both payloads are `Int` and both accept the value.
+
+    So the answer is computed HERE, from the TEMPLATE's annotations, which name
+    the abstract parameters even in a pristine snapshot no check has touched.
+    PARAMETER NAME -> `'ok'` | `'err'`, stamped as `mono_result_roles` and read
+    by `_autowrap_into_result`. Empty unless the return really is a Result over
+    two DISTINCT parameter spellings, which is the only shape that can go
+    ambiguous.
+    """
+    rt = getattr(template, 'return_type', None)
+    if rt is None or not rt.is_result():
+        return {}
+    ok_name = _abstract_spelling(rt.unwrap_result_ok(), type_map)
+    err_name = _abstract_spelling(rt.unwrap_result_err(), type_map)
+    if not ok_name or not err_name or ok_name == err_name:
+        return {}
+    out = {}
+    for p in getattr(template, 'parameters', None) or ():
+        name = getattr(p, 'name', None)
+        spelling = _abstract_spelling(getattr(p, 'type', None), type_map)
+        if not name or spelling is None:
+            continue
+        if spelling == ok_name:
+            out[name] = 'ok'
+        elif spelling == err_name:
+            out[name] = 'err'
+    return out
+
+
+def _abstract_spelling(t, type_map):
+    """The type-PARAMETER name `t` is, or None if it is not one of this
+    instantiation's parameters. Design 37 lets a bare parameter arrive
+    STRUCT-kinded, spelled by name, so both spellings are read."""
+    if t is None or not isinstance(t, SawType):
+        return None
+    if t.kind == TypeKind.TYPE_PARAM and t.type_param_name in type_map:
+        return t.type_param_name
+    if t.kind == TypeKind.STRUCT and not t.type_args and t.struct_name in type_map:
+        return t.struct_name
+    return None
+
+
 def substituted_return(template, type_map):
     """Whether `template`'s declared RETURN TYPE names one of `type_map`'s
     parameters — §1c skip 5's input, and `substituted_param_names`' sibling.
@@ -1182,6 +1232,7 @@ def _run_body(tc, mono, inst, template, clone, type_map, display, method_name,
     # and the clone has none left to read.
     substituted = substituted_param_names(template, type_map)
     subst_return = substituted_return(template, type_map)
+    clone.mono_result_roles = result_roles(template, type_map) or None
     if hook is not None:
         hook.before(inst, method_name, flavor)
     with tc._checking_instance(display, substituted_params=substituted,
@@ -1349,6 +1400,68 @@ def measure_splice_all(mono, typechecker):
         typechecker.reporter = saved_reporter
 
 
+class _SpliceHook:
+    """Put each materialized body where the rest of the pipeline finds it.
+
+    Phase 2's second half (spec §1a, stage 3c): every registered instance is
+    MATERIALIZED — cloned through the copier, instance-checked with errors real
+    — and then SPLICED into the merged program as an ordinary concrete
+    declaration. From there the place lowering, the coroutine transform and
+    codegen see a concrete program and nothing else; codegen's `_ensure_*`
+    entries are lookups, and a demand the registry cannot answer is an ICE.
+
+    THE SPLICE TARGET IS THE MERGED AST, deliberately, and not the entry AST
+    the design-70 builders splice into. `merge_programs` rebuilds it from fresh
+    LISTS on every front-half pass, so a spliced instance is per-pass and is
+    never re-read by `check_module` — which would otherwise re-check it as an
+    instance with neither skip 4's nor skip 5's input in hand (see
+    `_transfer_is_substituted_param`'s note on the one `_checking_instance`
+    that supplies nothing).
+    """
+
+    def __init__(self, program):
+        self.program = program
+        self.existing = {f.name for f in program.functions}
+        self.spliced = 0
+
+    def skip(self, inst):
+        """Whether this instance already has a definition in the program.
+
+        The design-70/74 builders splice the driven/spawned subset into the
+        ENTRY ast during checking, and the coroutine transform's promotion
+        splices more; both survive into the next pass's merged AST under the
+        same mangled name this phase would mint. One definition per symbol.
+        """
+        return inst.kind == 'fn' and inst.key in self.existing
+
+    def before(self, inst, method_name, flavor):
+        pass
+
+    def after(self, inst, method_name, flavor, clone):
+        if flavor == "fn":
+            self.program.functions.append(clone)
+            self.existing.add(clone.name)
+            self.spliced += 1
+
+
+def splice_instances(mono, typechecker, verbose=False):
+    """Materialize and splice every registered instance (spec stage 3c).
+
+    Free functions only so far; the type-instance and method-generic halves
+    follow, and until they land codegen still builds those from the template.
+    """
+    if typechecker is None:
+        return
+    hook = _SpliceHook(mono.program)
+    for key in list(mono.order):
+        inst = mono.instances[key]
+        if inst.kind != 'fn' or hook.skip(inst):
+            continue
+        materialize_instance(mono, typechecker, inst, hook=hook)
+    if verbose and hook.spliced:
+        print(f"    Monomorphization: {hook.spliced} instance(s) spliced")
+
+
 def run_monomorphization(program, namespace, reporter, verbose=False,
                          typechecker=None):
     """Phase 2. Returns the registry, or None if it produced errors."""
@@ -1356,4 +1469,6 @@ def run_monomorphization(program, namespace, reporter, verbose=False,
     mono.run()
     if _MEASURE == "splice-all":
         measure_splice_all(mono, typechecker)
+        return mono
+    splice_instances(mono, typechecker, verbose=verbose)
     return mono

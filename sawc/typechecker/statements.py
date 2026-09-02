@@ -478,7 +478,9 @@ class StatementsMixin:
                     )
             elif body_type is not None and method.body.final_expr and body_type.kind != TypeKind.NEVER:
                 # Types are compatible - check if we need Optional wrapping
-                if expected_return.is_optional() and not body_type.is_optional() and not body_type.is_none_literal():
+                if (not body_type.is_none_literal()
+                        and self._tail_owes_optional_wrap(body_type,
+                                                          expected_return)):
                     method.body.final_expr = OptionalWrap(
                         value=method.body.final_expr,
                         target_type=expected_return,
@@ -636,7 +638,9 @@ class StatementsMixin:
                 )
         elif body_type is not None and func.body.final_expr and body_type.kind != TypeKind.NEVER:
             # Types are compatible - check if we need Optional wrapping
-            if resolved_return_type.is_optional() and not body_type.is_optional() and not body_type.is_none_literal():
+            if (not body_type.is_none_literal()
+                    and self._tail_owes_optional_wrap(body_type,
+                                                      resolved_return_type)):
                 func.body.final_expr = OptionalWrap(
                     value=func.body.final_expr,
                     target_type=resolved_return_type,
@@ -738,6 +742,24 @@ class StatementsMixin:
                      "Ok type as an optional"
             )
             return ('none-lit', None)
+
+        # DESIGN 30 RULING 1'S GENERIC LOCK-IN, in the instance. The template
+        # decided Ok or Err from the SPELLING (`e: E` at `-> Result<T, E>` is
+        # Err), and at `T == E` the clone cannot derive that — both payloads
+        # accept the value. `mono_result_roles`, computed at the clone from the
+        # template's own annotations, is that decision carried across; it is
+        # asked BEFORE the ambiguity refusal because it is what makes the case
+        # unambiguous. See `monomorphize.result_roles`.
+        role = self._mono_result_role(value_expr)
+        if role == 'err' and self._transfer_compatible(value_type, err_type):
+            return ('err', ResultErrWrap(
+                value=value_expr, result_type=expected,
+                line=value_expr.line, column=value_expr.column))
+        if role == 'ok' and self._transfer_compatible(value_type, ok_type):
+            payload = self._prepare_ok_payload(value_expr, value_type, ok_type)
+            return ('ok', ResultOkWrap(
+                value=payload, result_type=expected,
+                line=payload.line, column=payload.column))
 
         if self._result_autowrap_ambiguous(expected, value_type, context_desc,
                                            line, column, value_expr=value_expr):
@@ -886,11 +908,41 @@ class StatementsMixin:
         if body_type.is_none_literal():
             self._propagate_optional_type(tail, resolved_return_type)
             return
-        if body_type.is_optional() or body_type.kind == TypeKind.NEVER:
+        if not self._tail_owes_optional_wrap(body_type, resolved_return_type):
             return
         func.body.final_expr = OptionalWrap(
             value=tail, target_type=resolved_return_type,
             line=tail.line, column=tail.column)
+
+    def _tail_owes_optional_wrap(self, value_type, expected) -> bool:
+        """Whether a value landing at an OPTIONAL `expected` owes one `Some`.
+
+        The rule was "wrap unless the value is already an optional", which is
+        right at one layer and wrong at two: an `Int?` landing at a declared
+        `Int??` IS the payload and owes exactly one wrap. Design 176 makes `?`
+        nest in every type position, so `-> T?` at `T = Int?` is an ordinary
+        signature — and the generic body reached codegen correctly only because
+        the ABSTRACT stamp fired (`T` is not optional abstractly) while the
+        concrete twin `func f(x: Int?) -> Int?? { x }` emitted `ret {i1, i64}`
+        from a `{i1, {i1, i64}}` function, which LLVM refuses. That is DF-286c
+        face 4, and it was a concrete-path defect all along: the generic path
+        stopped hiding it when design 218 unit 1.5 stage 3c made an instance an
+        ordinary concrete body.
+
+        The question asked instead is whether the value IS the payload — by
+        design-144 identity, so two same-named types from two modules are not
+        confused. A `Never` and a bare `None` are answered above and never reach
+        here.
+        """
+        if value_type is None or expected is None or not expected.is_optional():
+            return False
+        if value_type.kind == TypeKind.NEVER:
+            return False
+        payload = expected.inner_type
+        if payload is not None and (self._type_key(value_type)
+                                    == self._type_key(payload)):
+            return True
+        return not value_type.is_optional()
 
     def _return_type_is_decidable(self, resolved_return_type, body_type) -> bool:
         """Design 24 item 2 decidability rule.
@@ -3501,7 +3553,8 @@ class StatementsMixin:
                 if value_type and value_type.is_none_literal() and expected.is_optional():
                     self._annotate_none_in_expr(stmt.value, expected)
                 # Wrap T in Optional if returning from T?-returning function
-                elif value_type and expected.is_optional() and not value_type.is_optional():
+                elif value_type and self._tail_owes_optional_wrap(value_type,
+                                                                  expected):
                     stmt.value = OptionalWrap(
                         value=stmt.value,
                         target_type=expected,

@@ -48,80 +48,39 @@ class GenericsMixin:
         """
         return mangle_function(func_name, type_args)
 
-    def _instantiate_generic_function(self, func_name: str, type_args: List[SawType]) -> str:
-        """Instantiate a generic function with concrete type arguments.
+    def _instantiate_generic_function(self, func_name: str,
+                                      type_args: List[SawType]) -> str:
+        """The MANGLED SYMBOL of a generic free function's instantiation.
 
-        Returns the mangled name of the instantiated function.
+        A LOOKUP since design 218 unit 1.5 stage 3c, and the name is kept for
+        its call sites rather than for what it used to do. Phase 2 decides which
+        instances exist, materializes each one through the single funnel
+        (`monomorphize.materialize_instance` — copier, then the §1c instance
+        check with errors real) and splices it into the merged program as an
+        ordinary concrete function, which the eager declaration pass has already
+        declared by the time any body is generated. So there is nothing to
+        instantiate here: codegen lowers, it no longer decides.
+
+        A MISS IS AN INTERNAL ERROR, and that is the standing decides-vs-lowers
+        gate. It means the fixpoint failed to enumerate a demand this lowering
+        makes — the one thing shadow mode existed to prove could not happen —
+        so it names the pair rather than quietly building a body nothing
+        checked.
         """
-        if func_name not in self.generic_functions:
-            raise ValueError(f"Unknown generic function: {func_name}")
-
         mangled_name = self._mangle_generic_name(func_name, type_args)
-        self._mono_shadow(mangled_name, "generic function", func_name)
-
-        # Check if already instantiated
-        if mangled_name in self.generated_instantiations:
+        if mangled_name in self.functions:
             return mangled_name
+        raise ValueError(
+            f"internal compiler error: monomorphization did not discover the "
+            f"instance `{mangled_name}` of generic function `{func_name}`, "
+            f"demanded while lowering "
+            f"{self._current_llvm_function_name() or '<registration>'}")
 
-        # Get the generic function template
-        generic_func = self.generic_functions[func_name]
-
-        # Set up type parameter context
-        if len(type_args) != len(generic_func.type_params):
-            raise ValueError(
-                f"Generic function {func_name} expects {len(generic_func.type_params)} "
-                f"type arguments, got {len(type_args)}"
-            )
-
-        # Save current state (we might be in the middle of generating another function)
-        saved_builder = self.builder
-        saved_variables = self.variables.copy()
-        saved_variable_types = self.variable_types.copy()
-        saved_cleanup_stack = self.cleanup_stack[:]
-        saved_drop_flags = self.drop_flags
-        saved_moved_variables = self.moved_variables
-        old_context = self.type_param_context.copy()
-
-        # Build type parameter mapping
-        for type_param, type_arg in zip(generic_func.type_params, type_args):
-            self.type_param_context[type_param.name] = type_arg
-
-            # Add associated type mappings for interface bounds
-            for bound in type_param.bounds:
-                # Get the concrete type name
-                concrete_type_name = None
-                if type_arg.kind == TypeKind.STRUCT:
-                    concrete_type_name = type_arg.struct_name
-                elif type_arg.kind == TypeKind.ENUM:
-                    concrete_type_name = type_arg.enum_name
-
-                if concrete_type_name:
-                    # Get the associated type assignments for this (type, interface) pair (use namespace)
-                    if concrete_type_name in self.namespace.conformances:
-                        type_assigns = self.namespace.conformances[concrete_type_name].get(bound, {})
-                        for assoc_name, assoc_type in type_assigns.items():
-                            self.type_param_context[assoc_name] = assoc_type
-
-        try:
-            # Declare the instantiated function
-            self._declare_function(generic_func, name_override=mangled_name)
-
-            # Generate the function body
-            self._generate_function(generic_func, name_override=mangled_name)
-
-            # Mark as generated
-            self.generated_instantiations.add(mangled_name)
-        finally:
-            # Restore state
-            self.type_param_context = old_context
-            self.builder = saved_builder
-            self.variables = saved_variables
-            self.variable_types = saved_variable_types
-            self.cleanup_stack = saved_cleanup_stack
-            self.drop_flags = saved_drop_flags
-            self.moved_variables = saved_moved_variables
-
-        return mangled_name
+    def _current_llvm_function_name(self):
+        """The LLVM function under construction, for an ICE report."""
+        builder = getattr(self, 'builder', None)
+        block = getattr(builder, 'block', None) if builder is not None else None
+        return getattr(getattr(block, 'parent', None), 'name', None)
 
     def _mangle_method_name(self, struct_name: str, method_name: str,
                             param_names: Optional[List[str]] = None,

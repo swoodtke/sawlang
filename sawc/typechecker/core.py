@@ -3192,6 +3192,24 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         return (isinstance(expr, Identifier)
                 and expr.name in self._mono_substituted_params)
 
+    def _mono_result_role(self, value_expr) -> Optional[str]:
+        """`'ok'` / `'err'` for a returned PARAMETER whose role design 30's
+        generic lock-in fixed abstractly, or None.
+
+        Read at `_autowrap_into_result` and nowhere else. The map is
+        `mono_result_roles`, stamped on the clone by
+        `monomorphize.result_roles` from the TEMPLATE's own annotations — the
+        one place the abstract spellings still exist once an instantiation has
+        made `T` and `E` the same type.
+        """
+        if not isinstance(value_expr, Identifier):
+            return None
+        for decl in (self.current_method, self.current_function):
+            roles = getattr(decl, 'mono_result_roles', None)
+            if roles:
+                return roles.get(value_expr.name)
+        return None
+
     def _mono_return_is_substituted(self) -> bool:
         """§1c SKIP 5 — a RETURN-POSITION judgment whose return type arrived by
         substitution. The named sibling of skip 4's parameter rule (Amendment

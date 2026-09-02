@@ -351,7 +351,8 @@ class TypesMixin:
                 # type. Resolving at this chokepoint means every path that
                 # reaches an LLVM type gets the length, not just the ones that
                 # happened to run substitution first.
-                size, _ = saw_type._substituted_length(self.type_param_context)
+                size, _ = saw_type._substituted_length(
+                    self._const_length_context())
             if size is None:
                 # A DECLARED length that never folded — `[UInt8; count]` naming
                 # a runtime binding, say. This is the position design 148 says

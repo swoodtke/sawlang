@@ -2228,12 +2228,41 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                 f"static_assert condition is not a compile-time constant: "
                 f"{e.what} is not allowed here", sa.line, sa.column) from None
 
+    def _const_length_context(self):
+        """`type_param_context`, plus a SPLICED INSTANCE's own const bindings.
+
+        The type-argument half of `_const_param_env`'s question: a symbolic
+        array length (`[Int; N]`) is resolved from the bindings of the
+        instantiation being generated, and a spliced instance carries those on
+        its declaration rather than in a live context. Returns the ambient
+        context unchanged when there are none, so the ordinary path allocates
+        nothing.
+        """
+        bindings = getattr(getattr(self, '_current_decl', None),
+                           'mono_const_bindings', None)
+        if not bindings:
+            return self.type_param_context
+        context = dict(self.type_param_context or {})
+        for name, (_const_type, value_type) in bindings.items():
+            context.setdefault(name, value_type)
+        return context
+
     def _const_param_env(self):
         """The const generic parameters bound in the frame being generated.
 
         `type_param_context` maps every parameter of the current instantiation
         to its argument; the const ones carry a value rather than a type, and
         only those become names an expression may read (design 148).
+
+        A SPLICED INSTANCE has no context to read (DF-286c face 1): design 218
+        unit 1.5 stage 3c makes it an ordinary concrete declaration, generated
+        by the ordinary path, and the live `type_param_context` that used to
+        answer `N` is gone with the path that built it. The binding rides on the
+        declaration instead — `mono_const_bindings`, filled by the
+        materialization funnel and read by the typechecker's own
+        `_enter_const_params` — so the two sides answer `N` from one place.
+        `_current_decl` is design 192's breadcrumb, set by every body generator
+        and saved across a closure, which is exactly the scope this question has.
         """
         env = {}
         for name, t in (self.type_param_context or {}).items():
@@ -2241,6 +2270,13 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                 value = t.const_int()
                 if value is not None:
                     env[name] = value
+        bindings = getattr(getattr(self, '_current_decl', None),
+                           'mono_const_bindings', None)
+        for name, (_const_type, value_type) in (bindings or {}).items():
+            if value_type is not None and value_type.kind == TypeKind.CONST_VALUE:
+                value = value_type.const_int()
+                if value is not None:
+                    env.setdefault(name, value)
         return env
 
     def _const_param_constant(self, expr):

@@ -5493,7 +5493,12 @@ class ExpressionsMixin:
                 f"{what} must be an integer",
                 expr.line, expr.column)
             return None
-        if self._mentions_const_param(expr):
+        # A count naming a const parameter is a constant whose VALUE belongs to
+        # an instantiation — unless this IS the instantiation, in which case the
+        # env above supplied it and the fold is final (DF-286c face 1). The env
+        # is either empty (the abstract check) or complete (an instance), so one
+        # test answers it.
+        if self._mentions_const_param(expr) and not self._const_param_env():
             return _ABSTRACT_COUNT
         return value
 
@@ -5525,11 +5530,30 @@ class ExpressionsMixin:
     def _const_param_env(self):
         """The const generic parameters in scope, as name -> VALUE.
 
-        Always empty in the typechecker: a generic body is checked once,
-        abstractly, so no instantiation's values are in force. Codegen has the
-        twin that is populated (design 148). The method exists so every constant
-        position asks the same question in the same way.
+        Empty while a generic body is checked ABSTRACTLY — it is checked once,
+        so no instantiation's values are in force, and codegen has the twin that
+        is populated (design 148). The method exists so every constant position
+        asks the same question in the same way.
+
+        A MONOMORPHIZED INSTANCE is the case where the typechecker does have
+        them (DF-286c face 1): the values ride on the declaration as
+        `mono_const_bindings`, so `[0; 1 << BITS]` inside `slots<2>` folds to 4
+        HERE rather than staying symbolic for a codegen context that no longer
+        exists. Same carrier `_enter_const_params` reads for the types.
         """
+        for decl in (getattr(self, 'current_method', None),
+                     getattr(self, 'current_function', None)):
+            bindings = getattr(decl, 'mono_const_bindings', None)
+            if bindings:
+                out = {}
+                for name, (_const_type, value_type) in bindings.items():
+                    if (value_type is not None
+                            and value_type.kind == TypeKind.CONST_VALUE):
+                        value = value_type.const_int()
+                        if value is not None:
+                            out[name] = value
+                if out:
+                    return out
         return getattr(self, 'current_const_params', None) or {}
 
     def _const_param_types(self):

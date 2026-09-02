@@ -2475,6 +2475,8 @@ class Method(ASTNode):
     is_mono_instance: bool = annotation(False)
     # design 218c, DF-286c face 1: see Function.mono_const_bindings.
     mono_const_bindings: Optional[dict] = annotation(None)
+    # design 218c, design 30 Ruling 1: see Function.mono_result_roles.
+    mono_result_roles: Optional[dict] = annotation(None)
 
 
 @dataclass
@@ -2646,6 +2648,19 @@ class Function(ASTNode):
     # precedence — a local named `N` shadows the parameter in a template body,
     # and only a scope walk knows that.
     mono_const_bindings: Optional[dict] = annotation(None)
+    # design 218c + design 30 Ruling 1 — THE GENERIC LOCK-IN, carried.
+    #
+    # `func wrapErr<T, E>(e: E) -> Result<T, E> { return e }` decides Err
+    # ABSTRACTLY, from the spelling: `e`'s declared type is the return's Err
+    # parameter. At `T = E = Int` both payloads accept the value and the
+    # decision is no longer derivable — the instantiation must inherit the one
+    # the abstract layer made, which is what "monomorphizes consistently even
+    # when an instantiation makes T == E" means.
+    #
+    # PARAMETER NAME -> `'ok'` | `'err'`, computed at the clone from the
+    # TEMPLATE's own annotations (which name the abstract parameters even in a
+    # pristine, never-checked snapshot) and read by `_autowrap_into_result`.
+    mono_result_roles: Optional[dict] = annotation(None)
 
 
 @dataclass
