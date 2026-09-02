@@ -841,3 +841,118 @@ three — skip 3 (a `.copy()` the silent tier answers) covered its six, skip 4
 third family's two `__window` diagnostics turned out to be a CASCADE of skip 3
 and vanished with it. The probe answers 292 pairs materialized, 292 clean, 0
 reported.
+
+## Amendment B (Sep 1, post-3c-2-stop) — the full-population census, the
+## contaminated instrument, and the cutover's remaining rulings
+
+**Status: PROPOSED by the lead from the Sep-1 full-population census
+(224,768 instances / 667,851 pairs / 1,617 compilation units / 10,311
+merged-scope diagnostics in 20 classes; evidence preserved verbatim at
+`designs/reviews/splice-census-sep1.md`, per-diagnostic records
+regenerable via `.build/scratch/census_splice/`). Awaiting the user on B4
+and ratification of the rest.** The census's margin read: the class list
+is CLOSED — `examples/` produced all 20 classes and the five later
+populations (blade, blade tests, libs, devtools, selfhost) added none;
+six classes have a single instance tree-wide. The open risk is IR-level
+only (DF-286c face 4, invisible to a pre-codegen instrument) plus 14
+method-generic instances with no pristine template.
+
+### B1. M1 — the instrument's namespace is wrong, and it contaminated
+### every prior number (FUNNEL GAP, fix first)
+
+`measure_splice_all` — and therefore A3's 30 and DF-286b's 115 — checks
+each instance in the template's home module scope with the compile's
+AMBIENT namespace as the lend source, and that namespace is never
+`mono.namespace` (probed, every compile): `_lend_instantiation_types`
+copies nothing, and `copy_tier(Handle)` answers `free` merged and
+`abstract` inside `std/vector`'s. Four whole classes and roughly a fifth
+of the census volume are THIS, not rules (the census's classes 2 in
+part, 5/8/9/10, 15/20-24; DF-286c face 3 is REFRAMED into it — the
+registry's `_bounds_satisfied` answers correctly). THE FIX, recommended:
+the instance check runs against the MONOMORPHIZER'S MERGED namespace
+(conformances, tiers, lend types — program-wide facts are program-wide)
+with the template's home module supplying VISIBILITY only (design 80/82
+gating, which is what "home scope" was ever for). One funnel; its
+docstring names both inputs. Class 14 (a private sibling function lost —
+conformance K22's own shape) is expected to dissolve here and is
+verified at B6, OPEN until then.
+
+### B2. The dominant REAL class: the `borrows` lowering's own clones —
+### skip 5, the substituted-RETURN sibling of skip 4
+
+The `borrows` lowering makes every accessor a method-generic over its
+window result type `__R`; nothing materializes method generics today, so
+splice-all is the first thing ever to check them — and at `__R = Void`
+the clone's `return __window(...)` is refused (``function returns void
+but return has a value of type Void``) in 1,538 of 1,617 programs,
+twelve USER-written accessors among them. Twin verdict: runs. **Skip 5:
+a return-position judgment whose RETURN TYPE arrived by substitution is
+the abstract layer's, not the instance check's** — one predicate, the
+named sibling of skip 4's parameter rule, which also covers DF-286b
+class 6 and its std twin (`Map._take_value`'s NoCopy return) and the
+census's classes 17/18. Lands like skips 3/4: a named predicate with the
+census citation, never keyed on "is std".
+
+### B3. The design-130 unsafe classes carry their own doctrine — skip 6,
+### citing design 136's as-written rule
+
+Census classes 4/6/7 (`not declared unsafe`, 118 raw): the carrier is
+the FRAME's `Slot<T>` and the window result type — lowering machinery —
+not the user's `Vector<UnsafePointer<Int8>>`. Design 136 already rules
+the position: an unsafe judgment is made on the type AS WRITTEN and
+"never re-judged for a `T = UnsafePointer<Int8>` instantiation". The
+instance check re-judging substituted types contradicts the written
+rule, so **skip 6 cites 136 rather than minting policy**. Flagged for
+the user's eye because it is a safety surface; the lead's read is that
+no new semantics is being decided — 136 already decided it.
+
+### B4. `Box<T, A>.make` placement-moves a NoMove payload — the census's
+### one REAL-CATCH candidate, and a USER RULING
+
+`std/box.saw:45` moves the payload into the heap slot; at a `NoMove` T
+the instance check refuses (``cannot `move` `value`: `Anchor` is
+`NoMove` ``), the hand-written CONCRETE twin is refused today — and
+`examples/nomove_tier.saw:75` calls `Box<Anchor>.make` and RUNS, because
+nothing ever instance-checked the generic. The bind: design 188's OWN
+DOCUMENTED IDIOM is "hold a NoMove value behind a Box for a movable
+handle over pinned storage" — so the language promises Box-of-NoMove
+while its construction path is unwritable as concrete code. OPTIONS:
+(a) BLESS the constructor-into-box as NoMove's one sanctioned second
+move — amend 188: a NoMove value moves exactly once INTO ITS HOME, and
+`Box.make`'s placement write is a home (the pointer-write path in
+box.saw is unsafe-domain code whose soundness argument is exactly
+"pinned hereafter"); (b) refuse it and retract the 188 idiom (breaks
+`nomove_tier.saw` and the documented story). LEAD RECOMMENDS (a),
+implemented not as a skip but as a RULE: the placement-move into
+freshly-allocated unsafe storage inside the defining module's
+constructor is legal for NoMove — otherwise the idiom is folklore.
+
+### B5. The DF-286c fix list (funnel work, no rulings)
+
+Face 1 CONFIRMED AND WIDER: the copier does not carry const-generic
+VALUES — std's own `FixedBuf`/`FixedStringBuilder` are in the blast
+radius (78 raw / 53 instances / 20 templates). Face 2 confirmed
+(associated-type return unsubstituted). Face 3 reframed into B1. Face 4
+(`-> T?` tail wrap, IR-level) is invisible to the census instrument and
+is VERIFIED AT THE CUTOVER's own gates (reemit/irdet). Plus: the 14
+method-generic instances with no pristine template get an answer (the
+capture widened or the miss made a clean ICE), and the 71 module-support
+refusals + 8 flag-needing fixtures are recorded as census scope notes,
+not gaps.
+
+### B6. The staging, and the enumerate-vs-invert ruling
+
+The redo of 3c-2, serialized AFTER design 260 lands (typechecker
+surface): **3c-2a** B1's namespace funnel + B5's faces 1/2 + skip 5 +
+skip 6 (+ B4's rule as ruled), each gated; **3c-2b** THE RE-CENSUS AS A
+GATE — the census instrument re-run over the full population must answer
+ZERO reported (everything fixed, skipped-by-name, or B4-ruled) before
+the cutover commit; **3c-2c** the cutover itself exactly as the stopped
+3c-2 specced it (G3/M6 delete, template stores retire, DF-251b flips,
+A5(a) pin, oracle retirement, §5 measurement against the re-based
+envelope). On ENUMERATE vs INVERT for §1c: the census answers it —
+the class list closed at the margin, the skip list totals ~6 named
+predicates, and the re-census gate is the completeness proof a whitelist
+inversion was supposed to buy; ENUMERATE stands, with inversion recorded
+as the fallback if the IR-level population (face 4's layer) ever
+surprises. RECOMMENDED, not yet ratified.
