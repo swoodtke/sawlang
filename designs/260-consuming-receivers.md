@@ -127,6 +127,14 @@ half restates the design, the second is a SOUNDNESS completion):**
    among those fields; a moved field's value is released once, by its new
    owner, wherever it went. Statically decided — the all-paths rule is
    what keeps this flag-free.
+   **MULTIPLE fields move out fine (clarified Sep 1, sos's question)** — the
+   rule is per field, independently: `(move self.items, move self.name)` as
+   a tuple return is the intended idiom, each field either all-paths or
+   no-path on its own, a second move of one field the ordinary
+   use-after-move. The refusal to know: a CONDITIONAL SPLIT (field A moved
+   in one branch, field B in the other) fails the all-paths test for BOTH
+   fields — that is v1's excluded drop-flag shape; make each field's fate
+   unconditional or diverge on the other branch.
 2. **A type with a HAND-WRITTEN `deinit` body refuses `move self.<field>`**
    (Rust's E0509 analog, forced): design 131 makes the hand-written body
    PREFIX the synthesized drops, and that body is a black box that may
