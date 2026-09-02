@@ -119,6 +119,27 @@ wrapping storage to satisfy a spelling, which is the tail wagging the dog).
 - Option B (Optional-wrapped fields, no carve-out) was DECLINED with A's
   ratification.
 
+**DEINIT FOR A MOVED FIELD (amended Sep 1, on sos's question — the first
+half restates the design, the second is a SOUNDNESS completion):**
+
+1. **Synthesized deinit skips moved fields.** The end-of-body release
+   covers exactly the unmoved remainder, in reverse declaration order
+   among those fields; a moved field's value is released once, by its new
+   owner, wherever it went. Statically decided — the all-paths rule is
+   what keeps this flag-free.
+2. **A type with a HAND-WRITTEN `deinit` body refuses `move self.<field>`**
+   (Rust's E0509 analog, forced): design 131 makes the hand-written body
+   PREFIX the synthesized drops, and that body is a black box that may
+   read any field — running it against a moved-out field observes a dead
+   value, and skipping it breaks the type's cleanup contract. The error
+   fires at the `move`, names the type's `deinit`, and names the two
+   outs: consume the receiver WHOLE (the hand-written body + full drops
+   run at body end, unchanged), or extract through `self.field.take()` /
+   `swap_out` — which MUTATE to a valid state (`None`, the swapped-in
+   value) the deinit can legitimately see, and so stay legal on every
+   type. Whole-referent `self = v` inside a consuming body is unaffected
+   (the old referent deinits whole).
+
 ## 4. v1 fences (each a clean error naming the fence)
 
 - **No trait-requirement `consumes`** in v1 (the `borrows` v1 precedent —
