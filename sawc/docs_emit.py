@@ -446,7 +446,16 @@ class DocsBuilder:
         self_kind = None
         if params and params[0].name == "self":
             params = params[1:]
-            if getattr(node, "self_mutable", False):
+            if getattr(node, "is_consumes", False):
+                # design 260: the receiver is spelled `&var self`, but the
+                # OWNERSHIP EFFECT a reader needs is the ending, not the sigil —
+                # the callee releases what remains of the referent and the
+                # caller's binding is moved-from past the call. Reporting
+                # "borrows-var" here would document the shape and hide the
+                # contract, the same mistake `window` exists to avoid one arm
+                # down.
+                self_kind = "consumes"
+            elif getattr(node, "self_mutable", False):
                 self_kind = "borrows-var"
             elif is_borrows:
                 # design 146 (DF-146b): a `borrows` accessor spelled `&self`
