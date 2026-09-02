@@ -169,6 +169,21 @@ half restates the design, the second is a SOUNDNESS completion):**
 
 ## 4. v1 fences (each a clean error naming the fence)
 
+**TWO FENCES ADDED AT THE BUILD, lead-ratified at integration (Sep 2) —
+soundness-forced, found by the implementing agent with a witnessed double
+free (`tag 10 dropped` twice) behind the first:** a SUSPENDING consuming
+method refuses (1) `move self.<field>` and (2) a receiver type with a
+hand-written `deinit` body. Mechanism: a suspending method's receiver is
+hoisted into the CALLER's coroutine frame, whose per-slot release ends it
+whole-value-or-nothing on every teardown edge, cancellation included — a
+per-field skip there is exactly the drop flag §3 excludes, and the
+deinit-replacement rule has nowhere to apply. Both errors name the
+mechanism and the outs (`take()`, or make the method `sync`). Suspending
+consuming methods otherwise WORK (driven + spawned, released exactly
+once). The async-teardown shape (a suspending `close()` that flushes on a
+hand-written-deinit type) is recorded as the future-work face this fence
+holds shut — the async-drop problem, not v1's.
+
 - **No trait-requirement `consumes`** in v1 (the `borrows` v1 precedent —
   "no trait requirements"); a conformance kind-mismatch error stands ready.
 - No consuming methods on ENUM receivers in v1? NO — enums are IN (they take
