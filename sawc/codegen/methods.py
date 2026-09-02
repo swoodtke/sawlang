@@ -122,6 +122,11 @@ class MethodsMixin:
         # this a name moved in one function would suppress the drop of a same-named
         # (flag-less) binding in the next function generated (design 65 followup).
         self.moved_variables = set()
+        # design 260: `(self_ptr, frozenset(moved_field_names))` while a
+        # CONSUMING body is being generated, else None. `_emit_scope_var_drop`
+        # reads it to route this one pointer's release through
+        # `_emit_consumes_aware_drop`.
+        self._consumes_release_self = None
 
         # Determine the Self type for this extension
         self_llvm_type, self_saw_type = self._ext_self_types(struct_name)
@@ -163,6 +168,27 @@ class MethodsMixin:
                 self.variable_types[param.name] = param.type
                 if self._needs_cleanup(ptype):
                     self._register_cleanup(param.name, ptype)
+
+        # design 260: THE CALLEE IS THE RELEASE POINT. A `consumes` method ends
+        # its receiver, so the referent joins this frame's cleanup scope and is
+        # released on every normal exit — the fall-through below and every
+        # `return`, which runs `_cleanup_all_scopes`. Registering it here, ahead
+        # of nothing else, makes it drop LAST under LIFO. That is the whole
+        # mechanism: the caller's binding was retired by its own `move` and
+        # releases nothing, on any path.
+        #
+        # What that release IS lives in `_emit_consumes_aware_drop`, which
+        # `_emit_scope_var_drop` routes to for exactly this pointer: the
+        # synthesized sweep of the UNMOVED remainder, with the type's own
+        # `deinit` body deliberately NOT called (the consuming body just ran in
+        # its design-131 prefix slot).
+        if getattr(method, 'is_consumes', False):
+            self_ptr = self.variables.get("self")
+            if self_ptr is not None:
+                self._consumes_release_self = (
+                    self_ptr,
+                    frozenset(getattr(method, 'consumes_moved_fields', ()) or ()))
+                self._register_cleanup("self", self_saw_type)
 
         # Set current return type for implicit optional wrapping
         old_return_type = self.current_return_type

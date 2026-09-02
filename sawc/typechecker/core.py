@@ -42,6 +42,7 @@ from .places import PlacesMixin
 from .serde import SerdeMixin
 from .tierreq import TierRequirementsMixin
 from .sigvis import SignatureVisibilityMixin
+from .consumes import ConsumesMixin
 
 
 # design 218 unit 1.5 stage 2 — A MONOMORPHIZED INSTANCE'S DIAGNOSTICS ARE REAL.
@@ -226,7 +227,7 @@ class Scope:
         return self.variables.get(name)
 
 
-class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtilsMixin, EffectsMixin, PlacesMixin, SerdeMixin, TierRequirementsMixin, SignatureVisibilityMixin):
+class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtilsMixin, EffectsMixin, PlacesMixin, SerdeMixin, TierRequirementsMixin, SignatureVisibilityMixin, ConsumesMixin):
     """Type checks a Saw program."""
 
     def __init__(self, reporter: ErrorReporter, freestanding: bool = False,
@@ -405,6 +406,11 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         self.current_scope: Scope = Scope()
         self.current_function: Optional[Function] = None
         self.current_method: Optional['Method'] = None  # Track current method for 'self'
+        # design 260: every `consumes` body checked in this compile, as
+        # `(method, struct_name)`. Its two SUSPENDING-body fences depend on the
+        # whole-program effect fixpoint, so they are decided in
+        # `finalize_effects` rather than at the declaration.
+        self._consumes_bodies: List[Tuple['Method', Optional[str], bool]] = []
         # Type substitution map for specialized extensions (e.g., {"T": String})
         self.current_type_subst: Dict[str, SawType] = {}
         # Track return statements found in current function

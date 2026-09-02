@@ -518,8 +518,29 @@ gives the caller direct access to an element or field inside the receiver,
 which is how `v[i] += 1` writes a `Vector` element where it sits. The access
 lasts for one expression; the spec calls these places.
 
-See [Memory Management](LANGUAGE_SPEC.md#4-memory-management) and
-[Places](LANGUAGE_SPEC.md#places-borrows-and-lend) in the spec.
+A method can also END its receiver. `consumes` says so at the declaration, and
+`move` says so at the call:
+
+```saw
+extension Builder {
+    func finish(&var self) consumes -> Vector<Int> {
+        move self.items
+    }
+}
+
+let items = (move b).finish()   // `b` is moved-from past this expression
+```
+
+The callee releases whatever remains of the value, so the caller's binding
+releases nothing. Inside a consuming body a field can be moved out — every path
+or none, decided at compile time, with the fields that stay released at the end
+of the body. A consuming method takes the place of a hand-written `deinit` for
+that one endpoint, which is why it may only be declared in the module that
+defines the type.
+
+See [Memory Management](LANGUAGE_SPEC.md#4-memory-management),
+[Consuming method receivers](LANGUAGE_SPEC.md#consuming-method-receivers-consumes)
+and [Places](LANGUAGE_SPEC.md#places-borrows-and-lend) in the spec.
 
 ### Modules and imports
 

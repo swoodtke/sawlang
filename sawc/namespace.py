@@ -54,6 +54,11 @@ class FunctionSymbol:
     # design 130: declared `unsafe func` / `unsafe init`. The declaration is the
     # obligation; the trigger rule checks it against the body.
     is_unsafe: bool = False
+    # design 260: declared `consumes` — this `&var self` method ENDS its
+    # receiver, so the call site spells `(move b).m()` and the callee performs
+    # the release. Only ever true for an instance method with `&var self`; the
+    # parser refuses every other pairing.
+    is_consumes: bool = False
     visibility: Visibility = Visibility.PRIVATE
     # Member visibility (design 80): the module that DEFINES this method, for the
     # cross-module member-access gate. For std/builtin declarations this is a

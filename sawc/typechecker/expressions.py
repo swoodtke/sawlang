@@ -943,11 +943,33 @@ class ExpressionsMixin:
             elem = self._place_move_out_type(expr)
             if elem is not None:
                 return elem
+            # design 260 §3 (Option A): `move self.<field>` inside a CONSUMING
+            # body. The one licensed crossing of design 35's ban, and of the
+            # no-move-out-of-a-ref ban beside it — the referent is the callee's
+            # to end, so a partially-emptied receiver is never observable. Every
+            # other position, a NON-consuming `&var self` method included, falls
+            # through to the refusal below exactly as before.
+            handled, consumed_field = self._consuming_field_move_ok(expr)
+            if handled:
+                return consumed_field
             # design 131: `move h.s!` is still a partial move — the payload sits
             # inside a field, and retiring it would leave `h` half-owned. The
             # field-safe consuming read is `h.s.take()`.
+            # design 260 §2 names the escape each shape actually has: a FIELD
+            # moves out with `take()` (which writes a valid state back), an
+            # indexed PLACE with `swap_out` (design 35's own out). The generic
+            # advice stays for everything else.
+            piece = self._render_lvalue_path(expr.path)
+            if isinstance(expr.path, ArrayIndex):
+                escape = (f"; an indexed place moves out with "
+                          f"`swap_out` instead")
+            elif isinstance(expr.path, MemberAccess):
+                escape = (f"; a field moves out with `{piece}.take()`, which "
+                          f"leaves a valid value behind")
+            else:
+                escape = ""
             hint = ("move the whole value (`move " + expr.variable + "`) or "
-                    "restructure so the piece is its own binding")
+                    "restructure so the piece is its own binding" + escape)
             if expr.unwrap:
                 hint = (f"`move` at an optional projection retires the whole "
                         f"BINDING, which a field cannot do; use "
@@ -3631,6 +3653,8 @@ class ExpressionsMixin:
                            for t in param_types]
         self._finish_overloaded_args(expr, param_types, arg_types, mapping)
         self._reject_var_self_call_on_shared_self(expr, method_info)
+        # design 260: the consuming-receiver funnel, entry point 1 of 2.
+        self._check_consuming_receiver(expr, method_info)
         # `&var self` method may not be called on an immutable binding (L11).
         if getattr(method_info, "self_mutable", False) and not method_info.is_init:
             imm_root = self._immutable_receiver_root(expr.object)
@@ -10645,6 +10669,8 @@ class ExpressionsMixin:
         # immutable-binding error a `&var self` method would give.
         window_exclusive = getattr(expr, 'place_window_exclusive', False)
         self._reject_var_self_call_on_shared_self(expr, method_info)
+        # design 260: the consuming-receiver funnel, entry point 2 of 2.
+        self._check_consuming_receiver(expr, method_info)
         if ((getattr(method_info, "self_mutable", False) or window_exclusive)
                 and not method_info.is_init):
             imm_root = self._immutable_receiver_root(expr.object)

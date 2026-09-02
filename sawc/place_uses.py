@@ -1391,6 +1391,13 @@ class _PlaceUses:
         """
         if isinstance(node, (MemberAccess, MethodCall)):
             return node.object
+        # design 260 §3: `move self.<field>` inside a consuming body is a
+        # postfix chain like any other — and after the coroutine transform its
+        # root IS a place, because a suspending method's receiver is reached
+        # through `self.__recv.deref()`. Without this step the chain bottomed
+        # out at the `move` and the accessor reached codegen unlowered.
+        if isinstance(node, MoveExpr) and node.path is not None:
+            return node.path
         if isinstance(node, ArrayIndex):
             return node.array_expr
         if isinstance(node, TupleIndex):
@@ -1501,6 +1508,13 @@ class _PlaceUses:
             # window parameter is already `&var T`, and leaving the `!` on would
             # force-unwrap a non-optional.
             return self._window_head(name, place, head_type)
+        if isinstance(expr, MoveExpr) and expr.path is not None:
+            expr.path = self._replace_head(expr.path, place, name, head_type)
+            # The move's ROOT moved with it: inside the window the receiver is
+            # the window's own parameter, so the diagnostics and the access-path
+            # machinery must name that rather than the vanished `self`.
+            expr.variable = name
+            return expr
         if isinstance(expr, MemberAccess):
             expr.object = self._replace_head(expr.object, place, name, head_type)
         elif isinstance(expr, MethodCall):

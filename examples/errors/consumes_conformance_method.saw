@@ -1,0 +1,23 @@
+// design 260 §4 — a `consumes` method may not SATISFY a trait requirement.
+//
+// The other half of the no-trait-`consumes` fence, and the half a rule written
+// only at the requirement would have missed: a requirement is callable through
+// an erased `&any Trait` receiver, where the caller's `move` cannot be spelled
+// and there is no binding to retire — so a conforming consuming body would
+// release the referent out from under a caller that never transferred it.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: is declared `consumes`, so it may not satisfy a requirement of trait `Ender`
+// EXPECT-ERROR-CONTAINS: cannot spell the `(move x).finish()` that transfers the receiver
+
+trait Ender {
+    func finish(&var self) -> Int
+}
+
+struct Builder { n: Int }
+extension Builder: NoCopy {}
+extension Builder: Ender {
+    func finish(&var self) consumes -> Int { self.n }
+}
+
+func main() { print("{}", 1) }

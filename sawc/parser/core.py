@@ -570,17 +570,19 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
     # function-TYPE grammar spells the same sequence with `escaping` third;
     # `escaping` is meaningless on a declaration and gets its own teaching
     # error, so the declaration sequence is these three.
-    _EFFECT_SLOT_ORDER = ('unsafe', 'sync', 'borrows')
+    _EFFECT_SLOT_ORDER = ('consumes', 'unsafe', 'sync', 'borrows')
 
     def _parse_effect_slot(self):
-        """The post-parameter effect slot of a declaration (designs 136, 141):
-        `unsafe`, then `sync`, then `borrows`, in the order and spelling a
-        function TYPE already uses (`(T) unsafe sync borrows -> R`). All three
-        are optional. `sync` stays CONTEXTUAL — after the parameter list only
-        `->`, `{`, or a newline-then-`{` may follow, so a bare identifier here
-        is unambiguous (Swift's `throws`/`async` position). `unsafe` and
-        `borrows` are reserved words and match on token type. Returns
-        `(is_unsafe, is_sync, is_borrows)`.
+        """The post-parameter effect slot of a declaration (designs 136, 141,
+        260): `consumes`, then `unsafe`, then `sync`, then `borrows`, in the
+        order and spelling a function TYPE already uses
+        (`(T) unsafe sync borrows -> R`). All four are optional. `sync` and
+        `consumes` stay CONTEXTUAL — after the parameter list only `->`, `{`,
+        or a newline-then-`{` may follow, so a bare identifier here is
+        unambiguous (Swift's `throws`/`async` position), and both words stay
+        ordinary identifiers everywhere else. `unsafe` and `borrows` are
+        reserved words and match on token type. Returns
+        `(is_consumes, is_unsafe, is_sync, is_borrows)`.
         """
         seen = {}
         while True:
@@ -590,6 +592,8 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                 tok, kw = self.current(), 'borrows'
             elif self.match_ident('sync'):
                 tok, kw = self.current(), 'sync'
+            elif self.match_ident('consumes'):
+                tok, kw = self.current(), 'consumes'
             else:
                 break
             if kw in seen:
@@ -607,7 +611,8 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
             seen[kw] = tok
             self.advance()
         self._reject_escaping_in_decl_slot()
-        return 'unsafe' in seen, 'sync' in seen, 'borrows' in seen
+        return ('consumes' in seen, 'unsafe' in seen, 'sync' in seen,
+                'borrows' in seen)
 
     def _reject_escaping_in_decl_slot(self) -> None:
         """`escaping` in a DECLARATION's effect slot (design 141).
@@ -627,7 +632,7 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                 "named function has no environment and may always escape. "
                 "Write it on the parameter that receives the value "
                 "(`body: (Int) escaping -> Int`); the declaration slot takes "
-                "`unsafe`, `sync` and `borrows`")
+                "`consumes`, `unsafe`, `sync` and `borrows`")
 
     def at_type_alias_start(self) -> bool:
         """THE contextual read of `type` (DF-232b, ruled Aug 17).

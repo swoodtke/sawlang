@@ -44,7 +44,9 @@ allocator-failure tier — one row per op family that now reports, and five for
 the edges the flip deliberately does not cross; V50, design 247 unit 0's
 deinit-exactly-once row for a driven move-out; and W25-W26, design 252 unit 1's
 unsigned-comparison matrix — the two faces of DF-270d, both covered by
-`examples/` files rather than files here.)
+`examples/` files rather than files here; and V51-V56, design 260's consuming
+receivers — the four ownership rows U0 owed plus the mirror-fixit row and the
+deinit-replacement witness the Sep-1 re-ruling added.)
 
 ## How to read it
 
@@ -224,7 +226,8 @@ Claim source: spec 4 *Reference Types* + *Places*; designs 34, 106, 141, 188 u2,
 
 ## Moves and use-after-move
 
-Claim source: spec 4 *The Copy Trait Family* + *Move-Only Types*; designs 34, 131, 139, 159, 202
+Claim source: spec 4 *The Copy Trait Family* + *Move-Only Types* + *Consuming
+method receivers*; designs 34, 131, 139, 159, 202, 260
 
 | Row | Checks | Covered by | Ruling |
 |-----|--------|------------|--------|
@@ -278,6 +281,12 @@ Claim source: spec 4 *The Copy Trait Family* + *Move-Only Types*; designs 34, 13
 | V48 | a `move` capture into a NON-ESCAPING closure transfers when the BODY RUNS — the absent path leaks nothing, the executed path frees exactly once | `closure_move_capture_transfers_when_body_runs.saw` | DF-218h — a non-escaping closure keeps its environment on the stack with no destructor, so neither eager answer was available: clearing the source's drop flag at capture leaked whenever the body did not run, and leaving it alone double-freed whenever it did. The environment carries a pointer to the local and the body takes the value as it starts, which is one rule for every shape that reaches a non-escaping closure (a direct argument, `with_ref`/`with_var_ref`, the place window's own lowered closure, a conditional lend on both paths). A body run twice would take a value that is gone, so the flag is also the occupancy and a repeat panics |
 | V49 | an ESCAPING closure whose body consumes its `move` capture frees it once | `closure_escaping_move_capture_consumed_once.saw` | DF-255a — OPEN, XFAIL. The other side of V48: an escaping env OWNS its captures and its destructor releases them, and nothing records that the body already moved one out, so `sink` frees the value and the destructor frees it again. V48's answer does not port — the flag it clears is the source frame's, and an escaping capture has left that frame |
 | V50 | a payload moved OUT of a DRIVEN `match`/`if let` arm over a suspending scrutinee deinitializes exactly once | `coro_match_moved_payload_survives_return.saw` + `coro_driven_match_move_out_releases_once.saw` + `coro_match_move_out_releases_once_in_loop_try_and_task.saw` + `coro_iflet_move_out_releases_once.saw` | DF-215f, fixed by design 247 — the scrutinee was hoisted into a frame temp that KEPT the payload while the arm's binding was a codegen-level alias, so `move <binding>` minted a second owner and the temp's merge-point release freed the value again. The double release never needed the value to leave the function (the filed third leg is falsified) and is invisible on an `Arc`-instrumented payload, where the extra release lands after the last legitimate one and silently underflows — so every row's oracle is a NoCopy payload with a printing `deinit`, counted. The fix is the ENCODING, not an edge: the temp is take-read like every other hoist family now, so the scrutinee codegen sees is an owned temporary and its existing consume model — the sync twin's — decides where the payload dies. Four files because the position matrix has three axes: what happens to the value after the arm (the pin), where the arm hands it (destinations), the construct around the match (loop / try-catch / task), and the `if let`/`guard let` spelling of the same hoist |
+| V51 | consuming a receiver TWICE is a compile error | `V51_consuming_call_double_consume.saw` | 260 — the transfer is routed THROUGH the move checkpoint rather than beside it, so the rule that catches this is V02's. A consuming call that skipped the checkpoint would be a double free: the callee releases the referent and the caller's binding would still own it (DF-216a's mechanism, N10 the standing warning) |
+| V52 | a binding is DEAD past a consuming call, a field read included | `V52_use_after_consume.saw` | 260 — V01 at the new position. What makes the rule fire is that the caller spelled `move`, which is the whole argument for marking BOTH ends |
+| V53 | a `NoMove` receiver is refused AT THE CALL | `V53_consuming_call_nomove_receiver.saw` | 260 §2 — free from `move`'s own axis, and recorded BECAUSE it is free: the design owes no declaration-side check. Whether in-place consumption of a `NoMove` value should ever be allowed, since nothing relocates under the `&var self` shape, is a recorded future question |
+| V54 | Option A's EVERY-PATH-OR-NO-PATH field-move rule, per field | `V54_consumes_field_move_all_paths.saw` | 260 §3 — the rule that keeps the end-of-body release flag-free. Per FIELD and independent, so a CONDITIONAL SPLIT (field `a` on one branch, `b` on the other) fails for BOTH and is named twice; that shape is v1's excluded drop-flag case |
+| V55 | a BINDING receiver owes the visible `move`; a TEMPORARY one does not | `V55_consuming_receiver_needs_move.saw` | 260 — both ends are marked, and the mirror fixit is the `&var` precedent. The temporary control is the other half: there is no binding to invalidate, and the temp was already the callee's to end |
+| V56 | the consuming body REPLACES the hand-written deinit body for its endpoint; the synthesized drops still sweep the unmoved remainder | `V56_consuming_body_replaces_deinit_body.saw` | 260 §2/§3, sos-proposed and USER-RATIFIED Sep 1 (superseding the lead's E0509-analog draft) — a consuming method occupies the design-131 PREFIX slot, so the hand-written body does not run for a consumed receiver and manual teardown is the author's, including deliberately none. Per ENDPOINT, not per type: the ordinary-drop section is the control, and `self = v` inside a consuming body deinits the OLD referent WHOLE because it is not the consumed endpoint |
 
 ## Places (`borrows` / `lend`) — window discipline
 

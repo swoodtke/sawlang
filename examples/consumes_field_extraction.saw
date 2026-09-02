@@ -1,0 +1,85 @@
+// design 260 §3 (Option A) — `move self.<field>` out of a consumed receiver,
+// running, with the release witnessed field by field.
+//
+// The motivating API is `finish()` RETURNING what a builder accumulated, which
+// for a move-only field means moving it OUT of `self`. That is legal inside a
+// consuming body — and only there — because the referent is the callee's to
+// END: the caller's binding is moved-from on return and releases nothing, so a
+// partially-emptied receiver is never observable. The end-of-body release then
+// covers exactly the fields that did NOT leave, in reverse declaration order
+// among them.
+//
+// Covered here, each with a printing `deinit` as the oracle:
+//   multi_field  — TWO fields moved out through a tuple return, the third
+//                  swept; the rule is per field and the fields are independent
+//   all_paths    — moved on every branch, so it is moved
+//   no_path      — moved on none, so the whole receiver is swept
+//   diverging    — a diverging branch is exempt from the all-paths test, as in
+//                  every liveness rule
+//   loop_free    — the survivors reach their own scope end and die once there
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// multi field:
+// tag 3 dropped
+// kept 1 and 2
+// all paths:
+// tag 30 dropped
+// tag 20 dropped
+// kept 10
+// no path:
+// tag 300 dropped
+// tag 200 dropped
+// tag 100 dropped
+// swept 3
+// diverging:
+// tag 3000 dropped
+// tag 2000 dropped
+// kept 1000
+// end
+// tag 1000 dropped
+// tag 10 dropped
+// tag 2 dropped
+// tag 1 dropped
+
+struct Tag { id: Int }
+extension Tag: NoCopy {
+    func deinit(&var self) { print("tag {} dropped", self.id) }
+}
+
+struct Triple { a: Tag, b: Tag, c: Tag }
+extension Triple: NoCopy {}
+extension Triple {
+    func split(&var self) consumes -> (Tag, Tag) { (move self.a, move self.b) }
+    func always(&var self, hot: Bool) consumes -> Tag {
+        if hot { move self.a } else { move self.a }
+    }
+    func nothing(&var self) consumes -> Int { 3 }
+    func diverge(&var self, hot: Bool) consumes -> Tag {
+        if not hot { panic("unreachable in this test") }
+        move self.a
+    }
+}
+
+func main() {
+    print("multi field:")
+    var p = Triple(a: Tag(id: 1), b: Tag(id: 2), c: Tag(id: 3))
+    let pair = (move p).split()
+    print("kept {} and {}", pair.0.id, pair.1.id)
+
+    print("all paths:")
+    var q = Triple(a: Tag(id: 10), b: Tag(id: 20), c: Tag(id: 30))
+    let t = (move q).always(hot: true)
+    print("kept {}", t.id)
+
+    print("no path:")
+    var r = Triple(a: Tag(id: 100), b: Tag(id: 200), c: Tag(id: 300))
+    print("swept {}", (move r).nothing())
+
+    print("diverging:")
+    var s = Triple(a: Tag(id: 1000), b: Tag(id: 2000), c: Tag(id: 3000))
+    let u = (move s).diverge(hot: true)
+    print("kept {}", u.id)
+
+    print("end")
+}

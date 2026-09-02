@@ -1,0 +1,18 @@
+// design 260 — `consumes` and `borrows` are mutually exclusive.
+//
+// A `borrows` method LENDS storage the receiver keeps; a `consumes` method ENDS
+// the receiver. You cannot lend out of a value you destroyed, so the two are
+// refused together at the declaration rather than left to fail somewhere in the
+// window lowering.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `consumes` and `borrows` are mutually exclusive
+// EXPECT-ERROR-CONTAINS: you cannot lend out storage from a receiver you destroyed
+
+struct Bag { cells: Vector<Int> }
+extension Bag: NoCopy {}
+extension Bag {
+    func at(&var self, i: Int) consumes borrows -> Int { lend self.cells[i] }
+}
+
+func main() { print("{}", 1) }

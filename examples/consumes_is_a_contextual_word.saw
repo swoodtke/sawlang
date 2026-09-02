@@ -1,0 +1,39 @@
+// design 260 — `consumes` is CONTEXTUAL, so nothing that already names a
+// variable, a field, a parameter label or a function `consumes` breaks.
+//
+// The word is a keyword in exactly one place: the post-parameter effect slot,
+// where only `->`, `{`, or a newline-then-`{` may follow the parameter list, so
+// a bare identifier there is unambiguous (`sync` has ridden that position since
+// design 22). Everywhere else it is an ordinary identifier — which is the whole
+// reason the CALLER word is `move` rather than the user's sketched `consume`:
+// `consume` is an ordinary and likely identifier, and sos's own motivating
+// method was one.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// field 21
+// call 6
+// local 9
+// label 4
+// interp 21
+// method 12
+
+struct Meter { consumes: Int }
+extension Meter {
+    func read(&self) -> Int { self.consumes }
+    func consumes(&self, by: Int) -> Int { self.consumes - by }
+}
+
+func consumes(n: Int) -> Int { n * 2 }
+func labelled(consumes: Int) -> Int { consumes + 1 }
+
+func main() {
+    let m = Meter(consumes: 21)
+    print("field {}", m.read())
+    print("call {}", consumes(n: 3))
+    let consumes = 9
+    print("local {}", consumes)
+    print("label {}", labelled(consumes: 3))
+    print("interp {}", m.consumes)
+    print("method {}", m.consumes(by: 9))
+}

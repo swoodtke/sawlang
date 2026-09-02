@@ -108,7 +108,7 @@ is scheduled and in what order is the whole of what they say.
 - DF-284b — `{ ... }()`, the spelling BOTH the spec and the diagnostic name as the fix, does not exist (entry below, filed Aug 31 by design 218 unit 1.5's agent while repairing DF-284a; PRE-EXISTING and never once tested — no `examples/` file contains the form). The postfix call is never applied to a closure literal in ANY position: statement position is the bogus refusal whose own hint names it, argument position is a parse error, and `let x = { 1 }()` SILENTLY binds the closure and drops the `()`. Not this unit's to fix (it is a parser question with a trailing-closure interaction); corodiff's `nested_block_tail` wrapper, which was written around the form and had therefore never compiled, moved to a nested `if true` scope
 - DF-287a — a `move` inside a DIVERGING catch poisons the fall-through path (entry below, filed Sep 1 by the lead from an sos-relayed repro; PRE-EXISTING). Every non-catch diverging construct — `if`, `match` arm, `guard else` — already restores; catch is the one outside the rule, in all three of its forms
 - DF-287b — bare-literal ADOPTION never runs at an OVERLOADED call site (entry below, same filing; PRE-EXISTING; DF-242c's matcher family). `solo(len: 1)` adopts at a lone `UInt` param and `b.put(len: 1)` is refused ``expects `UInt` but got `Int` `` although every `put` candidate agrees the slot is `UInt` — with a hint teaching the `as UInt` conversion adoption should have made unnecessary
-- DF-287c — no CONSUMING METHOD RECEIVER exists in any spelling (entry below, filed Sep 1 by the lead from an sos-relayed need; FEATURE GAP wanting a design brief + a user spelling ruling, not a fix). `obj.consume()` with `obj` dead after — the builder `finish()` / handle `close()` / `into_` shape. The free-function twin (`consume(move obj)`) works today and is the interim idiom; std itself wants the feature (`Task.join`'s consume-once contract is a runtime provenance panic where a consuming receiver is a compile error)
+- DF-287c — CLOSED Sep 1, design 260 LANDED (entry below): `func f(&var self) consumes` at the declaration, `(move b).f()` at the call. Two v1 fences the landing added beyond the brief's list are reported for ratification; the `Task`/`Thread` fate migration stays a separate brief (260 §5)
 - DF-286b — **THE STAGE-3c-2 BLOCKER**: A3's instance-check residue was measured on ONE program, and the corpus's population is larger and different in kind (entry below, filed Sep 1 by design 218 unit 1.5 stage 3c's agent). 115 diagnostics over 14 of 122 generic-named examples, in at least six classes, of which only two are the signed families — and two of the six are genuine funnel/registry DEFECTS, not artifacts. Needs a ruling before splice-all can be built
 - DF-286c — the materialization funnel does not reproduce what codegen's `type_param_context` path did, at four named positions (entry below, same filing; ONE mechanism, four faces — const-generic VALUES, associated-type annotations, the conditional-conformance bounds filter, and a `-> T?` tail's auto-wrap). Its matrix is stage 3c-2's test plan
 
@@ -338,7 +338,29 @@ DESIGN CELLS the brief must put to the user, pre-scouted:
    (design 242's fate rule becomes structural), and take-shaped APIs stop
    needing an Optional wrapper.
 
-Not scheduled; BACKLOG until the user wants the brief. [128, 242, 219]
+**CLOSED Sep 1 — design 260 LANDED** (`designs/260-consuming-receivers.md`,
+ruled over three passes the same night: the `&var self` receiver amendment,
+Option A's ratification, and the sos-proposed replacement rule that superseded
+the lead's E0509-analog draft). `func finish(&var self) consumes -> T` at the
+declaration, `(move b).finish()` at the call; the callee releases what remains
+of the referent and the caller's binding releases nothing. Cell answers as
+built: (1) BOTH ends marked, the caller word `move`; (2) the receiver stays
+`&var self` — no third mode; (3) the `NoMove` refusal is FREE at the caller's
+`move`, no derivation rule owed; (4) field and place receivers stay refused by
+design 35, with `take()` / `swap_out` now named in the hint; (5) the
+`Task`/`Thread` migration is still a separate brief (design 260 §5).
+Option A's `move self.<field>` is in, per field on an every-path-or-no-path
+rule; a consuming body replaces a hand-written `deinit` BODY for its endpoint,
+and `consumes` is therefore declarable only in the receiver type's defining
+module. Compiler version bumped 0.3.0 -> 0.4.0 (user: minor for new surface).
+TWO v1 FENCES the landing added beyond the brief's list, both named at the
+declaration and both reported for ratification: a suspending consuming body may
+neither move a field out nor sit on a type with a hand-written `deinit` — a
+suspending method's receiver lives in the CALLER's coroutine frame, whose
+release is decided per slot, so it can neither skip a field (a cancellation
+point between the move and the body's end would need the per-field drop flag
+§3 excludes) nor apply §2's deinit-body replacement. Suspending consuming
+methods otherwise work, driven and spawned. [128, 242, 219, 260]
 
 ## DF-284b — the immediately-invoked closure `{ ... }()` does not parse, in any
 ## position (filed Aug 31 by design 218 unit 1.5's agent, stage 0; PRE-EXISTING,

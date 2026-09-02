@@ -1,0 +1,89 @@
+// design 260 — a SUSPENDING consuming method, driven and spawned.
+//
+// The receiver of a suspending method is frame-resident, exactly as any owned
+// value that spans a park is, and the consumed referent is released exactly
+// once when the frame it lives in is done with it — its fields swept in reverse
+// declaration order. Effects re-infer per instantiation as ever, so the same
+// consuming method is sync at one instantiation and suspending at another.
+//
+// Covered here:
+//   spawned  — `group.spawn(...)` over a consuming call that parks twice
+//   driven   — the same shape reached through a plain suspending caller
+//   generic  — one consuming method, a suspending instantiation beside a sync
+//              one, both released once
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// spawned:
+// tag 2 dropped
+// tag 1 dropped
+// -> 3
+// driven:
+// tag 20 dropped
+// tag 10 dropped
+// -> 30
+// generic:
+// tag 200 dropped
+// tag 100 dropped
+// -> 300
+// sync instance -> 7
+// end
+
+import std.task.*
+
+struct Tag { id: Int }
+extension Tag: NoCopy {
+    func deinit(&var self) { print("tag {} dropped", self.id) }
+}
+
+struct Job { a: Tag, b: Tag }
+extension Job: NoCopy {}
+extension Job {
+    func run(&var self) consumes -> Int {
+        yield_now()
+        let n = self.a.id + self.b.id
+        yield_now()
+        n
+    }
+}
+
+struct Boxed<T> { held: T, tag: Int }
+extension Boxed<T>: NoCopy {}
+extension Boxed<T> {
+    func finish(&var self) consumes -> Int { self.tag }
+}
+
+func spawned(j: Job) -> Int { (move j).run() }
+
+func driven(j: Job) -> Int {
+    yield_now()
+    (move j).run()
+}
+
+func generic_suspending(b: Boxed<Job>) -> Int {
+    yield_now()
+    let inner = 300
+    (move b).finish() + inner - 300 + inner
+}
+
+func main() {
+    var group = TaskGroup()
+
+    print("spawned:")
+    let h = group.spawn(spawned(Job(a: Tag(id: 1), b: Tag(id: 2))))
+    print("-> {}", h.join())
+
+    print("driven:")
+    let k = group.spawn(driven(Job(a: Tag(id: 10), b: Tag(id: 20))))
+    print("-> {}", k.join())
+
+    print("generic:")
+    let g = group.spawn(generic_suspending(
+        Boxed<Job>(held: Job(a: Tag(id: 100), b: Tag(id: 200)), tag: 0)))
+    print("-> {}", g.join())
+
+    var sync_instance = Boxed<Int>(held: 1, tag: 7)
+    print("sync instance -> {}", (move sync_instance).finish())
+
+    print("end")
+}

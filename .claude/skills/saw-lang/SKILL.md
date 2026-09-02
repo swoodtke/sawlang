@@ -495,7 +495,55 @@ var u = w.copy()       // explicit duplicate
   ... or `move`") — and note the error anchors at the function
   declaration line today, not the tail expression (a known diagnostic
   wart, dogfood wave 1).
-- NO partial moves (`move p.x` is an error) — move whole bindings.
+- NO partial moves (`move p.x` is an error) — move whole bindings. The ONE
+  carve-out is `move self.<field>` inside a `consumes` body (below).
+- **CONSUMING RECEIVERS: `consumes` at the declaration, `move` at the call
+  (design 260).** A method that ENDS its receiver says so in the effect slot
+  (canonical order `consumes unsafe sync`), and the call site says so too:
+  ```saw
+  extension Builder {
+      func finish(&var self) consumes -> Vector<Int> { move self.items }
+  }
+  let items = (move b).finish()      // `b` is DEAD past this expression
+  ```
+  The receiver STAYS `&var self` — the grammar keeps its two modes — and
+  nothing relocates: what `consumes` changes is that the CALLEE releases what
+  remains of the referent at body end and the caller's binding releases nothing,
+  on any path. A bare `b.finish()` is refused with the mirror fixit; a
+  TEMPORARY receiver (`make().finish()`) needs no `move`, because there is no
+  binding to invalidate. The result is an owned value, so `(move b).finish().len()`
+  chains.
+  Because the transfer runs through the ordinary move checkpoint, six rules cost
+  nothing extra: a second consume and any later use are use-after-move; a
+  `NoMove` receiver is refused at the `move`; a FIELD receiver
+  (`(move h.res).close()`) is the no-partial-moves error naming `h.res.take()`
+  and a PLACE receiver names `swap_out`; a Copy-tier receiver is legal and the
+  call retires the binding.
+  **A CONSUMING BODY REPLACES A HAND-WRITTEN `deinit` BODY for its endpoint.**
+  The consuming body occupies design 131's prefix slot, so for a consumed
+  receiver the `deinit` body does NOT run — manual teardown is yours, including
+  deliberately none, which is what makes a `File.into_fd()` writable — and the
+  synthesized drops then sweep the UNMOVED remainder. Per ENDPOINT, not per
+  type: an ordinary drop still runs body-then-drops. Overriding a type's
+  teardown is the type author's privilege, so a `consumes` method is declarable
+  ONLY in the module that DEFINES the receiver type (from elsewhere, write a
+  by-value free function and `move` into it).
+  **`move self.<field>` is legal INSIDE a consuming body**, per field, on an
+  EVERY-PATH-OR-NO-PATH rule — no drop flags, so the end-of-body release covers
+  exactly the fields that stayed, in reverse declaration order among them.
+  Fields are independent, so `(move self.a, move self.b)` as a tuple return is
+  the idiom; a field moved on SOME paths is refused by name (a diverging path is
+  exempt), and so is a field move in a loop or any position the check does not
+  model. `self = v` in a consuming body deinits the OLD referent WHOLE.
+  FENCES, each a clean error: no `consumes` on `&self` / a static / an `init` /
+  a free function / beside `borrows`; none on a trait REQUIREMENT and none
+  SATISFYING one; no `consumes` function TYPE; and a suspending consuming body
+  may neither move a field out nor sit on a type with a hand-written `deinit`
+  (its receiver lives in the caller's frame, whose per-slot release can do
+  neither). Suspending consuming methods otherwise work, driven and spawned.
+  GOTCHA: `consumes` is CONTEXTUAL, so a field, label, local or function named
+  `consumes` still compiles — which is exactly why the CALLER word is `move`
+  and not `consume`.
 - References `&T`/`&var T` are PARAMETER-ONLY, cannot escape/be
   stored. **A RETURN TYPE MAY NOT NAME ONE** — `-> &T` is a compile error at the
   declaration, in every position a return type is written (`func`, extension
@@ -3221,7 +3269,9 @@ construct in the owner and lend `&driver` down.
 ## Gotchas
 - Receivers are `&self` and `&var self`, always with the sigil. A bare
   `var self` (an old spelling some code still shows) is a compile error
-  pointing at `&var self`; a bare `self` is likewise rejected.
+  pointing at `&var self`; a bare `self` is likewise rejected. `consumes`
+  (design 260) does NOT add a third mode — it rides the effect slot beside a
+  `&var self` receiver; see CONSUMING RECEIVERS in the ownership section.
 - **`borrows` CHANGES WHAT `&self` MEANS** (design 146) — read this before
   writing an accessor. On a `borrows` method the receiver is borrowed with the
   WINDOW's flavor, decided at each USE SITE: `print(g[4].n)` borrows `g` shared,

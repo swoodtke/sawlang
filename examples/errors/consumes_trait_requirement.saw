@@ -1,0 +1,16 @@
+// design 260 §4 — no trait-requirement `consumes` in v1.
+//
+// The `borrows` v1 precedent, for the same reason at the other end: the
+// transfer is spelled at the CALL, and a call through an erased `any Trait`
+// receiver has no binding to retire. The conformance side of the same fence
+// lives in `consumes_conformance_method.saw`.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `consumes` may not appear on a trait requirement
+// EXPECT-ERROR-CONTAINS: Declare the consuming method on the concrete type instead
+
+trait Ender {
+    func finish(&var self) consumes -> Int
+}
+
+func main() { print("{}", 1) }

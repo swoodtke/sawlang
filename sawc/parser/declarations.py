@@ -104,7 +104,16 @@ class DeclarationsMixin:
         # effects exactly as the matching function TYPE does. `borrows` (design
         # 141) makes the declaration yield a PLACE of the return type for a
         # window instead of a value.
-        is_unsafe, is_sync, is_borrows = self._parse_effect_slot()
+        is_consumes, is_unsafe, is_sync, is_borrows = self._parse_effect_slot()
+        if is_consumes:
+            # design 260 pairing: `consumes` says what happens to the RECEIVER
+            # at the end of the call, and a free function has none. There is
+            # nothing to consume, so the word could only ever mislead.
+            self.error(
+                "`consumes` may only appear on a method with a `&var self` "
+                "receiver — a free function has no receiver to consume. To "
+                "take ownership of an argument, declare the parameter by "
+                "value and `move` at the call site")
 
         # Return type (optional, defaults to void)
         return_type = self.parse_return_clause(f"`func {name}`")
@@ -443,7 +452,19 @@ class DeclarationsMixin:
         # suspension-free context — and, once erased, stays sync-callable through
         # `any` (the effect follows the trait signature). An `unsafe` requirement
         # states the effect once for every conformer.
-        is_unsafe, is_sync, is_borrows = self._parse_effect_slot()
+        is_consumes, is_unsafe, is_sync, is_borrows = self._parse_effect_slot()
+        if is_consumes:
+            # v1 fence (design 260 §4), on the `borrows` v1 precedent: no trait
+            # participation. A `consumes` requirement means "every conformer
+            # ends its receiver", which a call through an erased `any Trait`
+            # receiver has no way to spell — the caller's `move` is what
+            # transfers, and there is no binding behind the existential to
+            # retire.
+            self.error(
+                "`consumes` may not appear on a trait requirement (design 260 "
+                "v1): the transfer is spelled at the CALL (`(move x).m()`), "
+                "and an erased `any Trait` receiver has no binding to retire. "
+                "Declare the consuming method on the concrete type instead")
         if is_borrows:
             # v1 fence (design 141): no trait participation. A `borrows`
             # requirement means "every conformer yields a place", which needs a
@@ -890,7 +911,26 @@ class DeclarationsMixin:
         # suspension-free context (`Method.is_sync`, honored by the effect
         # graph); `unsafe` declares contact with an unsafe type; `borrows`
         # (design 141) yields a place of the return type for a window.
-        is_unsafe, is_sync, is_borrows = self._parse_effect_slot()
+        is_consumes, is_unsafe, is_sync, is_borrows = self._parse_effect_slot()
+        # design 260 PAIRINGS, all three at the declaration where the words are
+        # written. `consumes` changes how a `&var self` borrow ENDS — in the
+        # value's death — so it needs an exclusive receiver, needs a receiver at
+        # all, and cannot be combined with lending one out.
+        if is_consumes and (is_static or is_init):
+            what = "an `init`" if is_init else "a `static` method"
+            self.error(
+                f"`consumes` may only appear on a method with a `&var self` "
+                f"receiver — {what} has no receiver to consume")
+        if is_consumes and not self_mutable:
+            self.error(
+                "a consuming method needs an exclusive receiver — write "
+                "`&var self`. `consumes` ends the borrow in the value's death, "
+                "and a shared `&self` promises the caller the opposite")
+        if is_consumes and is_borrows:
+            self.error(
+                "`consumes` and `borrows` are mutually exclusive — you cannot "
+                "lend out storage from a receiver you destroyed. Write one or "
+                "the other")
         if is_borrows and is_init:
             self.error(
                 "`init` may not be `borrows` — an initializer CONSTRUCTS a "
@@ -922,6 +962,7 @@ class DeclarationsMixin:
             is_sync=is_sync,
             is_unsafe=is_unsafe,
             is_borrows=is_borrows,
+            is_consumes=is_consumes,
             type_params=type_params,
             visibility=visibility,
             line=start.line,

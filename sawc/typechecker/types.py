@@ -5106,6 +5106,16 @@ class TypeUtilsMixin:
                 entries.append(('mut' if is_mut else 'imm', path, value.expr,
                                 value.line, value.column))
             elif isinstance(value, MoveExpr):
+                if getattr(value, 'consumes_field', None) is not None:
+                    # design 260 §3: `move self.<field>` inside a consuming
+                    # body takes ONE field out of a receiver the callee already
+                    # holds exclusively for its whole body — it retires no
+                    # binding, so it is not an access of the root. Charging it
+                    # as one refuses the shape outright after the coroutine
+                    # transform, where the receiver is reached through
+                    # `self.__recv.deref()` and the root path becomes the
+                    # frame's own `self`.
+                    continue
                 entries.append(('moved', (value.variable, ()), value,
                                 value.line, value.column))
             elif getattr(value, 'optional_take', False):

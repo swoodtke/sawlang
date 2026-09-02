@@ -350,8 +350,12 @@ class ExpressionsMixin:
             deref_star = None
             if self.match(TokenType.STAR):
                 deref_star = self.advance()
-            # move must be followed by an identifier (the root binding)
-            if not self.match(TokenType.IDENT):
+            # move must be followed by an identifier (the root binding) — or by
+            # `self`, which is the root of design 260 §3's `move self.<field>`.
+            # The parser accepts the shape; the typechecker decides whether the
+            # consuming carve-out licenses it or the no-partial-moves refusal
+            # (design 35) stands, exactly as it does for `move p.x`.
+            if not self.match(TokenType.IDENT, TokenType.SELF):
                 raise SyntaxError(f"Expected identifier after 'move' at line {move_token.line}")
             base_token = self.advance()
             # Consume any member/tuple/index projections so a partial move like
@@ -360,8 +364,11 @@ class ExpressionsMixin:
             # with a diagnostic naming the field and base. Accepting the syntax
             # here avoids a bare parse error (`move p.x`) or silent mis-handling
             # (`move arr[i]` used to drop the index).
-            node = Identifier(name=base_token.value, line=base_token.line,
-                              column=base_token.column)
+            if base_token.type == TokenType.SELF:
+                node = SelfExpr(line=base_token.line, column=base_token.column)
+            else:
+                node = Identifier(name=base_token.value, line=base_token.line,
+                                  column=base_token.column)
             is_partial = False
             if deref_star is not None:
                 node = ArrayIndex(
@@ -403,8 +410,20 @@ class ExpressionsMixin:
             if self.match(TokenType.EXCLAIM):
                 self.advance()
                 unwrap = True
+            if base_token.type == TokenType.SELF and not is_partial:
+                # A bare `move self` is not a spelling: the receiver is a
+                # BORROW of storage the caller owns, and design 260's consuming
+                # method ends that storage through the reference rather than
+                # relocating it. The projected `move self.<field>` is the one
+                # `self`-rooted move there is.
+                self.error(
+                    "`move self` is not a receiver spelling — a receiver "
+                    "borrows storage the caller owns. Inside a `consumes` "
+                    "method, `move self.<field>` extracts one field; the "
+                    "receiver itself is ended by the method")
             return MoveExpr(
-                variable=base_token.value,
+                variable="self" if base_token.type == TokenType.SELF
+                         else base_token.value,
                 path=node if is_partial else None,
                 unwrap=unwrap,
                 line=move_token.line,

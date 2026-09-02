@@ -478,6 +478,22 @@ class StatementsMixin:
         self._check_no_copy_return(check_type, method.body.final_expr,
                                     f"method `{method.name}`", method.line, method.column)
 
+        # design 260 §3: decide each field this consuming body moved out of
+        # `self` on EVERY path or NO path, and stamp the surviving set for
+        # codegen's end-of-body release. Runs after the body is checked, so
+        # every `move self.<field>` has already passed the carve-out.
+        if getattr(method, 'is_consumes', False):
+            self._check_consumes_field_paths(method)
+            # …and record it for the two SUSPENDING-body fences, which can only
+            # be decided once the whole-program effect fixpoint has run. The
+            # hand-written-deinit answer is captured HERE, while the receiver's
+            # symbol is in hand: the fixpoint runs after the module namespaces
+            # are torn back down, where the name no longer resolves.
+            self._consumes_bodies.append(
+                (method, struct_name,
+                 bool(struct_name)
+                 and self._struct_has_written_deinit(struct_name)))
+
         self._tier_req_exit(method, _tier_saved, _tier_names)
         # The public-declaration rule reaches a `public` METHOD too: design 80
         # makes members private-by-default, so a method carrying the keyword has

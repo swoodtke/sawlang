@@ -1,0 +1,23 @@
+// Conformance row V52 — a binding is DEAD past a consuming call
+//
+// design 260. The consuming call is the transfer, so every later use of the
+// binding is the ordinary use-after-move error — a field read included, which
+// is the shape that would otherwise read storage the callee has already
+// released. Nothing about a consuming method needs its own rule here; what
+// makes the rule fire is that the caller spelled `move`.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: use of moved variable `b`
+// EXPECT-ERROR-CONTAINS: value was moved at line
+
+struct Builder { items: Vector<Int>, count: Int }
+extension Builder: NoCopy {}
+extension Builder {
+    func finish(&var self) consumes -> Int { self.count }
+}
+
+func main() {
+    var b = Builder(items: [1, 2], count: 7)
+    print("{}", (move b).finish())
+    print("{}", b.count)
+}

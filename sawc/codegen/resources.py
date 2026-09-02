@@ -659,13 +659,19 @@ class ResourcesMixin:
                 name=f"tup_drop_{idx}")
             self._emit_drop_at(elem_ptr, etype)
 
-    def _emit_field_cleanup_at(self, struct_ptr, saw_type: SawType):
+    def _emit_field_cleanup_at(self, struct_ptr, saw_type: SawType,
+                               skip_fields=()):
         """Release every cleanup-needing field of the struct at `struct_ptr`, in
         reverse field order (LIFO). Each field is dropped through `_emit_drop_at`
         so nested structs recurse and String/Deinit fields hit their release.
 
         This is the field half of drop glue: it never invokes the struct's OWN
         deinit (the caller already did, or there is none), only its fields.
+
+        `skip_fields` (design 260 §3) names fields a consuming body MOVED OUT:
+        their values left with the move and are released once, by their new
+        owner, wherever they went. Reverse declaration order holds among the
+        fields that remain.
         """
         if saw_type.kind != TypeKind.STRUCT:
             return
@@ -678,6 +684,8 @@ class ResourcesMixin:
         if not field_types:
             return
         for field_name in reversed(field_order):
+            if field_name in skip_fields:
+                continue
             ftype = field_types.get(field_name)
             if ftype is None or not self._needs_cleanup(ftype):
                 continue
@@ -1802,13 +1810,52 @@ class ResourcesMixin:
                 name=f"drop.{var_name}.cont")
             self.builder.cbranch(needs, drop_bb, cont_bb)
             self.builder.position_at_start(drop_bb)
-            self._emit_drop_at(var_ptr, saw_type)
+            self._emit_consumes_aware_drop(var_ptr, saw_type)
             if not self.builder.block.is_terminated:
                 self.builder.branch(cont_bb)
             self.builder.position_at_start(cont_bb)
             return
         # No drop flag: fall back to the static moved-variable skip.
         if var_name in self.moved_variables:
+            return
+        self._emit_consumes_aware_drop(var_ptr, saw_type)
+
+    def _emit_consumes_aware_drop(self, var_ptr, saw_type: SawType):
+        """The end-of-body release of a `consumes` receiver (design 260).
+
+        TWO things separate it from the ordinary `_emit_drop_at`, and both fall
+        out of one ruling — the consuming body OCCUPIES the design-131 prefix
+        slot a hand-written `deinit` body would have taken:
+
+        1. The type's own `deinit` is NOT called. The consuming body already
+           ran where that body would have, doing whatever manual teardown its
+           author intended — including deliberately none, which is what makes
+           `File.into_fd()`-style extraction writable. Calling it here would
+           run the type's teardown twice over one endpoint. Every OTHER drop of
+           the same type is untouched: the replacement is per-ENDPOINT, not
+           per-type, so a plain scope exit still runs body-then-drops.
+        2. The synthesized sweep SKIPS the fields Option A moved out — their
+           values left with the move and are released once, by their new owner,
+           wherever they went. Reverse declaration order holds among the rest.
+           Statically decided; the every-path-or-no-path rule is what buys the
+           flag-free lowering.
+
+        Keyed on the receiver's own pointer, so nothing else in the frame is
+        affected: a non-consuming binding falls through to `_emit_drop_at`
+        exactly as before.
+        """
+        entry = getattr(self, '_consumes_release_self', None)
+        if entry is None or var_ptr is not entry[0]:
+            self._emit_drop_at(var_ptr, saw_type)
+            return
+        saw_type = self._retag_enum(saw_type)
+        if saw_type.kind == TypeKind.ENUM:
+            # An enum receiver has no fields to move out of, so the synthesized
+            # sweep is exactly the active variant's payload release.
+            self._emit_enum_cleanup_at(var_ptr, saw_type)
+            return
+        if saw_type.kind == TypeKind.STRUCT:
+            self._emit_field_cleanup_at(var_ptr, saw_type, skip_fields=entry[1])
             return
         self._emit_drop_at(var_ptr, saw_type)
 

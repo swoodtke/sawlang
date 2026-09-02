@@ -398,12 +398,27 @@ class TypeParsingMixin:
                 t = self.peek(k)
                 if t.type in _RUN_TOKENS:
                     run.append(_RUN_TOKENS[t.type])
-                elif t.type == TokenType.IDENT and t.value in ('sync', 'escaping'):
+                elif t.type == TokenType.IDENT and t.value in ('sync', 'escaping',
+                                                               'consumes'):
                     run.append(t.value)
                 else:
                     break
                 k += 1
             if run and self.peek(k).type == TokenType.ARROW:
+                if 'consumes' in run:
+                    # design 260 v1 fence: methods are not first-class values,
+                    # so there is no function TYPE that could carry `consumes`.
+                    # The word describes what happens to a RECEIVER, and a
+                    # function type has no receiver — `FuncPointer<F>` and the
+                    # closure grammar are explicitly out of scope. The grammar
+                    # accepts the run so the refusal can name the word instead
+                    # of failing as a syntax error.
+                    self.error(
+                        "a function TYPE may not be `consumes` (design 260 "
+                        "v1): `consumes` describes what happens to a method's "
+                        "RECEIVER, and a function type has no receiver. "
+                        "Methods are not first-class values — call the "
+                        "consuming method at the use site instead")
                 if 'borrows' in run:
                     # design 141 v1 fence: there are no borrows function
                     # VALUES. A borrows call yields a PLACE for a window, and a

@@ -1,0 +1,22 @@
+// design 260 §3 — the carve-out is licensed by `consumes` ALONE.
+//
+// `move self.<field>` crosses two standing bans at once — no partial moves
+// (design 35) and no move out of a reference — and both stay intact everywhere
+// else. This is the control that proves it: the same body, the same field, on a
+// NON-consuming `&var self` method, is the ordinary no-partial-moves refusal,
+// with `take()` named as the field's own move-out.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot move out of field `a` of `self`
+// EXPECT-ERROR-CONTAINS: a field moves out with `self.a.take()`
+
+struct Tag { id: Int }
+extension Tag: NoCopy {}
+
+struct Pair { a: Tag, b: Tag }
+extension Pair: NoCopy {}
+extension Pair {
+    func peel(&var self) -> Tag { move self.a }
+}
+
+func main() { print("{}", 1) }

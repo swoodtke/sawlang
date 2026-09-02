@@ -1,0 +1,15 @@
+// design 260 §4 — a function TYPE may not be `consumes`.
+//
+// Methods are not first-class values, and `consumes` describes what happens to
+// a RECEIVER — a thing a function type does not have. `FuncPointer<F>` and the
+// closure grammar are out of scope for the same reason. The grammar accepts the
+// word so the refusal can name it instead of failing as a syntax error, exactly
+// as design 141's `borrows` fence does one line below it.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a function TYPE may not be `consumes`
+// EXPECT-ERROR-CONTAINS: Methods are not first-class values
+
+func run(body: (Int) consumes -> Int) -> Int { body(1) }
+
+func main() { print("{}", 1) }

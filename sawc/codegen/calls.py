@@ -17,7 +17,7 @@ from ast_nodes import (
     Expression, FunctionCall, StructInit, Argument, SawType, TypeKind,
     MethodCall, MemberAccess, Identifier, SelfExpr, EnumInit, ArrayIndex,
     ForceUnwrap, ReferenceExpr, StringLiteral, StringInterpolation, TupleIndex,
-    NoneLiteral, expr_diverges
+    NoneLiteral, MoveExpr, expr_diverges
 )
 from .mangle import content_tag, mangle_type
 
@@ -1990,8 +1990,16 @@ class CallsMixin:
         # `makeResource().use()` destroys the temporary after the call. An lvalue
         # receiver (Identifier / self / field) is owned by its binding and is
         # NOT registered here, which would double-free it.
+        # design 260: a CONSUMING call is the one shape where a temporary
+        # receiver must NOT be registered here. The callee is the release point,
+        # so registering the temp too would drop it twice — once at the end of
+        # the callee's body and once at the end of this statement. It still
+        # needs a slot to be addressed through, which the by-pointer branch
+        # below spills.
+        consuming = getattr(expr, 'is_consuming_call', False)
         receiver_temp_slot = None
-        if receiver_ptr is None and self._is_owned_temporary(expr.object):
+        if (receiver_ptr is None and not consuming
+                and self._is_owned_temporary(expr.object)):
             receiver_type = self._expr_type(expr.object)
             receiver_temp_slot = self._register_stmt_temp(obj_val, receiver_type)
 
@@ -2020,6 +2028,29 @@ class CallsMixin:
                 # Optional-chain hop: the payload is already addressed in place;
                 # a `&var self` mutation lands on the real chain storage.
                 self_arg = receiver_ptr
+            elif consuming and getattr(expr, 'consuming_temp_receiver', False):
+                # design 260: `make_builder().finish()`, `Mode.Fast.label()`.
+                # The value was produced by this expression and nobody else owns
+                # it, so it is spilled to a slot the callee is handed — the same
+                # slot its end-of-body release runs over. NOT registered as a
+                # statement temporary (above): the callee already ends it.
+                temp = self._entry_alloca(obj_val.type, name="consumed_temp")
+                self.builder.store(obj_val, temp)
+                self_arg = temp
+            elif (consuming and isinstance(expr.object, MoveExpr)
+                    and expr.object.path is None
+                    and expr.object.variable in self.variables):
+                # design 260: `(move b).finish()`. NOTHING RELOCATES — the
+                # receiver travels as the address of `b`'s own storage, exactly
+                # as any `&var self` receiver does, and the callee deinits what
+                # remains of it there. The `move` above already cleared the
+                # binding's drop flag, so the caller releases nothing on any
+                # path; spilling a copy instead would leave the caller's storage
+                # live beside the callee's release.
+                self_arg = self.variables[expr.object.variable]
+                vtype = self.variable_types.get(expr.object.variable)
+                if vtype is not None and vtype.kind == TypeKind.REFERENCE:
+                    self_arg = self.builder.load(self_arg, name="ref_self_deref")
             # If object is a variable, pass its alloca directly
             elif isinstance(expr.object, Identifier) and expr.object.name in self.variables:
                 self_arg = self.variables[expr.object.name]

@@ -1,0 +1,40 @@
+// design 260 v1 — a SUSPENDING consuming method on a type with a HAND-WRITTEN
+// `deinit`.
+//
+// The same mechanism as the field-move fence beside this file, at the other
+// half of the ruling. A suspending method's receiver lives in the CALLER's
+// coroutine frame, and the frame's slot release runs the type's FULL `deinit` —
+// hand-written body and all. Design 260 §2's replacement rule says that body
+// must NOT run for a consumed receiver, and there is nowhere in the frame's
+// per-slot release to apply the exception. So the combination is refused rather
+// than silently running a teardown the consuming body was declared to replace.
+//
+// Both outs are on the page and both are ordinary code: make the consuming
+// method `sync` (the receiver then stays in the callee, where the replacing
+// release lives), or drop the hand-written `deinit` and let the synthesized
+// field drops do the work.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `close` is `consumes` on `Conn`, which has a hand-written `deinit`, and it SUSPENDS
+// EXPECT-ERROR-CONTAINS: released by the caller's coroutine frame, which runs the full deinit instead
+// EXPECT-ERROR-CONTAINS: Make the consuming method `sync`, or drop the hand-written `deinit`
+
+import std.task.*
+
+struct Conn { fd: Int }
+extension Conn: NoCopy {
+    func deinit(&var self) { print("closing {}", self.fd) }
+}
+extension Conn {
+    func close(&var self) consumes -> Int {
+        yield_now()
+        self.fd
+    }
+}
+
+func drive(c: Conn) -> Int { (move c).close() }
+
+func main() {
+    var group = TaskGroup()
+    print("{}", group.spawn(drive(Conn(fd: 4))).join())
+}

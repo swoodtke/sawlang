@@ -1,0 +1,35 @@
+// design 260 §3 — the positions the all-paths rule cannot decide are refused,
+// never mis-analyzed into silence.
+//
+// A loop runs its body more than once, so a field move inside one would move a
+// field that is already gone. The walk that decides the every-path-or-no-path
+// question models straight-line statements, `if`/`else` and `match` arms; every
+// other position that CONTAINS a field move is refused outright with the reason
+// named, which is what keeps an unmodelled position from being read as "this
+// body moved nothing".
+//
+// The second refusal is the neighbouring one: a READ of a field after it was
+// moved out is a copy of storage nothing owns any more.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `move self.a` is not supported in a loop body
+// EXPECT-ERROR-CONTAINS: a loop runs its body more than once
+// EXPECT-ERROR-CONTAINS: use of `self.a` after it was moved out
+
+struct Tag { id: Int }
+extension Tag: NoCopy {}
+
+struct Pair { a: Tag, b: Tag }
+extension Pair: NoCopy {}
+extension Pair {
+    func looped(&var self) consumes -> Int {
+        for i in 0..2 { let t = move self.a  print("{}", t.id) }
+        0
+    }
+    func after(&var self) consumes -> Int {
+        let t = move self.a
+        self.a.id
+    }
+}
+
+func main() { print("{}", 1) }

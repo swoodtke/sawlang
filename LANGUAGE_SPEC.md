@@ -3288,6 +3288,138 @@ let owned = move file  // Ok, ownership transferred
 
 See [Resource Management Traits](#resource-management-traits) for the full `Deinit`/`Copy`/`ExplicitCopy`/`NoCopy` hierarchy.
 
+### Consuming method receivers (`consumes`)
+
+**Status: implemented.** A method declared `consumes` ENDS its receiver. The
+declaration carries the word in the post-parameter effect slot beside
+`unsafe`/`sync`/`borrows`, and the call site spells the transfer with `move`:
+
+```saw
+struct Builder { items: Vector<Int>, count: Int }
+extension Builder: NoCopy {}
+extension Builder {
+    func finish(&var self) consumes -> Vector<Int> {
+        move self.items
+    }
+}
+
+var b = Builder(items: [1, 2, 3], count: 3)
+let items = (move b).finish()
+// `b` is moved-from here; a later use is the ordinary use-after-move error
+```
+
+The receiver stays `&var self`. The receiver grammar has two modes and gains no
+third; what `consumes` changes is where the exclusive borrow ENDS — in the
+value's death. Mechanically the receiver passes by pointer as every `&var self`
+receiver does, so nothing relocates; what moves is release responsibility.
+
+Slot order is `consumes unsafe sync`, and `consumes` is contextual: after a
+parameter list only `->`, `{` or a newline-then-`{` may follow, so the word is
+an ordinary identifier everywhere else (a field, a parameter label, a local, a
+function name).
+
+#### Both ends are marked
+
+The declaration says `consumes`; the call says `move`. A bare `b.finish()` on a
+consuming method is refused:
+
+```
+error: `finish` consumes its receiver — write `(move b).finish()`
+hint: a consuming method ends the value it is called on, so the transfer is
+      spelled at the call. `b` is moved-from afterwards (a `var` revives on
+      reassignment)
+```
+
+A TEMPORARY receiver needs no `move` — `Builder.make(n: 3).finish()` is legal
+bare. There is no binding to invalidate, and the temporary was already the
+callee's to end. The result is an owned value, so a chain continues past the
+call: `(move b).label().len()`.
+
+The transfer runs through the same move checkpoint every other transfer does,
+which is where four rules come from without a check of their own:
+
+| Receiver | What happens |
+|---|---|
+| moved twice | use-after-move at the second `move` |
+| used after the call | use-after-move at the use |
+| `NoMove` | `cannot move` — `NoMove` values are not relocated |
+| a field (`(move h.res).close()`) | no partial moves; `h.res.take()` is named |
+| an indexed place (`(move v[0]).close()`) | no partial moves; `swap_out` is named |
+| Copy tier | legal; the call retires the binding, as `move` on a Copy value does |
+
+#### The callee is the release point
+
+At the end of a consuming body the compiler releases what REMAINS of the
+referent, through the reference. The caller's binding releases nothing, on any
+path.
+
+A consuming body also takes the place of a hand-written `deinit` body for its
+own endpoint. `Deinit` slots a hand-written body ahead of the synthesized field
+drops; a consuming method occupies exactly that slot, so for a consumed receiver
+the hand-written body does not run — the consuming body ran where it would have,
+doing whatever teardown the author intends, including none — and the synthesized
+drops then sweep the unmoved remainder. The replacement is per endpoint, not per
+type: an ordinary drop of the same value still runs body-then-drops.
+
+```saw
+struct Conn { fd: Int, buffer: Data }
+extension Conn: NoCopy {
+    func deinit(&var self) { close_fd(self.fd) }
+}
+extension Conn {
+    // Hands the descriptor to the caller and closes nothing.
+    func into_fd(&var self) consumes -> Int { self.fd }
+}
+```
+
+Because a consuming method overrides a type's teardown, it is declarable ONLY in
+the module that DEFINES the receiver type — the same containment a `deinit` has
+through the copy-policy conformance and the orphan rule. From another module,
+take the value by value in a free function instead.
+
+#### Moving a field out
+
+Inside a consuming body — and only there — `move self.<field>` is legal. The
+referent is the callee's to end, and the caller's binding releases nothing, so a
+partially-emptied receiver is never observable. The end-of-body release then
+covers exactly the fields that did not leave, in reverse declaration order among
+them.
+
+Each field is decided on EVERY path or NO path, statically, so no runtime drop
+flags exist. Fields are independent, so several may leave at once:
+
+```saw
+extension Pair {
+    func split(&var self) consumes -> (Tag, Tag) {
+        (move self.a, move self.b)      // `c` is swept at body end
+    }
+}
+```
+
+A field moved on some paths and not others is refused, per field and by name; a
+diverging path (a `panic`, a `return`) is exempt for the fields it never
+reaches. `self = v` inside a consuming body deinits the OLD referent whole,
+hand-written body included, because it is not the consumed endpoint.
+
+#### v1 boundaries
+
+Each is a clean error naming the boundary.
+
+- `consumes` requires `&var self`; a `&self` receiver, a `static` method, an
+  `init` and a free function are all refused where the word is written.
+- `consumes` and `borrows` are mutually exclusive: a receiver you destroyed has
+  no storage to lend.
+- No trait-requirement `consumes`, and no consuming method may SATISFY a
+  requirement. A call through an erased `any Trait` receiver cannot spell the
+  `move`, and has no binding to retire.
+- A function TYPE may not be `consumes`; methods are not first-class values.
+- A consuming body may not both move a field out and SUSPEND, and a consuming
+  method on a type with a hand-written `deinit` may not suspend. A suspending
+  method's receiver lives in the caller's coroutine frame, whose release is
+  decided per slot: it cannot skip a field, and it runs the type's full deinit.
+  Suspending consuming methods otherwise work, driven and spawned, releasing the
+  receiver exactly once.
+
 ### Reference Types
 
 **Status: implemented.** Reference types (`&T` and `&var T`) allow passing values by reference without copying. References are only valid as function/method parameters and cannot escape. Mutation through a `&var` reference is done with compound assignment (`x += 1`), mutating methods, or — as of design 110 — whole-referent *replacement* assignment `x = v` (the same rule closures already followed; see below). Some example bodies below use planned stdlib methods (`push_str`, `String.from`) and are *(illustrative)*.

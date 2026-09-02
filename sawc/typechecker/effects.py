@@ -1023,6 +1023,10 @@ class EffectsMixin:
         # shared with the builtin compile that supplies the std method table.
         self._main_suspends = bool(really_suspending(nodes).get(("fn", "main")))
 
+        # design 260: the two fences a SUSPENDING consuming body meets. Decided
+        # here because "does this body suspend?" is a whole-program answer.
+        self._check_consumes_suspending_fences(nodes)
+
         # design 242 ruling 9: a blocking-permitted context asks a narrower
         # question, so the second fixpoint is computed only if one exists.
         beyond_blocking = None

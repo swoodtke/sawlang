@@ -1134,6 +1134,18 @@ class MoveExpr(Expression):
     # move); the `!` only says the result is the payload, and it still panics if
     # the optional is dynamically None.
     unwrap: bool = False
+    # design 260 §3 (Option A): the receiver FIELD this `move` extracts, when
+    # the consuming carve-out licensed it. Stamped on the first check and read
+    # on every later one, because the coroutine transform REWRITES the path —
+    # a frame-resident receiver becomes `self.__recv.deref(…).<field>`, which
+    # no longer matches the `self.<field>` shape the rule is written in. The
+    # stamp is what keeps the post-transform re-check (and the all-paths walk
+    # it re-runs) answering the same way as the pass that decided it.
+    consumes_field: Optional[str] = annotation(None)
+    # …and the type that field resolved to, stamped with it. The re-check
+    # cannot re-derive it: post-transform `self` names the coroutine FRAME, so
+    # the receiver's field table is no longer reachable from this node.
+    consumes_field_type: Optional['SawType'] = annotation(None)
 
 
 @dataclass
@@ -1678,6 +1690,18 @@ class MethodCall(Expression):
     funcpointer_target: Optional['SawType'] = annotation(None)
     array_builtin: Optional[str] = annotation(None)          # "len" | "swap" on a fixed array
     is_chan_recv: bool = annotation(False)                   # cooperative Channel.receive()
+    # design 260: this call reaches a `consumes` method, so the CALLEE owns the
+    # release of the receiver's referent. Codegen reads it to keep the receiver
+    # out of the statement-temporary cleanup list (the callee already ends it)
+    # and to address the moved binding's own storage rather than a relocated
+    # copy. Stamped by `_check_consuming_receiver`, the one funnel.
+    is_consuming_call: bool = annotation(False)
+    # design 260: …and this consuming call's receiver is a TEMPORARY (a call
+    # result, a constructor, an enum-variant literal) rather than a binding, so
+    # it needs no `move` and there is no caller storage to address. Codegen
+    # spills the produced value to a slot and hands the callee that pointer —
+    # which is also the slot the callee's end-of-body release runs over.
+    consuming_temp_receiver: bool = annotation(False)
     # design 131: `o.take()` — `Optional.take(&var self) -> T?`. Swaps `None`
     # into the receiver place and returns the payload owned.
     optional_take: bool = annotation(False)
@@ -2379,6 +2403,17 @@ class Method(ASTNode):
     # lent type in `place_type`, leaving this bit set as the declaration's own
     # record of what the author wrote.
     is_borrows: bool = False
+    # `consumes` (design 260): this `&var self` method ENDS its receiver. The
+    # exclusive borrow's contract changes at its ending — the CALLEE releases
+    # what remains of the referent at body end, and the caller's binding is
+    # moved-from past the call (which is why the call site spells
+    # `(move b).finish()`). Declared, never inferred.
+    is_consumes: bool = False
+    # design 260 §3 (Option A): the receiver FIELDS this consuming body moves
+    # out, as a tuple of names in declaration order. Decided statically by the
+    # every-path-or-no-path rule, so the end-of-body release covers exactly the
+    # unmoved remainder with no drop flags. Empty on every other method.
+    consumes_moved_fields: tuple = annotation(())
     # Set by the place transform (design 141) on a rewritten borrows method: the
     # type of the place it lends, i.e. the `T` the author wrote after `->`
     # (unwrapped from `T?` for a conditional lend, with `place_optional` set).

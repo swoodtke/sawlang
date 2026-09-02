@@ -2885,6 +2885,7 @@ class RegistrationMixin:
             return
         if self._check_conformance_coherence(extension):
             return
+        self._check_consumes_containment(extension)
         # Design 145: an extension on an ENUM is an extension on a struct. Only
         # the EMPTY derivable / copy-policy opt-ins (designs 32/48/139) keep
         # their own path — those register no method symbol at all, because the
@@ -3401,6 +3402,7 @@ class RegistrationMixin:
                 owner_type_params=([] if is_specialized
                                    else list(extension.type_params or [])),
                 is_unsafe=getattr(method, 'is_unsafe', False),
+                is_consumes=getattr(method, 'is_consumes', False),
                 visibility=getattr(method, 'visibility', Visibility.PRIVATE),
                 def_module=ext_def_module,
                 satisfies_trait=(method.name in trait_method_names
@@ -3546,6 +3548,26 @@ class RegistrationMixin:
                         hint=f"remove the `static` and take `&self` — "
                              f"`func {method_name}(&self, ...)`")
                 continue
+
+            # design 260 §4, the OTHER half of the no-trait-`consumes` fence.
+            # The parser refuses `consumes` ON a requirement; this refuses a
+            # consuming method SATISFYING one. A requirement is callable through
+            # an erased `&any Trait` receiver, where the caller's `move` cannot
+            # be spelled and there is no binding to retire — so a conforming
+            # consuming body would release the referent out from under a caller
+            # that never transferred it.
+            if getattr(impl_method, 'is_consumes', False):
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    f"method `{method_name}` is declared `consumes`, so it may "
+                    f"not satisfy a requirement of trait `{trait_info.name}` "
+                    f"(design 260 v1): a call through the requirement cannot "
+                    f"spell the `(move x).{method_name}()` that transfers the "
+                    f"receiver",
+                    extension.line, extension.column,
+                    hint=f"drop `consumes` from `{method_name}`, or give the "
+                         f"consuming operation its own name outside the "
+                         f"conformance")
 
             # Check self mutability matches
             if trait_method.self_mutable != impl_method.self_mutable:
