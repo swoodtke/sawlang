@@ -678,7 +678,7 @@ class EffectsMixin:
                 _instance_display(struct_name, method_name,
                                   resolved_args, method_args),
                 substituted_params=substituted_param_names(pristine, type_map)):
-            with self._home_module_scope(clone, type_map):
+            with self._instance_check_scope(clone, type_map):
                 self._check_method(struct_name, clone, type_map)
         # The re-check stamps `resolved_type` on the body's expressions, but member
         # access through `self` resolves the struct's `T`-typed fields to `T` (the
@@ -799,7 +799,7 @@ class EffectsMixin:
         with self._checking_instance(
                 _instance_display(template_name, None, resolved_args, None),
                 substituted_params=substituted_param_names(pristine, type_map)):
-            with self._home_module_scope(clone, type_map):
+            with self._instance_check_scope(clone, type_map):
                 self._check_function(clone)
         return True
 
@@ -888,7 +888,7 @@ class EffectsMixin:
                     _instance_display(template_name, None, resolved_args, None),
                     substituted_params=substituted_param_names(pristine,
                                                                type_map)):
-                with self._home_module_scope(clone, type_map):
+                with self._instance_check_scope(clone, type_map):
                     self._check_function(clone)
         finally:
             self.namespace = saved_ns
@@ -922,7 +922,7 @@ class EffectsMixin:
         with self._checking_instance(
                 _instance_display(struct_name, method_name, None, resolved_args),
                 substituted_params=substituted_param_names(pristine, type_map)):
-            with self._home_module_scope(clone, type_map):
+            with self._instance_check_scope(clone, type_map):
                 self._check_method(struct_name, clone, {})
         return True
 

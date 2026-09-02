@@ -1094,7 +1094,7 @@ def _measure_type_instance(mono, tc, inst, copier):
             clone.is_mono_instance = True
             with tc._checking_instance(f"{inst.display}.{m.name}",
                                        substituted_params=substituted):
-                with tc._home_module_scope(clone, type_map):
+                with tc._instance_check_scope(clone, type_map, mono.namespace):
                     tc._check_method(ext.struct_name, clone, type_map)
 
 
@@ -1112,7 +1112,7 @@ def _measure_fn_instance(mono, tc, inst, copier):
     clone.mangled_symbol = None
     clone.is_mono_instance = True
     with tc._checking_instance(inst.display, substituted_params=substituted):
-        with tc._home_module_scope(clone, type_map):
+        with tc._instance_check_scope(clone, type_map, mono.namespace):
             tc._check_function(clone)
 
 

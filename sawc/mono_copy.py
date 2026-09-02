@@ -65,7 +65,7 @@ def substituting_copy(node, type_map):
     """A fresh, substituted clone of `node`. The one funnel; see the module doc.
 
     ENTRY POINTS — every splice path (obligation 1), the same four
-    `_home_module_scope` names: `_build_fn_mono`, `_splice_fn_mono`,
+    `_instance_check_scope` names: `_build_fn_mono`, `_splice_fn_mono`,
     `_build_method_mono`, `_build_generic_struct_method_mono`.
     """
     if _ORACLE:

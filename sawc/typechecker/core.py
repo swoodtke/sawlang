@@ -66,6 +66,62 @@ INSTANCE_ERRORS_ARE_REAL = True
 _BINDING_ID_COUNTER = itertools.count(1)
 
 
+# design 218c Amendment B1 — A NAMESPACE HOLDS FACTS AND IT HOLDS A VIEW.
+#
+# The FACT tables (`structs`, `enums`, `functions`, `conformances`,
+# `generic_*`, `statics`, …) say what the PROGRAM contains; merging them across
+# modules produces exactly the answer codegen works from, and it is the answer
+# an instance check needs about a type ARGUMENT, which by construction was
+# declared somewhere else.
+#
+# These are the other kind: one module's VIEW of those facts — which bare name
+# means which identity HERE, which names two imports made ambiguous HERE, which
+# std names this file opted into, which qualifiers it bound. A merged view is a
+# view no module has, and reading one inside a template's body invents both
+# ambiguities and absences. So `_instance_check_scope` installs the merged
+# namespace and puts these back from the template's HOME module for the
+# duration of one instance check.
+#
+# Adding a field to `Namespace` that is a per-module view means adding it here;
+# a field that is a fact about the program does not belong here.
+_VIEW_TABLES = (
+    'type_names',            # design 144: written name -> identity, per module
+    'type_provenance',
+    'ambiguous_types',       # design 26: which names two imports made ambiguous
+    'directly_accessible',   # design 82: the bare-name opt-in of THIS file
+    'allow_all_access',
+    'modules',               # bound qualifiers (design 150)
+    'nonbinding_qualifiers',
+    'glob_sources',
+    'selective_sources',
+    'import_private_names',
+    'import_private_modules',
+    'module_path',
+)
+
+
+def _swap_view_tables(program_ns, home_ns):
+    """Install `home_ns`'s view tables on `program_ns`; return what to restore.
+
+    A no-op returning None when there is no home module (a single-file compile,
+    a synthesized clone with no source), where the program's own view is the
+    only one there is.
+    """
+    if home_ns is None or home_ns is program_ns:
+        return None
+    saved = {}
+    for name in _VIEW_TABLES:
+        if hasattr(home_ns, name):
+            saved[name] = getattr(program_ns, name)
+            setattr(program_ns, name, getattr(home_ns, name))
+    return saved
+
+
+def _restore_view_tables(program_ns, saved):
+    for name, value in saved.items():
+        setattr(program_ns, name, value)
+
+
 def _module_source_files(module_ast):
     """Every distinct source file the declarations of `module_ast` came from.
 
@@ -74,11 +130,31 @@ def _module_source_files(module_ast):
     declaration" is answered per file rather than per AST. Design 210 unit 4
     keys a module's checked scope on this so a generic template can be re-checked
     where it was written.
+
+    ONLY AUTHORED DECLARATIONS ESTABLISH OWNERSHIP (DF-289a). A monomorphized
+    clone and a transform-synthesized frame both keep the ORIGINAL's source
+    spans — that is what makes their diagnostics anchor at the author's own line
+    — so `amplify<Lo>`'s clone and `__Frame_Cell$m$embedmod_charge$1$Lo`, both
+    living in the ENTRY ast after the coroutine transform, carry
+    `embedmod/lib.saw`. Counting them made the ENTRY module claim that file, and
+    the entry is checked LAST, so its claim overwrote the real owner's: on the
+    transform's re-entry `_module_scope_for_file('embedmod/lib.saw')` answered
+    with the entry's namespace, where `boost` is not a name. That is census
+    class 14 (`undefined function boost`, conformance row K22's own shape) —
+    DF-206e's costume, worn one pipeline stage later. The file a synthesized
+    declaration came from belongs to whoever DECLARED it, so the walk skips
+    every declaration that no author wrote, and the caller records with
+    `setdefault` so that a claim this test cannot see (an Extension carries no
+    provenance flag of its own) still loses to the owner's, which comes first
+    in dependency order.
     """
     seen = []
     for group in ('functions', 'structs', 'enums', 'extensions', 'traits',
                   'statics', 'type_aliases'):
         for decl in getattr(module_ast, group, None) or ():
+            if (getattr(decl, 'is_mono_instance', False)
+                    or getattr(decl, 'is_synthesized', False)):
+                continue
             src = getattr(decl, 'source_file', None)
             if src and src not in seen:
                 seen.append(src)
@@ -583,7 +659,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
 
         # design 210 unit 4: source FILE -> the (module path, namespace) that
         # file's declarations were checked under, filled by `check_module` as
-        # each module finishes. Read by `_home_module_scope`, which is how a
+        # each module finishes. Read by `_instance_check_scope`, which is how a
         # GENERIC instantiation gets re-checked where its template was written
         # instead of where the call that reached it was.
         self._module_scope_by_file: Dict[str, Tuple[Tuple[str, ...], Any]] = {}
@@ -964,54 +1040,102 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         return entry
 
     @contextmanager
-    def _home_module_scope(self, decl, type_map=None):
-        """Check `decl` under the scope of the module that DECLARED it.
+    def _instance_check_scope(self, decl, type_map=None, program_namespace=None):
+        """THE ONE SCOPE a monomorphized instance is checked in.
 
-        Design 210 unit 4 — the generic path. A generic body cannot be embedded
-        from its declaration-time annotations alone: designs 70/74 re-infer both
-        types and EFFECTS per instantiation, because both depend on the type
-        arguments. So the recheck stays; what moves is where it runs. A template
-        in `embedmod` calling `embedmod`'s private `boost` must be re-checked
-        with `embedmod`'s namespace installed, not with the namespace of
-        whichever module reached the template — under which `boost` is not a
-        name, the recheck silently resolves nothing (its errors are suppressed:
-        it is an annotation harvest), and the clone comes out with untyped
-        locals that surface much later as `local `b` in driven `amplify$1$Lo`
-        has no resolved type` (DF-206e's generic costume).
+        Design 210 unit 4 gave this its first shape and Amendment B1 gave it its
+        second; both halves are still here, and the split between them IS the
+        rule.
 
-        Composes with design 204's `_type_lookup_module` rather than duplicating
-        it: this installs the SYMBOL scope (functions, statics, variables) while
-        `_declaring` installs the TYPE-name scope, and both key off the same
-        thing — the declaration's own `source_file`.
+        TWO INPUTS.
 
-        ENTRY POINTS — every per-instantiation recheck (process rule 1):
-          * `_build_fn_mono` — a queued generic free-function instantiation
-          * `_splice_fn_mono` — the post-fixpoint splice the coroutine transform
-            asks for when it promotes a nested suspending generic call
-          * `_build_method_mono` — a method-generic instantiation
-          * `_build_generic_struct_method_mono` — a driven method on a generic
-            struct (design 74 shape 2)
+        1. `program_namespace` — the MONOMORPHIZER'S MERGED namespace, the same
+           artifact codegen sees. It answers every PROGRAM-WIDE question the
+           check asks about a TYPE ARGUMENT: what its name denotes, what it
+           conforms to, which copy tier it is on, which extensions exist for it.
+           Those are facts about the program, not about a module, and asking
+           them inside one module's namespace asks the wrong namespace — which
+           is what the Sep-1 census found (`designs/reviews/splice-census-sep1.md`
+           §3 M1): inside `std/vector`'s scope a corpus `Handle` is an
+           `is_abstract_type_name`, so `copy_tier` answers `abstract`, every
+           conformance answers False and the check refuses code that compiles
+           and runs. Four whole classes and roughly a fifth of the census volume
+           were that, and `_lend_instantiation_types` — the attempt to carry the
+           arguments across by hand — copies nothing for a type declared outside
+           the lender's own `structs`/`enums` tables.
+
+        2. The template's HOME MODULE (`decl.source_file`) — VISIBILITY, and
+           nothing else. `current_module_path` is what design 80/82's member and
+           name gates read; `current_direct_imports` is what design 142's
+           extension lookup reads; `_declaring` anchors design 204's type-name
+           lookup at the template's own file. That is what "the home module
+           scope" was ever for: a template in `embedmod` calling `embedmod`'s
+           private `boost` is judged where its author wrote it (DF-206e), and a
+           private sibling stays reachable because the merged namespace holds
+           it under the same name and the module path says the caller is
+           allowed to see it.
+
+           The home module's contribution also includes the namespace's own
+           VIEW tables — `_VIEW_TABLES` below. A namespace holds two kinds of
+           thing and the distinction is the whole of B1: `structs`, `enums`,
+           `functions`, `conformances`, `generic_*` are facts about the
+           PROGRAM, and `type_names` / `ambiguous_types` / `directly_accessible`
+           / the qualifier bindings are one module's VIEW of them — which bare
+           name means which identity HERE, which names are ambiguous HERE,
+           which std intrinsic this file imported. Merging the second kind
+           produces a view no module has: on
+           `examples/d144_private_type_identity.saw` the merged
+           `ambiguous_types` says `Header` is ambiguous between two modules
+           that std/vector never heard of, and the merged
+           `directly_accessible` has lost the `import std.task` an embedded
+           module wrote. So the view tables travel with the home module and the
+           fact tables with the program, which is what the two inputs mean.
+
+        ENTRY POINTS (obligation 1):
+          * `monomorphize.measure_splice_all`'s two materializers — the phase-2
+            instance check, which supplies the merged namespace.
+          * `_build_fn_mono`, `_splice_fn_mono`, `_build_method_mono`,
+            `_build_generic_struct_method_mono` — the four design-70/74 builders
+            in `effects.py`.
+
+        THE `program_namespace=None` ARM, argued rather than left implicit: the
+        four design-70/74 builders run inside `check_entry`, and the per-module
+        namespaces are not merged until `check_entry` has returned — so at that
+        point in the pipeline there is no program namespace to pass. That arm
+        keeps design 210's original behaviour exactly (install the home
+        namespace, lend the instantiation's type arguments into it), which is
+        what those four have always done. It is not a second policy: it is the
+        same policy with the best namespace available, and the population it
+        covers is the driven/spawn set the effect pass builds early.
 
         A declaration whose file was never recorded — a single-file compile, a
-        synthesized clone with no source — falls back to the current scope,
-        which is what every one of these did before. A STD template used to
-        land in that fallback too; Amendment A1 gave the builtin typechecker
-        the same per-file record, so `_module_scope_for_file` answers for a std
-        file as it answers for a user module's.
+        synthesized clone with no source — has no home module, so only the
+        program namespace applies. Amendment A1 gave the builtin typechecker the
+        same per-file record, so `_module_scope_for_file` answers for a std file
+        as it answers for a user module's.
         """
         entry = self._module_scope_for_file(getattr(decl, 'source_file', None))
-        if entry is None:
+        if entry is None and program_namespace is None:
             with self._declaring(decl):
                 yield
             return
-        home_path, home_ns = entry
         saved_ns = self.namespace
         saved_path = self.current_module_path
         saved_imports = self.current_direct_imports
-        # The instantiation map: the caller's concrete type arguments, lent into
-        # the template's scope so `w.seed()` finds the caller's conformance.
-        self._lend_instantiation_types(saved_ns, home_ns, type_map)
-        self.namespace = home_ns
+        home_path, home_ns = entry if entry is not None else (saved_path, None)
+        views = None
+        if program_namespace is not None:
+            # Program-wide facts from the merged namespace; the home module
+            # supplies visibility below and nothing else.
+            views = _swap_view_tables(program_namespace, home_ns)
+            self.namespace = program_namespace
+        else:
+            # The instantiation map: the caller's concrete type arguments, lent
+            # into the template's scope so `w.seed()` finds the caller's
+            # conformance. Only the no-program-namespace arm needs it — the
+            # merged namespace already holds every one of them.
+            self._lend_instantiation_types(saved_ns, home_ns, type_map)
+            self.namespace = home_ns
         self.current_module_path = home_path
         # Design 142: extension lookup reads the DIRECT imports of the file being
         # checked, so a template that reaches an extension of its own dep keeps
@@ -1023,6 +1147,8 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             with self._declaring(decl):
                 yield
         finally:
+            if views is not None:
+                _restore_view_tables(program_namespace, views)
             self.namespace = saved_ns
             self.current_module_path = saved_path
             self.current_direct_imports = saved_imports
@@ -3230,8 +3356,9 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # same reason the snapshot is: nothing in the loops below may observe a
         # half-filled store.
         for _src in _module_source_files(program):
-            self._module_scope_by_file[_src] = (
-                self._vis_module_for_source(_src), self.namespace)
+            # DF-289a: FIRST claim wins — see `_module_source_files`.
+            self._module_scope_by_file.setdefault(
+                _src, (self._vis_module_for_source(_src), self.namespace))
 
         # Seventh pass: type check function bodies
         for func in program.functions:
@@ -4239,7 +4366,9 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # `current_module_path` for anything outside std, which is whoever is
         # being checked NOW rather than who owns the file).
         for _src in _module_source_files(module_ast):
-            self._module_scope_by_file[_src] = (module_path, ns)
+            # DF-289a: FIRST claim wins, and modules are checked in dependency
+            # order with the entry LAST — see `_module_source_files`.
+            self._module_scope_by_file.setdefault(_src, (module_path, ns))
         self._direct_imports_by_module[module_path] = set(self.current_direct_imports)
 
         if is_entry:
