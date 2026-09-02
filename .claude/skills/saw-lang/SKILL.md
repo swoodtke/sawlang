@@ -1149,6 +1149,12 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   compiler error about LLVM IR. Two limits: an `init` body may not suspend (an
   ICE today, DF-251d), and a RENAMED generic extension's init parameters do not
   substitute at the call site (DF-251c).
+  A GENERIC extension's `init` RELEASES an owning parameter no path moved into
+  the built value, exactly as the non-generic twin has since DF-217m — so
+  `Holder<T>(seed: n, witness: res)` drops `res` when the body does not consume
+  it. SUSPECT in older builds (DF-251b, fixed Sep 2): the generic init generator
+  registered no cleanup at all, so the same body LEAKED through the generic
+  spelling and dropped through the plain one, in one program.
 - **`try!` PANICS WITH THE ERROR IT WAS HANDED** (DF-245b, Aug 22):
   `panic at FILE:LINE: try! failed: allocation of 64 bytes (align 8) failed`.
   The rendering is the alloc-free format path, so it survives an exhausted
@@ -1206,7 +1212,23 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   type**: on a `Vector<Int?>`, `v.get(9) ?? v.get(0)` is a clean error naming
   both types (the default is `Int??` where an `Int?` is owed). Write
   `v.get(9) ?? None` — a bare `None` adopts the payload type — or peel the
-  default yourself. `None`, force `!` (panics), `??`, call-site auto-wrap
+  default yourself. **AT A DECLARED `-> T?`, A BARE `None` ARM OF THE TAIL'S
+  VALUE BRANCH IS THE OUTER ABSENCE AND A VALUE ARM OWES ONE WRAP** — per ARM,
+  and it only matters once `T` is itself an optional:
+  ```saw
+  func slot(s: Slotted) -> Int?? {
+      match s {
+          case Filled(v) -> v,      // an `Int?` payload: wrapped once
+          case Blank -> None        // the OUTER absence: no value here
+      }
+  }
+  ```
+  That is what std's own `Map._get_value` and `Vector.pop` mean; it composes
+  through nesting, and it holds at a function's tail, a method's, a generic
+  body's and a closure's. Treat it as working now and SUSPECT in older builds
+  (DF-289d, fixed Sep 2), where the wrap went round the whole branch AFTER the
+  arms were stamped and the value came out one layer too deep.
+  `None`, force `!` (panics), `??`, call-site auto-wrap
   (`f(5)` matches `f(x: Int?)` — and, since design 176, a generic parameter
   INSTANTIATED to an optional too, so `m.insert("y", 7)` on a
   `Map<String, Int?>` and `v.push(3)` on a `Vector<Int?>` both wrap),

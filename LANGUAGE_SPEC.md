@@ -1943,6 +1943,27 @@ both types. A bare `None` on the right adopts the payload type, so
 The rule refuses only a default DEEPER than the payload — everything the
 ordinary one-layer coalesce does is untouched.
 
+**At a declared `-> T?`, a bare `None` ARM of the tail's value branch is the
+OUTER absence, and a VALUE arm owes exactly one wrap.** The two readings only
+come apart once `T` is itself an optional, and the reading is per ARM:
+
+```saw
+func slot(s: Slotted) -> Int?? {
+    match s {
+        case Filled(v) -> v,      // an `Int?` payload: one wrap, `Some(v)`
+        case Blank -> None        // the OUTER absence: no value here
+    }
+}
+```
+
+That is what `std/map.saw`'s `_get_value` and `std/vector.saw`'s `pop` mean, and
+it composes through nesting — an arm that is itself a value branch takes the
+same rule arm by arm. It holds at every tail: a function's, a method's, a
+generic body's and a closure's. Treat it as working now and SUSPECT in older
+builds (DF-289d, fixed Sep 2), where the wrap was applied to the whole branch
+after the arms had already been stamped and the value came out one layer too
+deep — invalid IR, which is the only reason it was ever noticed.
+
 **Optional chaining** (`designs/111`) is **implemented** in full (Swift-style).
 `e?.field` and `e?.method(args)` are legal where `e: T?`: `None` short-circuits,
 `Some(v)` projects the field / calls the method on the payload. Chains are

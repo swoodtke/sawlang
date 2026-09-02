@@ -1019,3 +1019,61 @@ driven bodies and is the instrument the suite's sync bias undercovers.
    envelope may hold with room. Terminal: the full battery.
 5. Serialization: dispatches only after the parked DF-288a branch
    integrates (single-owner typechecker surface).
+
+### B7 OUTCOME (Sep 2) — the cutover is COMPLETE
+
+3c-2c(2) landed in two commits: DF-289c's store fix, then the method half
+itself. The recorded shape re-applied verbatim and nothing about it needed
+re-deriving; what the dispatch added is the sweep's verdict and two findings
+that were not ownership at all.
+
+**THE RESIDUAL SWEEP ANSWERED CLEAN, and disproved the stop's own hypothesis.**
+175 generic std methods, 59 with an owning by-value parameter, **11** of those
+suspending (`Vector.each`/`map`/`fold`/`each_indexed`/`sort_by`,
+`Map.each`/`each_key`/`each_value`, `Set.each`, `String.withCString`, plus
+`fold`'s `initial: Acc` — the one non-closure owning parameter on the list).
+All eleven probed from a driven body with an `Arc<Res>` refcount + deinit
+witness, before and after: byte-identical, every row balanced. The
+`df151c_optional_dest_copy` SIGTRAP the stop recorded as "the ownership flip
+meeting the coroutine frame" was **DF-291a** — a `Never` that arrived by
+SUBSTITUTION, read as the diverging declaration — with no ownership in it. That
+is what a differential sweep is for: the leading explanation was wrong, and the
+matrix is what says so.
+
+**FOUR THINGS THE CUTOVER NEEDED THAT THE RECORD DID NOT NAME**, each a
+question the old path answered by ACCIDENT OF WHERE IT STOOD and a spliced body
+therefore has to CARRY — the same shape as DF-286c face 1's const values and
+design 30 Ruling 1's `mono_result_roles`:
+
+  * `_receiver_saw_type` (the record named it, for the drop glue) turns out to
+    be needed by the design-260 consuming release and the derived bodies too,
+    and needs an ENUM half (`mono_enum_args`) because an ENUM-kinded receiver
+    is what `match self` resolves its variants through;
+  * `mono_substituted_never` — DF-291a, above;
+  * the two instance families codegen INTERCEPTS before it would lower them,
+    now declined by both sides through one predicate
+    (`mono_identity.instance_is_lowered_specially`): a LAYOUT-TRANSPARENT
+    wrapper (design 186's cell, design 46's MMIO markers) and the ERASED BOX
+    (design 51). Registering a layout for either mints a named struct nothing
+    has that shape and a method symbol nothing can call with the field's own
+    address;
+  * DF-289d's tail wrap, which had to become a DISTRIBUTION into the branch's
+    arms rather than one wrap round the merged expression.
+
+**THE DEFERRED TAIL.** DF-251b's XFAIL flipped. A5(a)'s pin is
+`examples/errors/never_emitted_instance_reports.saw`. `SAWC_MONO_COPY_ORACLE`
+and the deepcopy comparison path RETIRE — A2(a) shipped them "for exactly as
+long as the old path exists", and the old path is these deletions.
+**`SAWC_MONO_SHADOW` STAYS**, and the reason is that it still has something to
+say: codegen no longer decides a FUNCTION or a METHOD instance (both are
+ICE-on-miss lookups), but `_ensure_monomorphized_struct`/`_enum` still register
+a layout on demand, so a type instance the walk failed to enumerate is still
+observable there and nowhere else. Its scaffolding retires at **stage 5**, with
+`_process_effect_monos`'s shell, exactly as §7's table says.
+
+**WHAT REMAINS OF THE CENSUS.** Rows G3, M1-M4, M6 and S5 are done; C1-C4 (the
+transform's promotion machinery) are stage 4's and T5's poly-candidate
+machinery is stage 5's. Codegen decides no instantiation: every `_ensure_*` and
+`_instantiate_*` entry is a lookup whose miss is an internal error, and the only
+thing it still MINTS is a type instance's LAYOUT — from the registry, up front,
+plus a lazy re-entry for the same instance under a different demand path.
