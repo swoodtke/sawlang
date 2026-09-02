@@ -56,11 +56,11 @@ THE FOUR RULES HERE, and the ONE entry point each:
 from typing import List, Optional, Set, Tuple
 
 from ast_nodes import (
-    Argument, ArrayIndex, ASTNode, AssignStatement, Block, BreakStatement,
+    Argument, ASTNode, AssignStatement, Block, BreakStatement,
     CompoundAssignStatement, ContinueStatement, DestructuringLet, Expression,
-    ExpressionStatement, ForLoop, GuardLetStatement, Identifier, IfExpr,
+    ExpressionStatement, ForLoop, GuardLetStatement, IfExpr,
     IfLetExpr, LetStatement, MatchExpr, MemberAccess, Method, MethodCall,
-    MoveExpr, ReturnStatement, SelfExpr, Statement, TupleIndex, TryCatchExpr,
+    MoveExpr, ReturnStatement, SelfExpr, Statement, TryCatchExpr,
     WhileExpr, expr_diverges,
 )
 from errors import ErrorKind
