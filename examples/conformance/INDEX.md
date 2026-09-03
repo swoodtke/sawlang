@@ -402,6 +402,8 @@ Claim source: spec 5 *Runtime Semantics and Traps* + *Integer Conversions*; desi
 | T24 | every panic carries `panic at FILE:LINE:` (design 122) | `panic_source_location.saw` |  |
 | T25 | `Data` index out of range | `T25_data_index_oob.saw` |  |
 | T26 | joining an already-joined `Task` | `taskgroup_stale_handle_join.saw` |  |
+| T27 | `FixedBuf.get` out of range yields `None` | `fixedbuf_get_out_of_range_none.saw` | DF-294a — RULED: the accessor rule's two halves are a rule about the NAME, and a `get` that panicked was the enumeration's one divergence. `Data.get`'s shape, exactly |
+| T28 | `FixedBuf.set` out of range panics, in the DF-249a wording, with the const generic `N` as the length | `fixedbuf_set_oob_panic.saw` |  |
 
 ## `main`'s return type and the process exit status
 

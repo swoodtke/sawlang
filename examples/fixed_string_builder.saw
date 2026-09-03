@@ -23,7 +23,7 @@ func main() unsafe {
     var buf = FixedBuf<8>()
     print(buf.capacity())
     buf.set(0, 65)
-    print(buf.get(0))
+    print(buf.get(0)!)
 
     var out = FixedStringBuilder<64>()
     print(out.capacity())

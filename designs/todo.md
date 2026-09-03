@@ -121,7 +121,7 @@ is scheduled and in what order is the whole of what they say.
 - DF-290a — SOUNDNESS: a closure's `&`/`&var` PARAMETER may be `move`d — silent double free (entry below, filed Sep 2 by DF-288a's fix agent; PRE-EXISTING). The SAME mechanism as DF-288a at a different registration site: a reference parameter is bound with the REFERENT's type, so `{ &var e in move e }` sees an owned local. Not fixed with DF-288a — a different construct owing its own consumer sweep over the `with_ref`/`with_var_ref` idiom; the flag and the refusal it needs are already built. Corpus census: zero occurrences
 - DF-286b — **THE STAGE-3c-2 BLOCKER**: A3's instance-check residue was measured on ONE program, and the corpus's population is larger and different in kind (entry below, filed Sep 1 by design 218 unit 1.5 stage 3c's agent). 115 diagnostics over 14 of 122 generic-named examples, in at least six classes, of which only two are the signed families — and two of the six are genuine funnel/registry DEFECTS, not artifacts. Needs a ruling before splice-all can be built
 - DF-286c — the materialization funnel does not reproduce what codegen's `type_param_context` path did, at four named positions (entry below, same filing; ONE mechanism, four faces — const-generic VALUES, associated-type annotations, the conditional-conformance bounds filter, and a `-> T?` tail's auto-wrap). Its matrix is stage 3c-2's test plan. **CLOSED Sep 2 by stage 3c-2a/3c-2c(1): face 1 both halves, face 2, face 3 (reframed into B1) and face 4 all fixed and pinned; face 4 turned out to be a CONCRETE-path defect the generic path had been hiding — see DF-289d for its residue**
-- DF-294a — `FixedBuf.get` PANICS where the accessor rule says a get-shaped accessor answers `None`; RULED Sep 3: `get -> Byte?`, rides 262's U1/U2 dispatch (entry below, filed Sep 3 from census C5)
+- DF-294a — `FixedBuf.get` PANICS where the accessor rule says a get-shaped accessor answers `None`; RULED Sep 3: `get -> Byte?` — **CLOSED Sep 3, landed as 262's rider** (entry below, filed Sep 3 from census C5)
 - DF-294b — a `type` ALIAS binds through the SELECTIVE import form ONLY: the glob leaves it unbound and the qualified spelling mints a name-only type + a not-callable head (entry below, filed Sep 3 from sos-relayed SL-20; workaround `import m.{Alias}`)
 - DF-291b — `Vector.fold` at an OWNING accumulator LEAKS one reference per element (entry below, same filer; PRE-EXISTING, NOT fixed here). `v.fold(arc, { acc, e in acc })` over three elements takes an `Arc<Res>` from strong count 1 to 5 and never drops it, before and after the cutover ALIKE — found by the DF-289e residual sweep, which is what a differential probe is for, and left alone because it is not this flip's and owes its own mechanism sweep over the by-value accumulator's transfer chain
 
@@ -170,7 +170,7 @@ writing one as an example would pin behavior that has not been ruled.
 
 ## DF-294a — `FixedBuf.get` PANICS where design 130's accessor rule says a
 ## get-shaped accessor answers `None` (filed Sep 3 by the 262 census, C5;
-## **RULED Sep 3: `get -> Byte?`**)
+## **RULED Sep 3: `get -> Byte?`**) — **CLOSED Sep 3, landed as 262's rider**
 
 The sole std violator of the get-shape half of the accessor rule, and
 AUTHORED against it rather than drifted — the docstring says "Panics if `i`
@@ -193,6 +193,19 @@ carrying). In-tree callers swept at fix time; the sawos-facing migration
 note rides the HELD pin bump beside 261's Box.value note. Doc rows citing
 `FixedBuf.get`'s panic (skill's fixed-buffer idiom section) correct in the
 same landing. [130, 148, 250, 262]
+
+LANDED Sep 3 (262 rider). `get(&self, i: Int) -> Byte?` returns `None`
+outside `0..<N`; `set` untouched. Three in-tree callers, all examples,
+all swept: `fixed_string_builder.saw` and `byte_data_reads.saw` take the
+`!`, and `fixedbuf_get_oob_panic.saw` — which pinned the panic that no
+longer happens — was RENAMED to `fixedbuf_set_oob_panic.saw` and retargeted
+at `set`, keeping the DF-249a wording pin and its const-generic-`N` length
+(the one row where the length is read out of the type). New pin
+`examples/fixedbuf_get_out_of_range_none.saw` for the `None`. Conformance
+rows T27 (the `None`) and T28 (the panic and its wording) added to
+`examples/conformance/INDEX.md`. The accessor-rule enumeration corrected in
+all three faces — spec, skill, CLAUDE digest — each now saying the rule is
+about the NAME, which is what made one divergence possible to write.
 
 ## DF-294b — a `type` ALIAS is invisible to every import form except the
 ## SELECTIVE one (filed Sep 3 by the lead from sos-relayed SL-20;

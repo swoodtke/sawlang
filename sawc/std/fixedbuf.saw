@@ -51,10 +51,14 @@ extension FixedBuf<N> {
         (&self.data) as UnsafePointer<Int8>
     }
 
-    /// Reads the byte at `i`. Panics if `i` is out of range.
-    public func get(&self, i: Int) -> Byte {
+    /// Reads the byte at `i`, or `None` when `i` is outside `0..<N`.
+    ///
+    /// The `None` is `Data.get`'s: a `get`-shaped accessor on a safe type
+    /// answers the absence rather than trapping on it, and `[]`-shaped and
+    /// `set` are where an out-of-range index is a bug worth a panic.
+    public func get(&self, i: Int) -> Byte? {
         if i < 0 || i >= N {
-            panic("FixedBuf.get: index out of range: {} (len {})", i, N)
+            return None
         }
         self.data[i]
     }

@@ -76,5 +76,5 @@ func main() {
 
     var buf = FixedBuf<8>()
     buf.set(0, 65)
-    print("fixedbuf {}", buf.get(0) as Int)
+    print("fixedbuf {}", buf.get(0)! as Int)
 }

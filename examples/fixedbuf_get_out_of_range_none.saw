@@ -1,0 +1,28 @@
+// DF-294a: `FixedBuf.get` is a `get`-shaped accessor on a safe type, so an
+// index outside `0..<N` is `None` and not a panic — `Data.get`'s answer,
+// exactly. The accessor rule's two halves both hold on this one type: `get`
+// reports the absence, `set` traps on it (examples/fixedbuf_set_oob_panic.saw
+// pins that half and its wording).
+//
+// `--no-hidden-alloc` because a `FixedBuf` exists for the paths with no
+// allocator, and an absence that costs nothing is the point of the shape.
+// COMPILE-FLAGS: --no-hidden-alloc
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 65
+// none
+// none
+// 8
+
+import std.fixedbuf.{FixedBuf}
+
+func main() {
+    var b = FixedBuf<8>()
+    b.set(0, 65)
+
+    if let first = b.get(0) { print(first as Int) } else { print("none") }
+    if let past = b.get(8) { print(past as Int) } else { print("none") }
+    if let below = b.get(-1) { print(below as Int) } else { print("none") }
+
+    print(b.capacity())
+}

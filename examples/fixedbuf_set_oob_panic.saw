@@ -1,7 +1,11 @@
-// DF-249a, the bounds-panic wording family: `FixedBuf.get` panics out of range
+// DF-249a, the bounds-panic wording family: `FixedBuf.set` panics out of range
 // with the index and the length, and the length here is the CONST GENERIC `N` —
 // a value the message reads straight out of the type, which is the one row where
 // the length is not a field or a `len()` call.
+//
+// `set` is the family's member here because DF-294a moved `get` to the
+// `None`-returning side of the accessor rule; the panicking direct accessor on
+// this type is `set`, and the wording is what this test pins.
 //
 // `--no-hidden-alloc` is the point of pinning this one: the family renders
 // through design 137's `{}` format arguments (stack scratch), never through
@@ -9,13 +13,12 @@
 // allocator — which is exactly where `FixedBuf` is meant to be used.
 // COMPILE-FLAGS: --no-hidden-alloc
 // EXPECT: panic
-// EXPECT-PANIC-CONTAINS: FixedBuf.get: index out of range: 11 (len 8)
+// EXPECT-PANIC-CONTAINS: FixedBuf.set: index out of range: 11 (len 8)
 
 import std.fixedbuf.{FixedBuf}
 
 func main() {
     var b = FixedBuf<8>()
-    b.set(0, 65)
-    print(b.get(0) as Int)      // 65 — in range, fine
-    print(b.get(11) as Int)     // past the end -> panic
+    b.set(0, 65)                // in range, fine
+    b.set(11, 66)               // past the end -> panic
 }
