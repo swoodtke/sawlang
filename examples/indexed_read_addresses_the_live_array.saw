@@ -1,0 +1,41 @@
+// DF-296a, RULED Sep 3 (user): an indexed READ addresses the LIVE container.
+//
+// The write side has always done so — `_get_element_pointer` resolves `arr`
+// through `_get_lvalue_pointer` and only then evaluates the index, so
+// `a[f()] = v` stores into the live array. Design 263 U3b made the READ address
+// the container too, but gated that on `_index_reads_only`, an allowlist of
+// index shapes that cannot store; a call in the index kept the old lowering,
+// which LOADED THE WHOLE ARRAY into a temporary before running the index. So
+// `a[f()]` read a snapshot of an array `a[f()] = v` wrote live. The ruling
+// deletes the gate: every indexed position now agrees about how an element is
+// reached, and the sos image stops paying 12,996 B to preserve the
+// disagreement.
+//
+// The shape below is the reduced sos one (`PIPE_MSG_HELD[msg_word_at(x, i)]`,
+// kernel/core/objects.saw): the index expression writes the very slot it then
+// selects. Under the snapshot lowering the first line printed 0; the live read
+// prints what `msg_word_at` stored.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 99
+// 7
+
+unsafe static var PIPE_MSG_HELD: [Int; 4] = [0; 4]
+
+// A side-effecting index: it stores into slot 0 and then selects slot 0.
+func msg_word_at(i: Int) unsafe -> Int {
+    PIPE_MSG_HELD[0] = 99
+    i
+}
+
+func main() unsafe {
+    PIPE_MSG_HELD[0] = 0
+    PIPE_MSG_HELD[1] = 7
+
+    // The LIVE read: `msg_word_at` runs first, and its store is observed.
+    print(PIPE_MSG_HELD[msg_word_at(0)])
+
+    // The plain-read control: an index that cannot store reads the same array
+    // through the same path, and is unchanged by the ruling.
+    print(PIPE_MSG_HELD[1])
+}

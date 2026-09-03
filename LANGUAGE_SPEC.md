@@ -282,6 +282,32 @@ A **suspending** argument, receiver, or operand does not change this order
 temporaries before embedding the suspension, so `f(a(), b())` with either call
 suspending still evaluates `a()` fully, then `b()`, then calls `f`.
 
+**Indexing Evaluation Order:**
+An indexed read addresses the live container. `a[f()]` evaluates `f()` first and
+then reads the element out of `a` as `a` stands at that moment, so a store `f`
+made into `a` is observed by the read that indexes it. This is the rule an
+indexed write has always followed — `a[f()] = v` resolves `a` before evaluating
+the index — and the read side agrees with it at every position: a bare element
+read, a field of one (`a[f()].n`), a compound assignment, and `swap`.
+
+```saw
+unsafe static var HELD: [Int; 4] = [0; 4]
+
+func word_at(i: Int) unsafe -> Int {
+    HELD[0] = 99
+    i
+}
+
+func main() unsafe {
+    print(HELD[word_at(0)])   // prints: 99
+}
+```
+
+An index expression that writes the container it indexes is unusual, and no
+program should need one. The rule is stated because the alternative — reading a
+snapshot taken before the index ran — would make a read and a write of the same
+spelling disagree.
+
 **Overloading (exact-match model).**
 **Status: implemented (design 55).** A name may carry several
 functions/methods (beyond `init`, which was always overloadable). This is

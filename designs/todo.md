@@ -39,7 +39,7 @@ is scheduled and in what order is the whole of what they say.
 
 ## [BACKLOG] — filed, not scheduled
 
-- DF-296a — `a[f()]` reads a snapshot where `a[f()] = v` writes the live array; design 263 U3b's allowlist preserves the snapshot at a measured 12,996 B (entry below, filed Sep 3 by design 263). **RULED Sep 3 (user): LIVE READ** — drop `_index_reads_only`, every indexed position agrees with the write side; rides the perf-batch dispatch as a rider, pin owed (incl. the reduced sos shape)
+- ~~DF-296a — `a[f()]` reads a snapshot where `a[f()] = v` writes the live array; design 263 U3b's allowlist preserves the snapshot at a measured 12,996 B (entry below, filed Sep 3 by design 263). **RULED Sep 3 (user): LIVE READ** — drop `_index_reads_only`, every indexed position agrees with the write side; rides the perf-batch dispatch as a rider, pin owed (incl. the reduced sos shape)~~ **CLOSED Sep 3 by the perf batch (item 1)**
 
 - DF-295a — 218c census rows C1-C4 shrink rather than delete; the driven-body walk that maps a generic call site onto an instance key cannot move into phase 2 (entry below, filed by 218 unit 1.5 stage 4). Sequence it WITH DF-292c — one question, two sides
 - DF-294c — the const evaluator's STATIC-NAME leaf folds integers only, so a struct-typed static is refused in every const position design 186's own hint says it works in — the repeat value `[ZERO_SLOT; N]`, plain `static ALIAS: Slot = ZERO_SLOT`, and a struct-literal field (entry below, filed Sep 3 from sos SL-21; compliance defect vs 186 tier 2, no ruling owed; workarounds relayed)
@@ -188,9 +188,23 @@ nothing else. Lead lean: (b) is the language the docs already promise, and
 a second wrap rule beside the bracket rule is two rules where one exists.
 [129, 93/105, 207, DF-172d]
 
-## DF-296a — `a[f()]` reads a SNAPSHOT of the array where `a[f()] = v` writes
+## ~~DF-296a — `a[f()]` reads a SNAPSHOT of the array where `a[f()] = v` writes
 ## the LIVE one, and design 263 U3b's allowlist pays 12,996 B to preserve the
-## snapshot. Filed Sep 3 by design 263. RULING OWED, evidence attached
+## snapshot. Filed Sep 3 by design 263. RULING OWED, evidence attached~~
+## **CLOSED Sep 3 by the perf batch, item 1 (the DF-296a rider).** The ruling was
+## LIVE READ; `_index_reads_only` and its `_INDEX_READ_ONLY_NODES` tuple are
+## GONE, so `_generate_array_index` addresses the element through
+## `_get_element_pointer` whenever `_addressable_place` reaches it, with no
+## index-shape condition. All four indexed positions the mechanism sweep named
+## now agree with the write side. Pinned by
+## `examples/indexed_read_addresses_the_live_array.saw` — the reduced sos shape
+## (an `unsafe static var [Int; 4]` whose index expression stores into the slot
+## it selects) asserting the live value 99, plus a plain-read control. Verified
+## as a behavior FLIP on this branch: the same file printed 0 before the change
+## and 99 after. Image effect NOT re-measured here (sos left this repo at design
+## 238 unit 5); the price recorded below — **~-12,996 B** on riscv32
+## `process_isolation.elf`, all of it `take_staged` — is what the gate cost and
+## is what its removal is expected to return.
 
 Design 263 U3b made `arr[i]` address the container instead of loading the
 whole array and spilling it to an `arr_tmp` alloca. That moves the container's

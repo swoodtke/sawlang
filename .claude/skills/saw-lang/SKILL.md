@@ -3833,6 +3833,15 @@ construct in the owner and lend `&driver` down.
   `String.substring(s, e)` ALL PANIC out of range — no silent no-op
   (`set`/`swap` used to be) and no clamp (`substring` used to be). An empty
   `substring(i, i)` is still legal; a REVERSED range panics.
+  **AN INDEXED READ ADDRESSES THE LIVE CONTAINER (DF-296a, ruled Sep 3).**
+  `a[f()]` runs `f()` first and then reads `a` as it stands, so a store `f` made
+  into `a` is observed by the read that indexes it — the same order an indexed
+  WRITE has always used, and now the same at every read position (`a[i]`,
+  `a[i].field`, a compound assignment, `swap`). It used to read a SNAPSHOT taken
+  before the index ran whenever the index contained a call, so a read and a
+  write of one spelling disagreed; distrust a side-effecting index in an older
+  build. Nothing changes for an ordinary index — a literal, a name, arithmetic
+  over those — which could never tell the two apart.
   **`Box<T, A>.value()` IS ONE TOO** (design 218 unit 1.5 stage 3c): it lends the
   heap payload where it sits, at EVERY payload type. `b.value().method()`
   borrows it, `b.value().n += 1` writes it in the box's own allocation, and a

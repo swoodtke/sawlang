@@ -12,8 +12,7 @@ Usage:
 from llvmlite import ir
 from ast_nodes import (TupleLiteral, TupleIndex, ArrayLiteral, ArrayIndex, IntLiteral,
                        MapLiteral, SetLiteral, FunctionCall, MethodCall, Identifier,
-                       Argument, SawType, TypeKind, SelfExpr, MemberAccess,
-                       BinaryOp, UnaryOp)
+                       Argument, SawType, TypeKind)
 from const_eval import const_eval
 
 
@@ -326,32 +325,6 @@ class CollectionsMixin:
             return all(cls._is_zero_constant(e) for e in c)
         return False
 
-    # Index expressions that provably only READ (design 263 U3b). An ALLOWLIST,
-    # for the reason design 261 U2's `_MEMCPY_SAFE_BETWEEN` is one: a node
-    # nobody thought about must cost the optimization, never the correctness.
-    # A `BinaryOp`/`UnaryOp` over these is included even though its overflow and
-    # shift checks can PANIC — a panic diverges, so nothing observes the order.
-    _INDEX_READ_ONLY_NODES = (IntLiteral, Identifier, SelfExpr, MemberAccess,
-                              TupleIndex, ArrayIndex, BinaryOp, UnaryOp)
-
-    def _index_reads_only(self, expr) -> bool:
-        """Whether evaluating `expr` cannot write to anything.
-
-        The gate on U3b's in-place element read. Addressing the container
-        before the index is evaluated moves the container's value read to AFTER
-        that evaluation; an index that cannot store leaves nothing that could
-        tell the difference. A call, a `try`, an assignment expression or any
-        node not on the list falls back to the copying path.
-        """
-        if not isinstance(expr, self._INDEX_READ_ONLY_NODES):
-            return False
-        for child in ("object", "left", "right", "operand", "array_expr",
-                      "index", "tuple_expr"):
-            sub = getattr(expr, child, None)
-            if sub is not None and not self._index_reads_only(sub):
-                return False
-        return True
-
     def _generate_array_index(self, expr: ArrayIndex):
         """Generate code for array or tuple indexing with [index] syntax."""
         # design 46: UnsafeMemory region indexing projects to an element address.
@@ -370,10 +343,19 @@ class CollectionsMixin:
         # write about how an element is reached.
         #
         # The one ordering difference — the container's VALUE is read after the
-        # index expression instead of before it — is closed by
-        # `_index_reads_only`: the new path is taken only when the index cannot
-        # run anything that could store to the container.
-        if self._addressable_place(expr) and self._index_reads_only(expr.index):
+        # index expression instead of before it — is the RULING (DF-296a, user,
+        # Sep 3): an indexed read addresses the LIVE container, so an index
+        # expression that writes the container is observed by the read that
+        # indexes it. U3b landed with an `_index_reads_only` allowlist that kept
+        # the old snapshot for a call-bearing index; that made the read disagree
+        # with the write, which has always resolved `arr` through
+        # `_get_lvalue_pointer` before evaluating the index, and it cost 12,996 B
+        # of sos image to preserve the disagreement. Every indexed position now
+        # agrees: this one, `arr[i].field` (`_narrow_field_read`), the
+        # compound-assignment reads in statements.py, and
+        # `_generate_array_builtin`'s `swap` all reach the element through
+        # `_get_element_pointer`.
+        if self._addressable_place(expr):
             return self.builder.load(self._get_element_pointer(expr),
                                      name="elem")
 
