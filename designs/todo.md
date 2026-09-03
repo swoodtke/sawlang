@@ -106,8 +106,8 @@ is scheduled and in what order is the whole of what they say.
 - DF-272a — an enum VARIANT construction does not push its declared payload type into a closure-literal argument, so `Holder.Handler(f: { c in c + 1 })` is "Cannot infer type for closure parameter `c`" while the struct-init twin `FnField(f: { c in c + 1 })` infers and runs (entry below, filed Aug 28 by the DF-267b sweep; PRE-EXISTING)
 - DF-272b — `_resolve_type` skips design 37's default fill entirely when a written type has NO type arguments, so a BARE reference to a generic whose every parameter is defaulted never gets one; the explicit spelling works and the bare one does not (entry below, same filer; PRE-EXISTING). Same design-37 family as DF-267b, different gap, and it moves type IDENTITY — wants a ruling before a fix
 - DF-272c — a maybe-suspending call made INSIDE a place window (`&m.get(k)!`, a `borrows` lend) is refused under `sawc/std/` with `cannot suspend in a sync closure context`, while the identical shape compiles and RUNS as a user file (entry below, same filer). FOURTH member of the builtins-vs-user-file divergence family with DF-257c (closed), DF-267d (dissolved) and DF-271a (open) — and the one that blocks stage 2's natural Object-walk spelling
-- DF-293b — `readonly` has no supported spelling as an llvmlite ARGUMENT attribute, so design 261's ruled `noalias readonly` receiver stamp lands only half-written; LLVM's own FunctionAttrs infers the other half in-module, verified in the emitted IR (entry below, filed Sep 3 by design 261)
-- DF-293c — design 261 §4's primitive fence is OBSERVABLE and needs a user ruling: §4 says both "primitive receivers stay by value" and "if observable, align it", and the probe says the address IS observable, so the by-value/by-pointer predicate is now type-dependent (entry below, filed Sep 3 by design 261)
+- DF-293b — CLOSED Sep 3 (user: the inferred form is enough): `readonly` has no llvmlite ARGUMENT-attribute spelling, but FunctionAttrs infers it in-module on every receiver (verified in emitted IR) and `noalias` — the caller-side half inference cannot supply — IS stamped; `_mark_readonly_arg` starts landing the written half with no edit if llvmlite ever lists it (entry below)
+- DF-293c — CLOSED Sep 3, RULED (user): primitives STAY BY VALUE — the §4 headline stands, the address-identity asymmetry is accepted and documented, and the pin's last row (`false` for a primitive) is the contract (entry below)
 - DF-276a — an UNREPRESENTABLE FLOAT LITERAL degrades silently (entry below, filed Aug 28 by design 253; PRE-EXISTING). `let over = 1<400 zeros>.0` compiles clean and is `inf`; `let under = 0.<400 zeros>1` compiles clean and is `0.0`. The integer literal beside it is checked — `let n: UInt8 = 300` is a clean located error — so this is the one literal kind whose conversion has no representability check. "Never hide errors", at the position a value enters the program
 - DF-276b — there is NO `Int` -> `Float` conversion in ANY spelling (entry below, same filer; PRE-EXISTING). `let a: Float = n`, `n as Float`, `Float.from(n)` and `Float(n)` are all errors. Design 170 promises `from`/`from(truncating:)` for "every source/target pair" and means the INTEGER pairs; the float axis is absent entirely. Costs already paid in the tree: `std.string` carried a ten-branch `_digit_to_float` for it (deleted by 253), `JsonValue` can have no combined `as_number()`, and no float parser can have a small-integer fast path. Wants a design, not a patch — the rounding mode of a wide `Int` -> `Float` is a ruling
 - DF-276c — a VALUE `if`/`match` whose arms are bare literals does not adopt the width of the operand it sits BESIDE (entry below, same filer; PRE-EXISTING). `wide + (if up { 1 } else { 0 })` on a `UInt64` is ``operator `+` requires both operands to have the same type … the right is `Int` ``, while `wide + 1` and `wide + (1 + 1)` both adopt (the second is DF-243a's fix). Probed siblings all WORK — an argument, an annotated `let`, a `return`, a compound-assign RHS — so the gap is exactly DF-243a's position with a branch construct in it rather than a const expression
@@ -762,7 +762,9 @@ of the flip rather than filed and left. `_receiver_path_is_lvalue` is the guard
 and `examples/receiver_temporary_evaluated_once.saw` the pin (four re-walked
 shapes plus two lvalue controls).
 
-**DF-293b — OPEN, dependency limit, low cost.** Design 261 U1 rules the flipped
+**DF-293b — CLOSED Sep 3 (user ruling at 261's integration: the inferred form
+is enough; revisit only if llvmlite is bumped for other reasons).** Design 261
+U1 rules the flipped
 receiver `noalias readonly`. `noalias` is stamped; `readonly` has no supported
 spelling — `llvmlite.ir.values.ArgumentAttributes._known` omits the PARAMETER
 attribute and lists only the unrelated function-level one, and `add_attribute`
@@ -776,7 +778,10 @@ emitted IR. `noalias` is the half inference cannot supply (it is a promise about
 the CALLER), which is why that half is stated. Close by bumping llvmlite, or by
 deciding the inferred form is enough.
 
-**DF-293c — OPEN, needs a USER RULING.** Design 261 §4 fences primitive
+**DF-293c — CLOSED Sep 3, RULED (user, at 261's integration): primitives stay
+BY VALUE. The asymmetry is accepted — address identity is the only observable,
+nothing relies on it, and the pin's last row is the contract.** Design 261 §4
+fences primitive
 receivers with two clauses that point opposite ways: "primitive receivers stay
 by value" and, of `(&self) as UnsafePointer` on one, "probe it, and if
 observable, align it". The probe says it IS observable.
