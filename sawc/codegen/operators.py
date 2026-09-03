@@ -350,11 +350,10 @@ class OperatorsMixin:
         self.builder.position_at_end(panic_bb)
         prefix = self._panic_location_prefix(
             index_expr.line or self._di_current_line())
-        self._emit_runtime_panic([
-            self._raw_bytes_ptr(f"{prefix}array: index out of range: "),
-            self._render_int_value(
-                index_val, not self._int_is_signed(index_expr), in_entry=False),
-            self._raw_bytes_ptr(f" (len {count})"),
+        self._emit_panic_message([
+            self._text_step(f"{prefix}array: index out of range: "),
+            self._int_step(index_val, not self._int_is_signed(index_expr)),
+            self._text_step(f" (len {count})"),
         ])
         self.builder.position_at_end(cont_bb)
 
@@ -1666,9 +1665,9 @@ class OperatorsMixin:
 
         self.builder.position_at_end(panic_bb)
         prefix = self._panic_location_prefix(line or self._di_current_line())
-        self._emit_runtime_panic([
-            self._raw_bytes_ptr(f"{prefix}cast to {to_name} out of range: "),
-            self._render_int_value(value, not from_signed, in_entry=False),
+        self._emit_panic_message([
+            self._text_step(f"{prefix}cast to {to_name} out of range: "),
+            self._int_step(value, not from_signed),
         ])
 
         self.builder.position_at_end(cont_bb)

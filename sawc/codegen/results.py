@@ -170,11 +170,9 @@ class ResultsMixin:
         err_value = self._extract_result_err_value(result_val, result_enum_name)
         rendered = PreparedValue(value=err_value, resolved_type=err_type,
                                  line=line, column=column)
-        prefix_ptr, prefix_len = self._raw_bytes_ptr(
-            self._panic_location_prefix(line) + what + ": ")
-        self._emit_runtime_panic(
-            [(prefix_ptr, prefix_len),
-             self._render_argument(rendered, in_entry=False)])
+        self._emit_panic_message([
+            self._text_step(self._panic_location_prefix(line) + what + ": "),
+            self._argument_step(rendered, in_entry=False)])
 
     def _synthesized_result_enum(self, value, ok_saw, err_spelling="AllocError"):
         """The registered `Result$…` enum a COMPILER-SYNTHESIZED call returned,

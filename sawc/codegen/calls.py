@@ -1034,19 +1034,58 @@ class CallsMixin:
                 segments.append(self._render_argument(item))
         return segments
 
-    def _render_argument(self, arg_expr, in_entry: bool = True):
-        """Render one format argument to a `(i8* ptr, word len)` byte range.
+    def _format_steps(self, fmt_expr, value_args, in_entry: bool = True):
+        """The same walk as `_format_segments`, left ABSTRACT as design-263 STEPS.
 
-        `in_entry` places the scratch a rendering needs in the ENTRY block,
-        which is right for a format argument on the normal path (the buffer is
-        live while the segments are consumed). A block that ends in
-        `unreachable` — a panic block — passes False, so a function that merely
-        CONTAINS such a site pays no frame bytes for it. See
-        `_render_int_value`, which has carried the same knob since design 137.
+        A step is `("text", ptr, len)` or one of the argument kinds
+        `("int", value, is_unsigned)` / `("str", ptr)` / `("bool", i1)` /
+        `("float", double)` — a description of what the message is made of,
+        not yet the bytes. `_emit_panic_message` keys its outlined helper on
+        the sequence of step KINDS, so same-shaped sites share one routine and
+        only the literal pointers and live values differ per site.
+
+        A `Printable` argument is rendered HERE, at the site, and arrives as a
+        `text` step: its `format(into:)` is a call on a concrete type, which no
+        shape-keyed helper can stand in for.
         """
-        word = self.int_type
-        i8 = ir.IntType(8)
+        steps = []
+        for kind, item in self._format_pieces(fmt_expr, value_args):
+            if kind == "text":
+                steps.append(self._text_step(item))
+            else:
+                steps.append(self._argument_step(item, in_entry=in_entry))
+        return steps
 
+    def _text_step(self, text: str):
+        """A literal message piece as a step, over its interned byte constant."""
+        ptr, length = self._raw_bytes_ptr(text)
+        return ("text", ptr, length)
+
+    def _int_step(self, value, is_unsigned: bool):
+        """An integer as a step, already at its RENDERING width.
+
+        The extension stays at the site rather than moving into the outlined
+        helper: it is what pins the step's kind (`i32u`, `i64s`, …), so the
+        helper's parameter type and its formatter choice fall out of the shape
+        key instead of being re-derived per site.
+        """
+        render_width = max(self.int_width, value.type.width)
+        if value.type.width < render_width:
+            render_type = ir.IntType(render_width)
+            if is_unsigned:
+                value = self.builder.zext(value, render_type, name="fmt_ext")
+            else:
+                value = self.builder.sext(value, render_type, name="fmt_ext")
+        return ("int", value, is_unsigned)
+
+    def _argument_step(self, arg_expr, in_entry: bool = True):
+        """THE argument-kind dispatch for a format argument (design 137/263).
+
+        ONE place decides what kind of thing a `{}` argument is; `_render_argument`
+        materializes the answer and `_emit_panic_message` outlines it, so the
+        two consumers cannot disagree about what a `UInt8` or an erased
+        `Box<any Error>` renders as.
+        """
         saw_type = arg_expr.resolved_type
         if saw_type is not None and self.type_param_context:
             saw_type = saw_type.substitute(self.type_param_context)
@@ -1061,35 +1100,76 @@ class CallsMixin:
         if (saw_type is not None
                 and self.namespace.is_printable(saw_type)
                 and not self._is_builtin_interp_type(saw_type)):
-            return self._render_via_format(arg_expr, saw_type, in_entry=in_entry)
+            ptr, length = self._render_via_format(arg_expr, saw_type,
+                                                  in_entry=in_entry)
+            return ("text", ptr, length)
 
         value = self._generate_expression(arg_expr)
 
         if isinstance(value.type, ir.PointerType):
             # String: its own bytes, at its header length.
-            length = self.builder.call(self.functions["__saw_string_len"],
-                                       [value], name="fmt_str_len")
-            return (value, length)
+            return ("str", value)
 
         if isinstance(value.type, ir.IntType):
             if value.type.width == 1:
-                true_ptr, true_len = self._raw_bytes_ptr("true")
-                false_ptr, false_len = self._raw_bytes_ptr("false")
-                return (self.builder.select(value, true_ptr, false_ptr),
-                        self.builder.select(value, true_len, false_len))
+                return ("bool", value)
             unsigned_kinds = {TypeKind.UINT, TypeKind.UINT8, TypeKind.UINT16,
                               TypeKind.UINT32, TypeKind.UINT64}
             is_unsigned = bool(saw_type is not None
                                and saw_type.kind in unsigned_kinds)
-            return self._render_int_value(value, is_unsigned, in_entry=in_entry)
+            return self._int_step(value, is_unsigned)
 
         if isinstance(value.type, ir.DoubleType):
             # The shortest round-trip rendering, in Saw (design 253), which
             # hands back its own length — so this arm no longer needs the
             # `strlen` the snprintf shape did, and no longer needs libc at all.
-            return self._render_float_value(value, in_entry=in_entry)
+            return ("float", value)
 
         raise ValueError(f"Cannot format type: {value.type}")
+
+    def _segment_of_step(self, step, in_entry: bool = True):
+        """Materialize one step as a `(i8* ptr, word len)` byte range, HERE.
+
+        The mirror of `_argument_step`: that one decides the kind, this one
+        emits the code for it, into whichever function the builder is in — the
+        panicking body for `print`, the outlined helper for a panic message.
+        """
+        kind = step[0]
+        if kind == "text":
+            return (step[1], step[2])
+        if kind == "str":
+            value = step[1]
+            length = self.builder.call(self.functions["__saw_string_len"],
+                                       [value], name="fmt_str_len")
+            return (value, length)
+        if kind == "bool":
+            value = step[1]
+            true_ptr, true_len = self._raw_bytes_ptr("true")
+            false_ptr, false_len = self._raw_bytes_ptr("false")
+            return (self.builder.select(value, true_ptr, false_ptr),
+                    self.builder.select(value, true_len, false_len))
+        if kind == "int":
+            return self._render_int_value(step[1], step[2], in_entry=in_entry)
+        if kind == "float":
+            return self._render_float_value(step[1], in_entry=in_entry)
+        raise ValueError(f"Unknown format step: {kind}")
+
+    def _render_argument(self, arg_expr, in_entry: bool = True):
+        """Render one format argument to a `(i8* ptr, word len)` byte range.
+
+        `in_entry` places the scratch a rendering needs in the ENTRY block,
+        which is right for a format argument on the normal path (the buffer is
+        live while the segments are consumed). A block that ends in
+        `unreachable` — a panic block — passes False, so a function that merely
+        CONTAINS such a site pays no frame bytes for it. See
+        `_render_int_value`, which has carried the same knob since design 137.
+
+        Kind and materialization are `_argument_step` and `_segment_of_step`;
+        this is the two of them back to back, which is what `print` wants — each
+        argument rendered as it is walked, in source order.
+        """
+        return self._segment_of_step(
+            self._argument_step(arg_expr, in_entry=in_entry), in_entry=in_entry)
 
     def _render_int_value(self, value, is_unsigned: bool, in_entry: bool = True):
         """Render an integer LLVM value to a `(i8* ptr, word len)` byte range.
@@ -1337,6 +1417,131 @@ class CallsMixin:
     PANIC_SCRATCH = 512
     TRUNCATION_MARKER = "…"
 
+    # How each design-263 step kind appears in a helper's shape key and in its
+    # parameter list. `text` is a byte range, so its literal differs per site
+    # while the assembly does not — which is what lets a bounds check, a cast
+    # check and a user `panic("{} of {}", a, b)` of the same shape share one
+    # routine.
+    def _step_key(self, step):
+        kind = step[0]
+        if kind == "int":
+            return f"i{step[1].type.width}{'u' if step[2] else 's'}"
+        return {"text": "t", "str": "s", "bool": "b", "float": "f"}[kind]
+
+    def _step_param_types(self, step):
+        word = self.int_type
+        i8ptr = ir.IntType(8).as_pointer()
+        kind = step[0]
+        if kind == "text":
+            return [i8ptr, word]
+        if kind == "str":
+            return [i8ptr]
+        if kind == "bool":
+            return [ir.IntType(1)]
+        if kind == "int":
+            return [step[1].type]
+        if kind == "float":
+            return [ir.DoubleType()]
+        raise ValueError(f"Unknown format step: {kind}")
+
+    def _step_operands(self, step):
+        return list(step[1:3]) if step[0] == "text" else [step[1]]
+
+    def _emit_panic_message(self, steps):
+        """THE lowering for a panic message with runtime content (design 263 L1b).
+
+        Every compiler-RAISED family that names a value (an out-of-range index,
+        an out-of-range cast, a `try!` on a renderable `Err`) and every
+        user-written `panic`/`assert` with a message arrives here. Instead of
+        expanding design 137's formatting sequence inline, the site calls an
+        OUTLINED helper keyed by the message's SHAPE — the sequence of step
+        kinds — and passes the per-site literals and live values as arguments.
+        Same-shaped sites share one routine, so the helper set is bounded by
+        shapes, not by sites.
+
+        Measured motive (design 261's acceptance census): sos's `end_process`
+        held 49 panic sites whose inline assembly was 844 of its 1,909 IR
+        instructions — 44% of the biggest function in the image, all of it on
+        `-> Never` paths where size is the only currency.
+
+        Design 137's observable contract does not move: the same bytes, in the
+        same order, cut at the same 508 with the same `…`, assembled with no
+        allocation and no libc beyond the `memcpy` it already used. Only WHERE
+        the assembly code lives changes.
+
+        The fence (lead, at dispatch): these are compiler-emitted INTERNAL
+        helpers in the module being emitted, NOT new `__saw_rt_*` seams. The
+        seam ABI in `rt/ABI.md` is frozen and gains nothing here.
+        """
+        helper = self._panic_helper(steps)
+        args = []
+        for step in steps:
+            args.extend(self._step_operands(step))
+        self.builder.call(helper, args)
+        self.builder.unreachable()
+
+    def _panic_helper(self, steps):
+        """Get, or emit once, the outlined assembly routine for this shape.
+
+        The key carries the panic SINK as well as the step kinds. `_panic_sink`
+        answers `__saw_bt_panic` for a program that links the cooperative
+        executor and the bare seam otherwise, and it answers per SITE — the
+        string-runtime helpers are emitted before the executor's sink exists.
+        Sharing a routine across that boundary would let whichever site came
+        first decide for the rest, which is a behavior change, not a size win.
+        """
+        cache = getattr(self, "_panic_helpers", None)
+        if cache is None:
+            cache = {}
+            self._panic_helpers = cache
+
+        sink = self._panic_sink()
+        sink_tag = "bt" if sink.name == "__saw_bt_panic" else "rt"
+        key = f"{sink_tag}${'_'.join(self._step_key(s) for s in steps)}"
+        helper = cache.get(key)
+        if helper is not None:
+            return helper
+
+        param_types = []
+        for step in steps:
+            param_types.extend(self._step_param_types(step))
+        fn = ir.Function(self.module,
+                         ir.FunctionType(ir.VoidType(), param_types),
+                         name=f"__saw_panic${key}")
+        fn.linkage = "internal"
+        # `noreturn` because the body ends in the seam; `noinline` because the
+        # whole point is that the assembly exists once; `cold`/`minsize` because
+        # every caller reaches it on a `-> Never` path.
+        for attr in ("noreturn", "noinline", "cold", "minsize"):
+            fn.attributes.add(attr)
+        cache[key] = fn
+
+        # Rebuild the steps over the parameters, then assemble in the helper's
+        # own frame — which is where `_panic_scratch` now puts the 512 bytes.
+        args = iter(fn.args)
+        inner = []
+        for step in steps:
+            taken = [next(args) for _ in self._step_param_types(step)]
+            if step[0] == "text":
+                inner.append(("text", taken[0], taken[1]))
+            elif step[0] == "int":
+                inner.append(("int", taken[0], step[2]))
+            else:
+                inner.append((step[0], taken[0]))
+
+        saved = self.builder
+        # A fresh builder carries no `debug_metadata`, so nothing in the helper
+        # inherits the caller's `!DILocation` — which would name a scope from a
+        # different subprogram and fail verification. The message's own
+        # FILE:LINE is already baked into the `text` operands.
+        self.builder = ir.IRBuilder(fn.append_basic_block("entry"))
+        try:
+            self._emit_runtime_panic(
+                [self._segment_of_step(s, in_entry=True) for s in inner])
+        finally:
+            self.builder = saved
+        return fn
+
     def _panic_scratch(self):
         """THE panic message buffer for the function being emitted (design 263).
 
@@ -1468,19 +1673,15 @@ class CallsMixin:
         (design 69 unified format), then terminates the block. Returns None
         (the value is NEVER; nothing consumes it).
         """
-        prefix_ptr, prefix_len = self._raw_bytes_ptr(
-            self._panic_location_prefix(expr.line))
+        prefix = self._text_step(self._panic_location_prefix(expr.line))
         if len(expr.arguments) > 1:
             # design 137: `panic("out of {}", what)`.
-            segments = self._format_segments(expr.arguments[0].value,
-                                             expr.arguments[1:])
-            self._emit_runtime_panic([(prefix_ptr, prefix_len)] + segments)
+            steps = self._format_steps(expr.arguments[0].value,
+                                       expr.arguments[1:], in_entry=False)
+            self._emit_panic_message([prefix] + steps)
             return None
         msg_val = self._generate_expression(expr.arguments[0].value)
-        msg_len = self.builder.call(self.functions["__saw_string_len"], [msg_val],
-                                    name="panic_msg_len")
-        self._emit_runtime_panic([(prefix_ptr, prefix_len),
-                                  (msg_val, msg_len)])
+        self._emit_panic_message([prefix, ("str", msg_val)])
         return None
 
     def _generate_assert(self, expr: FunctionCall):
@@ -1498,20 +1699,17 @@ class CallsMixin:
         self.builder.cbranch(cond, cont_bb, fail_bb)
 
         self.builder.position_at_end(fail_bb)
-        prefix_ptr, prefix_len = self._raw_bytes_ptr(
+        prefix = self._text_step(
             self._panic_location_prefix(expr.line) + "assertion failed: ")
         if len(expr.arguments) > 2:
             # design 137: `assert(ok, "want {} got {}", a, b)`. The arguments are
             # rendered on THIS branch only, so a passing assert costs nothing.
-            segments = self._format_segments(expr.arguments[1].value,
-                                             expr.arguments[2:])
-            self._emit_runtime_panic([(prefix_ptr, prefix_len)] + segments)
+            steps = self._format_steps(expr.arguments[1].value,
+                                       expr.arguments[2:], in_entry=False)
+            self._emit_panic_message([prefix] + steps)
         else:
             msg_val = self._generate_expression(expr.arguments[1].value)
-            msg_len = self.builder.call(self.functions["__saw_string_len"],
-                                        [msg_val], name="assert_msg_len")
-            self._emit_runtime_panic([(prefix_ptr, prefix_len),
-                                      (msg_val, msg_len)])
+            self._emit_panic_message([prefix, ("str", msg_val)])
 
         self.builder.position_at_end(cont_bb)
         return None
