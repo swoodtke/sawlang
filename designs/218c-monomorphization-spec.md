@@ -1257,3 +1257,18 @@ unauthorized: §5 remedy 2 (the residue fast path), remedy 3 (tier-shape
 sharing), A2(b)'s lazy body materialization with its semantic cell, and the
 design-168 set narrowing. DF-292b and DF-292c are the two that need no ruling at
 all — both are defects, one pre-existing on main.
+
+### Amendment C OUTCOME (Sep 3, USER-RULED): the residual is ACCEPTED
+
+The user accepted the post-DF-292a numbers — **suite +32.8% (332→441s),
+bootstrap +23.8% (227→281s) — as the true architectural cost of
+splice-all**, superseding the +18.8%/+16.8% re-base (which was 3b's
+instrument under-pricing the method half). The §5 envelope RE-BASES to
+these figures for stages 4/5 and everything after: a future landing
+materially worse than them pauses for the lead, as ever. The ruled path
+forward: **design 261 FIRST** (reference passing + memcpy — also expected
+to claw back compile time via smaller IR), **then the targeted perf
+batch** — DF-292c (the phase cache across the re-entry, WITH its owed
+obligation-2 sweep) and DF-292b (the capture's 4.2s deepcopy,
+pre-existing both sides). Laziness stays in reserve, unauthorized.
+With this ruling stage 3 INTEGRATES and is CLOSED.
