@@ -26,6 +26,7 @@ from ast_nodes import (
     ClosureExpr, ClosureParam,
     ImportDecl, Visibility
 )
+from ast_walk import map_nodes
 from errors import ErrorReporter, ErrorKind
 from target_info import platform_int_width, has_native_atomics
 from namespace import (
@@ -179,19 +180,39 @@ def _module_source_files(module_ast):
     return seen
 
 
-def _drop_per_pass_type(node):
-    """Clear one node's `resolved_type` — the template store's snapshot rule.
+def _park_per_pass_types(root):
+    """Clear every `resolved_type` stamp under `root`, and report what was
+    cleared so a caller can put it all back.
 
-    Read by `TypeChecker._pristine_snapshot`, whose docstring carries the
-    finding (DF-292a) and the argument for dropping THIS stamp and nothing
-    else. The `place_lowered` guard is `place_uses._uncheck_node`'s, for its
-    reason: a node the lowering stamped is the lowering's output, not the
-    checker's leftover.
+    The template store's snapshot rule, applied to the ORIGINAL rather than to
+    a copy of it (DF-292b). `TypeChecker._pristine_snapshot`'s docstring carries
+    both findings: DF-292a is why the stamp must not be IN the snapshot, and
+    DF-292b is why it must not be in the tree the snapshot is copied FROM. A
+    stamped `resolved_type` is a `SawType` whose `symbol` back-pointer reaches
+    a `StructSymbol` whose methods are AST declarations, so `deepcopy` walks
+    out of the template and into the namespace; dropping the stamps afterwards
+    threw that work away rather than avoiding it.
+
+    Returns a list of `(node, stamp)` pairs in visit order. The caller restores
+    them unconditionally — this is a window over one `deepcopy`, not an edit.
+
+    The `place_lowered` guard is `place_uses._uncheck_node`'s, for its reason:
+    a node the lowering stamped is the lowering's output, not the checker's
+    leftover, so it is neither cleared nor restored.
     """
-    if isinstance(node, Expression) and not getattr(node, 'place_lowered',
-                                                    False):
-        node.resolved_type = None
-    return node
+    parked = []
+
+    def _park(node):
+        if isinstance(node, Expression) and not getattr(node, 'place_lowered',
+                                                        False):
+            stamp = node.resolved_type
+            if stamp is not None:
+                parked.append((node, stamp))
+                node.resolved_type = None
+        return node
+
+    map_nodes(root, _park)
+    return parked
 
 
 @dataclass
@@ -1105,12 +1126,31 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         `optional_generic_concurrency` to an ICE in `std/channel.saw`. So this
         drops the per-pass conclusion and keeps the synthesized form, which is
         exactly the split the place lowering already draws.
+
+        DF-292b — WHERE THE DROP HAPPENS. The stamps come off the ORIGINAL, the
+        copy is taken, and the stamps go back. Dropping them AFTER the copy
+        (which is how DF-292a's fix landed) delivered the same pristine snapshot
+        and paid the full price for it: `deepcopy` had already followed every
+        back-pointer out into the namespace and rebuilt the slice this line then
+        discarded. Measured on `coro_generic_driven_both.saw`, the capture cost
+        1.55 s of a 5.15 s compile across seven calls, all of it in the two
+        post-transform passes; it is the same cost on main, so this is
+        pre-existing rather than part of unit 1.5's delta.
+
+        The park window spans one `deepcopy` and nothing else — no check runs
+        inside it, no error can escape it (the restore is in a `finally`), and
+        the tree is byte-identical on both sides. That is what makes this a
+        copy-time filter rather than an edit of the checked AST, which it must
+        not be: the stamps are the previous pass's conclusions and the passes
+        after this one read them.
         """
         import copy as _copy
-        from ast_walk import map_nodes
-        snapshot = _copy.deepcopy(decl)
-        map_nodes(snapshot, _drop_per_pass_type)
-        return snapshot
+        parked = _park_per_pass_types(decl)
+        try:
+            return _copy.deepcopy(decl)
+        finally:
+            for node, stamp in parked:
+                node.resolved_type = stamp
 
     # ---------------------------------------------------------------- #
     # THE UNION STORE (Amendment A1). The entry typechecker's own

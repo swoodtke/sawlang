@@ -41,6 +41,7 @@ is scheduled and in what order is the whole of what they say.
 
 - ~~DF-296a — `a[f()]` reads a snapshot where `a[f()] = v` writes the live array; design 263 U3b's allowlist preserves the snapshot at a measured 12,996 B (entry below, filed Sep 3 by design 263). **RULED Sep 3 (user): LIVE READ** — drop `_index_reads_only`, every indexed position agrees with the write side; rides the perf-batch dispatch as a rider, pin owed (incl. the reduced sos shape)~~ **CLOSED Sep 3 by the perf batch (item 1)**
 
+- DF-297a — the template snapshot's SECOND namespace back-pointer, a `SawType.symbol` on a DECLARED annotation, which DF-292b's park does not reach and should not: the capture still rebuilds 1,628 namespace method declarations per driven compile, worth ~0.22 s (targeted memo seeding) to ~0.48 s (symbols decline to be copied) more (entry below, filed Sep 3 by the perf batch). Wants a RULING first — should a namespace symbol ever be deep-copied into a template snapshot? — because either fix changes what the snapshot contains and owes obligation 2's sweep
 - DF-295a — 218c census rows C1-C4 shrink rather than delete; the driven-body walk that maps a generic call site onto an instance key cannot move into phase 2 (entry below, filed by 218 unit 1.5 stage 4). Sequence it WITH DF-292c — one question, two sides
 - DF-294c — the const evaluator's STATIC-NAME leaf folds integers only, so a struct-typed static is refused in every const position design 186's own hint says it works in — the repeat value `[ZERO_SLOT; N]`, plain `static ALIAS: Slot = ZERO_SLOT`, and a struct-literal field (entry below, filed Sep 3 from sos SL-21; compliance defect vs 186 tier 2, no ruling owed; workarounds relayed)
 - DF-294d — a static declaration's initializer cannot break after `=` (DF-172d's no-wrap family at the declaration head), which generic statics hit hardest because constructors do not infer type args, forcing `NAME: T<...> = T<...>(...)` on one line; PARENTHESIZING the initializer works today and design 207 (ruled Aug 10, unbuilt) deletes the doubled spelling entirely (entry below, filed Sep 3 from sos SL-22; RESOLUTION PATH is a user call)
@@ -96,7 +97,7 @@ is scheduled and in what order is the whole of what they say.
 - DF-275a — a distinct alias over a primitive satisfies a trait bound through a std extension's RECEIVER type argument (`Vector<Handle>.sort()` discharges Comparable at `T = Handle`) but NOT through a free generic function's own bound (`rank<T: Comparable>(Handle(1), Handle(2))` is refused), and the refusal's fixit is UNWRITABLE (`extension Handle: Comparable` is orphan-refused pointing at std.builtin) — the alias resolves to its underlying for the ORPHAN question but not the BOUND question, two readings in opposite directions that strand user aliases (filed Aug 28 by design 252; pre-existing, bound discharge not lowering; repro was `.build/scratch/probe_alias_bound3.saw`, essentials here — `examples/unsigned_handle_ordering.saw` carries the `as UInt` workaround spelling with a comment). No entry below, this line is the record
 - DF-277a — the synthesized `E.from(raw:)` does not adopt a bare integer literal (`Tag.from(raw: 9)` refused expecting the backing `UInt8`, while an ordinary `takes(9)` at a `UInt8` param adopts in the same file) — a dedicated check branch compares the argument's inferred type against the backing DIRECTLY, bypassing the literal-adoption funnel every other call argument uses (filed Aug 28 by design 238 unit 2; mechanism per obligation 4, siblings to probe at fix time: the other compiler-synthesized statics with declared parameter types — `Float.from(bits:)`, `Deserialize.deserialize`, the `T.from(...)`/`from(truncating:)` family). Workaround in-tree: one suffixed literal in `libs/imgformat/tests/header_rules.saw` with a comment. No entry below, this line is the record
 - DF-271a — the builtins pre-check refuses a `try` STATEMENT inside a match arm inside a while loop inside a GENERIC method (``` `try` cannot propagate errors from a closure returning `Never` (must return Result)``` + `builtins failed to type-check`), sawc/std ONLY — the identical shape compiles as a user file (probe recorded by design 251's report). THIRD member of the builtins-vs-user-file checking-divergence family: DF-257c (closed — generic-body `try` reuse across instantiations) and DF-267d (dissolved) are the siblings; std code routes around it with the `match`-instead-of-`try` idiom map.saw already carries for 257c. The family's standing question: why does the builtins pass check differently from user-file checking AT ALL — a fix brief should target that divergence, not the face. Filed Aug 27 by design 251; no entry below, this line is the record
-- DF-292b — `_capture_pristine_templates` deep-copies each template through the `SawType.symbol` back-pointers a previous pass's `resolved_type` stamps leave behind, so a post-transform capture copies a slice of the NAMESPACE: 4.2 s of a 10.5 s profiled driven compile, and **identical on main (4.220 s) and branch (4.397 s)** — pre-existing, not part of design 218 unit 1.5's delta. DF-292a made the snapshot pristine; this is the cost of copying what it then drops. Filed Sep 2 by 218c Amendment C's §5 investigation; the evidence is in that amendment, no entry below
+- ~~DF-292b — `_capture_pristine_templates` deep-copies each template through the `SawType.symbol` back-pointers a previous pass's `resolved_type` stamps leave behind, so a post-transform capture copies a slice of the NAMESPACE: 4.2 s of a 10.5 s profiled driven compile, and **identical on main (4.220 s) and branch (4.397 s)** — pre-existing, not part of design 218 unit 1.5's delta. DF-292a made the snapshot pristine; this is the cost of copying what it then drops. Filed Sep 2 by 218c Amendment C's §5 investigation; the evidence is in that amendment, no entry below~~ **CLOSED Sep 3 by the perf batch (item 2).** The stamps now come off the ORIGINAL, the copy is taken, and they go straight back (`_park_per_pass_types` + a `finally` restore in `TypeChecker._pristine_snapshot`, typechecker/core.py) — DF-292a's fix dropped them AFTER the copy, which delivered the same pristine snapshot and paid the full price for it. The park window spans one `deepcopy`, no check runs inside it, and the tree is byte-identical on both sides, so this is a copy-time filter and not an edit of the checked AST. MEASURED on `coro_generic_driven_both.saw` (in-process, capture instrumented): **the capture goes 1.547 s -> 0.480 s (-69%) of a 5.15 s compile**, across 7-8 calls of which the two post-transform ones carried all of it (0.773 + 0.727 -> 0.194 + 0.198). Non-driven shapes are flat, as predicted — their capture was already pristine. Whole-suite effect is in the batch's item-4 numbers. RESIDUAL FILED as DF-297a: the same mechanism has a SECOND face the park does not reach — `SawType.symbol` on DECLARED annotations — worth another ~0.22-0.48 s per driven compile but carrying a shape question that is a ruling, not a batch item
 - DF-292c — design 218c §7 phase 6 says the post-transform re-entry's re-run of the monomorphization fixpoint is cache hits ("the cache makes the re-run cheap"; §4: it "only ADDS entries") and §5's remedy 1 says to verify exactly that. It is not: `run_monomorphization` builds a fresh registry per front-half pass, so **107 of 111 instances are materialized and instance-checked TWICE** on a driven compile. Not fixed with DF-292a because a cache hit would carry an instance BODY the coroutine transform rewrites in place, changing what codegen lowers — a behavioral-contract flip owing obligation 2's sweep with the driven corpus as its matrix. Prize ~0.45 s per driven compile. Filed Sep 2, mechanism and counts in 218c Amendment C (C3/C4), no entry below
 - std.serde derived `Map` encoding — neither cbor nor json derive `Map<K, V>` through `@synthesize` (the field walk does not cover Map; both format landings record the scope note), so a Map on the wire is a hand-written `Serialize`/`Deserialize` today. Wants a design when the appetite arrives; pairs with the seam's missing Float story (design-215 section). Recorded Aug 27 while checking cbor for DF-267 siblings — no entry below, this line is the record
 - DF-269a — a LABEL-selected overload loses bare-literal width adoption: `report(byte: 65)` against `{report(value: Int), report(byte: UInt8)}` errors `expects UInt8 but got Int`, while the same labeled call against the SINGLETON declaration adopts and runs — the label face of DF-242c's family (overload resolution defeats literal adoption; 242c is the suffix face). Lead-probed Aug 27 (`.build/scratch/probe_append_overload{,2,3}.saw`, cells recorded here) while ruling design 244's naming rider; the bare positional call is a correct ambiguity error naming both candidates. The DF-242c re-probe note on its entry applies to this face too: module identity (249) moved which candidates are seen, not how a literal adopts once one is selected
@@ -187,6 +188,54 @@ nothing else. Lead lean: (b) is the language the docs already promise, and
 (c) costs one line of spec prose meanwhile; (a) is the least attractive —
 a second wrap rule beside the bracket rule is two rules where one exists.
 [129, 93/105, 207, DF-172d]
+## DF-297a — the template snapshot's SECOND namespace back-pointer: a
+## `SawType.symbol` on a DECLARED annotation. Filed Sep 3 by the perf batch
+## (item 2, DF-292b's fix). RULING OWED on the shape, measurement attached
+
+DF-292b's fix parks `resolved_type` for the duration of the snapshot's
+`deepcopy`, which is the stamp Amendment C2 named. It is not the only edge out
+of a template into the namespace. Measured on `coro_generic_driven_both.saw`
+with the stamps already parked (`.build/scratch/probe_copyclasses.py`, 535
+snapshots per compile):
+
+    objects copied  213,884   deepcopy 0.543s
+    of which        1,702 FunctionSymbol, 263 EnumSymbol, 144 StructSymbol
+                    2,153 Method  (525 of those are the templates themselves)
+
+So `deepcopy` is still walking out through symbols and rebuilding 1,628 method
+declarations that belong to the namespace rather than to any template.
+
+MECHANISM (obligation 4 — this is the same class as DF-292b, at a second
+position). A `SawType` carries a `symbol` back-pointer, and `resolved_type` was
+only ONE field that holds a `SawType`. The DECLARED annotations hold them too —
+a `Parameter`'s type, a return type, a `let`'s written type — and those are
+STRUCTURAL fields, so they are part of the template by construction and cannot
+simply be dropped the way a per-pass conclusion can. `_park_per_pass_types`
+therefore does not reach them, and it should not.
+
+THE PRIZE, measured (`.build/scratch/probe_symbolshare.py`, which pre-seeds
+`deepcopy`'s memo with identity entries for every symbol reachable from a
+`SawType` under the template, so the copy stops AT the symbol):
+
+    objects copied   33,107 (-85%)   deepcopy 0.057s   seed walk 0.265s
+    total 0.322s against the parked baseline's 0.543s
+
+The seed walk in that probe is a reflective `__dict__` crawl and eats most of
+the win; a targeted walk over `structural_fields` -> `SawType` ->
+`type_args`/`element_types`/`inner_type` would be much cheaper, and the memo
+seeding disappears entirely if the symbol classes simply decline to be copied.
+
+WHY IT IS NOT FIXED HERE. Either spelling changes what the snapshot CONTAINS: a
+shared symbol is the LIVE namespace entry, where today it is a private clone
+frozen at capture time. Anything materializing an instance from a template and
+reading `type.symbol` would start seeing later passes' edits. That is a
+behavioral-contract flip owing obligation 2's consumer sweep, and the
+`__deepcopy__`-returns-self spelling is wider still — it would change every
+`deepcopy` in the compiler that reaches a symbol, not just this one. The
+question underneath is a ruling: SHOULD a namespace symbol ever be deep-copied
+into a template snapshot? "No, a symbol is namespace identity" is the answer the
+measurement points at, but it is not one an agent gets to make inside a perf
+batch. [218c Amendment C, C3's DF-292b bullet]
 
 ## ~~DF-296a — `a[f()]` reads a SNAPSHOT of the array where `a[f()] = v` writes
 ## the LIVE one, and design 263 U3b's allowlist pays 12,996 B to preserve the
