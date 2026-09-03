@@ -22,6 +22,11 @@ on. A brief that changes user-visible behaviour bumps this constant, because the
 asymmetry above is only tolerable while the string still means something. A
 mismatch against a consumer's pin is a loud refusal naming both, never a silent
 build — see `tools/toolchain.py`.
+
+AND THE BUMP COMMIT IS TAGGED (user, Sep 3): every commit that changes this
+constant carries an annotated git tag `vX.Y.Z` naming what the release covers,
+so a consumer pinning by SHA can pick a BLESSED sha by name and hold it until
+ready for the next one. Tags exist retroactively back to v0.1.0.
 """
 
-SAWC_VERSION = "0.4.0"
+SAWC_VERSION = "0.5.0"
