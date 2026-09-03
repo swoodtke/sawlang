@@ -1337,6 +1337,45 @@ class CallsMixin:
     PANIC_SCRATCH = 512
     TRUNCATION_MARKER = "…"
 
+    def _panic_scratch(self):
+        """THE panic message buffer for the function being emitted (design 263).
+
+        ONE `[PANIC_SCRATCH x i8]` entry-block alloca per LLVM function, shared
+        by every panic site in its body. Sound because two panic assemblies can
+        never be live at once in one frame: a panic diverges, and design 137's
+        assembly is straight-line into the seam — it never suspends, never calls
+        back into user code, and never returns.
+
+        The single entry point is `_emit_runtime_panic`, which is itself the one
+        lowering for every dynamic panic message. Identity comes from
+        `self.builder.function`, not from a per-function reset the five
+        body-emitting entry points would each have to remember to call.
+
+        Design 137 put the buffer in the PANICKING block instead, reasoning that
+        a block ending in `unreachable` cannot be re-entered so a function that
+        merely CONTAINS a panic pays no frame bytes. Measurement refuted the
+        second half (design 261's acceptance census, Sep 3): LLVM does not
+        hoist or coalesce non-entry static allocas, so sos's `end_process`
+        carried 33 live `[512 x i8]` buffers = 16.9 KB of frame, which is what
+        pushed every deep-frame access on riscv32 into a `lui`/`sub`/`sw`
+        triplet. A function with one panic site pays exactly what it paid
+        before; one with 33 pays 512 bytes instead of 16.9 KB.
+        """
+        cache = getattr(self, "_panic_scratch_slots", None)
+        if cache is None:
+            cache = {}
+            self._panic_scratch_slots = cache
+        # Function names are unique within a module, which is the identity that
+        # matters here — and unlike `id()` it cannot be recycled.
+        key = self.builder.function.name
+        slot = cache.get(key)
+        if slot is None:
+            slot = self._entry_alloca(
+                ir.ArrayType(ir.IntType(8), self.PANIC_SCRATCH),
+                name="panic_buf")
+            cache[key] = slot
+        return slot
+
     def _emit_runtime_panic(self, segments):
         """Assemble `segments` into one contiguous buffer and abort via saw_panic.
 
@@ -1361,10 +1400,8 @@ class CallsMixin:
         lands on a byte boundary, which can split a multi-byte scalar — the
         marker is still stamped, so the message stays self-describing.
 
-        The scratch is allocated in the panicking block rather than the entry
-        block on purpose: the block ends in `unreachable`, so it cannot be
-        re-entered, and a function that merely CONTAINS a panic pays no stack
-        for it.
+        The scratch comes from `_panic_scratch` — ONE buffer per function, not
+        one per site (design 263 L1a).
         """
         word = self.int_type
         i8 = ir.IntType(8)
@@ -1375,8 +1412,7 @@ class CallsMixin:
         marker_len = len(self.TRUNCATION_MARKER.encode("utf-8"))
         text_max = self.PANIC_SCRATCH - marker_len - 1   # marker + '\n'
 
-        buf = self.builder.alloca(ir.ArrayType(i8, self.PANIC_SCRATCH),
-                                  name="panic_buf")
+        buf = self._panic_scratch()
         base = self.builder.gep(buf, [ir.Constant(i32, 0), ir.Constant(i32, 0)],
                                 inbounds=True, name="panic_base")
 
