@@ -98,7 +98,7 @@ is scheduled and in what order is the whole of what they say.
 - DF-277a — the synthesized `E.from(raw:)` does not adopt a bare integer literal (`Tag.from(raw: 9)` refused expecting the backing `UInt8`, while an ordinary `takes(9)` at a `UInt8` param adopts in the same file) — a dedicated check branch compares the argument's inferred type against the backing DIRECTLY, bypassing the literal-adoption funnel every other call argument uses (filed Aug 28 by design 238 unit 2; mechanism per obligation 4, siblings to probe at fix time: the other compiler-synthesized statics with declared parameter types — `Float.from(bits:)`, `Deserialize.deserialize`, the `T.from(...)`/`from(truncating:)` family). Workaround in-tree: one suffixed literal in `libs/imgformat/tests/header_rules.saw` with a comment. No entry below, this line is the record
 - DF-271a — the builtins pre-check refuses a `try` STATEMENT inside a match arm inside a while loop inside a GENERIC method (``` `try` cannot propagate errors from a closure returning `Never` (must return Result)``` + `builtins failed to type-check`), sawc/std ONLY — the identical shape compiles as a user file (probe recorded by design 251's report). THIRD member of the builtins-vs-user-file checking-divergence family: DF-257c (closed — generic-body `try` reuse across instantiations) and DF-267d (dissolved) are the siblings; std code routes around it with the `match`-instead-of-`try` idiom map.saw already carries for 257c. The family's standing question: why does the builtins pass check differently from user-file checking AT ALL — a fix brief should target that divergence, not the face. Filed Aug 27 by design 251; no entry below, this line is the record
 - ~~DF-292b — `_capture_pristine_templates` deep-copies each template through the `SawType.symbol` back-pointers a previous pass's `resolved_type` stamps leave behind, so a post-transform capture copies a slice of the NAMESPACE: 4.2 s of a 10.5 s profiled driven compile, and **identical on main (4.220 s) and branch (4.397 s)** — pre-existing, not part of design 218 unit 1.5's delta. DF-292a made the snapshot pristine; this is the cost of copying what it then drops. Filed Sep 2 by 218c Amendment C's §5 investigation; the evidence is in that amendment, no entry below~~ **CLOSED Sep 3 by the perf batch (item 2).** The stamps now come off the ORIGINAL, the copy is taken, and they go straight back (`_park_per_pass_types` + a `finally` restore in `TypeChecker._pristine_snapshot`, typechecker/core.py) — DF-292a's fix dropped them AFTER the copy, which delivered the same pristine snapshot and paid the full price for it. The park window spans one `deepcopy`, no check runs inside it, and the tree is byte-identical on both sides, so this is a copy-time filter and not an edit of the checked AST. MEASURED on `coro_generic_driven_both.saw` (in-process, capture instrumented): **the capture goes 1.547 s -> 0.480 s (-69%) of a 5.15 s compile**, across 7-8 calls of which the two post-transform ones carried all of it (0.773 + 0.727 -> 0.194 + 0.198). Non-driven shapes are flat, as predicted — their capture was already pristine. Whole-suite effect is in the batch's item-4 numbers. RESIDUAL FILED as DF-297a: the same mechanism has a SECOND face the park does not reach — `SawType.symbol` on DECLARED annotations — worth another ~0.22-0.48 s per driven compile but carrying a shape question that is a ruling, not a batch item
-- DF-292c — design 218c §7 phase 6 says the post-transform re-entry's re-run of the monomorphization fixpoint is cache hits ("the cache makes the re-run cheap"; §4: it "only ADDS entries") and §5's remedy 1 says to verify exactly that. It is not: `run_monomorphization` builds a fresh registry per front-half pass, so **107 of 111 instances are materialized and instance-checked TWICE** on a driven compile. Not fixed with DF-292a because a cache hit would carry an instance BODY the coroutine transform rewrites in place, changing what codegen lowers — a behavioral-contract flip owing obligation 2's sweep with the driven corpus as its matrix. Prize ~0.45 s per driven compile. Filed Sep 2, mechanism and counts in 218c Amendment C (C3/C4), no entry below
+- DF-292c — design 218c §7 phase 6 says the post-transform re-entry's re-run of the monomorphization fixpoint is cache hits ("the cache makes the re-run cheap"; §4: it "only ADDS entries") and §5's remedy 1 says to verify exactly that. It is not: `run_monomorphization` builds a fresh registry per front-half pass, so **107 of 111 instances are materialized and instance-checked TWICE** on a driven compile. Not fixed with DF-292a because a cache hit would carry an instance BODY the coroutine transform rewrites in place, changing what codegen lowers — a behavioral-contract flip owing obligation 2's sweep with the driven corpus as its matrix. Prize ~0.45 s per driven compile. Filed Sep 2, mechanism and counts in 218c Amendment C (C3/C4). **ATTEMPTED AND STOPPED Sep 3 by the perf batch (item 3): the sweep came back CLEAN and the cache still cannot land — it is pincered between a double-wrap ICE and DF-258a, which makes it design-scale rather than a batch item. Entry below now carries the sweep, the cost split, the working cache and the three legs of the refusal; sequence it with DF-295a as the tracker already says**
 - std.serde derived `Map` encoding — neither cbor nor json derive `Map<K, V>` through `@synthesize` (the field walk does not cover Map; both format landings record the scope note), so a Map on the wire is a hand-written `Serialize`/`Deserialize` today. Wants a design when the appetite arrives; pairs with the seam's missing Float story (design-215 section). Recorded Aug 27 while checking cbor for DF-267 siblings — no entry below, this line is the record
 - DF-269a — a LABEL-selected overload loses bare-literal width adoption: `report(byte: 65)` against `{report(value: Int), report(byte: UInt8)}` errors `expects UInt8 but got Int`, while the same labeled call against the SINGLETON declaration adopts and runs — the label face of DF-242c's family (overload resolution defeats literal adoption; 242c is the suffix face). Lead-probed Aug 27 (`.build/scratch/probe_append_overload{,2,3}.saw`, cells recorded here) while ruling design 244's naming rider; the bare positional call is a correct ambiguity error naming both candidates. The DF-242c re-probe note on its entry applies to this face too: module identity (249) moved which candidates are seen, not how a literal adopts once one is selected
 - DF-215h — stdout has no newline-free write, so incremental output (`--stream` deltas) prints one line per piece; wants a surface ruling (entry below, Aug 26)
@@ -188,6 +188,125 @@ nothing else. Lead lean: (b) is the language the docs already promise, and
 (c) costs one line of spec prose meanwhile; (a) is the least attractive —
 a second wrap rule beside the bracket rule is two rules where one exists.
 [129, 93/105, 207, DF-172d]
+## DF-292c — the phase-6 re-run is not a cache hit, and CANNOT BE MADE ONE
+## without answering "what does an instance body belong to, the pass or the
+## program?". Filed Sep 2 by 218c Amendment C; ATTEMPTED, MEASURED and STOPPED
+## Sep 3 by the perf batch (item 3). NOT FIXED — the evidence is below
+
+Amendment C4 predicted the blocker in one sentence and named the wrong artifact.
+The prediction was that a cache hit would serve a PRE-REWRITE body, because the
+coroutine transform rewrites instance bodies in place between the two runs. The
+obligation-2 sweep says that is not what happens, and the real blocker is worse.
+
+### The consumer sweep (obligation 2), with the driven corpus as its matrix
+
+`.build/scratch/sweep_reentry.py` + `sweep_reentry_worker.py`: one subprocess per
+example, wrapping `materialize_instance` to fingerprint every clone it produces,
+bucketed by monomorphization run, then diffing run 1 against run 2 per instance
+key. The fingerprint is structural — class names plus structural fields, with
+`line`/`column`/`node_id` excluded, and a `SawType` rendered as its source
+spelling rather than walked (its `symbol` reaches the whole namespace).
+
+    59 driven examples entered the post-transform re-entry
+    18,756 instance bodies shared between the two runs
+    179 of them (0.95%) structurally different
+
+And the 179 are not spread: they are the SAME two-to-five std instances in every
+example — `Map$3$String$JsonValue$GlobalAllocator::insert`,
+`Vector$2$$Opt$Box$1$$Any$Resumable$GlobalAllocator::init` — differing ONLY in
+`resolved_type` stamps, never in shape:
+
+    run1  NoneLiteral resolved_type=JsonValue?     run2  resolved_type=OPTIONAL
+    run1  Vector<Box<any Resumable, GlobalAllocator>?, GlobalAllocator>
+    run2  Vector<Box<any Resumable>?, GlobalAllocator>
+
+So C4's rewrite hazard is REAL BUT SELF-CANCELLING: the transform rewrites the
+module ASTs too, and the pass-2 pristine capture happens after it, so a fresh
+pass-2 clone carries the same canonicalizations the pass-1 clone was given
+directly. Both sides are rewritten. That is why the shapes agree.
+
+### The cost split — which half is the money
+
+`.build/scratch/probe_matcheck.py`, `coro_generic_driven_both.saw`:
+
+    mono run 1: wall 0.530s  copy 0.369s (323)  check 0.102s (323)  other 0.059s
+    mono run 2: wall 0.772s  copy 0.609s (339)  check 0.103s (339)  other 0.060s
+
+The re-run is **79% `substituting_copy` and 13% instance check**. So the fix
+shape that matters is "reuse the CLONE, still run the CHECK" — which preserves
+every per-pass conclusion and every effect node, and is a far smaller contract
+change than serving a whole cached body.
+
+### The cache, built and working
+
+A `{(instance key, template discriminators): clone}` map threaded through
+`_prepare_codegen`'s two re-entry sites into `run_monomorphization` ->
+`splice_instances` -> `materialize_instance`, which wraps the copier. Threaded
+and not module-global on purpose: the `reemit` lane compiles twice in ONE
+process and byte-compares, so a global would leak the first compile's bodies
+into the second.
+
+ONE THING WORTH KEEPING whatever the eventual fix is: **the key may not use
+`node_id`.** A pristine template is a `deepcopy` of a module declaration and
+`ASTNode.__deepcopy__` mints a FRESH id for every copied node BY DESIGN (so two
+live instantiations cannot share an identity), so the same declaration's
+snapshot is a different number on every pass — the first key tried was
+`(inst.key, pristine.node_id)` and it scored 0 hits out of 339. What is
+pass-stable is what the MANGLER reads, which is also what DF-289c settled the
+store's own ambiguity with: method name, parameter names, `is_init`, and the
+design-105 `$OL$` tag.
+
+It works, and the prize is bigger than Amendment C estimated:
+
+    run 2 copier calls  339 -> 16   (exactly the transform's genuinely new demands)
+    run 2 copy time     0.609s -> 0.001s
+    run 2 wall          0.772s -> 0.204s   (-74%)
+
+### Why it still cannot land — three legs, one pincer
+
+**Leg 1, reuse + re-check: DOUBLE WRAP.** Full suite, cache on:
+`2366 passed, 6 xfailed, 1 failed`, the one being `optional_generic_concurrency`:
+
+    internal compiler error at sawc/std/channel.saw:373:20 (ResultOkWrap):
+    Can only insert {i1, {i1, i64}} at [0] in {{i1, {i1, i64}}}: got {i1, i64}
+
+A reused clone already carries the `ResultOkWrap` pass 1's check inserted, and
+pass 2's check inserts another. A checked body is not re-checkable.
+
+**Leg 2, reuse + SKIP the check: DF-258a returns.** `_prepare_codegen` builds a
+FRESH `TypeChecker` per pass, so effect nodes belong to a pass. Skipping the
+pass-2 instance check leaves every cached instance with no node for
+`finalize_effects` to settle — which is exactly the state DF-258a was, and
+exactly what 218 stage 4 landed `finalize_effects` re-entrancy to end.
+
+**Leg 3, reuse + `uncheck` + re-check: the wrap cannot be peeled.** `uncheck`'s
+other half removes the `Optional`/`Result` wraps, and that is what
+`transform_place_uses(uncheck_after=False)` already declines on this tree, for
+the reason DF-292a recorded: a transform-synthesized `-> Result<Int, E>` resume
+method's `self.__result = <Int>` store is only well-typed WITH the wrap the
+previous check put there. DF-292a's own note names the casualty — an ICE in
+`std/channel.saw` — and it is THE SAME FILE and THE SAME TEST leg 1 fails on,
+reached from the opposite direction.
+
+### The fix shape
+
+The three legs are one fact: **an instance body is a PASS's artifact, not the
+program's.** It carries that pass's wraps, that pass's stamps, and its effect
+node lives in that pass's typechecker — so it can be neither re-checked nor
+carried unchecked. Nothing smaller than changing that fact buys the 0.6 s.
+
+What would: make the front half stop re-entering. The re-run exists because the
+coroutine transform demands new instances and the driver's answer is to run the
+whole front half again; if the transform's synthesized declarations were checked
+and monomorphized INCREMENTALLY — one settled program, added to — there would be
+no second pass to cache across, and DF-295a's effect-edge problem would dissolve
+into the same change (its own entry says the fix is to derive the effect graph
+over the monomorphized program, and 218 stage 4a's re-entrant `finalize_effects`
+is the half of that which already exists). One design, two findings.
+
+NOT FIXED, and the code is reverted — this entry is the record. [218c Amendment
+C C3/C4, §7 phase 6]
+
 ## DF-297a — the template snapshot's SECOND namespace back-pointer: a
 ## `SawType.symbol` on a DECLARED annotation. Filed Sep 3 by the perf batch
 ## (item 2, DF-292b's fix). RULING OWED on the shape, measurement attached
@@ -707,6 +826,43 @@ and answering it once is what would let C1-C4, T5 and the
 `_process_effect_monos` shell go rather than shrink. Until then §2c's rows read
 as "no longer BUILDS", which is what the unit-4 ledger records. [218c §2b, §2c,
 §7 stages 4-5]
+
+### FIX-SHAPE NOTE (Sep 3, the perf batch item 3) — STILL NOT FIXED, and the
+### DF-292c attempt says why the two are one design
+
+The batch took DF-292c's half first, since it was the one with a named remedy.
+It built the cache, measured it working (-74% on the re-run), and could not land
+it: a cached instance body can be neither re-checked (pass 2's check inserts a
+second `ResultOkWrap` — a live ICE in `std/channel.saw`) nor carried unchecked
+(a pass's effect nodes live in that pass's `TypeChecker`, so an unchecked
+instance is DF-258a again) nor un-checked first (`uncheck` peels wraps the
+post-transform tree cannot restore — DF-292a's recorded ICE, same file). DF-292c's
+entry above has the three legs in full.
+
+WHAT THAT ADDS HERE. This entry already says the fix is to DERIVE the effect
+graph over the monomorphized program rather than patch it afterwards, and calls
+that a design. The DF-292c attempt reached the same wall from the performance
+side and sharpened what the design has to change: **not the effect graph, the
+RE-ENTRY.** Both findings are consequences of the front half running twice and
+throwing the first run away —
+
+  * DF-295a: the effect edge out of a driven body names the TEMPLATE because it
+    was recorded at body-check time, before instances existed. A second pass
+    does not fix that; it re-records the same template edge.
+  * DF-292c: the second pass cannot reuse the first pass's instances, because a
+    checked body is a pass's artifact.
+
+So the shape to design is an INCREMENTAL front half: the coroutine transform's
+synthesized declarations get checked and monomorphized INTO the settled program
+rather than triggering a whole second pass over it. Then there is no second pass
+to cache across (DF-292c dissolves), and the instances exist before the effect
+graph is settled, so the edges can name INSTANCES instead of templates (DF-295a
+dissolves, and with it C1-C4, T5 and the `_process_effect_monos` shell). Stage
+4a's re-entrant, monotone `finalize_effects` is the piece of that which already
+exists and is the natural seam to build on.
+
+Cost of NOT doing it, measured Sep 3 so the design has a number: ~0.6 s of
+`substituting_copy` per driven compile, which is 79% of the re-run's 0.77 s.
 
 ## DF-276a..c — filed Aug 28 by design 253 (the Float↔text build); all three
 ## PRE-EXISTING and probe-verified by direct compile/run
