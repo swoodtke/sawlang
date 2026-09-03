@@ -153,7 +153,12 @@ class LoopsMixin:
 
         # Generate condition: call next() and check if Some
         self.builder.position_at_end(cond_block)
-        optional_result = self.builder.call(next_func, [iter_alloca], name="next_result")
+        # `Iterator.next` is `&var self`, so `_self_operand` is a no-op here —
+        # routed through it (design 261) so this stops being one more site that
+        # decides the receiver convention on its own.
+        optional_result = self.builder.call(
+            next_func, [self._self_operand(next_func, iter_alloca, name="next_self")],
+            name="next_result")
 
         # Extract is_some flag
         is_some = self.builder.extract_value(optional_result, 0, name="is_some")
@@ -335,7 +340,12 @@ class LoopsMixin:
 
         # Generate condition: call next() and check if Some
         self.builder.position_at_end(cond_block)
-        optional_result = self.builder.call(next_func, [iter_alloca], name="next_result")
+        # `Iterator.next` is `&var self`, so `_self_operand` is a no-op here —
+        # routed through it (design 261) so this stops being one more site that
+        # decides the receiver convention on its own.
+        optional_result = self.builder.call(
+            next_func, [self._self_operand(next_func, iter_alloca, name="next_self")],
+            name="next_result")
 
         # Extract is_some flag
         is_some = self.builder.extract_value(optional_result, 0, name="is_some")

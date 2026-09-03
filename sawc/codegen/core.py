@@ -1315,6 +1315,56 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         """
         return self_by_pointer(method) or self._struct_has_interior_mutability(struct_name)
 
+    def _self_operand(self, fn, receiver, name="self_operand"):
+        """The `self` ARGUMENT a call passes, in whichever shape the callee's
+        EMITTED SIGNATURE declares (design 261).
+
+        Two conventions exist and `_self_by_pointer_for` decides between them
+        per (struct name, method). A hand-written call site never re-decides:
+        it reads `fn`'s parameter 0 and adapts, which is what keeps every
+        caller in step with the declaration by construction rather than by two
+        rules being kept aligned by hand. `_comparison_operand_ptr` is the same
+        move at parameter 1, for `other: &Self` (design 239).
+
+        Adapting is one instruction either way — a spill of a value the caller
+        holds when the callee wants storage, a load when it wants the value —
+        and NOTHING when the shapes already agree, which is every call under
+        the convention that produced the receiver in the first place.
+
+        ENTRY POINTS (obligation 1: this is a funnel, so its callers are named
+        here). All of them are COMPILER-SYNTHESIZED calls — a call the source
+        does not write, which is exactly the family that used to assume a
+        by-value receiver because the by-value receiver was all there was:
+          - `operators._emit_struct_equals` / `_emit_struct_compare` /
+            `_emit_struct_hash`, and their String twins
+          - `resources._emit_retain_at` / `_generate_copy` /
+            `_emit_element_deep_copy` / `_emit_drop_at` (the drop glue)
+          - `methods._generate_derived_copy_body` (a field's own `copy`)
+          - `calls._generate_method_call`'s `.hash(&h)` intercept
+          - `calls._forward_self_arg` (the `Arc`/`Box` payload forward)
+          - `existentials._vtable_thunk` (the erased dispatch thunk)
+          - `loops` (`Iterator.next` in a `for`)
+        The ORDINARY method-call path does not come through here: it builds the
+        receiver from the AST and reads the same signature itself
+        (`calls.py`'s `is_mutable_self`).
+        """
+        params = fn.function_type.args
+        if not params:
+            return receiver
+        want = params[0]
+        have = receiver.type
+        if have == want:
+            return receiver
+        want_ptr = isinstance(want, ir.PointerType)
+        have_ptr = isinstance(have, ir.PointerType)
+        if want_ptr and not have_ptr:
+            slot = self._entry_alloca(have, name=name)
+            self.builder.store(receiver, slot)
+            return slot
+        if have_ptr and not want_ptr:
+            return self.builder.load(receiver, name=name)
+        return receiver
+
     def _const_from_expr(self, expr, saw_type):
         """Build an LLVM constant for a static initializer (design 41 item 2).
 

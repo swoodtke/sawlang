@@ -257,10 +257,9 @@ class ExistentialsMixin:
             # take a pointer, and so does a plain `&self` on a receiver carrying
             # an `Atomic` cell (design 149). The emitted parameter type is the one
             # answer all three agree on.
-            if isinstance(impl.args[0].type, ir.PointerType):
-                self_arg = data_ptr                       # by pointer
-            else:
-                self_arg = self.builder.load(data_ptr)    # &self: by value
+            # Design 261 turned that read into the `_self_operand` funnel; the
+            # answer here is unchanged, and now nothing re-derives it.
+            self_arg = self._self_operand(impl, data_ptr, name="vt_self")
             call_args = [self_arg] + list(thunk.args[1:])
             res = self.builder.call(impl, call_args)
             if isinstance(thunk_ty.return_type, ir.VoidType):

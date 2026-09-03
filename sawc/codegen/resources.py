@@ -522,7 +522,9 @@ class ResourcesMixin:
             deinit_name = self._mangle_method_name(method_base, "deinit")
             fn = self.functions.get(deinit_name)
             if fn is not None:
-                self.builder.call(fn, [ptr])
+                # `deinit` is `&var self` by construction, so the funnel is a
+                # no-op here; routed through it so no receiver site re-decides.
+                self.builder.call(fn, [self._self_operand(fn, ptr, name="deinit_self")])
                 return
         if saw_type.kind == TypeKind.FUNCTION:
             self._emit_closure_drop_at(ptr, saw_type)
@@ -825,8 +827,13 @@ class ResourcesMixin:
             copy_name = self._mangle_method_name(method_base, "copy")
             fn = self.functions.get(copy_name)
             if fn is not None:
+                # design 261: the receiver's shape is the callee's to declare.
+                # This site already HOLDS the storage, so a by-pointer `copy`
+                # takes `ptr` straight and only a by-value one needs the load.
                 v = self.builder.load(ptr, name="retain_leaf")
-                v2 = self.builder.call(fn, [v], name="retain_bump")
+                v2 = self.builder.call(
+                    fn, [self._self_operand(fn, v, name="retain_self")],
+                    name="retain_bump")
                 self.builder.store(v2, ptr)
                 return
         if saw_type.kind == TypeKind.FUNCTION:
@@ -1262,8 +1269,12 @@ class ResourcesMixin:
             copy_method_name = self._mangle_method_name(type_name, "copy")
             copy_fn = self.functions.get(copy_method_name)
             if copy_fn is not None:
-                # copy(self) takes self by value (immutable), returns Self.
-                return self.builder.call(copy_fn, [value], name="copy_result")
+                # `copy` returns Self; its RECEIVER's shape is whatever the
+                # emitted signature says (design 261), read through the funnel.
+                return self.builder.call(
+                    copy_fn,
+                    [self._self_operand(copy_fn, value, name="copy_self")],
+                    name="copy_result")
 
         # No whole-type copy() method. If this is an aggregate that OWNS
         # cleanup-needing fields (a struct/enum/optional whose top-level copy class
@@ -1346,7 +1357,9 @@ class ResourcesMixin:
             copy_name = self._mangle_method_name(method_base, "copy")
             fn = self.functions.get(copy_name)
             if fn is not None:
-                return self.builder.call(fn, [value], name="elem_copy")
+                return self.builder.call(
+                    fn, [self._self_operand(fn, value, name="elem_copy_self")],
+                    name="elem_copy")
         # An aggregate with no copy() of its own but with OWNING fields — the
         # undeclared Copy tier (design 159). `_generate_copy` has always
         # had this fallthrough; the per-ELEMENT path did not, so `[p; 3]` on a

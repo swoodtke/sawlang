@@ -349,8 +349,11 @@ class MethodsMixin:
                         f"no `copy` symbol for field `{field_name}` of type "
                         f"`{field_type}` while deriving copy() for "
                         f"`{struct_name}`")
-                field_val = self.builder.call(copy_fn, [field_val],
-                                              name=f"{field_name}_copy")
+                field_val = self.builder.call(
+                    copy_fn,
+                    [self._self_operand(copy_fn, field_val,
+                                        name=f"{field_name}_copy_self")],
+                    name=f"{field_name}_copy")
 
             result = self.builder.insert_value(result, field_val, i)
 

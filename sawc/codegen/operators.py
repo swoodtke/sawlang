@@ -591,13 +591,17 @@ class OperatorsMixin:
 
     def _emit_string_equals(self, left, right):
         """String `==` is content equality via the stdlib `String.equals`."""
+        # String stays by value (design 261 §4: `self` IS the `i8*`), so the
+        # `_self_operand` funnel is a no-op here — routed through it anyway so
+        # the rule has ONE reader.
         fn = self.functions.get(self._mangle_method_name("String", "equals"))
         if fn is None:
             # String.equals not linked (String stdlib absent): fall back to
             # pointer identity so codegen stays total.
             return self.builder.icmp_signed('==', left, right, name="streq_ptr")
         return self.builder.call(
-            fn, [left, self._retain_comparison_operand(right)], name="streq")
+            fn, [self._self_operand(fn, left, name="streq_self"),
+                 self._retain_comparison_operand(right)], name="streq")
 
     def _retain_comparison_operand(self, right):
         """Retain the RIGHT operand of a synthesized String comparison
@@ -633,7 +637,8 @@ class OperatorsMixin:
         if mangled is not None and mangled in self.functions:
             fn = self.functions[mangled]
             return self.builder.call(
-                fn, [left, self._comparison_operand_ptr(fn, right)],
+                fn, [self._self_operand(fn, left, name="eq_self"),
+                     self._comparison_operand_ptr(fn, right)],
                 name="eq_call")
         return self._emit_memberwise_equals(left, right, saw_type)
 
@@ -961,7 +966,8 @@ class OperatorsMixin:
         # The retain the by-value `other` is owed — see
         # `_retain_comparison_operand` (DF-217m).
         return self.builder.call(
-            fn, [left, self._retain_comparison_operand(right)], name="strcmp")
+            fn, [self._self_operand(fn, left, name="strcmp_self"),
+                 self._retain_comparison_operand(right)], name="strcmp")
 
     def _emit_struct_compare(self, left, right, saw_type):
         """Struct ordering: dispatch to the type's `compare` (synthesized or
@@ -971,7 +977,8 @@ class OperatorsMixin:
         if mangled is not None and mangled in self.functions:
             fn = self.functions[mangled]
             return self.builder.call(
-                fn, [left, self._comparison_operand_ptr(fn, right)],
+                fn, [self._self_operand(fn, left, name="cmp_self"),
+                     self._comparison_operand_ptr(fn, right)],
                 name="cmp_call")
         return self._emit_memberwise_compare(left, right, saw_type)
 
@@ -1192,7 +1199,8 @@ class OperatorsMixin:
         """String hashing streams the bytes via the stdlib `String.hash`."""
         fn = self.functions.get(self._mangle_method_name("String", "hash"))
         if fn is not None:
-            self.builder.call(fn, [value, hasher_ptr])
+            self.builder.call(
+                fn, [self._self_operand(fn, value, name="strhash_self"), hasher_ptr])
 
     def _emit_struct_hash(self, value, saw_type, hasher_ptr):
         """Struct hashing: dispatch to the type's `hash` (synthesized or custom)
@@ -1200,7 +1208,9 @@ class OperatorsMixin:
         base = self._type_method_base(saw_type)
         mangled = self._mangle_method_name(base, "hash") if base else None
         if mangled is not None and mangled in self.functions:
-            self.builder.call(self.functions[mangled], [value, hasher_ptr])
+            fn = self.functions[mangled]
+            self.builder.call(
+                fn, [self._self_operand(fn, value, name="hash_self"), hasher_ptr])
             return
         self._emit_memberwise_hash(value, saw_type, hasher_ptr)
 

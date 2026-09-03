@@ -1910,7 +1910,11 @@ class CallsMixin:
             base = self._type_method_base(recv_type) if recv_type is not None else None
             mangled = self._mangle_method_name(base, "hash") if base else None
             if mangled is not None and mangled in self.functions:
-                self.builder.call(self.functions[mangled], [hash_val, hasher_ptr])
+                hash_fn = self.functions[mangled]
+                self.builder.call(
+                    hash_fn,
+                    [self._self_operand(hash_fn, hash_val, name="hash_self"),
+                     hasher_ptr])
             else:
                 self._emit_hash(hash_val, recv_type, hasher_ptr)
             return ir.Constant(ir.IntType(32), 0)
@@ -2621,12 +2625,12 @@ class CallsMixin:
         succeeded at once.
 
         Reading the answer off the emitted signature rather than re-deciding it
-        keeps this in step with `_self_by_pointer_for` by construction.
+        keeps this in step with `_self_by_pointer_for` by construction. Design
+        261 made that move the general rule and `_self_operand` its one reader;
+        this stays as a named wrapper because the two wrapper forwards want the
+        docstring above.
         """
-        wants = method_func.function_type.args[0]
-        if isinstance(wants, ir.PointerType):
-            return payload_ptr
-        return self.builder.load(payload_ptr, name=name)
+        return self._self_operand(method_func, payload_ptr, name=name)
 
     def _forward_target_symbol(self, expr: MethodCall, payload_type) -> str:
         """Mangled symbol for a wrapper payload-method forward (Arc / Box).
