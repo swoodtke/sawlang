@@ -42,13 +42,13 @@ ICE today, Python's own limit arriving first). Every demand records
 a clean error at the DEMANDING site naming the chain. Per CHAIN, not a global
 instance cap, so wide-but-shallow programs are untouched.
 
-SHADOW MODE (stage 1) is how the registry is proved complete before anything
-depends on it: the phase runs, codegen is unchanged, and every codegen demand
-is checked against the registry on the way past. `SAWC_MONO_SHADOW=strict`
-promotes a miss to an internal error, which is how the gate runs it over the
-whole corpus. A miss is a demand class this walk failed to enumerate, and it
-surfaces on the very first full-suite run rather than as an ICE three stages
-later.
+SHADOW MODE was how the registry was proved complete before anything depended
+on it — the phase ran, codegen was unchanged, and every codegen demand was
+checked against the registry on the way past. It RETIRED at stage 5 with the
+last thing it had to say. Codegen decides no instantiation now: every
+`_ensure_*` and `_instantiate_*` entry is a lookup whose miss is an internal
+error, so the comparison IS the lookup and a miss is a real diagnostic rather
+than an instrument's report.
 """
 
 import dataclasses
@@ -80,18 +80,6 @@ DEPTH_LIMIT = 64
 # How many hops of a demand chain are rendered before the middle is elided.
 _CHAIN_HEAD = 2
 _CHAIN_TAIL = 2
-
-# SAWC_MONO_SHADOW — the stage-1 instrument, off by default.
-#   (unset)  nothing
-#   1        report every shadow MISS and keep compiling (a whole-corpus scan
-#            collects the demand classes the walk is missing in one pass)
-#   strict   a miss is an internal error — what the gate runs
-#   dump     `1`, plus the registry in discovery order
-#   trace    `dump`, plus every method-call demand, every extension method
-#            walked, and every bounds refusal — the debugging view
-_SHADOW = os.environ.get("SAWC_MONO_SHADOW", "")
-_TRACE = _SHADOW == "trace"
-_DUMP = _SHADOW in ("dump", "trace")
 
 # SAWC_MONO_MEASURE — Amendment A5(b)'s cost model, off by default.
 #   splice-all   after the fixpoint, MATERIALIZE every registered instance
@@ -305,13 +293,6 @@ class Monomorphizer:
         if self.verbose:
             print(f"    Monomorphization: {len(self.order)} instance(s) "
                   f"discovered")
-        if _DUMP:
-            # The registry, in discovery order — which is the order the spec's
-            # attribution rule calls "first", so a dump is also the evidence
-            # that the walk is deterministic.
-            for key in self.order:
-                inst = self.instances[key]
-                print(f"  mono[{inst.kind}] d{inst.depth} {key}")
         return self
 
     def _roots(self):
@@ -529,9 +510,6 @@ class Monomorphizer:
         if not method_name:
             return
         recv_key = self._receiver_key(recv, depth, chain, where)
-        if _TRACE:
-            print(f"  mono[mcall] {method_name} recv={recv} key={recv_key} "
-                  f"targs={targs}")
         if recv_key is None:
             return
         self._demand_method(recv, recv_key, method_name, targs, subst, depth,
@@ -806,8 +784,6 @@ class Monomorphizer:
             for m in ext.methods:
                 if m.name in skip or getattr(m, 'type_params', None):
                     continue
-                if _TRACE:
-                    print(f"  mono[walk] {inst.key}.{m.name}")
                 self._walk(m, ext_subst, inst.depth, inst.chain, inst.demand)
 
     def _applicable_extensions(self, base, args):
@@ -835,9 +811,6 @@ class Monomorphizer:
                 continue
             for bound in tp.bounds:
                 if not self.namespace.type_satisfies_bound(args[i], bound):
-                    if _TRACE:
-                        print(f"  mono[bounds] {ext.struct_name}: "
-                              f"{args[i]} does not satisfy {bound}")
                     return False
         return True
 
@@ -880,25 +853,6 @@ class Monomorphizer:
         subst.update(_zip_params(getattr(method, 'type_params', None),
                                  inst.method_args or []))
         self._walk(method, subst, inst.depth, inst.chain, inst.demand)
-
-    # -------------------------------------------------------- shadow mode
-    def shadow(self, key, what, demander):
-        """Codegen asked for `key`. Stage 1's completeness proof.
-
-        A miss is a demand class this walk failed to enumerate. Logged by
-        default so a full-suite run collects the whole list in one pass;
-        `SAWC_MONO_SHADOW=strict` promotes it to an internal error, which is
-        what the gate runs, and is the shape stage 3's ICE-on-miss takes.
-        """
-        if key in self.instances:
-            return
-        message = (f"monomorphization shadow MISS: {what} `{key}` was not "
-                   f"discovered by the fixpoint (demanded while lowering "
-                   f"{demander})")
-        if _SHADOW == "strict":
-            raise AssertionError(message)
-        if _SHADOW:
-            print(f"  {message}")
 
 
 # Field values that can never lead to a demand, filtered where they are read.

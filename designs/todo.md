@@ -502,11 +502,33 @@ shape; the census saw it build once over the 232 files. C3 (the gsm table read)
 and C4 (consumption symmetry) were not separately instrumented and are not
 claimed either way here.
 
+THE SAME MECHANISM BLOCKS STAGE 5's OTHER TWO DELETIONS, which is what makes
+this a class rather than one row (obligation 4). §7 stage 5 retires
+`_process_effect_monos`'s shell and T5's poly-candidate machinery on §2b's
+argument that "every demanded instance gets its own effect node unconditionally
+… so the poly-candidate deferral and its four recorder sites delete". The
+effect NODE is not the problem; the EDGE is. Probed, not argued: with
+`_effect_record_poly_call` neutralized and everything else at stage 4b,
+`examples/errors/sync_generic_instantiation_suspends.saw` — design 70's key
+both-ways case, where `run<Slow>` suspends and `run<Fast>` does not —
+**COMPILES**, losing the refusal (`-f generic,coro,place,poly`: 344 passed, 1
+failed, that one). Without T5's caller -> instance edge the `sync` caller has
+only its edge to the TEMPLATE, whose own node has no direct source and no edge
+(its suspension is the type parameter's), so the caller is judged
+suspension-free. `_process_effect_monos`'s three drain loops are the same
+story from the build side, and its gsm loop is C3's input.
+
+Stage 4a's re-entrant `finalize_effects` is what a real fix would build on — it
+already settles the graph over the spliced instances — but the edges it settles
+were recorded against templates, so the fix is to DERIVE the effect graph over
+the monomorphized program rather than to patch it afterwards. That is a design.
+
 NOT FIXED. Recommendation: its own dispatch, sequenced WITH DF-292c — both are
 the question "what does an instance body belong to, the pass or the program?"
-and answering it once is what would let C1-C4 go rather than shrink. Until
-then §2c's rows read as "no longer BUILDS", which is what the unit-4 ledger
-records. [218c §2c, §7 stage 4]
+and answering it once is what would let C1-C4, T5 and the
+`_process_effect_monos` shell go rather than shrink. Until then §2c's rows read
+as "no longer BUILDS", which is what the unit-4 ledger records. [218c §2b, §2c,
+§7 stages 4-5]
 
 ## ~~DF-258a — a NESTED call to an unconditionally-suspending GENERIC silently
 ## loses its yield~~ (filed Aug 25 by the 218c spec's probes P3/P3b;

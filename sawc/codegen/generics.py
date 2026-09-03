@@ -103,25 +103,16 @@ class GenericsMixin:
         """
         return mangle_method(struct_name, method_name, param_names, method_type_args)
 
-    def _mono_shadow(self, key: str, what: str, demander: str):
-        """design 218 unit 1.5 stage 1 — the registry-completeness proof.
-
-        Every codegen site that DECIDES an instantiation reports the identity
-        it decided on. Stage 1 only compares; stage 3 makes the comparison the
-        lookup and a miss an ICE, which is the standing decides-vs-lowers gate.
-        A no-op when no registry is attached (the builtin compile, a code
-        generator built by a tool).
-        """
-        registry = getattr(self, 'mono_registry', None)
-        if registry is None:
-            return
-        # The LLVM function under construction, which is the body whose
-        # lowering raised the demand — the one piece of context a miss report
-        # cannot be read without.
-        builder = getattr(self, 'builder', None)
-        block = getattr(builder, 'block', None) if builder is not None else None
-        inside = getattr(getattr(block, 'parent', None), 'name', None)
-        registry.shadow(key, what, f"{demander} (in {inside or '<registration>'})")
+    # `_mono_shadow` (218c stage 1's registry-completeness proof) is GONE,
+    # retired at stage 5 along with `SAWC_MONO_SHADOW` itself. It existed to
+    # compare every codegen site that DECIDED an instantiation against the
+    # registry while both pipelines coexisted; no such site is left. Every
+    # `_ensure_*` / `_instantiate_*` entry for a function or a method is a
+    # lookup whose miss is an internal error, so the comparison IS the lookup.
+    # The two type entries below still MINT a layout on demand — by design, and
+    # the one thing shadow mode had left to say — but a layout is minted from
+    # the registry's own set up front and this is its lazy re-entry under a
+    # different demand path, not a second opinion about which instances exist.
 
     @property
     def _identity_env(self):
@@ -251,7 +242,6 @@ class GenericsMixin:
         # element as non-owning and the env leaks / is not retained.
         type_args = [self._mark_stored_closure_escaping(a) for a in type_args]
         mangled_name = self._mangle_generic_struct_name(struct_name, type_args)
-        self._mono_shadow(mangled_name, "generic struct", struct_name)
 
         # Already generated
         if mangled_name in self.struct_types:
@@ -310,7 +300,6 @@ class GenericsMixin:
         # a `MapSlot<K, V>` payload type) so nested enum drop glue is selected.
         type_args = [self._canonicalize_type_kind(a) for a in type_args]
         mangled_name = self._mangle_generic_struct_name(enum_name, type_args)
-        self._mono_shadow(mangled_name, "generic enum", enum_name)
 
         # Already generated
         if mangled_name in self.enum_types:

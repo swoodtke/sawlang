@@ -297,6 +297,33 @@ MIGRATES, not survives, in the eventual table. Each finding either migrates up i
 a documented justification in a standing ledger — the codegen twin of rt/ABI.md:
 what codegen is allowed to know about the language, frozen and reviewable.
 
+### Unit 4's ledger, first entry (authored by unit 1.5 stage 5, Sep 3)
+
+**GENERICS: what codegen is allowed to know is nothing but the registry.**
+Unit 1.5 made the decision of which instantiations exist a demand-driven
+fixpoint that runs before the transforms, so the ledger row is a short one:
+
+* Every FUNCTION and METHOD instantiation codegen needs is a LOOKUP in
+  `mono_registry`, and a miss is an internal compiler error naming what was
+  demanded and the body that demanded it. There is no fallback path that
+  builds one, and the two generic body generators that used to are deleted
+  (census rows G3 and M6). This is the decides-vs-lowers gate for generics,
+  and it is enforced by construction rather than by audit.
+* The one thing codegen still MINTS is a generic struct's or enum's LLVM
+  LAYOUT, because an identified struct type can only be built against an
+  `ir.Module`. The DECISION is still the registry's: layouts are constructed
+  up front for exactly the registered set, and
+  `_ensure_monomorphized_struct`/`_enum` remain as the lazy re-entry for an
+  instance reached again down a different demand path. A layout is a
+  representation of an instance the registry already chose, never a choice.
+* `mono_identity` is the shared answer to what an instance IS — the
+  canonicalization trio plus `instance_is_lowered_specially` — so the phase
+  and codegen cannot disagree about identity (the DF-190c lesson).
+* NOT yet true, and filed: the coroutine transform still walks driven bodies
+  to map a generic call site onto an instance key, because the effect edge out
+  of a driven body names the TEMPLATE. It BUILDS nothing (stage 4), but the
+  walk is knowledge about generics living outside the registry. DF-295a.
+
 **Unit 5 — FUTURE, gated on measurement: checked `Slot` elision.**
 Occupancy in a coroutine frame is a function of the resume index — today's
 hand-written `__release` already encodes exactly that. So the optimized form
