@@ -70,7 +70,7 @@ is scheduled and in what order is the whole of what they say.
 - DF-252a — calling a `FuncPointer` value BY NAME inside a driven body is an internal compiler error (entry below, filed by design 242 unit 4; PRE-EXISTING, and invisible until ruling 8 refused the vacuous test that claimed to cover it). Pinned XFAIL, seven-cell matrix with three green controls
 - DF-256b — the thread control block is DEALLOCATED at a size std computes by hand, and the two do not agree with the one codegen allocated (entry below, filed Aug 25 by design 242 unit 3b; PRE-EXISTING and inert on both hosted allocators, which free by pointer)
 - DF-257a — the two construction checkers SELECT an init differently, so an init with a defaulted parameter resolves at the bare spelling and is `no matching initializer` at the module-qualified one (entry below, filed Aug 25 by design 234 unit 3's hazard sweep; PRE-EXISTING, probe-refuted in both directions)
-- DF-257b — design 234 §5 keeps the `copy()` hook infallible, which leaves `Vector.try_copy` as the one alloc `try_` twin the flip cannot retire; owes a naming ruling (entry below, filed Aug 25 by design 234 unit 3)
+- DF-257b — design 234 §5 keeps the `copy()` hook infallible, which leaves the `try_copy` FAMILY (Vector's, Map's, Set's — the 262 census corrected the "one twin" count, Sep 3) as the alloc `try_` twins the flip cannot retire; owes a naming ruling (entry below, filed Aug 25 by design 234 unit 3)
 - ~~DF-257c~~ — CLOSED Aug 27 by design 246 unit B: the by-LLVM-type fallback stopped being ambiguous when a payload-carrying enum became an IDENTIFIED struct. Entry below; the pin is no longer an XFAIL
 - DF-257d — the `$0` closure shorthand is invisible to the implicit-parameter scan inside a `try` operand, so the closure infers arity 0 (entry below, filed Aug 25 by design 234 unit 3; PRE-EXISTING). Pinned XFAIL; the flip meets it because `try!` is the corpus migration spelling
 - DF-259a — `Box<any Trait>.make` sits outside design 234's flip, so one method name has two fallibilities and the erased one panics with a bare `allocation failed` (entry below, filed Aug 25 by the design-138 doc-sync sweep). This IS the 234 census's `existentials.py:402` hold, which never became a tracker entry — it owes the user ruling that brief deferred
@@ -117,9 +117,36 @@ is scheduled and in what order is the whole of what they say.
 - DF-290a — SOUNDNESS: a closure's `&`/`&var` PARAMETER may be `move`d — silent double free (entry below, filed Sep 2 by DF-288a's fix agent; PRE-EXISTING). The SAME mechanism as DF-288a at a different registration site: a reference parameter is bound with the REFERENT's type, so `{ &var e in move e }` sees an owned local. Not fixed with DF-288a — a different construct owing its own consumer sweep over the `with_ref`/`with_var_ref` idiom; the flag and the refusal it needs are already built. Corpus census: zero occurrences
 - DF-286b — **THE STAGE-3c-2 BLOCKER**: A3's instance-check residue was measured on ONE program, and the corpus's population is larger and different in kind (entry below, filed Sep 1 by design 218 unit 1.5 stage 3c's agent). 115 diagnostics over 14 of 122 generic-named examples, in at least six classes, of which only two are the signed families — and two of the six are genuine funnel/registry DEFECTS, not artifacts. Needs a ruling before splice-all can be built
 - DF-286c — the materialization funnel does not reproduce what codegen's `type_param_context` path did, at four named positions (entry below, same filing; ONE mechanism, four faces — const-generic VALUES, associated-type annotations, the conditional-conformance bounds filter, and a `-> T?` tail's auto-wrap). Its matrix is stage 3c-2's test plan. **CLOSED Sep 2 by stage 3c-2a/3c-2c(1): face 1 both halves, face 2, face 3 (reframed into B1) and face 4 all fixed and pinned; face 4 turned out to be a CONCRETE-path defect the generic path had been hiding — see DF-289d for its residue**
+- DF-294a — `FixedBuf.get` PANICS where the accessor rule says a get-shaped accessor answers `None`; RULED Sep 3: `get -> Byte?`, rides 262's U1/U2 dispatch (entry below, filed Sep 3 from census C5)
 - DF-291b — `Vector.fold` at an OWNING accumulator LEAKS one reference per element (entry below, same filer; PRE-EXISTING, NOT fixed here). `v.fold(arc, { acc, e in acc })` over three elements takes an `Arc<Res>` from strong count 1 to 5 and never drops it, before and after the cutover ALIKE — found by the DF-289e residual sweep, which is what a differential probe is for, and left alone because it is not this flip's and owes its own mechanism sweep over the by-value accumulator's transfer chain
 
 
+
+## DF-294a — `FixedBuf.get` PANICS where design 130's accessor rule says a
+## get-shaped accessor answers `None` (filed Sep 3 by the 262 census, C5;
+## **RULED Sep 3: `get -> Byte?`**)
+
+The sole std violator of the get-shape half of the accessor rule, and
+AUTHORED against it rather than drifted — the docstring says "Panics if `i`
+is out of range" (fixedbuf.saw:52-58). Census probe: exit 134,
+`panic at fixedbuf.saw:55: FixedBuf.get: index out of range: 99 (len 8)`.
+
+MECHANISM (obligation 4) — sweep DONE by the lead, Sep 3, and the finding is
+a confirmed ONE-OFF: every other get-shaped accessor complies (`Data.get`
+-> `Byte?`, `Vector.get` -> `T?`, `Map.get` borrows `V?`, `Data.slice` ->
+`Data?`, `Once.try_get` -> `T?`); `Mutex.get`/`Once.get` are design 186's
+fault-on-bug tier by ruling, not indexed accessors; `String.byte_at` and
+`substring` are on the rule's DIRECT-accessor panic list by name. No
+mechanism reaches siblings — one author wrote one accessor against the rule.
+
+RULED FIX: `FixedBuf.get(&self, i: Int) -> Byte?`, matching `Data.get`
+exactly; `FixedBuf.set` stays a panicking direct accessor (Data.set's tier).
+Rides 262's U1/U2 dispatch as a rider (that dispatch already owes the full
+battery; the std change adds suite+freestanding weight it was already
+carrying). In-tree callers swept at fix time; the sawos-facing migration
+note rides the HELD pin bump beside 261's Box.value note. Doc rows citing
+`FixedBuf.get`'s panic (skill's fixed-buffer idiom section) correct in the
+same landing. [130, 148, 250, 262]
 
 ## DF-291b — `Vector.fold` at an OWNING accumulator LEAKS one reference per
 ## element (filed Sep 2 by the same agent; PRE-EXISTING, NOT fixed here)
@@ -1155,6 +1182,14 @@ HELD at 3 for now: unit 3 left `try_copy`'s NAME alone and flipped only its body
 else in std spells the prefix for allocation. Conformance row A17 pins the
 boundary that creates this — `Vector.copy()` still panics on refusal — so the
 residue is visible from the ledger rather than only from here. [219, 234]
+
+SEP-3 CORRECTION (design 262 census, C4): "nothing else in std spells the
+prefix" was wrong — `Map.try_copy` (map.saw:628) and `Set.try_copy`
+(set.saw:255) exist, work (probe ran, printed 1 1 1), and their own doc
+comments cite this entry. The naming ruling therefore covers a FAMILY of
+three, and whichever way it goes applies to all three in one landing. Docs
+saying "lone survivor" corrected: CLAUDE.md Sep 3; spec + skill faces ride
+262 U2.
 
 ## DF-257c — CLOSED Aug 27 by design 246 unit B — a propagating `try` inside a
 ## GENERIC body is resolved ONCE and reused across monomorphizations (filed
