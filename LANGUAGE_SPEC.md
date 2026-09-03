@@ -6983,11 +6983,7 @@ Observable rules:
   ```
 - **Not yet supported** (rejected with a diagnostic anchored at the user's source
   line, not miscompiled): a
-  suspension-spanning `if let`/`guard let` with a *tuple pattern*; a **nested** generic call
-  whose template suspends *unconditionally* without calling a type-param method
-  (`func g<T>(x: T) -> T { yield_now(); x }` called nested — its instantiation's
-  effect node is not built; drive it directly with `__saw_drive`/`spawn` instead — a
-  same-module limit, orthogonal to the module boundary); a suspension inside a `for`
+  suspension-spanning `if let`/`guard let` with a *tuple pattern*; a suspension inside a `for`
   over a non-range iterable; a value-producing `break` out of a suspension-spanning
   loop; a chained assignment through MORE THAN ONE optional hop whose RHS
   suspends (`a?.b?.c = stream.read()` — the single-hop form works; bind the inner
@@ -7360,14 +7356,16 @@ Now-closed gaps (design 62), each landed with tests:
   reachable.
 
 Remaining limits (rejected cleanly / documented, not miscompiled): the
-design-104-era list in the Suspension section above — a suspension-spanning
-`if let`/`guard let`/`while let` with a tuple pattern, and a nested generic call whose template
-suspends unconditionally without calling a type-param method. Earlier restrictions
+design-104-era list in the Suspension section above, of which a
+suspension-spanning `if let`/`guard let`/`while let` with a tuple pattern is the
+head. Earlier restrictions
 — a spawned function had to be non-`Void`, a nested suspending *method* was not
 embeddable, an `if let`/`guard let` body could not span a suspension, a suspending
-call could not sit in a larger expression, and such a body could not re-bind the
-bound name — were lifted (designs 102 item 1, 84/101, 104 item 1, 120, and the
-per-binding frame fields described below).
+call could not sit in a larger expression, such a body could not re-bind the
+bound name, and a nested call to a generic whose template suspends
+unconditionally lost its suspension — were lifted (designs 102 item 1, 84/101,
+104 item 1, 120, 218 unit 1.5, and the per-binding frame fields described
+below).
 
 Two bindings in one suspending body may share a name. Each keeps its own storage
 across a suspension, whether they nest (a design-100 derived shadow such as

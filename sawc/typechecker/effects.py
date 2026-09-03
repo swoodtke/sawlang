@@ -32,7 +32,7 @@ codegens to a no-op; this pass is pure typechecker machinery.
 
 import dataclasses
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 from errors import ErrorKind
 from mono_copy import substitute_constructed_type_param, substituting_copy
 from monomorphize import substituted_param_names
@@ -367,6 +367,14 @@ class EffectsMixin:
         #   * every (trait, method) a conformance implements, for the answer.
         self._existential_dispatch_sites: List[Any] = []
         self._trait_impl_nodes: Dict[Any, Any] = {}
+        # `finalize_effects` is RE-ENTRANT (design 218c §1a phase 3, which runs
+        # after phase 2's monomorphization) and its fixpoint is monotone, so a
+        # later settling can only ADD suspending nodes. Its three diagnostics
+        # are not monotone in that sense — each must fire exactly once — so the
+        # funnel keeps one ledger of what it has already said. Tokens are
+        # ("sync", node key), ("consumes-fence", method node id) and
+        # ("existential", site tuple).
+        self._effects_reported: Set[Any] = set()
 
     def _effect_record_driven(self, name: str, mode: str):
         self._driven_roots.setdefault(name, set()).add(mode)
@@ -994,13 +1002,30 @@ class EffectsMixin:
     def finalize_effects(self):
         """Run the whole-program fixpoint, then check every sync context.
 
-        Idempotent: guarded so it runs once even if both the single-file and
-        module entry paths call it.
-        """
-        if getattr(self, "_effects_finalized", False):
-            return
-        self._effects_finalized = True
+        RE-ENTRANT, and deliberately so. ENTRY POINTS (obligation 1 — this is a
+        funnel, so its entries are named here):
 
+          * `check_module`'s `is_entry` arm / `check` — the FIRST settling, over
+            the abstractly-checked program. Every module's bodies have
+            contributed their edges by then.
+          * `sawc._prepare_codegen`, immediately after phase 2's
+            monomorphization — design 218c §1a's phase 3 ("effect finalize +
+            the driven/spawn classification | concrete instances included"),
+            which the driver could not honour while this ran once. A spliced
+            instance's body carries its OWN effect node, minted by the instance
+            check; until the fixpoint runs again over the enlarged graph that
+            node reads `suspends=False` however plainly the body writes
+            `yield_now()`, and the coroutine transform then classifies the call
+            as ordinary and erases the suspension. That is DF-258a.
+          * `sawc.compile_saw` under `--runtime-build` / `--emit-docs`, where
+            the entry module is checked with `is_entry=False` and nothing above
+            has settled the graph.
+
+        Re-entry is sound because the fixpoint is MONOTONE — a node flips to
+        `suspends` and never back, so a later run only ADDS. The three
+        diagnostics below are not monotone in that sense, so each consults
+        `_effects_reported` and speaks once per node or site.
+        """
         # design 206: the entry compile never checks std bodies, so every edge to
         # a std method points at a node that does not exist. Mint those nodes
         # first — before the fixpoint reads them — or the whole analysis below is
@@ -1055,6 +1080,9 @@ class EffectsMixin:
                     beyond_blocking = suspends_ignoring_blocking(nodes)
                 if not beyond_blocking.get(node.key):
                     continue
+            if ("sync", node.key) in self._effects_reported:
+                continue
+            self._effects_reported.add(("sync", node.key))
             self._report_sync_violation(node)
 
         self._report_existential_suspend_dispatch(really_suspending(nodes))
@@ -1076,12 +1104,15 @@ class EffectsMixin:
         ceded to a sibling. Anchored at the DISPATCH, which is the line an
         author can act on.
         """
-        for trait_name, method_name, line, column, src in \
-                self._existential_dispatch_sites:
+        for site in self._existential_dispatch_sites:
+            trait_name, method_name, line, column, src = site
             impls = self._trait_impl_nodes.get((trait_name, method_name), ())
             for node_id, owner in impls:
                 if not really.get(node_id):
                     continue
+                if ("existential", site) in self._effects_reported:
+                    break
+                self._effects_reported.add(("existential", site))
                 self.reporter.error(
                     ErrorKind.TYPE_MISMATCH,
                     f"cannot dispatch through `any {trait_name}` to "

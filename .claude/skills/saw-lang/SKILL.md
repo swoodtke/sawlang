@@ -2470,13 +2470,14 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   names the direct call — which is what embeds.
   Still a clean,
   user-anchored compile error (NOT a silent block): a suspension-spanning `if let`/
-  `guard let`/`while let` with a TUPLE pattern; a suspending `try { } catch { }` block whose try
-  body raises TWO OR MORE distinct error types (below); and a NESTED generic call
-  whose template suspends
-  UNCONDITIONALLY without calling a type-param method (`func g<T>(x: T) -> T {
-  yield_now(); x }` called nested) — its instantiation's effect node is not built,
-  so drive it directly with `__saw_drive`/`spawn` instead (this is a same-module limit,
-  not a cross-module one). A method that is BOTH struct-generic AND method-generic
+  `guard let`/`while let` with a TUPLE pattern; and a suspending `try { } catch { }` block whose try
+  body raises TWO OR MORE distinct error types (below).
+  A NESTED generic call whose template suspends UNCONDITIONALLY without calling a
+  type-param method (`func g<T>(x: T) -> T { yield_now(); x }` called nested) PARKS
+  since design 218 unit 1.5 — write it and it takes its turn. Until then it
+  compiled to a plain function with the `yield_now()` erased, so a task whose only
+  suspension was that call ran to completion before its siblings started; if you
+  are reading output from an older build, suspect that. A method that is BOTH struct-generic AND method-generic
   (`Dual<T>.mix<U>`) now drives (design 104 item 3): the frame is keyed by both
   instantiations (`Dual_mix$2$T$U`), so 2 struct × 2 method insts are 4 distinct
   frames. TWO BINDINGS IN ONE SUSPENDING BODY MAY SHARE A NAME and each keeps its

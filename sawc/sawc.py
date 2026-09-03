@@ -1693,6 +1693,24 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
         reporter.print_all()
         sys.exit(1)
 
+    # =========================================================================
+    # Phase 3 (218c §1a): effect finalize, CONCRETE INSTANCES INCLUDED
+    # =========================================================================
+    # The spec's phase table settles the effect graph AFTER monomorphization,
+    # and until stage 4 the driver could not: `finalize_effects` ran inside the
+    # entry check and refused to run twice. A spliced instance's body gets its
+    # own effect node from the instance check — `hop$1$Int`'s node records the
+    # `yield_now()` in its body as a direct source — but the fixpoint that turns
+    # a direct source into `suspends` had already run, so the node read
+    # `suspends=False` and the coroutine transform classified the call as an
+    # ordinary non-suspending one and erased the suspension. That is DF-258a,
+    # and this line is its fix; `finalize_effects` is re-entrant, monotone, and
+    # says each diagnostic once.
+    typechecker.finalize_effects()
+    if reporter.has_errors():
+        reporter.print_all()
+        sys.exit(1)
+
     # design 44: the source-level coroutine transform. If the program drove any
     # suspending function (`__saw_drive(...)` recorded roots during the effect
     # analysis above), rewrite those roots into frame structs + resume methods on

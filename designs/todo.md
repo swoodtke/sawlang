@@ -458,9 +458,23 @@ which is what that row was measuring anyway. Either the form is made to work or
 the two documents stop offering it; the status quo promises a spelling the
 language does not have. [122, 129]
 
-## DF-258a — a NESTED call to an unconditionally-suspending GENERIC silently
-## loses its yield (filed Aug 25 by the 218c spec's probes P3/P3b; PRE-EXISTING
-## — pinned at 218 unit 1.5 stage 0, flips at stage 4)
+## ~~DF-258a — a NESTED call to an unconditionally-suspending GENERIC silently
+## loses its yield~~ (filed Aug 25 by the 218c spec's probes P3/P3b;
+## PRE-EXISTING — pinned at 218 unit 1.5 stage 0)
+## **CLOSED Sep 3 by design 218 unit 1.5 stage 4.** The prediction held in its
+## architecture and MISSED one link: phase 2 does splice `hop$1$Int` and its
+## instance check does mint the effect node with the `yield_now()` recorded as a
+## direct source — but `finalize_effects` ran inside the entry check and refused
+## to run twice, so the fixpoint that turns a direct source into `suspends` had
+## already gone by, the node read `suspends=False`, and the transform classified
+## the call as ordinary. The spec's own phase table says otherwise (phase 2
+## MONOMORPHIZE, then phase 3 effect finalize "concrete instances included"), so
+## the fix is the ORDERING: `finalize_effects` becomes a re-entrant funnel with
+## three named entry points, and the driver calls it again immediately after
+## monomorphization. Sound because the fixpoint is monotone; its three
+## diagnostics speak once each through an `_effects_reported` ledger. The XFAIL
+## marker is gone and the pin is the regression test under its own name. Kept
+## below as the record.
 
 ```saw
 func hop<T>(x: T) -> T { yield_now()  x }

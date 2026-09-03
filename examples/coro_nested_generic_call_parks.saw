@@ -1,30 +1,29 @@
 // A NESTED call to an unconditionally-suspending GENERIC must actually PARK.
 //
 // `hop<T>` suspends unconditionally and calls no method on its type parameter,
-// so its instantiation gets no per-instantiation effect node — and design
-// 218b's landing note (c) records what follows: the coroutine transform
-// DECLINES to promote it to a concrete spliced callee, and codegen's late
-// monomorphization is what serves the call. Codegen has no frame machinery, so
-// it compiles `hop$1$Int` as a plain function and the `yield_now()` inside it
-// EVAPORATES — the emitted body is `ret i64 %x`.
+// so it gets no design-70 per-instantiation effect queueing — and before design
+// 218 unit 1.5 stage 4 that decided the outcome: the coroutine transform
+// DECLINED to promote it to a concrete spliced callee, codegen's late
+// monomorphization served the call, and since codegen has no frame machinery it
+// compiled `hop$1$Int` as a plain function whose `yield_now()` EVAPORATED — the
+// emitted body was `ret i64 %x`. Nothing said so; the program compiled, printed
+// the right numbers and never ceded, which contradicted the documented promise
+// that suspending calls "embed at any nesting depth ... or error cleanly —
+// never silently block". That was DF-258a.
 //
-// Nothing says so. The program compiles, prints the right numbers and never
-// cedes, which contradicts the documented promise that suspending calls "embed
-// at any nesting depth ... or error cleanly — never silently block".
+// It parks now because the instance is an ordinary concrete function by the
+// time the transform runs: phase 2 splices `hop$1$Int` and its instance check
+// mints the effect node, and phase 3 settles the fixpoint over the enlarged
+// graph, so the node says it suspends and the transform embeds a sub-frame.
 //
-// The oracle is INTERLEAVING, because that is the whole of what is lost. Two
+// The oracle is INTERLEAVING, because that is the whole of what was lost. Two
 // tasks in a single-threaded group take turns at every real suspension
-// (deterministic by design), so a task whose only suspension was erased runs to
-// completion before its sibling starts: today this prints `A 0 / A 1 / B 0 /
-// B 1`. Write the same body with `yield_now()` DIRECTLY in it and the twin
-// interleaves, which is what makes the expectation below a statement about the
-// nested generic rather than about the scheduler.
+// (deterministic by design), so a task whose only suspension was erased ran to
+// completion before its sibling started — `A 0 / A 1 / B 0 / B 1`. Write the
+// same body with `yield_now()` DIRECTLY in it and the twin interleaves, which
+// is what makes the expectation below a statement about the nested generic
+// rather than about the scheduler.
 //
-// XFAIL: DF-258a — the nested unconditionally-suspending generic's yield is
-// erased by codegen's late monomorphization. Design 218 unit 1.5 stage 4 flips
-// it: phase 2 splices the instantiation as an ordinary concrete function whose
-// own effect node says it suspends, and codegen can no longer instantiate
-// anything.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // A 0

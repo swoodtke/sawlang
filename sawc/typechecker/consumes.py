@@ -184,7 +184,10 @@ class ConsumesMixin:
 
         Everything else about a suspending consuming method works and is
         tested: the receiver is released exactly once, its remainder swept,
-        driven or spawned. Called once, from `finalize_effects`.
+        driven or spawned. Called from `finalize_effects`, which is re-entrant
+        (design 218c phase 3 settles the graph again after monomorphization) —
+        so the funnel's `_effects_reported` ledger is what keeps a fence that
+        fired on the first settling from firing again on the second.
         """
         if getattr(self, 'post_transform', False):
             return
@@ -192,6 +195,9 @@ class ConsumesMixin:
             node = nodes.get(method.node_id)
             if node is None or not node.suspends:
                 continue
+            if ('consumes-fence', method.node_id) in self._effects_reported:
+                continue
+            self._effects_reported.add(('consumes-fence', method.node_id))
             moved = tuple(getattr(method, 'consumes_moved_fields', ()) or ())
             if moved:
                 self._error(
