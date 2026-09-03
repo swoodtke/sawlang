@@ -1,0 +1,94 @@
+// A method receiver is evaluated EXACTLY ONCE, whichever convention the callee
+// declares for `self` (DF-293a, closed by design 261 U1b).
+//
+// The by-pointer receiver arms in `_generate_method_call` re-walk the receiver
+// expression to ADDRESS it, while the value was already generated further up to
+// name the receiver's type. For a path rooted in a binding that second walk is
+// a GEP and recomputes nothing; for a path rooted in a CALL it ran the call
+// again. `mk().c.tick()` called `mk` twice, silently — the mutation landed in
+// the second result and the first was discarded.
+//
+// The four re-walked shapes are covered a row each: a FIELD of a temporary, an
+// ELEMENT of a temporary, a TUPLE ELEMENT of a temporary, and a FORCE-UNWRAPPED
+// temporary. The `lv` rows are the control: a path rooted in a local still
+// takes the addressing arm, so its mutation reaches the caller's storage.
+//
+// This is design 261's prerequisite rather than a drive-by: those arms were
+// reachable only for a `&var self`, cell-carrying or `borrows` receiver, and
+// the receiver flip puts every aggregate `&self` call on them.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// field of temporary: tick=1 calls=1
+// element of temporary: tick=1 calls=1
+// tuple element of temporary: tick=1 calls=1
+// force-unwrapped temporary: tick=1 calls=1
+// lvalue field: tick=1 then 2, calls=0
+// lvalue element: tick=1 then 2
+
+struct Inner { n: Int }
+
+extension Inner {
+    func tick(&var self) -> Int {
+        self.n = self.n + 1
+        self.n
+    }
+}
+
+struct Outer { c: Inner }
+
+static CALLS: Atomic<Int>
+
+func mk() -> Outer {
+    CALLS.fetch_add(1)
+    Outer(c: Inner(n: 0))
+}
+
+func mk_arr() -> [Inner; 2] {
+    CALLS.fetch_add(1)
+    [Inner(n: 0), Inner(n: 5)]
+}
+
+func mk_pair() -> (Inner, Int) {
+    CALLS.fetch_add(1)
+    (Inner(n: 0), 7)
+}
+
+func mk_opt() -> Inner? {
+    CALLS.fetch_add(1)
+    Inner(n: 0)
+}
+
+func reset() {
+    CALLS.store(0)
+}
+
+func main() {
+    reset()
+    let a = mk().c.tick()
+    print("field of temporary: tick={} calls={}", a, CALLS.load())
+
+    reset()
+    let b = mk_arr()[0].tick()
+    print("element of temporary: tick={} calls={}", b, CALLS.load())
+
+    reset()
+    let c = mk_pair().0.tick()
+    print("tuple element of temporary: tick={} calls={}", c, CALLS.load())
+
+    reset()
+    let d = mk_opt()!.tick()
+    print("force-unwrapped temporary: tick={} calls={}", d, CALLS.load())
+
+    // The control: rooted in a local, so the addressing arm still applies and
+    // the mutation is visible on the caller's own storage across two calls.
+    reset()
+    var held = Outer(c: Inner(n: 0))
+    let e = held.c.tick()
+    let f = held.c.tick()
+    print("lvalue field: tick={} then {}, calls={}", e, f, CALLS.load())
+
+    var arr: [Inner; 2] = [Inner(n: 0), Inner(n: 5)]
+    let g = arr[0].tick()
+    let h = arr[0].tick()
+    print("lvalue element: tick={} then {}", g, h)
+}

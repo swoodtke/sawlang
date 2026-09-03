@@ -2104,23 +2104,27 @@ class CallsMixin:
                     self_arg = self_ptr
                 else:
                     self_arg = self_ptr  # It's an alloca, pass it
-            elif isinstance(expr.object, MemberAccess):
+            elif (isinstance(expr.object, MemberAccess)
+                    and self._receiver_path_is_lvalue(expr.object)):
                 # Handle nested mutable access like self.keys.push(...)
                 # We need a pointer to the field, not a copy
                 self_arg = self._get_member_pointer(expr.object)
-            elif isinstance(expr.object, ArrayIndex):
+            elif (isinstance(expr.object, ArrayIndex)
+                    and self._receiver_path_is_lvalue(expr.object)):
                 # A pointer/array-element receiver — `ptr[i].mutating()` (design
                 # 52b: `__group[0].__enqueue(...)`). Address the real element slot
                 # so the mutation lands on the pointee, not a materialized copy.
                 self_arg = self._get_element_pointer(expr.object)
-            elif isinstance(expr.object, TupleIndex):
+            elif (isinstance(expr.object, TupleIndex)
+                    and self._receiver_path_is_lvalue(expr.object)):
                 # A TUPLE-ELEMENT receiver — `t.0.push(x)` (DF-151j). The tuple
                 # projection is a place on the write side exactly as a struct
                 # field is, so address the element slot; otherwise this fell to
                 # the materialize-a-temporary `else` below and every mutation
                 # through a tuple element was silently discarded.
                 self_arg = self._get_tuple_element_pointer(expr.object)
-            elif isinstance(expr.object, ForceUnwrap):
+            elif (isinstance(expr.object, ForceUnwrap)
+                    and self._receiver_path_is_lvalue(expr.object)):
                 # A `&var self` method on an opt-encoded lvalue `x!` — most
                 # commonly a coroutine frame-local `self.acc!` (design 62: an
                 # owning across-suspend local is opt-encoded, and `_rewrite_node`
@@ -2185,6 +2189,54 @@ class CallsMixin:
             method_func, args, "methodcall",
             arg_types=self._emitted_arg_types(
                 expr, method_defs_all[1:] if method_defs_all else [], leading=1))
+
+    def _receiver_path_is_lvalue(self, expr) -> bool:
+        """Does this receiver expression NAME storage rather than PRODUCE a
+        value? (DF-293a.)
+
+        The by-pointer receiver arms above re-walk the receiver expression to
+        ADDRESS it — `_get_member_pointer` for `a.b`, `_get_element_pointer`
+        for `a[i]`, `_get_tuple_element_pointer` for `t.0`, a `&var` reference
+        for `o!` — while `obj_val` was already GENERATED from the same
+        expression further up, to name the receiver's type. That is two
+        evaluations, and for a path ROOTED IN A CALL the second one runs the
+        call again:
+
+            let r = mk().c.tick()      // `mk` ran TWICE; `tick` mutated the
+                                       // second result and the first was lost
+
+        A path rooted in a binding, in `self`, or in a module static is
+        storage: re-walking it emits a GEP that recomputes nothing, which is
+        the case those arms exist for and which stays exactly as it was. A
+        path rooted in anything else is a TEMPORARY — there is no caller
+        storage for the mutation to reach — so it belongs on the
+        spill-a-temporary arm at the bottom, which addresses the `obj_val`
+        already in hand and therefore evaluates the receiver ONCE.
+
+        Design 261 is why this is fixed here rather than filed and left: the
+        arms above were reachable only for a `&var self`, cell-carrying or
+        `borrows` receiver, and the flip puts EVERY aggregate `&self` call on
+        them.
+        """
+        node = expr
+        for _ in range(64):
+            if self._static_global(node) is not None:
+                return True
+            if isinstance(node, MemberAccess):
+                node = node.object
+            elif isinstance(node, ArrayIndex):
+                node = node.array_expr
+            elif isinstance(node, TupleIndex):
+                node = node.tuple_expr
+            elif isinstance(node, ForceUnwrap):
+                node = node.expr
+            elif isinstance(node, SelfExpr):
+                return "self" in self.variables
+            elif isinstance(node, Identifier):
+                return node.name in self.variables
+            else:
+                return False
+        return False
 
     def _interior_cell_pointer(self, obj_expr, want_pointee=None):
         """`cell.ptr()` — the address of an interior cell's own storage (186).
