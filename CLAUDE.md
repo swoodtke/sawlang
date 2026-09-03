@@ -66,7 +66,7 @@ activated first.
     [--freestanding] [--runtime-build] [--runtime-provider]
     [--no-hidden-alloc] [-W NAME | -W all]
 ```
-That is the complete flag set (`sawc.py:1774-1876`); `-o` defaults to
+That is the complete flag set (`sawc.py:2040-2142`); `-o` defaults to
 `.build/<source>`. `--no-hidden-alloc` (design 135) rejects the
 allocations the compiler inserts that no source construct names.
 `-W` (design 150) enables a warning category (repeatable, `-W all` for
@@ -424,8 +424,10 @@ the builtins + concurrency primitives — TaskGroup/`Task<T>`/VoidTask/
 sleep/cancelled/Atomic, with `Thread.spawn`/`Task.spawn` as FORMS, not
 importable names — StringBuilder, Duration); File/Data/Channel/Mutex/
 SpinLock (std.spinlock)/Once (std.once)/slab (std.slab)/net (IoError/
-IoErrorKind)/Utf8Error/process/env/time (Instant)/fixedbuf (FixedBuf/
-FixedStringBuilder)/cbor (CborEncoder/CborDecoder)/std.compiler.frame
+IoErrorKind)/Utf8Error/path (Path)/directory (Directory)/process/env/
+time (Instant)/fixedbuf (FixedBuf/
+FixedStringBuilder)/cbor (CborEncoder/CborDecoder)/json (JsonValue)/
+std.compiler.frame
 (Slot/UnsafeRef/Poll/Resumable) — and `yield_now` + `dump_tasks`
 (std.task, designs 114/158; the cooperative-yield
 wrapper over the now stdlib-internal intrinsic) — need an import — so a
@@ -476,7 +478,8 @@ carries `panic at FILE:LINE:` (122); ONE allocator-failure policy —
 every allocating std op returns `Result<_, AllocError>` all-or-nothing,
 design 123's panic tier and its `try_` twins RETIRED by design 234
 (Aug 25: constructors fallible via `Result<Self, E>` inits, `try_` now
-means NON-BLOCKING only, `Vector.try_copy` the lone survivor pending
+means NON-BLOCKING only, the `try_copy` family — Vector's, Map's,
+Set's — the surviving alloc twins pending
 DF-257b's naming ruling; the five documented panic boundaries are
 compiler-inserted allocations, collection literals, `copy()`, `Data`'s
 CoW subscript, and the String layer); TaskGroup teardown is EAGER —

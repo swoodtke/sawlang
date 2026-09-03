@@ -135,6 +135,40 @@ U1/U2 surface is docs + tools/battery.sh, not compiler internals.
   the example stays, marked with its DF citation, exactly as an XFAIL
   pins a finding.
 
+## Amendment A (Sep 3, post-census — lead, on U0's evidence; report:
+## designs/reviews/docs-census-sep3.md)
+
+The census (1,664 sawc invocations over 440 Saw-tagged blocks; zero
+ICEs) corrects §1's marker design in three places and §0's sizing:
+
+- **`saw-error` REQUIRES `// error-contains:`** (census C1). sawc says
+  ``no `main` function found`` before reaching most claimed checks, so
+  the exit-code-only form passes ~300 of 440 blocks without testing
+  anything — of 115 error-marked blocks only 8 refuse at the marked
+  line cleanly. The lane additionally REJECTS an error-demo whose only
+  diagnostics are `no main` / a line-1 parse error, unless the pinned
+  substring names exactly that.
+- **The lane's compile spelling is `-c`** (census C2): object-only, no
+  main required, no link — 72 blocks accept under it vs 19 under the
+  default, with zero doc edits. A `saw` block must compile under `-c`
+  as written.
+- **A fourth marker, ` ```saw-body `** (census C3): a statement
+  sequence the HARNESS wraps in a synthesized `func main() { }` (plus
+  hoisted imports) before compiling — scaffold in the harness, never in
+  the doc text, which keeps §1's no-hidden-lines rule intact. The
+  census found 20 such blocks; with `-c` covering the 50 append-main
+  blocks as plain `saw`, the four markers cover 92 blocks verified
+  today, and U2's cheap promotions grow that.
+- Sizing corrections (C10/C11): CLAUDE.md has 5 fences (4 bash + the
+  repo map — all non-Saw, so nothing owed); the skill has 88 blocks /
+  87 tagged, not 30/15; SUSPECT callouts are 44 (39 skill + 5 spec).
+
+Also recorded here: the census's headline is INVERTED from §0's risk
+ranking — the 234/242 priority checks came back CLEAN in all four
+sources and 40 spec error demos quote real diagnostics near-verbatim;
+the debt is block verifiability (348/440 refused by every spelling),
+which is exactly what the standing lane exists to hold.
+
 ## 5. Gates
 
 U0: none (read-only; probes are single compiles). U1/U2 per-commit:
