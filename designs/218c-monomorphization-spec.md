@@ -1077,3 +1077,127 @@ machinery is stage 5's. Codegen decides no instantiation: every `_ensure_*` and
 `_instantiate_*` entry is a lookup whose miss is an internal error, and the only
 thing it still MINTS is a type instance's LAYOUT — from the registry, up front,
 plus a lazy re-entry for the same instance under a different demand path.
+
+## Amendment C (Sep 2 night) — the §5 overshoot, split into a defect and a cost
+
+The cutover's §5 measurement came in at **suite +53.8% (333 s → 512 s) and
+bootstrap +46.7% (227 s → 333 s)** against the re-based +18.8%/+16.8% envelope
+A5(b)'s override established (lead-run, interleaved 3-run medians, reuse
+defeated; `.build/scratch/gate_3c2c2_final.log`). Everything else at that gate
+was green — battery 23/23, `corodiff --all` 1,964 pairs clean. §5's remedy list
+opens with "verify the re-check is not being run twice per instance", and that
+is what this amendment answers, per shape rather than per program.
+
+### C1. The shape census — where the gap actually is
+
+Per-program medians, full executable builds, branch against main on the same
+idle machine (best of 2; `.build/scratch/probe_sweep.py`):
+
+| program | shape | main | branch (at the gate) | delta |
+|---------|-------|------|----------------------|-------|
+| `hello.saw` | plain | 1.16 | 1.68 | +0.52 (+45%) |
+| `serde169_derived.saw` | many generics | 1.58 | 2.19 | +0.61 (+39%) |
+| `place_assignment_targets.saw` | place-lowering | 1.49 | 2.16 | +0.67 (+45%) |
+| `cbor169_roundtrip.saw` | derived codecs | 2.02 | 2.59 | +0.56 (+28%) |
+| `json_value_roundtrip.saw` | big, plain | 7.62 | 8.24 | +0.62 (+8%) |
+| `coro_generic_driven_both.saw` | driven | 4.34 | 7.20 | **+2.87 (+66%)** |
+| `taskgroup_budget_loop_semantics.saw` | driven | 4.80 | 7.68 | **+2.88 (+60%)** |
+| `df151c_optional_dest_copy.saw` | driven | 4.58 | 7.49 | **+2.91 (+64%)** |
+| `coro_generic_struct_and_method.saw` | driven + generics | 4.39 | 7.26 | **+2.87 (+66%)** |
+
+The absolute delta is a CONSTANT per shape, and there are only two constants: a
+non-driven compile pays ~+0.55 s and a driven one pays ~+2.9 s. That is the
+whole suite-wide overshoot, and it says the answer is not "some programs
+instantiate more" — every compile materializes essentially the same std type
+closure (111 instances on `hello.saw`) — but "a driven compile runs the phase
+twice, and its SECOND run costs four times its first".
+
+### C2. DF-292a — the template store's snapshot is pristine on the first pass only
+
+Instrumented per monomorphization run on `coro_generic_driven_both.saw`
+(`.build/scratch/probe_perpass.py`, `probe_copyclasses.py`):
+
+```
+MONO PASS 1: 111 instances, 323 copies,  71,425 copied nodes, 0.51s
+MONO PASS 2: 115 instances, 339 copies, 250,618 copied nodes, 2.18s
+```
+
+Same instance count, same clone count, 3.5x the nodes. The templates being
+cloned are BIGGER on the second run: `Vector.push` copies 55 objects on pass 1
+and 1,581 on pass 2, and the pass-2 histogram contains `FunctionSymbol`,
+`StructSymbol` and `Method` — declarations, not template body.
+
+THE MECHANISM. §4's "invalidation: none" argument and Amendment A1 both rest on
+the store holding a template snapshotted "before any body check mutates
+annotations". `_capture_pristine_templates` runs at that point in `check` and
+`check_module`, which delivers a pristine artifact on the FIRST front-half pass
+— the AST is freshly parsed, or was `uncheck`ed by the place lowering that
+re-entered. On the coroutine transform's re-entry it does not: nothing unchecks
+std (`post_transform` lowers only the entry AST) and the entry tree is lowered
+with `uncheck_after=False` by design, so the capture point now sits AFTER the
+previous pass's body checks and snapshots their `resolved_type` stamps. A
+stamped `resolved_type` is a `SawType` carrying a `symbol` back-pointer, so the
+snapshot stops being a template and becomes a slice of the namespace — which
+every `substituting_copy` of it then re-copies, once per instance.
+
+It is not only a cost. `uncheck`'s own docstring is the authority on the other
+half: `resolved_type` is a per-pass conclusion, and "the first pass may stamp
+one under a monomorphization the second pass is not inside". Under splice-all
+that stale conclusion travels into §1c's instance check, which is the thing
+this unit exists to make real.
+
+THE FIX (`TypeChecker._pristine_snapshot`, typechecker/core.py — the store's one
+producer, both capture points through it): the snapshot drops `resolved_type`
+after it is taken. THE STAMP ONLY, and not `uncheck`: peeling the checker's
+inserted `Optional`/`Result` wraps is exactly what `uncheck_after=False`
+declines on this same AST, for the reason that applies here verbatim — a
+transform-synthesized `-> Result<Int, E>` resume method's `self.__result =
+<Int>` store is only well-typed WITH the wrap the previous check put there.
+Peeling it in the snapshot ICEs `optional_generic_concurrency` in
+`std/channel.saw`. Dropping the conclusion and keeping the synthesized form is
+the same split the place lowering already draws.
+
+RESULT: pass 2 goes 250,618 nodes / 2.18 s → 71,639 / 0.59 s, and the driven
+shape's delta goes **+2.87 s → +0.94 s**. Non-driven shapes are unchanged, as
+predicted — their capture was already pristine.
+
+### C3. What is ARCHITECTURE, and two findings left open
+
+The residual **+0.55 s per non-driven compile is the cost of splice-all**, and
+the profile says so plainly: against main it is `mono_copy._copy_value` /
+`_copy_node` / `_copy_type` / `_remember` and nothing else (hello.saw, cProfile:
++1.14 s total, of which ~0.81 s is attributable to the copier and its
+`isinstance`/`id`/`substitute` traffic). 111 registered instances, 323
+materialized bodies, ~71 k copied AST nodes per compile — for a four-line
+program, because the set is std's type closure and every compile pays it. That
+is what A5(b) measured at +18.8% and what the user's Sep-1 override accepted;
+the copier is not doing anything wasteful with it.
+
+Two findings are filed and NOT fixed here, both outside this charter:
+
+* **DF-292b — the pristine capture itself walks the same back-pointers.**
+  `_capture_pristine_templates` deep-copies 525 std methods per pass, and on a
+  post-transform pass each drags the namespace slice C2 describes: 4.2 s of a
+  10.5 s profiled driven compile — **identical on main (4.220 s) and branch
+  (4.397 s)**, so it is pre-existing and not part of this unit's delta. C2's fix
+  makes the SNAPSHOT pristine but still pays to copy what it then drops.
+* **DF-292c — the phase-6 re-run is not a cache hit.** §7's phase 6 says the
+  post-transform re-entry re-runs the fixpoint "because the transform's
+  synthesized code demands NEW instances; the cache makes the re-run cheap", and
+  §4 says the re-run "only ADDS entries". It does not: `run_monomorphization`
+  builds a fresh `Monomorphizer` per front-half pass, so on a driven compile
+  **107 of 111 instances are materialized twice and instance-checked twice**
+  (counted: `.build/scratch/probe_checkcount.py`; the four extras are the
+  transform's genuinely new demands). Carrying the registry across the re-entry
+  is what §4 describes; it is not attempted here because a cached clone is a
+  body the coroutine transform has already rewritten in place (it walks
+  `imported_ast`'s extensions), and re-splicing one into the next pass's merged
+  AST changes what codegen lowers. After C2 the remaining prize is ~0.45 s on a
+  driven compile.
+
+Verified NOT a gap, since the charter asked: **nothing re-checks a spliced body
+outside the materialization funnel.** The splice targets the merged AST, which
+`merge_programs` rebuilds from fresh lists every pass, so no spliced declaration
+reaches `check_module`, the place lowering or the next pass. Counted on
+`hello.saw`: 107 instances materialized, 107 calls; 323 instance bodies checked,
+323 calls — one apiece, for all three registry kinds.

@@ -179,6 +179,21 @@ def _module_source_files(module_ast):
     return seen
 
 
+def _drop_per_pass_type(node):
+    """Clear one node's `resolved_type` — the template store's snapshot rule.
+
+    Read by `TypeChecker._pristine_snapshot`, whose docstring carries the
+    finding (DF-292a) and the argument for dropping THIS stamp and nothing
+    else. The `place_lowered` guard is `place_uses._uncheck_node`'s, for its
+    reason: a node the lowering stamped is the lowering's output, not the
+    checker's leftover.
+    """
+    if isinstance(node, Expression) and not getattr(node, 'place_lowered',
+                                                    False):
+        node.resolved_type = None
+    return node
+
+
 @dataclass
 class VariableInfo:
     """Information about a variable in scope."""
@@ -1003,6 +1018,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # function template, so a suspending instantiation can be cloned +
         # substituted + re-checked for per-instantiation effect inference.
         import copy as _copy
+        _snap = self._pristine_snapshot
         for func in module_ast.functions:
             if getattr(func, 'type_params', None) and not getattr(
                     func, 'is_mono_instance', False):
@@ -1011,7 +1027,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                 # one name don't collide (a lone generic keeps its plain-name
                 # key).
                 key = getattr(func, 'mangled_symbol', None) or func.name
-                self._pristine_generics[key] = _copy.deepcopy(func)
+                self._pristine_generics[key] = _snap(func)
         # Method-level generic methods on a NON-generic extension: pristine
         # snapshot keyed by (struct, method), with the owning extension
         # (design 70).
@@ -1038,14 +1054,63 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                     if not getattr(m, 'is_mono_instance', False):
                         self._pristine_generic_struct_methods.setdefault(
                             (ext.struct_name, m.name), []).append(
-                                (_copy.deepcopy(m), ext))
+                                (_snap(m), ext))
                 continue
             for m in ext.methods:
                 if getattr(m, 'type_params', None) and not getattr(
                         m, 'is_mono_instance', False):
                     self._pristine_generic_methods.setdefault(
                         (ext.struct_name, m.name), []).append(
-                            (_copy.deepcopy(m), ext))
+                            (_snap(m), ext))
+
+    @staticmethod
+    def _pristine_snapshot(decl):
+        """One template snapshot, PRISTINE — the store's only producer.
+
+        DF-292a. "Pristine" is §4's own word and its "invalidation: none"
+        argument rests on it: a template carries no conclusion any pass reached,
+        so an instance cloned from one is reproducible and every cache hit stays
+        valid. The capture point is pre-body-check, which delivers that on the
+        FIRST front-half pass — the AST arrives freshly parsed, or `uncheck`ed
+        by the place lowering that re-entered.
+
+        It does not deliver it on a LATER pass. The coroutine transform's
+        re-entry re-checks std and the entry module WITHOUT unchecking them
+        first (`transform_place_uses(uncheck_after=False)`, and std is not in
+        the post-transform lowering's list at all), so this capture point runs
+        after the PREVIOUS pass's body checks and snapshots their stamps. Two
+        things follow, and the second is why the fix is here rather than in a
+        caller:
+
+          * a stale conclusion travels into the clone. `resolved_type` is a
+            per-pass judgment — `uncheck`'s own docstring records that the first
+            pass may stamp one "under a monomorphization the second pass is not
+            inside" — and §1c's instance check then runs over a body carrying
+            it;
+          * a stamped `resolved_type` is a `SawType` whose `symbol` back-pointer
+            reaches a `StructSymbol`, whose methods are AST declarations, so the
+            snapshot is no longer a template but a slice of the namespace. Every
+            `substituting_copy` of it then pays for that slice: `Vector.push`
+            measured 55 copied objects on the first pass and 1,581 on the third,
+            and the monomorphization phase's second run cost 4x its first for
+            the same instance count.
+
+        THE STAMPS ONLY, NOT `uncheck`. The other half of `uncheck` — peeling
+        the `Optional`/`Result` wraps the checker inserted — is what
+        `uncheck_after=False` already declines on this same AST, and for the
+        reason that applies here verbatim: the post-transform tree has no
+        author to restore, and a frame's `self.__result = <Int>` store in a
+        `-> Result<Int, E>` resume method is only well-typed WITH the `Ok` wrap
+        the previous check put there. Peeling it in the snapshot compiled
+        `optional_generic_concurrency` to an ICE in `std/channel.saw`. So this
+        drops the per-pass conclusion and keeps the synthesized form, which is
+        exactly the split the place lowering already draws.
+        """
+        import copy as _copy
+        from ast_walk import map_nodes
+        snapshot = _copy.deepcopy(decl)
+        map_nodes(snapshot, _drop_per_pass_type)
+        return snapshot
 
     # ---------------------------------------------------------------- #
     # THE UNION STORE (Amendment A1). The entry typechecker's own
