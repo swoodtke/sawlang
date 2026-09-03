@@ -668,9 +668,9 @@ var u = w.copy()       // explicit duplicate
   add(&var x, bump(&var y))              // ok: distinct roots
   scale(&var p.b, bump(&var p.a))        // ok: disjoint PATHS, as ever
   ```
-  The receiver one is the sharpest: a `&self` receiver arrives BY VALUE, so
-  whether its copy is taken before or after `reset` writes was argument
-  evaluation order (it printed the pre-reset total). Hoist the nested call into
+  The receiver one is the sharpest: the receiver is borrowed for the whole call
+  EXPRESSION, so `reset`'s exclusive borrow of `p` overlaps it (before the rule
+  landed it printed the pre-reset total). Hoist the nested call into
   its own `let` and the two borrows are in separate statements. Only the access
   SET widened — the path test is untouched, so nothing disjoint changed. This
   compiled on every tier unless a place window happened to be open (188 covered
@@ -1719,9 +1719,27 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   question answered — same `append` surface, same cut-and-mark-with-`…`
   truncation (`is_truncated()` reports it), nothing allocated. `FixedBuf<N>` is
   the raw buffer under it (`capacity()`, bounds-checked `get`/`set`, and `ptr()`
-  for unsafe paths). Taking an address needs `&var self`: a `&self` receiver
-  arrives BY VALUE, so a pointer built inside such a method addresses the
-  callee's copy.
+  for unsafe paths).
+- **EVERY REFERENCE PASSES BY POINTER (design 261)**, so a pointer built inside
+  a `&self` method addresses the CALLER's storage — which is what an `unsafe`
+  accessor wants:
+  ```saw
+  extension FixedBuf<N> {
+      public func ptr(&self) unsafe -> UnsafePointer<Int8> {
+          (&self.data) as UnsafePointer<Int8>
+      }
+  }
+  ```
+  Nothing about a reference's MEANING follows from this: a `&self` method still
+  may not write its receiver and `&var self` still takes it exclusively. A
+  receiver that IS the value it names stays by value — the primitives (`Int`,
+  `Float`, `Bool`, `String`), a payload-free enum, a field-less struct — which
+  is unobservable except as address identity. Treat it as working now and
+  SUSPECT in older builds, where a plain `&self` receiver arrived BY VALUE and a
+  pointer built inside such a method addressed the callee's COPY, so every write
+  through it was discarded at the return. Declaring `&var self` purely to obtain
+  a real address (which `FixedBuf.ptr` itself used to do) still works and is no
+  longer needed.
 
 ## Concurrency (colorless)
 ```saw
@@ -3099,10 +3117,10 @@ slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
   the one primitive; it holds an inline `T` (no wrapper cost, and
   `sizeof<Counter>() == sizeof<Int>()` below), and its one accessor is
   `ptr(&self) unsafe -> UnsafePointer<T>`. Carrying one makes a type
-  CELL-CARRYING, which is what buys the guarantee: **a cell-carrying
-  receiver arrives BY POINTER even at `&self`**, so the write reaches the
-  caller's storage instead of a copy. Every other `&self` still arrives BY
-  VALUE (the `FixedBuf.ptr()` gotcha). Four parts, and the third and
+  CELL-CARRYING, which is what licenses the WRITE. Every aggregate receiver
+  arrives by pointer since design 261; what a cell adds is permission to
+  write through that pointer, so a cell-carrying receiver is the one the
+  compiler does not mark `noalias readonly`. Four parts, and the third and
   fourth are not optional:
   ```saw
   struct Counter { cell: UnsafeMutableInterior<Int> }
@@ -3362,18 +3380,22 @@ construct in the owner and lend `&driver` down.
   every use site then borrows the receiver exclusively, reads included, so a
   `let` root stops working. `--emit-docs` reports a `&self` borrows receiver as
   `"self": "window"`, not `"borrows"`.
-- **A `&self` METHOD MAY NOT WRITE ITS RECEIVER** (design 146 + 176). A `&self`
-  receiver arrives by VALUE, so the write lands in the callee's copy and
-  vanishes. Both spellings are compile errors: the DIRECT write
+- **A `&self` METHOD MAY NOT WRITE ITS RECEIVER** (design 146 + 176). `&self`
+  is a SHARED borrow: read the receiver, never write it. Both spellings are
+  compile errors: the DIRECT write
   (`self.hits = self.hits + 1`, `self.hits += 1` — unchecked until design 176,
   a silent no-op for years) and the `&var self.<field>` PROJECTION that hands
   the write to someone else. Fix: declare `&var self`, or `borrows -> T` if you
   meant to lend the place. The rule covers storage INSIDE the receiver — a
   field, a nested field, a tuple element, an optional payload, an inline
-  `[T; N]` element. Storage the receiver only POINTS AT is not covered, since
-  the copy shares it: `self.cells[i] = v` on a `Vector` field writes the
-  caller's element and is fine, and so is a write through an `UnsafePointer`
-  field (std's `Task.cancel`).
+  `[T; N]` element. Storage the receiver only POINTS AT is not covered:
+  `self.cells[i] = v` on a `Vector` field writes the caller's element and is
+  fine, and so is a write through an `UnsafePointer` field (std's
+  `Task.cancel`). Since design 261 these refusals are the ONLY thing standing
+  between a `&self` body and the caller's storage — the receiver arrives by
+  pointer, so a write the rule failed to catch would LAND rather than vanish.
+  Until then the same write was a silent no-op, which is what made the
+  pre-176 versions so hard to notice.
   **A PLACE WINDOW is the fourth spelling** (design 200, DF-176c): where the
   field's type publishes a `borrows` accessor, `self.grid[0] += 100` opens an
   EXCLUSIVE window on the copy and is the same error — a silent no-op until

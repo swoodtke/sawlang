@@ -1,0 +1,74 @@
+// A pointer derived from a `&self` receiver addresses the CALLER's storage
+// (design 261 U1) — the `FixedBuf.ptr()` gotcha, dissolved.
+//
+// Every reference passes by pointer now, so all four receiver spellings agree:
+// a plain `&self` on an aggregate reaches the same storage `&var self`, a
+// `borrows` accessor and a cell-carrying `&self` already reached. Before the
+// flip the plain `&self` row printed `false` — the pointer addressed the
+// callee's copy, and a write through it was discarded at the return, which is
+// why `FixedBuf.ptr` was declared `&var self` purely to obtain a real address.
+//
+// The last row is the fence: a PRIMITIVE receiver stays by value, because
+// `self` IS the value there and a pointer to it would point at nothing the
+// caller shares. That row is `false` before and after.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// shared receiver reaches the caller: true
+// mutable receiver reaches the caller: true
+// field address through &self matches: true
+// write through a &var-derived pointer is visible: 99
+// primitive receiver stays by value: false
+
+struct Buf { data: [Int8; 8], mark: Int }
+
+extension Buf {
+    func shared_addr(&self) unsafe -> Int {
+        (&self.data) as UnsafePointer<Int8> as Int
+    }
+
+    func mutable_addr(&var self) unsafe -> Int {
+        (&self.data) as UnsafePointer<Int8> as Int
+    }
+
+    func mark_ptr(&self) unsafe -> UnsafePointer<Int> {
+        (&self.mark) as UnsafePointer<Int>
+    }
+
+    func poke(&var self, v: Int) unsafe {
+        let p = (&var self.mark) as UnsafePointer<Int>
+        p[0] = v
+    }
+}
+
+extension Int {
+    func self_addr(&self) unsafe -> Int {
+        (&self) as UnsafePointer<Int> as Int
+    }
+}
+
+func data_addr(b: &Buf) unsafe -> Int {
+    (&b.data) as UnsafePointer<Int8> as Int
+}
+
+func mark_addr(b: &Buf) unsafe -> Int {
+    (&b.mark) as UnsafePointer<Int> as Int
+}
+
+func main() unsafe {
+    var b = Buf(data: [0; 8], mark: 1)
+    let caller = data_addr(&b)
+
+    print("shared receiver reaches the caller: {}", b.shared_addr() == caller)
+    print("mutable receiver reaches the caller: {}", b.mutable_addr() == caller)
+    print("field address through &self matches: {}",
+          (b.mark_ptr() as Int) == mark_addr(&b))
+
+    b.poke(99)
+    print("write through a &var-derived pointer is visible: {}", b.mark)
+
+    // The fence: a primitive receiver is the value, so its address is the
+    // callee's spill slot and never the caller's binding.
+    var n = 5
+    let n_addr = (&n) as UnsafePointer<Int> as Int
+    print("primitive receiver stays by value: {}", n.self_addr() == n_addr)
+}

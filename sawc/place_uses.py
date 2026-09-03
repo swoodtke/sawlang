@@ -1168,8 +1168,8 @@ class _PlaceUses:
             ErrorKind.IMMUTABLE_ASSIGNMENT,
             f"cannot write through a place window on storage reached through a "
             f"`&self` receiver: `self` is borrowed SHARED here, so "
-            f"`{spelling}` opens its window on the callee's copy and the write "
-            f"is discarded when the method returns",
+            f"`{spelling}` opens an exclusive window on storage this method may "
+            f"only read",
             place.line, place.column or 1,
             "declare the method `&var self` to mutate through the receiver, or "
             "`borrows -> T` to lend the place and let each use site choose the "

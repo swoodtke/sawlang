@@ -5,10 +5,13 @@
 // three the family started with (a direct field write, a `&var self.field`
 // projection, a `&var self` method call on self or on a field) all became
 // compile errors in designs 176 and 188. This one reaches the same storage
-// through a synthesized place window. The field travels with the `&self` copy,
-// so the window opens on the copy, the write lands there, and the copy is
-// discarded when the method returns. Probed Aug 10 before design 200: the first
-// case compiled and printed `first 1`, not `first 101`.
+// through a synthesized place window: the window is exclusive, and `&self` is a
+// shared borrow. Probed Aug 10 before design 200: the first case compiled and
+// printed `first 1`, not `first 101` — the field travelled with the receiver's
+// copy back then, so the write went to the copy and was discarded. Since design
+// 261 the receiver arrives by POINTER, which makes this refusal load-bearing
+// rather than a courtesy: the write it stops would now LAND, in storage the
+// caller holds immutably.
 //
 // The rows below are the POSITION MATRIX for "storage inside the receiver" —
 // the same set design 176 walks for a direct write, plus the two hops only a
@@ -19,13 +22,13 @@
 // indirection the copy shares.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: cannot write through a place window on storage reached through a `&self` receiver
-// EXPECT-ERROR-CONTAINS: `self.grid[…]` opens its window on the callee's copy
-// EXPECT-ERROR-CONTAINS: `self.inner.grid[…]` opens its window on the callee's copy
-// EXPECT-ERROR-CONTAINS: `self.pair.0[…]` opens its window on the callee's copy
-// EXPECT-ERROR-CONTAINS: `self.maybe![…]` opens its window on the callee's copy
-// EXPECT-ERROR-CONTAINS: `self.grids[…][…]` opens its window on the callee's copy
-// EXPECT-ERROR-CONTAINS: `self.slot.at(…)` opens its window on the callee's copy
-// EXPECT-ERROR-CONTAINS: `self.cells[…]` opens its window on the callee's copy
+// EXPECT-ERROR-CONTAINS: `self.grid[…]` opens an exclusive window
+// EXPECT-ERROR-CONTAINS: `self.inner.grid[…]` opens an exclusive window
+// EXPECT-ERROR-CONTAINS: `self.pair.0[…]` opens an exclusive window
+// EXPECT-ERROR-CONTAINS: `self.maybe![…]` opens an exclusive window
+// EXPECT-ERROR-CONTAINS: `self.grids[…][…]` opens an exclusive window
+// EXPECT-ERROR-CONTAINS: `self.slot.at(…)` opens an exclusive window
+// EXPECT-ERROR-CONTAINS: `self.cells[…]` opens an exclusive window
 
 struct Grid { cells: [Int; 4] }
 

@@ -2272,9 +2272,8 @@ class StatementsMixin:
         self._error(
             ErrorKind.IMMUTABLE_ASSIGNMENT,
             f"cannot {verb} storage reached through a `&self` receiver: "
-            f"`self` is borrowed SHARED here, so the write either lands in a "
-            f"copy that is discarded when the method returns or mutates a "
-            f"value the caller holds immutably",
+            f"`self` is borrowed SHARED here, so the write would reach storage "
+            f"this method may only read",
             line, column,
             hint=self._shared_self_hint()
         )
@@ -2368,9 +2367,8 @@ class StatementsMixin:
         self._error(
             ErrorKind.IMMUTABLE_ASSIGNMENT,
             f"cannot call `&var self` method `{expr.method_name}` on "
-            f"{what}: `self` is borrowed SHARED here, so the mutation either "
-            f"lands in a copy that is discarded when the method returns or "
-            f"mutates a value the caller holds immutably",
+            f"{what}: `self` is borrowed SHARED here, and a `&var self` method "
+            f"takes the whole receiver exclusively",
             expr.line, expr.column, hint=hint)
         return True
 

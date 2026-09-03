@@ -365,8 +365,9 @@ trait UnsafeSend: Send {
 //
 // Carrying one — transitively — makes a type CELL-CARRYING, which is what the
 // compiler consults instead of a list of names it knows: a cell-carrying
-// receiver always travels BY POINTER (so `&self` reaches the caller's storage
-// rather than a copy), a cell-carrying `static` never lands in a read-only
+// receiver may be WRITTEN through (every aggregate receiver reaches the
+// caller's storage since design 261, and this is the one the compiler does not
+// mark `noalias readonly`), a cell-carrying `static` never lands in a read-only
 // segment, and structural `Sync` derivation is BLOCKED (a cell-carrying type is
 // not `Sync` unless it declares `UnsafeSync`). `Send` stays structural: a cell
 // moves fine, it is SHARING that needs an argument.

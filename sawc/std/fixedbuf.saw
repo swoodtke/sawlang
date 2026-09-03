@@ -31,11 +31,13 @@ extension FixedBuf<N> {
 
     /// The address of the first byte.
     ///
-    /// The receiver is `&var self` because a `&self` one arrives BY VALUE: the
-    /// address taken inside such a method belongs to the callee's copy, which
-    /// dies at the return, and every write through the returned pointer would
-    /// land somewhere already gone. Reading through a buffer still needs `var`
-    /// storage for that reason.
+    /// The receiver is `&var self` because the pointer is a WRITE capability
+    /// into the buffer, and the call site should say so: an exclusive borrow is
+    /// what makes a write through the returned pointer legible to the reader
+    /// and to the Law of Exclusivity. A `&self` receiver would reach the
+    /// caller's storage just as well since design 261 — that is no longer the
+    /// reason for the spelling, and a build whose docs give the by-value one
+    /// predates it.
     ///
     /// The pointer is valid only while the buffer stays where it is. Storing one
     /// across a move of the owner leaves it addressing the old bytes, so take it

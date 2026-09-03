@@ -2900,8 +2900,8 @@ comes first: `public static func make(...)`.
 
 #### A `&self` method may not write its receiver
 
-A `&self` receiver is a shared borrow, and it arrives **by value**. A write into
-it would land in the copy the method discards:
+A `&self` receiver is a shared borrow: the method may read the receiver and may
+not write it. A write into it is refused where it is written:
 
 ```saw
 extension Counter {
@@ -3464,9 +3464,40 @@ Each is a clean error naming the boundary.
   Suspending consuming methods otherwise work, driven and spawned, releasing the
   receiver exactly once.
 
-### Reference Types
+### Reference passing
 
-**Status: implemented.** Reference types (`&T` and `&var T`) allow passing values by reference without copying. References are only valid as function/method parameters and cannot escape. Mutation through a `&var` reference is done with compound assignment (`x += 1`), mutating methods, or — as of design 110 — whole-referent *replacement* assignment `x = v` (the same rule closures already followed; see below). Some example bodies below use planned stdlib methods (`push_str`, `String.from`) and are *(illustrative)*.
+**Status: implemented.** Every reference passes by pointer. `&T` and `&var T`
+parameters do, `&var self` does, `other: &Self` does, and so does a plain
+`&self` on a struct or a payload-carrying enum: the method reaches the caller's
+storage, not a copy of it. Nothing about a reference's meaning follows from
+this — a `&self` method still may not write its receiver, and `&var self` still
+takes it exclusively — so the rule is worth knowing for exactly one reason.
+
+**A pointer built from `&self` addresses the caller's value.** That is what an
+author writing an `unsafe` accessor wants, and it is what they now get:
+
+```saw
+extension FixedBuf<N> {
+    public func ptr(&self) unsafe -> UnsafePointer<Int8> {
+        (&self.data) as UnsafePointer<Int8>
+    }
+}
+```
+
+A receiver that IS the value it names stays by value, because a pointer to it
+would point at nothing the caller shares: the primitives (`Int`, `Float`,
+`Bool`, `String`), a payload-free enum, and a struct with no fields. The
+difference is unobservable except as address identity, and no value read or
+write can tell the two apart.
+
+Treat this as working now and SUSPECT in older builds. Before design 261 a
+plain `&self` receiver arrived by value, so a pointer derived inside such a
+method addressed the callee's copy and every write through it was discarded at
+the return. Code written around that — declaring `&var self` purely to obtain a
+real address, as `FixedBuf.ptr` itself once did — keeps working unchanged and
+is no longer necessary.
+
+Reference types (`&T` and `&var T`) allow passing values by reference without copying. References are only valid as function/method parameters and cannot escape. Mutation through a `&var` reference is done with compound assignment (`x += 1`), mutating methods, or — as of design 110 — whole-referent *replacement* assignment `x = v` (the same rule closures already followed; see below). Some example bodies below use planned stdlib methods (`push_str`, `String.from`) and are *(illustrative)*.
 
 ```saw
 // &T - shared reference (read-only access)
@@ -3861,8 +3892,8 @@ scale(&var p.y, bump(&var p.x))   // ok: disjoint fields, as everywhere else
 ```
 
 The receiver is an ordinary member of that set, so `p.total(reset(&var p))` is
-refused as well. A `&self` receiver arrives by value, and whether its copy is
-taken before or after `reset` writes is argument evaluation order. Two nested
+refused as well. The receiver is borrowed for the whole call expression, so
+`reset`'s exclusive borrow of `p` overlaps it. Two nested
 calls reaching one root are refused on the same terms, with neither reference
 written at the outer level:
 
@@ -8837,16 +8868,15 @@ positional (`UnsafeMutableInterior(v)`).
 A type that transitively contains a cell is **cell-carrying**, and that answers
 four questions at once:
 
-- **Receivers travel by pointer.** A `&self` method on a cell-carrying type
-  reaches the CALLER's storage rather than a copy of it. That is what lets
-  `ptr()` be worth anything: without it the address would be the callee copy's,
-  and every write through it would be dropped at the return. Every other
-  `&self` receiver is still passed by value.
 - **A `static` of one is never read-only.** It is written in place, so a
   read-only segment would fault on the first write. An all-zero one still costs
   no image bytes.
-- **Codegen assumes nothing.** No shared borrow of cell-carrying storage
-  carries `readonly`, `noalias` or an invariant-load marker.
+- **Codegen assumes nothing.** Every receiver of an aggregate type travels by
+  pointer (see [Reference passing](#reference-passing)), but a cell-carrying one
+  is the receiver that WRITES through that pointer, so no shared borrow of
+  cell-carrying storage carries `readonly`, `noalias` or an invariant-load
+  marker. That exemption is what `ptr()` is worth: a write through the address
+  it hands out reaches the caller's storage and stays there.
 - **`Sync` derivation is blocked**, at the cell. Sharing a value that can be
   mutated through a shared borrow is exactly the claim a structural derivation
   cannot make — the fields all look immutable and are not. `Send` is untouched:

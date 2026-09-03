@@ -316,6 +316,11 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # whether `self` is a pointer is not a bug that surfaces as a bug.
         self._aggregate_receiver_cache: dict = {}
 
+        # `_abi_size` / `_abi_align` memos, keyed by the type's rendered form.
+        # See the comment above those two.
+        self._abi_size_cache: dict = {}
+        self._abi_align_cache: dict = {}
+
         # design 246 Unit B. Concrete declarations this unit owns that no type
         # has been registered for yet, by identity — what `_demand_register_type`
         # registers out of order when a member of a CYCLE names one. And the
@@ -2627,13 +2632,31 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                                     context=self.llvm_context) as llmod:
             return llmod.get_global_variable(gv.name).global_value_type
 
+    # A layout query PARSES a probe module (see `_ll_layout_type`), which is far
+    # too expensive to repeat: design 261 U2 asks the size of every aggregate it
+    # considers copying, which is a hot path where the frame-layout and
+    # backtrace-table callers were one-shot. The type's rendered form determines
+    # its layout for a given target, and the target is fixed for a compile, so
+    # it is the whole key. Identified types are uniquely named within a module,
+    # and literal ones render structurally.
     def _abi_size(self, llvm_type) -> int:
         self._require_sized(llvm_type, "size")
-        return self.target_data.get_abi_size(self._ll_layout_type(llvm_type))
+        key = str(llvm_type)
+        hit = self._abi_size_cache.get(key)
+        if hit is None:
+            hit = self.target_data.get_abi_size(self._ll_layout_type(llvm_type))
+            self._abi_size_cache[key] = hit
+        return hit
 
     def _abi_align(self, llvm_type) -> int:
         self._require_sized(llvm_type, "alignment")
-        return self.target_data.get_abi_alignment(self._ll_layout_type(llvm_type))
+        key = str(llvm_type)
+        hit = self._abi_align_cache.get(key)
+        if hit is None:
+            hit = self.target_data.get_abi_alignment(
+                self._ll_layout_type(llvm_type))
+            self._abi_align_cache[key] = hit
+        return hit
 
     def _require_sized(self, llvm_type, what: str):
         """LLVM ABORTS the process on a layout query about an unsized type

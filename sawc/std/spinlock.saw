@@ -129,12 +129,14 @@ extension SpinLock<T> {
     // lock, which is why it is private and why both callers take it first.
     //
     // The payload lives in an interior CELL, and handing out its address is the
-    // cell's one accessor (design 186). What makes that address the caller's
-    // rather than a copy's is the cell-carrying property: a receiver carrying
-    // one arrives as storage even at `&self`. The old spelling took the address
-    // of a plain field with `(&self.value) as UnsafePointer<T>`, which was the
-    // same bytes and none of the argument — it worked because `state` happened
-    // to be an `Atomic`.
+    // cell's one accessor (design 186). Every aggregate receiver reaches the
+    // caller's storage since design 261; what the cell-carrying property adds
+    // is the licence to WRITE through that address, which is why a
+    // cell-carrying receiver is the one the compiler leaves unmarked rather
+    // than stamping `noalias readonly`. The old spelling took the address of a
+    // plain field with `(&self.value) as UnsafePointer<T>`, which was the same
+    // bytes and none of the argument — it worked because `state` happened to be
+    // an `Atomic`.
     func _payload(&self) unsafe -> UnsafePointer<T> {
         self.value.ptr()
     }
