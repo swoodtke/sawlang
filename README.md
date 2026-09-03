@@ -97,7 +97,7 @@ to the spec for the full rules and the edge cases.
 There are no null pointers. An absent value is `T?`, and `None` is the way to
 spell one.
 
-```saw
+```saw-fragment
 let maybe: Int? = None
 
 if let value = maybe {       // bind if present
@@ -164,7 +164,7 @@ the error it was handed (`panic at cfg.saw:12: try! failed: no such file`), and
 When the callee fails with a different type than your signature names, say
 where it goes:
 
-```saw
+```saw-fragment
 enum ConfigError {
     case Alloc(e: AllocError),
     case Parse(e: ParseError)
@@ -184,7 +184,7 @@ what a distant `try` does, and every conversion is visible where it happens.
 A `Result` cannot be dropped by accident. Writing a fallible call as a bare
 statement is a compile error, because the failure it reports would go nowhere:
 
-```saw
+```saw-fragment
 stream.write(body)
 // error: result of `write` is `Result<Void, IoError>` and is silently
 //        discarded
@@ -200,7 +200,7 @@ failures, and a `Result` a caller may always ignore should not have been a
 A constructor can fail the same way. An `init` declares either the type it
 builds or `Result<Type, E>`, and the construction then carries the `Result`:
 
-```saw
+```saw-fragment
 extension Config {
     init(budget: Int, ceiling: Int) -> Result<Config, ConfigError> {
         if budget > ceiling { return ConfigError.TooLarge(bytes: budget) }
@@ -289,7 +289,7 @@ func handle(msg: Message) {
 `match` is exhaustive: every case must be covered. To handle the rest at
 once, use `case _`:
 
-```saw
+```saw-fragment
 match msg {
     case Quit -> print("quit"),
     case _ -> print("got a message")   // any other case
@@ -323,7 +323,7 @@ See [Enums](LANGUAGE_SPEC.md#enums-algebraic-data-types) and
 Conform a type to a trait with `extension Type: Trait`. Trait methods may carry
 a default body, so a conforming type only implements what is unique to it.
 
-```saw
+```saw-fragment
 trait Greeter {
     func name(&self) -> String
     func greet(&self) -> String { "Hello, {self.name()}!" }  // default body
@@ -347,7 +347,7 @@ func print_area(s: &any Shape) { print(s.area()) }  // dynamic dispatch
 Generics are inferred at call sites from argument types, closure returns, and
 default values, and they compile to specialized code:
 
-```saw
+```saw-body
 func first<T: Copy>(v: &Vector<T>) -> T? { v.get(0) }
 
 let names: Vector<String> = ["ada", "alan"]
@@ -358,7 +358,7 @@ let lengths = try! names.map({ $0.len() })  // map<Int> solved from the closure
 `Equatable`, `Comparable`, `Hashable`, and the copy policies can have their
 bodies derived from the type's fields. Ask for it with `@synthesize`:
 
-```saw
+```saw-fragment
 @synthesize
 extension Version: Comparable {}   // lexicographic over the fields
 ```
@@ -407,7 +407,7 @@ written. A single cooperative scheduler runs spawned tasks eagerly, backed by
 an I/O reactor (kqueue or epoll). `TaskGroup(threads: N)` opts into multiple
 threads, with `Send` checked at every spawn; the default stays single-threaded.
 
-```saw
+```saw-fragment
 func report() -> Int {
     let total = work(3) + work(4)        // both operands suspend
     print("squared: {work(5)}")         // suspends inside an interpolation
@@ -455,7 +455,7 @@ makes about a `Result`, at the scale of a whole task.
 
 A cooperative task can outlive its spawner too, without a group:
 
-```saw
+```saw-fragment
 func reindex(catalog: Catalog) -> Int { ... }
 
 func main() {
@@ -491,7 +491,7 @@ Saw has three words for what happens when a value is transferred:
 - **ExplicitCopy** — can be duplicated, but only with a spelled `.copy()`
   (`Vector`, and `Map`/`Set` when their key/value or element type is too).
 
-```saw
+```saw-fragment
 let a = Point(x: 1, y: 2)
 let b = a              // trivial type: implicit copy, both valid
 
@@ -521,7 +521,7 @@ lasts for one expression; the spec calls these places.
 A method can also END its receiver. `consumes` says so at the declaration, and
 `move` says so at the call:
 
-```saw
+```saw-fragment
 extension Builder {
     func finish(&var self) consumes -> Vector<Int> {
         move self.items

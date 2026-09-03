@@ -85,7 +85,8 @@ A trailing comma is allowed in the `(...)` and `[...]` forms — argument lists,
 parameter lists, tuples, collection literals, and memberwise struct literals.
 It is rejected in a generic list, which has no wrapping idiom to serve:
 
-```saw
+```saw-error
+// error-contains: a trailing comma is not allowed in a generic
 let bad: Vector<Int,> = [1]
 // error: Parse error at 1:20: a trailing comma is not allowed in a generic
 // argument list (it is allowed in `(...)` and `[...]` lists)
@@ -95,7 +96,7 @@ let bad: Vector<Int,> = [1]
 line breaks inside one keep ending statements, including when the braces sit
 inside a wrapped argument list:
 
-```saw
+```saw-fragment
 let doubled = apply(
     values: v.copy(),
     f: { n in
@@ -109,7 +110,7 @@ An import's symbol list is the one brace pair that does wrap. It is a delimited
 list rather than a statement container, so line breaks inside it are
 insignificant and a trailing comma is allowed, exactly as in `(...)`:
 
-```saw
+```saw-fragment
 import kcore.{
     console, pmp_reset,
     pmp_region,
@@ -133,7 +134,7 @@ A `<` that turns out to be a comparison is never treated as a bracket, so
 
 ### Variables and Mutability
 
-```saw
+```saw-body
 // Immutable by default
 let x = 42
 let name = "Saw"
@@ -162,7 +163,7 @@ to mutate). Per-position `_` in a tuple destructuring (`let (a, _) = pair`,
 design 63) discards that component the same way. Parameter discards are out of
 scope for now.
 
-```saw
+```saw-fragment
 let _ = compute()      // run compute() for its effect; drop the result now
 let _ = openFile()     // a NoCopy result is deinit'd at end of this statement
 ```
@@ -174,7 +175,8 @@ error UNLESS the new binding derives from the one it shadows**, so an accidental
 shadow (a slip that silently hides the outer value) is caught while a deliberate
 refinement stays ergonomic:
 
-```saw
+```saw-error
+// error-contains: initializer never mentions `n`
 let data = read()
 if refine {
     let data = parse(move data)   // OK: initializer mentions `data` (derived)
@@ -218,7 +220,7 @@ if branch {
 
 ### Functions
 
-```saw
+```saw-fragment
 // Basic function
 func add(a: Int, b: Int) -> Int {
     a + b  // implicit return for last expression
@@ -259,7 +261,7 @@ before the callee runs. This is what makes a by-value argument that overlaps a
 `&var` argument well-defined: the copy captures the pre-call value regardless
 of any mutation the callee performs through the reference.
 
-```saw
+```saw-body
 func f(snapshot: Int, r: &var Int) {
     r += 100
     print(snapshot)   // prints the value of the second arg's target BEFORE the call
@@ -288,7 +290,7 @@ argument matches a parameter only if it is *exactly* type-compatible (aliases
 flow to their underlying type, defaults are filled; nothing else). Resolution
 runs at every call form (free, method, static, module-qualified).
 
-```saw
+```saw-body
 func describe(x: Int) -> Int { x + 1 }
 func describe(x: String) -> Int { x.len() }     // same arity, different type — OK
 func describe(x: Int, y: Int) -> Int { x + y }  // different arity — OK
@@ -372,7 +374,7 @@ free functions, methods, and inits. Rules:
   (the same bucket as an identical normalized signature above). Mangling is
   unchanged — defaults are filled caller-side.
 
-```saw
+```saw-body
 func connect(host: String, port: Int = 8080, tls: Bool = false) -> Int { port }
 connect("a")                 // port 8080, tls false
 connect("a", 443)            // port 443, tls false
@@ -403,7 +405,7 @@ declaration order, partial labels as constraints, and **mid-default skipping**
 (a labeled argument may skip a defaulted parameter that a positional call could
 not).
 
-```saw
+```saw-fragment
 func connect(host: Int, port: Int = 8080, retries: Int = 3) -> Int { … }
 connect(1)                    // both defaults
 connect(1, retries: 5)        // skip the defaulted `port` (mid-default skip)
@@ -417,7 +419,7 @@ survivors. Two overloads may share parameter types but differ in labels; a
 single disambiguating label resolves the call, while a bare positional call
 over such a pair is an ambiguity error that lists the labeled forms.
 
-```saw
+```saw-fragment
 func f(a: Int, b: Int) -> Int { … }
 func f(kind: Int, value: Int) -> Int { … }   // same types, different labels — OK
 f(a: 1, b: 2)        // f(a:b:)
@@ -447,7 +449,8 @@ may be exactly one of four:
 
 Any other return type is a compile error at the declaration:
 
-```saw
+```saw-error
+// error-contains: `main` must return `Void`, `Int`, `Result<Void, E>` or
 func main() -> String { "done" }
 // error: `main` must return `Void`, `Int`, `Result<Void, E>` or
 //   `Result<Int, E>`, but returns `String`
@@ -534,7 +537,8 @@ func main() {
 
 ### Control Flow
 
-```saw
+```saw-error
+// error-contains: duplicate match arm: `1` is already
 // If expressions (not statements)
 let max = if a > b { a } else { b }
 
@@ -667,7 +671,8 @@ form is the deliberate "this diverges" spelling; a literal `true` condition
 stays an ordinary loop that a later edit may falsify, and the compiler does not
 read the condition to decide a type.
 
-```saw
+```saw-error
+// error-contains: function `spin` should return `Never` but body has no value
 func spin() -> Never {
     while true { }
     // error: function `spin` should return `Never` but body has no value
@@ -680,7 +685,7 @@ func spin() -> Never {
 loop on the first `None`. It completes the `if let` / `guard let` family, and
 its subject is the drain: a source that yields `T?` until it is empty.
 
-```saw
+```saw-fragment
 var pending: Vector<Job> = load_queue()
 while let job = pending.pop() {
     run(job)
@@ -710,7 +715,8 @@ parse error naming `if let ... else` as the one-shot form.
 
 A `while let` produces no value and cannot be used as an expression:
 
-```saw
+```saw-error
+// error-contains: a `while let` loop produces no value and cannot be used as an
 let r = while let x = src.next() { }
 // error: a `while let` loop produces no value and cannot be used as an
 // expression
@@ -719,7 +725,7 @@ let r = while let x = src.next() { }
 A `Result`-yielding source composes through `try?`, which turns `Err` into
 termination:
 
-```saw
+```saw-fragment
 while let record = try? reader.next_record() {
     try! index.insert(record)
 }
@@ -761,7 +767,7 @@ expressions have it: `panic(...)` (design 49) and a conditionless
 needs no return value, and such an arm/branch contributes no type to a
 `match`/`if`.
 
-```saw
+```saw-fragment
 // Integers
 Int8, Int16, Int32, Int64
 UInt8, UInt16, UInt32, UInt64
@@ -888,7 +894,8 @@ the prelude, so it needs no import and follows the ordinary one-way flow
 wherever an integer is wanted — comparisons, masks, arithmetic, a `UInt8`
 parameter — and the way back in is `Byte(...)` or an API that produces bytes.
 
-```saw
+```saw-error
+// error-contains: cannot assign `UInt8` to variable of type `Byte`
 let b = "hi".byte_at(0)      // Byte
 if b == 0x0A { }             // reads as UInt8; the literal adopts there
 let n = b as Int             // 0..255 — a byte is unsigned, so 0xC3 widens to 195
@@ -921,7 +928,7 @@ wire enums keep `UInt8`.
 value because control never continues past it. Three expressions have it, and a
 call to a function declared `-> Never` is one of them:
 
-```saw
+```saw-body
 func fault(code: Int) -> Never {          // declared: this call does not return
     print("fault {code}")
     while { }
@@ -937,7 +944,7 @@ to convert, so there is nothing to reconcile: the expression leaves, and
 whatever the surrounding code expected is never asked for. That one rule covers
 every position an expression can appear in.
 
-```saw
+```saw-fragment
 func lookup(table: &Registry, id: Int) -> Entry {
     guard let e = table.find(id) else { fault(1) }   // a `guard` exit
     if e.stale { fault(2) }                          // a statement
@@ -1128,7 +1135,7 @@ shared. It is `Copy`, so byte buffers flow through the language with no
 `move` discipline, and a copy costs a refcount bump. It lives in `std.data` and
 needs an import.
 
-```saw
+```saw-body
 import std.data.*
 
 var a = try! Data(capacity: 4)
@@ -1254,7 +1261,8 @@ struct Span {
 
 A doc comment that documents nothing is an error rather than a silent drop:
 
-```saw
+```saw-error
+// error-contains: doc comment is not followed by a documentable
 /// Displaced from `main` by the block below.
 
 /// Prints zero.
@@ -1277,7 +1285,7 @@ fixed, so the output is diffable.
 
 ### Composite Types
 
-```saw
+```saw-fragment
 // Tuples (positional — implemented). Access fields by index with `.N`.
 let point: (Int, Int) = (10, 20)
 let x = point.0
@@ -1439,7 +1447,7 @@ INSTANTIATION is not. A local typed by a function's own type parameter compiles
 at every instantiation, `Void` included, where it becomes a zero-sized binding —
 no storage, and reading the name yields no value:
 
-```saw
+```saw-fragment
 func around<R>(&self, body: (Int) sync -> R) -> R {
     let result = body(self.n)   // fine at every R, `Void` among them
     self.release()
@@ -1470,7 +1478,7 @@ refuses only programs the compiler could not finish anyway.
 
 ### Structs
 
-```saw
+```saw-body
 // Value type (copied by default)
 struct Point {
     x: Float,
@@ -1517,7 +1525,7 @@ to all structs.
 
 ### Enums (Algebraic Data Types)
 
-```saw
+```saw-fragment
 // Variants are introduced with the `case` keyword.
 
 // Simple enum
@@ -1571,7 +1579,7 @@ tier, because a borrowed binding is never retained at any tier. A place
 scrutinee (`match v[0]`) is refused by the place rule below instead, which names
 the receiver's own escape hatches.
 
-```saw
+```saw-fragment
 func take_it(s: &var Slot) -> Res {
     match s {
         case Filled(r) -> move r,
@@ -1586,7 +1594,7 @@ To move a payload out, give the storage a move-out: an `Optional` field empties
 with `take()`, an indexed place with `swap_out`. To consume the whole value,
 take the scrutinee by value.
 
-```saw
+```saw-fragment
 enum Slot {
     case Filled(r: Res),    // Res is NoCopy
     case Empty
@@ -1606,7 +1614,7 @@ retain of the payload and releases it when the arm ends; the scrutinee keeps
 its own reference and drops at the end of its own scope. Matching one twice is
 allowed, and reading `strong_count()` inside an arm shows both owners.
 
-```saw
+```saw-fragment
 enum Holder {
     case Full(a: Arc<Res>),
     case Nothing
@@ -1653,7 +1661,7 @@ extension SysError {
 Trait conformances take hand-written bodies, so an enum is a normal choice for
 an error type:
 
-```saw
+```saw-fragment
 extension SysError: Printable {
     func format(&self, into: &var StringBuilder) {
         try! into.append("SysError(")
@@ -1681,7 +1689,7 @@ Methods on a generic enum monomorphize per instantiation.
 One difference: an enum extension may not declare an `init`. The cases are the
 constructors.
 
-```saw
+```saw-fragment
 extension Color {
     init(bright: Bool) -> Color { Color.Red }
 }
@@ -1697,7 +1705,7 @@ A payload-free enum may declare an integer backing type in the declaration's
 colon position. The backing pins the representation — width and tag values — so
 the enum can cross an ABI boundary.
 
-```saw
+```saw-body
 enum SysError: UInt8 {
     case Ok = 0,
     case BadHandle = 3,
@@ -1738,7 +1746,7 @@ enum Right: UInt32 {
 3. **`as` goes one way.** The enum is its tag, so `e as UInt8` is total. The
    inverse is partial and is spelled `from(raw:)`:
 
-```saw
+```saw-fragment
 if let e = SysError.from(raw: byte) {
     print("decoded {e}")
 } else {
@@ -1853,7 +1861,8 @@ extension Term: NoCopy {}
 
 An all-inline cycle is refused where it is written, with the path named:
 
-```saw
+```saw-error
+// error-contains: recursive type `Tree` has infinite size: its storage contains its own
 enum Tree {
     case Leaf(v: Int),
     case Node(child: Tree)
@@ -1876,7 +1885,7 @@ iteratively.
 
 ### Optionals
 
-```saw
+```saw-fragment
 // Optional type (no null!) - T? syntax like Swift. A plain value of type T is
 // implicitly wrapped into T?; the empty case is the keyword `None` (there is no
 // `some(...)`/`none` constructor).
@@ -1947,7 +1956,7 @@ ordinary one-layer coalesce does is untouched.
 OUTER absence, and a VALUE arm owes exactly one wrap.** The two readings only
 come apart once `T` is itself an optional, and the reading is per ARM:
 
-```saw
+```saw-fragment
 func slot(s: Slotted) -> Int?? {
     match s {
         case Filled(v) -> v,      // an `Int?` payload: one wrap, `Some(v)`
@@ -2011,7 +2020,7 @@ it lowers through.
 
 The head may be a **place** — a conditional lend, in either spelling:
 
-```saw
+```saw-fragment
 m["x"]?.value = 42        // subscript head
 v.get(0)?.value = 8       // named-accessor head
 ```
@@ -2054,7 +2063,7 @@ A borrow reads the payload where it sits and costs nothing. A value read makes a
 second owner, so a `Copy` payload is retained at the extraction and the
 optional keeps its own reference:
 
-```saw
+```saw-body
 var name: String? = "Ada"
 let owned = name!        // retains; `name` still owns its payload
 name = None              // releases the optional's reference
@@ -2064,7 +2073,8 @@ print(owned)             // prints: Ada
 An `ExplicitCopy` or `NoCopy` payload is never duplicated implicitly, so a value
 read is refused and the error names the three consuming spellings:
 
-```saw
+```saw-error
+// error-contains: cannot read the payload out of `file` in let binding:
 // `File.open` returns `Result<File, IoError>`; `try?` discards the cause to
 // give the `File?` this example is about.
 var file: File? = try? File.open(Path(s: "/var/log/app.log"))
@@ -2088,7 +2098,7 @@ cannot — above all a struct field, which is the move-out that no-partial-moves
 otherwise forbids. It needs a mutable place and is exclusivity-checked like any
 other `&var self` method. The checked spelling is `o.take()!`:
 
-```saw
+```saw-fragment
 struct Logger { sink: File? }
 extension Logger: NoCopy {}
 
@@ -2112,7 +2122,7 @@ payload exactly as they work on an `Int`, and neither a `.copy()` nor a `move`
 is owed anywhere. They take no arguments and need no mutable place, so a call
 result is as good a receiver as a local.
 
-```saw
+```saw-fragment
 struct Logger { sink: File? }
 extension Logger: NoCopy {}
 
@@ -2141,7 +2151,7 @@ the same positions: a bare `T` becomes `Ok`, a bare `E` becomes `Err`, and a
 `T` that is also the `E` is the ambiguity error described under *Auto-Wrap
 Returns*.
 
-```saw
+```saw-fragment
 func record(entry: Result<Int, String>) { … }
 
 record(42)        // Ok(value: 42)
@@ -2176,7 +2186,7 @@ monomorphized default), and have their effects inferred per conformer (a `sync`
 default body is a checked suspension-free context). A method with *no* default
 is still a required method: omitting it fails conformance.
 
-```saw
+```saw-fragment
 trait Greeter {
     func name(&self) -> String
     func greet(&self) -> String {   // default body — calls a required method
@@ -2230,7 +2240,7 @@ declaration. Conformance matching requires the kinds to AGREE — a static
 requirement is satisfied only by a static, an instance requirement only by an
 instance method:
 
-```saw
+```saw-fragment
 trait Maker {
     static func make(seed: Int) -> Self
     func label(&self) -> String
@@ -2334,7 +2344,7 @@ concrete conforming type through two builtins with an **explicit** type argument
 `Box<any Error>` be recovered to its concrete error for retry logic. Catch-side
 `match`-on-concrete sugar over an erased box is not yet provided.
 
-```saw
+```saw-fragment
 match step() {
     case Ok(v)  -> use(v),
     case Err(e) -> {                 // e: Box<any Error>
@@ -2367,7 +2377,7 @@ dispatchable. These are rejected with a diagnostic naming the reason:
 (like `Equatable`/`Comparable`). Its core method is a **streaming formatter**;
 `to_string` rides on it as a default method body:
 
-```saw
+```saw-fragment
 trait Printable {
     func format(&self, into: &var StringBuilder)
 
@@ -2393,7 +2403,7 @@ trait Printable {
 - A `T: Printable` generic bound grants `format`/`to_string` and interpolation of
   `T` values in generic bodies.
 
-```saw
+```saw-body
 struct Point { x: Int, y: Int }
 extension Point: Printable {
     func format(&self, into: &var StringBuilder) {
@@ -2425,7 +2435,7 @@ print("point = {p}")   // point = (3, 4)
 **Status: implemented.** `print`, `panic` and `assert` take a literal format
 string with `{}` placeholders followed by one value per placeholder:
 
-```saw
+```saw-fragment
 print("x = {}", x)
 print("{} of {} frames used", used, total)
 panic("out of {}: wanted {}", "frames", 64)
@@ -2436,7 +2446,8 @@ Each argument keeps its own type and renders through its own `format`. These are
 monomorphized generics, not varargs, so the placeholder count and the argument
 count are compared at compile time:
 
-```saw
+```saw-error
+// error-contains: `print` format string has 2 placeholders but 1 argument was given
 print("{} and {}", 1)
 // error: `print` format string has 2 placeholders but 1 argument was given
 ```
@@ -2454,7 +2465,7 @@ cannot do this: it produces a `String`, which is a heap value by definition.
 That is the difference between the two spellings, and the reason the fixed one
 exists:
 
-```saw
+```saw-fragment
 print("x = {x}")     // builds a String, then writes it
 print("x = {}", x)   // writes the pieces; no allocation anywhere
 ```
@@ -2484,7 +2495,7 @@ content that does not fit is cut on a UTF-8 boundary and the marker `…` is
 stamped in its place, so a shortened result says it was shortened.
 `is_truncated()` reports it, and stays true until `clear()`.
 
-```saw
+```saw-fragment
 var store: [Int8; 32] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                          0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
 var b = StringBuilder(bytes: (&store) as UnsafePointer<Int8>, capacity: 32)
@@ -2503,7 +2514,7 @@ whether a type is printable without allocating depends on how its `format` is
 written. `append` calls are allocation-free; `"{...}"` interpolation inside a
 `format` body is not.
 
-```saw
+```saw-fragment
 extension Point: Printable {
     func format(&self, into: &var StringBuilder) {
         try! into.append("(")        // allocation-free
@@ -2535,7 +2546,7 @@ precisely so the two readings cannot be confused: an integer never becomes a
 with `as Int` — `as UInt8` is ambiguous, since a `UInt8` matches the `Int` and
 `UInt` renderers equally.
 
-```saw
+```saw-body
 var sb = StringBuilder()
 let b = "hello".byte_at(0)
 try! sb.append(b)             // "h"      — the raw byte
@@ -2547,7 +2558,7 @@ try! sb.append(104)           // "104"    — a literal is an Int
 
 **Status: implemented.** An error type is a Printable value:
 
-```saw
+```saw-fragment
 trait Error: Printable {}
 ```
 
@@ -2603,7 +2614,7 @@ with no way out. It is refused at the alias declaration, whether the enum is
 named directly, reached through a chain of aliases, raw-backed, or written with
 a module qualifier:
 
-```saw
+```saw-fragment
 enum Level { case High, case Low }
 
 type Rank = Level      // Error! an alias of an enum is not allowed
@@ -2614,7 +2625,7 @@ Structs and primitives are unaffected. This includes the built-in enums, so
 `type Outcome = Result<Int, ParseErr>` is refused today as well; a use case is
 what would reopen the question.
 
-```saw
+```saw-fragment
 // Type definitions create distinct types (not interchangeable aliases)
 type UserId = Int
 type OrderId = Int
@@ -2646,7 +2657,7 @@ one slot that differs: a bare literal DOES adopt there, so
 `static MINUS_SIGN: Byte = Byte(45)` is refused because a constructor call is
 not a constant expression.
 
-```saw
+```saw-body
 type Handle = UInt
 type Small = Int64
 
@@ -2665,7 +2676,7 @@ type that costs nothing to read and cannot be entered by accident.
 Going the other way needs no ceremony. A distinct type flows to its underlying
 implicitly at a call site or an annotation, and `as` projects it explicitly:
 
-```saw
+```saw-fragment
 // Project a distinct type TO its underlying with an explicit cast. There is no
 // `.value` accessor. The cast is ONE-DIRECTIONAL (toward the underlying):
 // `42 as UserId` stays an error — that is what `UserId(42)` is for — and a
@@ -2693,7 +2704,7 @@ are built this way). Computed properties and generic specialized extensions
 beyond what monomorphization already supports remain *planned*. Some method
 bodies below use stdlib methods (`.sqrt()`, `.cos()`) that are *(illustrative)*.
 
-```saw
+```saw-fragment
 // Add methods to struct types
 extension Point {
     // Read-only method (shared reference to self)
@@ -2764,7 +2775,7 @@ An extension re-declares the type's parameters POSITIONALLY, so it may RENAME
 them. The extension's names are what its signatures and bodies are written in,
 and they bind to the receiver's arguments exactly as the type's own names do:
 
-```saw
+```saw-fragment
 struct Pair<A> { first: A, second: A }
 
 extension Pair<U> {                                  // U is Pair's A
@@ -2815,7 +2826,7 @@ same rule a `return` does, so neither variant is written by hand.
 Anything else is a compile error at the declaration, naming both legal forms.
 An OPTIONAL return is refused on its own terms:
 
-```saw
+```saw-fragment
 extension Config {
     init(budget: Int) -> Config? { ... }
 }
@@ -2851,7 +2862,8 @@ suspending function and hand it to an ordinary `init`.
 receiver. The keyword is required, and the parameter list may not disagree
 with it:
 
-```saw
+```saw-error
+// error-contains: method `dup` has no receiver — add `&self`/`&var self`, or
 struct Bag { n: Int }
 
 extension Bag {
@@ -2903,7 +2915,7 @@ comes first: `public static func make(...)`.
 A `&self` receiver is a shared borrow: the method may read the receiver and may
 not write it. A write into it is refused where it is written:
 
-```saw
+```saw-fragment
 extension Counter {
     func peek(&self) -> Int {
         self.hits = self.hits + 1   // error: cannot assign to storage reached
@@ -2926,7 +2938,7 @@ the one thing `&self` says it will not do. So is the same call on a **field** �
 `self.cells.push(9)` runs against the copy's `Vector` header, so the caller sees
 no new element:
 
-```saw
+```saw-fragment
 extension Bag {
     func peek(&self) -> Int {
         self.cells.push(9)      // error: cannot call `&var self` method `push`
@@ -2942,7 +2954,8 @@ caller owns while the caller's `length` stays behind.
 The fourth spelling is a **place window**. Where a field's type publishes a
 `borrows` accessor, a write through it opens an exclusive window on the copy:
 
-```saw
+```saw-error
+// error-contains: cannot write through a place window on
 struct Board {
     grid: Grid          // Grid holds an INLINE [Cell; 9] — the refusal below
 }                       // is about inline storage; a Vector field is the
@@ -3062,7 +3075,7 @@ collections" claim: the cost of every transfer is readable at the use site.
   of the checkpoint and both halves ran `deinit`. A hand-written `deinit` body
   goes inside the policy conformance, where the requirement is inherited:
 
-  ```saw
+  ```saw-fragment
   extension Res: NoCopy {
       func deinit(&var self) { close(self.fd) }
   }
@@ -3074,7 +3087,7 @@ collections" claim: the cost of every transfer is readable at the use site.
   method, `copy(&self) -> Self`, so a second conformance redeclares a method
   the type already has:
 
-  ```saw
+  ```saw-fragment
   @synthesize
   extension Ticket: Copy {}
 
@@ -3108,7 +3121,7 @@ collections" claim: the cost of every transfer is readable at the use site.
   the hook's contract is not. A `copy()` the compiler inserts everywhere should
   be cheap and infallible, and a heavy one is legal at the author's cost.
 
-```saw
+```saw-body
 // Trivial: implicit bitwise copy, both valid
 let a = 42
 let b = a
@@ -3201,7 +3214,8 @@ not implement Copy
 Declaring the stricter `NoCopy` on a type that would be on this tier is legal,
 and is how a type that could be copied for free is made move-only anyway:
 
-```saw
+```saw-error
+// error-contains: cannot copy value of type `Ticket`
 struct Ticket { code: String }
 extension Ticket: NoCopy {}        // stricter than the automatic tier
 
@@ -3236,7 +3250,8 @@ parts. An `Optional<T>`, a tuple, a fixed array, an enum's payloads and a
 `Vector<Int>?` is `ExplicitCopy` because `Vector<Int>` is, `File?` is move-only
 because `File` is, and `Int?` stays trivial.
 
-```saw
+```saw-error
+// error-contains: cannot copy value of type
 let v: Vector<Int> = [1, 2, 3]
 let o: Vector<Int>? = move v
 
@@ -3261,7 +3276,7 @@ retains, a `Vector<Int>` element gets its own buffer, a trivial one is copied
 bitwise. A tuple holding a `NoCopy` element has no `.copy()`, and the refusal
 names the offending element by position and type.
 
-```saw
+```saw-body
 var v: Vector<Int> = [1, 2]
 let t = (move v, 7)
 
@@ -3275,7 +3290,7 @@ bare one is the same error with the same hints. An enum whose payloads are only
 trivial or `Copy` needs no declaration, exactly as a `String`-field
 struct needs none.
 
-```saw
+```saw-fragment
 enum Reel {
     case Loaded(t: Tape),      // Tape is NoCopy
     case Empty
@@ -3312,7 +3327,7 @@ Some types represent unique resources that should not be copied. Trait
 conformance is declared through an `extension` (there is no struct-header
 `struct X: Trait` syntax):
 
-```saw
+```saw-fragment
 struct FileHandle {
     fd: Int
 }
@@ -3338,7 +3353,7 @@ See [Resource Management Traits](#resource-management-traits) for the full `Dein
 declaration carries the word in the post-parameter effect slot beside
 `unsafe`/`sync`/`borrows`, and the call site spells the transfer with `move`:
 
-```saw
+```saw-body
 struct Builder { items: Vector<Int>, count: Int }
 extension Builder: NoCopy {}
 extension Builder {
@@ -3405,7 +3420,7 @@ doing whatever teardown the author intends, including none — and the synthesiz
 drops then sweep the unmoved remainder. The replacement is per endpoint, not per
 type: an ordinary drop of the same value still runs body-then-drops.
 
-```saw
+```saw-fragment
 struct Conn { fd: Int, buffer: Data }
 extension Conn: NoCopy {
     func deinit(&var self) { close_fd(self.fd) }
@@ -3432,7 +3447,7 @@ them.
 Each field is decided on EVERY path or NO path, statically, so no runtime drop
 flags exist. Fields are independent, so several may leave at once:
 
-```saw
+```saw-fragment
 extension Pair {
     func split(&var self) consumes -> (Tag, Tag) {
         (move self.a, move self.b)      // `c` is swept at body end
@@ -3476,7 +3491,7 @@ takes it exclusively — so the rule is worth knowing for exactly one reason.
 **A pointer built from `&self` addresses the caller's value.** That is what an
 author writing an `unsafe` accessor wants, and it is what they now get:
 
-```saw
+```saw-fragment
 extension FixedBuf<N> {
     public func ptr(&self) unsafe -> UnsafePointer<Int8> {
         (&self.data) as UnsafePointer<Int8>
@@ -3499,7 +3514,7 @@ is no longer necessary.
 
 Reference types (`&T` and `&var T`) allow passing values by reference without copying. References are only valid as function/method parameters and cannot escape. Mutation through a `&var` reference is done with compound assignment (`x += 1`), mutating methods, or — as of design 110 — whole-referent *replacement* assignment `x = v` (the same rule closures already followed; see below). Some example bodies below use planned stdlib methods (`push_str`, `String.from`) and are *(illustrative)*.
 
-```saw
+```saw-fragment
 // &T - shared reference (read-only access)
 func print_length(s: &String) {
     print(s.len())  // Can read through reference
@@ -3578,7 +3593,8 @@ type: that type's parameter list takes references legitimately — `(&T) sync ->
 is `Vector.with_ref`'s callback — and its own return was checked at its own
 arrow. A reference in *parameter* position is untouched anywhere.
 
-```saw
+```saw-error
+// error-contains: method `peek` may not return a reference: the return type `&Int`
 extension Counter {
     func peek(&self) -> &Int { &self.n }
     // error: method `peek` may not return a reference: the return type `&Int`
@@ -3657,7 +3673,8 @@ forces onto every signature that names it is the fence from there on. The cast
 must name a pointer type to qualify —
 `(&x) as Int` is an ordinary expression and the reference in it is refused.
 
-```saw
+```saw-error
+// error-contains: `&` here is not a call argument, and references in
 extension Counter {
     func cell(&var self) unsafe -> UnsafePointer<Int> {
         (&var self.n) as UnsafePointer<Int>   // the address, into the unsafe tier
@@ -3668,7 +3685,8 @@ let r = &x        // error: `&` here is not a call argument, and references in
                   // Saw are PARAMETERS ONLY ...
 ```
 
-```saw
+```saw-error
+// error-contains: field `r` of `Holder` may not be a reference: its type `&Int` is a
 struct Holder { r: &Int }
 // error: field `r` of `Holder` may not be a reference: its type `&Int` is a
 // reference, and references in Saw are PARAMETERS ONLY — a reference borrows
@@ -3686,7 +3704,7 @@ enclosing function. Both are captured **by borrow**: the environment holds a
 pointer to the storage, so the body reads the live value, and through a
 `&var self` receiver or a `&var T` parameter it writes the caller's storage.
 
-```saw
+```saw-fragment
 extension Counter {
     func viaFree(&self) -> Int { run_int({ self.n + 1 }) }
 
@@ -3703,7 +3721,8 @@ three spellings — the explicit `[&x]`/`[&var x]` borrow-capture, a reference
 parameter, and `self`. Outside that position the environment is heap-allocated
 and outlives the frame it points into, so the capture is refused:
 
-```saw
+```saw-error
+// error-contains: an escaping closure cannot capture `self`: a method's receiver is
 extension Counter {
     func handOut(&self) -> () -> Int { return { self.n + 3 } }
     // error: an escaping closure cannot capture `self`: a method's receiver is
@@ -3727,7 +3746,7 @@ a borrow, so it is captured by value under the ordinary transfer rules.
 
 The capture may also be written out loud, behind a borrow sigil:
 
-```saw
+```saw-fragment
 extension Counter {
     func viaFree(&self) -> Int { run_int({ [&self] in self.n + 1 }) }
     func bump(&var self) -> Int { run_int({ [&var self] in self.n += 10  self.n }) }
@@ -3739,7 +3758,7 @@ they meet the same non-escaping rule. `[&var self]` requires a `&var self`
 receiver: a shared receiver has no exclusive borrow to hand out, and asking for
 one names the working spelling.
 
-```saw
+```saw-fragment
 extension Counter {
     func read(&self) -> Int { run_int({ [&var self] in self.n + 1 }) }
     // error: `[&var self]` needs a `&var self` receiver, and `read` takes
@@ -3767,7 +3786,7 @@ to a variable. This completes the sigil symmetry across types (`&T`/`&var T`),
 receivers (`&self`/`&var self`), closure capture (`&v`/`&var v`), and call
 sites.
 
-```saw
+```saw-body
 func readIt(x: &Int) -> Int { x }
 func bump(y: &var Int) { y += 1 }
 
@@ -3787,7 +3806,7 @@ rules hold: **a `&var` forward requires an incoming `&var`** (a shared `&`
 reference cannot be upgraded to `&var` — rejected cleanly), while a `&var` may be
 forwarded as `&` (a downgrade to a shared read is fine).
 
-```saw
+```saw-fragment
 func bump(x: &var Int) { x += 1 }
 func read_it(x: &Int) -> Int { x }
 
@@ -3819,7 +3838,7 @@ the task's life, so a forwarded reference never outlives the storage it names.
 
 **Method Self:**
 Methods use reference syntax for self:
-```saw
+```saw-fragment
 extension Point {
     func magnitude(&self) -> Float { ... }      // Shared reference
     func translate(&var self, dx: Float) { ... } // Exclusive reference
@@ -3834,7 +3853,7 @@ freely: with no writer in the call, the shared storage does not change for the
 callee's duration, so the overlap is unobservable. A `move` argument may not
 alias any reference argument in the same call.
 
-```saw
+```saw-fragment
 func swap(a: &var Int, b: &var Int) { ... }
 
 var x = 0
@@ -3880,7 +3899,7 @@ nested calls included. A `&` or `&var` written inside a call that sits in an
 argument list joins the outer call's access set and meets the same
 path-disjointness test as the arguments written beside it.
 
-```saw
+```saw-fragment
 var p = Point(x: 1, y: 2)
 sink(&var p.x, reset(&var p))
 // error: exclusive access violation: `p` is borrowed by a nested call in this
@@ -3897,13 +3916,13 @@ refused as well. The receiver is borrowed for the whole call expression, so
 calls reaching one root are refused on the same terms, with neither reference
 written at the outer level:
 
-```saw
+```saw-fragment
 combine(bump(&var n), scale(&var n))   // error: both reach `n`
 ```
 
 The fix is a hoisted binding, which puts the two borrows in separate statements:
 
-```saw
+```saw-fragment
 let extra = reset(&var p)
 sink(&var p.x, extra)
 ```
@@ -3913,7 +3932,8 @@ evaluated first, so the RHS may not borrow a path overlapping the written root:
 everything the callee wrote through that borrow would be overwritten by the
 assignment that follows.
 
-```saw
+```saw-error
+// error-contains: `p` is written by this assignment while also
 var p = Point(x: 1, y: 2)
 p.x = bump(&var p)      // error: `p` is written by this assignment while also
                         //        being accessed in the right-hand side
@@ -3934,7 +3954,7 @@ changes.
   the group's death. The concurrency chapter states the release rules; the point
   here is that a spawn does not create a reference the law cannot see.
 
-```saw
+```saw-fragment
 let h = group.spawn(run({ [&var n] in n = n + 1  n }))
 let seen = n
 // error: exclusive access violation: `n` cannot be read here — the task spawned
@@ -3958,7 +3978,7 @@ not new — `v.x`, `t.0` and `o!` have always been places. What is new is that a
 
 A `borrows` method yields a place of `T` rather than a value of `T`:
 
-```saw
+```saw-fragment
 struct Grid { cells: [Cell; 9] }
 
 extension Grid {
@@ -3992,7 +4012,7 @@ then finishes.
 
 So a `borrows` body has three parts and no `return` of a value anywhere:
 
-```saw
+```saw-fragment
 extension Ledger {
     public func entry(&var self, i: Int) borrows -> Entry {
         if i < 0 || i >= self.entries.len() {     // prologue: runs at entry
@@ -4022,7 +4042,8 @@ no allocation, one direct call for the common case.
 An accessor lends storage its **receiver** already owns. `lend` on the
 accessor's own local or parameter is a compile error:
 
-```saw
+```saw-error
+// error-contains: `lend tmp` is not rooted in the receiver
 extension Counter {
     func slot(&self) borrows -> Int {
         var tmp = self.n + 1
@@ -4058,7 +4079,7 @@ One `borrows` declaration serves reads and writes. The **use site** decides:
 reading through the place opens a shared window, writing through it (or handing
 it over as `&var`) opens an exclusive one. The declaration never says which.
 
-```saw
+```saw-fragment
 print(g[4].weight)      // shared window on `g`
 g[4].weight += 1        // exclusive window on `g`
 bump(&var g[4])         // exclusive window, spanning the call
@@ -4069,7 +4090,7 @@ bump(&var g[4])         // exclusive window, spanning the call
 Four spellings reach the write side, and they all mean the same thing — replace
 or mutate storage the container already holds, where it sits:
 
-```saw
+```saw-fragment
 v[i] = fresh              // subscript, unconditional lend
 m[k]! = fresh             // forced conditional lend; panics if `k` is absent
 c.slot(i) = fresh         // named accessor
@@ -4115,7 +4136,7 @@ binding unusable.
 names the specialization being compiled: `false` for the shared window, `true`
 for the exclusive one.
 
-```saw
+```saw-fragment
 extension Data {
     public func [](&self, index: Int) unsafe borrows -> UInt8 {
         if index < 0 || index >= self.length {
@@ -4151,7 +4172,7 @@ compiler emits a `&var self` sibling that folds the constant true and keeps the
 gate, and sends every exclusive use site there. Nothing changes at the call —
 the use site already carries the flavor:
 
-```saw
+```saw-fragment
 let frozen = load()
 print(frozen[0])       // shared: no gate, no separation, no `var` required
 var buf = frozen
@@ -4201,7 +4222,7 @@ bindings.** The code in a window is code you wrote where you wrote it, so a
 local it names is *borrowed*, never copied — which is what lets a move-only
 value be handed to something reached through a place:
 
-```saw
+```saw-fragment
 var enc = CborEncoder()             // NoCopy, built right here
 var i = 0
 while i < entries.len() {
@@ -4215,7 +4236,7 @@ already holds that root — exclusively, if the use site writes — so reaching 
 second time from inside the extent is the aliasing the Law of Exclusivity
 refuses. Bind what you need from the root before the window opens:
 
-```saw
+```saw-fragment
 let n = v.len()
 v[0].bump(by: n)        // `v[0].bump(by: v.len())` is refused
 ```
@@ -4225,7 +4246,7 @@ side is defined to run before its target, so a right-hand side that names the
 target's own root is lifted out of the window and the two accesses become two
 statements:
 
-```saw
+```saw-fragment
 v[0].n = v.len()        // compiles: the read finishes, then the window opens
 v[0].n = v.pop()!.n     // and so does this, for the same reason
 ```
@@ -4240,7 +4261,7 @@ runs in; the diagnostic there names the asymmetry and gives the `let`.
 real storage (the present path) or plainly returns `None` (the absent path — no
 storage, an immediate value) or diverges:
 
-```saw
+```saw-fragment
 extension Grid {
     public func at(&self, i: Int) borrows -> Cell? {
         if i < 0 || i >= 9 {
@@ -4260,7 +4281,7 @@ lend, so there is nothing to close; the caller decides what absence means. A
 value read means `None`; a chain that reached *through* the place with `!` has
 already promised the place is there, so absence is that force-unwrap's panic.
 
-```saw
+```saw-fragment
 print(g.at(4)!.weight)              // panics if absent
 g.at(4)!.weight += 1                // exclusive window on the present path
 if let c = g.at(99) { ... } else { ... }   // absent: no window, no epilogue
@@ -4308,7 +4329,7 @@ they emit no copy and no drop. A `match` on a place matches it where it sits,
 and an arm that DOES bind binds the payload in place, so the table above is
 consulted for that one binding rather than for the whole element.
 
-```saw
+```saw-fragment
 if let _ = doc.section("package") { ... }     // presence: no read at all
 match slots[i] {                              // discriminant through the borrow
     case Empty -> 0,
@@ -4326,7 +4347,7 @@ rather than the lend's own presence, and asking whether it holds anything is
 still a look at the tag. It desugars to `is_some()`, which is the same question
 written out.
 
-```saw
+```saw-fragment
 struct Session { id: Int }
 extension Session: NoCopy {}
 
@@ -4347,7 +4368,7 @@ on each parameter it mentions. The question is asked once, in the generic body,
 never at an instantiation, so a body that compiles compiles for every caller.
 The refusal names both ways forward:
 
-```saw
+```saw-fragment
 struct Holder<K> { slots: Vector<Slot<K>> }
 
 extension Holder<K> {
@@ -4370,7 +4391,7 @@ A `match` on a place matches it where it sits, so an arm that binds binds the
 payload in place (above). That binding can also be **lent**, which is how a
 container whose storage is a slot enum publishes an accessor at all:
 
-```saw
+```saw-fragment
 enum Slot { case Empty, case Filled(key: Int, res: Res) }
 
 extension Table {
@@ -4396,7 +4417,7 @@ element, or another place hanging off `self`. Matching a value the body just
 built would lend a temporary that dies with the accessor, so it is a clean error
 rather than a write that goes nowhere:
 
-```saw
+```saw-fragment
 let built = self.fresh()
 match built {
     case Filled(_, r) -> { lend r },  // error: `lend r` names the payload of a
@@ -4423,7 +4444,7 @@ place, are an exclusivity error on every copy tier.** Two windows
 (`setboth(&var p.at(0), &var p.at(1))`), or a window beside a `&var` of its own
 root, name overlapping storage, and the diagnostic says so:
 
-```saw
+```saw-fragment
 setboth(&var p.at(0), &var p.at(1))
 // error: exclusive access violation: the place `p.at(…)` borrows `p` for the
 //        whole window, and `p` is accessed by reference a second time in the
@@ -4459,7 +4480,7 @@ Three fences hold in this version:
 
 `Vector` and `Data` publish their element access as places:
 
-```saw
+```saw-fragment
 var v: Vector<Entry> = [...]
 print(v[0].count)                // shared window
 v[0].count += 1                  // exclusive window
@@ -4485,7 +4506,7 @@ twin, nothing more.
 Both panic out of range, on design 130's accessor-rule terms. `Vector.get(i)` is
 the `None`-returning twin of `v[i]` and the same lowering — a conditional lend:
 
-```saw
+```saw-fragment
 if let e = v.get(i) { ... }      // value read, so the copy tier decides
 if let _ = v.get(i) { ... }      // presence test: legal for every tier
 v.get(i)!.count += 1             // exclusive window; the `!` panics if absent
@@ -4494,7 +4515,7 @@ v.get(i)!.count += 1             // exclusive window; the `!` panics if absent
 `Map` publishes its values as a subscript, `func [](key: K) borrows -> V?` — a
 conditional lend, since a key may not be there:
 
-```saw
+```saw-fragment
 var counts = Map<String, Entry>()
 let _ = counts.insert("a", Entry(n: 0))
 
@@ -4535,7 +4556,7 @@ is the one shared-ownership primitive. `Arc` is `Copy + Deinit`
 (retain on copy, release on drop; the last owner runs the payload's `deinit`
 exactly once), built on the same machinery as `String`.
 
-```saw
+```saw-fragment
 // Atomic reference counting (thread-safe shared ownership). The control block
 // is an allocation, so the constructor reports; `try!` says this caller would
 // rather die than handle a refusal.
@@ -4555,7 +4576,7 @@ the use site decides what the window is for. Reading the place out as a value
 follows the payload's copy tier (bitwise for a trivial payload, a retain for a
 `String`), and a move-only payload is reached through the window instead:
 
-```saw
+```saw-fragment
 var b = try! Box<Res>.make(Res(name: "r", hits: 0))
 print(b.value().label())      // borrows the payload for the call
 b.value().hits += 5           // writes it in the box's own allocation
@@ -4574,7 +4595,7 @@ and runs it with `&var` access to the guarded payload under the lock — the loc
 is always released on the way out. `get()` snapshots the payload
 (`T: ExplicitCopy`).
 
-```saw
+```saw-fragment
 // lock<R>(body: (&var T) sync -> R) -> R — the body's own result comes back out
 let m = Mutex<Int>(value: 0)
 
@@ -4641,7 +4662,7 @@ the transfer-site rules.
 
 #### The Deinit trait
 
-```saw
+```saw-fragment
 // Called automatically when a value goes out of scope
 trait Deinit {
     func deinit(&var self)
@@ -4674,7 +4695,7 @@ type's copy policy — `NoCopy`, `ExplicitCopy`, or `Copy` — see
 
 #### The Copy trait
 
-```saw
+```saw-fragment
 trait Copy {
     func copy(&self) -> Self
 }
@@ -4729,7 +4750,7 @@ closure's environment are the same hook again.
 
 #### The ExplicitCopy trait (owning types that duplicate)
 
-```saw
+```saw-fragment
 // ExplicitCopy also requires Deinit
 trait ExplicitCopy: Deinit {
     func copy(&self) -> Self
@@ -4745,7 +4766,7 @@ when its key/value type(s) are, and stays implicitly move-only otherwise
 (there is simply no `copy()` to call). Enforcement reuses the `NoCopy`
 value-transfer checkpoint, with its own diagnostic:
 
-```saw
+```saw-fragment
 extension Buf: ExplicitCopy {
     func copy(&self) -> Buf { ... }    // duplicate the buffer
     func deinit(&var self) { ... }     // free buffer
@@ -4760,7 +4781,7 @@ var d = move a     // Ok: ownership transferred, a no longer valid
 
 #### The NoCopy trait (move-only types)
 
-```saw
+```saw-fragment
 // Trait refinement: NoCopy requires Deinit
 trait NoCopy: Deinit {
     // Marker trait - no methods
@@ -4769,7 +4790,8 @@ trait NoCopy: Deinit {
 
 A type conforming to `NoCopy` cannot be copied—only moved. The compiler errors on assignment; use `move` to transfer ownership:
 
-```saw
+```saw-error
+// error-contains: Cannot copy NoCopy type 'File'
 struct File {
     handle: Int
 }
@@ -4794,7 +4816,7 @@ axes. The four tiers above answer "may this value be duplicated, and at what
 cost"; `NoMove` answers a different question — "may this value live anywhere
 other than where it was built" — and a type states both:
 
-```saw
+```saw-fragment
 extension TaskGroup: NoCopy {}
 extension TaskGroup: NoMove {}
 ```
@@ -4808,7 +4830,8 @@ model grows: `NoMove` beside `ExplicitCopy` (a pinned type with a hand-written
 A `NoMove` value moves **once, into its home**, and never again. Its home is
 normally its binding, so the constructor's move is the only one:
 
-```saw
+```saw-error
+// error-contains: cannot `move` `group`: `TaskGroup` is `NoMove`, so it lives where
 func make() -> TaskGroup {
     var group = TaskGroup()
     let _ = group.spawn(work(21))
@@ -4836,7 +4859,7 @@ that is the structured join — and the new value is built where the old one was
 
 The other home a `NoMove` value can have is a heap chunk it is placed into:
 
-```saw
+```saw-fragment
 extension Box<T, A: Allocator = GlobalAllocator> {
     public static func make(value: T) unsafe -> Result<Box<T, A>, AllocError> {
         ...
@@ -4856,7 +4879,7 @@ parameter, placement is one continuous trip to the value's first and only home.
 
 Take a reference to the parameter first and the trip is over:
 
-```saw
+```saw-fragment
 func place(value: Anchor) unsafe -> UnsafePointer<Anchor> {
     ...
     let seen = observe(&value)
@@ -4875,7 +4898,8 @@ Containment is a **declared cascade**, in the style of the copy tiers: a struct
 or enum with a `NoMove` member does not compile until it declares `NoMove` (and
 `NoCopy`) itself.
 
-```saw
+```saw-error
+// error-contains: `Server` contains NoMove member `group` of type `TaskGroup` but does
 struct Server { group: TaskGroup, port: Int }
 extension Server: NoCopy {}
 // error: `Server` contains NoMove member `group` of type `TaskGroup` but does
@@ -4912,7 +4936,7 @@ its own. The compiler knows how to destroy such a struct — see *Synthesized
 destruction* below — but it cannot know whether you want the value duplicated,
 so that one decision stays with you:
 
-```saw
+```saw-fragment
 struct Connection {
     socket: File       // File is NoCopy
     config: Config     // plain type
@@ -4968,7 +4992,7 @@ Write a `deinit` yourself when a raw resource needs releasing — a file
 descriptor, a mapped page, an allocation the compiler does not track. Your body
 runs first, then the field drops are appended:
 
-```saw
+```saw-fragment
 extension Connection: NoCopy {
     func deinit(&var self) {
         log_close(self.id)
@@ -4982,7 +5006,7 @@ body; it does not add a second pass.
 
 **In struct initialization**: When initializing a struct, `copy()` is automatically called on any `Copy` fields that come from existing variables:
 
-```saw
+```saw-fragment
 extension Container: Copy {
     func copy(&self) -> Container {
         Container(data: self.data)  // Compiler calls self.data.copy()
@@ -5004,7 +5028,7 @@ Saw uses `Result<T, E>` for recoverable errors with `try` expressions for ergono
 
 ### Result Type
 
-```saw
+```saw-fragment
 // Built-in generic enum
 enum Result<T, E> {
     case Ok(value: T),
@@ -5038,7 +5062,7 @@ auto-wrap*.
 
 In functions returning `Result<T, E>`, values are automatically wrapped:
 
-```saw
+```saw-fragment
 func parse_number(valid: Bool) -> Result<Int, ParseError> {
     if valid {
         return 42  // Auto-wrapped to Ok(value: 42)
@@ -5081,7 +5105,7 @@ Four return targets take this wrap, and they take the identical one: a
 function body's tail, a method body's tail, an explicit `return`, and a
 CLOSURE body's tail.
 
-```saw
+```saw-fragment
 func run(f: (Int) sync -> Result<Int32, ParseError>) -> Int32 { ... }
 
 run({ x in 12 })                       // Ok(12), same as `{ x in return 12 }`
@@ -5095,7 +5119,7 @@ one.
 A bare `None` is on that list too. At a declared `Result<T?, E>` it is
 `Ok(None)`, at all four targets and in a generic body:
 
-```saw
+```saw-fragment
 func poll(n: Int) -> Result<Int?, Stop> {
     if n == 0 { return None }        // an explicit return
     None                             // …and the tail that means the same thing
@@ -5158,7 +5182,7 @@ The prefix is reserved for the non-blocking variant of an operation that could
 otherwise block, and it means nothing else. The standard shape is the blocking
 operation's error type with the payload optionalized:
 
-```saw
+```saw-fragment
 func receive(&self) -> Result<T, ChannelError>       // parks until a message arrives
 func try_receive(&self) -> Result<T?, ChannelError>  // answers at once
 ```
@@ -5173,7 +5197,7 @@ value has been set.
 The two peel apart cleanly at a call site, the `try` taking the error channel
 and the `while let` taking the optional:
 
-```saw
+```saw-fragment
 func drain(ch: Channel<Job>) -> Result<Int, ChannelError> {
     var n = 0
     while let job = try ch.try_receive() {   // ends on empty, propagates on closed
@@ -5188,7 +5212,7 @@ func drain(ch: Channel<Job>) -> Result<Int, ChannelError> {
 
 The `try` keyword has three forms:
 
-```saw
+```saw-fragment
 // try - propagate error to caller (function must return Result)
 func load_data() -> Result<Data, IoError> {
     let content = try read_file("data.txt")  // Propagates IoError if Err
@@ -5207,7 +5231,7 @@ let content = try! read_file("data.txt")  // Panics if Err
 A `try` whose callee fails with a different error type than the enclosing
 function declares spells the conversion, as a prefix clause:
 
-```saw
+```saw-fragment
 struct AllocError { size: Int, align: Int }
 struct ParseError { line: Int }
 
@@ -5243,7 +5267,7 @@ owned by `try`; every trailing `as` remains an ordinary cast.
 channel to convert. A clause and a `catch` on one `try` are refused together —
 route the error onward, or handle it here.
 
-```saw
+```saw-fragment
 let n = try!(as ConfigError.Alloc) alloc_buffer(64)
 // error: `try!` cannot take a routing clause — `try!` does not propagate the
 //        error, so there is no error channel to convert
@@ -5260,7 +5284,7 @@ fence.
 
 Handle errors locally with inline `catch`:
 
-```saw
+```saw-fragment
 // Provide fallback value on error
 let content = try read_file("config.txt") catch { "default config" }
 
@@ -5289,7 +5313,7 @@ with no `match`. This is the Result counterpart of `guard let x = maybe else
 
 For multiple operations that may fail:
 
-```saw
+```saw-fragment
 try {
     let config = try read_config()
     let data = try load_data(config)
@@ -5305,7 +5329,7 @@ The implicit `error` variable is available in the catch block.
 
 When a try block contains operations with different error types, use `match` to handle them:
 
-```saw
+```saw-fragment
 struct IoError { code: Int }
 struct ParseError { line: Int }
 
@@ -5349,7 +5373,7 @@ exactly the error types propagated in that block. Its observable semantics:
   written return type is compatible with the union. Local inferred bindings
   (`let e = error`) are permitted and harmless.
 
-```saw
+```saw-fragment
 try {
     let a = try read_file("config.txt")     // IoError
     let b = try parse_config(a)              // ParseError
@@ -5380,7 +5404,7 @@ unchanged.
 
 You can always handle `Result` explicitly with `match`:
 
-```saw
+```saw-fragment
 match read_file("data.txt") {
     case Ok(content) -> process(content),
     case Err(e) -> print("Error: {e.code}")
@@ -5393,7 +5417,8 @@ A `Result` whose value no construct consumes is a compile error. A failable
 call written as a bare statement throws away the failure it reports, so the
 compiler rejects it:
 
-```saw
+```saw-error
+// error-contains: result of `write` is `Result<Void, IoError>` and is silently
 import std.net.*
 
 func send(stream: &var TcpStream, body: String) {
@@ -5408,7 +5433,7 @@ func send(stream: &var TcpStream, body: String) {
 Handling it means consuming the `Result`: `match` on it, apply `try`, `try!`
 or `try?`, or return it to the caller.
 
-```saw
+```saw-fragment
 func send(stream: &var TcpStream, body: String) -> Result<Void, IoError> {
     return stream.write(body)
 }
@@ -5417,7 +5442,7 @@ func send(stream: &var TcpStream, body: String) -> Result<Void, IoError> {
 When the failure genuinely does not matter, `let _ =` says so in the source and
 the reader can see that the author decided:
 
-```saw
+```saw-fragment
 func send(stream: &var TcpStream, body: String) {
     let _ = stream.write(body)   // best effort: the peer is already closing
 }
@@ -5449,7 +5474,7 @@ force-unwrap failures and division by zero (see Runtime Semantics). The
 implemented; the `[Int]` slice parameter below is still *(illustrative)* — on a
 fixed array `[Int; N]` the same code type-checks and runs today.
 
-```saw
+```saw-fragment
 func get_index(arr: [Int], i: Int) -> Int {   // [Int] slice: illustrative
     if i >= arr.len() {
         panic("Index {} out of bounds", i)
@@ -5470,7 +5495,7 @@ with no heap.
 Both spellings work, and the format-argument form is the one that holds under
 allocator exhaustion:
 
-```saw
+```saw-body
 panic("out of {}: wanted {}, had {}", "frames", 64, 3)
 // panic at slab.saw:41: out of frames: wanted 64, had 3
 ```
@@ -5527,7 +5552,7 @@ Three spellings, one for each thing a conversion between integer types can
 mean. Choosing among them states what an unrepresentable value would mean at
 that site.
 
-```saw
+```saw-body
 let big = 1000
 
 let a = big as UInt8                    // panics: 1000 has no UInt8 value
@@ -5577,7 +5602,8 @@ An operand that folds to a compile-time value is answered at compile time. In
 range, the check is elided and the cast is free. Out of range, it is a
 **compile error**, not a program that builds and aborts on its first run:
 
-```saw
+```saw-error
+// error-contains: `1000` is not representable as `UInt8`, so this cast would always panic
 let ok = 0xFF as UInt8      // fine, and free
 let bad = 1000 as UInt8
 // error: `1000` is not representable as `UInt8`, so this cast would always panic
@@ -5617,7 +5643,8 @@ comparison, a compound assignment or a range whose two operands are integers of
 different width — or of the same width and different signedness — is a compile
 error naming both:
 
-```saw
+```saw-error
+// error-contains: operator `*` requires both operands to have the same type, but the
 func doubling(n: Int) -> Int {
     n * 2i16
 }
@@ -5686,7 +5713,8 @@ the total half of the conversion table above. Each arm extends into it by its
 own signedness, so an unsigned arm zero-extends and keeps its value. Arms with
 no such common type are refused where they are written:
 
-```saw
+```saw-error
+// error-contains: the `if` and `else` branches have no common type: `Int` and `UInt64`
 func g(a: Int) -> Int {
     if a > 0 { 11 } else { 7u64 }
 }
@@ -5709,7 +5737,8 @@ same one. A lossless widening is free; a narrowing or a same-width sign change i
 one of the three spellings from "Integer Conversions", written where the value
 lands.
 
-```saw
+```saw-error
+// error-contains: cannot assign `Int` to variable of type `Int8`
 let n: Int = 300
 let b: Int8 = n
 // error: cannot assign `Int` to variable of type `Int8`
@@ -5801,7 +5830,8 @@ combination folds and is range-checked against that type, so
 `let mask: UInt8 = Perm.Read | Perm.Write` is a `UInt8` holding 3, and a
 combination too wide for the slot is a compile error rather than a truncation:
 
-```saw
+```saw-error
+// error-contains: constant expression 4111 does not fit in `UInt8` (range 0..=255)
 let mask: UInt8 = Perm.Read | Perm.Write     // 3
 
 enum Cfg: UInt16 { case Mask = 0x000F, case Wide = 0x1000 }
@@ -5821,7 +5851,7 @@ writes. See "Compile-Time Evaluation".
 Outside a constant, a bit operator applied to an enum-typed **value** is a
 compile error. The projection is explicit:
 
-```saw
+```saw-fragment
 let held = Perm.Write
 let flags = (held as UInt8) | (Perm.Exec as UInt8)   // UInt8, 6
 
@@ -5901,7 +5931,7 @@ is what keeps "a raw-backed enum value is always a declared case" true.
   A declared conformance that neither carries `@synthesize` nor writes `equals`
   is a compile error; see [Synthesized conformances](#synthesized-conformances).
 
-  ```saw
+  ```saw-fragment
   @synthesize
   extension Named: Equatable {}
   ```
@@ -5931,7 +5961,7 @@ is what keeps "a raw-backed enum value is always a declared case" true.
 **Status: implemented** (`designs/48-ord-hash.md`). The `Comparable` trait gates
 the ordering operators `< <= > >=`, which **desugar to `compare`**:
 
-```
+```saw-fragment
 enum Ordering { case Less, case Equal, case Greater }
 
 trait Comparable {          // requires Equatable
@@ -5980,7 +6010,7 @@ consume what it was handed.
 
 A move-only type with a hand-written comparison is comparable:
 
-```saw
+```saw-body
 struct Tag { id: Int }
 extension Tag: NoCopy {
     func deinit(&var self) { print("drop {self.id}") }
@@ -6010,7 +6040,7 @@ Two rules follow from the signature.
 may take ownership of an operand every caller only lends, so it is refused at
 the declaration:
 
-```saw
+```saw-fragment
 extension Tag: Equatable {
     func equals(&self, other: Tag) -> Bool { self.id == other.id }
 }
@@ -6033,7 +6063,7 @@ position from which a conformance could release a value the caller still owns.
 (`a == b`, `a < b`); the direct call writes the `&` every reference argument in
 Saw writes, at a concrete receiver and through a generic bound alike:
 
-```saw
+```saw-fragment
 if not a.equals(&b) { print("tags differ") }
 
 func differ<T: Equatable>(a: &T, b: &T) -> Bool { a.equals(&b) }
@@ -6057,7 +6087,7 @@ than through a written conformance, and those methods are its own API.
 **Status: implemented** (`designs/48-ord-hash.md`). The `Hashable` trait gates
 use as a hash-map key. It streams a value into a **streaming `Hasher`** (FNV-1a):
 
-```
+```saw-fragment
 struct Hasher { /* opaque FNV-1a state */ }
 extension Hasher {
     init() -> Hasher
@@ -6091,7 +6121,7 @@ name a data model; the concrete format decides the bytes (`std.cbor` is the
 format in the tree). All four names are prelude-visible and present in the
 freestanding profile.
 
-```
+```saw-fragment
 trait Serialize {
     func serialize(&self, to: &var any Encoder) -> Result<Void, EncodeError>
 }
@@ -6128,7 +6158,7 @@ trait Deserialize {
   and any member that itself conforms. A member outside that set is a clean
   error naming the field and its type, with the hand-written body as the way
   out — never a silently skipped field.
-  ```
+  ```saw-fragment
   @synthesize
   extension Endpoint: Serialize {}
   @synthesize
@@ -6159,7 +6189,7 @@ implementation of that same document over the `cbor2` library; the blobs under
 `tests/cbor_vectors/` are what the two are held to. Import-required, and present
 in both profiles.
 
-```saw
+```saw-fragment
 import std.cbor.{CborEncoder, CborDecoder}
 
 var enc = CborEncoder()
@@ -6217,7 +6247,7 @@ methods carry **no copy bound**. Each lends the element to the closure as a
 `&T`, so the vector still owns it afterwards and a move-only element type
 traverses like any other:
 
-```saw
+```saw-fragment
 var jobs = Vector<Job>()        // Job is NoCopy
 try! jobs.push(Job(name: "alpha"))
 
@@ -6417,7 +6447,7 @@ accepted. The algorithm is Eisel-Lemire (Lemire, SPE 2021) with an exact
 decimal fallback (Clinger, PLDI 1990) for the inputs it declines. Parsing
 never panics, including on an 800-digit significand or `1e999999999`.
 
-```saw
+```saw-body
 let text = (0.1 + 0.2).to_string()   // "0.30000000000000004"
 print(text.to_float()! == 0.1 + 0.2) // true
 ```
@@ -6547,7 +6577,7 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   is lowered into included, which is what makes `v[i].push(move h)` through a
   place consume `h` once:
 
-  ```saw
+  ```saw-fragment
   let h = Res(id: 1)
   try! slots[0].push(move h)     // `h` is the container's now
   ```
@@ -6559,7 +6589,8 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   loaded out of it into a per-call local. A write to one therefore lands on that
   local and is gone when the call returns, so the checker rejects it instead:
 
-  ```saw
+  ```saw-error
+  // error-contains: cannot assign to `n`: it is captured by
   func make_counter() -> () -> Int {
       var n = 0
       { n = n + 1        // error: cannot assign to `n`: it is captured by
@@ -6807,7 +6838,7 @@ Observable rules:
   some type implements with a suspending body is a compile error at the
   dispatch:
 
-  ```saw
+  ```saw-fragment
   trait Greeter { func greet(&self) -> String }
 
   extension Person: Greeter {
@@ -6894,7 +6925,7 @@ Observable rules:
   Two more positions belong to that list and were refused until Aug 21. A
   destructuring `let`'s right-hand side takes the rewrite in both spellings, a
   tuple literal of suspending calls and a suspending call returning a tuple:
-  ```saw
+  ```saw-fragment
   let (head, rest) = (try! ch.receive(), try! tally.receive())
   let (width, height) = measure()          // `measure` suspends
   ```
@@ -6917,7 +6948,7 @@ Observable rules:
   the loop body instead: the loop runs as many times as the condition's
   successive answers say, a `continue` re-evaluates it, and a `break` in the
   body still leaves the loop.
-  ```saw
+  ```saw-fragment
   func drain(ch: Channel<Int>, tally: Channel<Int>) -> Int {
       var served = 0
       while (try! ch.receive()) > 0 {     // the condition suspends, once per iteration
@@ -6963,7 +6994,7 @@ Observable rules:
   - An **erased `Result<T, Box<any Error>>`** returns and propagates across a
     suspension, boxing a concrete error at the return edge or re-boxing one at
     the propagation edge, and a function returning one is spawnable.
-  ```saw
+  ```saw-fragment
   func fetch(stream: &var TcpStream) -> Result<Data, IoError> {
       let head = try stream.read()      // suspends; a failure returns Err here
       try stream.write("ok")
@@ -7203,7 +7234,7 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   went away" is not something the type can count — a waiting receiver's own
   handle keeps any refcount nonzero forever. Saying so is the mechanism:
 
-  ```saw
+  ```saw-fragment
   public func close(&self) -> Result<Void, ChannelError>
   public func send(&self, v: T) -> Result<Void, ChannelError>
   public func receive(&self) -> Result<T, ChannelError>
@@ -7232,7 +7263,7 @@ anti-suspension boundary, so it is `sync`) plus `wake_reason(&self) sync -> Int`
   `ChannelError` is an enum because a receive TIMEOUT is the other legitimate way
   one of these calls can fail to deliver; that case is reserved, not yet built.
 
-  ```saw
+  ```saw-fragment
   func consume(orders: Channel<Order>) -> Int {
       var handled = 0
       var going = true
@@ -7388,7 +7419,7 @@ semantics (fairness, the op budget) designed for a spelling only tests write.
 
 ### Tasks and Channels
 
-```saw
+```saw-fragment
 // Spawn an OS thread (escaping closure; every capture must be Send)
 var worker = Thread.spawn {
     heavy_computation()          // returns Int
@@ -7415,7 +7446,8 @@ path out of the scope that binds it, and the result of `Task.spawn(...)` must
 reach `join()`, `detach()` or `cancel()`. Both discard spellings are compile
 errors, including the `let _ =` that discards a `Result`:
 
-```saw
+```saw-error
+// error-contains: `Thread.spawn` hands bac
 Thread.spawn { crunch(n) }
 // error: `Thread.spawn` hands back a `Thread<Int>` that must be consumed,
 //        and this one is discarded
@@ -7436,7 +7468,7 @@ into storage whose owner consumes the handle in its own `deinit`; the compiler
 asks only that the owning type DECLARE a hand-written `deinit`, which is how a
 worker pool outlives the function that starts it:
 
-```saw
+```saw-fragment
 import std.task.{VoidThread}
 
 struct Pool { workers: Vector<VoidThread> }
@@ -7485,7 +7517,7 @@ blocking edge, error paths included.
 `detach()` is the second fate, on both engines. It consumes the handle and
 gives the work to the process. Nothing will join it, so its result is given up:
 
-```saw
+```saw-fragment
 var worker = Thread.spawn { [job] in compress(job) }
 worker.detach()                  // the handle is consumed here
 
@@ -7509,7 +7541,7 @@ nothing. A thread you need to have finished is a thread you join.
 A DETACHED TASK keeps running on the cooperative scheduler, and its result is
 dropped when it completes rather than kept for a join that will never come:
 
-```saw
+```saw-fragment
 func measure(id: Int) -> Report { ... }
 
 let handle = Task.spawn(measure(7))
@@ -7532,7 +7564,8 @@ A spawn brace captures nothing implicitly. The capture list is the body's
 parameter list: each entry transfers at the spawn, by value, at its own copy
 tier, and `[move x]` is how a move-only value goes.
 
-```saw
+```saw-error
+// error-contains: a spawned brace captures nothing implicitly, and this body names
 let count = 3
 var t = Thread.spawn { crunch(count) }
 // error: a spawned brace captures nothing implicitly, and this body names
@@ -7554,7 +7587,7 @@ the reader of a spawn site is looking.
 A `Thread.spawn { ... }` body is a `sync` context: a spawned thread runs no
 executor, so there is nothing on it to resume a suspension.
 
-```saw
+```saw-fragment
 var t = Thread.spawn { yield_now()  7 }
 // error: cannot suspend in a `Thread.spawn { ... }` body: closure calls
 //        yield_now
@@ -7571,7 +7604,7 @@ spawned thread. Design 103's offload — which moves such a call to a worker
 thread and parks the task — applies to a suspending body, and there is no task
 here to park. An ordinary `sync` body still refuses the same call.
 
-```saw
+```saw-fragment
 extern "C" {
     blocking func compress(src: UnsafePointer<Int8>, n: Int) -> Int
 }
@@ -7581,7 +7614,7 @@ let bytes = t.join()
 
 ### Cooperative tasks: TaskGroup
 
-```saw
+```saw-fragment
 // The cooperative multi-task engine (design 52b). Tasks are stackless coroutine
 // frames driven on the current thread — no OS threads, no thread identity.
 import std.task.*                // design 114: `yield_now` lives in std.task
@@ -7726,7 +7759,7 @@ forever and there is nobody left to ask it to stop; join after, because a
 cancelled task reaches its own completion through ordinary control flow, and
 that is where the values it owns are released:
 
-```saw
+```saw-fragment
 func serve(id: Int) {
     let conn = open(id)
     while true {
@@ -7753,7 +7786,8 @@ them, or spawn them from a suspending `main`.
 BORROWS ARE REFUSED AT THE FORM. A `&`/`&var` argument of the spawned call, and
 a borrow capture in a closure inside it, are both clean errors:
 
-```saw
+```saw-error
+// error-contains: `Task.spawn` accepts no borrows: `&var buffer` is an argument of the
 var buffer: Vector<Int> = []
 let filler = Task.spawn(fill(&var buffer, 3))
 // error: `Task.spawn` accepts no borrows: `&var buffer` is an argument of the
@@ -7789,7 +7823,8 @@ declares, whose scope says where the tasks end.
 spawned frame reaches its group through that address, so a group that moved
 would join in one place and be driven from another:
 
-```saw
+```saw-error
+// error-contains: cannot `move` `group`: `TaskGroup` is `N
 func make() -> TaskGroup {
     var group = TaskGroup()
     let _ = group.spawn(work(21))
@@ -7812,7 +7847,7 @@ There are two spellings and one rule. A borrow **capture** reaches the spawner
 through a closure the task runs; a `&`/`&var` **argument** of the spawned call
 reaches it directly:
 
-```saw
+```saw-fragment
 let h = group.spawn(run({ [&var n] in n = n + 1  n }))   // capture
 let g = group.spawn(bump(&var n))                        // argument
 ```
@@ -7821,7 +7856,7 @@ Both are sound when the borrowed binding is declared **before** its group.
 Destruction is LIFO and the group's `Deinit` joins at scope exit, so everything
 declared ahead of the group is still alive when the join runs:
 
-```saw
+```saw-fragment
 var n = 7
 var group = TaskGroup()
 let h = group.spawn(run({ [&var n] in n = n + 1  n }))
@@ -7833,7 +7868,8 @@ Declared **after** the group, that argument inverts: LIFO tears the binding down
 first, while the group has not joined, and the task reaches freed storage. It is
 a compile error naming the order, in either spelling:
 
-```saw
+```saw-error
+// error-contains: cannot capture `&var n` into a task: `n` is declared AFTER the group
 var group = TaskGroup()
 var n = 7
 let h = group.spawn(run({ [&var n] in n = n + 1  n }))
@@ -7851,7 +7887,7 @@ A **`threads: N` group takes neither spelling.** A reference is not `Send`, so
 the frame cannot cross to a worker thread; the capture is refused for the same
 reason one indirection out (a closure is not `Send` either):
 
-```saw
+```saw-fragment
 var group = try! TaskGroup(threads: 2)
 let h = group.spawn(bump(&var n))
 // error: cannot spawn `bump` into a multi-threaded `TaskGroup(threads: ...)`:
@@ -7873,7 +7909,8 @@ so the release point is statically known and the spawn-join-use order above
 stays legal with nothing written to say so. Between the spawn and the join the
 root belongs to the task:
 
-```saw
+```saw-error
+// error-contains: exclusive access violation: `n` cannot be written here — the task
 var n = 0
 var group = TaskGroup()
 let h = group.spawn(run({ [&var n] in n = n + 100  n }))
@@ -7894,7 +7931,7 @@ two `&x` borrows may be live at once, and the caller may read `x` beside them.
 The argument spelling reads the same, and the spawn-join-use order is what a
 worker filling a caller's buffer looks like:
 
-```saw
+```saw-fragment
 func fill(v: &var Vector<Int>, n: Int) -> Int {
     var i = 0
     while i < n {
@@ -7923,7 +7960,7 @@ one. Before the extent existed, `consume(move buf)` between a spawn and its
 join dropped the buffer and the join then drove a task that read the freed
 slot — silently, exit 0.
 
-```saw
+```saw-fragment
 var buf: Vector<Int> = [1, 2, 3]
 var group = TaskGroup()
 let h = group.spawn(run({ [&var buf] in try! buf.push(9)  buf.len() }))
@@ -7957,7 +7994,7 @@ waiting for. `dump_tasks()` prints the missing half: one entry per live task,
 with the `file:line` of every suspending call between the task's entry point and
 the place it is parked, innermost frame first.
 
-```saw
+```saw-fragment
 import std.task.{dump_tasks}
 
 func read_header(s: TcpStream) -> Data { try! s.read() }
@@ -8060,7 +8097,7 @@ on its own behalf such as a park cut short by cancellation. Log the code, branch
 on the kind. Growth is loud: promoting a code out of `Unknown` into a new kind
 breaks an exhaustive match at compile time instead of silently rerouting it.
 
-```saw
+```saw-fragment
 // A cooperative echo, entirely over the safe owning API. Failable ops return
 // Result (design 92): read gives Result<Data, IoError> — an EMPTY Ok is EOF,
 // DISTINCT from Err — and write sends the whole buffer or surfaces the error.
@@ -8102,7 +8139,7 @@ resolver cannot be reached by a call that would hold the executor thread.
 A name that does not resolve, and a name whose answers contain no IPv4 address,
 are both an `Err(IoError)` naming the host:
 
-```saw
+```saw-fragment
 match TcpStream.connect("db.internal", 5432) {
     case Ok(stream) -> serve(move stream),
     // prints: io error: resolve "db.internal" failed (not found)
@@ -8176,7 +8213,8 @@ fixed-width integers, `Int`/`UInt`, `Float`, `UnsafePointer<T>`, and `Void` or
 `Never` as the return. That is the same set `@export` admits, and the
 diagnostic for a type outside it is the same, anchored at the declaration:
 
-```saw
+```saw-error
+// error-contains: `extern blocking func slow_named`: parameter `s` has type `String`,
 extern "C" {
     blocking func slow_named(s: String) -> Int
 }
@@ -8193,7 +8231,7 @@ frame, or the heap. Both survive the park by construction — a suspending
 function's locals live in its frame, which is heap-resident across every
 suspension, and heap storage lives until it is freed.
 
-```saw
+```saw-fragment
 func reader(fd: Int32) unsafe -> Int {
     var buf: [Int8; 64] = [0; 64]          // frame-owned: survives the park
     read(fd, (&buf) as UnsafePointer<Int8>, 64)
@@ -8289,7 +8327,7 @@ of Exclusivity already governs, an `Arc`'s refcount is updated with atomic
 read-modify-writes, a `Mutex` serializes every access to its payload. The
 assertion has its own two names:
 
-```saw
+```saw-fragment
 trait UnsafeSync: Sync {}
 trait UnsafeSend: Send {}
 ```
@@ -8299,7 +8337,7 @@ They REFINE the marker traits, so a declared conformance satisfies every
 vocabulary. The `Unsafe` prefix carries the claim: the conformance header IS
 the audited, greppable assertion.
 
-```saw
+```saw-fragment
 extension Mutex<T: Send>: UnsafeSync {}
 extension Vector<T: Send, A: Send>: UnsafeSend {}
 ```
@@ -8392,7 +8430,7 @@ structural derivation stops at the `bytes` field and `SampleBuffer` derives
 neither. Moving one to another thread is safe anyway, for reasons the
 derivation cannot read off the fields, so the type says so:
 
-```saw
+```saw-fragment
 extension SampleBuffer: UnsafeSend {}
 ```
 
@@ -8417,7 +8455,7 @@ UnsafeSync {}` now holds, `Mutex<SampleBuffer>` derives `Send` from its cells,
 and `extension Arc<T: Send + Sync>: UnsafeSend {}` and its `UnsafeSync` twin
 then make the handle safe to copy into a worker.
 
-```saw
+```saw-fragment
 func record(shared: Arc<Mutex<SampleBuffer>>, sample: UInt8) {
     shared.lock({ &var buf in buf.push(sample) })
 }
@@ -8535,14 +8573,14 @@ does not un-migrate anything, so the payload must still be safe to *move*
 between threads on its own. That is why the standard library's conformance is
 bounded rather than unconditional:
 
-```saw
+```saw-fragment
 extension Mutex<T: Send>: UnsafeSync {}
 ```
 
 The bound is re-checked at every instantiation, so a `Mutex` over a payload that
 is not `Send` is not `Sync`, and the `Arc` around it is not `Send` either:
 
-```saw
+```saw-fragment
 // `Box<TaskGroup>` is not `Send`
 func poke(shared: Arc<Mutex<Box<TaskGroup>>>) -> Int { shared.strong_count() }
 // error: cannot spawn `poke` into a multi-threaded `TaskGroup(threads: ...)`:
@@ -8564,7 +8602,7 @@ crosses, the buffer does not, and no assertion is owed by anybody. (Continuing
 the `SampleBuffer` above, with no `UnsafeSend` on it — the `import` line joins
 the ones at the top of the file.)
 
-```saw
+```saw-fragment
 import std.channel.{Channel}
 
 enum Request {
@@ -8602,7 +8640,7 @@ usually trivial.
 The senders can be on other threads. Change the one word and the program is a
 `threads: 2` group whose workers run while `main` is reading:
 
-```saw
+```saw-fragment
 func main() {
     var buf = SampleBuffer()           // still owned here, still shared with nobody
     let inbox = try! Channel<Request>()
@@ -8631,7 +8669,7 @@ which is why the program adds them.
 **Status: implemented (design 41).** A `static` is a module-level
 constant-initialized global:
 
-```saw
+```saw-fragment
 static MAX_TASKS: Int = 256           // POD scalar → rodata
 static PRIMES: [Int; 3] = [2, 3, 5]   // constant fixed-array literal
 static ORIGIN: Point = Point(x: 0, y: 0)  // POD struct literal
@@ -8736,7 +8774,8 @@ above it and no others. That is also the cycle rule: a forward reference has
 nothing to fold against, and a self reference is the degenerate forward one.
 Both are refused where the name is written.
 
-```saw
+```saw-error
+// error-contains: static `LATER` is declared after this point
 static EARLY: Int = LATER * 2
 static LATER: Int = 64
 // error: static `LATER` is declared after this point
@@ -8751,7 +8790,8 @@ declared without an initializer are each refused, and the message names
 which static and why rather than reading as "a static may not be named
 here":
 
-```saw
+```saw-error
+// error-contains: array length is not a compile-time constant: the mutable static
 unsafe static var ARENA_BYTES: Int = 1024
 static ARENA: [UInt8; ARENA_BYTES] = [0; 1024]
 // error: array length is not a compile-time constant: the mutable static
@@ -8766,7 +8806,7 @@ applies: a `public` static reached through an import folds, a
 module-private one is not nameable at all. Both spellings work, the bare
 import and the qualifier, and they fold to the same number:
 
-```saw
+```saw-fragment
 import dep
 import dep.{REGION_SIZE}
 
@@ -8850,7 +8890,7 @@ a SHARED borrow. One primitive expresses it, and everything the compiler does
 about it follows from a structural property rather than from a list of type
 names it knows.
 
-```saw
+```saw-fragment
 unsafe struct UnsafeMutableInterior<T>       // holds a T, inline
 func ptr(&self) unsafe -> UnsafePointer<T>   // the only accessor
 ```
@@ -8955,7 +8995,8 @@ above, and it is not special to `Atomic`.
 `Atomic` is **move-only**: it declares `NoCopy`, so `let b = a` on one is a
 compile error and `move a` is how it travels.
 
-```saw
+```saw-error
+// error-contains: cannot copy value of type `Atomic<Int>` which implements NoCopy
 let local = Atomic(0)
 let alias = local
 // error: cannot copy value of type `Atomic<Int>` which implements NoCopy
@@ -9000,7 +9041,7 @@ guarded by an atomic word: one word plus the payload, no allocation, and no
 operating system, so it works in the freestanding profile where
 [`Mutex<T>`](#synchronized-access) — which needs a host lock — does not.
 
-```saw
+```saw-body
 import std.spinlock.*
 
 struct Counters { hits: Int, misses: Int }
@@ -9143,7 +9184,7 @@ func dup<T: Copy>(x: T) -> T {
 own generic type parameters, *in addition to* the type's own — the canonical
 case being a transform whose output type is independent of the element type:
 
-```saw
+```saw-fragment
 extension Vector<T, A: Allocator = GlobalAllocator> {
     // `U` is a METHOD-level type parameter, distinct from the element type `T`
     // and the allocator `A` (which the result vector inherits). The element is
@@ -9201,7 +9242,7 @@ type** with `= Type` in the parameter list (types only — there are no value
 defaults). A reference site may then omit that (and every following) argument,
 and it is filled from the default:
 
-```saw
+```saw-fragment
 struct Vector<T, A: Allocator = GlobalAllocator> { ... }
 
 var xs = Vector<Int>()           // A defaults to GlobalAllocator
@@ -9227,7 +9268,7 @@ two that happen to coincide. Consequences:
 a type. The `const` keyword in the parameter position is what keeps the two
 kinds apart at a glance:
 
-```saw
+```saw-body
 struct FixedBuf<const N: Int> {
     data: [UInt8; N]
 }
@@ -9278,7 +9319,7 @@ Scope, deliberately narrow in this version:
 - **Inference**: explicit in this version, with one exception. A `[T; N]`
   parameter binds `N` from the argument's length:
 
-  ```saw
+  ```saw-body
   func width<const N: Int>(xs: [Int; N]) -> Int { N }
   print(width([1, 2, 3, 4]))     // 4 — N solved from the argument
   ```
@@ -9294,7 +9335,7 @@ and variadic shapes.
 **Status: planned** — `where` clauses are *illustrative* below and not yet
 implemented:
 
-```saw
+```saw-fragment
 // (illustrative — planned) Where clauses for complex bounds
 func merge<T, U, V>(a: T, b: U) -> V
 where
@@ -9311,7 +9352,8 @@ a non-trait in that position is reported where it is written rather than at ever
 use site. `<N: Int>` — the natural guess at a value parameter — says so and
 points at the const spelling:
 
-```saw
+```saw-error
+// error-contains: `Int` is a type, not a trait, so it cannot bound the type parameter `N`
 struct FixedBuf<N: Int> { len: Int }
 // error: `Int` is a type, not a trait, so it cannot bound the type parameter `N`
 //   hint: to take a compile-time VALUE, write `const N: Int`
@@ -9333,7 +9375,7 @@ site?** There are two answers, and they are inferred, not declared.
 The refusal lands at the CALL, names the requirement, and quotes the line in the
 body that caused it:
 
-```saw
+```saw-fragment
 func twice<T>(x: T) -> Int {
     let a = sink(x)
     let b = sink(x)   // `x` is bound a second time here
@@ -9440,7 +9482,7 @@ Array lengths and const arguments are resolved during type checking, which is
 earlier than struct layout is known, so `sizeof<T>()` is rejected in those
 positions while remaining available in a `static_assert`.
 
-```saw
+```saw-fragment
 // Kernel register-block drift check
 static_assert(sizeof<UartRegs>() == 0x1C, "UartRegs layout drift")
 static_assert(alignof<UInt32>() == 4, "unexpected alignment")
@@ -9464,7 +9506,7 @@ parse a smaller one and fail at the parser on anything outside it, while the
 repeat count beside it gave a semantic answer; both now parse everything and the
 evaluator gives the one answer.
 
-```saw
+```saw-fragment
 // Const functions evaluated at compile time (planned)
 const func factorial(n: Int) -> Int {
     if n <= 1 { 1 } else { n * factorial(n - 1) }
@@ -9475,7 +9517,7 @@ const FACT_10: Int = factorial(10)
 
 ### Macros
 
-```saw
+```saw-fragment
 // Declarative macros (pattern-based)
 macro vector[$($elem:expr),*] {
     {
@@ -9507,7 +9549,7 @@ func hot_path() { ... }
 
 ### Compile-Time Reflection
 
-```saw
+```saw-fragment
 // Type introspection at compile time
 const func field_names<T>() -> [String] {
     T.fields().map { f in f.name }
@@ -9534,7 +9576,7 @@ by the Blade package manager.
 
 ### Module Declaration
 
-```saw
+```saw-fragment
 // In lib.saw (package root)
 module parser      // Loads parser.saw or parser/module.saw
 module compiler
@@ -9548,7 +9590,7 @@ module helpers {
 
 ### Visibility
 
-```saw
+```saw-fragment
 // Private by default
 struct Internal { ... }
 
@@ -9585,7 +9627,7 @@ Struct FIELDS and extension METHODS (including `init` and static methods) are
 modifier family (`public` / `public(package)` / `public(parent)`) as top-level
 declarations. Inside the defining module, member access is unrestricted.
 
-```saw
+```saw-fragment
 public struct Account {
     public name: String    // readable/writable cross-module
     balance: Int           // private: only this module can touch it
@@ -9644,7 +9686,7 @@ reach. A `public` function's parameters and return type are `public`; a
 A private declaration may name anything, because nothing it names can leave the
 module.
 
-```saw
+```saw-fragment
 struct Hidden {
     n: Int
 }
@@ -9682,7 +9724,7 @@ A member's reach is capped by the type it belongs to. A `public` member of a
 non-public struct is already inert (above), so its effective reach is the
 struct's, and the rule asks no more of it than that:
 
-```saw
+```saw-fragment
 struct Inner {
     n: Int
 }
@@ -9742,7 +9784,7 @@ a method name stands for. A receiver reached through a module qualifier
 carry exactly the methods the bare spelling would — every overload of each
 name, resolving by signature and reporting the same call-site ambiguity:
 
-```saw
+```saw-fragment
 import modules.panels                    // the qualifier, no bare names
 import modules.panels.{hand}             // …or only the function
 
@@ -9797,7 +9839,7 @@ Pinning a conformance to an owner makes it global, which is why conformances
 need no import scoping of their own: one declared under this rule is visible
 wherever the type and the trait both are.
 
-```saw
+```saw-fragment
 // In the module that defines Reading — the type's owner.
 extension Reading: Printable {
     public func format(&self, into: &var StringBuilder) {
@@ -9823,7 +9865,7 @@ modules that each declare a private `struct Header` declare two different
 types, with two layouts, two `Vector<Header>` instantiations and two sets of
 methods. The same holds for enums, traits and type aliases.
 
-```saw
+```saw-fragment
 // wire.saw
 struct Header {
     kind: Int
@@ -9845,7 +9887,7 @@ Public types of the same name coexist too, since they are also two types. What
 one file cannot do is refer to both by the bare name, so import at least one
 under an alias:
 
-```saw
+```saw-fragment
 import parser.{Header as ParserHeader}
 import wire.{Header as WireHeader}
 
@@ -9856,7 +9898,7 @@ let frame = WireHeader(kind: 2, length: 8)
 Importing both under the bare name is legal; using it is not. The error names
 both modules at the use site:
 
-```saw
+```saw-fragment
 import parser.{Header}
 import wire.{Header}
 
@@ -9924,7 +9966,8 @@ The gate covers **every position a type is written**, not only the positions
 that build a value of it. A signature that merely receives a gated type needs
 the import as much as one that constructs it:
 
-```saw
+```saw-error
+// error-contains: `Data` is not in the prelude and must be imported
 func take(d: &Data) -> Int { d.len() }
 // error: `Data` is not in the prelude and must be imported
 ```
@@ -9946,7 +9989,8 @@ declares is internal to its own file: not in the prelude, not reachable through
 any import form, and not a name a program has to avoid. Asking for one is a
 clean error naming what the module does have.
 
-```saw
+```saw-error
+// error-contains: `OpenMode` is not defined in `std.file`
 import std.file.{OpenMode}
 // error: `OpenMode` is not defined in `std.file`
 // hint: available: File
@@ -9971,7 +10015,7 @@ undocumented dependency the form exists to prevent.
 
 A file that wants both writes both, on two lines that name one module:
 
-```saw
+```saw-fragment
 import std.file
 import std.file.{File}
 
@@ -10015,7 +10059,7 @@ right-hand side. A value reached through a qualifier keeps its whole method
 surface, overload sets included — see [Extension
 scoping](#extension-scoping-design-142).
 
-```saw
+```saw-fragment
 import shapes
 
 func describe(s: &any shapes.Named) -> String { s.label() }
@@ -10029,14 +10073,14 @@ type Outline = shapes.Circle
 **Glob** is the explicit opt-in for bare names — the "give me this module's
 vocabulary" form:
 
-```saw
+```saw-body
 import std.path.*
 let p = Path(s: "/etc/hosts")
 ```
 
 **Selective** names what it takes, and takes exactly that:
 
-```saw
+```saw-fragment
 import std.net.{TcpListener, TcpStream}
 let listener = try! TcpListener.listen(0)      // selected, bare
 let err: net.IoError = ...                     // error: `net` is not a
@@ -10049,7 +10093,7 @@ Add `import std.net` beside it to write the qualified form, or select
 `as` renames the qualifier a whole-module import binds; inside braces it renames
 one symbol:
 
-```saw
+```saw-fragment
 import std.time as clock                       // clock.Instant.now()
 import mypkg.collections.{Map as Dict}         // Dict, not Map
 ```
@@ -10057,7 +10101,7 @@ import mypkg.collections.{Map as Dict}         // Dict, not Map
 `package` and `parent` prefixes resolve a path relative to the current package
 or the parent module:
 
-```saw
+```saw-fragment
 import package.parser.{Parser}
 import parent.helpers.{utility}
 ```
@@ -10089,14 +10133,14 @@ module's surface. A module's surface is what it declares `public`, so an
 importer of `parser` reaches `parser`'s own public declarations and nothing
 `parser` merely imported:
 
-```saw
+```saw-fragment
 // parser.saw
 import wire.{Header}
 
 public func parse(bytes: &Data) -> Header { ... }
 ```
 
-```saw
+```saw-fragment
 // app.saw
 import parser
 
@@ -10157,7 +10201,7 @@ steps aside, silently. Declaring and importing behave alike on purpose: one
 intent must not produce two outcomes depending on which spelling the author
 reached for.
 
-```saw
+```saw-fragment
 import std.task                                 // the gated module's qualifier
 import mine.{Thread}                            // ...and this file's own Thread
 
@@ -10220,7 +10264,7 @@ use. See [Compiler warnings](#compiler-warnings).
 Two imports binding one qualifier is an error at the import, naming both paths.
 `as` resolves it:
 
-```saw
+```saw-fragment
 import std.data
 import data              // error: two imports bind the qualifier `data`:
                          //        `std.data` and `data`
@@ -10273,7 +10317,7 @@ module-granular. `public import wire.{Header}` re-exports one name and still
 forwards `wire`'s extensions whole, the way a selective DIRECT import already
 brings a module's extensions along with the names it lists.
 
-```saw
+```saw-fragment
 // panel.saw — owns the type
 public struct Panel { public raw: Int }
 
@@ -10448,7 +10492,7 @@ which four bytes are held back for the marker and terminator, so
 `FixedStringBuilder<64>` holds 60 bytes of text; an `N` below 5 is a compile
 error.
 
-```saw
+```saw-body
 import std.fixedbuf.*
 
 var out = FixedStringBuilder<64>()
@@ -10462,7 +10506,7 @@ prelude. Build one with `Duration.ns`, `us`, `ms` or `secs`; read one back with
 `as_nanos`, `as_micros`, `as_millis`, `as_secs`. It is Equatable, Comparable and
 Printable, rendering a human form like `1.42s` or `230ms`.
 
-```saw
+```saw-body
 let nap = Duration.ms(200)
 print("{nap}")              // prints: 200ms
 sleep(nap)
@@ -10473,7 +10517,7 @@ nanosecond range — about 584 years — is reachable from every constructor, so
 span a caller can spell wraps into a shorter one. A constructor whose argument
 would scale past that range panics naming itself:
 
-```saw
+```saw-body
 let d = Duration.secs(18446744074)
 // panic at duration.saw:79: Duration.secs: 18446744074 seconds is past the
 // representable span
@@ -10501,7 +10545,7 @@ would be a second set of rules with nothing checking it.
 `Slot<T>` is storage that either holds a `T` or is empty. It is where a frame
 keeps a local across a suspension, and its occupancy is part of the type:
 
-```saw
+```saw-body
 import std.compiler.frame.{Slot}
 
 var s = Slot<String>.empty()
@@ -10628,7 +10672,7 @@ spelling is `UnsafePointer<T>` / `UnsafeConstPointer<T>`.)
 
 ### C FFI
 
-```saw
+```saw-fragment
 // Declare external C functions
 extern "C" {
     func puts(s: UnsafeConstPointer<Int8>) -> Int
@@ -10673,7 +10717,8 @@ extern "C" {
 A declaration that disagrees is refused at the declaration, naming the signature
 the compiler used:
 
-```saw
+```saw-error
+// error-contains: `printf` is declared `extern "C"` here with a signature the compiler's
 extern "C" {
     func printf(format: UnsafeConstPointer<Int8>, ...) -> Int
 }
@@ -10696,7 +10741,7 @@ type covers the two cases that need one anyway, and nothing more.
 frame, and a bare address has nowhere to keep one, so a suspending `F` is a
 clean error at the type:
 
-```saw
+```saw-fragment
 FuncPointer<(Int) sync -> Int>          // ok
 
 FuncPointer<(Int) -> Int>
@@ -10717,7 +10762,7 @@ cannot dangle. It copies bitwise, and `Send`/`Sync` derive.
 expected. The literal is emitted under `F`'s own ABI, with no environment
 parameter, so it allocates nothing:
 
-```saw
+```saw-body
 let doubler: FuncPointer<(Int) sync -> Int> = { n in n * 2 }
 print("{doubler(21)}")                  // prints: 42
 ```
@@ -10726,7 +10771,8 @@ The literal may capture nothing, and what counts as a capture is what the body
 names — an enclosing local, or a method's `self`, whether or not a capture list
 mentions it:
 
-```saw
+```saw-error
+// error-contains: a closure coerced to `FuncPointer` may capture nothing, but this
 func make(bias: Int) -> FuncPointer<(Int) sync -> Int> {
     { n in n + bias }
     // error: a closure coerced to `FuncPointer` may capture nothing, but this
@@ -10739,7 +10785,7 @@ through the argument parameter instead, or read it from a `static`.
 
 **Form 2: a named function**, non-generic and declared `sync`:
 
-```saw
+```saw-body
 func doubled(n: Int) sync -> Int { n * 2 }
 
 let f: FuncPointer<(Int) sync -> Int> = doubled
@@ -10768,7 +10814,7 @@ Calling one is an ordinary call expression. Arguments are positional (a
 function type carries no parameter names), and the call needs no ceremony. A
 pointer held in a field is called in place:
 
-```saw
+```saw-fragment
 func apply(p: FuncPointer<(Int) sync -> Int>, n: Int) -> Int { p(n) }
 
 let t = TABLE
@@ -10870,7 +10916,8 @@ beyond a non-empty check. Section-name *syntax* is target-specific — ELF accep
 `.vector_table`, mach-o requires the `SEG,sect` form. Getting it wrong on a
 mach-O target is a compile error naming the declaration and the two-part form:
 
-```saw
+```saw-error
+// error-contains: `@section(".vector_table")` is not a valid section on this target:
 @section(".vector_table")
 func kernel_entry() -> Int32 { 0 }
 // error: `@section(".vector_table")` is not a valid section on this target:
@@ -10879,7 +10926,7 @@ func kernel_entry() -> Int32 { 0 }
 //       `@section("__DATA,vector_table")` for data. ...
 ```
 
-```saw
+```saw-fragment
 // The freestanding vector-table idiom (design 58 Part 3):
 @export("_vectors")
 @section(".vector_table")
@@ -10954,7 +11001,8 @@ The built-in unsafe types are `UnsafePointer<T>` / `UnsafeConstPointer<T>` (raw
 pointers) and `UnsafeMemory<T, Use>` (typed memory at a fixed address). A
 program declares its own with `unsafe struct`:
 
-```saw
+```saw-error
+// error-contains: an unsafe type must be named `Unsafe*`, but this one is named `MmioReg`
 unsafe struct UnsafeMmioReg { addr: Int }     // ok
 unsafe struct MmioReg { addr: Int }
 // error: an unsafe type must be named `Unsafe*`, but this one is named `MmioReg`
@@ -11017,7 +11065,7 @@ Declaring `unsafe` where the rule would not require it is allowed. The marker is
 a promise about the contract, and a conformer of an `unsafe` trait requirement
 must make it — checked since design 188:
 
-```saw
+```saw-fragment
 trait Raw { func peek(&self) unsafe -> Int }
 
 extension Plain: Raw {
@@ -11037,7 +11085,7 @@ declaration above, allowed and meaningful only about the body.
 `unsafe` is an effect, and a declaration spells its effects in the
 post-parameter slot beside `sync`, in the canonical order `unsafe sync`:
 
-```saw
+```saw-fragment
 public func push(&var self, value: T) unsafe { ... }
 func with_var_ref<R>(&var self, i: Int, body: (&var T) sync -> R) unsafe -> R
 init(at: Int) unsafe -> UnsafeMmioReg { ... }
@@ -11046,7 +11094,7 @@ init(at: Int) unsafe -> UnsafeMmioReg { ... }
 A function **type** uses the same slot, with `escaping` completing the order
 `unsafe sync escaping`:
 
-```saw
+```saw-fragment
 func with_raw<R>(&self, body: (UnsafePointer<T>) unsafe sync -> R) unsafe -> R
 ```
 
@@ -11073,7 +11121,7 @@ On a function type the effect is a property of the **signature**: it is present
 exactly when a parameter or the return names an unsafe type. Both halves are
 compile errors.
 
-```saw
+```saw-fragment
 func with_raw<R>(&self, body: (UnsafePointer<T>) unsafe sync -> R) unsafe -> R   // ok
 func run(body: (UnsafeMmioReg) sync -> Int) unsafe -> Int
 // error: the function type `(UnsafeMmioReg) sync -> Int` names an unsafe type
@@ -11103,7 +11151,7 @@ A closure inherits its enclosing function's unsafe domain. There is no
 closure-level marker, and a closure's own type says `unsafe` under the same
 signature rule as any function type.
 
-```saw
+```saw-fragment
 func read_first() unsafe -> Int {
     if let block = GlobalAllocator().alloc(BLOCK_BYTES, BLOCK_ALIGN) {
         block[0] = 7 as Int8
@@ -11138,7 +11186,7 @@ A closure whose signature *does* name an unsafe type is the `with_raw` case
 instead. Its contact stays local, because the slot it was passed to already
 declares the effect at the call site:
 
-```saw
+```saw-fragment
 with_register(16) { r in r.read() }    // `r: UnsafeMmioReg`: the slot said so
 ```
 
@@ -11149,7 +11197,7 @@ wrapping an `UnsafePointer`.
 A closure that never names an unsafe type is safe even when passed into an unsafe
 function, which is what keeps the reviewed wrappers usable from safe code:
 
-```saw
+```saw-fragment
 func with_ref<R>(&self, i: Int, body: (&T) sync -> R) unsafe -> R
 v.with_ref(0) { e in e + 1 }        // the closure sees only `&T`: safe
 ```
@@ -11219,7 +11267,7 @@ non-escaping `&T`/`&var T` borrow of the element in place, with the whole vector
 held borrowed for the body (reallocation- and invalidation-proof). This replaced
 the removed `ref_at`.
 
-```saw
+```saw-fragment
 // The obligation rides the type; the function that touches it says so.
 static UART0: UnsafeMemory<UartRegs, Device> = UnsafeMemory(0x1800_0000)
 
@@ -11281,7 +11329,7 @@ write above. The load hands the value to the reader and nothing releases the
 slot afterward, so the read *transfers* the element rather than duplicating it.
 An owning element says so:
 
-```saw
+```saw-fragment
 public func pop(&var self) unsafe -> T? {
     if self.length == 0 {
         None
@@ -11338,7 +11386,7 @@ parser sugar: the two spellings produce one production, so everything the index
 form supports the prefix form supports, and neither the typechecker nor codegen
 knows there are two.
 
-```saw
+```saw-fragment
 let v = *p                  // value read
 *p = fresh                  // store
 (*pt).x = 3                 // field projection through the pointee
@@ -11413,7 +11461,7 @@ a register block's field offsets are exactly what the hardware manual lists.
 Reserved `_pad` fields are the interim idiom for holes; there is no `repr`
 attribute (design 58 — the layout rule replaces one).
 
-```saw
+```saw-fragment
 struct UartRegs {
     data:   UInt32,
     status: ReadOnly<UInt32>,
@@ -11454,7 +11502,7 @@ writes `Vector<T>` unchanged — the default fills `A = GlobalAllocator` before 
 [Default type parameters](#generics)). A custom allocator is written as a
 zero-field unit struct conforming to `Allocator`:
 
-```saw
+```saw-fragment
 struct MySlab {}
 extension MySlab: Allocator {
     func alloc(&self, size: Int, align: Int) unsafe -> UnsafePointer<Int8>? { ... }
@@ -11485,7 +11533,7 @@ Every allocating operation in the standard library returns
 `Result<_, AllocError>`. There is one spelling per operation, and the signature
 says whether it can fail.
 
-```saw
+```saw-fragment
 var frames = Vector<Frame, FrameSlab>()
 match frames.push(Frame(id: 1)) {
     case Ok(_) -> print("queued"),
@@ -11513,7 +11561,7 @@ like any other error.
 `try!` is the spelling for code that would rather die than handle the refusal.
 It panics naming the error, which is more than the tier it replaced could say:
 
-```saw
+```saw-body
 var v = Vector<Int>()
 try! v.push(1)   // on refusal: try! failed: allocation of 32 bytes (align 8) failed
 ```
@@ -11622,7 +11670,7 @@ The classification below covers every allocation `sawc` emits.
 
 The three rejected sites each name the spelling that works:
 
-```saw
+```saw-fragment
 let label = "count: {n}"
 // error: string interpolation allocates a String — `--no-hidden-alloc`
 //        forbids allocations the source does not name
@@ -11689,7 +11737,7 @@ once on deinit.
 The constructor is a **static factory method**, because the allocator type
 argument is named at the call site (`Box<Job, JobSlab>.make(...)`):
 
-```saw
+```saw-body
 match Box<Int>.make(42) {
     case Ok(b)  -> print(b.value())
     case Err(e) -> print(e.size)   // AllocError with size/align context
@@ -11717,7 +11765,7 @@ head is `NoCopy` — a copy would be a second set of bookkeeping over the same
 region) and the `slab_alloc` / `slab_dealloc` free functions. A user allocator
 is a zero-field unit struct wiring its own statics in ~10 lines:
 
-```saw
+```saw-fragment
 static JOB_REGION: [Int8; 64]                                  // 4 chunks × 16B, .bss
 static JOB_HEAD: SlabHead = SlabHead(bump: Atomic(0), free: Atomic(0))
 
@@ -11860,7 +11908,7 @@ plausible futures) — not yet enforced, so `let do = 5` compiles today, but
 earmarked so a future design does not have to fight existing code for the
 name.
 
-```
+```text
 Reserved (lexer keywords — never usable as identifiers):
 as       borrows  break    case     catch    continue else     enum
 extension         extern   false    for      func     guard    if
