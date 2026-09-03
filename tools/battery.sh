@@ -67,6 +67,7 @@ STAGES=(
     "forgetgate|no|every __saw_forget and M1/M3 stamp cites its deferral|$PY tools/test_forget_purge.py"
     "ircontract|no|-c embeds what hosted embeds; seam widths match rt/ABI.md|$PY tools/test_ir_contract.py"
     "preludegate|no|the import gate matches LANGUAGE_SPEC's module table|$PY tools/test_prelude_gate_doc.py"
+    "docverify|no|every Saw example in README/CLAUDE/spec/skill compiles as its marker claims|$PY tools/docverify.py"
     "stdtypes|no|two std files may each own one private type name (design 204)|$PY tools/test_std_private_type_names.py"
     "toolchain|no|the toolchain resolver: four steps, the version check, the refusal|$PY tools/test_toolchain.py"
     "floatvectors|no|the Float<->text vectors against CPython's own conversions|$PY tools/sawfloat.py verify --rule"
