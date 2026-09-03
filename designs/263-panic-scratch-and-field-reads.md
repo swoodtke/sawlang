@@ -1,10 +1,21 @@
 # Design 263 — Panic Scratch Consolidation and Narrow Field Reads
 
-**Status: DRAFT Sep 3 2026 — awaiting user rulings (§3).** Authored by the
-lead from design 261's acceptance census, which refuted the aggregate-copy
-diagnosis and measured what the sos image is actually made of. This brief
-targets the two levers that census named. Dispatch order relative to the
-perf batch (DF-292c/b) and 262 U1/U2 is the user's call at ruling time.
+**Status: USER-RULED Sep 3 2026** (all four §3 cells, same day as the
+draft): (1) BOTH L1a and L1b, staged as written — L1b in the recommended
+split shape, per-KIND routines for the compiler-raised panic families and
+per-format-SHAPE helpers for user-written `panic(...)` sites; (2) L2 in
+THIS brief, U3; (3) L2r IS in scope; (4) queue slot: ASAP — dispatched
+ahead of the perf batch and 262 U1/U2, concurrent with the in-flight 218
+stages 4/5 branch (disjoint surfaces; gates serialize on the suite lock).
+IMPLEMENTATION FENCE (lead, at dispatch): the per-KIND routines are
+COMPILER-EMITTED internal helpers — sawc emits one module, so
+once-per-program is free — NOT new `__saw_rt_*` seams; the seam ABI is
+frozen (rt/ABI.md) and extending it is a user-ruling surface. An agent
+that concludes a new seam is genuinely required STOPS and reports.
+
+Authored by the lead from design 261's acceptance census, which refuted
+the aggregate-copy diagnosis and measured what the sos image is actually
+made of. This brief targets the two levers that census named.
 
 ## 0. The measured producers (261's landing note, agent-verified Sep 3)
 
