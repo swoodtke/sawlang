@@ -309,6 +309,13 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # variant_info: dict[variant_name, list[(param_name, SawType)]]
         self.enum_types: dict = {}
 
+        # design 261: `_receiver_is_aggregate`'s answer per type name. Memoized
+        # because the receiver ABI is read at the DECLARATION and again in the
+        # BODY, and the two must be handed the same answer even if the type
+        # maps grow in between — a signature and a body that disagree about
+        # whether `self` is a pointer is not a bug that surfaces as a bug.
+        self._aggregate_receiver_cache: dict = {}
+
         # design 246 Unit B. Concrete declarations this unit owns that no type
         # has been registered for yet, by identity — what `_demand_register_type`
         # registers out of order when a member of a CYCLE names one. And the
@@ -1312,8 +1319,121 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         Decided per (struct name, method) and read at BOTH the declaration and
         the body, so the two always agree; call sites read the convention off the
         emitted signature, so they follow automatically.
+
+        DESIGN 261 WIDENED THE LAST DISJUNCT TO EVERY AGGREGATE RECEIVER. All
+        references pass by pointer; the plain `&self` on a struct or a
+        payload-carrying enum was the one holdout, and every method call on a
+        kernel-sized struct paid a full unrolled field-by-field copy for it.
+        Safe because designs 146/176/200 closed every spelling of a write
+        through a shared receiver — the direct write, the `&var self.<field>`
+        projection, the `&var self` method call, and the place-window write —
+        so by-value versus by-pointer is unobservable in safe code, and in the
+        unsafe domain it turns the `FixedBuf.ptr()` gotcha from a footgun into
+        the answer every author wanted.
         """
-        return self_by_pointer(method) or self._struct_has_interior_mutability(struct_name)
+        return (self_by_pointer(method)
+                or self._struct_has_interior_mutability(struct_name)
+                or self._receiver_is_aggregate(struct_name))
+
+    def _receiver_is_aggregate(self, struct_name) -> bool:
+        """Does `extension <struct_name>`'s `self` have AGGREGATE storage?
+
+        The question design 261 turns the receiver ABI on, and the one place
+        that answers it. Aggregate means a struct or an array with at least one
+        member — storage a pointer can point INTO.
+
+        THREE THINGS ARE NOT AGGREGATES, and each stays by value for the same
+        reason: `self` IS the value, so a pointer buys nothing and costs a
+        spill at every call site.
+          - A PRIMITIVE pseudo-struct (design 57). `Int` is an i64, `Float` a
+            double, `String` an `i8*`. String is the one to watch: its `&var
+            self` receiver is an `i8**`, and `calls.py` reads that second level
+            of indirection to tell mutable from shared — a by-pointer `&self`
+            String would be indistinguishable from a `&var self` one.
+          - A payload-free ENUM, whose LLVM type is a bare tag integer. A
+            payload-CARRYING enum is `{tag, [N x i8]}` and does flip.
+          - A ZERO-SIZED aggregate. `GlobalAllocator` has no fields, and
+            `GlobalAllocator().alloc(...)` monomorphizes to a direct call with
+            no allocator value materialized at all (design 19 option C). A
+            pointer receiver would need an alloca to address, so the empty
+            struct would start costing what it exists not to cost.
+
+        Memoized per name so the declaration and the body can never be handed
+        two different answers.
+        """
+        cached = self._aggregate_receiver_cache.get(struct_name)
+        if cached is not None:
+            return cached
+        answer = self._compute_receiver_is_aggregate(struct_name)
+        self._aggregate_receiver_cache[struct_name] = answer
+        return answer
+
+    def _compute_receiver_is_aggregate(self, struct_name) -> bool:
+        if self._primitive_self_llvm_type(struct_name) is not None:
+            return False
+        entry = self.enum_types.get(struct_name)
+        if entry is None:
+            entry = self.struct_types.get(struct_name)
+        if entry is None:
+            return False
+        llvm_type = entry[0]
+        if isinstance(llvm_type, ir.ArrayType):
+            return llvm_type.count > 0
+        elements = getattr(llvm_type, 'elements', None)
+        if elements is None:
+            return False
+        return len(elements) > 0
+
+    def _mark_readonly_arg(self, arg) -> bool:
+        """Stamp `readonly` on a pointer argument, if llvmlite can spell it.
+
+        DF-293b. `readonly` is a valid LLVM PARAMETER attribute, but
+        `llvmlite.ir.values.ArgumentAttributes._known` does not list it (it
+        lists the function-level `readonly`, which means something else — that
+        the whole function writes no memory, which is false for essentially
+        every method). `add_attribute` refuses an unlisted name outright, so
+        there is no supported spelling to emit here, and reaching into the
+        dependency's table to add one is not a thing this compiler should do.
+
+        Not stamping it costs little IN PRACTICE and the cost is measurable:
+        sawc emits ONE module and runs its own pipeline over it, so LLVM's own
+        FunctionAttrs pass sees every receiver's body and infers `readonly`
+        (and `memory(argmem: read)`) itself — the corpus already shows
+        `ptr readonly captures(none) %self` on the `borrows` accessors, which
+        have been by-pointer since design 146 and were never stamped either.
+        `noalias` is the half inference CANNOT supply — it is a promise about
+        the caller, not a property of the body — so that half is stated.
+
+        Returns whether the attribute was actually applied, so a future
+        llvmlite that lists it starts working with no other edit.
+        """
+        try:
+            arg.add_attribute('readonly')
+            return True
+        except (ValueError, KeyError):
+            return False
+
+    def _self_pointer_is_shared_borrow(self, struct_name, method) -> bool:
+        """Is this receiver pointer a SHARED, READ-ONLY borrow (design 261)?
+
+        True exactly for the receivers the flip created: a plain `&self` on an
+        aggregate. Those are the ones that may carry `noalias readonly`, and
+        the two exclusions are exclusions because each WRITES through the
+        receiver pointer.
+          - `self_by_pointer` covers `&var self` (which mutates by definition)
+            and a `borrows` accessor (whose window's flavor is the USE SITE's,
+            so an exclusive one writes through the very pointer the prologue
+            was handed).
+          - A CELL-CARRYING receiver is interior mutability: `cell.ptr()` is a
+            GEP off `self` and the write lands there. That is the whole
+            guarantee design 186 bought by passing it by pointer, and marking
+            it `readonly` would hand LLVM a promise the type exists to break.
+        """
+        if self_by_pointer(method):
+            return False
+        if self._struct_has_interior_mutability(struct_name):
+            return False
+        return self._receiver_is_aggregate(struct_name)
 
     def _self_operand(self, fn, receiver, name="self_operand"):
         """The `self` ARGUMENT a call passes, in whichever shape the callee's
@@ -3239,6 +3359,21 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             if (not method.is_init and not method.is_static
                     and method.self_mutable):
                 llvm_func.args[0].add_attribute('noalias')
+            elif (not method.is_init and not method.is_static
+                    and llvm_func.args
+                    and self._self_pointer_is_shared_borrow(
+                        extension.struct_name, method)):
+                # design 261: the attributes the by-value copy was silently
+                # buying LLVM, now stated. `noalias` because the Law of
+                # Exclusivity is one `&var` XOR many `&` over the whole call,
+                # and `readonly` because a `&self` method may not write its own
+                # receiver's storage in any of the four spellings designs
+                # 146/176/200 closed. Writing through a pointer the body LOADS
+                # OUT of `self` — `Vector`'s heap buffer, the carve-out those
+                # rules name explicitly — is a store to a different object and
+                # is untouched by either attribute.
+                llvm_func.args[0].add_attribute('noalias')
+                self._mark_readonly_arg(llvm_func.args[0])
 
             # Store in functions table
             self.functions[mangled_name] = llvm_func
