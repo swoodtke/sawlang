@@ -41,6 +41,7 @@ is scheduled and in what order is the whole of what they say.
 ## [BACKLOG] — filed, not scheduled
 
 - Design 263 — panic scratch consolidation + narrow field reads (designs/263-panic-scratch-and-field-reads.md; **USER-RULED Sep 3, all four §3 cells — both L1a+L1b in the split shape, L2 in-brief, L2r in, queue ASAP — and DISPATCHED same day**, Opus worktree, DF range DF-296a+, concurrent with the 218-stages-4/5 branch on disjoint surfaces). The successor to the IMAGE SIZE entry's levers; a back-end size lane (-Oz / machine outliner / riscv save-restore, plus a function-sections+gc-sections emission census cell) is the named NEXT tier after it, unauthored
+- DF-295a — 218c census rows C1-C4 shrink rather than delete; the driven-body walk that maps a generic call site onto an instance key cannot move into phase 2 (entry below, filed by 218 unit 1.5 stage 4). Sequence it WITH DF-292c — one question, two sides
 - IMAGE SIZE (sos, Sep 2) — kernel images "very large"; NO size option exists today (`-O0`/O1 only). **SOS'S NUMBERS ARRIVED (process_isolation.elf, riscv32 virt, sawc 0.4.0 @ 46eebb36) and the measurement CONVICTS `.text` and exonerates everything else**: .text 360,638 B (~92% of the sawc-attributable loadable ~392KB; .rodata just 27KB, bt-table 138 B / zero frames — the kernel has no coroutine frames, so that machinery contributes NOTHING; .bss 152KB is RAM not flash and is their deliberate arenas; ~78KB of their Total is non-loadable debug — `llvm-strip` for the flash artifact; .payload/.childimg 39KB is their own embedding). The FUNCTION SIZE DISTRIBUTION is the finding: `end_process` 35,134 B, `drop_reference` 23,294, `free_object` 19,764, `deliver_attachment` 17,400 — single functions at 20-35KB on riscv32 WITH +c. LEAD-PROBED Sep 2 (`.build/scratch/dropbloat*.saw`): the naive per-exit-edge inline-deinit story is DISPROVEN — an 8-early-return function with 6 owning deep locals compiles to the SAME bytes as its 1-return twin (LLVM's tail merging handles mergeable cleanup), so the bloat is code tail-merging CANNOT merge. Remaining suspects, each testable from one artifact: (1) per-site CHECK/PANIC argument setup — every bounds/overflow/tier check materializes a unique (FILE, LINE) argument island, unmergeable by construction, thousands of sites; (2) ENUM-release ladders inlined per release site (`_emit_release_at` recurses inline; a kernel object enum's variant switch × payload trees per site); (3) generic dispatch fan-out. **DIAGNOSED Sep 2 (lead, from a scratch clone of sawos built against this tree — the rebuilt elf is BYTE-IDENTICAL on every filed symbol size, so the vintage matches):** `end_process` disassembled (10,119 instructions, only 79 calls — NOT panic islands, NOT release-ladder calls). The mass is TWO compounding emissions: **(A) fully-unrolled FIELD-BY-FIELD aggregate copies** — ~5,600 of the 10,119 instructions are raw loads/stores walking one base register into another at byte/half/word granularity with an `andi 0x1` bool renormalization per flag field (the renorm is what stops LLVM folding the walk into memcpy), over structs ≥1.2KB (field offsets to 0x4bc observed); the by-value transfer sites — `&self` receivers arrive BY VALUE, returns, moves — are the producers, and a kernel's object/table structs are exactly the big ones. **(B) far-offset stack addressing** — the copies live in an ≥8KB stack frame (`lui 0x2` off fp), and riscv32's ±2KB store immediate makes every deep-frame access a 3-instruction `lui/sub/sw` triplet, un-CSE'd (~1,720 pairs ≈ 12KB of the 35KB by themselves). REMEDIES for the brief, in order of leverage: (1) emit aggregate copies as `llvm.memcpy` — the store-side bool invariant (bools are stored 0/1) makes the per-field renorm redundant, and memcpy also dissolves (B)'s addressing cost; (2) large-`&self` BY POINTER (the cell-carrying by-pointer receiver precedent exists; semantics preserved for a receiver the body never mutates — design care owed against the documented arrives-by-value model); (3) an `-Os`/`-Oz` flag (cheap, helps at the margin, does NOT fix (A) — it is front-end emission). bt-table/panic-island/drop-ladder remedies NOT needed on this evidence. **BRIEF AUTHORED + USER-RULED Sep 2: `designs/261-reference-passing-and-memcpy.md`** (all references by pointer — the one-predicate `&self` flip — + aggregate memcpy; the sos image is the acceptance metric). **INSTANCE DEDUP MEASURED IRRELEVANT for this image (lead, Sep 2): relinking with `ld.lld --icf=safe` folds 0 bytes and `--icf=all` folds 32 of 429,034 `.text` bytes — near-zero byte-identical bodies exist, because the bloat is few giant copy-filled functions with per-struct field offsets, not many similar instances. Registry-identity dedup already exists (one materialization per (template, canonical args)); body-level dedup is not a size lever here.** Codegen surface — 261 dispatches after the stage-3 branch integrates. **261 LANDED Sep 3 (branch `worktree-agent-ab91b99172139c953`, 5 commits) AND ITS ACCEPTANCE MEASUREMENT REFUTES DIAGNOSIS (A) — the image does NOT move.** U1 (every aggregate `&self` by pointer, `noalias` stamped, `readonly` inferred): 429,034 -> 427,616 B of text, -0.3%. U2 (aggregate copies as one `llvm.memcpy` at the `let`/assignment funnels): 427,616 -> 427,642 B. `end_process` is **35,134 B at all three points, unchanged to the byte**, and the five biggest symbols are unchanged (`drop_reference` 23,294, `free_object` 19,764, `deliver_attachment` 17,400, `take_staged` 16,642, `staged_count` 16,468). Compile time unchanged within noise (clean sos build 28.4s before / 29.1-33.5s after across runs on a loaded machine; the one path that COULD have regressed it — `_abi_size` parses a probe module per call and U2 asks it per candidate store — is now memoized, which also speeds every pre-existing caller). **WHAT THE IMAGE IS ACTUALLY MADE OF, measured (agent, Sep 3):** the whole `.text` is 101,757 instructions of which 64,988 (64%) are load/store and 2,527 are the `andi …, 0x1` bool renorm; but the kernel IR holds only 164 aggregate stores and **NINE** adjacent aggregate load->store pairs, so copies are not the producer. `end_process` (2,157 IR instructions -> 35,134 B) contains **33 × `alloca [512 x i8]` = 16.9KB of stack** and **844 of its 1,909 instructions (44%) are design-137 inline PANIC-MESSAGE ASSEMBLY** (`panic_base`/`panic_room`/`panic_over`/`panic_take`/`panic_seg`), plus 130 `memcpy` calls and 33 `__saw_fmt_int` calls, all from that assembly — 49 panic sites, each expanding a full inline formatting sequence with its own 512-byte scratch buffer. THAT is also the origin of (B): the 33 buffers are what make the frame ≥8KB, so the `lui/sub/sw` triplets are downstream of the panic scratch, not of aggregate copies. **NEXT BRIEF, in order of leverage: (1) hoist or OUTLINE the panic scratch buffer — one per FUNCTION instead of one per panic SITE, or an outlined helper per panic, which addresses ~44% of the biggest symbol and the whole ≥8KB-frame story; (2) narrow the field read — sawc emits `load <whole struct>` + `extractvalue` for every field access (825 aggregate loads in the kernel IR, 58 of them ≥64 B), where a GEP + scalar load would do.** Neither is in 261's scope. Findings filed: DF-293a (FIXED here), DF-293b, DF-293c
 
 - Cooperative BRACE sugar (`Task.spawn { }` / `group.spawn { }`) — design 242's last piece, HELD for the user: blocked on the lifted function's return-type inference, two candidate shapes in the 242 brief's landing section (designs/242-thread-task-split.md). Everything else in 242 landed Aug 22-25; the entry and its queue record are in done_aug18-aug25.md
@@ -457,6 +458,55 @@ consequently never compiled a single pair; it now uses a nested `if true` scope,
 which is what that row was measuring anyway. Either the form is made to work or
 the two documents stop offering it; the status quo promises a spelling the
 language does not have. [122, 129]
+
+## DF-295a — census rows C1-C4 cannot DELETE at 218 unit 1.5 stage 4; what
+## deletes is the BUILDING, not the walk (filed Sep 3 by stage 4's own census)
+
+Spec §2c writes C1 (`_promote_nested_generic_calls`) as a straight deletion,
+on the premise that "phase 2 already spliced every instance and rewrote
+nothing". Stage 4 landed the half of that which is true and found the half
+that is not.
+
+WHAT LANDED. C1 no longer BUILDS anything: it adopts phase 2's registered,
+instance-checked body out of the merged AST instead of cloning its own. Census
+row T8 (`_splice_fn_mono`) went with it — C1 was its last caller — so no
+function instance is built at transform time any more. Measured over 232
+coro/generic examples: C1 splices 8 → 0, rewrites 10 → 10.
+
+WHAT CANNOT, and why (obligation 4's mechanism). Those 10 rewrites are not
+bookkeeping; they are the only thing that maps a generic CALL SITE onto an
+instance key, and two facts make phase 2 unable to take the job:
+
+  * THE EFFECT EDGE NAMES THE TEMPLATE. `nested`'s edge was recorded when its
+    body was checked — before any instance existed — so it points at
+    `("fn", "hop")`, and the driven closure walks edges. Nothing but a walk
+    over the driven bodies can seed `hop$1$Int` into that closure. Rewriting
+    the call site does not change the edge.
+  * THE INSTANCE BODY IS PER-PASS. Phase 2 splices into the MERGED ast, which
+    `merge_programs` rebuilds from fresh lists every front-half pass, while the
+    transform's output has to survive the post-transform re-entry — which is
+    why C1 spliced into the ENTRY ast and why the adoption above appends there
+    too. This is the same fact Amendment C4 filed as DF-292c, met from the
+    other side.
+
+The spec's own sentence offers a second spelling — the classifier reads the
+stamped `type_args` and mangles at classification time — which would delete the
+REWRITE but not the DISCOVERY walk, so C1 becomes a smaller walk under another
+name either way. The third option, a whole-program call-site rewrite inside
+phase 2, turns a driven-subtree walk into a per-compile whole-program one on a
+branch whose §5 residual (+32.8% / +23.8%) the user accepted under protest;
+that is a trade for the lead, not an agent.
+
+C2 (`_promote_nested_generic_methods`) is the method twin and has the same
+shape; the census saw it build once over the 232 files. C3 (the gsm table read)
+and C4 (consumption symmetry) were not separately instrumented and are not
+claimed either way here.
+
+NOT FIXED. Recommendation: its own dispatch, sequenced WITH DF-292c — both are
+the question "what does an instance body belong to, the pass or the program?"
+and answering it once is what would let C1-C4 go rather than shrink. Until
+then §2c's rows read as "no longer BUILDS", which is what the unit-4 ledger
+records. [218c §2c, §7 stage 4]
 
 ## ~~DF-258a — a NESTED call to an unconditionally-suspending GENERIC silently
 ## loses its yield~~ (filed Aug 25 by the 218c spec's probes P3/P3b;

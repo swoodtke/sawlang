@@ -9351,9 +9351,9 @@ def _consume_templates_naming_removed(program, removed, readded,
     A suspending callee is CONSUMED by the transform: it becomes a frame plus a
     driver and its plain body leaves `program.functions`. A NON-generic caller is
     consumed for the same reason, so nothing is left naming it. A GENERIC caller
-    is not — `_promote_nested_generic_calls` splices the CONCRETE instantiations
-    beside the un-transformed TEMPLATE, and the template's body still calls the
-    consumed callee. The post-transform re-check then typechecks that template
+    is not — the CONCRETE instantiations sit beside the un-transformed TEMPLATE
+    (phase 2 builds them and `_promote_nested_generic_calls` adopts them), and the
+    template's body still calls the consumed callee. The post-transform re-check then typechecks that template
     and reports ``undefined function `mk` `` at the author's own line, plus an
     undefined-variable cascade for the binding it feeds.
 
@@ -9426,24 +9426,36 @@ def _names_the_survivors_call(program, removed, extra_decls):
     return live
 
 
-def _promote_nested_generic_calls(program, funcs_by_name, seed_names, typechecker):
+def _promote_nested_generic_calls(program, funcs_by_name, seed_names, typechecker,
+                                  imported_ast=None):
     """design 74 (A5-rest, shape 3). Walk every driven body (and, transitively, the
     bodies of the concrete instantiations it pulls in) for a NESTED suspending
     generic call in a drivable position — a top-level or control-flow-body
     `let x = g<Args>(...)` / bare `g<Args>(...)`. For each whose instantiation
-    suspends, splice the concrete instantiation into the AST (so it becomes an
-    ordinary concrete callee with its own frame) and rewrite the call site to the
-    mangled symbol with no type args. The existing Part-0b sub-frame embedding then
-    handles it exactly like a nested non-generic suspending call.
+    suspends, ADOPT the concrete instantiation (so it becomes an ordinary concrete
+    callee with its own frame) and rewrite the call site to the mangled symbol with
+    no type args. The existing Part-0b sub-frame embedding then handles it exactly
+    like a nested non-generic suspending call.
+
+    THE INSTANTIATION IS NOT BUILT HERE ANY MORE (218c census row C1, stage 4).
+    Phase 2 registers and splices every demanded instance into the MERGED ast, so
+    the body this walk needs already exists and is already instance-checked with
+    errors real; the walk lifts it into the entry AST, which is the list that
+    survives the post-transform re-entry, and that is all "promotion" now means.
+    What this walk still owes the transform is DISCOVERY and SPELLING, neither of
+    which phase 2 can answer: the effect EDGE out of a driven body names the
+    TEMPLATE (it was recorded when the body was checked, long before an instance
+    existed), so nothing but a walk over the driven bodies maps a generic call
+    site onto the instance key the driven closure has to seed. See DF-295a.
 
     Only suspending instantiations are promoted; a non-suspending generic call is
     left for codegen's normal monomorphization. Idempotent per mangled symbol."""
     from codegen.mangle import mangle_function
     nodes = getattr(typechecker, "_suspend_nodes", {})
-    splice = getattr(typechecker, "_splice_fn_mono", None)
     resolve = getattr(typechecker, "_resolve_type", None)
-    if splice is None:
-        return set()
+    # Phase 2's instances, by mangled name — the store this walk adopts from.
+    spliced = {f.name: f for f in (getattr(imported_ast, 'functions', None) or [])
+               if getattr(f, 'is_mono_instance', False)}
     # Resolve type args + splice under the entry module's symbol scope (the
     # namespace was reset after check_module returned).
     entry_ns = getattr(typechecker, "_entry_module_ns", None)
@@ -9466,17 +9478,17 @@ def _promote_nested_generic_calls(program, funcs_by_name, seed_names, typechecke
         mangled = mangle_function(fc.name, args)
         if not instantiation_suspends(mangled):
             return None
-        # Splice the concrete instantiation (idempotent by namespace presence).
+        # Adopt phase 2's instance (idempotent by presence in the entry AST).
         if mangled not in funcs_by_name:
-            clone = splice(program, fc.name, list(args), mangled)
-            if not clone:
-                # No pristine template captured for this generic (e.g. a std
-                # template checked under the separate builtin typechecker). A
-                # USER-module template — including one in ANOTHER user module —
-                # IS captured (the pristine map spans every module in the
-                # compilation unit, design 104 item 2), so cross-module user
-                # generics splice here. Leave the rest to `_classify_call`.
+            clone = spliced.get(mangled)
+            if clone is None:
+                # The registry has no body for this instantiation. Before stage 4
+                # this arm meant "no pristine template captured"; it now means the
+                # demand walk did not reach the call — leave it to
+                # `_classify_call`, which refuses it with a source-anchored
+                # diagnostic rather than miscompiling it.
                 return None
+            program.functions.append(clone)
             funcs_by_name[mangled] = clone
         fc.name = mangled
         fc.type_args = None
@@ -9947,17 +9959,22 @@ def transform_program(program, typechecker, imported_ast=None):
     nodes = getattr(typechecker, "_suspend_nodes", {})
 
     # design 74 (A5-rest, shape 3): promote NESTED suspending generic calls inside
-    # driven bodies to concrete spliced callees BEFORE the closure walk, rewriting
-    # each `g<Args>(...)` call site to its mangled instantiation. Runs after the
-    # effect fixpoint (we can consult per-instantiation `.suspends`), so a
-    # suspending instantiation becomes an ordinary concrete callee the existing
-    # Part-0b sub-frame embedding handles. Non-suspending generic calls are left
-    # untouched (codegen monomorphizes them normally).
+    # driven bodies to concrete callees BEFORE the closure walk, rewriting each
+    # `g<Args>(...)` call site to its mangled instantiation. Runs after the effect
+    # fixpoint (we can consult per-instantiation `.suspends`), so a suspending
+    # instantiation becomes an ordinary concrete callee the existing Part-0b
+    # sub-frame embedding handles. Non-suspending generic calls are left untouched
+    # (codegen looks their instances up in the registry).
+    #
+    # 218c stage 4: the body is phase 2's now, not this walk's — the walk adopts
+    # a registered instance instead of building one. What it still does is
+    # DISCOVERY and SPELLING, and DF-295a records why phase 2 cannot take those
+    # over as census row C1 assumed.
     seed_names = list(roots.keys()) + list(spawn_roots.keys())
     if main_suspends:
         seed_names.append("main")
     promoted = _promote_nested_generic_calls(
-        program, funcs_by_name, seed_names, typechecker)
+        program, funcs_by_name, seed_names, typechecker, imported_ast)
     # design 223 unit 1: the METHOD twin of that promotion. A suspending method
     # whose frame identity needs an instantiation — one on a generic struct, or
     # a method-level generic — gets that instantiation built here and its frame
