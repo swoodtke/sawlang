@@ -118,6 +118,7 @@ is scheduled and in what order is the whole of what they say.
 - DF-286b — **THE STAGE-3c-2 BLOCKER**: A3's instance-check residue was measured on ONE program, and the corpus's population is larger and different in kind (entry below, filed Sep 1 by design 218 unit 1.5 stage 3c's agent). 115 diagnostics over 14 of 122 generic-named examples, in at least six classes, of which only two are the signed families — and two of the six are genuine funnel/registry DEFECTS, not artifacts. Needs a ruling before splice-all can be built
 - DF-286c — the materialization funnel does not reproduce what codegen's `type_param_context` path did, at four named positions (entry below, same filing; ONE mechanism, four faces — const-generic VALUES, associated-type annotations, the conditional-conformance bounds filter, and a `-> T?` tail's auto-wrap). Its matrix is stage 3c-2's test plan. **CLOSED Sep 2 by stage 3c-2a/3c-2c(1): face 1 both halves, face 2, face 3 (reframed into B1) and face 4 all fixed and pinned; face 4 turned out to be a CONCRETE-path defect the generic path had been hiding — see DF-289d for its residue**
 - DF-294a — `FixedBuf.get` PANICS where the accessor rule says a get-shaped accessor answers `None`; RULED Sep 3: `get -> Byte?`, rides 262's U1/U2 dispatch (entry below, filed Sep 3 from census C5)
+- DF-294b — a `type` ALIAS binds through the SELECTIVE import form ONLY: the glob leaves it unbound and the qualified spelling mints a name-only type + a not-callable head (entry below, filed Sep 3 from sos-relayed SL-20; workaround `import m.{Alias}`)
 - DF-291b — `Vector.fold` at an OWNING accumulator LEAKS one reference per element (entry below, same filer; PRE-EXISTING, NOT fixed here). `v.fold(arc, { acc, e in acc })` over three elements takes an `Arc<Res>` from strong count 1 to 5 and never drops it, before and after the cutover ALIKE — found by the DF-289e residual sweep, which is what a differential probe is for, and left alone because it is not this flip's and owes its own mechanism sweep over the by-value accumulator's transfer chain
 
 
@@ -147,6 +148,34 @@ carrying). In-tree callers swept at fix time; the sawos-facing migration
 note rides the HELD pin bump beside 261's Box.value note. Doc rows citing
 `FixedBuf.get`'s panic (skill's fixed-buffer idiom section) correct in the
 same landing. [130, 148, 250, 262]
+
+## DF-294b — a `type` ALIAS is invisible to every import form except the
+## SELECTIVE one (filed Sep 3 by the lead from sos-relayed SL-20;
+## PRE-EXISTING)
+
+Three faces, ONE missing kind, lead-probed Sep 3
+(`.build/scratch/sl20_{glob,sel,qual,qual2,kinds}.saw` + `sl20mod/`):
+- GLOB: `import m.*` leaves a `public type Handle = Int` UNBOUND —
+  ``undefined type `Handle` `` at the annotation and ``undefined function``
+  at the back-conversion — while struct/enum/static/func siblings from the
+  same module all bind (control: sl20_kinds runs, prints `1 44 high`).
+- QUALIFIED annotation: `m.Handle` resolves to a NAME-ONLY type unequal to
+  the real alias — ``cannot assign `Handle` to variable of type
+  `sl20mod.Handle` `` (the DF-194a face, at a user module's alias).
+- QUALIFIED call head: `m.Handle(7)` is ``  `Handle` is not callable ``.
+SELECTIVE `import m.{Handle}` binds fully — compiles, runs, prints 7 — and
+is the workaround relayed to sos.
+
+MECHANISM (obligation 4, hypothesis for the fix dispatch): the module
+public-name enumeration the glob expansion walks and the qualified
+type/call resolution consult omits the ALIAS kind; the selective form
+resolves per-name through a different path. Same shape as DF-238c (the
+glob's kind list lost conformances). The fix sweep owes: every reader of
+that enumeration (`public import` re-export of an alias, `--emit-docs`,
+design 194's annotation gate at a qualified alias), plus the alias-specific
+positions (alias as a generic argument through a qualifier, alias in an
+extern signature, `E.from(raw:)`-style statics on an aliased backing).
+[150, 144, 188 alias-resolution family, DF-238c, DF-194a]
 
 ## DF-291b — `Vector.fold` at an OWNING accumulator LEAKS one reference per
 ## element (filed Sep 2 by the same agent; PRE-EXISTING, NOT fixed here)
