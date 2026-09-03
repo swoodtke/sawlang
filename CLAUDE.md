@@ -469,8 +469,9 @@ is spelled as an unsafe-typed parameter). The line-level `unsafe` expression
 marker is GONE (writing one is a parse error). Accessor rule: on a safe type
 every indexed accessor is checked — direct accessors panic out of range
 (`Vector.set`/`swap`/`swap_out`/`with_ref`/`with_var_ref`, `Data.set`,
-`String.byte_at`/`substring`), `get`-shaped ones return `None`/`Err`
-(`Vector.get`, `Data.get`, `Data.slice`); no silent
+`FixedBuf.set`, `String.byte_at`/`substring`), `get`-shaped ones return
+`None`/`Err` (`Vector.get`, `Data.get`, `Data.slice`, `FixedBuf.get` — the
+last since DF-294a, which was the enumeration's one divergence); no silent
 no-ops, no clamps, no ignorable status flags.
 `Vector.with_ref`/`with_var_ref` (scoped, invalidation-proof element borrow)
 replaced `ref_at`. The Aug-5 batch (122-131): every runtime-check panic

@@ -1096,7 +1096,11 @@ if err.is<IoErr>() { if let io = err.take<IoErr>() { retry(io) } }  // downcast
   must return `Void`, `Int`, `Result<Void, E>` or `Result<Int, E>`, but returns
   `String` ``. So a failing command-line program `return`s its failure instead
   of calling libc `exit()`:
-  ```saw-fragment
+  ```saw
+  import std.file
+  import std.path.{Path}
+  import std.net.{IoError}
+
   func main() -> Result<Void, IoError> {
       var config = try file.File.open(Path(s: "saw.toml"))
       let text = try config.read()
@@ -1658,6 +1662,72 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   VALUE, so a NoCopy encoder was ``cannot copy value of type `CborEncoder` ``
   anchored at the subscript), with "read the element out first" as the
   workaround, so distrust the shape in an older build.
+- **THE OTHER FORMAT IS `std.json`** — RFC 8259 over the same `Encoder`/
+  `Decoder` seam, import-required (`import std.json.{JsonEncoder, JsonDecoder,
+  JsonValue}`). The seam half reads exactly like CBOR's, and `encode<T:
+  Serialize>(value:)` is the one-call write:
+  ```saw
+  import std.json.{JsonEncoder, JsonDecoder}
+
+  struct Endpoint { host: String, port: Int }
+  @synthesize
+  extension Endpoint: Serialize {}
+  @synthesize
+  extension Endpoint: Deserialize {}
+
+  func main() {
+      let ep = Endpoint(host: "localhost", port: 8080)
+      var enc = JsonEncoder()
+      try! ep.serialize(to: &var enc)
+      let text = try! enc.finish()
+      print(text)                            // prints: ["localhost",8080]
+
+      var dec = try! JsonDecoder.open(text: text)
+      let back = try! Endpoint.deserialize(from: &var dec)
+      try! dec.finish()                      // rejects content after the value
+      print(back.port)                       // prints: 8080
+  }
+  ```
+  A STRUCT IS AN ARRAY OF ITS FIELDS, not an object of their names — design
+  169's shape is format-agnostic and JSON does not reinterpret it, which is the
+  first thing to know if you are writing against somebody else's schema. Output
+  is compact (no whitespace between tokens). Decoding is strict: no leading
+  zero, no trailing comma, no comment, no `NaN`/`Infinity`, every `\uXXXX`
+  escape validated including surrogate pairing, and a `max_depth` (default 64)
+  and `max_size` (16 MiB) that `open` takes as parameters. Malformed input is
+  never a panic — every rejection is an `Err(DecodeError)` carrying the byte
+  offset it stopped at. Trailing content after the top-level value is
+  `TrailingBytes`, reported by `finish()` rather than by `open`.
+  Two things the seam cannot express, each a clean `EncodeFault.Unsupported`:
+  a BYTE STRING (JSON has no binary type and v1 invents no base64 convention)
+  and a MAP KEY that is not a string (JSON object keys are strings by grammar;
+  the decode side is `DecodeFault.Malformed`). There is no `write_float` on the
+  seam — the same open question `std.cbor` has — so a `Serialize` body can
+  never ask for one; `JsonValue`'s own `Float` case writes design 253's
+  shortest round-tripping decimal, which is a text question and settled.
+  **`JsonValue` is the DOM half**, a recursive enum (design 246) with `Null` /
+  `Bool` / `Number(value: Int)` / `Float` / `Text` / `Array(items:
+  Vector<JsonValue>)` / `Object(fields: Map<String, JsonValue>)`, `@synthesize`d
+  `ExplicitCopy`, built by `JsonValue.parse(text)` and written back by
+  `to_json_string()`. Its readers answer `None` rather than trapping:
+  `is_null()`, `as_bool()`, `as_int()`, `as_float()`, `as_text()`, and the two
+  place accessors `as_array()` / `as_object()`, which LEND their container
+  (`borrows -> T?`) rather than copying it:
+  ```saw-body
+  import std.json.{JsonValue}
+
+  let doc = try! JsonValue.parse("\{\"tls\": true, \"ports\": [80, 443]\}")
+  print(doc.as_object()!.len())                                  // prints: 2
+  if let tls = doc.as_object()!["tls"]!.as_bool() { print(tls) }  // prints: true
+  ```
+  GOTCHA in that literal: `{` and `}` open interpolation in a Saw string, so a
+  JSON document written inline escapes them as `\{` and `\}`. Reading the text
+  from a file or a socket needs none of that.
+  `JsonDecoder.open` does NOT pre-validate the whole input the way
+  `CborDecoder.open` does: CBOR's containers declare their length in the header
+  and JSON's do not, so `begin_array`/`begin_map` count their items with a
+  bounded ITERATIVE lookahead instead. A hostile depth is still caught by
+  `max_depth` before it can reach the call stack.
 - Overloads resolve by EXACT types (no conversions), labels
   disambiguate same-type sets (`f(0, value: 4)`). Between platform `Int` and
   `UInt` the EXACT one wins (design 137), so `f(Int)`/`f(UInt)` twins are
@@ -1724,7 +1794,8 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   `FixedStringBuilder<N>` is `StringBuilder`'s fixed mode with the storage
   question answered — same `append` surface, same cut-and-mark-with-`…`
   truncation (`is_truncated()` reports it), nothing allocated. `FixedBuf<N>` is
-  the raw buffer under it (`capacity()`, bounds-checked `get`/`set`, and `ptr()`
+  the raw buffer under it (`capacity()`, a `get` answering `Byte?` and a
+  panicking `set` — the accessor rule's two halves — and `ptr()`
   for unsafe paths).
 - **EVERY REFERENCE PASSES BY POINTER (design 261)**, so a pointer built inside
   a `&self` method addresses the CALLER's storage — which is what an `unsafe`
@@ -2529,7 +2600,9 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   position the call can sit in — the body's tail, a `return`, a `let`, an
   assignment, a condition, a scrutinee, a nested call's argument — which is what
   makes the shared-counter idiom writable:
-  ```saw-fragment
+  ```saw
+  import std.mutex.{Mutex}
+
   func add(shared: Arc<Mutex<Int>>, n: Int) -> Int {
       shared.lock({ &var c in c = c + n  c })   // captures `n`, the parameter
   }
@@ -2688,7 +2761,10 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
   COMPLEMENTARY, not a duplicate-qualifier collision (that error is about
   two DIFFERENT modules), and the bare and qualified spellings are then ONE
   TYPE in every position:
-  ```saw-fragment
+  ```saw
+  import std.net.{IoError}
+  import std.path.{Path}
+
   import std.file
   import std.file.{File}
   func open_it(p: Path) -> Result<File, IoError> { File.open(p) }
@@ -2897,9 +2973,10 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
   cooperative-yield intrinsic) and `dump_tasks` (std.task — design 158),
   `Command` (std.process), `Env` (std.env),
   `FixedBuf`/`FixedStringBuilder` (std.fixedbuf — design 148),
-  `CborEncoder`/`CborDecoder` (std.cbor — design 169; `std.serde`'s
-  `Serialize`/`Deserialize`/`Encoder`/`Decoder` stay PRELUDE, only the format is
-  gated), and — since design 188 closed the two the gate list had missed —
+  `CborEncoder`/`CborDecoder` (std.cbor — design 169) and
+  `JsonEncoder`/`JsonDecoder`/`JsonValue`/`encode` (std.json) — `std.serde`'s
+  `Serialize`/`Deserialize`/`Encoder`/`Decoder` stay PRELUDE, only the FORMATS
+  are gated — and — since design 188 closed the two the gate list had missed —
   `SpinLock` (std.spinlock) and `SlabHead`/`slab_alloc`/`slab_dealloc`
   (std.slab), both of which used to resolve bare against a spec that said
   otherwise, and `Slot`/`UnsafeRef`/`Poll`/`Resumable`
@@ -3001,8 +3078,9 @@ nothing and is not in the list.
 **Design 123's panic tier and its `try_` twins are GONE.** `try_push`,
 `try_insert`, `try_append`, `try_make`, `try_with_capacity`, `try_send` and the
 rest name no method; a call to one means the code predates Aug 25.
-`Vector.try_copy` is the ONE survivor, because `copy()` is the `ExplicitCopy`
-hook and its signature belongs to the trait (DF-257b holds the naming ruling).
+`Vector.try_copy`, `Map.try_copy` and `Set.try_copy` are the survivors, because
+`copy()` is the `ExplicitCopy` hook on each of the three and its signature
+belongs to the trait (DF-257b holds the naming ruling for the family).
 `try_` otherwise means NON-BLOCKING and nothing else: the poll variant of an
 operation that could block, shaped `Result<T?, E>` where `Ok(None)` is "nothing
 yet" (`Channel.try_receive`), or a plain `T?` where there is no error path at
@@ -3339,9 +3417,13 @@ which drags the obligation into the caller through the trigger rule itself.
 Std policy: an `unsafe` function is short enough to review as a unit.
 **Accessor rule:** on a safe type every indexed accessor is checked. A direct
 accessor PANICS out of range (`Vector.set`/`swap`/`swap_out`/`with_ref`/
-`with_var_ref`, `Data.set`, `String.byte_at`/`substring`); a `get`-shaped one
-returns `None`/`Err` (`Vector.get`, `Data.get`, `Data.slice`). Never a silent
+`with_var_ref`, `Data.set`, `FixedBuf.set`, `String.byte_at`/`substring`); a
+`get`-shaped one returns `None`/`Err` (`Vector.get`, `Data.get`, `Data.slice`,
+`FixedBuf.get`). Never a silent
 no-op, never a clamp, never an ignorable status flag (`Data.set` returned one).
+The rule is about the NAME, so a member is on its list whatever type declares
+it — `FixedBuf.get` panicked and returned a bare `Byte` until DF-294a, which
+is worth distrusting in an older build.
 **Write your own accessor's panic in the house wording** (DF-249a):
 `panic("Bag.[]: index out of range: {} (len {})", i, self.len())` — the family is
 `<what>: index out of range: <i> (len <n>)`, with a range accessor spelling both

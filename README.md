@@ -220,8 +220,10 @@ The standard library always names its error type, and every operation that can
 run out of memory has one: `push`, `insert`, `append`, `Box.make`,
 `Vector(capacity:)` and the rest return `Result<_, AllocError>`, all-or-nothing,
 with the refused request's size and alignment in the error. There is no
-panicking twin and no `try_`-prefixed one — `try!` is how a caller says it would
-rather die than handle the refusal, and it panics naming the error.
+panicking twin and, with one exception, no `try_`-prefixed one: `copy()` is a
+trait hook that cannot return a `Result`, so `Vector`, `Map` and `Set` each keep
+a reporting `try_copy()` beside it. `try!` is how a caller says it would rather
+die than handle the refusal, and it panics naming the error.
 
 An operation with one failure mode returns that failure. One whose sources
 genuinely mix returns an enum with a case per source, each carrying the
@@ -406,6 +408,9 @@ evaluation-ordered steps, so left-to-right order and short-circuiting hold as
 written. A single cooperative scheduler runs spawned tasks eagerly, backed by
 an I/O reactor (kqueue or epoll). `TaskGroup(threads: N)` opts into multiple
 threads, with `Send` checked at every spawn; the default stays single-threaded.
+That constructor starts a worker pool, so it allocates and reports: write
+`var pool = try TaskGroup(threads: 4)`, or `try!` where a refusal should end the
+program. The single-threaded `TaskGroup()` is infallible and needs neither.
 
 ```saw-fragment
 func report() -> Int {

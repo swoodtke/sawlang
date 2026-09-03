@@ -2122,7 +2122,9 @@ payload exactly as they work on an `Int`, and neither a `.copy()` nor a `move`
 is owed anywhere. They take no arguments and need no mutable place, so a call
 result is as good a receiver as a local.
 
-```saw-fragment
+```saw
+import std.file.{File}
+
 struct Logger { sink: File? }
 extension Logger: NoCopy {}
 
@@ -5433,7 +5435,9 @@ func send(stream: &var TcpStream, body: String) {
 Handling it means consuming the `Result`: `match` on it, apply `try`, `try!`
 or `try?`, or return it to the caller.
 
-```saw-fragment
+```saw
+import std.net.{IoError, TcpStream}
+
 func send(stream: &var TcpStream, body: String) -> Result<Void, IoError> {
     return stream.write(body)
 }
@@ -5442,7 +5446,9 @@ func send(stream: &var TcpStream, body: String) -> Result<Void, IoError> {
 When the failure genuinely does not matter, `let _ =` says so in the source and
 the reader can see that the author decided:
 
-```saw-fragment
+```saw
+import std.net.{TcpStream}
+
 func send(stream: &var TcpStream, body: String) {
     let _ = stream.write(body)   // best effort: the peer is already closing
 }
@@ -6948,7 +6954,9 @@ Observable rules:
   the loop body instead: the loop runs as many times as the condition's
   successive answers say, a `continue` re-evaluates it, and a `break` in the
   body still leaves the loop.
-  ```saw-fragment
+  ```saw
+  import std.channel.{Channel}
+
   func drain(ch: Channel<Int>, tally: Channel<Int>) -> Int {
       var served = 0
       while (try! ch.receive()) > 0 {     // the condition suspends, once per iteration
@@ -6994,7 +7002,10 @@ Observable rules:
   - An **erased `Result<T, Box<any Error>>`** returns and propagates across a
     suspension, boxing a concrete error at the return edge or re-boxing one at
     the propagation edge, and a function returning one is spawnable.
-  ```saw-fragment
+  ```saw
+  import std.data.{Data}
+  import std.net.{IoError, TcpStream}
+
   func fetch(stream: &var TcpStream) -> Result<Data, IoError> {
       let head = try stream.read()      // suspends; a failure returns Err here
       try stream.write("ok")
@@ -7614,7 +7625,10 @@ let bytes = t.join()
 
 ### Cooperative tasks: TaskGroup
 
-```saw-fragment
+```saw
+import std.channel.{Channel}
+import std.net.{TcpStream}
+
 // The cooperative multi-task engine (design 52b). Tasks are stackless coroutine
 // frames driven on the current thread — no OS threads, no thread identity.
 import std.task.*                // design 114: `yield_now` lives in std.task
@@ -7994,7 +8008,10 @@ waiting for. `dump_tasks()` prints the missing half: one entry per live task,
 with the `file:line` of every suspending call between the task's entry point and
 the place it is parked, innermost frame first.
 
-```saw-fragment
+```saw
+import std.data.{Data}
+import std.net.{TcpStream}
+
 import std.task.{dump_tasks}
 
 func read_header(s: TcpStream) -> Data { try! s.read() }
@@ -8097,7 +8114,9 @@ on its own behalf such as a park cut short by cancellation. Log the code, branch
 on the kind. Growth is loud: promoting a code out of `Unknown` into a new kind
 breaks an exhaustive match at compile time instead of silently rerouting it.
 
-```saw-fragment
+```saw
+import std.net.{TcpListener, TcpStream}
+
 // A cooperative echo, entirely over the safe owning API. Failable ops return
 // Result (design 92): read gives Result<Data, IoError> — an EMPTY Ok is EOF,
 // DISTINCT from Err — and write sends the whole buffer or surfaces the error.
@@ -8580,7 +8599,9 @@ extension Mutex<T: Send>: UnsafeSync {}
 The bound is re-checked at every instantiation, so a `Mutex` over a payload that
 is not `Send` is not `Sync`, and the `Arc` around it is not `Send` either:
 
-```saw-fragment
+```saw
+import std.mutex.{Mutex}
+
 // `Box<TaskGroup>` is not `Send`
 func poke(shared: Arc<Mutex<Box<TaskGroup>>>) -> Int { shared.strong_count() }
 // error: cannot spawn `poke` into a multi-threaded `TaskGroup(threads: ...)`:
@@ -10015,7 +10036,10 @@ undocumented dependency the form exists to prevent.
 
 A file that wants both writes both, on two lines that name one module:
 
-```saw-fragment
+```saw
+import std.net.{IoError}
+import std.path.{Path}
+
 import std.file
 import std.file.{File}
 
@@ -11230,10 +11254,14 @@ function is short enough to review as a unit.
 On a safe type, every indexed accessor is checked. Unchecked access exists only
 through `UnsafePointer`. An out-of-range index **panics** for a direct accessor
 (`Vector.set`, `Vector.swap`, `Vector.swap_out`, `Vector.with_ref`,
-`with_var_ref`, `Data.set`, `String.byte_at`, `String.substring`) or yields
-`None`/`Err` for a `get`-shaped one (`Vector.get`, `Data.get`, `Data.slice`). Never a silent
+`with_var_ref`, `Data.set`, `FixedBuf.set`, `String.byte_at`,
+`String.substring`) or yields `None`/`Err` for a `get`-shaped one
+(`Vector.get`, `Data.get`, `Data.slice`, `FixedBuf.get`). Never a silent
 no-op, never a clamp to a plausible-looking result, and never a status flag a
-caller can ignore.
+caller can ignore. The two halves are a rule about the NAME, so a member on
+either list is on it whatever type declares it: `FixedBuf.get` answered a
+panicking `Byte` until DF-294a, which is the one divergence the enumeration
+ever had.
 
 **The wording family.** Every bounds panic in the language spells the same
 sentence — the compiler's own fixed-array trap and every hand-written accessor
@@ -11605,8 +11633,10 @@ literal forces the `Result` and panics naming the error:
 
 **`copy()`.** Its signature belongs to `ExplicitCopy` and the compiler emits
 calls to it, so it cannot return a `Result`. `Vector.copy()` panics naming the
-method; `Vector.try_copy()` is the reporting spelling for a duplicate, and the
-one place the retired prefix survives.
+method, and `Vector.try_copy()` is the reporting spelling for a duplicate.
+`Map` and `Set` carry the same pair, for the same reason: `copy()` is their
+`ExplicitCopy` hook too. Those three collection twins are where the retired
+prefix survives, and DF-257b holds the naming ruling for all of them.
 
 **`Data`'s subscript.** Writing through `d[i]` on shared storage separates the
 bytes first, and that allocation shares a body with the bounds check. Splitting
