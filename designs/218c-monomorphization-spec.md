@@ -1201,3 +1201,59 @@ outside the materialization funnel.** The splice targets the merged AST, which
 reaches `check_module`, the place lowering or the next pass. Counted on
 `hello.saw`: 107 instances materialized, 107 calls; 323 instance bodies checked,
 323 calls — one apiece, for all three registry kinds.
+
+### C4. Why DF-292c is NOT fixed here, stated so it is not re-litigated
+
+§5's remedy 1 is a SCHEDULING rule — "the phase runs once per settled front
+half" — and the fix it licensed (placing the phase below the place-lowering
+re-entry) has no semantic surface: the same AST, walked once instead of twice.
+Carrying the registry across the post-transform re-entry is not that. §4's
+invalidation argument is written about TEMPLATES ("the transform … never
+re-defines a template"), and the artifact a phase-6 cache hit would carry
+forward is an instance BODY, which the transform DOES rewrite in place: it walks
+`imported_ast`'s extensions — the spliced ones included — and canonicalizes
+their labeled calls and yield intrinsics (coro_transform.py ~9848/9862), and the
+driven closure rewrites call sites inside imported bodies onto embedded drives.
+Reusing a pass-1 clone therefore changes what codegen lowers, which is a
+behavioral-contract flip owing obligation 2's consumer sweep — its own dispatch,
+with the driven corpus as its matrix, not a line inside a §5 remedy. Filed with
+the mechanism and the measured prize (~0.45 s per driven compile) so that
+dispatch starts from evidence.
+
+### C5. THE §5 OUTCOME after DF-292a — still over, and the split
+
+Re-measured on the same idle machine under the lead's own protocol verbatim
+(`.build/scratch/gate5_292a.sh`, adapted only in its paths: interleaved
+main/branch, 3 runs each of suite + bootstrap wall, `test_runner_last` removed
+before every suite run so the design-220 artifact reuse cannot flatter either
+side). Medians:
+
+| | main | branch @ 2f7a2697 | branch @ DF-292a | envelope |
+|---|---|---|---|---|
+| suite | 332 s | 512 s (+53.8%) | **441 s (+32.8%)** | +18.8% |
+| bootstrap | 227 s | 333 s (+46.7%) | **281 s (+23.8%)** | +16.8% |
+
+Run-to-run spread was 1 s on every cell (441/441/442, 281/281/281), so the
+medians are the numbers.
+
+**21.0 points of the suite's +53.8% and 22.9 points of the bootstrap's +46.7%
+were the DF-292a compliance gap** — a defect, now fixed, that was never part of
+what A5(b) priced.
+
+**The residual — +32.8% / +23.8%, i.e. 14.0 and 7.0 points over the re-based
+envelope — is the architectural cost of splice-all's method half**, and C1/C3
+are the evidence: it is a per-compile constant, it lives in `mono_copy`, and it
+buys exactly what the Sep-1 override bought — every registered instance
+materialized and instance-checked in every build, `-c` and `-o` reporting
+identically. The one remaining piece of it that is a DEFECT rather than a cost
+is DF-292c, worth roughly a third of the driven shape's remaining delta; C4 says
+why it is not taken here.
+
+**THE ACCEPT/REMEDY DECISION IS THE USER'S.** A5(b)'s override already ruled
+once that an 18% slowdown is acceptable now and gets recovered later by targeted
+performance work and/or the self-hosted rewrite; this asks the same question at
+33% / 24%. The remedies that would close the gap are all named and all still
+unauthorized: §5 remedy 2 (the residue fast path), remedy 3 (tier-shape
+sharing), A2(b)'s lazy body materialization with its semantic cell, and the
+design-168 set narrowing. DF-292b and DF-292c are the two that need no ruling at
+all — both are defects, one pre-existing on main.
