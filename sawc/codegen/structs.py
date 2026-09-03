@@ -10,7 +10,9 @@ Usage:
 """
 
 from llvmlite import ir
-from ast_nodes import StructInit, MemberAccess, Identifier, EnumInit, TypeKind
+from ast_nodes import (StructInit, MemberAccess, Identifier, EnumInit, TypeKind,
+                       SelfExpr, FunctionCall, MethodCall, TupleLiteral,
+                       ArrayLiteral, MapLiteral, SetLiteral)
 from const_eval import INT_LIMIT_SPECS
 
 
@@ -190,6 +192,122 @@ class StructsMixin:
     # a `static_assert` folds and the value this emits can never disagree.
     _INT_LIMIT_SPECS = INT_LIMIT_SPECS
 
+    # ------------------------------------------------------------------
+    # design 263 L2 — a field read is a GEP and one scalar load
+    # ------------------------------------------------------------------
+
+    def _struct_field_index(self, obj_type, member):
+        """Position of `member` in the struct LLVM type `obj_type`, or None.
+
+        THE struct-field resolution both member-access paths share: identified
+        types answer by name, literal ones by layout string. Split out of
+        `_generate_member_access` so the narrow read and the value projection
+        cannot disagree about which field a name denotes.
+        """
+        struct_name = None
+        if getattr(obj_type, 'name', None) in self.struct_types:
+            struct_name = obj_type.name
+        else:
+            for name, (llvm_type, _) in self.struct_types.items():
+                if str(obj_type) == str(llvm_type):
+                    struct_name = name
+                    break
+        if struct_name is None:
+            return None
+        _, field_order = self.struct_types[struct_name]
+        if member not in field_order:
+            return None
+        return field_order.index(member)
+
+    def _addressable_place(self, expr) -> bool:
+        """Whether `_get_lvalue_pointer` reaches `expr`'s real storage.
+
+        The narrow read may only run over shapes that address storage the
+        program already has. `_get_lvalue_pointer`'s last resort MATERIALIZES a
+        temporary and stores the whole value into it — for a read that would be
+        strictly worse than the aggregate load it replaces, so every shape that
+        would land there is refused here instead.
+
+        The list is exactly `_is_owned_temporary`'s borrows minus the indexed
+        forms: an identifier, `self`, and a field of one of those. An
+        `ArrayIndex`/`TupleIndex` base is deliberately absent — addressing one
+        emits its own bounds check, and whether that is the same check the value
+        read emits is a question this brief does not need to answer.
+        """
+        if isinstance(expr, SelfExpr):
+            return "self" in self.variables
+        if isinstance(expr, Identifier):
+            return (expr.name in self.variables
+                    or self._static_global(expr) is not None)
+        if isinstance(expr, MemberAccess):
+            # Only a plain struct field nests. Every other MemberAccess meaning
+            # — a folded constant, an integer limit, a named-tuple slot, an
+            # UnsafeMemory projection, a module static, an enum variant — is
+            # resolved its own way by the main walk, and re-deriving those here
+            # would be the second copy of a rule that has one place.
+            if (expr.const_folded_value is not None
+                    or expr.int_limit is not None
+                    or expr.tuple_field_index is not None
+                    or expr.um_projection
+                    or expr.resolved_static_name is not None
+                    or expr.resolved_type_identity is not None
+                    or self._static_global(expr) is not None):
+                return False
+            return self._addressable_place(expr.object)
+        return False
+
+    def _narrow_field_read(self, expr: MemberAccess):
+        """`place.field` as a GEP and one scalar load, or None when it does not apply.
+
+        Design 263 L2. sawc read a field by loading the WHOLE aggregate and
+        `extractvalue`-ing one member out of the SSA value — 825 aggregate loads
+        in the sos kernel IR, 58 of them 64 bytes or more, to read one word.
+        InstCombine unpacks such a load into a scalar load per field, so the
+        cost is not just the bytes moved: it is a load for every field the
+        reader did not ask for, plus a `Bool` renormalization on each flag.
+
+        Two ways the storage is in hand. The object expression may itself
+        EVALUATE to a pointer — design 261 made every aggregate `&self` arrive
+        that way, which is the kernel's dominant shape — or it may be an
+        `_addressable_place` whose storage `_get_lvalue_pointer` names. Both end
+        at the same GEP.
+
+        Returns None whenever the field cannot be named from the pointee type,
+        which leaves the value projection below to answer exactly as it did.
+        """
+        obj = expr.object
+        if isinstance(obj, (Identifier, SelfExpr, MemberAccess)):
+            if not self._addressable_place(obj):
+                return None
+            base_ptr = self._get_lvalue_pointer(obj)
+            # An identifier bound to a POINTER (a by-pointer receiver forwarded
+            # onward, a `Box`) is storage holding storage: step through once, so
+            # the GEP lands on the struct rather than on the slot holding it.
+            pointee = base_ptr.type.pointee
+            if isinstance(pointee, ir.PointerType):
+                base_ptr = self.builder.load(base_ptr, name="deref_ptr")
+        elif isinstance(obj, (FunctionCall, MethodCall, StructInit, EnumInit,
+                              TupleLiteral, ArrayLiteral, MapLiteral,
+                              SetLiteral)):
+            # An owned temporary owes `_register_stmt_temp` the whole value, so
+            # it takes the value path where that registration lives.
+            return None
+        else:
+            return None
+
+        if not isinstance(base_ptr.type, ir.PointerType):
+            return None
+        field_index = self._struct_field_index(base_ptr.type.pointee,
+                                               expr.member)
+        if field_index is None:
+            return None
+
+        i32 = ir.IntType(32)
+        field_ptr = self.builder.gep(
+            base_ptr, [ir.Constant(i32, 0), ir.Constant(i32, field_index)],
+            inbounds=True, name=f"{expr.member}_addr")
+        return self._load_field(field_ptr, name=expr.member)
+
     def _generate_member_access(self, expr: MemberAccess):
         """Generate code for member access on structs or enum variant access."""
         # design 257 §2: a LONE raw-backed enum case the adoption funnel folded
@@ -289,6 +407,13 @@ class StructsMixin:
                 )
                 return self._generate_enum_init(enum_init)
 
+        # design 263 L2: the field lives in memory, so read THAT field — a GEP
+        # and one scalar load — instead of loading the whole aggregate into an
+        # SSA value and projecting one member out of it.
+        narrow = self._narrow_field_read(expr)
+        if narrow is not None:
+            return narrow
+
         obj_val = self._generate_expression(expr.object)
 
         # DF-217m: a statement-scoped temporary RECEIVER, exactly as a method
@@ -308,30 +433,18 @@ class StructsMixin:
         # For now, assume the object is a struct and find which one based on its LLVM type
         obj_type = obj_val.type
 
-        # Handle pointer to struct (e.g., var self methods)
+        # Handle pointer to struct (e.g., var self methods). The narrow read
+        # above already took this shape whenever it could name the field; what
+        # is left here is a pointee `_struct_field_index` could not resolve.
         is_pointer = isinstance(obj_type, ir.PointerType)
         if is_pointer:
             # Load the struct value from the pointer
             obj_val = self.builder.load(obj_val, name="deref")
             obj_type = obj_val.type
 
-        # For identified types, get name directly
-        struct_name = None
-        if hasattr(obj_type, 'name') and obj_type.name in self.struct_types:
-            struct_name = obj_type.name
-        else:
-            # Fallback to string comparison for literal types
-            for name, (llvm_type, _) in self.struct_types.items():
-                if str(obj_type) == str(llvm_type):
-                    struct_name = name
-                    break
-
-        if struct_name and struct_name in self.struct_types:
-            _, field_order = self.struct_types[struct_name]
-            if expr.member in field_order:
-                field_index = field_order.index(expr.member)
-                result = self.builder.extract_value(obj_val, field_index)
-                return result
+        field_index = self._struct_field_index(obj_type, expr.member)
+        if field_index is not None:
+            return self.builder.extract_value(obj_val, field_index)
 
         # Debug: print available struct types
         for name, (llvm_type, fields) in self.struct_types.items():

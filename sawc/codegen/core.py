@@ -1492,11 +1492,68 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
     # ------------------------------------------------------------------
     # design 261 U2 — an aggregate copy is ONE memcpy
+    # design 263 L2/L2r — a field read is a GEP and one scalar load
+    #
+    # THE STORE-SIDE BOOL INVARIANT, and everything resting on it.
+    #
+    # A Saw `Bool` in memory is the byte 0 or the byte 1, never anything else.
+    # Every producer of one is an `i1` — a comparison, a literal, a `select`, a
+    # loaded `i1`, a truncation the front end never emits over a wider flag —
+    # and LLVM stores an `i1` as a zero-extended byte. The language has no way
+    # to write another value there: `UnsafeMemory` is typed, `Data`/`FixedBuf`
+    # bytes are `UInt8` and cannot alias a `Bool` field without a cast the
+    # unsafe surface makes visible, and an `@export`ed C caller writing 2 into a
+    # `Bool` field is outside the language's guarantees the same way writing a
+    # null `String` pointer is.
+    #
+    # Two things rest on it, both of them ELIMINATIONS of a renormalization
+    # that only exists because LLVM cannot see the invariant:
+    #   - design 261 U2 (`_store_transfer`): an aggregate copy is one memcpy,
+    #     so no per-field `i1` load/store pair is created and no `andi 1` is
+    #     attached to one.
+    #   - design 263 L2r (`_load_field`): a `Bool` field is read as its BYTE
+    #     with `!range !{i8 0, i8 2}` and truncated, so the backend knows the
+    #     high bits are already clear. Loading it as an `i1` instead makes the
+    #     RISC-V backend mask every read (2,527 `andi …, 0x1` in one sos kernel
+    #     image), because an `i1` load has no way to say what the byte holds.
+    # A future reader breaking the invariant — a store funnel that writes a
+    # `Bool` field without going through an `i1` — breaks BOTH.
     # ------------------------------------------------------------------
 
     # Below two words a memcpy is strictly worse than the scalar pair it would
     # replace, and LLVM turns a small fixed-size one back into scalars anyway.
     _MEMCPY_MIN_BYTES = 16
+
+    def _load_field(self, field_ptr, name=""):
+        """Load ONE field from its address (design 263 L2).
+
+        The single load the narrow field read emits. A `Bool` field takes the
+        L2r path — its byte, carrying the store-side 0/1 invariant as `!range`,
+        truncated to the `i1` the rest of codegen expects — and every other
+        field is an ordinary typed load.
+        """
+        pointee = field_ptr.type.pointee
+        if isinstance(pointee, ir.IntType) and pointee.width == 1:
+            i8 = ir.IntType(8)
+            byte_ptr = self.builder.bitcast(field_ptr, i8.as_pointer())
+            raw = self.builder.load(byte_ptr, name=f"{name}_byte" if name else "")
+            raw.set_metadata("range", self._bool_range_metadata())
+            return self.builder.trunc(raw, ir.IntType(1), name=name)
+        return self.builder.load(field_ptr, name=name)
+
+    def _bool_range_metadata(self):
+        """`!{i8 0, i8 2}` — the store-side bool invariant, told to LLVM.
+
+        One node per module: `!range` on a load is a promise about the value in
+        memory, and every `Bool` field makes the same promise.
+        """
+        md = getattr(self, "_bool_range_md", None)
+        if md is None:
+            i8 = ir.IntType(8)
+            md = self.module.add_metadata([ir.Constant(i8, 0),
+                                           ir.Constant(i8, 2)])
+            self._bool_range_md = md
+        return md
 
     # Instructions that may sit between the source load and the store without
     # invalidating the rewrite. An ALLOWLIST rather than a denylist of writers:
