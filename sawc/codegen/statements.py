@@ -384,7 +384,9 @@ class StatementsMixin:
             return
 
         alloca = self._entry_alloca(value.type, name=stmt.name)
-        self.builder.store(value, alloca)
+        # design 261 U2: `let b = a` on an aggregate is a COPY, and one
+        # `llvm.memcpy` is what it should be rather than a field walk.
+        self._store_transfer(value, alloca)
         self.variables[stmt.name] = alloca
         self.void_variables.discard(stmt.name)
 
@@ -806,7 +808,10 @@ class StatementsMixin:
             value = self._coerce_int_llvm(
                 value, slot_type, getattr(value_expr, 'resolved_type', None))
         value = self._fit_optional_slot(value, slot_type)
-        self.builder.store(value, slot_ptr)
+        # design 261 U2: this is the assignment funnel for all five target
+        # kinds, so routing it here puts every aggregate assignment on the
+        # memcpy without touching any of the arms.
+        self._store_transfer(value, slot_ptr)
 
     def _tuple_element_saw_type(self, tuple_expr, index):
         """The SawType of element `index` of the tuple `tuple_expr` denotes, or

@@ -1485,6 +1485,128 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             return self.builder.load(receiver, name=name)
         return receiver
 
+    # ------------------------------------------------------------------
+    # design 261 U2 — an aggregate copy is ONE memcpy
+    # ------------------------------------------------------------------
+
+    # Below two words a memcpy is strictly worse than the scalar pair it would
+    # replace, and LLVM turns a small fixed-size one back into scalars anyway.
+    _MEMCPY_MIN_BYTES = 16
+
+    # Instructions that may sit between the source load and the store without
+    # invalidating the rewrite. An ALLOWLIST rather than a denylist of writers:
+    # an opcode nobody thought about must cost the optimization, never the
+    # correctness. Anything not named here (a store, a call, an atomic, a
+    # terminator) makes this fall back to the plain store.
+    _MEMCPY_SAFE_BETWEEN = frozenset((
+        'load', 'getelementptr', 'bitcast', 'extractvalue', 'insertvalue',
+        'alloca', 'add', 'sub', 'mul', 'and', 'or', 'xor', 'shl', 'lshr',
+        'ashr', 'icmp', 'fcmp', 'zext', 'sext', 'trunc', 'ptrtoint',
+        'inttoptr', 'select', 'phi', 'freeze', 'sitofp', 'uitofp', 'fptosi',
+        'fptoui', 'fadd', 'fsub', 'fmul', 'fdiv',
+    ))
+
+    def _store_transfer(self, value, ptr):
+        """Store a by-value transfer — as ONE `llvm.memcpy` when it is a COPY.
+
+        Design 261 U2. sawc emits an aggregate copy as a first-class LLVM
+        aggregate: `%v = load %T, ptr %src` then `store %T %v, ptr %dst`.
+        InstCombine UNPACKS both halves into one load and one store per field,
+        and for a struct holding a `Bool` each `i1` field arrives with a
+        renormalization (`andi 1` on riscv) that stops the walk being
+        recognized as a memcpy afterwards. The kernel that motivated this brief
+        is two thirds load/store by instruction count for exactly that reason.
+
+        Emitting the memcpy HERE means the walk is never created, so there is
+        nothing for the renormalization to attach to and nothing for a later
+        pass to have to re-recognize. The bool question the brief asks about
+        answers itself: a memcpy copies the bytes verbatim, so whatever a
+        `Bool` field's store funnel put in that byte is what arrives, and no
+        per-field renormalization is emitted to drop.
+
+        Applies only when the value IS a copy of memory — an aggregate the
+        immediately preceding instructions just loaded, with nothing that
+        writes memory in between. Everything else takes the ordinary store.
+
+        Returns the `StoreInstr` when it emitted one, else None; callers that
+        need the instruction (to mark it volatile) must not route through here,
+        and none do — the volatile MMIO path calls `builder.store` directly.
+        """
+        src = self._copy_source_pointer(value, ptr)
+        if src is None:
+            return self.builder.store(value, ptr)
+        self._emit_aggregate_memcpy(ptr, src, value.type)
+        return None
+
+    def _copy_source_pointer(self, value, dst_ptr):
+        """The pointer `value` was loaded from, if this store is a plain COPY of
+        an aggregate big enough to be worth a memcpy — else None."""
+        if not isinstance(value, ir.LoadInstr):
+            return None
+        if getattr(value, 'volatile', False):
+            return None
+        llvm_type = value.type
+        if not isinstance(llvm_type, (ir.LiteralStructType,
+                                      ir.IdentifiedStructType,
+                                      ir.ArrayType)):
+            return None
+        # A bodyless identified type is reachable while a design-246 cycle is
+        # being registered; `_abi_size` refuses it rather than aborting LLVM.
+        try:
+            size = self._abi_size(llvm_type)
+        except Exception:
+            return None
+        if size < self._MEMCPY_MIN_BYTES:
+            return None
+        src = value.operands[0]
+        # `memcpy` is undefined on overlapping ranges, and a self-copy is the
+        # one overlap reachable from source: `x = x` through a `&var`, or the
+        # same pointer place on both sides. Two DIFFERENT pointers cannot
+        # overlap in safe code — the Law of Exclusivity is one `&var` XOR many
+        # `&` over the whole statement — so identity is the case to refuse.
+        if src is dst_ptr:
+            return None
+        if src.type != dst_ptr.type:
+            return None
+        block = getattr(self.builder, 'block', None)
+        if block is None:
+            return None
+        instrs = block.instructions
+        index = None
+        for i, ins in enumerate(instrs):
+            if ins is value:
+                index = i
+                break
+        if index is None:
+            return None
+        for ins in instrs[index + 1:]:
+            if getattr(ins, 'opname', None) not in self._MEMCPY_SAFE_BETWEEN:
+                return None
+        return src
+
+    def _emit_aggregate_memcpy(self, dst_ptr, src_ptr, llvm_type):
+        """One `llvm.memcpy` over a whole aggregate, at its ABI size/alignment."""
+        i8 = ir.IntType(8)
+        i8ptr = ir.PointerType(i8)
+        size_type = self.int_type
+        fn = self.module.declare_intrinsic('llvm.memcpy',
+                                           [i8ptr, i8ptr, size_type])
+        dst = self.builder.bitcast(dst_ptr, i8ptr, name="memcpy_dst")
+        src = self.builder.bitcast(src_ptr, i8ptr, name="memcpy_src")
+        size = ir.Constant(size_type, self._abi_size(llvm_type))
+        # NO explicit `align` on the pointer arguments: llvmlite has no way to
+        # attach a call-site parameter attribute, and LLVM does not need one
+        # here — both pointers trace back to an alloca or a GEP off one, so
+        # InferAlignment reads the real alignment off the underlying object and
+        # the backend widens the copy to word moves. An `align 1` copy would be
+        # worse than the field walk this replaces, so the inference is
+        # load-bearing. `examples/aggregate_copy_is_one_memcpy.saw` pins what
+        # the rewrite must not change: every field survives at its own width
+        # (the `Bool`s especially), and the copy is independent of its source
+        # in both directions, through a `let` and through an assignment alike.
+        return self.builder.call(
+            fn, [dst, src, size, ir.Constant(ir.IntType(1), 0)])
+
     def _const_from_expr(self, expr, saw_type):
         """Build an LLVM constant for a static initializer (design 41 item 2).
 

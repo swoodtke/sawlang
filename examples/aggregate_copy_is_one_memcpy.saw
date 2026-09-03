@@ -1,0 +1,87 @@
+// An aggregate copy is ONE `llvm.memcpy`, and it copies the bytes VERBATIM
+// (design 261 U2).
+//
+// sawc used to emit a copy as a first-class LLVM aggregate — `load %T` then
+// `store %T` — which InstCombine unpacks into one load and one store per field.
+// A `Bool` field arrives from that walk with a renormalization (`andi 1` on
+// riscv), which is what stopped the walk being recognized as a memcpy again
+// afterwards. Emitting the memcpy at the copy site means the walk is never
+// created, so there is no per-field renormalization to drop and no ordering for
+// a later pass to have to rediscover.
+//
+// What that must not change is the SEMANTICS, and this pins the three ways it
+// could have: every field survives the copy at its own width (the `Bool`s and
+// the byte-width fields especially, since those are the ones the walk handled
+// specially); the copy is INDEPENDENT of its source, so writing one leaves the
+// other alone in both directions; and a copy through an assignment behaves the
+// same as a copy through a `let`, because both go through the same funnel.
+//
+// The nested struct is here because the memcpy covers the whole aggregate
+// including its padding, and a nested aggregate is where a field-at-a-time walk
+// and a byte-at-a-time copy would most easily disagree.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// let-copy equal: true
+// source after writing the copy: 1 true 7 100
+// copy after writing the source: 2 false 9 200
+// assign-copy equal: true
+// assign source after: 1 true 7 100
+// nested copy independent: 5 then 5
+
+struct Inner { small: UInt8, wide: Int, flag: Bool }
+
+struct Rec {
+    a: Int,
+    f1: Bool,
+    b: UInt8,
+    f2: Bool,
+    c: Int,
+    d: UInt16,
+    f3: Bool,
+    inner: Inner,
+    e: Int
+}
+
+func mk() -> Rec {
+    Rec(a: 1, f1: true, b: 7, f2: false, c: 100, d: 9, f3: true,
+        inner: Inner(small: 3, wide: 5, flag: true), e: 11)
+}
+
+func same(x: &Rec, y: &Rec) -> Bool {
+    (x.a == y.a && x.f1 == y.f1 && x.b == y.b && x.f2 == y.f2
+     && x.c == y.c && x.d == y.d && x.f3 == y.f3
+     && x.inner.small == y.inner.small && x.inner.wide == y.inner.wide
+     && x.inner.flag == y.inner.flag && x.e == y.e)
+}
+
+func main() {
+    // A `let` copy: every field survives, at its own width.
+    var source = mk()
+    var copied = source
+    print("let-copy equal: {}", same(&source, &copied))
+
+    // Independent in both directions.
+    copied.a = 2
+    copied.f1 = false
+    copied.b = 9
+    copied.c = 200
+    print("source after writing the copy: {} {} {} {}",
+          source.a, source.f1, source.b, source.c)
+    print("copy after writing the source: {} {} {} {}",
+          copied.a, copied.f1, copied.b, copied.c)
+
+    // The assignment funnel is the same funnel, so it must agree.
+    var target = Rec(a: 0, f1: false, b: 0, f2: true, c: 0, d: 0, f3: false,
+                     inner: Inner(small: 0, wide: 0, flag: false), e: 0)
+    target = source
+    print("assign-copy equal: {}", same(&source, &target))
+    target.a = 42
+    print("assign source after: {} {} {} {}",
+          source.a, source.f1, source.b, source.c)
+
+    // A nested aggregate copies with the outer one and separates with it.
+    var nested = source
+    nested.inner.wide = 77
+    print("nested copy independent: {} then {}",
+          source.inner.wide, target.inner.wide)
+}
