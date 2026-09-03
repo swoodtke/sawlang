@@ -12,7 +12,7 @@ Usage:
 from llvmlite import ir
 from ast_nodes import (StructInit, MemberAccess, Identifier, EnumInit, TypeKind,
                        SelfExpr, FunctionCall, MethodCall, TupleLiteral,
-                       ArrayLiteral, MapLiteral, SetLiteral)
+                       ArrayLiteral, MapLiteral, SetLiteral, ArrayIndex)
 from const_eval import INT_LIMIT_SPECS
 
 
@@ -228,17 +228,33 @@ class StructsMixin:
         strictly worse than the aggregate load it replaces, so every shape that
         would land there is refused here instead.
 
-        The list is exactly `_is_owned_temporary`'s borrows minus the indexed
-        forms: an identifier, `self`, and a field of one of those. An
-        `ArrayIndex`/`TupleIndex` base is deliberately absent — addressing one
-        emits its own bounds check, and whether that is the same check the value
-        read emits is a question this brief does not need to answer.
+        The list is `_is_owned_temporary`'s borrows: an identifier, `self`, a
+        field of one of those, and — since design 263 U3b — a FIXED-ARRAY
+        element of one of those. `_get_element_pointer` emits the very same
+        `_emit_array_bounds_check` the value read emits, over the same count, so
+        addressing the element changes nothing a program can observe.
+
+        A `TupleIndex` base is deliberately absent: the evidence that drove U3b
+        is fixed arrays, and a tuple slot has no measured case behind it.
         """
         if isinstance(expr, SelfExpr):
             return "self" in self.variables
         if isinstance(expr, Identifier):
             return (expr.name in self.variables
                     or self._static_global(expr) is not None)
+        if isinstance(expr, ArrayIndex):
+            # Only a FIXED array: that is the one container whose element
+            # `_get_element_pointer` reaches with a two-index GEP and the
+            # ordinary bounds check. A `Vector`/`Map` subscript is a design-146
+            # place with its own lowering, and an `UnsafePointer` buffer is
+            # unchecked by construction — neither belongs on this path.
+            if expr.um_projection:
+                return False
+            if not self._addressable_place(expr.array_expr):
+                return False
+            container_type = self._expr_type(expr.array_expr)
+            return (container_type is not None
+                    and getattr(container_type, 'array_size', None) is not None)
         if isinstance(expr, MemberAccess):
             # Only a plain struct field nests. Every other MemberAccess meaning
             # — a folded constant, an integer limit, a named-tuple slot, an
@@ -276,7 +292,7 @@ class StructsMixin:
         which leaves the value projection below to answer exactly as it did.
         """
         obj = expr.object
-        if isinstance(obj, (Identifier, SelfExpr, MemberAccess)):
+        if isinstance(obj, (Identifier, SelfExpr, MemberAccess, ArrayIndex)):
             if not self._addressable_place(obj):
                 return None
             base_ptr = self._get_lvalue_pointer(obj)
