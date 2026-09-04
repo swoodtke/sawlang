@@ -121,14 +121,12 @@ is scheduled and in what order is the whole of what they say.
 - DF-284b — `{ ... }()`, the spelling BOTH the spec and the diagnostic name as the fix, does not exist (entry below, filed Aug 31 by design 218 unit 1.5's agent while repairing DF-284a; PRE-EXISTING and never once tested — no `examples/` file contains the form). The postfix call is never applied to a closure literal in ANY position: statement position is the bogus refusal whose own hint names it, argument position is a parse error, and `let x = { 1 }()` SILENTLY binds the closure and drops the `()`. Not this unit's to fix (it is a parser question with a trailing-closure interaction); corodiff's `nested_block_tail` wrapper, which was written around the form and had therefore never compiled, moved to a nested `if true` scope
 - DF-287a — a `move` inside a DIVERGING catch poisons the fall-through path (entry below, filed Sep 1 by the lead from an sos-relayed repro; PRE-EXISTING). Every non-catch diverging construct — `if`, `match` arm, `guard else` — already restores; catch is the one outside the rule, in all three of its forms
 - DF-287b — bare-literal ADOPTION never runs at an OVERLOADED call site (entry below, same filing; PRE-EXISTING; DF-242c's matcher family). `solo(len: 1)` adopts at a lone `UInt` param and `b.put(len: 1)` is refused ``expects `UInt` but got `Int` `` although every `put` candidate agrees the slot is `UInt` — with a hint teaching the `as UInt` conversion adoption should have made unnecessary
-- DF-290a — CLOSED Sep 4, FIXED (entry below): the two closure registration sites stamp `VariableInfo.borrows_referent` and `_check_move_expr` refuses, with its own wording. FIVE faces closed, not the filed two — the sweep added the SHARED sigil on both constructs and every LOCK BODY (`Mutex`/`SpinLock` hand `&var T` to a closure, so the whole interior-mutability surface sat on it). Tier-blind, like V62. Conformance rows V68-V71; corpus census confirmed: zero occurrences, nothing migrated
 - DF-286b — **THE STAGE-3c-2 BLOCKER**: A3's instance-check residue was measured on ONE program, and the corpus's population is larger and different in kind (entry below, filed Sep 1 by design 218 unit 1.5 stage 3c's agent). 115 diagnostics over 14 of 122 generic-named examples, in at least six classes, of which only two are the signed families — and two of the six are genuine funnel/registry DEFECTS, not artifacts. Needs a ruling before splice-all can be built
 - DF-286c — the materialization funnel does not reproduce what codegen's `type_param_context` path did, at four named positions (entry below, same filing; ONE mechanism, four faces — const-generic VALUES, associated-type annotations, the conditional-conformance bounds filter, and a `-> T?` tail's auto-wrap). Its matrix is stage 3c-2's test plan. **CLOSED Sep 2 by stage 3c-2a/3c-2c(1): face 1 both halves, face 2, face 3 (reframed into B1) and face 4 all fixed and pinned; face 4 turned out to be a CONCRETE-path defect the generic path had been hiding — see DF-289d for its residue**
 - DF-294b — a `type` ALIAS binds through the SELECTIVE import form ONLY: the glob leaves it unbound and the qualified spelling mints a name-only type + a not-callable head (entry below, filed Sep 3 from sos-relayed SL-20; workaround `import m.{Alias}`)
 - DF-291b — STILL OPEN, RE-SCOPED Sep 4 (entry below): the leak reproduces, but it is NOT `Vector.fold`'s — fold's body is correct Saw, proved by the identical loop with a NAMED callee running clean. The recorded "make fold release the accumulator" fix shape rests on a falsified premise and would have been a workaround over a compiler defect; the unit was STOPPED and the mechanism refiled as DF-299c. The filing's obligation-4 population claim ("the only std generic method…") is wrong too — the defect reaches every closure with a by-value owning parameter
 - DF-299c — SOUNDNESS/LEAK: a closure's BY-VALUE PARAMETER is never released at the body's end, and the callers do not agree on whether it was transferred at all (entry below, filed Sep 4 by the soundness-pair dispatch while investigating DF-291b; PRE-EXISTING). Located in `codegen/closures.py`; a named function's parameters DO get released, which is the control. SIX std APIs leak, not one — `Vector.fold`, `Vector.sort_by`, `Map.each` (both slots), `Map.each_key`, `Map.each_value`, `Set.each` — and `std.json`'s object encoder rides `Map.each`, so every object encode leaks per field. A fix was ATTEMPTED and REVERTED: the codegen half fixes all six and then trips over `Map.each`, whose `body(move k, move v)` hands out a retained value at the Copy tier and a NON-RETAINED ALIAS at the ExplicitCopy tier (DF-146j's family at the visitor position); the trap is CONTENT-dependent — literals clean, heap strings fatal. Needs a ruling plus a std audit before the codegen half; obligation 2 applies
 - DF-299d — a QUALIFIED generic `init` drops its explicit type argument: `mutex.Mutex<Int>(value: 5)` is ``argument `value` expects `T` but got `Int` `` while the selective-import spelling compiles (entry below, filed Sep 4 as an incidental of DF-299c's census; PRE-EXISTING at HEAD). The CONSTRUCTOR position of design 150's "a qualifier works everywhere a name appears", which design 256 landed for methods and statics
-- DF-299a — CLOSED Sep 4, FIXED (entry below; the parser census carried it as N10 and it never had a DF number until this dispatch). SOUNDNESS: a cast AT THE SAME TYPE forwarded the operand's storage past the transfer checkpoint — a silent double free. DF-216a's mechanism family, `CastExpr` the member. The obligation-4 sweep widened it from ONE arm to THREE and from the owning tiers to ALL of them. Conformance rows V64-V67
 - DF-299b — a value `if`/`match` ARM forwarding a NoCopy binding is not checkpointed either: the value is bitwise-duplicated and ONE of the two deinits is LOST (entry below, filed Sep 4 by DF-299a's fix agent; PRE-EXISTING, NOT fixed there). A neighbour of DF-299a, not the same defect — the cast is a checkpoint that RUNS and cannot see the node, this is a checkpoint never CALLED at the arm — so it owes its own consumer sweep over every value-branch position
 
 
@@ -392,58 +390,6 @@ design 194's annotation gate at a qualified alias), plus the alias-specific
 positions (alias as a generic argument through a qualifier, alias in an
 extern signature, `E.from(raw:)`-style statics on an aliased backing).
 [150, 144, 188 alias-resolution family, DF-238c, DF-194a]
-
-## DF-299a — CLOSED Sep 4, FIXED. SOUNDNESS: a cast AT THE SAME TYPE bypasses
-## the transfer checkpoint — silent double free (carried by the parser census
-## as N10 since Sep 1, given its DF number at this dispatch; PRE-EXISTING)
-
-LANDED. `_is_aliasing_expr` — the checkpoint's one question, "does this
-expression read a value out of existing owned storage" — is a NODE-TYPE test
-over `{Identifier, MemberAccess, ArrayIndex, TupleIndex}`. `_check_value_transfer`
-always RAN over the cast; it could not recognize the node, so every tier fell
-through the `_is_aliasing_expr` guard at once. The fix makes the question
-TRANSPARENT through a forwarding cast, which is the rule design 131 already
-gave `!` three lines above: `o!` aliases iff `o` does, and now `r as Res` does
-too. `CastExpr.forwards_operand` is the declared annotation carrying it.
-
-THREE ARMS, NOT ONE, AND EVERY TIER, NOT TWO (the obligation-4 sweep; the
-mechanism is "an arm of `_check_cast_expr` that hands the operand back", and the
-line is a cast that FORWARDS storage vs one that BUILDS a value):
-
-    struct identity      `v as Vector<Int>`    N10 as filed   UNSOUND (SIGTRAP)
-    struct identity      `r as Res` (NoCopy)   sweep          UNSOUND (2 drops,
-                                                              exit 0, silent)
-    alias FULL projection `a as Res`           sweep          UNSOUND (1 drop,
-                                              (type H = Res)  2 live owners)
-    alias PARTIAL projection `a as Inner`      sweep          UNSOUND (0 drops —
-                                              (type O = Inner) never released)
-    Copy tier            `a as Arc<Res>`       sweep          UNSOUND — the cast
-      RETAINED NOTHING where the plain `let` bumped 1->2, and holding both
-      owners to scope end aborted: `over-release of an Arc (refcount underflow)`.
-      So the fence is TIER-BLIND, exactly as DF-288a's is and for the same
-      reason — where the compiler hands out an unretained alias, refusing or
-      retaining is not a question about the owning tiers.
-    every BUILDING arm   int->int, enum->raw, ptr->ptr, ref->ptr, ptr<->int,
-      String<->ptr — SOUND, and left alone: each produces a fresh scalar that
-      aliases nothing, and all are trivial-tier. Recorded because a rule that
-      caught `(&x) as UnsafePointer<T>` would have broken the runtime seam.
-
-POSITION IS NOT A FACTOR, because the fix is at the funnel: the bypass was
-reproduced at a `let`, a call ARGUMENT and a RETURN, and one edit closes all of
-them plus every other site that routes through the checkpoint (field, element,
-enum payload, static).
-
-NON-CAST FORWARDING FORMS, enumerated and probed rather than assumed:
-parenthesization `(v)` was already REFUSED (it is not a node — the parser hands
-back the operand itself); `try!` takes only a Result and forwards nothing; the
-value `if`/`match` ARM is NOT refused and is DF-299b, below — a neighbour, not
-this defect.
-
-CORPUS: the refusal touched nothing. No tracked `.saw` casts at the same type;
-the freestanding suite, blade, libs and std are clean, and the whole battery is
-green with no migration.
-
-Conformance rows V64-V67. [130, 146, 216, DF-216a, DF-288a, SL/census §N10]
 
 ## DF-299b — a value `if`/`match` ARM forwarding a NoCopy binding is not
 ## checkpointed: the value is bitwise-duplicated and ONE deinit is LOST
@@ -831,88 +777,6 @@ filtering, adopts against the winner, and 2+ surviving widths stay the
 documented ambiguity error. Sweep owed at fix time: the static-method and
 init overload faces of the same funnel (unprobed), and DF-242c's suffixed
 face, which this mechanism plausibly explains too.
-
-## DF-290a — CLOSED Sep 4, FIXED. SOUNDNESS: a closure's `&`/`&var` PARAMETER
-## may be `move`d — silent double free (filed Sep 2 by DF-288a's fix agent;
-## PRE-EXISTING; NOT fixed there)
-
-LANDED. The two registration sites in `_check_closure` stamp
-`VariableInfo.borrows_referent`, and `_check_move_expr` refuses beside DF-288a's
-own test. The MECHANISM is not about matches or closures — it is "this binding
-was given the REFERENT's type, so its type can no longer say it is an alias" —
-and the fix is the third and fourth construct to owe that stamp.
-
-FIVE FACES, not the filed two. The sweep added the SHARED sigil on both
-constructs (theft through a read-only borrow, V60's asymmetry again) and the
-LOCK BODY, which is the one that matters most in practice: `Mutex.lock` and
-`SpinLock.lock` hand `&var T` to a closure, so the whole interior-mutability
-surface sat on this hole. Baseline, all `drops=2` for one value at exit 0:
-
-    { &var e in move e }   via with_var_ref     UNSOUND   (the filed face)
-    { &e in move e }       via with_ref         UNSOUND   (shared — theft)
-    { [&var o] in move o } borrow capture       UNSOUND
-    { [&o] in move o }     shared capture       UNSOUND
-    { &var c in move c }   via Mutex.lock       UNSOUND
-
-THREE NEIGHBOURS WERE ALREADY SAFE, and the third is what identified the
-mechanism:
-
-    { e in move e }   over a `&T`-lending std method (`Vector.each`)  REFUSED
-      by the ORDINARY reference test — with no sigil written the binding KEEPS
-      its reference type, so the pre-existing check fires. The defect is
-      exactly the two sites that STRIP the reference and bind the referent.
-    move $0           a PARSE error ("Expected identifier after 'move'"), so
-      the shorthand spelling of the hole does not exist.
-    [&var self] + `move self.o`   the no-partial-moves rule fires first.
-
-TIER-BLIND, on V62's reasoning: a borrowed binding is handed out unretained at
-every tier, so a Copy-tier `move` would mint a second owner with no refcount
-bump — an underflow, not merely a NoCopy problem.
-
-THE DIAGNOSTIC IS ITS OWN, per the filing: a closure parameter is not a match
-payload, and the way out differs. `borrows_kind` picks the sentence while
-`borrows_referent` stays the one question — the parameter face names the owner's
-published move-out (`swap_out`, `take()`) called outside the body, and the
-capture face names `[move x]`.
-
-CORPUS: the census's zero-occurrence claim held — the whole battery is green
-with no migration owed anywhere.
-
-Conformance rows V68-V71. [130, 146, 216, DF-288a]
-
---- as filed ---
-
-```saw
-var v = Vector<Owned>()
-try! v.push(Owned(w: 7))
-let got = v.with_var_ref(0, { &var e in move e })   // compiles
-// -> got 7 / drop 7 / drop 7 — exit 0, silent
-```
-
-The third member of "the move checkpoint is lied to", beside DF-288a and N10,
-and the SAME MECHANISM as DF-288a at a different registration site — which is
-why it is filed rather than assumed one-off (obligation 4).
-`_check_closure` binds a reference parameter with the REFERENT's type
-(`expressions.py`, the `param.is_reference` branch: ``VariableInfo(inner,
-param.reference_mutable, ...)``), so the closure body's `move e` sees an
-ordinary owned local exactly as DF-288a's arm binding did. The borrow CAPTURE
-spelling `[&x]`/`[&var x]` binds the same way one branch up and is the second
-face; both were probed, only the parameter face with a run.
-
-WHY NOT FIXED WITH DF-288a: a different construct with its own consumer
-surface. `with_ref`/`with_var_ref` closures are a std idiom and the DF-288a
-census did not cover them, so the fix owes its own consumer sweep before it can
-claim to be safe — and DF-288a's branch was scoped to the match funnel and
-parked for a stage-3c-2 cherry-pick.
-
-WHAT IS ALREADY BUILT FOR IT: `VariableInfo.borrows_referent` and
-`_check_move_expr`'s refusal beside it. Stamping the flag at those two
-registration sites is the whole fix; the diagnostic wants its own wording
-(a closure parameter is not a match payload).
-
-CORPUS: an AST census over all 2542 tracked `.saw` found ZERO occurrences of the
-shape (`.build/scratch/probe_corpus_df288.py`, the DF-290a section), so nothing
-migrates. [130, 146, 216, DF-288a]
 
 ## DF-284b — the immediately-invoked closure `{ ... }()` does not parse, in any
 ## position (filed Aug 31 by design 218 unit 1.5's agent, stage 0; PRE-EXISTING,
