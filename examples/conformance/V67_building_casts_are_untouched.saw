@@ -1,0 +1,43 @@
+// Conformance row V67 — control: a cast that BUILDS A NEW VALUE aliases
+// nothing and is untouched by the forwarding rule
+//
+// DF-299a. The fence is correct only if it is narrow, so the arms it must not
+// reach are counted here. The line the sweep drew is "does this arm hand back
+// the OPERAND'S STORAGE, or produce a fresh value?" — and every arm below
+// produces one: a converted integer, a raw enum tag, a reinterpreted address.
+// None of them can alias, and all of them are trivial-tier anyway, so a
+// checkpoint that fired here would tax the unsafe-tier idioms for nothing.
+//
+// The pointer rows matter most: `(&x) as UnsafePointer<T>` is the ONLY
+// address-of the language has (DF-163f) and the chained
+// `(&self) as UnsafePointer<T> as Int` is the token idiom std and the runtime
+// are written in. A forwarding rule that caught them would have broken the
+// runtime seam.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: widened 300
+// EXPECT-OUTPUT: narrowed 44
+// EXPECT-OUTPUT: tag 3
+// EXPECT-OUTPUT: roundtrip 7
+// EXPECT-OUTPUT: same address true
+
+enum Code: UInt8 { case Ok = 0, case Busy = 3 }
+
+func address_idioms() unsafe -> Bool {
+    var n = 7
+    let p = (&n) as UnsafePointer<Int>      // ref -> pointer: a new address
+    let back = p[0]
+    print("roundtrip {}", back)
+    let as_int = p as Int                   // pointer -> int: a new number
+    let again = as_int as UnsafePointer<Int>
+    again[0] == 7
+}
+
+func main() {
+    let small: Int32 = 300
+    let wide = small as Int                 // int -> int: a converted number
+    print("widened {}", wide)
+    print("narrowed {}", Int8.from(truncating: wide))
+    print("tag {}", Code.Busy as UInt8)     // enum -> its backing: a raw tag
+    print("same address {}", address_idioms())
+}

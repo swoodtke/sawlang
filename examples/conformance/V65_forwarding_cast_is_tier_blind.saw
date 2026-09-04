@@ -1,0 +1,39 @@
+// Conformance row V65 — the forwarding-cast rule is TIER-BLIND: the Copy tier
+// RETAINS through the cast, it is not merely "not refused"
+//
+// DF-299a. Fencing only the owning tiers would have left the worse half open,
+// exactly as it would have for DF-288a (row V62). A Copy-tier value forwarded
+// through a cast was handed out UNRETAINED while the source kept its own
+// reference, so the two owners released one allocation twice — a refcount
+// UNDERFLOW, not merely a NoCopy problem.
+//
+// Measured on an `Arc`, whose `strong_count()` makes the bug observable rather
+// than merely fatal. Before the fix:
+//     built 1 / after cast 1        <- the cast bumped nothing
+// and holding both owners to scope end aborted the process:
+//     panic at arc.saw:129: over-release of an Arc (refcount underflow)
+//
+// The `let b = a` control beside it is the whole point: the cast must cost
+// exactly what the plain read costs, no more and no less.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: built 1
+// EXPECT-OUTPUT: after plain let 2
+// EXPECT-OUTPUT: after cast 3
+// EXPECT-OUTPUT: still live 3
+// EXPECT-OUTPUT: drop 1
+
+struct Res { w: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.w) }
+}
+
+func main() {
+    let a = try! Arc<Res>(value: Res(w: 1))
+    print("built {}", a.strong_count())
+    let b = a                       // the control: a plain Copy-tier read
+    print("after plain let {}", b.strong_count())
+    let c = a as Arc<Res>           // must retain exactly as `b` did
+    print("after cast {}", c.strong_count())
+    print("still live {}", a.strong_count())
+}

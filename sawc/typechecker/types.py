@@ -15,7 +15,7 @@ from ast_nodes import (
     SawType, TypeKind, Visibility,
     Expression, Identifier, MoveExpr, ReferenceExpr, IntLiteral, Block,
     MemberAccess, ArrayIndex, TupleIndex, SelfExpr, ClosureExpr,
-    BindOptional, OptionalEvalExpr, ForceUnwrap, MethodCall
+    BindOptional, OptionalEvalExpr, ForceUnwrap, MethodCall, CastExpr
 )
 from ast_walk import child_nodes
 from errors import ErrorKind
@@ -3283,6 +3283,28 @@ class TypeUtilsMixin:
         payload of a fresh temporary the caller already owns) is not.
         """
         if isinstance(expr, ForceUnwrap):
+            return self._is_aliasing_expr(expr.expr)
+        # DF-299a: a FORWARDING cast is transparent here, for the reason `!` is.
+        # `r as Res` does not build a value — it hands back the storage `r`
+        # names — so it aliases exactly as its operand does: `v as Vector<Int>`
+        # over a local is a place, while `make() as Res` (a fresh temporary the
+        # reader already owns) is not.
+        #
+        # `forwards_operand` is stamped by `_check_cast_expr` on the three arms
+        # that hand the operand back (the distinct-alias partial projection, the
+        # String/Float/Bool identity, the struct identity); the arms that build
+        # a NEW value — an integer conversion, a raw enum tag, an address
+        # reinterpretation — are unstamped and answer False, which is what keeps
+        # this from taxing the unsafe-tier pointer idioms.
+        #
+        # This is the whole of DF-299a. The checkpoint always RAN over the cast;
+        # what it could not do was recognize the node as a read out of existing
+        # storage, so every tier fell through the `_is_aliasing_expr` guard:
+        # NoCopy and ExplicitCopy skipped their refusal (a silent double free)
+        # and the Copy tier skipped its `needs_copy` stamp (an unretained second
+        # owner — a refcount underflow, which is why the fence is TIER-BLIND
+        # exactly as DF-288a's is).
+        if isinstance(expr, CastExpr) and getattr(expr, 'forwards_operand', False):
             return self._is_aliasing_expr(expr.expr)
         # design 139: `Slot.Empty` is a payload-free enum variant LITERAL. It
         # wears the same node type as `config.slot`, but it constructs a fresh

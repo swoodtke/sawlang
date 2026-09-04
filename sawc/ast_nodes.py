@@ -1207,6 +1207,22 @@ class CastExpr(Expression):
     # instead of acquiring a check nobody reasoned about.
     cast_check: bool = annotation(False)
 
+    # DF-299a: does this cast hand back the OPERAND'S OWN STORAGE, rather than
+    # producing a new value? Stamped by the typechecker on the three arms of
+    # `_check_cast_expr` that forward (the distinct-alias partial projection,
+    # the String/Float/Bool identity, and the struct identity); every other arm
+    # produces a fresh scalar — a converted integer, a raw tag, a reinterpreted
+    # address — and aliases nothing.
+    #
+    # It exists so the transfer checkpoint can see THROUGH the cast, exactly as
+    # `_is_aliasing_expr` already sees through a `!`: a forwarding cast names
+    # storage its operand owns, so `let b = r as Res` must take the same
+    # move/copy rule `let b = r` takes. Unstamped means "not a forwarding cast",
+    # which is also the right answer for a node SYNTHESIZED after type checking
+    # (the coroutine transform's pointer and frame casts), on `cast_check`'s
+    # reasoning above.
+    forwards_operand: bool = annotation(False)
+
 
 @dataclass
 class FunctionCall(Expression):

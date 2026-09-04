@@ -1,0 +1,46 @@
+// Conformance row V64 — a cast AT THE SAME TYPE forwards the operand's own
+// storage, so it takes the move checkpoint exactly as a plain read does
+//
+// DF-299a (the parser census carried this as N10). `let w = v as Vector<Int>`
+// compiled and minted a SECOND OWNER of one buffer: two `deinit`s over one
+// allocation, a double free. The census found it by accident while probing the
+// `??`/`as` grammar boundary, and it is exactly DF-216a's named mechanism —
+// "one of several compiler-synthesized call constructions that skip
+// `_check_value_transfer`" — with `CastExpr` as another member.
+//
+// The checkpoint always RAN over the cast. What it could not do was recognize
+// the node as a read out of existing storage: `_is_aliasing_expr` is a
+// node-type test over {Identifier, MemberAccess, ArrayIndex, TupleIndex}, and a
+// `CastExpr` is in none of them, so every tier fell through its guard. The fix
+// makes the question TRANSPARENT through a forwarding cast, which is the rule
+// `!` has had since design 131 — `o!` aliases iff `o` does.
+//
+// Both owning tiers are here because the refusal is the ordinary one: nothing
+// about a cast earns a weaker rule than the `let w = v` one line away.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot copy value of type `Res` which implements NoCopy
+// EXPECT-ERROR-CONTAINS: which implements ExplicitCopy
+
+struct Res { w: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.w) }
+}
+
+func nocopy_face() -> Int {
+    let r = Res(w: 7)
+    let s = r as Res            // error: NoCopy — `r` still owns the value
+    r.w + s.w
+}
+
+func explicitcopy_face() -> Int {
+    var v = Vector<Int>()
+    try! v.push(1)
+    let w = v as Vector<Int>    // error: ExplicitCopy — one buffer, two owners
+    v.len() + w.len()
+}
+
+func main() {
+    print("{}", nocopy_face())
+    print("{}", explicitcopy_face())
+}

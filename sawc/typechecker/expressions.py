@@ -1546,6 +1546,9 @@ class ExpressionsMixin:
             ancestor_alias_names = self._alias_ancestor_names(from_type)
             # Partial projection: target is a distinct alias on the chain.
             if (to_type.is_struct() and to_type.struct_name in ancestor_alias_names):
+                # DF-299a: a projection RENAMES the value, it does not build a
+                # new one — the operand's own storage comes straight back out.
+                expr.forwards_operand = True
                 return to_type
             # Full projection: continue the kind-match against the underlying.
             from_type = self._get_underlying_type(from_type)
@@ -1621,9 +1624,17 @@ class ExpressionsMixin:
         # `type Name = String; n as String` and struct-underlying aliases.
         if from_type.kind == to_type.kind and from_type.kind in (
                 TypeKind.STRING, TypeKind.FLOAT, TypeKind.BOOL):
+            # DF-299a: an identity reinterpretation forwards the operand. It
+            # matters at `String`, which is on the Copy tier and owns a
+            # refcounted buffer — an unretained second owner is an underflow.
+            expr.forwards_operand = True
             return to_type
         if (from_type.kind == to_type.kind == TypeKind.STRUCT
                 and from_type.struct_name == to_type.struct_name):
+            # DF-299a — N10's own face. `let w = v as Vector<Int>` hands back
+            # the operand's storage with no transfer rule applied, minting a
+            # second owner of one buffer.
+            expr.forwards_operand = True
             return to_type
         self._error(
             ErrorKind.TYPE_MISMATCH,

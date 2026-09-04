@@ -126,6 +126,8 @@ is scheduled and in what order is the whole of what they say.
 - DF-286c — the materialization funnel does not reproduce what codegen's `type_param_context` path did, at four named positions (entry below, same filing; ONE mechanism, four faces — const-generic VALUES, associated-type annotations, the conditional-conformance bounds filter, and a `-> T?` tail's auto-wrap). Its matrix is stage 3c-2's test plan. **CLOSED Sep 2 by stage 3c-2a/3c-2c(1): face 1 both halves, face 2, face 3 (reframed into B1) and face 4 all fixed and pinned; face 4 turned out to be a CONCRETE-path defect the generic path had been hiding — see DF-289d for its residue**
 - DF-294b — a `type` ALIAS binds through the SELECTIVE import form ONLY: the glob leaves it unbound and the qualified spelling mints a name-only type + a not-callable head (entry below, filed Sep 3 from sos-relayed SL-20; workaround `import m.{Alias}`)
 - DF-291b — `Vector.fold` at an OWNING accumulator LEAKS one reference per element (entry below, same filer; PRE-EXISTING, NOT fixed here). `v.fold(arc, { acc, e in acc })` over three elements takes an `Arc<Res>` from strong count 1 to 5 and never drops it, before and after the cutover ALIKE — found by the DF-289e residual sweep, which is what a differential probe is for, and left alone because it is not this flip's and owes its own mechanism sweep over the by-value accumulator's transfer chain
+- DF-299a — CLOSED Sep 4, FIXED (entry below; the parser census carried it as N10 and it never had a DF number until this dispatch). SOUNDNESS: a cast AT THE SAME TYPE forwarded the operand's storage past the transfer checkpoint — a silent double free. DF-216a's mechanism family, `CastExpr` the member. The obligation-4 sweep widened it from ONE arm to THREE and from the owning tiers to ALL of them. Conformance rows V64-V67
+- DF-299b — a value `if`/`match` ARM forwarding a NoCopy binding is not checkpointed either: the value is bitwise-duplicated and ONE of the two deinits is LOST (entry below, filed Sep 4 by DF-299a's fix agent; PRE-EXISTING, NOT fixed there). A neighbour of DF-299a, not the same defect — the cast is a checkpoint that RUNS and cannot see the node, this is a checkpoint never CALLED at the arm — so it owes its own consumer sweep over every value-branch position
 
 
 
@@ -388,6 +390,93 @@ design 194's annotation gate at a qualified alias), plus the alias-specific
 positions (alias as a generic argument through a qualifier, alias in an
 extern signature, `E.from(raw:)`-style statics on an aliased backing).
 [150, 144, 188 alias-resolution family, DF-238c, DF-194a]
+
+## DF-299a — CLOSED Sep 4, FIXED. SOUNDNESS: a cast AT THE SAME TYPE bypasses
+## the transfer checkpoint — silent double free (carried by the parser census
+## as N10 since Sep 1, given its DF number at this dispatch; PRE-EXISTING)
+
+LANDED. `_is_aliasing_expr` — the checkpoint's one question, "does this
+expression read a value out of existing owned storage" — is a NODE-TYPE test
+over `{Identifier, MemberAccess, ArrayIndex, TupleIndex}`. `_check_value_transfer`
+always RAN over the cast; it could not recognize the node, so every tier fell
+through the `_is_aliasing_expr` guard at once. The fix makes the question
+TRANSPARENT through a forwarding cast, which is the rule design 131 already
+gave `!` three lines above: `o!` aliases iff `o` does, and now `r as Res` does
+too. `CastExpr.forwards_operand` is the declared annotation carrying it.
+
+THREE ARMS, NOT ONE, AND EVERY TIER, NOT TWO (the obligation-4 sweep; the
+mechanism is "an arm of `_check_cast_expr` that hands the operand back", and the
+line is a cast that FORWARDS storage vs one that BUILDS a value):
+
+    struct identity      `v as Vector<Int>`    N10 as filed   UNSOUND (SIGTRAP)
+    struct identity      `r as Res` (NoCopy)   sweep          UNSOUND (2 drops,
+                                                              exit 0, silent)
+    alias FULL projection `a as Res`           sweep          UNSOUND (1 drop,
+                                              (type H = Res)  2 live owners)
+    alias PARTIAL projection `a as Inner`      sweep          UNSOUND (0 drops —
+                                              (type O = Inner) never released)
+    Copy tier            `a as Arc<Res>`       sweep          UNSOUND — the cast
+      RETAINED NOTHING where the plain `let` bumped 1->2, and holding both
+      owners to scope end aborted: `over-release of an Arc (refcount underflow)`.
+      So the fence is TIER-BLIND, exactly as DF-288a's is and for the same
+      reason — where the compiler hands out an unretained alias, refusing or
+      retaining is not a question about the owning tiers.
+    every BUILDING arm   int->int, enum->raw, ptr->ptr, ref->ptr, ptr<->int,
+      String<->ptr — SOUND, and left alone: each produces a fresh scalar that
+      aliases nothing, and all are trivial-tier. Recorded because a rule that
+      caught `(&x) as UnsafePointer<T>` would have broken the runtime seam.
+
+POSITION IS NOT A FACTOR, because the fix is at the funnel: the bypass was
+reproduced at a `let`, a call ARGUMENT and a RETURN, and one edit closes all of
+them plus every other site that routes through the checkpoint (field, element,
+enum payload, static).
+
+NON-CAST FORWARDING FORMS, enumerated and probed rather than assumed:
+parenthesization `(v)` was already REFUSED (it is not a node — the parser hands
+back the operand itself); `try!` takes only a Result and forwards nothing; the
+value `if`/`match` ARM is NOT refused and is DF-299b, below — a neighbour, not
+this defect.
+
+CORPUS: the refusal touched nothing. No tracked `.saw` casts at the same type;
+the freestanding suite, blade, libs and std are clean, and the whole battery is
+green with no migration.
+
+Conformance rows V64-V67. [130, 146, 216, DF-216a, DF-288a, SL/census §N10]
+
+## DF-299b — a value `if`/`match` ARM forwarding a NoCopy binding is not
+## checkpointed: the value is bitwise-duplicated and ONE deinit is LOST
+## (filed Sep 4 by DF-299a's fix agent; PRE-EXISTING, NOT fixed there)
+
+```saw
+let a = Res(w: 7)                       // Res is NoCopy, printing deinit
+let b = if true { a } else { a }        // compiles — no `move`, no `.copy()`
+print("src {}", a.w)                    // `a` is NOT retired; this reads fine
+let c = move a                          // …and this compiles too
+// -> b 7 / c 7 / drop 7 / drop 7   — THREE names, TWO deinits
+```
+
+NOT DF-299a, which is why it is filed rather than folded in. The cast is a
+checkpoint that RUNS and cannot see through the node; this is a checkpoint that
+is never CALLED at the arm — a missing call, not a blind one — so the fix is at
+a different place and owes its own consumer sweep.
+
+SEVERITY, probed rather than assumed: it is an ALIAS plus a LOST deinit, not a
+double free. The escaping face is REFUSED (`return b` out of a function whose
+`a` dies is the ordinary "cannot return NoCopy without `move`"), and the COPY
+tier is CORRECT — an `Arc` through the same arm goes 1 -> 2 and the source still
+reads 2, so the arm retains where the cast did not. The heap face
+(`Vector`) exits 0 with no trap, which is the leak reading rather than the
+double-free one.
+
+WHAT A FIX OWES (obligation 4): the mechanism is "a value-branch arm's tail is
+not a transfer site", so the sweep is every branch construct that yields a value
+— a value `if`, a value `match` arm, a `??` operand, a `break v`, an inner-block
+tail — against every tier. Note codegen already compensates at SOME of these:
+`_gen_transfer_value`'s docstring names "an inner-block tail expression" as one
+of two sites the checkpoint does not mark and it re-derives the retain there,
+which is why the Copy tier is right and the owning tiers are not. The fix is
+plausibly to make the typechecker checkpoint the arm rather than to widen
+codegen's compensation. [131, 139, 195, DF-299a]
 
 ## DF-291b — `Vector.fold` at an OWNING accumulator LEAKS one reference per
 ## element (filed Sep 2 by the same agent; PRE-EXISTING, NOT fixed here)

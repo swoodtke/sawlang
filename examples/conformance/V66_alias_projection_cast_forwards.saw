@@ -1,0 +1,49 @@
+// Conformance row V66 — the design-63 distinct-alias projections forward too,
+// in BOTH their spellings
+//
+// DF-299a's obligation-4 sweep. N10 was filed on the struct-identity arm alone;
+// the mechanism is "an arm of `_check_cast_expr` that hands the operand back",
+// and three arms do that. The two alias arms are the ones the filing missed:
+//
+//   * the FULL projection `a as Res` where `type Handle = Res` — the operand's
+//     alias chain is walked to the underlying and the identity arm then
+//     forwards it;
+//   * the PARTIAL projection `a as Inner` where `type Outer = Inner` — its own
+//     early return, one branch above.
+//
+// Both were measured unsound before the fix, and the partial one was the WORSE
+// reading: it returned with the value never released at all (drops=0 over two
+// live names), where the full projection released once for two owners.
+//
+// A projection RENAMES a value; it does not build one. So it takes the tier
+// rule of the thing it renames, which is what these rows pin.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot copy value of type `Res` which implements NoCopy
+// EXPECT-ERROR-CONTAINS: cannot copy value of type `Inner` which implements NoCopy
+
+struct Res { w: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.w) }
+}
+
+type Handle = Res
+type Inner = Res
+type Outer = Inner
+
+func full_projection() -> Int {
+    let a = Handle(Res(w: 7))
+    let b = a as Res            // error: NoCopy — the alias renames, it does
+    a.w + b.w                   //   not duplicate
+}
+
+func partial_projection() -> Int {
+    let a = Outer(Inner(Res(w: 7)))
+    let b = a as Inner          // error: NoCopy — same rule, one chain link up
+    a.w + b.w
+}
+
+func main() {
+    print("{}", full_projection())
+    print("{}", partial_projection())
+}
