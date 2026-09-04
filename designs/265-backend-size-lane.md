@@ -476,3 +476,58 @@ takes its alignment from the union TYPE rather than the hard-coded `align=8`
 that used to paper over the under-alignment. The IN-PLACE paths — the
 release walk, the retain walk, the copy walk — GEP into the payload directly
 and always did; they simply reach an aligned payload now.
+
+## U3 — the function-sections + gc-sections census (report only)
+
+**The headline: this is already deployed on every link path, and the census
+measures what is left rather than what could be gained.** Three landings got
+there first:
+
+- design 112 puts every function in its own `.text.<name>` section in the
+  FREESTANDING profile (`_apply_section_layout` in `codegen/core.py`).
+  Verified in the object: the riscv32 kernel `.o` carries
+  `.text.__saw_rt_alloc`, `.text.String_deinit`, `.text.__saw_fmt_int` and
+  the rest, one section each.
+- design 168 unit 1 (DF-164b) does the same for a HOSTED ELF link. Mach-O
+  is the deliberate exception, since it rejects that section spelling.
+- Every link already asks the linker to collect: `sawc` passes
+  `-Wl,-dead_strip` on Apple and `-Wl,--gc-sections` elsewhere
+  (`sawc.py:1888`), `tools/freestanding_runner.py` passes `--gc-sections`,
+  and so does sawos's `sos_runner.py`.
+
+Measured by relinking the same objects both ways.
+
+**The sos image (riscv32 virt, process-isolation):** `.text` 68,184 with
+`--gc-sections`, 68,400 without. **216 bytes, 0.2%.** `.rodata` and `.data`
+are identical either way, and the image boots and passes both ways.
+
+**The freestanding suite (riscv32), `.text`+`.rodata`+`.data` per case:**
+
+| case | with gc | without | reclaimed |
+|---|---|---|---|
+| hello | 1,004 | 1,412 | 408 (28%) |
+| runtime_panic | 1,190 | 1,574 | 384 (24%) |
+| wide_value_rendering | 1,886 | 2,270 | 384 (16%) |
+| format_no_alloc | 2,518 | 2,902 | 384 (13%) |
+| link_address | 2,498 | 2,882 | 384 (13%) |
+| module_compose | 2,496 | 2,880 | 384 (13%) |
+| call_convention | 2,694 | 3,078 | 384 (12%) |
+| struct_layout | 2,954 | 3,338 | 384 (11%) |
+| int_widths | 3,916 | 4,302 | 386 (8%) |
+| runtime_seams | 10,966 | 11,332 | 366 (3%) |
+| float_text | 28,122 | 28,308 | 186 (0.7%) |
+
+The near-constant ~384 B says what is actually being collected: a fixed tail
+out of `support.c` (which clang builds with `-ffunction-sections
+-fdata-sections`), not Saw code. **The reason is design 168's compile-time
+reachability stripping** — a freestanding or whole-program compile sets
+`strip_unreachable`, so codegen never emits the unreachable stdlib bodies
+that `--gc-sections` exists to collect. The percentage falls as the case
+grows because the reclaimed amount is fixed while the program is not.
+
+**Nothing to flip, and nothing to recommend flipping.** The lane's remaining
+size is one third of a kilobyte per image, already collected. The one place
+the mechanism is genuinely absent is a Mach-O hosted build, where the
+section spelling does not exist — and that link passes `-dead_strip`, which
+is ld64's equivalent. No obligation-2 consumer sweep over linker scripts is
+owed, because no default changes.
