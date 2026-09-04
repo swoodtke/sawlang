@@ -59,19 +59,23 @@ activated first.
 ## Compiler usage (dev)
 ```bash
 ./.venv/bin/python sawc/sawc.py <src.saw> [-o out] [-v] [-c]
-    [--emit-ir] [--emit-ast] [--ids] [--emit-docs] [--emit-docs-all] [-O0]
+    [--emit-ir] [--emit-ast] [--ids] [--emit-docs] [--emit-docs-all]
+    [-O0 | -O2 | -Os | -Oz]
     [--emit-frame-layout] [--emit-bt-table]
     [--target TRIPLE] [--target-features FEATURES]
     [--module-path NAME=DIR]
     [--freestanding] [--runtime-build] [--runtime-provider]
     [--no-hidden-alloc] [-W NAME | -W all]
 ```
-That is the complete flag set (`sawc.py:2040-2142`); `-o` defaults to
+That is the complete flag set (`sawc.py:2081-2190`); `-o` defaults to
 `.build/<source>`. `--no-hidden-alloc` (design 135) rejects the
 allocations the compiler inserts that no source construct names.
 `-W` (design 150) enables a warning category (repeatable, `-W all` for
 every one; warnings are off by default and never affect the exit code).
-Default pipeline is O1-style. `--module-path` maps a package name to a
+Default pipeline is O1-style; design 265 added `-O2`/`-Os`/`-Oz`
+through the one `speed_level` funnel (`-Oz` enables the machine
+outliner via `minsize`; the sos image took -24% from it — sos opts in
+explicitly, freestanding does NOT imply a size level). `--module-path` maps a package name to a
 module dir (Blade uses this per dependency). `--runtime-build` (design
 113b) compiles a Saw runtime that `@export`s the frozen `__saw_rt_*` ABI
 (sync-only, object output) — used to build `sawc/rt/`; the hosted runtime
