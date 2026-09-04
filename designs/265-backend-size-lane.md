@@ -296,3 +296,80 @@ align 1.
 at HEAD is **160 instructions, 75 of them (47%) shred-family**: 34 `strb`,
 22 `lsr`, 19 `ldrb`. (DF-300a filed 166/~60 at `4f2b73e4`; the shape is
 unchanged, the count moved with 263/264.)
+
+## U1 — MEASURED (Sep 4 2026, agent)
+
+### The sos image at each level
+
+Every level BOOTS AND PASSES under QEMU (`process-isolation`, riscv32 virt),
+which is the semantics claim measured rather than argued. Kernel elf,
+`.text` + `.rodata` + `.data`:
+
+| level | .text | .rodata | .data | total | vs default |
+|---|---|---|---|---|---|
+| default (`-O1`) | 68,184 | 24,404 | 9,904 | **102,492** | — |
+| `-O2` | 66,422 | 24,172 | 9,904 | 100,498 | **-1.9%** |
+| `-Os` | 44,124 | 25,780 | 9,616 | 79,520 | **-22.4%** |
+| `-Oz` | 43,202 | 24,900 | 9,792 | **77,894** | **-24.0%** |
+
+`.text` alone goes 68,184 -> 43,202, **-36.6%**. `-Os` grows `.rodata` by
+1,376 B (less inlining leaves more constant pools) and still wins by 22%.
+
+Re-censusing the `-Oz` image: 14,320 instructions in 43,202 B (from 21,434 in
+68,184), the byte-shred down to 362 B (0.8%), and outliner-shaped repetition
+down to ~16 KB at W=6 from ~34 KB. Function count goes UP, 103 -> 165: at a
+size level LLVM stops inlining, which is where most of the win is.
+
+### The machine outliner fires on arm64 and NOT on riscv32
+
+`minsize` alone turns the outliner on for the host (601 outlined bodies by
+`llvm-nm` in `json_value_roundtrip.o`; the earlier "783" counted disassembly
+REFERENCES, not bodies). The riscv32 kernel object at `-Oz` has **zero**, and
+stays at zero — byte-identical, 42,486 B of `.text` — when LLVM's own
+`-enable-machine-outliner` is set, at its default value and at `=always`.
+
+That is not a plumbing failure, and the negative control proves it:
+`-enable-machine-outliner=never` on the host takes 601 bodies to 0, so
+llvmlite's `set_option` reaches the pass. RISC-V simply does not outline
+here. **RECORDED AS AN LLVM-SIDE LIMITATION, leg re-scoped**: nothing is
+wired to the cl::opt, which is process-global and would contaminate a
+second in-process compile at a different level for no measured gain. The
+image's 24% still arrives, from inlining and codegen decisions rather than
+from outlining — so U0's outliner prediction was right about where the mass
+is and wrong about who collects it.
+
+### riscv save-restore: available by name, never automatic
+
+Probe: a riscv32 freestanding compile with `--target-features
++m,+a,+c,+save-restore` emits undefined `__riscv_save_0` / `__riscv_save_1`.
+Those routines live in libgcc/compiler-rt; the freestanding profile links
+`-nostdlib` and has neither, so auto-enabling at a size level would turn
+`-Os` into an unresolved link on exactly the targets the feature is for.
+The flag stays user-reachable (it already worked) and is documented in
+LANGUAGE_SPEC's optimization-levels section. Leg re-scoped, per the
+no-workarounds clause.
+
+### bench, against the brief's `-O2` prediction
+
+Warehouse benchmark, host arm64, min of 5 runs. **Checksums held at every
+level** (the driver gates them; timing is report-only).
+
+| level | min | vs default |
+|---|---|---|
+| default (`-O1`) | 182 ms | — |
+| `-O2` | 173 ms | **-4.9%** |
+| `-Os` | 275 ms | +51% |
+| `-Oz` | 864 ms | +375% |
+
+The brief predicted `-O2` would win on scalar compute and be MUTED by the
+always-on checks and the visitor-boundary indirect calls. 4.9% on a
+collection-heavy benchmark is that prediction landing: a real win, an order
+of magnitude short of what O2 buys unchecked C-shaped code. `-Oz`'s 4.7x is
+the size trade stated out loud.
+
+Compile time is NOT a reason to keep the default at O1: on the warehouse
+benchmark the levels are 1,971 / 1,980 / 1,947 / 1,932 ms (default / O2 / Os
+/ Oz, best of 3) and on `json_value_roundtrip.saw` 2,906 / 2,961 / 2,769.
+The Python front end dominates a sawc invocation so completely that the
+backend pipeline's cost is inside the noise. The default stays O1 on the
+merits above, not on compile time.
