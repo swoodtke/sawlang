@@ -821,3 +821,171 @@ registration sites is the whole fix; the diagnostic wants its own wording
 CORPUS: an AST census over all 2542 tracked `.saw` found ZERO occurrences of the
 shape (`.build/scratch/probe_corpus_df288.py`, the DF-290a section), so nothing
 migrates. [130, 146, 216, DF-288a]
+
+## Backlog + queue records (moved Sep 4, fifth rotation — design 264: closure ownership + lending visitors)
+
+- Design 264 — by-value closure parameters are owned by the body; std visitors lend (designs/264-closure-param-ownership.md; RULED + authored + DISPATCHED Sep 4, worktree, DF range 301a+; **BUILT Sep 4 — U0-U3 complete on `closure-param-ownership`, awaiting integration**). Ruling A: a by-value closure parameter is owned by the body, uniform with named functions. Ruling B: the six by-value std visitor params (`Map.each`×2/`each_key`/`each_value`/`Set.each`/`sort_by` comparands) convert to references — `fold`'s accumulator stays, the legitimate transfer. B lands before the codegen release (the reverted attempt's trap). Closes DF-299c + DF-291b (both closed in place below); BREAKING std surface — lead cuts 0.7.0 at integration. Landed as two commits, U1 before U2 as ruled; conformance rows V72-V76; U3's census filed DF-301a/DF-301b, both PRE-EXISTING and neither 264's. Corpus fallout: NONE. Terminal battery 24/24 green
+- DF-291b — CLOSED Sep 4 by design 264 U2 (entry below): the leak reproduces, but it is NOT `Vector.fold`'s — fold's body is correct Saw, proved by the identical loop with a NAMED callee running clean. The recorded "make fold release the accumulator" fix shape rests on a falsified premise and would have been a workaround over a compiler defect; the unit was STOPPED and the mechanism refiled as DF-299c. The filing's obligation-4 population claim ("the only std generic method…") is wrong too — the defect reaches every closure with a by-value owning parameter. **Fix path settled Sep 4: rides design 264 (fold's signature unchanged; the leak ends at 264 U2, the codegen release) — closes there**
+- DF-299c — CLOSED Sep 4 by design 264 (both units; entry below). SOUNDNESS/LEAK: a closure's BY-VALUE PARAMETER is never released at the body's end, and the callers do not agree on whether it was transferred at all (entry below, filed Sep 4 by the soundness-pair dispatch while investigating DF-291b; PRE-EXISTING). Located in `codegen/closures.py`; a named function's parameters DO get released, which is the control. SIX std APIs leak, not one — `Vector.fold`, `Vector.sort_by`, `Map.each` (both slots), `Map.each_key`, `Map.each_value`, `Set.each` — and `std.json`'s object encoder rides `Map.each`, so every object encode leaks per field. A fix was ATTEMPTED and REVERTED: the codegen half fixes all six and then trips over `Map.each`, whose `body(move k, move v)` hands out a retained value at the Copy tier and a NON-RETAINED ALIAS at the ExplicitCopy tier (DF-146j's family at the visitor position); the trap is CONTENT-dependent — literals clean, heap strings fatal. **RULED Sep 4 (user, both cells): a by-value closure parameter IS owned by the body, and the std visitors LEND — design 264 (in the queue) carries the fix, visitors-first then the codegen release; closes there**
+
+## DF-291b — CLOSED Sep 4 by design 264 U2, as predicted: the leak was never
+## `Vector.fold`'s, and `fold`'s signature is unchanged. The codegen release
+## (ruling A) fixed it where it lived. The repro now reads before 1 / after 2 /
+## carried 2 with `drop 7` running, against 1 / 5 / 5 and no drop at HEAD.
+## Pinned by conformance row V76. [design 264 U2]
+
+INVESTIGATED Sep 4 by the soundness-pair dispatch, which was sent to fix this
+as "a std .saw change" and found it is a COMPILER defect. Reproduced first,
+unchanged (`.build/scratch/foldleak.saw`): before 1 / after 5 / carried 5, and
+no `drop` ever prints.
+
+THE PREMISE IS FALSE. `Vector.fold`'s body is CORRECT SAW. The isolation that
+settles it — the identical loop with a NAMED callee instead of a closure:
+
+    var acc = move a
+    while i < 3 { acc = identity(move acc)  i = i + 1 }
+    // before 1 / after 1 / drop 1        — CORRECT
+
+Same loop, same `move`-assign accumulator idiom, same three iterations. Only the
+CLOSURE differs. So editing `vector.saw` would have been coding around a
+compiler defect, which is what the conduct rule forbids — the unit was stopped
+and the finding refiled as DF-299c below.
+
+WHAT IT ACTUALLY IS (DF-299c): a closure's BY-VALUE parameter is never released
+at the body's end. `fold` is merely where it was noticed, because `fold` is the
+std API that threads an owning value through a closure once per element — hence
+"one reference per element". The arithmetic closes exactly: the `v.fold(arc,..)`
+argument retains (+1), then each of three iterations returns the by-value
+parameter (a retain, +1) and never releases it, giving 1 + 1 + 3 = 5.
+
+THE OBLIGATION-4 CLAIM IN THE ORIGINAL FILING IS ALSO FALSE. "the only std
+generic method whose owning by-value parameter is a VALUE rather than a closure"
+describes `fold`'s SIGNATURE correctly but names the wrong population: the
+defect reaches EVERY closure with a by-value owning parameter, `Map.each`'s
+`(K, V)` included.
+
+A FIX WAS ATTEMPTED AND REVERTED, and what it found is the reason this is not a
+small change — see DF-299c. Nothing is left on the branch; the tree is
+unchanged for this item.
+[218c stage 3c-2c, 219, 131, DF-299c]
+
+## DF-299c — CLOSED Sep 4 by design 264, both rulings, in the ruled order.
+## U1 converted the six std visitor slots to references (the alias at the
+## visitor position is gone by construction, `_get_value`/`_key_at` DELETED),
+## then U2 registered owning by-value closure parameters for scope cleanup in
+## `codegen/closures.py`, mirroring `methods.py`'s
+## `_needs_cleanup` -> `_register_cleanup`. The ordering was load-bearing and
+## is confirmed: the content-dependent trap the reverted attempt hit (heap
+## strings fatal on the second encode) does NOT reproduce — a 2000-iteration
+## heap-string JSON object encode runs clean, and the three `json_value_*`
+## examples that trapped now pass. Witnesses: `Map<String, Arc<Res>>` triple
+## visit 5 -> 9 -> 13 -> 17 became flat 5; the fold repro 1 -> 5 -> 5 became
+## 1 -> 2 -> 2 with its deinit running. Pinned by conformance rows V72-V76.
+## Residual audit: the only by-value OWNING closure argument left in std is
+## `Vector.fold`'s accumulator. [design 264 U1+U2]
+
+MECHANISM, named and located. `codegen/closures.py` (the by-value arm of the
+parameter setup, ~line 344) stores the incoming argument into an alloca and
+binds the name; nothing registers it for scope cleanup, and the only drops that
+run at the body's end are DF-218h's deferred MOVE CAPTURES. The neighbouring
+comment states the very rule that is missing — "a deferred-move capture becomes
+an OWNED local of the body, so the body owes it a scope" — and a by-value
+parameter is an owned local on identical terms. A named function's parameters DO
+get released (`methods.py`'s `_needs_cleanup` -> `_register_cleanup` pair), which
+is the control that isolates the closure as the ingredient.
+
+MEASURED (probes under `.build/scratch/f*.saw`, all on an `Arc` with a printing
+deinit; the model predicts every number):
+
+    closure takes an Arc, does NOT return it     1 -> 2, never dropped
+    closure takes it and RETURNS it              1 -> 3   (+1 more: the return
+                                                  of a by-value param retains)
+    NAMED function, same shape                   correct, deinit runs
+    the same loop with a named callee            correct, deinit runs
+    a NoCopy value through the shape             REFUSED at the argument
+
+SEVERITY IS A LEAK, never a double free: the defect only ever ADDS references,
+and the tier that could underflow cannot reach the shape. It is not academic —
+100 000 by-value heap `String`s through a closure peak at 19.9 MB RSS against
+1.5 MB for the identical named function, because every leaked reference keeps
+its buffer alive.
+
+THE POPULATION, censused with compile+run evidence at HEAD (`5853e403`) rather
+than by signature reading. SIX std closure parameters take an OWNING value by
+value, and all six leak one reference per parameter per invocation:
+
+    Vector.fold      combine: (Acc, &T) -> Acc     Acc by value    +1/element
+    Vector.sort_by   compare: (T, T) -> Ordering   BOTH by value   +2/comparison
+    Map.each         body: (K, V) -> Void          BOTH by value   +2/entry
+    Map.each_key     body: (K) -> Void             K by value      +1/entry
+    Map.each_value   body: (V) -> Void             V by value      +1/entry
+    Set.each         body: (T) -> Void             T by value      +1/element
+
+Every OTHER std closure parameter is by-REFERENCE and was compiled and run as a
+control, flat across the call: `Vector.each`/`map`/`each_indexed`/`with_ref`/
+`with_var_ref`, `Arc.with_unique`, `Mutex.lock`, `String.withCString`.
+`sawc/builtin.saw` declares no closure parameters at all. (`SpinLock.lock`/
+`try_lock` were judged by signature only — by-reference, and their twin
+`Mutex.lock` was run clean — so that pair is a grep-shaped row, flagged as
+such. blade/libs/devtools/rt were grep-only and returned no call sites.)
+
+REACHED STD SURFACE: `std.json`'s `JsonValue._write` Object arm walks a
+`Map<String, JsonValue>` with `fields.each({ ... k, v in ... })` — both slots
+owning — so at HEAD every `to_json_string()` of an object leaks one `String`
+plus one `JsonValue` per field per encode. It re-retains existing buffers rather
+than allocating fresh ones, so RSS does not grow and the leak is invisible to a
+memory watch; the countable proof is a `Map<String, Arc<Res>>` visited three
+times, going 5 -> 9 -> 13 -> 17.
+
+EDGE FACTS worth keeping, all measured: the parameter leaks even when the body
+NEVER MENTIONS it; ESCAPING makes no difference (both faces leak identically);
+TRIVIAL parameters are sound, so the defect is refcount-tier only; a body that
+`move`s the parameter into a new owner is CORRECT, which is the one shape that
+already transfers; and a `Thread.spawn { [a] in ... }` brace does not go through
+this path at all.
+
+WHY THE OBVIOUS FIX IS NOT THE FIX — the finding that matters most here. Giving
+the body a scope and registering owning by-value parameters (mirroring
+`methods.py` exactly) fixes every probe above AND the `fold` repro (5 -> 2, with
+the deinit running), and then FAILS THE SUITE: three `json_value_*` examples
+trap. Minimized:
+
+    var m = Map<String, Payload>()          // Payload is @synthesize ExplicitCopy
+    let _ = try! m.insert("a", Payload(items: move v))
+    m.each({ k, p in print("saw {} len {}", k, p.items.len()) })
+    // -> prints correctly, then SIGTRAP at scope teardown
+
+`Map.each`'s body is `body(move k, move v)` over `if let v = self._get_value(i)`,
+and what that read hands over DIFFERS BY TIER: at the Copy tier it retains (an
+`Arc` value threads through correctly, and merely leaks), while at the
+ExplicitCopy tier it is a NON-RETAINED ALIAS the map still owns — so releasing
+the parameter frees a value the container is still holding. This is DF-146j's
+family ("a NoCopy value read out of `m.get(k)` used to come out as a
+non-retained alias two lookups double-freed") surviving at the visitor position.
+
+THE TRAP IS CONTENT-DEPENDENT, NOT ITERATION-DEPENDENT, which is the sharpest
+thing known about it and was found by the census rather than by the attempt: the
+same `std.json` object encode runs 20 000 times clean under the patch when the
+field VALUES are string LITERALS, and traps on the second encode when they are
+HEAP strings. So the release lands on a `String` buffer reached through
+`Map.each`'s by-value `k` that something else already owns — harmless while the
+bytes are static, fatal once they are heap. None of the direct `Map`/closure
+probes reproduce it, so the trigger is something the encoder does that they do
+not, and that gap is the first thing a fix attempt should close.
+
+SO THE REAL SHAPE OF THE WORK: a by-value closure parameter has NO CONSISTENT
+OWNERSHIP CONTRACT today — callers disagree, and the missing release is only
+half of it. A fix owes, in order: (1) a ruling that a by-value closure parameter
+IS owned by the body; (2) an audit of every std site that calls a closure with a
+by-value argument (`Map.each`/`each_key`/`each_value` are the found offenders;
+`Vector`'s visitors pass `&T` and are clean) so each genuinely transfers; only
+then (3) the codegen release. Obligation 2 applies — this is a behavioural
+contract flip over every closure in the corpus.
+
+The attempted fix was REVERTED; the tree carries none of it. The probes and the
+arithmetic model are in `.build/scratch/` (`notes_df291b.md`,
+`f1..f6_*.saw`, `g1..g8_*.saw`), the census's in `s_*.saw` / `p*.saw` with its
+two frozen compilers under `sawc_pristine/` and `sawc_working/` — the latter
+being the reverted attempt, kept because it is the evidence that the codegen
+half fixes all six APIs.
+[131, 139, 216, 219, DF-146j, DF-218h, DF-291b]
