@@ -94,10 +94,13 @@ extension Set<T: Hashable + Equatable, A: Allocator = GlobalAllocator> {
         }
     }
 
-    // Visit each element (a copy) with `body`. Order is unspecified (table
-    // order). `body` is non-escaping; mutating THIS set inside the visit is a
-    // static Law-of-Exclusivity error (inherited from Map.each_key).
-    public func each(&self, body: (T) -> Void) {
+    /// Visits each element in table order, lending it to `body` as a `&T`.
+    /// Nothing is copied — the element is observed where the set stores it —
+    /// so an element of any copy tier is visitable (design 264 ruling B).
+    /// Order is unspecified; `body` is non-escaping, and mutating THIS set
+    /// inside the visit is a static Law-of-Exclusivity error (inherited from
+    /// `Map.each_key`).
+    public func each(&self, body: (&T) -> Void) {
         self.map.each_key(body)
     }
 }

@@ -688,12 +688,10 @@ extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
 //
 // COPY-FAMILY / BOUND: element MOVEMENT is done with `swap` (byte-level,
 // refcount-neutral — no element `copy()`/`deinit` ever runs), so no owning
-// element is ever duplicated. Element COMPARISON, however, reads two elements
-// by value through `get` (which returns a `T?` copy per T's copy class), so
-// both entry points are bound to `T: Copy` — the same discipline `Vector.each`
-// carries. A `Vector<File>` (NoCopy element) therefore cannot be sorted; a
-// future by-reference comparison overload would lift that. `sort` additionally
-// requires `T: Comparable` for the `<`/`>` ordering.
+// element is ever duplicated. `sort` compares through `_greater_at`, which
+// reads two elements BY VALUE, so it keeps `T: Copy` alongside the
+// `T: Comparable` its `<`/`>` ordering needs. `sort_by` no longer does — see
+// its own block below, where design 264 lent the comparands instead.
 extension Vector<T: Comparable + Copy, A: Allocator = GlobalAllocator> {
     /// Sorts elements in ascending order according to the element type's Comparable
     /// implementation. The sort is stable.
@@ -723,22 +721,31 @@ extension Vector<T: Comparable + Copy, A: Allocator = GlobalAllocator> {
     }
 }
 
-// sort_by takes a user comparator returning an Ordering and needs only
-// `T: Copy` (no Comparable — the closure supplies the order). The closure is a
-// NON-escaping parameter (the default), so a comparator passed directly may
-// borrow-capture enclosing locals. Same stability and movement discipline as
-// `sort` (byte-level swap; equal-or-less elements are left in place).
-extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
-    public func sort_by(&var self, compare: (T, T) -> Ordering) {
+// sort_by takes a user comparator returning an Ordering (no Comparable — the
+// closure supplies the order). The closure is a NON-escaping parameter (the
+// default), so a comparator passed directly may borrow-capture enclosing
+// locals. Same stability and movement discipline as `sort` (byte-level swap;
+// equal-or-less elements are left in place).
+//
+// NO COPY BOUND (design 264 ruling B). The comparands are LENT as `&T`, read
+// straight out of the buffer the way `each`/`map`/`fold` read theirs, so
+// nothing is duplicated to compare. The `T: Copy` bound this block used to
+// carry existed only to license the two by-value `get` reads the old body
+// made; element MOVEMENT was already byte-level `swap` and never needed it. A
+// `Vector<File>` sorts by a user comparator now.
+extension Vector<T, A: Allocator = GlobalAllocator> {
+    /// Sorts elements in place using `compare`, which is lent the two
+    /// comparands as `&T`. The sort is stable. No copy bound is required of
+    /// `T`: the comparands are borrowed where they sit and elements move by
+    /// byte-level swap.
+    public func sort_by(&var self, compare: (&T, &T) -> Ordering) unsafe {
         var i = 1
         while i < self.length {
             var j = i
             while j > 0 {
                 var should_swap = false
-                if let a = self.get(j - 1) {
-                    if let b = self.get(j) {
-                        should_swap = compare(move a, move b) == Ordering.Greater
-                    }
+                if let buf = self.buffer {
+                    should_swap = compare(&buf[j - 1], &buf[j]) == Ordering.Greater
                 }
                 if should_swap {
                     self.swap(j - 1, j)

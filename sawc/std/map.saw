@@ -109,19 +109,15 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
         }
     }
 
-    // The value in the occupied slot at `idx` (Some), else None. The arms are
-    // EXPRESSIONS, not `return` statements: a window is a closure, so a `return`
-    // inside one would leave the window rather than this function.
-    func _get_value(&self, idx: Int) -> V? {
-        if idx < 0 || idx >= self.slots.len() {
-            return None
-        }
-        match self.slots[idx] {
-            case Occupied(_, v) -> v,
-            case Empty -> None,
-            case Tombstone -> None
-        }
-    }
+    // NOTE (design 264): there is no `_get_value(idx) -> V?` / `_key_at(idx) ->
+    // K?` pair here any more, and deliberately none. Reading a payload OUT of
+    // the place is what minted the values the visitors used to hand out — a
+    // retained one at the Copy tier and a non-retained alias at the owning
+    // tiers — so the spelling is gone rather than merely unused. Every consumer
+    // that used them (`each`/`each_key`/`each_value`) now reaches the slot as a
+    // reference and matches that; `get`/`[]` lend the value through a `borrows`
+    // accessor. Reintroducing a payload read here would reopen DF-146j at the
+    // visitor position.
 
     // The bucket holding `key`, or -1 if the key is absent.
     //
@@ -395,16 +391,26 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
 // closure VISITORS (the zero-allocation primitive) and Vector SNAPSHOTS (the
 // convenience, built on the visitors).
 //
-// ELEMENT PASSING: keys and values are handed to the visitor BY VALUE, through
-// the same payload read `get`/`_get_value` make — the payload is read out of
-// the slot THROUGH the place (design 146), so a Copy key/value is
-// retained and a trivial one copied bitwise, and the copy is `move`d into the
-// closure. This is the "by value" fallback the brief anticipated: per-category
-// by-reference passing (`&K`/`&V` for ExplicitCopy/NoCopy elements) is not
-// cleanly expressible yet — there is no by-reference projection into an enum
-// payload — so the visitor is usable for every K/V that the map's `get` already
-// supports (the trivial and Copy element types, i.e. Int/String keys
-// and values).
+// ELEMENT PASSING: keys and values are LENT to the visitor as `&K` and `&V`
+// (design 264 ruling B). Visiting is observation, so nothing is handed out to
+// own: the walk reaches each slot as a `&MapSlot<K, V>` through `Vector.each`
+// and matches THAT reference, which makes the arm bindings aliases of the
+// stored key and value (DF-288a) rather than payload reads out of the place.
+// Nothing is retained, nothing is dropped, and the visitor works for a key or
+// value of ANY copy tier — an ExplicitCopy or move-only `V` is visitable now,
+// where the old by-value spelling supported only the trivial and Copy tiers.
+//
+// The old spelling read the payload out of the place and `move`d the copy into
+// the closure. That was the source of two defects at once: at the Copy tier it
+// handed out a retained value the closure then leaked (DF-299c), and at the
+// ExplicitCopy tier it handed out a NON-RETAINED ALIAS the map still owned
+// (DF-146j's family), which a body-end release would have freed underneath the
+// map. Lending dissolves both — there is no ownership handed out to get wrong.
+//
+// The reference match is deliberately NOT a place window: a window is a
+// closure and is `sync`-enforced, which would push `sync` onto every visitor
+// body. Reaching the slot as a reference first keeps the visitor's effect slot
+// open, exactly as `Vector.each`'s `&T` lend does.
 //
 // ORDER IS UNSPECIFIED: visitors walk the backing slot array, skipping Empty
 // and Tombstone slots, so entries surface in table (bucket) order, NOT
@@ -416,55 +422,43 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
 // visit) is a static Law-of-Exclusivity error — see
 // examples/map_each_mutate_error.saw.
 extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
-    // The key in the occupied slot at `idx` (None otherwise). Symmetric to
-    // `_get_value`: the key is read through the place, the value untouched.
-    func _key_at(&self, idx: Int) -> K? {
-        if idx < 0 || idx >= self.slots.len() {
-            return None
-        }
-        match self.slots[idx] {
-            case Occupied(k, _) -> k,
-            case Empty -> None,
-            case Tombstone -> None
-        }
+    /// Visits each live entry in table order, lending the key and the value to
+    /// `body` as a `&K` and a `&V`. Nothing is copied and nothing is
+    /// transferred — the entry is observed where the map stores it — so a key
+    /// or value of any copy tier is visitable. Order is unspecified; `body` is
+    /// non-escaping.
+    public func each(&self, body: (&K, &V) -> Void) {
+        self.slots.each({ slot in
+            match slot {
+                case Occupied(k, v) -> { body(&k, &v) },
+                case Empty -> {},
+                case Tombstone -> {}
+            }
+        })
     }
 
-    // Visit each live entry, passing (key, value) copies to `body`. Order is
-    // unspecified (table order). `body` is non-escaping.
-    public func each(&self, body: (K, V) -> Void) {
-        var i = 0
-        while i < self.cap {
-            if self._slot_state(i) == 1 {
-                if let k = self._key_at(i) {
-                    if let v = self._get_value(i) {
-                        body(move k, move v)
-                    }
-                }
+    /// Visits each live key in table order, lending it to `body` as a `&K`.
+    /// Order is unspecified; `body` is non-escaping.
+    public func each_key(&self, body: (&K) -> Void) {
+        self.slots.each({ slot in
+            match slot {
+                case Occupied(k, _) -> { body(&k) },
+                case Empty -> {},
+                case Tombstone -> {}
             }
-            i = i + 1
-        }
+        })
     }
 
-    // Visit each live key (a copy) in table order. `body` is non-escaping.
-    public func each_key(&self, body: (K) -> Void) {
-        var i = 0
-        while i < self.cap {
-            if let k = self._key_at(i) {
-                body(move k)
+    /// Visits each live value in table order, lending it to `body` as a `&V`.
+    /// Order is unspecified; `body` is non-escaping.
+    public func each_value(&self, body: (&V) -> Void) {
+        self.slots.each({ slot in
+            match slot {
+                case Occupied(_, v) -> { body(&v) },
+                case Empty -> {},
+                case Tombstone -> {}
             }
-            i = i + 1
-        }
-    }
-
-    // Visit each live value (a copy) in table order. `body` is non-escaping.
-    public func each_value(&self, body: (V) -> Void) {
-        var i = 0
-        while i < self.cap {
-            if let v = self._get_value(i) {
-                body(move v)
-            }
-            i = i + 1
-        }
+        })
     }
 }
 
@@ -495,7 +489,7 @@ extension Map<K: Hashable + Equatable + Copy, V, A: Allocator = GlobalAllocator>
             case Ok(_) -> {},
             case Err(e) -> { return e }
         }
-        self.each_key({ [&var out] k in try! out.push(move k) })
+        self.each_key({ [&var out] k in try! out.push(k) })
         return move out
     }
 }
@@ -510,7 +504,7 @@ extension Map<K: Hashable + Equatable, V: Copy, A: Allocator = GlobalAllocator> 
             case Ok(_) -> {},
             case Err(e) -> { return e }
         }
-        self.each_value({ [&var out] v in try! out.push(move v) })
+        self.each_value({ [&var out] v in try! out.push(v) })
         return move out
     }
 }

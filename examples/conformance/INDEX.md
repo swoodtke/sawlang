@@ -49,7 +49,10 @@ receivers — the four ownership rows U0 owed plus the mirror-fixit row and the
 deinit-replacement witness the Sep-1 re-ruling added; and V57-V60, DF-288a's
 borrowed-scrutinee match payload — three refusal rows for the faces the
 mode-blind registration left silent, and one control row for everything the
-fence must not reach.)
+fence must not reach; and V72-V76, design 264's closure-parameter ownership —
+V72 is ruling B (the std visitors lend, landing with the std conversion) and
+V73-V76 are ruling A (the body owns a by-value closure parameter, landing with
+the codegen release).)
 
 ## How to read it
 
@@ -305,6 +308,7 @@ method receivers*; designs 34, 131, 139, 159, 202, 260
 | V69 | a BORROW CAPTURE `[&x]`/`[&var x]` lends the enclosing frame's binding, and may not be moved out either | `V69_borrow_capture_is_a_borrow.saw` | DF-290a's second registration site, one branch above the parameter one and binding the same way. The LOCK BODY is here because it is the shape a reader meets first — every `Mutex.lock`/`SpinLock.lock` body is a closure taking `&var T`, so the whole interior-mutability surface sat on this hole, and it was measured double-freeing |
 | V70 | …and the refusal is TIER-BLIND | `V70_borrowed_closure_binding_refusal_is_tier_blind.saw` | DF-290a — V62's lesson at the new sites. A borrowed binding is handed out UNRETAINED at every tier, so fencing only the owning tiers would leave a Copy-tier `move` minting a second owner with no refcount bump: an underflow, not merely a NoCopy problem |
 | V71 | control: reads through the borrow, the `[move x]` value capture, and a by-value closure parameter are untouched | `V71_borrowed_closure_binding_fence_is_narrow.saw` | DF-290a — the fence is correct only if it is narrow. Every value in the row reaches the end alive and is released EXACTLY ONCE in reverse declaration order: nothing the fence permits duplicates an owner, and nothing it permits loses a drop. `[move x]` is the way out the diagnostic names, so it is checked rather than assumed |
+| V72 | a std visitor LENDS: the walk hands out no ownership, costs zero retains, and the visited values are still released exactly once | `V72_std_visitors_lend.saw`, `map_each_mutate_error.saw` | Design 264 ruling B — visiting is observation, so the six by-value visitor slots (`Map.each` ×2, `each_key`, `each_value`, `Set.each`, `sort_by`'s two comparands) became references and `sort_by`'s `T: Copy` bound dropped with them. The countable claim is the refcount: three walks over a `Map<String, Arc<Res>>` read 5 -> 9 -> 13 -> 17 before the ruling and are FLAT after. The exactly-once half is what the leak used to hide — the old spelling read the payload out of the slot, which at the owning tiers is a NON-RETAINED ALIAS the map still owns (DF-146j's family at the visitor position), and it never double-freed only because the by-value parameter was never released either. That cancellation is why B had to land BEFORE the codegen release: releasing a parameter the map still owned is exactly the trap the reverted attempt hit, content-dependent (string literals clean, heap strings fatal) |
 
 ## Places (`borrows` / `lend`) — window discipline
 

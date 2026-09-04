@@ -902,6 +902,25 @@ var scratch: [Int8; 256] = [0; 256] // REPEAT literal: N copies of one value
   snapshots (Copy elements); `v.iter()`, `v.enumerated()` (for-in),
   `each`/`map<U>`/`fold<A>`/`each_indexed` closures; Set algebra:
   union/intersection/difference/is_subset (elements `T: Copy`).
+- **EVERY std VISITOR LENDS (design 264)** — visiting is observation, so no
+  visitor hands out an owning value any more. `Map.each` is
+  `(&K, &V) -> Void`, `Map.each_key`/`each_value` are `(&K)`/`(&V)`,
+  `Set.each` is `(&T)`, and `Vector.sort_by`'s comparator is
+  `(&T, &T) -> Ordering` with its `T: Copy` bound DROPPED (it existed only to
+  license the two by-value reads; element movement was always a byte-level
+  swap). `Vector`'s `each`/`map`/`each_indexed` already lent and are
+  unchanged. Bodies mostly need no edit — reading a lent binding yields the
+  value, so `{ k, v in total = total + v.id }` and `{ a, b in a < b }` are
+  the same text they were; what needs the sigil is FORWARDING to another
+  `&T` parameter. Two consequences worth knowing: a walk costs ZERO retains
+  (three visits of a `Map<String, Arc<Res>>` used to read 5 -> 9 -> 13 -> 17
+  and are now flat), and a visitor works at any copy tier.
+  **`Vector.fold` is the ONE that keeps a by-value slot**: its accumulator
+  is `(Acc, &T) -> Acc`, genuine ownership threading, moved in and moved back
+  out. Treat all of this as current and SUSPECT in older builds, where the
+  six by-value slots leaked one reference per parameter per invocation
+  (DF-299c) and, at the owning tiers, handed out a non-retained alias the
+  container still owned.
 - **Vector's four CLOSURE methods carry NO copy bound (design 216)** —
   `each`, `map<U>`, `fold<Acc>` and `each_indexed` lend the element as a
   `&T`, so a `Vector<File>`/`Vector<Job>` traverses, maps and folds like
@@ -912,10 +931,10 @@ var scratch: [Int8; 256] = [0; 256] // REPEAT literal: N copies of one value
   spans the suspend; `&self` is held for the whole call, so exclusivity
   forbids the `push` that would reallocate under it). `iter`/`enumerated`
   KEEP `T: Copy` — `next()` hands out an element the consumer owns, which
-  is a real copy at the source (design 122). `sort`/`sort_by` keep theirs
-  too: the blocker was `Comparable` taking `other: &Self`, which design 239
-  landed, so lifting the bound is design 216's remaining half rather than a
-  dependency.
+  is a real copy at the source (design 122). `sort` keeps its `T: Copy` too
+  (`_greater_at` reads both elements by value to apply `T`'s own `>`);
+  `sort_by` LOST its bound at design 264, which lent the comparands — see
+  the visitor entry above.
 - A tuple index is a bare integer that never eats a following `.`, so a
   projection continues past it (design 161): `t.0.name`, `t.0.name.len()`,
   `pair.0.x`, and `t.0.1` as two index hops (not the float `0.1`). Works

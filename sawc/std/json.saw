@@ -1480,6 +1480,9 @@ extension JsonValue {
                     if first_err.is_some() {
                         return
                     }
+                    // `k` and `v` are LENT by `Map.each` (design 264): `k` is
+                    // read out at the Copy tier for the by-value
+                    // `write_text`, and `v` is only borrowed by `_write`.
                     match enc.write_text(k) {
                         case Ok(_) -> {},
                         case Err(e) -> { first_err = e  return }

@@ -6332,16 +6332,14 @@ element it owns, which is a copy at the source.
 (simple and correct first; **stable** — equal elements keep input order):
 
 - `sort(&var self)` on `Vector<T: Comparable + Copy>` — ascending by `T`'s order.
-- `sort_by(&var self, compare: (T, T) -> Ordering)` on `Vector<T: Copy>` — the
-  comparator is a **non-escaping** closure parameter.
-- Element *movement* uses byte-level `swap` (refcount-neutral, never a copy);
-  *comparison* reads both elements by value through `get`, which is what binds
-  them to `T: Copy`. No ExplicitCopy element is ever silently duplicated. The
-  bound was blocked on `Comparable`/`Equatable` taking `other: &Self`, which
-  they now do ([The comparison operand is a
-  reference](#the-comparison-operand-is-a-reference)); lifting it is the
-  remaining half of `designs/216-vector-copy-bounds.md`, which the closure
-  methods already had.
+- `sort_by(&var self, compare: (&T, &T) -> Ordering)` on `Vector<T>` — the
+  comparator is a **non-escaping** closure parameter, and it carries **no copy
+  bound**: the two comparands are lent as `&T`, read where they sit, so a
+  `Vector<File>` sorts by a user comparator.
+- Element *movement* uses byte-level `swap` (refcount-neutral, never a copy), so
+  no element is ever silently duplicated by either entry point. `sort` keeps
+  `T: Copy` because `_greater_at` reads both elements by value to apply `T`'s own
+  `>`; `sort_by` does not, since its comparator borrows.
 
 ### `Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator>`
 
@@ -6399,8 +6397,9 @@ a NoCopy / move-only-Deinit element is a compile error, which is also why a
 
 - Core: `insert(v) -> Result<Bool, AllocError>` (the `Ok` payload is true iff
   newly inserted), `remove(v) -> Bool`, `contains(v) -> Bool`, `len()`,
-  `is_empty()`, `each(body: (T) -> Void)` (non-escaping visitor; mutating the set
-  inside its own `each` is a static Law-of-Exclusivity error),
+  `is_empty()`, `each(body: (&T) -> Void)` (non-escaping visitor; the element is
+  lent where it sits, and mutating the set inside its own `each` is a static
+  Law-of-Exclusivity error),
   `to_vector() -> Result<Vector<T, A>, AllocError>` (`T: Copy`),
   `Set(from: Vector<T, A>) -> Result<Set<T, A>, AllocError>` (consumes/drains the
   vector; NoCopy-safe), `Set.of(v)` (single-element factory, same shape).
@@ -6415,9 +6414,12 @@ cannot borrow the map, so iteration is not an Iterator-over-a-borrow. Two forms:
 
 - **Visitors** (the zero-allocation primitive) — non-escaping closures, same
   borrow discipline as `Vector.sort_by`/`withCString`:
-  `each(body: (K, V) -> Void)`, `each_key((K) -> Void)`, `each_value((V) -> Void)`.
-  Keys/values are handed to the closure **by value**, so a visitor works for a
-  trivial or `Copy` key/value type. Empty/Tombstone slots are skipped. **Order is
+  `each(body: (&K, &V) -> Void)`, `each_key((&K) -> Void)`,
+  `each_value((&V) -> Void)`. Keys and values are **lent**, not handed over:
+  visiting is observation, so the entry is reached where the map stores it, the
+  walk costs no retains, and a key or value of any copy tier is visitable.
+  Reading a lent binding out as a value follows the ordinary copy tier, which is
+  what the snapshots below do. Empty/Tombstone slots are skipped. **Order is
   UNSPECIFIED** (table/bucket order, not insertion order) — sort a `keys()`
   snapshot for deterministic output. Mutating the map inside its own visitor is a
   static Law-of-Exclusivity error (iterator invalidation caught at compile time).
