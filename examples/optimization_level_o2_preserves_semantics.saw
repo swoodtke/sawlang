@@ -1,0 +1,63 @@
+// Design 265 U1: `-O2` is a back-end level and nothing else — the program
+// compiled at it observes exactly what the default level observes. Same body
+// as its `-Os` and `-Oz` siblings, same expected output; only the flag differs.
+// COMPILE-FLAGS: -O2
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 3 30
+// too big, limit 1000
+// empty
+// 4 sum 48
+
+enum Fault {
+    case Empty,
+    case TooBig(limit: Int)
+}
+
+extension Fault: Printable {
+    func format(&self, into: &var StringBuilder) {
+        match self {
+            case Empty -> try! into.append("empty"),
+            case TooBig(limit) -> {
+                try! into.append("too big, limit ")
+                try! into.append(value: limit)
+            }
+        }
+    }
+}
+
+extension Fault: Error {}
+
+func scale(v: &Vector<Int>, by: Int) -> Result<Vector<Int>, Fault> {
+    if v.len() == 0 { return Fault.Empty }
+    var out = Vector<Int>()
+    for i in 0..v.len() {
+        let n = v[i] * by
+        if n > 1000 { return Fault.TooBig(limit: 1000) }
+        try! out.push(n)
+    }
+    return move out
+}
+
+func report(v: &Vector<Int>, by: Int) {
+    match scale(&v, by: by) {
+        case Ok(scaled) -> print("{} {}", scaled.len(), scaled[scaled.len() - 1]),
+        case Err(e) -> print("{}", e)
+    }
+}
+
+func main() {
+    let small: Vector<Int> = [1, 2, 3]
+    report(&small, by: 10)
+
+    let big: Vector<Int> = [50, 200]
+    report(&big, by: 10)
+
+    let none: Vector<Int> = []
+    report(&none, by: 10)
+
+    // Closures, so the level has indirect calls to chew on.
+    let doubled = try! small.map({ &n in n * 2 })
+    let total = doubled.fold(0, { acc, &n in acc + n })
+    print("{} sum {}", doubled.len() + 1, total * 4)
+}

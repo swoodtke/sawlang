@@ -3,6 +3,7 @@ Saw Language Code Generator
 Generates LLVM IR from the AST using llvmlite.
 """
 
+from collections import namedtuple
 from typing import Optional, List
 from llvmlite import ir, binding
 from ast_nodes import (
@@ -121,14 +122,69 @@ def _install_volatile_ir_support():
 _install_volatile_ir_support()
 
 
+#: Design 265 U1 — THE OPTIMIZATION-LEVEL FUNNEL.
+#:
+#: ONE table maps a level to every back-end knob it moves, so a level cannot
+#: mean one thing in the pipeline and another in the object. Its entry points,
+#: all of them:
+#:
+#:   * `CodeGenerator._run_optimization_passes` reads `speed_level` — the
+#:     module pipeline llvmlite builds (`buildPerModuleDefaultPipeline`).
+#:   * `CodeGenerator._stamp_optimization_attributes` reads
+#:     `function_attributes` and puts them on every DEFINED function, from
+#:     `emit_ir` and `compile_to_object` alike.
+#:   * `sawc.py`'s `-O0/-O1/-O2/-Os/-Oz` are the only producers of a level
+#:     string; `compile_saw(opt_level=...)` carries it here.
+#:
+#: WHY THE SIZE LEVELS ARE ATTRIBUTES rather than a pipeline argument
+#: (probed Sep 4 2026 against llvmlite 0.48 / LLVM 22.1): llvmlite's
+#: `PipelineTuningOptions` exposes `speed_level` ALONE, and its
+#: `buildPerModuleDefaultPipeline(pb, speed_level)` has no size-level
+#: parameter — LLVM's `OptimizationLevel::Os`/`Oz` cannot be requested through
+#: the binding at all. `optsize`/`minsize` are the same signal by another
+#: door: every size-sensitive decision in LLVM (inliner threshold, unrolling,
+#: vectorization, and the MACHINE OUTLINER, which runs on `minsize` functions
+#: with no command-line option needed) reads the function attribute. Measured
+#: on `json_value_roundtrip.saw`, host arm64: O1 266,232 B of `.text`, O2
+#: 265,284, Os 225,256 (-15.4%), Oz 183,672 (-31.0%) with 783 outlined-body
+#: references where O1 has none.
+#:
+#: The TargetMachine's codegen opt level is deliberately NOT in this table: it
+#: stays at llvmlite's default (2) for every level, which is what the compiler
+#: has always used and what clang itself uses for `-Os`/`-Oz`. Moving it would
+#: change the DEFAULT level's output, which this brief does not do.
+OptimizationLevel = namedtuple(
+    "OptimizationLevel", "flag speed_level function_attributes")
+
+OPTIMIZATION_LEVELS = {
+    "0": OptimizationLevel("-O0", 0, ()),
+    "1": OptimizationLevel("-O1", 1, ()),
+    "2": OptimizationLevel("-O2", 2, ()),
+    "s": OptimizationLevel("-Os", 2, ("optsize",)),
+    "z": OptimizationLevel("-Oz", 2, ("optsize", "minsize")),
+}
+
+#: The level a compile runs at when nobody says otherwise. Unchanged by design
+#: 265: `--freestanding` does not imply a size level either.
+DEFAULT_OPTIMIZATION_LEVEL = "1"
+
+
 class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, CallsMixin, OperatorsMixin, StatementsMixin, MethodsMixin, LoopsMixin, ConditionalsMixin, OptionalsMixin, ClosuresMixin, GenericsMixin, ExistentialsMixin, TypesMixin, ResourcesMixin, DebugInfoMixin, ReachabilityMixin):
     def __init__(self, namespace: Namespace, target_triple: Optional[str] = None,
                  freestanding: bool = False, source_path: Optional[str] = None,
                  runtime_build: bool = False,
                  target_features: Optional[str] = None,
-                 strip_unreachable: bool = False):
+                 strip_unreachable: bool = False,
+                 opt_level: str = DEFAULT_OPTIMIZATION_LEVEL):
         # Unified namespace from type checker (Phase 0 of module system)
         self.namespace = namespace
+
+        # design 265 U1: the optimization LEVEL this compile runs at, as the
+        # key into `OPTIMIZATION_LEVELS` (that table's docstring names every
+        # knob a level moves and every place one is read).
+        if opt_level not in OPTIMIZATION_LEVELS:
+            raise ValueError(f"unknown optimization level {opt_level!r}")
+        self.opt_level = opt_level
 
         # design 168 unit 2: emit only the bodies the program reaches. Off by
         # default so a caller that builds an object somebody ELSE links keeps
@@ -4156,18 +4212,46 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     # Closure methods moved to codegen_closures.py (ClosuresMixin)
 
     def _run_optimization_passes(self, mod, target_machine):
-        """Run a default O1-level module pipeline on a parsed binding module.
+        """Run this compile's module pipeline on a parsed binding module.
 
         Uses llvmlite 0.48's new pass manager (the legacy PassManagerBuilder
-        was removed in this release). speed_level=1 selects the O1 default
-        pipeline, which includes mem2reg/SROA (promoting the entry-block allocas
-        into SSA registers), instcombine, simplifycfg, GVN, etc. Mutates `mod`
-        in place.
+        was removed in this release). The level's `speed_level` selects the
+        default pipeline: 1 (the unchanged default) includes mem2reg/SROA
+        (promoting the entry-block allocas into SSA registers), instcombine,
+        simplifycfg, GVN; 2 is what `-O2`, `-Os` and `-Oz` run, with the size
+        levels distinguished by the function attributes
+        `_stamp_optimization_attributes` has already put on the module — see
+        `OPTIMIZATION_LEVELS`. Mutates `mod` in place.
         """
-        pto = binding.create_pipeline_tuning_options(speed_level=1)
+        level = OPTIMIZATION_LEVELS[self.opt_level]
+        pto = binding.create_pipeline_tuning_options(
+            speed_level=level.speed_level)
         pb = binding.create_pass_builder(target_machine, pto)
         mpm = pb.getModulePassManager()
         mpm.run(mod, pb)
+
+    def _stamp_optimization_attributes(self):
+        """Put the level's function attributes on every DEFINED function.
+
+        The size levels' whole delivery mechanism (see `OPTIMIZATION_LEVELS`):
+        `optsize` for `-Os`, `optsize`+`minsize` for `-Oz`. Both the IR text
+        and the object are emitted from `self.module`, so this runs at the top
+        of each of the two emitters and is idempotent — llvmlite's attribute
+        set is a set, and a second stamp adds nothing.
+
+        DECLARATIONS are skipped: an attribute on a body the module does not
+        own says nothing about how anyone compiles it, and stamping it would
+        put `minsize` on the `__saw_rt_*` seam declarations, which are the one
+        frozen contract in the language (`sawc/rt/ABI.md`).
+        """
+        attributes = OPTIMIZATION_LEVELS[self.opt_level].function_attributes
+        if not attributes:
+            return
+        for func in self.module.functions:
+            if func.is_declaration:
+                continue
+            for attribute in attributes:
+                func.attributes.add(attribute)
 
     def _make_target_machine(self):
         """Create a target machine for the configured triple (default = host).
@@ -4192,10 +4276,13 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     def emit_ir(self, optimize: bool = True) -> str:
         """Return the module's LLVM IR as text.
 
-        When optimize is True the IR is run through the O1 pipeline first, so
-        the emitted IR reflects what actually gets compiled (allocas promoted,
-        dead code removed). With -O0 the raw generated IR is returned.
+        When optimize is True the IR is run through this compile's pipeline
+        first, so the emitted IR reflects what actually gets compiled (allocas
+        promoted, dead code removed). With -O0 the raw generated IR is
+        returned — with the level's function attributes on it either way, since
+        they are part of what the module SAYS about itself.
         """
+        self._stamp_optimization_attributes()
         llvm_ir = str(self.module)
         if not optimize:
             return llvm_ir
@@ -4208,10 +4295,11 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     def compile_to_object(self, output_path: str, optimize: bool = True):
         """Compile the module to an object file.
 
-        By default runs the O1 optimization pipeline (mem2reg/SROA + friends)
-        before emitting object code; pass optimize=False (sawc -O0) to skip it
-        for debugging raw codegen output.
+        By default runs this compile's optimization pipeline (mem2reg/SROA +
+        friends) before emitting object code; pass optimize=False (sawc -O0) to
+        skip it for debugging raw codegen output.
         """
+        self._stamp_optimization_attributes()
         llvm_ir = str(self.module)
 
         # Parse the IR (into this compile's own context — see `__init__`)

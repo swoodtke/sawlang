@@ -18,6 +18,7 @@ import tempfile
 from lexer import Lexer
 from parser import Parser
 from codegen import CodeGenerator
+from codegen.core import DEFAULT_OPTIMIZATION_LEVEL
 from errors import (ErrorReporter, ErrorKind, WARNING_CATEGORIES,
                     enable_warnings)
 from typechecker import TypeChecker
@@ -1119,7 +1120,7 @@ def _synthesize_main_exit_funnel(entry_ast):
         is_synthesized=True, line=line, column=col, source_file=src))
 
 
-def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bool = False, object_only: bool = False, target_triple: str = None, freestanding: bool = False, module_paths: dict = None, runtime_build: bool = False, docs_out: dict = None, post_transform: bool = False, target_features: str = None, parsed=None, places_lowered: bool = False, no_hidden_alloc: bool = False, runtime_provider: bool = False, builtins=None):
+def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bool = False, object_only: bool = False, target_triple: str = None, freestanding: bool = False, module_paths: dict = None, runtime_build: bool = False, docs_out: dict = None, post_transform: bool = False, target_features: str = None, parsed=None, places_lowered: bool = False, no_hidden_alloc: bool = False, runtime_provider: bool = False, builtins=None, opt_level: str = DEFAULT_OPTIMIZATION_LEVEL):
     """Resolve modules, load builtins, and type-check the whole program.
 
     This is the single front half of the compile pipeline: a plain single file
@@ -1659,7 +1660,8 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
                                             'builtin_ast': reentry_builtin_ast},
                                     places_lowered=True,
                                     no_hidden_alloc=no_hidden_alloc,
-                                    runtime_provider=runtime_provider)
+                                    runtime_provider=runtime_provider,
+                                    opt_level=opt_level)
         if reporter.has_errors():
             reporter.print_all()
             sys.exit(1)
@@ -1766,7 +1768,8 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
                                             'builtin_ast': reentry_builtin_ast},
                                     places_lowered=False,
                                     no_hidden_alloc=no_hidden_alloc,
-                                    runtime_provider=runtime_provider)
+                                    runtime_provider=runtime_provider,
+                                    opt_level=opt_level)
 
     # Set this as the typechecker's namespace for compatibility
     typechecker.namespace = merged_ns
@@ -1784,7 +1787,8 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
                             freestanding=freestanding, source_path=source_path,
                             runtime_build=runtime_build,
                             target_features=target_features,
-                            strip_unreachable=whole_program)
+                            strip_unreachable=whole_program,
+                            opt_level=opt_level)
     # design 218 unit 1.5 stage 1: the registry rides along in SHADOW mode —
     # codegen still decides, and every decision is checked against the fixpoint
     # on the way past. Stage 3 turns the check into the lookup.
@@ -1929,7 +1933,7 @@ def _emit_object(codegen, source_path: str, output_path: str, verbose: bool,
         print(f"Compiled {source_path} -> {output_path}")
 
 
-def compile_saw(source_path: str, output_path: str, verbose: bool = False, object_only: bool = False, optimize: bool = True, target_triple: str = None, freestanding: bool = False, module_paths: dict = None, runtime_build: bool = False, target_features: str = None, no_hidden_alloc: bool = False, runtime_provider: bool = False, emit_optimized_ir: bool = False):
+def compile_saw(source_path: str, output_path: str, verbose: bool = False, object_only: bool = False, optimize: bool = True, target_triple: str = None, freestanding: bool = False, module_paths: dict = None, runtime_build: bool = False, target_features: str = None, no_hidden_alloc: bool = False, runtime_provider: bool = False, emit_optimized_ir: bool = False, opt_level: str = DEFAULT_OPTIMIZATION_LEVEL):
     """Compile a Saw source file to an executable or object file.
 
     A single file is just a module graph of size one, so there is one pipeline:
@@ -1942,7 +1946,10 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False, objec
         output_path: Path for output (executable or .o file)
         verbose: Print verbose progress messages
         object_only: If True, compile to .o without linking (no main() required)
-        optimize: If True (default), run the O1 optimization pipeline; -O0 disables it
+        optimize: If True (default), run the optimization pipeline; -O0 disables it
+        opt_level: Which pipeline that is — the `codegen.core.OPTIMIZATION_LEVELS`
+            key the CLI's `-O0/-O1/-O2/-Os/-Oz` produce (design 265 U1).
+            Default "1", unchanged by the freestanding profile
         target_triple: Optional LLVM target triple for cross-compilation (default host)
         freestanding: If True, emit for the freestanding profile (seams as
             declarations only, hosted std modules excluded, unlinked object output)
@@ -2007,7 +2014,8 @@ def compile_saw(source_path: str, output_path: str, verbose: bool = False, objec
         source_path, entry_ast, source, verbose, object_only, target_triple,
         freestanding, module_paths, runtime_build,
         target_features=target_features, no_hidden_alloc=no_hidden_alloc,
-        runtime_provider=runtime_provider, builtins=builtins)
+        runtime_provider=runtime_provider, builtins=builtins,
+        opt_level=opt_level)
 
     if verbose:
         print("  Generating LLVM IR...")
@@ -2113,8 +2121,27 @@ Examples:
                              "or the embedded child it is inside. Writes to -o, "
                              "else stdout. Analysis only; the table itself is "
                              "always linked.")
-    parser.add_argument("-O0", dest="no_optimize", action="store_true",
+    # design 265 U1: the level set. ONE dest, so a later flag simply wins and
+    # no two levels can be in force at once; `codegen.core.OPTIMIZATION_LEVELS`
+    # is the table that says what each one does.
+    parser.add_argument("-O0", dest="opt_level", action="store_const", const="0",
+                        default=DEFAULT_OPTIMIZATION_LEVEL,
                         help="Disable optimization passes (emit raw codegen output for debugging)")
+    parser.add_argument("-O1", dest="opt_level", action="store_const", const="1",
+                        help="Optimize for speed, default level (what a compile "
+                             "with no -O flag runs)")
+    parser.add_argument("-O2", dest="opt_level", action="store_const", const="2",
+                        help="Optimize for speed harder than the default: more "
+                             "inlining, GVN and vectorization. Slower to compile, "
+                             "and Saw's always-on bounds/overflow checks mute the "
+                             "vectorizers, so measure before adopting it")
+    parser.add_argument("-Os", dest="opt_level", action="store_const", const="s",
+                        help="Optimize for size: the -O2 pipeline with every "
+                             "function marked `optsize`")
+    parser.add_argument("-Oz", dest="opt_level", action="store_const", const="z",
+                        help="Optimize for size above all else: `minsize` too, "
+                             "which turns on LLVM's machine outliner. Expect "
+                             "slower code")
     parser.add_argument("--target", metavar="TRIPLE",
                         help="Target triple for cross-compilation (default: host)")
     parser.add_argument("--target-features", metavar="FEATURES",
@@ -2335,13 +2362,14 @@ Examples:
             runtime_build=args.runtime_build,
             target_features=args.target_features,
             no_hidden_alloc=args.no_hidden_alloc,
-            runtime_provider=args.runtime_provider)
+            runtime_provider=args.runtime_provider,
+            opt_level=args.opt_level)
         run_codegen(codegen, merged_ast)
         # design 192: `--emit-ir` runs the same llvmlite stage `_emit_object`
         # does, so it takes the same wrapper — an IR module llvmlite refuses is
         # a compiler bug wherever the request came from.
         llvm_ir = _run_llvm(
-            codegen, lambda: codegen.emit_ir(optimize=not args.no_optimize))
+            codegen, lambda: codegen.emit_ir(optimize=args.opt_level != "0"))
 
         ir_output = output_path + ".ll"
         with open(ir_output, 'w') as f:
@@ -2354,12 +2382,13 @@ Examples:
         if (args.c or args.freestanding or args.runtime_build) and not output_path.endswith('.o'):
             output_path = output_path + '.o'
         compile_saw(args.input, output_path, verbose=args.verbose,
-                    object_only=args.c, optimize=not args.no_optimize,
+                    object_only=args.c, optimize=args.opt_level != "0",
                     target_triple=args.target, freestanding=args.freestanding,
                     module_paths=module_paths, runtime_build=args.runtime_build,
                     target_features=args.target_features,
                     no_hidden_alloc=args.no_hidden_alloc,
-                    runtime_provider=args.runtime_provider)
+                    runtime_provider=args.runtime_provider,
+                    opt_level=args.opt_level)
 
 
 if __name__ == "__main__":

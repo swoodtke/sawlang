@@ -11901,8 +11901,19 @@ sawc <source.saw> [options]
                Writes to -o, else stdout.
   --emit-docs-all
                Same, keeping private fields, methods and inits.
-  -O0          Disable optimization passes (raw codegen; default is an O1-style
-               pipeline: entry-block allocas + mem2reg and friends)
+  -O0          Disable optimization passes (raw codegen: entry-block allocas,
+               no mem2reg, no inlining)
+  -O1          Optimize for speed. The default — a compile with no -O flag
+               runs this pipeline
+  -O2          Optimize for speed harder: more inlining, GVN, vectorization.
+               Slower to compile, and the always-on bounds and overflow checks
+               put a side-effecting exit in every loop iteration, which blocks
+               the vectorizers on idiomatic code. Measure before adopting it
+  -Os          Optimize for size: the -O2 pipeline with every function marked
+               `optsize`
+  -Oz          Optimize for size above all else: `minsize` too, which turns on
+               LLVM's machine outliner. Expect slower code
+               The last -O flag on the command line wins.
   --target TRIPLE
                Cross-compile for a target triple (default: the host)
   --target-features FEATURES
@@ -11952,8 +11963,40 @@ sawc <source.saw> [options]
                else stdout. Analysis only; the table itself is always linked.
 ```
 
-Optimization: by default `sawc` runs an O1-style pass pipeline (allocas hoisted
-to the entry block, mem2reg, etc.); `-O0` turns it off for debugging raw output.
+### Optimization levels
+
+By default `sawc` runs an O1-style pass pipeline (allocas hoisted to the entry
+block, mem2reg, and the rest of LLVM's O1 module pipeline). `-O0` turns it off
+for debugging raw output. `-O2` runs LLVM's O2 pipeline. `-Os` and `-Oz` run
+that same pipeline with every function the module defines marked `optsize`,
+and `minsize` as well at `-Oz`; those attributes are what every size-sensitive
+decision in LLVM reads, the machine outliner included, which is why `-Oz`
+replaces repeated instruction sequences with calls to outlined bodies.
+
+The default stays `-O1` for every profile. `--freestanding` does not imply a
+size level; a kernel or embedded build asks for one by name.
+
+Semantics do not change with the level. A program's output, its panics and its
+exit status are the same at every one of the five, and the compiler test suite
+pins that with the same program compiled at `-O2`, `-Os` and `-Oz`.
+
+Two things to know before reaching for a level:
+
+- `-O2` is muted on idiomatic Saw. Bounds and overflow checks are always on,
+  so every loop iteration carries a side-effecting exit, which usually stops
+  the vectorizers; a visitor-boundary closure is an indirect call the inliner
+  in an outlined generic body cannot see through. Where the work is straight
+  scalar compute it wins. Measure.
+- `-Oz` trades speed for size and says so. Outlining turns a repeated sequence
+  into a call.
+
+Size levels are also available to a riscv target through
+`--target-features +save-restore`, which replaces prologue and epilogue
+register saves with calls to `__riscv_save_N` / `__riscv_restore_N`. `sawc`
+does not enable it for you at any level: those routines live in the compiler
+runtime library, and the freestanding profile links none, so enabling it by
+default would turn `-Os` into an unresolved symbol on exactly the targets that
+want it. Ask for it where you have the routines to link.
 
 ## Appendix A: Keywords
 

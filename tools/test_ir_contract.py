@@ -335,11 +335,84 @@ def _check_statics(failures, filename, tag, expected):
                 f"dropping the constant flag must not spend them")
 
 
+#: design 265 U1: what each `-O` flag must put on the module's DEFINED
+#: functions. The size levels are delivered as function attributes and nothing
+#: else (llvmlite exposes no size level — see `OPTIMIZATION_LEVELS`), so an
+#: attribute that fails to arrive is the whole feature failing silently: the
+#: compile still succeeds, the program still runs, and the object is merely the
+#: size it would have been anyway. Earned the hard way — the level was dropped
+#: on `_prepare_codegen`'s design-146 re-entry while it was being written, and
+#: every example test still passed.
+#: Read as a SHARE of the module's defined functions, never as "does the text
+#: contain it": LLVM stamps `cold minsize noinline noreturn` on the cold
+#: noreturn paths it forms, at every level, so a handful of `minsize`
+#: functions at `-O1` is LLVM's business and not a leak. What the level owns
+#: is the WHOLE module — every definition or none.
+OPT_LEVEL_ATTRS = [
+    ("-O1", set(), {"optsize", "minsize"}),
+    ("-O2", set(), {"optsize", "minsize"}),
+    ("-Os", {"optsize"}, {"minsize"}),
+    ("-Oz", {"optsize", "minsize"}, set()),
+]
+
+#: A level's attribute is on essentially every definition (a stamped module) or
+#: on a marginal few (LLVM's own cold paths). The gap is wide, so the
+#: thresholds need not be tight.
+OPT_LEVEL_STAMPED_SHARE = 0.95
+OPT_LEVEL_INCIDENTAL_SHARE = 0.50
+
+#: A program with a plain `main` and a std call, so the module has definitions
+#: of its own beside the stdlib's.
+OPT_LEVEL_SOURCE = "optimization_level_oz_preserves_semantics.saw"
+
+_ATTR_GROUP_RE = re.compile(r'^attributes\s+#(\d+)\s*=\s*\{([^}]*)\}',
+                            re.MULTILINE)
+_DEFINE_RE = re.compile(r'^define\b[^\n]*?\s#(\d+)\b', re.MULTILINE)
+
+
+def check_opt_level_attributes(failures):
+    source = os.path.join(ROOT, "examples", OPT_LEVEL_SOURCE)
+    if not os.path.exists(source):
+        failures.append(f"{OPT_LEVEL_SOURCE}: missing from examples/")
+        return
+    for flag, wanted, unwanted in OPT_LEVEL_ATTRS:
+        out = os.path.join(ROOT, ".build", "ircontract",
+                           f"optlevel_{flag.lstrip('-')}")
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        # `--emit-ir` at a size level runs the real pipeline, so read the
+        # attribute groups the DEFINITIONS reference rather than the whole text
+        # (a declaration may carry attributes of its own).
+        _sawc([source, "--emit-ir", flag, "-o", out])
+        with open(out + ".ll") as f:
+            text = f.read()
+        groups = {n: set(body.split()) for n, body in _ATTR_GROUP_RE.findall(text)}
+        defines = _DEFINE_RE.findall(text)
+        if not defines:
+            failures.append(f"{flag}: no `define` carries an attribute group — "
+                            f"the fixture emitted nothing to check")
+            continue
+        for attribute in sorted(wanted | unwanted):
+            share = (sum(1 for n in defines if attribute in groups.get(n, ()))
+                     / len(defines))
+            if attribute in wanted and share < OPT_LEVEL_STAMPED_SHARE:
+                failures.append(
+                    f"{flag}: only {share:.0%} of the {len(defines)} defined "
+                    f"functions carry `{attribute}` — the level did not reach "
+                    f"the back end, and a size level that does not arrive is "
+                    f"silently no level at all (design 265 U1)")
+            if attribute in unwanted and share > OPT_LEVEL_INCIDENTAL_SHARE:
+                failures.append(
+                    f"{flag}: {share:.0%} of the {len(defines)} defined "
+                    f"functions carry `{attribute}`, which belongs to a "
+                    f"STRONGER level — the level table leaked (design 265 U1)")
+
+
 def main() -> int:
     failures = []
     check_embedding(failures)
     check_seam_widths(failures)
     check_cell_static_placement(failures)
+    check_opt_level_attributes(failures)
 
     if failures:
         print("IR contract violations:\n")
@@ -351,7 +424,9 @@ def main() -> int:
           f"and without -c; every documented seam matches rt/ABI.md at 64 and "
           f"32 bits; "
           f"{len(CELL_STATICS) + len(MUTEX_STATICS) + len(ONCE_STATICS)} "
-          f"statics land in the segment the cell-carrying property picks")
+          f"statics land in the segment the cell-carrying property picks; "
+          f"{len(OPT_LEVEL_ATTRS)} optimization levels stamp exactly their own "
+          f"function attributes")
     return 0
 
 

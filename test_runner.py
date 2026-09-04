@@ -557,6 +557,13 @@ def _parse_compile_flags(flags: List[str]):
             kwargs['runtime_build'] = True
         elif f == '--runtime-provider':
             kwargs['runtime_provider'] = True
+        elif f in ('-O0', '-O1', '-O2', '-Os', '-Oz'):
+            # design 265 U1: the level set, modelled so a level-pinned test
+            # runs in-process (and joins the reuse manifest) rather than
+            # falling through to a subprocess. `optimize` is the pipeline
+            # gate; `opt_level` is which pipeline.
+            kwargs['opt_level'] = f[2:]
+            kwargs['optimize'] = f != '-O0'
         elif f == '--target':
             i += 1
             if i >= n:

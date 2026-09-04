@@ -819,7 +819,12 @@ Options:
   --emit-frame-layout
                      Emit the coroutine frame layout report as JSON
   --emit-bt-table    Decode the linked task-backtrace table as JSON
-  -O0                Disable optimization (default is an O1-style pass pipeline)
+  -O0                Disable optimization (raw codegen, for debugging)
+  -O1                Optimize for speed, the default level
+  -O2                Optimize for speed harder: more inlining, GVN,
+                     vectorization. Slower to compile
+  -Os                Optimize for size
+  -Oz                Optimize for size above all else, machine outliner on
   --target <triple>  Cross-compile for a target triple (default: the host)
   --target-features <list>
                      LLVM subtarget features for --target (e.g. +m,+a,+c)

@@ -94,6 +94,12 @@ def _emit_once(source_path, out_path, flags):
     import sawc
 
     kwargs = dict(verbose=False, optimize="-O0" not in flags)
+    # design 265 U1: a level-pinned test is compiled twice AT ITS LEVEL, which
+    # is what makes this lane the determinism pin for the new levels — irdet's
+    # corpus runs the default pipeline and can never police them.
+    for level in ("-O0", "-O1", "-O2", "-Os", "-Oz"):
+        if level in flags:
+            kwargs["opt_level"] = level[2:]
     if "--freestanding" in flags:
         kwargs["freestanding"] = True
     if "--runtime-build" in flags:
