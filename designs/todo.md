@@ -31,7 +31,6 @@ is scheduled and in what order is the whole of what they say.
 
 ## [QUEUE] — scheduled, in order (user-approved)
 
-- **Design 262 — CLOSED Sep 3 (U0/U1/U2 all landed; branch `docverify-262`)** — docs consistency sweep II + the standing `docverify` battery lane (designs/262-docs-consistency-sweep.md; USER-RULED Sep 3: standing lane, census parallel to 261, Opus throughout, saw-docs voice on all doc prose). **U0 CENSUS DONE Sep 3** (designs/reviews/docs-census-sep3.md — 440 blocks, 1,664 probes, zero ICEs; headline INVERTED: 234/242 claims CLEAN everywhere, the debt is block verifiability at 348/440 refusing; eleven C-findings, brief Amendment A absorbs the four harness facts — mandatory `error-contains`, `-c` as the lane spelling, the `saw-body` marker, sizing). Lead applied the three CLAUDE.md corrections (C4's line/C8/C9) on discovery. TRIAGE: C5 (`FixedBuf.get` panics where design 130's get-shape rule says `Byte?` — obligation-4 sweep DONE by lead, it is the SOLE std violator, one-off confirmed) awaits the user's direction ruling; remaining doc corrections (C4 spec/skill faces, C6 skill json section, C7 README) ride U2. U1+U2 ONE dispatch, EVENT-GATED on design 261 integrating; queue slot the user's call then. **U1 + U2 + the DF-294a rider LANDED Sep 3.** `tools/docverify.py` is the funnel (four entry points named in its docstring) and `docverify` is a fast-tier battery stage. Two harness decisions Amendment A left open, both recorded in the U1 commit: `saw-body`'s hoist covers TOP-LEVEL DECLARATIONS, not only imports (+19 blocks a doc-visible edit would otherwise have been owed for), and the vacuous test keys on the MESSAGE — ``no `main` `` and "Expected import, export, ... or function declaration" — rather than on line 1, which is the same rule stated exactly and reaches a block that opens with declarations and ends with statements. FINAL LANE: 448 blocks, **126 compiled / 59 refused / 263 exempt (58.7%)** — README 12/0/11 (47.8%), CLAUDE 0 fences owed, spec 94/48/193 (57.6%), skill 20/11/59 (65.6%). Against the census's 92-verifiable-by-any-spelling that is 185 verified, and every one of the other 263 is named rather than assumed. THE PIN RULE IS THE UNIT'S ONE JUDGMENT CALL: a `saw-error` pin is the DOC'S OWN claimed text, never what sawc happened to say, because a compiler-derived pin certifies only that the block is refused for SOME reason — Amendment A's empty pass with a different noise word. **46 error demos are therefore FRAGMENTS, not green blocks: each is refused for a scaffolding reason (an undefined struct the example elides, a missing import) before the check it exists to show.** That is the lane's standing debt and the obvious next tightening; the list is derivable by re-running the lane's own planner. C-LEDGER: C1/C2/C3 absorbed into the harness (U1); C4 fixed in all THREE faces — spec, skill, and README's "no `try_`-prefixed one", which the census had not counted as a face; C5 fixed as the DF-294a rider; C6 the skill gains a `std.json` section (surface read off `sawc/std/json.saw`, example compiled and RUN) plus `json` in its import-gate list; C7 README's `TaskGroup(threads:)` shown fallible; C8/C9/C10/C11 were the lead's on discovery or brief-sizing only. Twelve import-only fragments promoted by writing their imports in (the census named four; the lane found thirteen and one needed more than imports). [261-INVALIDATES] RE-CHECKED AT DISPATCH: all six rows were already satisfied by 261 U3 — no by-value receiver premise survives in either doc — and 218 stage 4's two "clean error" sentences were already corrected in that landing; the whole-corpus row is discharged by the harness re-probing all 448 blocks from scratch post-261/263.
 
 - Design 258 — field visibility inherits the type's, amending design 80 (designs/258-field-visibility-inheritance.md; RULED Aug 31 by the user after reading the sos code, three cells pinned: ALL TIERS inherit, FIELDS ONLY — extension members keep per-member marking — and a contextual `private` keyword for narrowing; SCHEDULED after 218 unit 1.5). The consumer sweep IS the migration: every bare field of a visible struct in std/libs/blade gets `private`, surface-preserving; conformance B rows update first (obligation 3)
 - Design 245 v1 — `Scalar` + `scalars()`, `chars()` and `append_scalar` REMOVED (designs/245-unicode-scalar-type.md §6; ruled Aug 27 — no literals in v1, prelude placement). The Aug-27 dispatch NEVER LANDED and is presumed STALE (no Scalar in the tree, Aug-28 check); RESCHEDULED AFTER design 238 (user, Aug 28: sos does not depend on string/character work). Re-dispatch then. Literals + patterns stay open as later units
@@ -39,7 +38,6 @@ is scheduled and in what order is the whole of what they say.
 
 ## [BACKLOG] — filed, not scheduled
 
-- ~~DF-296a — `a[f()]` reads a snapshot where `a[f()] = v` writes the live array; design 263 U3b's allowlist preserves the snapshot at a measured 12,996 B (entry below, filed Sep 3 by design 263). **RULED Sep 3 (user): LIVE READ** — drop `_index_reads_only`, every indexed position agrees with the write side; rides the perf-batch dispatch as a rider, pin owed (incl. the reduced sos shape)~~ **CLOSED Sep 3 by the perf batch (item 1)**
 
 - DF-297a — the template snapshot's SECOND namespace back-pointer, a `SawType.symbol` on a DECLARED annotation, which DF-292b's park does not reach and should not: the capture still rebuilds 1,628 namespace method declarations per driven compile, worth ~0.22 s (targeted memo seeding) to ~0.48 s (symbols decline to be copied) more (entry below, filed Sep 3 by the perf batch). Wants a RULING first — should a namespace symbol ever be deep-copied into a template snapshot? — because either fix changes what the snapshot contains and owes obligation 2's sweep
 - DF-295a — 218c census rows C1-C4 shrink rather than delete; the driven-body walk that maps a generic call site onto an instance key cannot move into phase 2 (entry below, filed by 218 unit 1.5 stage 4). Sequence it WITH DF-292c — one question, two sides
@@ -97,7 +95,6 @@ is scheduled and in what order is the whole of what they say.
 - DF-275a — a distinct alias over a primitive satisfies a trait bound through a std extension's RECEIVER type argument (`Vector<Handle>.sort()` discharges Comparable at `T = Handle`) but NOT through a free generic function's own bound (`rank<T: Comparable>(Handle(1), Handle(2))` is refused), and the refusal's fixit is UNWRITABLE (`extension Handle: Comparable` is orphan-refused pointing at std.builtin) — the alias resolves to its underlying for the ORPHAN question but not the BOUND question, two readings in opposite directions that strand user aliases (filed Aug 28 by design 252; pre-existing, bound discharge not lowering; repro was `.build/scratch/probe_alias_bound3.saw`, essentials here — `examples/unsigned_handle_ordering.saw` carries the `as UInt` workaround spelling with a comment). No entry below, this line is the record
 - DF-277a — the synthesized `E.from(raw:)` does not adopt a bare integer literal (`Tag.from(raw: 9)` refused expecting the backing `UInt8`, while an ordinary `takes(9)` at a `UInt8` param adopts in the same file) — a dedicated check branch compares the argument's inferred type against the backing DIRECTLY, bypassing the literal-adoption funnel every other call argument uses (filed Aug 28 by design 238 unit 2; mechanism per obligation 4, siblings to probe at fix time: the other compiler-synthesized statics with declared parameter types — `Float.from(bits:)`, `Deserialize.deserialize`, the `T.from(...)`/`from(truncating:)` family). Workaround in-tree: one suffixed literal in `libs/imgformat/tests/header_rules.saw` with a comment. No entry below, this line is the record
 - DF-271a — the builtins pre-check refuses a `try` STATEMENT inside a match arm inside a while loop inside a GENERIC method (``` `try` cannot propagate errors from a closure returning `Never` (must return Result)``` + `builtins failed to type-check`), sawc/std ONLY — the identical shape compiles as a user file (probe recorded by design 251's report). THIRD member of the builtins-vs-user-file checking-divergence family: DF-257c (closed — generic-body `try` reuse across instantiations) and DF-267d (dissolved) are the siblings; std code routes around it with the `match`-instead-of-`try` idiom map.saw already carries for 257c. The family's standing question: why does the builtins pass check differently from user-file checking AT ALL — a fix brief should target that divergence, not the face. Filed Aug 27 by design 251; no entry below, this line is the record
-- ~~DF-292b — `_capture_pristine_templates` deep-copies each template through the `SawType.symbol` back-pointers a previous pass's `resolved_type` stamps leave behind, so a post-transform capture copies a slice of the NAMESPACE: 4.2 s of a 10.5 s profiled driven compile, and **identical on main (4.220 s) and branch (4.397 s)** — pre-existing, not part of design 218 unit 1.5's delta. DF-292a made the snapshot pristine; this is the cost of copying what it then drops. Filed Sep 2 by 218c Amendment C's §5 investigation; the evidence is in that amendment, no entry below~~ **CLOSED Sep 3 by the perf batch (item 2).** The stamps now come off the ORIGINAL, the copy is taken, and they go straight back (`_park_per_pass_types` + a `finally` restore in `TypeChecker._pristine_snapshot`, typechecker/core.py) — DF-292a's fix dropped them AFTER the copy, which delivered the same pristine snapshot and paid the full price for it. The park window spans one `deepcopy`, no check runs inside it, and the tree is byte-identical on both sides, so this is a copy-time filter and not an edit of the checked AST. MEASURED on `coro_generic_driven_both.saw` (in-process, capture instrumented): **the capture goes 1.547 s -> 0.480 s (-69%) of a 5.15 s compile**, across 7-8 calls of which the two post-transform ones carried all of it (0.773 + 0.727 -> 0.194 + 0.198). Non-driven shapes are flat, as predicted — their capture was already pristine. **THE BATCH'S ITEM-4 MEASUREMENT** (base `fdcf7b28` against `54932ae8`, one machine, `test_runner_last` removed before every suite run so design-220 reuse cannot flatter either side; A SECOND AGENT WAS ACTIVE ON THE MACHINE THROUGHOUT, so wall is noisy — the baseline's own two suite runs spread 14% — and **user CPU is the figure to read**; two runs each, best-of-2 quoted): **suite 8m45.8s -> 6m37.9s wall (-24.3%) and 110m35.5s -> 94m49.2s user CPU (-14.3%)**; **bootstrap 4m42.9s -> 4m21.5s wall (-7.6%), 4m27.0s -> 4m05.0s user (-8.2%)** — the battery's own bootstrap lane independently reported 261 s, matching. Per shape, best-of-3 full executable builds: hello 1.75 -> 1.70 s, `serde169_derived` 2.27 -> 2.18 s (non-driven, ~-3-4%, which is item 1's contribution), `coro_generic_driven_both` 5.44 -> 4.37 s (-19.7%), `taskgroup_budget_loop_semantics` 5.90 -> 4.80 s (-18.6%), `df151c_optional_dest_copy` 5.79 -> 4.61 s (-20.4%), `coro_generic_struct_and_method` 5.46 -> 4.40 s (-19.4%). NOTE FOR THE ENVELOPE: these are branch-against-branch deltas on one machine, NOT a re-base of Amendment C's `suite 441 s / bootstrap 281 s` — that is main-against-branch under the lead's own interleaved protocol, and design 261 plus 218 stage 4 have landed since it was taken. The envelope re-bases only by user ruling. RESIDUAL FILED as DF-297a: the same mechanism has a SECOND face the park does not reach — `SawType.symbol` on DECLARED annotations — worth another ~0.22-0.48 s per driven compile but carrying a shape question that is a ruling, not a batch item
 - DF-292c — design 218c §7 phase 6 says the post-transform re-entry's re-run of the monomorphization fixpoint is cache hits ("the cache makes the re-run cheap"; §4: it "only ADDS entries") and §5's remedy 1 says to verify exactly that. It is not: `run_monomorphization` builds a fresh registry per front-half pass, so **107 of 111 instances are materialized and instance-checked TWICE** on a driven compile. Not fixed with DF-292a because a cache hit would carry an instance BODY the coroutine transform rewrites in place, changing what codegen lowers — a behavioral-contract flip owing obligation 2's sweep with the driven corpus as its matrix. Prize ~0.45 s per driven compile. Filed Sep 2, mechanism and counts in 218c Amendment C (C3/C4). **ATTEMPTED AND STOPPED Sep 3 by the perf batch (item 3): the sweep came back CLEAN and the cache still cannot land — it is pincered between a double-wrap ICE and DF-258a, which makes it design-scale rather than a batch item. Entry below now carries the sweep, the cost split, the working cache and the three legs of the refusal; sequence it with DF-295a as the tracker already says**
 - std.serde derived `Map` encoding — neither cbor nor json derive `Map<K, V>` through `@synthesize` (the field walk does not cover Map; both format landings record the scope note), so a Map on the wire is a hand-written `Serialize`/`Deserialize` today. Wants a design when the appetite arrives; pairs with the seam's missing Float story (design-215 section). Recorded Aug 27 while checking cbor for DF-267 siblings — no entry below, this line is the record
 - DF-269a — a LABEL-selected overload loses bare-literal width adoption: `report(byte: 65)` against `{report(value: Int), report(byte: UInt8)}` errors `expects UInt8 but got Int`, while the same labeled call against the SINGLETON declaration adopts and runs — the label face of DF-242c's family (overload resolution defeats literal adoption; 242c is the suffix face). Lead-probed Aug 27 (`.build/scratch/probe_append_overload{,2,3}.saw`, cells recorded here) while ruling design 244's naming rider; the bare positional call is a correct ambiguity error naming both candidates. The DF-242c re-probe note on its entry applies to this face too: module identity (249) moved which candidates are seen, not how a literal adopts once one is selected
@@ -125,7 +122,6 @@ is scheduled and in what order is the whole of what they say.
 - DF-290a — SOUNDNESS: a closure's `&`/`&var` PARAMETER may be `move`d — silent double free (entry below, filed Sep 2 by DF-288a's fix agent; PRE-EXISTING). The SAME mechanism as DF-288a at a different registration site: a reference parameter is bound with the REFERENT's type, so `{ &var e in move e }` sees an owned local. Not fixed with DF-288a — a different construct owing its own consumer sweep over the `with_ref`/`with_var_ref` idiom; the flag and the refusal it needs are already built. Corpus census: zero occurrences
 - DF-286b — **THE STAGE-3c-2 BLOCKER**: A3's instance-check residue was measured on ONE program, and the corpus's population is larger and different in kind (entry below, filed Sep 1 by design 218 unit 1.5 stage 3c's agent). 115 diagnostics over 14 of 122 generic-named examples, in at least six classes, of which only two are the signed families — and two of the six are genuine funnel/registry DEFECTS, not artifacts. Needs a ruling before splice-all can be built
 - DF-286c — the materialization funnel does not reproduce what codegen's `type_param_context` path did, at four named positions (entry below, same filing; ONE mechanism, four faces — const-generic VALUES, associated-type annotations, the conditional-conformance bounds filter, and a `-> T?` tail's auto-wrap). Its matrix is stage 3c-2's test plan. **CLOSED Sep 2 by stage 3c-2a/3c-2c(1): face 1 both halves, face 2, face 3 (reframed into B1) and face 4 all fixed and pinned; face 4 turned out to be a CONCRETE-path defect the generic path had been hiding — see DF-289d for its residue**
-- DF-294a — `FixedBuf.get` PANICS where the accessor rule says a get-shaped accessor answers `None`; RULED Sep 3: `get -> Byte?` — **CLOSED Sep 3, landed as 262's rider** (entry below, filed Sep 3 from census C5)
 - DF-294b — a `type` ALIAS binds through the SELECTIVE import form ONLY: the glob leaves it unbound and the qualified spelling mints a name-only type + a not-callable head (entry below, filed Sep 3 from sos-relayed SL-20; workaround `import m.{Alias}`)
 - DF-291b — `Vector.fold` at an OWNING accumulator LEAKS one reference per element (entry below, same filer; PRE-EXISTING, NOT fixed here). `v.fold(arc, { acc, e in acc })` over three elements takes an `Arc<Res>` from strong count 1 to 5 and never drops it, before and after the cutover ALIKE — found by the DF-289e residual sweep, which is what a differential probe is for, and left alone because it is not this flip's and owes its own mechanism sweep over the by-value accumulator's transfer chain
 
@@ -355,100 +351,6 @@ question underneath is a ruling: SHOULD a namespace symbol ever be deep-copied
 into a template snapshot? "No, a symbol is namespace identity" is the answer the
 measurement points at, but it is not one an agent gets to make inside a perf
 batch. [218c Amendment C, C3's DF-292b bullet]
-
-## ~~DF-296a — `a[f()]` reads a SNAPSHOT of the array where `a[f()] = v` writes
-## the LIVE one, and design 263 U3b's allowlist pays 12,996 B to preserve the
-## snapshot. Filed Sep 3 by design 263. RULING OWED, evidence attached~~
-## **CLOSED Sep 3 by the perf batch, item 1 (the DF-296a rider).** The ruling was
-## LIVE READ; `_index_reads_only` and its `_INDEX_READ_ONLY_NODES` tuple are
-## GONE, so `_generate_array_index` addresses the element through
-## `_get_element_pointer` whenever `_addressable_place` reaches it, with no
-## index-shape condition. All four indexed positions the mechanism sweep named
-## now agree with the write side. Pinned by
-## `examples/indexed_read_addresses_the_live_array.saw` — the reduced sos shape
-## (an `unsafe static var [Int; 4]` whose index expression stores into the slot
-## it selects) asserting the live value 99, plus a plain-read control. Verified
-## as a behavior FLIP on this branch: the same file printed 0 before the change
-## and 99 after. Image effect NOT re-measured here (sos left this repo at design
-## 238 unit 5); the price recorded below — **~-12,996 B** on riscv32
-## `process_isolation.elf`, all of it `take_staged` — is what the gate cost and
-## is what its removal is expected to return.
-
-Design 263 U3b made `arr[i]` address the container instead of loading the
-whole array and spilling it to an `arr_tmp` alloca. That moves the container's
-VALUE read to AFTER the index expression is evaluated, so an index that WRITES
-the container would be observed differently:
-
-    PIPE_MSG_HELD[msg_word_at(x, i)]      // sos, kernel/core/objects.saw:1505
-
-Old lowering: snapshot the whole array, then run `msg_word_at`, then read the
-snapshot. New lowering: run `msg_word_at`, then read the live array. U3b
-therefore gates the in-place read on `_index_reads_only`, an ALLOWLIST of index
-shapes that cannot store (literals, identifiers, `self`, fields, nested indices,
-arithmetic over those) — a call in the index keeps the copying path.
-
-THE ASYMMETRY IS THE FINDING, not the gate. The WRITE side has always addressed
-the container first: `_get_element_pointer` resolves `arr` through
-`_get_lvalue_pointer` and only then evaluates the index, so `a[f()] = v` already
-stores into the live array. Reading a snapshot while writing the live one is an
-artifact of the read path's spill, not a stated rule — LANGUAGE_SPEC.md says
-nothing about it either way, which is why this is asked rather than assumed.
-
-MECHANISM (obligation 4): one funnel, `_generate_array_index`, and its siblings
-were swept. The other indexed READ positions — `arr[i].field`
-(`_narrow_field_read`), the compound-assignment reads in statements.py, and
-`_generate_array_builtin`'s `swap` — all route through `_get_element_pointer`
-already and so already read the live array; `_generate_array_index`'s value read
-was the ONE position still taking a snapshot. That also means a ruling for the
-live read would make all indexed positions agree, and a ruling for the snapshot
-would owe the write side a change.
-
-PRICE, measured on sos riscv32 `process_isolation.elf`: the gate costs 12,996 B
-of image (140,776 with it, 127,780 without), and every byte of that is
-`take_staged` (12,260 B), whose loop body is the `PIPE_MSG_HELD[msg_word_at(…)]`
-above. With the gate lifted `take_staged` leaves the top twelve symbols.
-
-No pin: the shape needs a side-effecting index over a static array to reach, and
-writing one as an example would pin behavior that has not been ruled.
-
-## DF-294a — `FixedBuf.get` PANICS where design 130's accessor rule says a
-## get-shaped accessor answers `None` (filed Sep 3 by the 262 census, C5;
-## **RULED Sep 3: `get -> Byte?`**) — **CLOSED Sep 3, landed as 262's rider**
-
-The sole std violator of the get-shape half of the accessor rule, and
-AUTHORED against it rather than drifted — the docstring says "Panics if `i`
-is out of range" (fixedbuf.saw:52-58). Census probe: exit 134,
-`panic at fixedbuf.saw:55: FixedBuf.get: index out of range: 99 (len 8)`.
-
-MECHANISM (obligation 4) — sweep DONE by the lead, Sep 3, and the finding is
-a confirmed ONE-OFF: every other get-shaped accessor complies (`Data.get`
--> `Byte?`, `Vector.get` -> `T?`, `Map.get` borrows `V?`, `Data.slice` ->
-`Data?`, `Once.try_get` -> `T?`); `Mutex.get`/`Once.get` are design 186's
-fault-on-bug tier by ruling, not indexed accessors; `String.byte_at` and
-`substring` are on the rule's DIRECT-accessor panic list by name. No
-mechanism reaches siblings — one author wrote one accessor against the rule.
-
-RULED FIX: `FixedBuf.get(&self, i: Int) -> Byte?`, matching `Data.get`
-exactly; `FixedBuf.set` stays a panicking direct accessor (Data.set's tier).
-Rides 262's U1/U2 dispatch as a rider (that dispatch already owes the full
-battery; the std change adds suite+freestanding weight it was already
-carrying). In-tree callers swept at fix time; the sawos-facing migration
-note rides the HELD pin bump beside 261's Box.value note. Doc rows citing
-`FixedBuf.get`'s panic (skill's fixed-buffer idiom section) correct in the
-same landing. [130, 148, 250, 262]
-
-LANDED Sep 3 (262 rider). `get(&self, i: Int) -> Byte?` returns `None`
-outside `0..<N`; `set` untouched. Three in-tree callers, all examples,
-all swept: `fixed_string_builder.saw` and `byte_data_reads.saw` take the
-`!`, and `fixedbuf_get_oob_panic.saw` — which pinned the panic that no
-longer happens — was RENAMED to `fixedbuf_set_oob_panic.saw` and retargeted
-at `set`, keeping the DF-249a wording pin and its const-generic-`N` length
-(the one row where the length is read out of the type). New pin
-`examples/fixedbuf_get_out_of_range_none.saw` for the `None`. Conformance
-rows T27 (the `None`) and T28 (the panic and its wording) added to
-`examples/conformance/INDEX.md`. The accessor-rule enumeration corrected in
-all three faces — spec, skill, CLAUDE digest — each now saying the rule is
-about the NAME, which is what made one divergence possible to write.
 
 ## DF-294b — a `type` ALIAS is invisible to every import form except the
 ## SELECTIVE one (filed Sep 3 by the lead from sos-relayed SL-20;
