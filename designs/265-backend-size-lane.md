@@ -75,22 +75,38 @@ plumbing is identical) — on sawc:
   byte-equal, reemit's in-process double-compile shape) — pinned by a test,
   since irdet's corpus runs the default pipeline and will not police these.
 
-**U2 — DF-300a: typed enum-construction stores (conditional on U0).**
-KILL-CRITERION: dispatched only if U0 attributes a material share (lead
-guidance: ≥5% of post-263 .text, or the host census shows the pattern
-dominating call-boundary code) — otherwise DF-300a is PARKED with U0's
-numbers recorded on its entry, not fixed speculatively.
-The fix: route the enum payload store through the variant's typed layout
-(GEP into the union scratch / memcpy from a typed scratch) instead of the
-`[N x i8]` byte spelling, at ONE funnel — the enum-construction emission —
-with the SWEEP over the sibling positions DF-300a names: every
-payload-carrying construction (`Optional.Some`, `Result.Ok`/`Err`, user
-enums), match-arm payload extraction (the read side), by-value enum
-argument/return positions. Obligation-1 shape: the emission goes through one
-chokepoint whose docstring names its entry points, or the brief's position
-matrix is tested row by row. Acceptance: the map instantiation's return
-assembly collapses to word stores (the 60 -> ~6 instruction check is the
-pin); sos image delta recorded; reemit+irdet mandatory (IR-changing).
+**U2 — DF-300a: the enum payload union is WORDS, not bytes (RULED Sep 4,
+UNGATED).** The user ruled the fix in regardless of U0's share ("even if the
+improvement is less than 5%"): the payload union's storage type becomes a
+WORD array — `[M x iW]`, W the TARGET word width (i64 on the 64-bit hosts,
+i32 on riscv32) — instead of `[N x i8]`, accepting that every
+payload-carrying enum rounds up to at least word size and word alignment.
+This fixes BOTH sides at the type: SROA over a word array decomposes to word
+stores/loads, so construction, extraction, moves and by-value passing all
+copy at word granularity with no per-site conversion, and the byte-shred
+pattern cannot regrow at a missed position (the type IS the funnel —
+obligation 1 satisfied structurally; the docstring on the union-type builder
+names it).
+Sweep still owed (obligation 4's siblings, now as VERIFICATION rows rather
+than conversion sites): construction (`Optional.Some`, `Result.Ok`/`Err`,
+user enums), match-arm extraction, by-value argument/return — each checked
+word-granular in the emitted code.
+LAYOUT-CHANGE DILIGENCE (the ruling's cost, made visible):
+- U0 gains a row: enumerate every std/corpus enum whose size or alignment
+  GROWS under word-rounding (`Optional<Byte>`/`Optional<Bool>` and small
+  raw-payload enums are the candidates) and report the deltas — including
+  the sos image's .bss/RAM movement, since arrays of small optionals get
+  wider. Report, not gate: the trade is accepted; the numbers still land.
+- The `__saw_rt_*` seam: rt/ABI.md's frozen contract — check whether any
+  seam-crossing type carries a payload enum by value; the `abidoc` lane
+  gates it, and a genuine seam-layout change STOPS the unit for a ruling
+  (the seam is the one frozen layout in the language).
+- Layout readers: `--emit-frame-layout` / bt-table regenerate (sizes may
+  shift — fine); UnsafeMemory corpus uses swept for anything assuming enum
+  size/alignment; serde encodes logically and is unaffected by layout.
+Acceptance: the map instantiation's 60-instruction return assembly collapses
+to word stores (~6 — that check is the pin); sos image + bench deltas
+recorded; reemit+irdet mandatory (IR-changing).
 
 **U3 — function-sections + gc-sections census (report-only).**
 Emit `-ffunction-sections`-equivalent + link with `--gc-sections` on the
