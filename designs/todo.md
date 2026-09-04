@@ -126,7 +126,8 @@ is scheduled and in what order is the whole of what they say.
 - DF-286c — the materialization funnel does not reproduce what codegen's `type_param_context` path did, at four named positions (entry below, same filing; ONE mechanism, four faces — const-generic VALUES, associated-type annotations, the conditional-conformance bounds filter, and a `-> T?` tail's auto-wrap). Its matrix is stage 3c-2's test plan. **CLOSED Sep 2 by stage 3c-2a/3c-2c(1): face 1 both halves, face 2, face 3 (reframed into B1) and face 4 all fixed and pinned; face 4 turned out to be a CONCRETE-path defect the generic path had been hiding — see DF-289d for its residue**
 - DF-294b — a `type` ALIAS binds through the SELECTIVE import form ONLY: the glob leaves it unbound and the qualified spelling mints a name-only type + a not-callable head (entry below, filed Sep 3 from sos-relayed SL-20; workaround `import m.{Alias}`)
 - DF-291b — STILL OPEN, RE-SCOPED Sep 4 (entry below): the leak reproduces, but it is NOT `Vector.fold`'s — fold's body is correct Saw, proved by the identical loop with a NAMED callee running clean. The recorded "make fold release the accumulator" fix shape rests on a falsified premise and would have been a workaround over a compiler defect; the unit was STOPPED and the mechanism refiled as DF-299c. The filing's obligation-4 population claim ("the only std generic method…") is wrong too — the defect reaches every closure with a by-value owning parameter
-- DF-299c — SOUNDNESS/LEAK: a closure's BY-VALUE PARAMETER is never released at the body's end, and the callers do not agree on whether it was transferred at all (entry below, filed Sep 4 by the soundness-pair dispatch while investigating DF-291b; PRE-EXISTING). Located in `codegen/closures.py`; a named function's parameters DO get released, which is the control. A fix was ATTEMPTED and REVERTED: it fixes every probe and then trips over `Map.each`, whose `body(move k, move v)` hands out a retained value at the Copy tier and a NON-RETAINED ALIAS at the ExplicitCopy tier — DF-146j's family at the visitor position. Needs a ruling plus a std audit before the codegen half; obligation 2 applies
+- DF-299c — SOUNDNESS/LEAK: a closure's BY-VALUE PARAMETER is never released at the body's end, and the callers do not agree on whether it was transferred at all (entry below, filed Sep 4 by the soundness-pair dispatch while investigating DF-291b; PRE-EXISTING). Located in `codegen/closures.py`; a named function's parameters DO get released, which is the control. SIX std APIs leak, not one — `Vector.fold`, `Vector.sort_by`, `Map.each` (both slots), `Map.each_key`, `Map.each_value`, `Set.each` — and `std.json`'s object encoder rides `Map.each`, so every object encode leaks per field. A fix was ATTEMPTED and REVERTED: the codegen half fixes all six and then trips over `Map.each`, whose `body(move k, move v)` hands out a retained value at the Copy tier and a NON-RETAINED ALIAS at the ExplicitCopy tier (DF-146j's family at the visitor position); the trap is CONTENT-dependent — literals clean, heap strings fatal. Needs a ruling plus a std audit before the codegen half; obligation 2 applies
+- DF-299d — a QUALIFIED generic `init` drops its explicit type argument: `mutex.Mutex<Int>(value: 5)` is ``argument `value` expects `T` but got `Int` `` while the selective-import spelling compiles (entry below, filed Sep 4 as an incidental of DF-299c's census; PRE-EXISTING at HEAD). The CONSTRUCTOR position of design 150's "a qualifier works everywhere a name appears", which design 256 landed for methods and statics
 - DF-299a — CLOSED Sep 4, FIXED (entry below; the parser census carried it as N10 and it never had a DF number until this dispatch). SOUNDNESS: a cast AT THE SAME TYPE forwarded the operand's storage past the transfer checkpoint — a silent double free. DF-216a's mechanism family, `CastExpr` the member. The obligation-4 sweep widened it from ONE arm to THREE and from the owning tiers to ALL of them. Conformance rows V64-V67
 - DF-299b — a value `if`/`match` ARM forwarding a NoCopy binding is not checkpointed either: the value is bitwise-duplicated and ONE of the two deinits is LOST (entry below, filed Sep 4 by DF-299a's fix agent; PRE-EXISTING, NOT fixed there). A neighbour of DF-299a, not the same defect — the cast is a checkpoint that RUNS and cannot see the node, this is a checkpoint never CALLED at the arm — so it owes its own consumer sweep over every value-branch position
 
@@ -544,7 +545,44 @@ deinit; the model predicts every number):
     a NoCopy value through the shape             REFUSED at the argument
 
 SEVERITY IS A LEAK, never a double free: the defect only ever ADDS references,
-and the tier that could underflow cannot reach the shape.
+and the tier that could underflow cannot reach the shape. It is not academic —
+100 000 by-value heap `String`s through a closure peak at 19.9 MB RSS against
+1.5 MB for the identical named function, because every leaked reference keeps
+its buffer alive.
+
+THE POPULATION, censused with compile+run evidence at HEAD (`5853e403`) rather
+than by signature reading. SIX std closure parameters take an OWNING value by
+value, and all six leak one reference per parameter per invocation:
+
+    Vector.fold      combine: (Acc, &T) -> Acc     Acc by value    +1/element
+    Vector.sort_by   compare: (T, T) -> Ordering   BOTH by value   +2/comparison
+    Map.each         body: (K, V) -> Void          BOTH by value   +2/entry
+    Map.each_key     body: (K) -> Void             K by value      +1/entry
+    Map.each_value   body: (V) -> Void             V by value      +1/entry
+    Set.each         body: (T) -> Void             T by value      +1/element
+
+Every OTHER std closure parameter is by-REFERENCE and was compiled and run as a
+control, flat across the call: `Vector.each`/`map`/`each_indexed`/`with_ref`/
+`with_var_ref`, `Arc.with_unique`, `Mutex.lock`, `String.withCString`.
+`sawc/builtin.saw` declares no closure parameters at all. (`SpinLock.lock`/
+`try_lock` were judged by signature only — by-reference, and their twin
+`Mutex.lock` was run clean — so that pair is a grep-shaped row, flagged as
+such. blade/libs/devtools/rt were grep-only and returned no call sites.)
+
+REACHED STD SURFACE: `std.json`'s `JsonValue._write` Object arm walks a
+`Map<String, JsonValue>` with `fields.each({ ... k, v in ... })` — both slots
+owning — so at HEAD every `to_json_string()` of an object leaks one `String`
+plus one `JsonValue` per field per encode. It re-retains existing buffers rather
+than allocating fresh ones, so RSS does not grow and the leak is invisible to a
+memory watch; the countable proof is a `Map<String, Arc<Res>>` visited three
+times, going 5 -> 9 -> 13 -> 17.
+
+EDGE FACTS worth keeping, all measured: the parameter leaks even when the body
+NEVER MENTIONS it; ESCAPING makes no difference (both faces leak identically);
+TRIVIAL parameters are sound, so the defect is refcount-tier only; a body that
+`move`s the parameter into a new owner is CORRECT, which is the one shape that
+already transfers; and a `Thread.spawn { [a] in ... }` brace does not go through
+this path at all.
 
 WHY THE OBVIOUS FIX IS NOT THE FIX — the finding that matters most here. Giving
 the body a scope and registering owning by-value parameters (mirroring
@@ -565,6 +603,16 @@ the parameter frees a value the container is still holding. This is DF-146j's
 family ("a NoCopy value read out of `m.get(k)` used to come out as a
 non-retained alias two lookups double-freed") surviving at the visitor position.
 
+THE TRAP IS CONTENT-DEPENDENT, NOT ITERATION-DEPENDENT, which is the sharpest
+thing known about it and was found by the census rather than by the attempt: the
+same `std.json` object encode runs 20 000 times clean under the patch when the
+field VALUES are string LITERALS, and traps on the second encode when they are
+HEAP strings. So the release lands on a `String` buffer reached through
+`Map.each`'s by-value `k` that something else already owns — harmless while the
+bytes are static, fatal once they are heap. None of the direct `Map`/closure
+probes reproduce it, so the trigger is something the encoder does that they do
+not, and that gap is the first thing a fix attempt should close.
+
 SO THE REAL SHAPE OF THE WORK: a by-value closure parameter has NO CONSISTENT
 OWNERSHIP CONTRACT today — callers disagree, and the missing release is only
 half of it. A fix owes, in order: (1) a ruling that a by-value closure parameter
@@ -576,8 +624,35 @@ contract flip over every closure in the corpus.
 
 The attempted fix was REVERTED; the tree carries none of it. The probes and the
 arithmetic model are in `.build/scratch/` (`notes_df291b.md`,
-`f1..f6_*.saw`, `g1..g8_*.saw`).
+`f1..f6_*.saw`, `g1..g8_*.saw`), the census's in `s_*.saw` / `p*.saw` with its
+two frozen compilers under `sawc_pristine/` and `sawc_working/` — the latter
+being the reverted attempt, kept because it is the evidence that the codegen
+half fixes all six APIs.
 [131, 139, 216, 219, DF-146j, DF-218h, DF-291b]
+
+## DF-299d — a QUALIFIED generic `init` drops its explicit type argument
+## (filed Sep 4 by DF-299c's census as an incidental; PRE-EXISTING, present at
+## HEAD, unrelated to the closure defect)
+
+```saw
+import std.mutex.{Mutex}
+import std.mutex
+
+let sel  = Mutex<Int>(value: 5)          // compiles and runs
+let qual = mutex.Mutex<Int>(value: 5)    // error: argument `value` expects `T`
+                                         //        but got `Int`
+```
+
+The qualifier spelling reaches the generic `init` with `T` still unbound, so the
+explicit `<Int>` is dropped somewhere between the qualified head and the
+constructor. Design 150 makes a qualifier work in EVERY position a name appears,
+and design 256 landed the qualified method/static call with its whole overload
+set — this is the CONSTRUCTOR position of the same rule, and it is the one still
+missing. Neighbouring shapes to sweep before a fix: a qualified generic init at
+an INFERRED type argument (design 207's constructor inference), a qualified
+generic STATIC (`mod.Type<Int>.make(...)`), and a qualified generic enum
+construction. Workaround: the selective import.
+[150, 207, 256, DF-247b]
 
 ## DF-286b — A3's instance-check residue was measured on ONE program; the
 ## CORPUS's population is larger and different in kind (filed Sep 1 by design
