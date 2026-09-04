@@ -125,7 +125,8 @@ is scheduled and in what order is the whole of what they say.
 - DF-286b — **THE STAGE-3c-2 BLOCKER**: A3's instance-check residue was measured on ONE program, and the corpus's population is larger and different in kind (entry below, filed Sep 1 by design 218 unit 1.5 stage 3c's agent). 115 diagnostics over 14 of 122 generic-named examples, in at least six classes, of which only two are the signed families — and two of the six are genuine funnel/registry DEFECTS, not artifacts. Needs a ruling before splice-all can be built
 - DF-286c — the materialization funnel does not reproduce what codegen's `type_param_context` path did, at four named positions (entry below, same filing; ONE mechanism, four faces — const-generic VALUES, associated-type annotations, the conditional-conformance bounds filter, and a `-> T?` tail's auto-wrap). Its matrix is stage 3c-2's test plan. **CLOSED Sep 2 by stage 3c-2a/3c-2c(1): face 1 both halves, face 2, face 3 (reframed into B1) and face 4 all fixed and pinned; face 4 turned out to be a CONCRETE-path defect the generic path had been hiding — see DF-289d for its residue**
 - DF-294b — a `type` ALIAS binds through the SELECTIVE import form ONLY: the glob leaves it unbound and the qualified spelling mints a name-only type + a not-callable head (entry below, filed Sep 3 from sos-relayed SL-20; workaround `import m.{Alias}`)
-- DF-291b — `Vector.fold` at an OWNING accumulator LEAKS one reference per element (entry below, same filer; PRE-EXISTING, NOT fixed here). `v.fold(arc, { acc, e in acc })` over three elements takes an `Arc<Res>` from strong count 1 to 5 and never drops it, before and after the cutover ALIKE — found by the DF-289e residual sweep, which is what a differential probe is for, and left alone because it is not this flip's and owes its own mechanism sweep over the by-value accumulator's transfer chain
+- DF-291b — STILL OPEN, RE-SCOPED Sep 4 (entry below): the leak reproduces, but it is NOT `Vector.fold`'s — fold's body is correct Saw, proved by the identical loop with a NAMED callee running clean. The recorded "make fold release the accumulator" fix shape rests on a falsified premise and would have been a workaround over a compiler defect; the unit was STOPPED and the mechanism refiled as DF-299c. The filing's obligation-4 population claim ("the only std generic method…") is wrong too — the defect reaches every closure with a by-value owning parameter
+- DF-299c — SOUNDNESS/LEAK: a closure's BY-VALUE PARAMETER is never released at the body's end, and the callers do not agree on whether it was transferred at all (entry below, filed Sep 4 by the soundness-pair dispatch while investigating DF-291b; PRE-EXISTING). Located in `codegen/closures.py`; a named function's parameters DO get released, which is the control. A fix was ATTEMPTED and REVERTED: it fixes every probe and then trips over `Map.each`, whose `body(move k, move v)` hands out a retained value at the Copy tier and a NON-RETAINED ALIAS at the ExplicitCopy tier — DF-146j's family at the visitor position. Needs a ruling plus a std audit before the codegen half; obligation 2 applies
 - DF-299a — CLOSED Sep 4, FIXED (entry below; the parser census carried it as N10 and it never had a DF number until this dispatch). SOUNDNESS: a cast AT THE SAME TYPE forwarded the operand's storage past the transfer checkpoint — a silent double free. DF-216a's mechanism family, `CastExpr` the member. The obligation-4 sweep widened it from ONE arm to THREE and from the owning tiers to ALL of them. Conformance rows V64-V67
 - DF-299b — a value `if`/`match` ARM forwarding a NoCopy binding is not checkpointed either: the value is bitwise-duplicated and ONE of the two deinits is LOST (entry below, filed Sep 4 by DF-299a's fix agent; PRE-EXISTING, NOT fixed there). A neighbour of DF-299a, not the same defect — the cast is a checkpoint that RUNS and cannot see the node, this is a checkpoint never CALLED at the arm — so it owes its own consumer sweep over every value-branch position
 
@@ -478,31 +479,105 @@ which is why the Copy tier is right and the owning tiers are not. The fix is
 plausibly to make the typechecker checkpoint the arm rather than to widen
 codegen's compensation. [131, 139, 195, DF-299a]
 
-## DF-291b — `Vector.fold` at an OWNING accumulator LEAKS one reference per
-## element (filed Sep 2 by the same agent; PRE-EXISTING, NOT fixed here)
+## DF-291b — STILL OPEN Sep 4, and RE-SCOPED: the leak is real, but it is NOT
+## `Vector.fold`'s. The recorded fix shape rests on a FALSIFIED PREMISE — see
+## DF-299c, which is the actual mechanism (filed Sep 2; PRE-EXISTING)
 
-MEASURED, identically on both sides of the 3c-2c(2) flip
-(`.build/scratch/foldleak.saw`):
+INVESTIGATED Sep 4 by the soundness-pair dispatch, which was sent to fix this
+as "a std .saw change" and found it is a COMPILER defect. Reproduced first,
+unchanged (`.build/scratch/foldleak.saw`): before 1 / after 5 / carried 5, and
+no `drop` ever prints.
 
-    let arc = try! Arc<Res>(value: Res(id: 1))     // strong count 1
-    let carried = v.fold(arc, { acc, e in acc })   // over 3 elements
-    // after 5, carried 5, and no `drop` ever prints
+THE PREMISE IS FALSE. `Vector.fold`'s body is CORRECT SAW. The isolation that
+settles it — the identical loop with a NAMED callee instead of a closure:
 
-`fold(initial: Acc, combine: (Acc, &T) -> Acc)` is the only std generic method
-whose owning by-value parameter is a VALUE rather than a closure, which is what
-put it in the DF-289e residual sweep's matrix; the sweep's oracle is a
-before/after differential, so an equal-and-wrong row is exactly what it does not
-judge. Recorded here instead.
+    var acc = move a
+    while i < 3 { acc = identity(move acc)  i = i + 1 }
+    // before 1 / after 1 / drop 1        — CORRECT
 
-NOT THIS DISPATCH'S. The count is unchanged by the cutover, so it is not the
-flip's; and the mechanism is the by-value accumulator's transfer chain through
-the loop (each iteration takes `acc` by value and the combine's result installs
-a new one), which is a design-219/design-131 question about a Copy-tier value
-threaded through a generic loop rather than a monomorphization one. It owes its
-own obligation-4 sweep over the neighbouring shapes — an owning value threaded
-through `each`'s closure env, through `sort_by`'s, and through a user-written
-loop of the same shape — before a fix is dispatched.
-[218c stage 3c-2c, 219, 131]
+Same loop, same `move`-assign accumulator idiom, same three iterations. Only the
+CLOSURE differs. So editing `vector.saw` would have been coding around a
+compiler defect, which is what the conduct rule forbids — the unit was stopped
+and the finding refiled as DF-299c below.
+
+WHAT IT ACTUALLY IS (DF-299c): a closure's BY-VALUE parameter is never released
+at the body's end. `fold` is merely where it was noticed, because `fold` is the
+std API that threads an owning value through a closure once per element — hence
+"one reference per element". The arithmetic closes exactly: the `v.fold(arc,..)`
+argument retains (+1), then each of three iterations returns the by-value
+parameter (a retain, +1) and never releases it, giving 1 + 1 + 3 = 5.
+
+THE OBLIGATION-4 CLAIM IN THE ORIGINAL FILING IS ALSO FALSE. "the only std
+generic method whose owning by-value parameter is a VALUE rather than a closure"
+describes `fold`'s SIGNATURE correctly but names the wrong population: the
+defect reaches EVERY closure with a by-value owning parameter, `Map.each`'s
+`(K, V)` included.
+
+A FIX WAS ATTEMPTED AND REVERTED, and what it found is the reason this is not a
+small change — see DF-299c. Nothing is left on the branch; the tree is
+unchanged for this item.
+[218c stage 3c-2c, 219, 131, DF-299c]
+
+## DF-299c — SOUNDNESS/LEAK: a closure's BY-VALUE PARAMETER is never released,
+## and the callers do not agree on whether it was transferred at all (filed
+## Sep 4 by the soundness-pair dispatch while investigating DF-291b;
+## PRE-EXISTING)
+
+MECHANISM, named and located. `codegen/closures.py` (the by-value arm of the
+parameter setup, ~line 344) stores the incoming argument into an alloca and
+binds the name; nothing registers it for scope cleanup, and the only drops that
+run at the body's end are DF-218h's deferred MOVE CAPTURES. The neighbouring
+comment states the very rule that is missing — "a deferred-move capture becomes
+an OWNED local of the body, so the body owes it a scope" — and a by-value
+parameter is an owned local on identical terms. A named function's parameters DO
+get released (`methods.py`'s `_needs_cleanup` -> `_register_cleanup` pair), which
+is the control that isolates the closure as the ingredient.
+
+MEASURED (probes under `.build/scratch/f*.saw`, all on an `Arc` with a printing
+deinit; the model predicts every number):
+
+    closure takes an Arc, does NOT return it     1 -> 2, never dropped
+    closure takes it and RETURNS it              1 -> 3   (+1 more: the return
+                                                  of a by-value param retains)
+    NAMED function, same shape                   correct, deinit runs
+    the same loop with a named callee            correct, deinit runs
+    a NoCopy value through the shape             REFUSED at the argument
+
+SEVERITY IS A LEAK, never a double free: the defect only ever ADDS references,
+and the tier that could underflow cannot reach the shape.
+
+WHY THE OBVIOUS FIX IS NOT THE FIX — the finding that matters most here. Giving
+the body a scope and registering owning by-value parameters (mirroring
+`methods.py` exactly) fixes every probe above AND the `fold` repro (5 -> 2, with
+the deinit running), and then FAILS THE SUITE: three `json_value_*` examples
+trap. Minimized:
+
+    var m = Map<String, Payload>()          // Payload is @synthesize ExplicitCopy
+    let _ = try! m.insert("a", Payload(items: move v))
+    m.each({ k, p in print("saw {} len {}", k, p.items.len()) })
+    // -> prints correctly, then SIGTRAP at scope teardown
+
+`Map.each`'s body is `body(move k, move v)` over `if let v = self._get_value(i)`,
+and what that read hands over DIFFERS BY TIER: at the Copy tier it retains (an
+`Arc` value threads through correctly, and merely leaks), while at the
+ExplicitCopy tier it is a NON-RETAINED ALIAS the map still owns — so releasing
+the parameter frees a value the container is still holding. This is DF-146j's
+family ("a NoCopy value read out of `m.get(k)` used to come out as a
+non-retained alias two lookups double-freed") surviving at the visitor position.
+
+SO THE REAL SHAPE OF THE WORK: a by-value closure parameter has NO CONSISTENT
+OWNERSHIP CONTRACT today — callers disagree, and the missing release is only
+half of it. A fix owes, in order: (1) a ruling that a by-value closure parameter
+IS owned by the body; (2) an audit of every std site that calls a closure with a
+by-value argument (`Map.each`/`each_key`/`each_value` are the found offenders;
+`Vector`'s visitors pass `&T` and are clean) so each genuinely transfers; only
+then (3) the codegen release. Obligation 2 applies — this is a behavioural
+contract flip over every closure in the corpus.
+
+The attempted fix was REVERTED; the tree carries none of it. The probes and the
+arithmetic model are in `.build/scratch/` (`notes_df291b.md`,
+`f1..f6_*.saw`, `g1..g8_*.saw`).
+[131, 139, 216, 219, DF-146j, DF-218h, DF-291b]
 
 ## DF-286b — A3's instance-check residue was measured on ONE program; the
 ## CORPUS's population is larger and different in kind (filed Sep 1 by design
