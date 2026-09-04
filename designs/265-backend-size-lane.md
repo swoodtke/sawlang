@@ -157,3 +157,142 @@ uses included, so it is its own follow-up if the numbers justify it).
 - No workarounds: an LLVM/llvmlite limitation that blocks a leg (e.g. no
   outliner hook) is RECORDED with the probe, the leg re-scoped, never
   hacked around.
+
+## U0 — THE CENSUS (measured Sep 4 2026, agent, no code change)
+
+### The baseline, and a correction to the brief's number
+
+Recipe as written (`sos_runner.py --arch riscv32 --case process-isolation
+-j 1`, sawlang HEAD `3b5e2012`, sawos clone at `.build/scratch/sawos/`):
+
+| artifact | measurement |
+|---|---|
+| `.build/riscv32-unknown-none-elf/sos/process_isolation.elf` | `.text` 68,184 + `.rodata` 24,404 + `.data` 9,904 = **102,492 B** |
+| same elf, `llvm-size` berkeley | text 127,780 + data 9,904 = 137,684 B (text there folds in `.payload` 32,768, `.childimg` 2,368, `.regions` 56) |
+| `.text` instruction count | **21,434 instructions in 103 functions** |
+
+The brief's stated baseline of 140,776 B does not reproduce. It is NOT a
+regression or an improvement in between: rebuilding the same case against
+the PRE-264 compiler (`4f2b73e4`, its own detached worktree) gives
+**byte-identical section sizes**, so nothing in design 264 moved the image
+and the difference is an accounting one on the earlier measurement (the
+instruction count, 21,434 here against the brief's 25,298, says the two
+counts are of the same image family but not the same section set — the
+closest sum available here, text+data berkeley, is 137,684 B). **Every
+delta this brief reports is against 102,492 B / 21,434 instructions,
+measured with the recipe above.**
+
+### (a)+(b)+(c) — bytes by producer, riscv32 sos image
+
+`.text` = 68,184 B / 21,434 instructions. Classified from
+`llvm-objdump -d` (`probe_census.py`, `probe_census2.py`):
+
+| producer | insns | bytes | % .text |
+|---|---|---|---|
+| address + constant materialization (`auipc` 2,660, `li` 2,434, `addi` 1,191, `lui` 221) | 6,506 | 21,028 | **30.8%** |
+| loads (`lw` 3,923, `lbu` 607, `lhu` 180) | 4,710 | 17,320 | 25.4% |
+| branches + jumps (`j` 1,397 leads) | 3,867 | 12,384 | 18.2% |
+| stores (`sw` 1,353, `sb` 216, `sh` 99) | 1,668 | 5,266 | 7.7% |
+| calls (`jalr`) | 1,163 | 2,326 | 3.4% |
+| shifts | 832 | 2,740 | 4.0% |
+| masks/logic | 455 | 1,434 | 2.1% |
+| everything else (ALU, compares, csr, mul) | ~2,233 | ~5,686 | 8.3% |
+
+Memory traffic by base register: **pointer-based 4,832 ops / 18,840 B
+(27.6%)**, stack-based (sp/fp) 1,551 ops / 3,766 B (5.5%) — design 261's
+far-offset-frame story (B) is gone from this image, as 263 predicted when
+it removed the per-site panic scratch.
+
+**(a) byte-wise enum chains — 1,408 B, 2.1% of `.text`** (105 runs, 382
+instructions; a run = a maximal window of byte/half memory ops plus
+shift/mask glue holding at least two byte ops). Concentrated in
+`dispatch$m$kcore_dispatch` (738 B), `end_process` (162 B),
+`deliver_attachment` (150 B). **This prices U2's direct riscv32 image win
+at ~1.4 KB before any secondary effect** — the user ruled U2 in regardless
+("even if the improvement is less than 5%"), and the census confirms it is
+a small direct win on THIS image. The host-side pattern is much larger
+(below), and riscv32's `[N x i8]` payloads are already word-aligned
+(`palign` 4 = the ISA word), which is exactly why the shred is small here.
+
+**(c) outliner-shaped repetition — up to 34 KB.** Identical instruction
+windows (operands normalised, non-overlapping occurrences) that the machine
+outliner is built to fold:
+
+| window | distinct repeated windows | foldable bytes (upper bound) |
+|---|---|---|
+| 6 insns | 305 | ~33,962 B (49.8% of `.text`) |
+| 10 insns | 182 | ~24,244 B |
+| 20 insns | 76 | ~14,042 B |
+
+Upper bounds: they ignore the call+return each outlined body costs and the
+register constraints the real outliner honours. Even discounted heavily
+this is the largest single lever in the census, and it is U1's `-Oz`
+outliner leg — the census PREDICTS the flags cell, not U2, carries this
+image's size win. One function, `dispatch$m$kcore_dispatch`, is 21,708 B =
+32% of `.text` on its own; `end_process` 5,484, `free_object` 2,932,
+`deliver_attachment` 2,390.
+
+### The per-enum size-delta table under the ALIGNMENT rule
+
+Computed by instrumenting `_register_concrete_enum` and asking LLVM's
+DataLayout for both the current `{i32, [N x i8]}` and the proposed
+`{i32, [M x iK]}` (`probe_enum_layout.py`, `probe_enum_kernel.py`).
+
+**riscv32 (the sos kernel compile, every module path the runner passes):
+40 payload enums, 39 of them BYTE-FOR-BYTE UNCHANGED, total +4 B.** The
+brief's riscv32 claim holds. The single grower is `JsonValue`, whose
+`.Number` payload is an `f64`: payload alignment 8 on a 32-bit target, so
+the tag pads 4→8 and 28/4 becomes 32/8. It is a std type the kernel image
+does not instantiate.
+
+**The SOS kernel declares NO payload-carrying enum of its own** — grepping
+every `kernel/`, `rt/` and `hal/` source for a payload case finds exactly
+one file, `kernel/sysapi/src/pipe.saw`, which is the userspace-facing `sos`
+module and is not in the kernel image's compile. Every payload enum in the
+image comes from std. Predicted image growth from the layout change: ~0.
+
+**Host (arm64, `dis_map.saw`'s compile): 40 payload enums, all 40 grow,
+total +160 B of per-type size.** 38 grow by exactly +4 (tag padding to
+offset 8, as the brief predicted). Two rows do NOT fit the brief's "payload
+rounding costs zero" claim, and this is the census's correction to it:
+
+| enum | payload max size | payload max align | cur | new | delta |
+|---|---|---|---|---|---|
+| `Result<JsonValue, DecodeError>` | 52 | 8 | 56/4 | 64/8 | **+8** |
+| `Result<Void, EncodeError>` | 1 | 1 | 8/4 | 8/4 | +0 (`[1 x i8]`, the Byte-class row) |
+| the other 38 | — | 8 | n/4 | n+4/8 | +4 |
+
+The mechanism behind the +8: the rule takes the max SIZE over variants and
+the max ALIGNMENT over variants INDEPENDENTLY. "An allocation size is a
+multiple of its alignment" is true per variant struct, but the largest
+variant need not be the most-aligned one — `JsonValue` is 52 B at align 4,
+`DecodeError` is align 8, so `[7 x i64]` rounds 52 up to 56 and then the
+tag padding adds its 4. Payload rounding is zero for every enum whose
+largest variant is also its most-aligned variant, which is 39 of 40 here.
+Recorded as an accepted cost, not a blocker: the ruling is ungated and the
+worst case observed corpus-wide is +8 B on one type.
+
+### Host-side pattern count (5 examples/ binaries, arm64)
+
+`probe_shred.py` over `llvm-objdump -d` of each linked binary:
+
+| program | functions | insns | shred-run insns | share |
+|---|---|---|---|---|
+| `dis_map.saw` (the DF-300a seed) | 85 | 3,966 | 173 | 4.4% |
+| `result_basic.saw` | 18 | 412 | 0 | 0% |
+| `json_value_roundtrip.saw` | 344 | 29,537 | 3,576 | 12.1% |
+| `cbor169_roundtrip.saw` | 304 | 21,678 | 3,556 | 16.4% |
+| `json_roundtrip_struct.saw` | 238 | 16,780 | 2,140 | 12.8% |
+
+The json/cbor rows are UPPER BOUNDS — those programs do legitimate
+byte-granular work (parsing), and the run detector cannot tell a parser's
+`ldrb` from a shredded payload word. `dis_map` is the clean signal: it does
+no byte-level work at all, so all 97 `strb` + 51 `ldrb` in its runs are
+enum payload traffic. The host shred is an order of magnitude bigger than
+riscv32's because arm64 payloads want align 8 and `[N x i8]` gives them
+align 1.
+
+**The acceptance pin's baseline.** `_Vector$2$Int$GlobalAllocator_map$1$Int`
+at HEAD is **160 instructions, 75 of them (47%) shred-family**: 34 `strb`,
+22 `lsr`, 19 `ldrb`. (DF-300a filed 166/~60 at `4f2b73e4`; the shape is
+unchanged, the count moved with 263/264.)
