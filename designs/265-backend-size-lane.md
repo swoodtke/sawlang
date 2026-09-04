@@ -75,34 +75,57 @@ plumbing is identical) — on sawc:
   byte-equal, reemit's in-process double-compile shape) — pinned by a test,
   since irdet's corpus runs the default pipeline and will not police these.
 
-**U2 — DF-300a: the enum payload union is WORDS, not bytes (RULED Sep 4,
-UNGATED).** The user ruled the fix in regardless of U0's share ("even if the
-improvement is less than 5%"): the payload union's storage type becomes a
-WORD array — `[M x iW]`, W the TARGET word width (i64 on the 64-bit hosts,
-i32 on riscv32) — instead of `[N x i8]`, accepting that every
-payload-carrying enum rounds up to at least word size and word alignment.
+**U2 — DF-300a: the enum payload union is typed at the max payload's
+ALIGNMENT (RULED Sep 4, UNGATED; amended same day from "words for all" to
+the alignment rule, user-confirmed).** The user ruled the fix in regardless
+of U0's share ("even if the improvement is less than 5%"). The rule: the
+union's element type is the integer of the LARGEST VARIANT PAYLOAD'S natural
+alignment — `[M x i64]` for pointerful/Int payloads on 64-bit hosts
+(`[M x i32]` on riscv32), `[M x i32]`/`[M x i16]` for Int32/Int16-class
+payloads, `[N x i8]` UNCHANGED for Byte/Bool-class payloads. Because an ABI
+allocation size is always a multiple of its alignment, payload ROUNDING
+COSTS ZERO under this rule — an aligned payload is already an exact multiple
+of the element width — so the only growth anywhere is the tag-alignment
+padding on enums whose payload alignment exceeds 4, and `Optional<Byte>`-
+class enums keep today's exact layout. No name-based special case: `Result`,
+`Optional`, and every user/kernel enum get the granularity their own payload
+earns.
 This fixes BOTH sides at the type: SROA over a word array decomposes to word
 stores/loads, so construction, extraction, moves and by-value passing all
 copy at word granularity with no per-site conversion, and the byte-shred
 pattern cannot regrow at a missed position (the type IS the funnel —
 obligation 1 satisfied structurally; the docstring on the union-type builder
 names it).
+WHY THE BYTE COPIES EXIST TODAY (verified in -O0 IR, Sep 4, the lead's
+`dis_map_o0.ll` probe): the `[N x i8]` payload member has align 1, so the
+payload sits UNDER-ALIGNED at offset 4 — and codegen compensates by
+round-tripping every payload access through a SEPARATE `align 8` scratch
+alloca via `extractvalue`/`store [N x i8]` array copies
+(`err_payload_alloca` et al.), doing typed access only on the scratch.
+Those array copies are DF-300a's shred. Once the union is typed at the
+payload's alignment, the slot is correctly placed IN SITU and the scratch
+round-trip loses its purpose: the fix should DELETE the scratch dance
+(direct typed access through a payload GEP), not merely re-type the copies
+— fewer allocas, fewer copies, and the shred's producer gone. Any scratch
+that must remain (a genuinely by-value round-trip) is word-granular by
+construction.
 Sweep still owed (obligation 4's siblings, now as VERIFICATION rows rather
 than conversion sites): construction (`Optional.Some`, `Result.Ok`/`Err`,
 user enums), match-arm extraction, by-value argument/return — each checked
 word-granular in the emitted code.
 LAYOUT-CHANGE DILIGENCE (the ruling's cost, made visible):
 - U0 gains a row: enumerate every std/corpus enum's size delta under the
-  new layout, attributing BOTH components — (i) payload rounding to the
-  word multiple (zero for pointerful/Int-bearing variants;
-  `Optional<Byte>`-class enums are the losers) and (ii) TAG-ALIGNMENT
-  padding: `{i32, [N x i8]}` packs the payload at offset 4, a word-typed
-  payload moves to offset 8 on 64-bit hosts, so EVERY payload enum grows
-  ~4 B there (zero on riscv32, W=4). Growth propagates to CONTAINERS of
-  the enum (a field, an element stride), never to the bare payload type,
-  which is unchanged everywhere. Report the sos image's .bss/RAM movement
-  too, since arrays of small optionals get wider. Report, not gate: the
-  trade is accepted; the numbers still land.
+  alignment rule. Payload rounding is ZERO by construction (alloc size is
+  a multiple of alignment), so the only component is TAG-ALIGNMENT
+  padding: `{i32, [N x i8]}` packs the payload at offset 4; an
+  8-aligned payload moves to offset 8 on 64-bit hosts (~+4 B per such
+  enum; zero on riscv32, where word alignment is 4 and the tag already
+  pads to it — CHECK this claim per-enum in the census rather than
+  trusting it). `Optional<Byte>`-class enums are byte-for-byte unchanged.
+  Growth propagates to CONTAINERS of the enum (a field, an element
+  stride), never to the bare payload type, which is unchanged everywhere.
+  Report the sos image movement. Report, not gate: the trade is accepted;
+  the numbers still land.
 - The `__saw_rt_*` seam: rt/ABI.md's frozen contract — check whether any
   seam-crossing type carries a payload enum by value; the `abidoc` lane
   gates it, and a genuine seam-layout change STOPS the unit for a ruling
