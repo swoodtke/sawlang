@@ -31,7 +31,6 @@ is scheduled and in what order is the whole of what they say.
 
 ## [QUEUE] — scheduled, in order (user-approved)
 
-- Design 265 — the back-end size lane (designs/265-backend-size-lane.md; SCHEDULED Sep 4 by the user — "next after 264": image size + perf pressure). U0 census FIRST (this family's diagnoses were measurement-refuted twice — 261(A), 263 U1/U3), U1 `-Os`/`-Oz`/`-O2` + machine outliner + riscv save-restore (the sure thing; one `speed_level` funnel, default stays O1, bench prices O2's actual win — checked-loop exits and indirect visitor calls predicted to mute it; two cells lead-recommended for dispatch confirmation), U2 = DF-300a RULED Sep 4 (user, amended same day from words-for-all to the ALIGNMENT rule): the payload union is typed at the max payload's natural alignment — pointerful/Int payloads copy in words, `Optional<Byte>`-class enums byte-identical to today, payload rounding zero by construction (alloc size is a multiple of align), only cost is 64-bit tag padding; no name special case, so sos kernel enums get it too; the -O0 probe showed the byte-shred's PRODUCER is the under-aligned payload's scratch-alloca round-trip, which the fix deletes rather than converts; U0 reports the deltas, the rt seam is checked (a seam-layout change stops for a ruling), U3 function-sections/gc-sections census report-only. Serial after 264 (both codegen); version bump at integration (user-visible flags)
 - Design 207 — constructors infer their type arguments (designs/207-constructor-inference.md; RULED Aug 10, SCHEDULED Sep 4 by DF-294d's ruling). Dispatches after the soundness pair integrates (typechecker surface, serial); ONE cell needs the user's ruling at dispatch: the Sep-4 amendment's annotation-driven inference (the slot's type as a solver source — SL-22's own shape solves no other way). Closes DF-294d on landing; plausibly dissolves DF-247a's workaround pressure too (check at integration).
 
 
@@ -128,7 +127,6 @@ is scheduled and in what order is the whole of what they say.
 - DF-286c — the materialization funnel does not reproduce what codegen's `type_param_context` path did, at four named positions (entry below, same filing; ONE mechanism, four faces — const-generic VALUES, associated-type annotations, the conditional-conformance bounds filter, and a `-> T?` tail's auto-wrap). Its matrix is stage 3c-2's test plan. **CLOSED Sep 2 by stage 3c-2a/3c-2c(1): face 1 both halves, face 2, face 3 (reframed into B1) and face 4 all fixed and pinned; face 4 turned out to be a CONCRETE-path defect the generic path had been hiding — see DF-289d for its residue**
 - DF-294b — a `type` ALIAS binds through the SELECTIVE import form ONLY: the glob leaves it unbound and the qualified spelling mints a name-only type + a not-callable head (entry below, filed Sep 3 from sos-relayed SL-20; workaround `import m.{Alias}`)
 - DF-299d — a QUALIFIED generic `init` drops its explicit type argument: `mutex.Mutex<Int>(value: 5)` is ``argument `value` expects `T` but got `Int` `` while the selective-import spelling compiles (entry below, filed Sep 4 as an incidental of DF-299c's census; PRE-EXISTING at HEAD). The CONSTRUCTOR position of design 150's "a qualifier works everywhere a name appears", which design 256 landed for methods and statics
-- DF-300a — PERF/SIZE: ENUM CONSTRUCTION at a return emits a BYTE-WISE aggregate store — the payload union is `[N x i8]`, so SROA shreds whole words into `lshr`+`store i8` chains (entry below, filed Sep 4 by the lead from a `Vector.map` disassembly). ~60 of `Vector<Int>.map`'s 166 instructions assemble its 36-byte `Result` return; once per construction/unpack, not per element. The enum-construction funnel is the aggregate-copy family member design 261 U2's memcpy fix did NOT convert (it took the `let`/assignment funnels). Evidence for the back-end size lane (the IMAGE SIZE entry). **SCHEDULED Sep 4: design 265 U2 carries the fix. RULED Sep 4 (user; amended same day to the ALIGNMENT rule): the union is typed at the max payload's natural alignment — word copies where payloads are word-aligned, small enums unchanged, no name special case; the -O0 probe identified the shred's producer as the under-aligned payload's scratch-alloca round-trip; closes at 265 U2**. **CLOSED Sep 4 at design 265 U2 — the map pin is 160 instructions/75 shred-family down to 69/6, the sibling sweep is zero, host enum-heavy binaries are ~30% smaller, riscv32 .text is byte-identical, and the cost is MapSlot<Int,Int> 20/4 -> 24/8 on 64-bit hosts; see the entry below**
 - DF-299b — a value `if`/`match` ARM forwarding a NoCopy binding is not checkpointed either: the value is bitwise-duplicated and ONE of the two deinits is LOST (entry below, filed Sep 4 by DF-299a's fix agent; PRE-EXISTING, NOT fixed there). A neighbour of DF-299a, not the same defect — the cast is a checkpoint that RUNS and cannot see the node, this is a checkpoint never CALLED at the arm — so it owes its own consumer sweep over every value-branch position
 
 
@@ -503,65 +501,6 @@ an INFERRED type argument (design 207's constructor inference), a qualified
 generic STATIC (`mod.Type<Int>.make(...)`), and a qualified generic enum
 construction. Workaround: the selective import.
 [150, 207, 256, DF-247b]
-
-## DF-300a — PERF/SIZE: enum construction at a return is a BYTE-WISE
-## aggregate store — the payload union's `[N x i8]` type launders the word
-## structure and SROA amplifies it into `lshr`/`strb` chains (filed Sep 4 by
-## the lead from a `Vector.map` disassembly; PRE-EXISTING)
-## **FIXED Sep 4 by design 265 U2** — the payload union is typed at the max
-## payload's natural ALIGNMENT (`_enum_payload_union_type` in codegen/core.py
-## is the funnel; the TYPE is what fixes every position at once). The pin:
-## the `Vector<Int>.map` instantiation is 160 instructions with 75
-## shred-family, down to **69 with 6**. The sweep found ZERO shred left in
-## construction, match-arm extraction, by-value enum arguments and by-value
-## enum returns (124 and 40 instructions before, 0 and 0 after, in one
-## program compiled with both compilers); host binaries are ~30% fewer
-## instructions on enum-heavy programs (json/cbor round-trips). The riscv32
-## sos kernel `.text` is byte-identical, exactly as the U0 census predicted
-## for a target whose word alignment is 4, and the embedded root image drops
-## a region step. Cost paid: `MapSlot<Int, Int>` 20/align-4 -> 24/align-8 on
-## 64-bit hosts (+20% on a Map's slot table, nothing on riscv32) — visible in
-## `alloc_map_set_reports_oom`, whose pinned allocation size moved 320 -> 384
-## and which now documents why. Seam fence CLEARED without a ruling: the
-## `@export` whitelist admits no aggregate by value, and `SysError` crosses as
-## a negated integer tag. The scratch-alloca round-trip is RE-TYPED rather
-## than deleted, through one named `_payload_scratch_alloca` — LLVM has no
-## bitcast between aggregate VALUES, and every round-tripping site is handed
-## an SSA enum with no pointer to GEP into, so the conversion needs storage;
-## it is word-granular by construction now, which is the brief's own fallback
-## clause. Gates: suite + freestanding + reemit (0 divergent) + irdet --all.
-## Evidence and the full tables live in designs/265-backend-size-lane.md.
-
-MEASURED (arm64 host, `.build/scratch/dis_map.saw` + `dis_map_ir.ll`, HEAD =
-4f2b73e4): `Vector<Int>.map`'s outlined instantiation is 166 instructions, and
-~60 of them are the RETURN-VALUE assembly of its 36-byte
-`Result<Vector<Int>, AllocError>` — 21 `lsr`s decomposing the vector's three
-words (ptr/len/cap) into individual bytes and ~30 `strb`s writing them, with
-the error path doing the mirror `ldrb` repack of the callee's `AllocError`
-payload. The IR shows the mechanism: 54 `lshr`/`store i8` ops on the Ok arm.
-Three `str x`-class instructions' worth of work done in sixty.
-
-MECHANISM (obligation 4 — the class, not the symptom). The enum payload UNION
-is modeled as an `[N x i8]` array, so storing a variant's payload into it is a
-byte-typed store; SROA then shreds the word-sized fields into per-byte
-`lshr`+`trunc`+`store i8`. This is the aggregate-copy FAMILY (design 261 (A),
-design 263's walks) at the funnel 261 U2 did NOT convert: U2 put `llvm.memcpy`
-at the `let`/assignment funnels, and the ENUM-CONSTRUCTION funnel (payload
-store into the union scratch + the aggregate return) kept the byte spelling.
-Note the inversion of 263 U3's lesson: there SROA was already CLEANING
-narrowing; here the i8-array type makes SROA the AMPLIFIER. Sibling positions
-the fix must sweep, same mechanism: every payload-carrying enum construction
-(`Optional.Some`, `Result.Ok`/`Err`, user enums), the match-arm payload
-EXTRACTION (the union's read side), and by-value enum argument positions.
-
-COST SHAPE: once per construction/unpack, never per element — compile-size and
-a few dozen instructions on every Result-returning call boundary, corpus-wide;
-costlier per byte on riscv32. NOT a correctness issue, NOT hot-loop; it is
-size-lane evidence. Fix shape (unruled): type the payload store through the
-variant's actual struct (GEP into the union scratch), or memcpy from a typed
-scratch — either rides the back-end size lane or a codegen batch, gated on the
-sos image + `bench` like 261/263.
-[261, 263, DF-293b, IMAGE SIZE entry above]
 
 ## DF-286b — A3's instance-check residue was measured on ONE program; the
 ## CORPUS's population is larger and different in kind (filed Sep 1 by design
