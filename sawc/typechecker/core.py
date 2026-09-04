@@ -250,6 +250,14 @@ class VariableInfo:
     # beside the `TypeKind.REFERENCE` refusal it extends to the bindings a
     # reference reaches THROUGH.
     borrows_referent: bool = False
+    # DF-290a: WHICH construct made this binding an alias. The flag above is the
+    # one question and the one refusal; this only chooses the SENTENCE, because
+    # a closure's reference parameter is not a match payload and the way out
+    # differs — `with_var_ref`'s body is handed a borrow of an element the
+    # vector keeps, and the spelling that moves one out is `swap_out` on the
+    # receiver, not a restructuring of the scrutinee. '' is DF-288a's
+    # match-payload binding, the wording `_borrowed_payload_move_error` carries.
+    borrows_kind: str = ''
 
 
 @dataclass

@@ -1,0 +1,58 @@
+// Conformance row V71 — control: the shapes the borrowed-binding fence must
+// NOT reach
+//
+// DF-290a. The fence is correct only if it is narrow, so the neighbouring
+// spellings are counted here against a printing `deinit`. Four of them:
+//
+//   * READS through the borrow — a field read, a method call, a mutation
+//     through `&var`. None of these transfer, and all were always legal.
+//   * The `[move x]` VALUE capture, which is the way OUT the diagnostic names:
+//     it really does transfer, and the value is released exactly once.
+//   * A closure parameter taken BY VALUE (no sigil), which owns what it is
+//     handed and may move it on.
+//   * The sigil-less `{ e in ... }` over a `&T`-lending std method, which is
+//     refused by the ORDINARY reference test — the binding keeps its reference
+//     type there, which is the asymmetry that identified the mechanism.
+//     (Checked in V68's error file; here the legal read side is counted.)
+//
+// Every value here reaches the end of `main` alive and is released EXACTLY
+// ONCE, in reverse declaration order — which is the whole point of the row:
+// nothing the fence permits duplicates an owner, and nothing it permits loses
+// a drop either.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: read 7
+// EXPECT-OUTPUT: bumped 8
+// EXPECT-OUTPUT: moved 5
+// EXPECT-OUTPUT: byvalue 3
+// EXPECT-OUTPUT: drop 3
+// EXPECT-OUTPUT: drop 5
+// EXPECT-OUTPUT: drop 8
+
+struct Owned { w: Int }
+extension Owned: NoCopy {
+    func deinit(&var self) { print("drop {}", self.w) }
+}
+
+func run_owned(body: () sync -> Owned) -> Owned { body() }
+func takes_by_value(body: (Owned) sync -> Owned, v: Owned) -> Owned {
+    body(move v)
+}
+
+func main() {
+    // Reads and writes THROUGH the borrow: never a transfer.
+    var v = Vector<Owned>()
+    try! v.push(Owned(w: 7))
+    print("read {}", v.with_ref(0, { &e in e.w }))
+    v.with_var_ref(0, { &var e in e.w = e.w + 1 })
+    print("bumped {}", v.with_ref(0, { &e in e.w }))
+
+    // The `[move x]` value capture — the way out the refusal names.
+    let o = Owned(w: 5)
+    let got = run_owned({ [move o] in o })
+    print("moved {}", got.w)
+
+    // A by-value closure parameter owns what it is handed.
+    let out = takes_by_value({ p in p }, Owned(w: 3))
+    print("byvalue {}", out.w)
+}

@@ -1028,6 +1028,17 @@ class ExpressionsMixin:
         # too is an alias into storage the referent keeps. `borrows_referent`
         # is the mark `_match_payload_borrows` stamps at the registration site.
         #
+        # DF-290a: THE SAME MARK, THREE REGISTRATION SITES. The rule is not
+        # about matches — it is "this binding was given the REFERENT's type, so
+        # its type can no longer say it is an alias", and every construct that
+        # strips the reference to bind the thing behind it owes the stamp. The
+        # other two are in `_check_closure`: a `&`/`&var` closure PARAMETER
+        # (`{ &var e in move e }`, which `with_ref`/`with_var_ref` and every
+        # lock body are written in) and a BORROW CAPTURE (`[&var o]`). The
+        # sigil-less `{ e in move e }` was always refused, because there the
+        # binding keeps its reference type and the test above fires — which is
+        # what identified the mechanism.
+        #
         # SYNTHESIZED CODE IS EXEMPT, on `_check_payload_read`'s reasoning
         # (design 218 stage 1). The coroutine transform re-homes an arm's
         # payload binding into a frame slot and emits its OWN `move` — paired
@@ -1039,7 +1050,7 @@ class ExpressionsMixin:
         # suspending body made `case Run(args) -> b.run(args.copy())` fail at
         # the arm's position with no `move` on the page.)
         if var_info.borrows_referent and not self._in_synthesized_context():
-            self._borrowed_payload_move_error(expr, var_info)
+            self._borrowed_binding_move_error(expr, var_info)
             return None
 
         # design 188 unit 4: a `NoMove` value moves exactly ONCE, from its
@@ -12143,6 +12154,53 @@ class ExpressionsMixin:
         # — it is design 146's, not this rule's.)
         return True
 
+    def _borrowed_binding_move_error(self, expr, var_info) -> None:
+        """The refusal `move`ing a binding that only BORROWS its referent.
+
+        ONE FLAG, TWO SENTENCES (DF-290a). `borrows_referent` is the whole
+        question and `_check_move_expr` asks it once; what differs is the way
+        OUT, so the wording is chosen by `borrows_kind`. A match payload is
+        reached by restructuring the STORAGE (`take()` on an Optional field,
+        `swap_out` on an indexed place); a closure's reference parameter is
+        handed a borrow the CALLER opened, so the move-out belongs to the
+        receiver that opened it — `v.swap_out(i, replacement)` rather than
+        anything writable inside the body.
+        """
+        if var_info.borrows_kind in ('parameter', 'capture'):
+            self._borrowed_closure_binding_move_error(expr, var_info)
+            return
+        self._borrowed_payload_move_error(expr, var_info)
+
+    def _borrowed_closure_binding_move_error(self, expr, var_info) -> None:
+        """The refusal `move`ing a closure's `&`/`&var` parameter or a borrow
+        capture (DF-290a)."""
+        name = expr.variable
+        if var_info.borrows_kind == 'capture':
+            sigil = "&var " if var_info.mutable else "&"
+            what = (f"it is a BORROW CAPTURE — `[{sigil}{name}]` LENDS the "
+                    f"enclosing frame's binding to this closure rather than "
+                    f"handing it over")
+            way_out = (f"capture it by value instead: `[move {name}]` "
+                       f"transfers the binding, and the closure then owns what "
+                       f"it releases")
+        else:
+            sigil = "&var " if var_info.mutable else "&"
+            what = (f"it is a closure PARAMETER declared `{sigil}{name}`, "
+                    f"which names storage the CALLER still owns for the length "
+                    f"of the call")
+            way_out = ("to take the value OUT, use the move-out its owner "
+                       "publishes — `swap_out(i, replacement)` on a vector "
+                       "element, `take()` on an `Optional` field — called on "
+                       "the receiver, outside this body")
+        lead = (f"`{name}.copy()` makes an explicit deep copy; "
+                if self._is_explicit_copy_type(var_info.type) else "")
+        self._error(
+            ErrorKind.TYPE_MISMATCH,
+            f"cannot move out of `{name}`: {what}, so the move would release "
+            f"a value its owner still holds",
+            expr.line, expr.column,
+            hint=lead + way_out)
+
     def _borrowed_payload_move_error(self, expr, var_info) -> None:
         """The refusal `move`ing a match payload bound through a borrow."""
         lead = (f"`{expr.variable}.copy()` makes an explicit deep copy; "
@@ -12706,8 +12764,15 @@ class ExpressionsMixin:
                 referent = outer_info.type
                 if referent is not None and referent.kind == TypeKind.REFERENCE:
                     referent = referent.inner_type
+                # DF-290a: REGISTRATION SITE 1 of 2. The binding is given the
+                # REFERENT's type — that is what makes `[&var o]` read and write
+                # `o` directly — so nothing about the binding's type says it is
+                # an alias, and `_check_move_expr`'s `TypeKind.REFERENCE` test
+                # cannot see it. Stamp the fact here, where it is known, exactly
+                # as DF-288a's funnel stamps a match payload.
                 self.current_scope.define(spec.name, VariableInfo(
-                    referent, spec.mode == 'ref_var', spec.line, spec.column))
+                    referent, spec.mode == 'ref_var', spec.line, spec.column,
+                    borrows_referent=True, borrows_kind='capture'))
 
         param_types = []
         has_reference_params = False
@@ -12746,8 +12811,18 @@ class ExpressionsMixin:
                     self._check_shadowing(param.name, None, param.line,
                                           param.column, site="param")
                     # The name reads/writes the referent directly; mutable iff &var.
+                    #
+                    # DF-290a: REGISTRATION SITE 2 of 2, and the filed face.
+                    # The closure's PARAMETER TYPE is `&T`/`&var T`, but the
+                    # BINDING is `inner` — so `{ &var e in move e }` saw an
+                    # ordinary owned local and licensed the transfer, while the
+                    # vector kept the element: `got 7 / drop 7 / drop 7`, exit 0.
+                    # The sigil-less spelling `{ e in move e }` was always
+                    # refused, because there the binding KEEPS its reference
+                    # type — which is the whole shape of the defect.
                     self.current_scope.define(param.name, VariableInfo(
-                        inner, param.reference_mutable, param.line, param.column))
+                        inner, param.reference_mutable, param.line, param.column,
+                        borrows_referent=True, borrows_kind='parameter'))
                     continue
                 if param.type_annotation:
                     param_type = self._resolve_type(param.type_annotation)

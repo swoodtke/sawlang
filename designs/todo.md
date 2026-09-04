@@ -121,7 +121,7 @@ is scheduled and in what order is the whole of what they say.
 - DF-284b — `{ ... }()`, the spelling BOTH the spec and the diagnostic name as the fix, does not exist (entry below, filed Aug 31 by design 218 unit 1.5's agent while repairing DF-284a; PRE-EXISTING and never once tested — no `examples/` file contains the form). The postfix call is never applied to a closure literal in ANY position: statement position is the bogus refusal whose own hint names it, argument position is a parse error, and `let x = { 1 }()` SILENTLY binds the closure and drops the `()`. Not this unit's to fix (it is a parser question with a trailing-closure interaction); corodiff's `nested_block_tail` wrapper, which was written around the form and had therefore never compiled, moved to a nested `if true` scope
 - DF-287a — a `move` inside a DIVERGING catch poisons the fall-through path (entry below, filed Sep 1 by the lead from an sos-relayed repro; PRE-EXISTING). Every non-catch diverging construct — `if`, `match` arm, `guard else` — already restores; catch is the one outside the rule, in all three of its forms
 - DF-287b — bare-literal ADOPTION never runs at an OVERLOADED call site (entry below, same filing; PRE-EXISTING; DF-242c's matcher family). `solo(len: 1)` adopts at a lone `UInt` param and `b.put(len: 1)` is refused ``expects `UInt` but got `Int` `` although every `put` candidate agrees the slot is `UInt` — with a hint teaching the `as UInt` conversion adoption should have made unnecessary
-- DF-290a — SOUNDNESS: a closure's `&`/`&var` PARAMETER may be `move`d — silent double free (entry below, filed Sep 2 by DF-288a's fix agent; PRE-EXISTING). The SAME mechanism as DF-288a at a different registration site: a reference parameter is bound with the REFERENT's type, so `{ &var e in move e }` sees an owned local. Not fixed with DF-288a — a different construct owing its own consumer sweep over the `with_ref`/`with_var_ref` idiom; the flag and the refusal it needs are already built. Corpus census: zero occurrences
+- DF-290a — CLOSED Sep 4, FIXED (entry below): the two closure registration sites stamp `VariableInfo.borrows_referent` and `_check_move_expr` refuses, with its own wording. FIVE faces closed, not the filed two — the sweep added the SHARED sigil on both constructs and every LOCK BODY (`Mutex`/`SpinLock` hand `&var T` to a closure, so the whole interior-mutability surface sat on it). Tier-blind, like V62. Conformance rows V68-V71; corpus census confirmed: zero occurrences, nothing migrated
 - DF-286b — **THE STAGE-3c-2 BLOCKER**: A3's instance-check residue was measured on ONE program, and the corpus's population is larger and different in kind (entry below, filed Sep 1 by design 218 unit 1.5 stage 3c's agent). 115 diagnostics over 14 of 122 generic-named examples, in at least six classes, of which only two are the signed families — and two of the six are genuine funnel/registry DEFECTS, not artifacts. Needs a ruling before splice-all can be built
 - DF-286c — the materialization funnel does not reproduce what codegen's `type_param_context` path did, at four named positions (entry below, same filing; ONE mechanism, four faces — const-generic VALUES, associated-type annotations, the conditional-conformance bounds filter, and a `-> T?` tail's auto-wrap). Its matrix is stage 3c-2's test plan. **CLOSED Sep 2 by stage 3c-2a/3c-2c(1): face 1 both halves, face 2, face 3 (reframed into B1) and face 4 all fixed and pinned; face 4 turned out to be a CONCRETE-path defect the generic path had been hiding — see DF-289d for its residue**
 - DF-294b — a `type` ALIAS binds through the SELECTIVE import form ONLY: the glob leaves it unbound and the qualified spelling mints a name-only type + a not-callable head (entry below, filed Sep 3 from sos-relayed SL-20; workaround `import m.{Alias}`)
@@ -682,9 +682,55 @@ documented ambiguity error. Sweep owed at fix time: the static-method and
 init overload faces of the same funnel (unprobed), and DF-242c's suffixed
 face, which this mechanism plausibly explains too.
 
-## DF-290a — SOUNDNESS: a closure's `&`/`&var` PARAMETER may be `move`d — silent
-## double free (filed Sep 2 by DF-288a's fix agent; PRE-EXISTING; NOT fixed
-## there)
+## DF-290a — CLOSED Sep 4, FIXED. SOUNDNESS: a closure's `&`/`&var` PARAMETER
+## may be `move`d — silent double free (filed Sep 2 by DF-288a's fix agent;
+## PRE-EXISTING; NOT fixed there)
+
+LANDED. The two registration sites in `_check_closure` stamp
+`VariableInfo.borrows_referent`, and `_check_move_expr` refuses beside DF-288a's
+own test. The MECHANISM is not about matches or closures — it is "this binding
+was given the REFERENT's type, so its type can no longer say it is an alias" —
+and the fix is the third and fourth construct to owe that stamp.
+
+FIVE FACES, not the filed two. The sweep added the SHARED sigil on both
+constructs (theft through a read-only borrow, V60's asymmetry again) and the
+LOCK BODY, which is the one that matters most in practice: `Mutex.lock` and
+`SpinLock.lock` hand `&var T` to a closure, so the whole interior-mutability
+surface sat on this hole. Baseline, all `drops=2` for one value at exit 0:
+
+    { &var e in move e }   via with_var_ref     UNSOUND   (the filed face)
+    { &e in move e }       via with_ref         UNSOUND   (shared — theft)
+    { [&var o] in move o } borrow capture       UNSOUND
+    { [&o] in move o }     shared capture       UNSOUND
+    { &var c in move c }   via Mutex.lock       UNSOUND
+
+THREE NEIGHBOURS WERE ALREADY SAFE, and the third is what identified the
+mechanism:
+
+    { e in move e }   over a `&T`-lending std method (`Vector.each`)  REFUSED
+      by the ORDINARY reference test — with no sigil written the binding KEEPS
+      its reference type, so the pre-existing check fires. The defect is
+      exactly the two sites that STRIP the reference and bind the referent.
+    move $0           a PARSE error ("Expected identifier after 'move'"), so
+      the shorthand spelling of the hole does not exist.
+    [&var self] + `move self.o`   the no-partial-moves rule fires first.
+
+TIER-BLIND, on V62's reasoning: a borrowed binding is handed out unretained at
+every tier, so a Copy-tier `move` would mint a second owner with no refcount
+bump — an underflow, not merely a NoCopy problem.
+
+THE DIAGNOSTIC IS ITS OWN, per the filing: a closure parameter is not a match
+payload, and the way out differs. `borrows_kind` picks the sentence while
+`borrows_referent` stays the one question — the parameter face names the owner's
+published move-out (`swap_out`, `take()`) called outside the body, and the
+capture face names `[move x]`.
+
+CORPUS: the census's zero-occurrence claim held — the whole battery is green
+with no migration owed anywhere.
+
+Conformance rows V68-V71. [130, 146, 216, DF-288a]
+
+--- as filed ---
 
 ```saw
 var v = Vector<Owned>()
