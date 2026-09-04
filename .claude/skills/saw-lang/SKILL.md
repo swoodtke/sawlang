@@ -316,6 +316,14 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   ```
   Hits hardest when OR-ing named bits into a hardware descriptor, which is the
   most common long line in a driver.
+  **A DECLARATION HEAD CANNOT BREAK AFTER `=` either** (DF-294d) — same rule,
+  same fix: parenthesize the initializer, so the break sits inside `(`:
+  ```saw-fragment
+  unsafe static var EVENTS: Slab<EventSlot, MAX_EVENTS> = (
+      Slab<EventSlot, MAX_EVENTS>(...))
+  ```
+  Generic statics hit this hardest (the type is written twice until design 207
+  lands constructor type-arg inference).
 - Doc comments (design 121): `///` documents the declaration that FOLLOWS it
   (top-level func/struct/enum/trait/extension/type/static, struct fields, enum
   cases, extension methods + inits, trait methods); a run of `///` lines is one

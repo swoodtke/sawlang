@@ -1,5 +1,25 @@
 # Design 207 — constructors infer their type arguments
 
+**AMENDMENT (Sep 4 2026): SCHEDULED by DF-294d's ruling** (sos SL-22 —
+the un-wrappable generic static head exists because constructors write
+the type twice; the user ruled "design 207 + interim doc"). The interim
+spec/skill lines blessing the parenthesized-initializer wrap landed
+Sep 4; this brief dispatches after the soundness pair integrates
+(typechecker surface, serial). **ONE NEW CELL THE MOTIVATING CASE
+DEMANDS, flagged for a ruling before dispatch:** the brief's matrix as
+authored is ARGUMENT-driven, but sos's shape is
+`static EVENTS: Slab<EventSlot, MAX_EVENTS> = Slab(...)` — an EMPTY
+constructor whose arguments mention no type parameter, solvable only
+from the ANNOTATED SLOT. The lead-recommended widening: the expected
+type joins the solver as an inference source for constructors (the
+slot's `T<Args>` unifies with the constructed type — exactly the
+adoption shape bare literals already take at annotated slots; explicit
+`<...>` still wins; a MISMATCH between slot and explicit args is the
+ordinary transfer error, not a solver conflict). Without this cell, 207
+deletes the doubled spelling only where an argument happens to name
+every parameter, and SL-22's nine declarations keep their second
+spelling.
+
 **Status: RULED Aug 10 (user: "generic constructors should infer their
 type arguments — anything we can accurately infer should be inferred")
 + AUTHORED; queue after 205 (typechecker inference machinery, serial

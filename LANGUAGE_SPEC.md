@@ -92,6 +92,23 @@ let bad: Vector<Int,> = [1]
 // argument list (it is allowed in `(...)` and `[...]` lists)
 ```
 
+A line break directly after `=` ends the statement like any other, so a
+declaration head that runs long cannot wrap there bare. Parenthesize the right
+side instead: the break then sits inside `(` and `)`, where it carries no
+meaning. Generic statics are where this earns its keep, since a constructor
+does not yet infer its type arguments and the type is written twice:
+
+```saw
+struct Pool { capacity: Int, used: Int }
+
+static STARTUP: Pool = (
+    Pool(capacity: 64, used: 0))
+
+func main() {
+    print(STARTUP.capacity)     // prints: 64
+}
+```
+
 `{` and `}` are the exception. A block or closure is a statement container, so
 line breaks inside one keep ending statements, including when the braces sit
 inside a wrapped argument list:
