@@ -92,11 +92,17 @@ than conversion sites): construction (`Optional.Some`, `Result.Ok`/`Err`,
 user enums), match-arm extraction, by-value argument/return — each checked
 word-granular in the emitted code.
 LAYOUT-CHANGE DILIGENCE (the ruling's cost, made visible):
-- U0 gains a row: enumerate every std/corpus enum whose size or alignment
-  GROWS under word-rounding (`Optional<Byte>`/`Optional<Bool>` and small
-  raw-payload enums are the candidates) and report the deltas — including
-  the sos image's .bss/RAM movement, since arrays of small optionals get
-  wider. Report, not gate: the trade is accepted; the numbers still land.
+- U0 gains a row: enumerate every std/corpus enum's size delta under the
+  new layout, attributing BOTH components — (i) payload rounding to the
+  word multiple (zero for pointerful/Int-bearing variants;
+  `Optional<Byte>`-class enums are the losers) and (ii) TAG-ALIGNMENT
+  padding: `{i32, [N x i8]}` packs the payload at offset 4, a word-typed
+  payload moves to offset 8 on 64-bit hosts, so EVERY payload enum grows
+  ~4 B there (zero on riscv32, W=4). Growth propagates to CONTAINERS of
+  the enum (a field, an element stride), never to the bare payload type,
+  which is unchanged everywhere. Report the sos image's .bss/RAM movement
+  too, since arrays of small optionals get wider. Report, not gate: the
+  trade is accepted; the numbers still land.
 - The `__saw_rt_*` seam: rt/ABI.md's frozen contract — check whether any
   seam-crossing type carries a payload enum by value; the `abidoc` lane
   gates it, and a genuine seam-layout change STOPS the unit for a ruling
