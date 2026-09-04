@@ -29,4 +29,4 @@ so a consumer pinning by SHA can pick a BLESSED sha by name and hold it until
 ready for the next one. Tags exist retroactively back to v0.1.0.
 """
 
-SAWC_VERSION = "0.5.0"
+SAWC_VERSION = "0.6.0"
