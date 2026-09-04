@@ -126,8 +126,8 @@ is scheduled and in what order is the whole of what they say.
 - DF-286b — **THE STAGE-3c-2 BLOCKER**: A3's instance-check residue was measured on ONE program, and the corpus's population is larger and different in kind (entry below, filed Sep 1 by design 218 unit 1.5 stage 3c's agent). 115 diagnostics over 14 of 122 generic-named examples, in at least six classes, of which only two are the signed families — and two of the six are genuine funnel/registry DEFECTS, not artifacts. Needs a ruling before splice-all can be built
 - DF-286c — the materialization funnel does not reproduce what codegen's `type_param_context` path did, at four named positions (entry below, same filing; ONE mechanism, four faces — const-generic VALUES, associated-type annotations, the conditional-conformance bounds filter, and a `-> T?` tail's auto-wrap). Its matrix is stage 3c-2's test plan. **CLOSED Sep 2 by stage 3c-2a/3c-2c(1): face 1 both halves, face 2, face 3 (reframed into B1) and face 4 all fixed and pinned; face 4 turned out to be a CONCRETE-path defect the generic path had been hiding — see DF-289d for its residue**
 - DF-294b — a `type` ALIAS binds through the SELECTIVE import form ONLY: the glob leaves it unbound and the qualified spelling mints a name-only type + a not-callable head (entry below, filed Sep 3 from sos-relayed SL-20; workaround `import m.{Alias}`)
-- DF-291b — STILL OPEN, RE-SCOPED Sep 4 (entry below): the leak reproduces, but it is NOT `Vector.fold`'s — fold's body is correct Saw, proved by the identical loop with a NAMED callee running clean. The recorded "make fold release the accumulator" fix shape rests on a falsified premise and would have been a workaround over a compiler defect; the unit was STOPPED and the mechanism refiled as DF-299c. The filing's obligation-4 population claim ("the only std generic method…") is wrong too — the defect reaches every closure with a by-value owning parameter. **Fix path settled Sep 4: rides design 264 (fold's signature unchanged; the leak ends at 264 U2, the codegen release) — closes there**
-- DF-299c — SOUNDNESS/LEAK: a closure's BY-VALUE PARAMETER is never released at the body's end, and the callers do not agree on whether it was transferred at all (entry below, filed Sep 4 by the soundness-pair dispatch while investigating DF-291b; PRE-EXISTING). Located in `codegen/closures.py`; a named function's parameters DO get released, which is the control. SIX std APIs leak, not one — `Vector.fold`, `Vector.sort_by`, `Map.each` (both slots), `Map.each_key`, `Map.each_value`, `Set.each` — and `std.json`'s object encoder rides `Map.each`, so every object encode leaks per field. A fix was ATTEMPTED and REVERTED: the codegen half fixes all six and then trips over `Map.each`, whose `body(move k, move v)` hands out a retained value at the Copy tier and a NON-RETAINED ALIAS at the ExplicitCopy tier (DF-146j's family at the visitor position); the trap is CONTENT-dependent — literals clean, heap strings fatal. **RULED Sep 4 (user, both cells): a by-value closure parameter IS owned by the body, and the std visitors LEND — design 264 (in the queue) carries the fix, visitors-first then the codegen release; closes there**
+- DF-291b — CLOSED Sep 4 by design 264 U2 (entry below): the leak reproduces, but it is NOT `Vector.fold`'s — fold's body is correct Saw, proved by the identical loop with a NAMED callee running clean. The recorded "make fold release the accumulator" fix shape rests on a falsified premise and would have been a workaround over a compiler defect; the unit was STOPPED and the mechanism refiled as DF-299c. The filing's obligation-4 population claim ("the only std generic method…") is wrong too — the defect reaches every closure with a by-value owning parameter. **Fix path settled Sep 4: rides design 264 (fold's signature unchanged; the leak ends at 264 U2, the codegen release) — closes there**
+- DF-299c — CLOSED Sep 4 by design 264 (both units; entry below). SOUNDNESS/LEAK: a closure's BY-VALUE PARAMETER is never released at the body's end, and the callers do not agree on whether it was transferred at all (entry below, filed Sep 4 by the soundness-pair dispatch while investigating DF-291b; PRE-EXISTING). Located in `codegen/closures.py`; a named function's parameters DO get released, which is the control. SIX std APIs leak, not one — `Vector.fold`, `Vector.sort_by`, `Map.each` (both slots), `Map.each_key`, `Map.each_value`, `Set.each` — and `std.json`'s object encoder rides `Map.each`, so every object encode leaks per field. A fix was ATTEMPTED and REVERTED: the codegen half fixes all six and then trips over `Map.each`, whose `body(move k, move v)` hands out a retained value at the Copy tier and a NON-RETAINED ALIAS at the ExplicitCopy tier (DF-146j's family at the visitor position); the trap is CONTENT-dependent — literals clean, heap strings fatal. **RULED Sep 4 (user, both cells): a by-value closure parameter IS owned by the body, and the std visitors LEND — design 264 (in the queue) carries the fix, visitors-first then the codegen release; closes there**
 - DF-299d — a QUALIFIED generic `init` drops its explicit type argument: `mutex.Mutex<Int>(value: 5)` is ``argument `value` expects `T` but got `Int` `` while the selective-import spelling compiles (entry below, filed Sep 4 as an incidental of DF-299c's census; PRE-EXISTING at HEAD). The CONSTRUCTOR position of design 150's "a qualifier works everywhere a name appears", which design 256 landed for methods and statics
 - DF-300a — PERF/SIZE: ENUM CONSTRUCTION at a return emits a BYTE-WISE aggregate store — the payload union is `[N x i8]`, so SROA shreds whole words into `lshr`+`store i8` chains (entry below, filed Sep 4 by the lead from a `Vector.map` disassembly). ~60 of `Vector<Int>.map`'s 166 instructions assemble its 36-byte `Result` return; once per construction/unpack, not per element. The enum-construction funnel is the aggregate-copy family member design 261 U2's memcpy fix did NOT convert (it took the `let`/assignment funnels). Evidence for the back-end size lane (the IMAGE SIZE entry). **SCHEDULED Sep 4: design 265 U2 carries the fix. RULED Sep 4 (user; amended same day to the ALIGNMENT rule): the union is typed at the max payload's natural alignment — word copies where payloads are word-aligned, small enums unchanged, no name special case; the -O0 probe identified the shred's producer as the under-aligned payload's scratch-alloca round-trip; closes at 265 U2**
 - DF-299b — a value `if`/`match` ARM forwarding a NoCopy binding is not checkpointed either: the value is bitwise-duplicated and ONE of the two deinits is LOST (entry below, filed Sep 4 by DF-299a's fix agent; PRE-EXISTING, NOT fixed there). A neighbour of DF-299a, not the same defect — the cast is a checkpoint that RUNS and cannot see the node, this is a checkpoint never CALLED at the arm — so it owes its own consumer sweep over every value-branch position
@@ -429,10 +429,11 @@ which is why the Copy tier is right and the owning tiers are not. The fix is
 plausibly to make the typechecker checkpoint the arm rather than to widen
 codegen's compensation. [131, 139, 195, DF-299a]
 
-## DF-291b — STILL OPEN Sep 4, and RE-SCOPED: the leak is real, but it is NOT
-## `Vector.fold`'s. The recorded fix shape rests on a FALSIFIED PREMISE — see
-## DF-299c, which is the actual mechanism (filed Sep 2; PRE-EXISTING).
-## Fix path settled Sep 4: rides design 264; closes at its U2
+## DF-291b — CLOSED Sep 4 by design 264 U2, as predicted: the leak was never
+## `Vector.fold`'s, and `fold`'s signature is unchanged. The codegen release
+## (ruling A) fixed it where it lived. The repro now reads before 1 / after 2 /
+## carried 2 with `drop 7` running, against 1 / 5 / 5 and no drop at HEAD.
+## Pinned by conformance row V76. [design 264 U2]
 
 INVESTIGATED Sep 4 by the soundness-pair dispatch, which was sent to fix this
 as "a std .saw change" and found it is a COMPILER defect. Reproduced first,
@@ -469,13 +470,20 @@ small change — see DF-299c. Nothing is left on the branch; the tree is
 unchanged for this item.
 [218c stage 3c-2c, 219, 131, DF-299c]
 
-## DF-299c — SOUNDNESS/LEAK: a closure's BY-VALUE PARAMETER is never released,
-## and the callers do not agree on whether it was transferred at all (filed
-## Sep 4 by the soundness-pair dispatch while investigating DF-291b;
-## PRE-EXISTING) — **RULED Sep 4 (user): (A) a by-value closure parameter IS
-## owned by the body, uniform with named functions; (B) the std visitors LEND
-## (the six census rows convert to references, `fold`'s accumulator stays).
-## Design 264 carries the fix in that order; closes there**
+## DF-299c — CLOSED Sep 4 by design 264, both rulings, in the ruled order.
+## U1 converted the six std visitor slots to references (the alias at the
+## visitor position is gone by construction, `_get_value`/`_key_at` DELETED),
+## then U2 registered owning by-value closure parameters for scope cleanup in
+## `codegen/closures.py`, mirroring `methods.py`'s
+## `_needs_cleanup` -> `_register_cleanup`. The ordering was load-bearing and
+## is confirmed: the content-dependent trap the reverted attempt hit (heap
+## strings fatal on the second encode) does NOT reproduce — a 2000-iteration
+## heap-string JSON object encode runs clean, and the three `json_value_*`
+## examples that trapped now pass. Witnesses: `Map<String, Arc<Res>>` triple
+## visit 5 -> 9 -> 13 -> 17 became flat 5; the fold repro 1 -> 5 -> 5 became
+## 1 -> 2 -> 2 with its deinit running. Pinned by conformance rows V72-V76.
+## Residual audit: the only by-value OWNING closure argument left in std is
+## `Vector.fold`'s accumulator. [design 264 U1+U2]
 
 MECHANISM, named and located. `codegen/closures.py` (the by-value arm of the
 parameter setup, ~line 344) stores the incoming argument into an alloca and

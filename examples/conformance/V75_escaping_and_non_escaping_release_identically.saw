@@ -1,0 +1,58 @@
+// Conformance row V75 — the escaping and non-escaping faces release a by-value
+// parameter identically
+//
+// Design 264 ruling A. Whether a closure's environment lives on the stack or
+// on the refcounted heap is a fact about its CAPTURES; a by-value parameter is
+// handed over at the call and owned by the body either way, so the two faces
+// must release it at the same point and the same number of times.
+//
+// The row exists because the leak did not distinguish them either — DF-299c
+// measured both faces leaking identically — so a fix that reached only the
+// non-escaping one (the shape every std visitor has) would have looked
+// complete against the whole visitor surface and left the escaping face open.
+// A closure bound to a `let` is the escaping face: the env is on the heap
+// whatever the eventual use, which is the position rule design 216 records.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: direct 1
+// EXPECT-OUTPUT: drop 1
+// EXPECT-OUTPUT: after direct
+// EXPECT-OUTPUT: bound 2
+// EXPECT-OUTPUT: drop 2
+// EXPECT-OUTPUT: after bound
+// EXPECT-OUTPUT: bound 3
+// EXPECT-OUTPUT: drop 3
+// EXPECT-OUTPUT: after second call
+
+struct Owned { w: Int }
+extension Owned: NoCopy {
+    func deinit(&var self) { print("drop {}", self.w) }
+}
+
+// Deliberately NOT `sync`: one taker serves both faces, so the only thing that
+// differs between the calls below is where the closure's environment lives.
+func hand_over(body: (Owned) -> Void, v: Owned) {
+    body(move v)
+}
+
+func main() {
+    let tag = 100
+
+    // NON-ESCAPING: passed straight to the call that runs it, stack env.
+    hand_over({ o in print("direct {}", o.w) }, Owned(w: 1))
+    print("after direct")
+
+    // ESCAPING: bound to a `let`, so the env is on the heap. The capture is
+    // what puts it there; the parameter is owned by the body regardless.
+    let sink = { o: Owned in
+        print("bound {}", o.w)
+        let _ = tag
+    }
+    hand_over(sink, Owned(w: 2))
+    print("after bound")
+
+    // The same escaping closure invoked a SECOND time releases its second
+    // parameter too — the scope is per invocation, not per closure.
+    hand_over(sink, Owned(w: 3))
+    print("after second call")
+}

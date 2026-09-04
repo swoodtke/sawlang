@@ -1,0 +1,47 @@
+// Conformance row V74 — a by-value closure parameter MOVED into a new owner
+// transfers, and is still released exactly once
+//
+// Design 264 ruling A, the other half of V73. Releasing at body end is correct
+// only if a body that moves the value ON does not also release it: the move
+// clears the scope's drop flag, exactly as it does for a deferred-move capture
+// (DF-218h), so the value is released once by whoever ends up owning it.
+//
+// This face was the one shape that ALREADY transferred correctly before the
+// ruling (DF-299c's measured edge facts), which makes it the regression guard
+// rather than the fix: the release must not turn a correct transfer into a
+// double free. Two owners are checked, because they take different paths out
+// of the body — the RETURN, and a CONTAINER the body pushes into.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: kept 3
+// EXPECT-OUTPUT: stored 4
+// EXPECT-OUTPUT: end of main
+// EXPECT-OUTPUT: drop 4
+// EXPECT-OUTPUT: drop 3
+
+struct Owned { w: Int }
+extension Owned: NoCopy {
+    func deinit(&var self) { print("drop {}", self.w) }
+}
+
+func hand_back(body: (Owned) sync -> Owned, v: Owned) -> Owned {
+    body(move v)
+}
+
+func hand_away(body: (Owned) sync -> Void, v: Owned) {
+    body(move v)
+}
+
+func main() {
+    // Moved out through the RETURN: `kept` owns it, and it dies with `kept`.
+    let kept = hand_back({ o in move o }, Owned(w: 3))
+    print("kept {}", kept.w)
+
+    // Moved into a CONTAINER the body reaches by borrow capture: the vector
+    // owns it, and it dies with the vector.
+    var shelf = Vector<Owned>()
+    hand_away({ [&var shelf] o in try! shelf.push(move o) }, Owned(w: 4))
+    print("stored {}", shelf[0].w)
+
+    print("end of main")
+}

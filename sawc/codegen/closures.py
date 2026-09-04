@@ -252,7 +252,33 @@ class ClosuresMixin:
         # owes it a scope: without one the value it took would never be dropped
         # on the paths that do not move it on. Pushed only when there is such a
         # capture, so every other closure keeps the frame shape it had.
-        if deferred_moves:
+        #
+        # A BY-VALUE PARAMETER IS AN OWNED LOCAL ON IDENTICAL TERMS (design 264
+        # ruling A). The caller TRANSFERS it, so the body owes it the same
+        # scope, and this is exactly the `_needs_cleanup` -> `_register_cleanup`
+        # contract a named function's parameters already get in `methods.py`.
+        # Without it a closure taking an owning value by value leaked one
+        # reference per invocation — DF-299c, which reached every std visitor
+        # that passed one until design 264 unit 1 converted the six to
+        # references. `Vector.fold`'s accumulator is the shape that remains, and
+        # it is the one that genuinely transfers.
+        #
+        # `_needs_cleanup` is the filter that keeps a trivial parameter
+        # zero-cost: it is false for the trivial tier, so an `(Int) -> Int`
+        # closure registers nothing and keeps the frame shape it had. Reference
+        # parameters never reach here at all — they are bound in the other arm
+        # below and recorded as borrowed, since the body owns nothing through
+        # one.
+        owning_params = [
+            param_names[i]
+            for i in range(len(param_names))
+            if i < len(param_saw_types)
+            and param_saw_types[i] is not None
+            and param_saw_types[i].kind != TypeKind.REFERENCE
+            and self._needs_cleanup(param_saw_types[i])
+        ]
+        body_owns_locals = bool(deferred_moves) or bool(owning_params)
+        if body_owns_locals:
             self.cleanup_stack.append([])
 
         # Set up environment access if there are captures
@@ -347,14 +373,23 @@ class ClosuresMixin:
                 self.variables[param_name] = alloca
                 if saw_t is not None:
                     self.variable_types[param_name] = saw_t
+                    # Design 264 ruling A: the body OWNS what it was handed, so
+                    # it releases it at body end unless a path moved it into a
+                    # new owner (the move clears this scope's drop flag, exactly
+                    # as it does for a deferred-move capture).
+                    if self._needs_cleanup(saw_t):
+                        self._register_cleanup(param_name, saw_t)
 
         # Generate body
         result = self._generate_block(expr.body)
 
-        # Drop whatever the body took and did not move on (DF-218h). `result` is
-        # already materialized, and a tail `move h` cleared this scope's flag, so
-        # running the drops here cannot free the value being returned.
-        if deferred_moves:
+        # Drop whatever the body took and did not move on — a deferred-move
+        # capture (DF-218h) and, since design 264, an owning by-value PARAMETER
+        # on the same terms. `result` is already materialized, and a tail
+        # `move h` cleared this scope's flag, so running the drops here cannot
+        # free the value being returned. That is what makes `fold`'s accumulator
+        # correct: it is moved out into the return, so nothing is left to drop.
+        if body_owns_locals:
             taken_vars = self.cleanup_stack.pop()
             if not self.builder.block.is_terminated:
                 self._cleanup_scope(taken_vars)
