@@ -31,7 +31,7 @@ is scheduled and in what order is the whole of what they say.
 
 ## [QUEUE] — scheduled, in order (user-approved)
 
-- Design 264 — by-value closure parameters are owned by the body; std visitors lend (designs/264-closure-param-ownership.md; RULED + authored + DISPATCHED Sep 4, worktree, DF range 301a+). Ruling A: a by-value closure parameter is owned by the body, uniform with named functions. Ruling B: the six by-value std visitor params (`Map.each`×2/`each_key`/`each_value`/`Set.each`/`sort_by` comparands) convert to references — `fold`'s accumulator stays, the legitimate transfer. B lands before the codegen release (the reverted attempt's trap). Closes DF-299c + DF-291b; BREAKING std surface — lead cuts 0.7.0 at integration
+- Design 264 — by-value closure parameters are owned by the body; std visitors lend (designs/264-closure-param-ownership.md; RULED + authored + DISPATCHED Sep 4, worktree, DF range 301a+; **BUILT Sep 4 — U0-U3 complete on `closure-param-ownership`, awaiting integration**). Ruling A: a by-value closure parameter is owned by the body, uniform with named functions. Ruling B: the six by-value std visitor params (`Map.each`×2/`each_key`/`each_value`/`Set.each`/`sort_by` comparands) convert to references — `fold`'s accumulator stays, the legitimate transfer. B lands before the codegen release (the reverted attempt's trap). Closes DF-299c + DF-291b (both closed in place below); BREAKING std surface — lead cuts 0.7.0 at integration. Landed as two commits, U1 before U2 as ruled; conformance rows V72-V76; U3's census filed DF-301a/DF-301b, both PRE-EXISTING and neither 264's. Corpus fallout: NONE. Terminal battery 24/24 green
 - Design 265 — the back-end size lane (designs/265-backend-size-lane.md; SCHEDULED Sep 4 by the user — "next after 264": image size + perf pressure). U0 census FIRST (this family's diagnoses were measurement-refuted twice — 261(A), 263 U1/U3), U1 `-Os`/`-Oz`/`-O2` + machine outliner + riscv save-restore (the sure thing; one `speed_level` funnel, default stays O1, bench prices O2's actual win — checked-loop exits and indirect visitor calls predicted to mute it; two cells lead-recommended for dispatch confirmation), U2 = DF-300a RULED Sep 4 (user, amended same day from words-for-all to the ALIGNMENT rule): the payload union is typed at the max payload's natural alignment — pointerful/Int payloads copy in words, `Optional<Byte>`-class enums byte-identical to today, payload rounding zero by construction (alloc size is a multiple of align), only cost is 64-bit tag padding; no name special case, so sos kernel enums get it too; the -O0 probe showed the byte-shred's PRODUCER is the under-aligned payload's scratch-alloca round-trip, which the fix deletes rather than converts; U0 reports the deltas, the rt seam is checked (a seam-layout change stops for a ruling), U3 function-sections/gc-sections census report-only. Serial after 264 (both codegen); version bump at integration (user-visible flags)
 - Design 207 — constructors infer their type arguments (designs/207-constructor-inference.md; RULED Aug 10, SCHEDULED Sep 4 by DF-294d's ruling). Dispatches after the soundness pair integrates (typechecker surface, serial); ONE cell needs the user's ruling at dispatch: the Sep-4 amendment's annotation-driven inference (the slot's type as a solver source — SL-22's own shape solves no other way). Closes DF-294d on landing; plausibly dissolves DF-247a's workaround pressure too (check at integration).
 
@@ -43,6 +43,8 @@ is scheduled and in what order is the whole of what they say.
 ## [BACKLOG] — filed, not scheduled
 
 
+- DF-301a — ICE: a SUSPENDING function whose closure PARAMETER's type is a generic-struct instantiation emits an unparseable coroutine frame (entry below, filed Sep 4 by design 264 U3's census; PRE-EXISTING, verified byte-identical pre-U2). Mechanism is frame type emission, not ownership — `Cell<Int>` fails exactly as `Arc<Res>` does. No corpus site has the shape
+- DF-301b — a closure literal assigned to an ANNOTATED `let` of function type does not infer its parameter type, then reports the mismatch against the `Int` fallback (entry below, filed Sep 4 by design 264 U3; PRE-EXISTING, minor). The PARAMETER position of the expected-type ladder DF-226a/DF-232h walked for closure returns
 - DF-297a — the template snapshot's SECOND namespace back-pointer, a `SawType.symbol` on a DECLARED annotation, which DF-292b's park does not reach and should not: the capture still rebuilds 1,628 namespace method declarations per driven compile, worth ~0.22 s (targeted memo seeding) to ~0.48 s (symbols decline to be copied) more (entry below, filed Sep 3 by the perf batch). Wants a RULING first — should a namespace symbol ever be deep-copied into a template snapshot? — because either fix changes what the snapshot contains and owes obligation 2's sweep **RULED Sep 4 (user): NO COPY — a symbol is namespace identity and snapshots stop AT it; the fix rides a future perf dispatch and owes obligation 2 (everything reading type.symbol off a materialized instance)**
 - DF-295a — 218c census rows C1-C4 shrink rather than delete; the driven-body walk that maps a generic call site onto an instance key cannot move into phase 2 (entry below, filed by 218 unit 1.5 stage 4). Sequence it WITH DF-292c — one question, two sides
 - DF-294c — the const evaluator's STATIC-NAME leaf folds integers only, so a struct-typed static is refused in every const position design 186's own hint says it works in — the repeat value `[ZERO_SLOT; N]`, plain `static ALIAS: Slot = ZERO_SLOT`, and a struct-literal field (entry below, filed Sep 3 from sos SL-21; compliance defect vs 186 tier 2, no ruling owed; workarounds relayed)
@@ -590,6 +592,58 @@ two frozen compilers under `sawc_pristine/` and `sawc_working/` — the latter
 being the reverted attempt, kept because it is the evidence that the codegen
 half fixes all six APIs.
 [131, 139, 216, 219, DF-146j, DF-218h, DF-291b]
+
+## DF-301a — ICE: a SUSPENDING function whose closure PARAMETER's type is a
+## generic-struct instantiation emits an unparseable coroutine frame (filed
+## Sep 4 by design 264 U3's census; PRE-EXISTING, not 264's)
+
+```saw
+struct Cell<T> { inner: T }
+func hand(body: (Cell<Int>) -> Void, a: Cell<Int>) { body(move a) }
+// group.spawn(hand({ c in print("inside {}", c.inner) }, Cell<Int>(inner: 4)))
+```
+
+```
+error: internal compiler error: LLVM IR parsing error
+<string>:43:42: error: invalid type for function argument
+%"__Frame_hand" = type {{i1, {void (i8*, %"Cell$1$Int")*, ...
+```
+
+MECHANISM: coroutine-frame type emission. `hand` is not `sync`, so it gets a
+`__Frame_`; the frame embeds the closure as a function-pointer FIELD, and that
+field's parameter is spelled as the monomorphized named struct
+(`%"Cell$1$Int"`) at a point where the named type is not defined in the module,
+so LLVM refuses the function type. The trigger is the closure parameter type
+being a NAMED GENERIC INSTANTIATION, not ownership: `Cell<Int>` (trivial
+payload) fails exactly as `Arc<Res>` does, while `String`, a plain `struct
+Point` and `Int` all compile and run.
+
+PRE-EXISTING, verified: byte-identical diagnostic with `codegen/closures.py`
+checked out at 7f5c06af (design 264 U1, before the U2 release). No corpus site
+has this shape — all 2306 tracked `.saw` files compile rc=0 — so there is
+nothing to xfail; the repro above is the pin when this is scheduled.
+[218 unit 1, 264 U3]
+
+## DF-301b — a closure literal assigned to an ANNOTATED `let` of function type
+## does not infer its parameter type (filed Sep 4 by design 264 U3, hit while
+## writing conformance row V75; PRE-EXISTING, minor)
+
+```saw
+let sink: (Owned) sync -> Void = { o in print("{}", o.w) }
+// error: Cannot infer type for closure parameter 'o'
+// then: cannot assign `(Int) escaping -> Void` to variable of type
+//       `(Owned) sync escaping -> Void`
+```
+
+The same literal in ARGUMENT position infers fine, so the expected type reaches
+closure parameter inference at a call and not at an annotated binding. The
+second diagnostic is the worse half: having failed to infer, the parameter
+falls back to `Int` and the mismatch is then reported against a type the author
+never wrote. Workaround is the explicit parameter type (`{ o: Owned in ... }`),
+which is what V75 spells. Neighbour of the expected-type ladder DF-226a/DF-232h
+walked for closure RETURN positions — this is the PARAMETER position of the
+same question, at the one slot that is a binding rather than a call.
+[93, 105, DF-226a, DF-232h, 264 U3]
 
 ## DF-299d — a QUALIFIED generic `init` drops its explicit type argument
 ## (filed Sep 4 by DF-299c's census as an incidental; PRE-EXISTING, present at

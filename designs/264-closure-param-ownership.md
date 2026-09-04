@@ -129,3 +129,64 @@ next pin bump (visitor closures gain `&` sigils; leaks stop; nothing else).
   (0.6.0's flow); the agent does NOT touch version.py.
 - Out of scope, recorded: a `&var V` mutate-in-place visitor (separate brief
   if sos/blade demand it); DF-299b (value-arm checkpoint); DF-299d.
+
+## U3 — the class sweep and consumer verification, as run (Sep 4)
+
+Method: an INSTRUMENTED compiler rather than grep. `_generate_closure` and
+`_register_cleanup` were monkeypatched to record every registration firing at
+the design-264 parameter arm, keyed to the closure literal's line:column — so
+the census predicate IS the compiler's own
+`_needs_cleanup(param_saw_types[i]) and kind != REFERENCE`, not a reading of
+it. All 2306 tracked `.saw` files (minus `examples/errors/`, which never reach
+codegen) were compiled under it; every one returned rc=0.
+
+THE POPULATION IS 17 SITES IN 7 FILES, all in `examples/`: four in
+`arc_forward_generic_method.saw` and three in `plain_type_generic_method.saw`
+(a `String` read out of a receiver or field, handed to a generic `body`/`f`),
+one in `funcpointer226_call.saw` (the design-226 BARE emission, no env), and
+nine in the conformance rows V71 and V73-V76. Every site compiles rc=0, runs
+rc=0, matches its recorded output, and shows exactly one release. ZERO rows
+came from `sawc/std/`, `sawc/rt/`, `blade/`, `libs/`, `devtools/`, `selfhost/`,
+`tools/` or `tests/` — and zero from `V72_std_visitors_lend.saw`, which is the
+positive proof that U1's six conversions took effect.
+
+BEFORE/AFTER, same probes under a scratch compiler carrying U1's
+`closures.py`: the field-read shape climbed to rc 2003 over 2000 calls and now
+holds flat at 3; the basic shapes read 2/3/4/5 with no `drop` at all and now
+return to base with one `drop`. Map visits are flat 3/3/3 where the brief
+records 5 -> 9 -> 13 -> 17.
+
+NO DOUBLE FREE, no new crash, no SIGTRAP anywhere — including the std
+consumers under load: 5000 `keys()`/`values()` rounds, 20000 heap-string JSON
+object encodes (the content-dependent trap's exact shape) and 5000 `Set.each`
+walks, all with flat counts and intact text.
+
+THE NEGATIVE ON NON-RETAINED ALIASES IS PROVEN three ways. Every closure-typed
+parameter declared in `sawc/std/` + `sawc/rt/` was enumerated (there are no
+function-typed struct fields and no function-type aliases to hide one): the
+by-value OWNING set is exactly {`Vector.fold`'s accumulator}. Every call site
+of those parameters lends (`body(&k, &v)`, `&buf[i]`, a `&var` payload or a
+pointer). And `_get_value`/`_key_at` survive nowhere in `sawc/` but the comment
+that records their deletion. `data.saw`, `cbor.saw` and `channel.saw` declare
+no closure-taking API at all.
+
+`Thread.spawn { }` CONFIRMED outside this path, mechanically: the census probe
+over a spawn brace capturing an `Arc` yields zero rows, because the bracket
+list is a CAPTURE list and not a parameter list. The refcount returns to 1
+after each join with one deinit.
+
+TWO PRE-EXISTING DEFECTS FOUND AND FILED, neither this brief's: DF-301a (an
+ICE on a suspending function whose closure parameter type is a generic-struct
+instantiation — verified byte-identical with U1's `closures.py`, and no corpus
+site has the shape) and DF-301b (a closure literal at an ANNOTATED `let` does
+not infer its parameter type, then reports the mismatch against an `Int`
+fallback — hit while writing V75, whose spelling works around it).
+
+KNOWN GAPS, recorded rather than papered over: `examples/errors/` was audited
+by grep only (those files fail typechecking by design, so no census is
+possible; all 16 with parameterized closures take `Int`, a reference, an
+unsafe type or a payload-free enum); the freestanding cases were compiled
+hosted, with the battery's `freestanding` lane as the cross-target evidence;
+and a closure inside a generic the corpus never instantiates at an owning type
+emits nothing, so the census cannot see it — the one inert declaration is
+`W02`'s never-called `fn_type_pos(f: (Path) -> Int)`.
