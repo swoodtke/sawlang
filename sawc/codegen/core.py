@@ -593,12 +593,14 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     def _entry_alloca(self, llvm_type, name="", align=None):
         """Create an alloca in the current function's entry block.
 
-        `align` overrides the slot's alignment. An enum/Result payload is typed
-        `[N x i8]` (ABI align 1), but it is bitcast-and-loaded as the active
-        variant's field struct, whose fields (pointers, i64) require 8-alignment;
-        a 1-aligned slot lands the payload on an odd offset and the wider load
-        alignment-faults on arm64 (a layout-sensitive heisenbug). Payload slots
-        therefore pass align=8 so the reinterpreted load is always aligned.
+        `align` overrides the slot's alignment. Payload scratch used to pass
+        `align=8` for a reason design 265 U2 removed: an enum payload was typed
+        `[N x i8]` (ABI align 1) and bitcast-and-loaded as the active variant's
+        field struct, whose pointers and `i64`s require 8-alignment, so a
+        1-aligned slot landed the payload on an odd offset and the wider load
+        alignment-faulted on arm64. The union is now typed at its payload's own
+        alignment, so `_payload_scratch_alloca` asks the TYPE instead of
+        hard-coding a number.
 
         Every stack slot must be allocated in the entry block, for two reasons:
         - mem2reg/SROA only promote allocas that live in the entry block, so
@@ -1412,7 +1414,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             of indirection to tell mutable from shared — a by-pointer `&self`
             String would be indistinguishable from a `&var self` one.
           - A payload-free ENUM, whose LLVM type is a bare tag integer. A
-            payload-CARRYING enum is `{tag, [N x i8]}` and does flip.
+            payload-CARRYING enum is `{tag, [M x iK]}` and does flip.
           - A ZERO-SIZED aggregate. `GlobalAllocator` has no fields, and
             `GlobalAllocator().alloc(...)` monomorphizes to a direct call with
             no allocator value materialized at all (design 19 option C). A
@@ -3041,7 +3043,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
     def _register_enum(self, enum: Enum):
         """Register an enum type with LLVM.
-        Enums are represented as tagged unions: { i32 tag, [N x i8] payload }
+        Enums are represented as tagged unions: { i32 tag, [M x iK] payload }
         or just i32 if all variants have no associated values."""
         # Skip generic enums - they'll be monomorphized when used
         identity = decl_identity(enum)
@@ -3062,7 +3064,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         reordering the cases cannot renumber them.
 
         PUBLISH BEFORE LOWER (design 246 Unit B). A payload-carrying enum is an
-        IDENTIFIED struct `{i32, [N x i8]}` rather than a literal one, so the
+        IDENTIFIED struct `{i32, [M x iK]}` rather than a literal one, so the
         registry entry can be published while it is still bodyless and a
         payload that reaches back to this enum — `case Items(items:
         Vector<Json>)` — resolves to the published handle instead of raising
@@ -3111,20 +3113,22 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
                     variant_structs.append(ir.LiteralStructType(variant_types))
 
         def finish():
-            # Size the payload byte array by each variant struct's TRUE ABI
-            # size (via LLVM's DataLayout), NOT a naive field-size sum. The
-            # sum ignores alignment padding, so any payload with internal
+            # Size the payload array by each variant struct's TRUE ABI size
+            # (via LLVM's DataLayout), NOT a naive field-size sum. The sum
+            # ignores alignment padding, so any payload with internal
             # padding — a pointer/optional after a smaller field, e.g.
             # `Arc<T>` (an optional pointer `{i1, ptr}` = 16 bytes, sum 9)
-            # or an `Int8` before a wide field — undersizes `[N x i8]` and
+            # or an `Int8` before a wide field — undersizes the array and
             # both TRUNCATES the aggregate on construction and reads OOB on
             # extraction (design 65, L17 symptom 2).
             max_payload_size = max(
                 (self._abi_size(vs) for vs in variant_structs), default=0)
-            # `{ i32 tag, [N x i8] payload }`.
+            max_payload_align = max(
+                (self._abi_align(vs) for vs in variant_structs), default=1)
             llvm_enum_type.set_body(
                 ir.IntType(32),
-                ir.ArrayType(ir.IntType(8), max_payload_size))
+                self._enum_payload_union_type(max_payload_size,
+                                              max_payload_align))
 
         # The SIZE of a payload is what waits, not just the body: an enum whose
         # payload is a container of itself asks for that container's layout, and
@@ -3132,8 +3136,82 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # (design 246 Unit B).
         self._finish_or_defer(name, variant_structs, finish)
 
+    def _enum_payload_union_type(self, size: int, align: int):
+        """THE payload union's type: `[M x iK]` at the payload's own alignment.
+
+        design 265 U2 / DF-300a. ONE function decides the union's element type,
+        and the TYPE is the funnel — every position that touches a payload
+        (construction, match-arm extraction, the Result Ok/Err unpack, a
+        by-value argument or return, a move, a release walk) reads this type
+        out of `enum_types` and copies at ITS granularity. There is no
+        per-site conversion to keep in step and no position at which the old
+        spelling can regrow, which is what obligation 1 asks for
+        structurally.
+
+        The rule: `K = 8 * <the largest variant payload's natural alignment>`,
+        `M = ceil(size / align)`. So a pointerful or `Int` payload is
+        `[M x i64]` on a 64-bit host and `[M x i32]` on riscv32, an
+        `Int16`-class payload is `[M x i16]`, and a `Byte`/`Bool`-class
+        payload keeps `[N x i8]` exactly as before. No name-based special
+        case: `Result`, `Optional` and every user or kernel enum get the
+        granularity their own payload earns.
+
+        WHY, measured (DF-300a): an `[N x i8]` payload member has ABI
+        alignment 1, so the payload sat UNDER-ALIGNED at offset 4 and codegen
+        compensated by round-tripping every payload access through a separate
+        `align 8` scratch alloca — array stores and loads at byte type, which
+        SROA then shredded into per-byte `lshr`/`trunc`/`store i8` chains. The
+        `Vector<Int>.map` instantiation spent 75 of its 160 instructions on
+        that. Typed at the payload's own alignment, the slot is correctly
+        placed in situ and every one of those copies is a word copy that SROA
+        decomposes into word loads and stores.
+
+        COST, and it is not zero: the tag pads to the payload's alignment, so
+        an 8-aligned payload moves from offset 4 to offset 8 on a 64-bit host
+        (+4 B per such enum; riscv32 pays nothing, since word alignment is 4
+        and the tag already fills it). Payload ROUNDING is zero whenever the
+        largest variant is also the most-aligned one, which the design-265 U0
+        census found true for 39 of 40 std enums; where it is not
+        (`Result<JsonValue, DecodeError>`: a 52-byte align-4 Ok beside an
+        align-8 Err) the array rounds 52 up to 56 and the enum grows +8
+        rather than +4. Accepted at the ruling.
+        """
+        if align <= 1:
+            return ir.ArrayType(ir.IntType(8), size)
+        count = (size + align - 1) // align
+        return ir.ArrayType(ir.IntType(align * 8), count)
+
+    def _payload_scratch_alloca(self, union_type, name: str):
+        """The scratch slot a BY-VALUE payload conversion round-trips through.
+
+        design 265 U2. An enum whose value is an SSA aggregate has to convert
+        between the union's array type and the active variant's field struct,
+        and LLVM has no bitcast between aggregate VALUES — the conversion is a
+        store at one type and a load at the other, which needs storage. So
+        this slot remains where the enum is a value rather than a place: the
+        construction sites (`_generate_enum_init`, the Result Ok/Err
+        constructors) and the extraction sites (a match arm's payload, the
+        Result Ok/Err unpack), each of which is handed an SSA enum with no
+        pointer to GEP into.
+
+        What design 265 U2 removed is not the slot but the SHRED: the slot is
+        typed as the union (see `_enum_payload_union_type`), so at the payload
+        alignment the store and the load are WORD copies that SROA decomposes
+        into word loads and stores, where the old `[N x i8]` spelling made
+        SROA shred each word into `lshr`/`trunc`/`store i8`. Measured on the
+        `Vector<Int>.map` instantiation: 160 instructions with 75 of them
+        shred-family, down to 69 with 6.
+
+        The alignment comes from the TYPE rather than a constant, which is the
+        invariant that makes the reinterpreting load legal: the union is at
+        least as aligned as any variant struct stored through it, because its
+        element width IS the largest payload's alignment.
+        """
+        return self._entry_alloca(union_type, name=name,
+                                  align=self._abi_align(union_type))
+
     def _enum_carries_payload(self, variants, raw_type) -> bool:
-        """Whether this enum's LLVM shape is `{i32, [N x i8]}` rather than a
+        """Whether this enum's LLVM shape is `{i32, [M x iK]}` rather than a
         bare integer tag — asked BEFORE any payload type is lowered, because
         the answer decides which shape gets PUBLISHED (design 246 Unit B).
 

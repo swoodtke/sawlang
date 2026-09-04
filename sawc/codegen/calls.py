@@ -3489,7 +3489,8 @@ class CallsMixin:
             # (design 145 unit B2).
             return ir.Constant(llvm_enum_type, tag_value)
         else:
-            # Enum with payload: { i32 tag, [N x i8] payload }
+            # Enum with payload: `{ i32 tag, [M x iK] payload }`, the union
+            # typed at the payload's alignment (`_enum_payload_union_type`)
             # Create undefined struct value
             enum_val = ir.Constant(llvm_enum_type, ir.Undefined)
 
@@ -3533,16 +3534,19 @@ class CallsMixin:
                 for i, val in enumerate(arg_values):
                     param_struct = self.builder.insert_value(param_struct, val, i, name=f"param{i}")
 
-                # Cast the param struct to bytes and store in payload.
-                payload_array_type = llvm_enum_type.elements[1]  # [N x i8]
+                # Convert the param struct into the payload union's type.
+                payload_array_type = llvm_enum_type.elements[1]
 
-                # Allocate temporary space sized to the FULL payload `[N x i8]`
-                # (the biggest variant), NOT the smaller variant struct: the byte
-                # loads below read all N bytes, so a variant-sized alloca reads out
-                # of bounds past the slot (design 94 — the create/extract
+                # Allocate temporary space sized to the FULL payload union (the
+                # biggest variant), NOT the smaller variant struct: the load
+                # below reads the whole union, so a variant-sized alloca reads
+                # out of bounds past the slot (design 94 — the create/extract
                 # asymmetry). Alloca the full payload, store the variant struct
-                # into its front through a bitcast pointer, load the whole thing.
-                payload_temp = self._entry_alloca(payload_array_type, name="payload_temp", align=8)
+                # into its front through a bitcast pointer, load the whole
+                # thing. design 265 U2: word-granular, because the union is
+                # typed at the payload's alignment.
+                payload_temp = self._payload_scratch_alloca(
+                    payload_array_type, "payload_temp")
                 struct_ptr = self.builder.bitcast(payload_temp,
                                                   ir.PointerType(param_struct_type),
                                                   name="payload_struct_ptr")

@@ -562,7 +562,7 @@ class OperatorsMixin:
                 return self._emit_array_equals(left, right, st)
             if k == TypeKind.STRUCT and not isinstance(lt, ir.IntType):
                 return self._emit_struct_equals(left, right, st)
-            # A payload-carrying enum is `{i32, [N x i8]}`; design 246 Unit B
+            # A payload-carrying enum is `{i32, [M x iK]}`; design 246 Unit B
             # makes that an IDENTIFIED struct, so the test is the struct-ness
             # rather than the literal spelling. A payload-free enum is a bare
             # integer and falls through to the tag compare below.
@@ -574,7 +574,7 @@ class OperatorsMixin:
             return self.builder.icmp_signed('==', left, right, name="ieq")
 
         # Fallback for values reaching here without a Saw type (compiler-
-        # synthesized comparisons): an enum-shaped {i32, [N x i8]} value compares
+        # synthesized comparisons): an enum-shaped {i32, [M x iK]} value compares
         # tags (the historical behavior); a bare pointer compares by identity.
         if (isinstance(lt, ir.BaseStructType) and lt.elements
                 and len(lt.elements) == 2

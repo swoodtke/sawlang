@@ -373,3 +373,106 @@ benchmark the levels are 1,971 / 1,980 / 1,947 / 1,932 ms (default / O2 / Os
 The Python front end dominates a sawc invocation so completely that the
 backend pipeline's cost is inside the noise. The default stays O1 on the
 merits above, not on compile time.
+
+## U2 — MEASURED (Sep 4 2026, agent). DF-300a CLOSED
+
+### The seam fence: CLEARED, no ruling needed
+
+`rt/ABI.md` says every seam signature fits the design-58 `@export`
+whitelist — fixed-width integers, `Int`/`UInt`, `UnsafePointer`,
+`Void`/`Never` — and that whitelist admits no aggregate by value at all. The
+one error vocabulary that crosses the seam, `SysError`, crosses as a NEGATED
+INTEGER TAG in a single word, never as an enum value. So no seam-crossing
+type carries a payload enum by value and the layout change cannot reach the
+frozen ABI. The `abidoc` lane gates the claim independently and is green.
+
+### The acceptance pin
+
+`_Vector$2$Int$GlobalAllocator_map$1$Int`, host arm64:
+
+| | before | after |
+|---|---|---|
+| instructions | 160 | **69** (-57%) |
+| shred-family | 75 (47%) | **6 (9%)** |
+| `strb` / `lsr` / `ldrb` | 34 / 22 / 19 | 2 / 1 / 3 |
+
+The brief asked for the ~60-instruction return assembly to collapse to about
+six word stores. It did.
+
+### The sweep: every sibling position, before and after
+
+`.build/scratch/sweep300a.saw` puts all four rows in one program — a
+three-case user enum constructed and matched, a multi-field payload
+extracted, an enum passed BY VALUE and returned by value, a `Result`
+constructed out of a match arm, and an `Optional` built and read. Compiled
+with the pre-change compiler and with this one:
+
+| function (what it covers) | shred insns before | after |
+|---|---|---|
+| `widen` (construction + match extraction + by-value arg and return) | 124 | **0** |
+| `measure` (Result Ok/Err construction from match arms) | 40 | **0** |
+| `main` (Optional construct/read, enum literals, printing) | 327 | **5** |
+| `Vector.push` | 16 | **0** |
+| whole program | 545 (9.3% of 5,859 insns) | **14 (0.4% of 3,334)** |
+
+The five that remain are `StringBuilder`'s genuine byte handling, which is
+byte work because the data is bytes.
+
+### Host corpus, five binaries
+
+| program | insns before | after | delta | shred before | after |
+|---|---|---|---|---|---|
+| `dis_map.saw` | 3,966 | 3,195 | -19.4% | 173 (4.4%) | 9 (0.3%) |
+| `result_basic.saw` | 412 | 407 | -1.2% | 0 | 0 |
+| `json_value_roundtrip.saw` | 29,537 | 19,891 | **-32.7%** | 3,576 | 144 |
+| `cbor169_roundtrip.saw` | 21,678 | 14,889 | **-31.3%** | 3,556 | 186 |
+| `json_roundtrip_struct.saw` | 16,780 | 11,730 | **-30.1%** | 2,140 | 45 |
+
+U0 called the json/cbor shred shares upper bounds, because a parser's `ldrb`
+and a shredded payload word look alike to the detector. The after-numbers
+settle it: most of that mass really was payload shred.
+
+### The sos image: `.text` byte-identical, the root image a region smaller
+
+The riscv32 kernel is **unchanged to the byte** (`.text` 68,184, `.rodata`
+24,404, `.data` 9,904 — a fresh rebuild, not a cache hit), which is U0's
+riscv32 prediction landing exactly: word alignment there is 4, the payload
+was already word-granular, and 39 of 40 enums keep their layout. The
+embedded root image (`.payload`) went 32,768 -> 24,576 B, an 8 KB region
+step, so the root server — ordinary Saw code full of Results — did shrink.
+`bench` is unchanged within noise (181 ms against 182, 174 at `-O2` against
+173) with checksums holding, which is DF-300a's own cost shape: once per
+construction, never per element.
+
+### The cost, made visible
+
+One corpus test pinned the pre-change layout and had to be updated, which is
+the clearest statement of what this costs: `alloc_map_set_reports_oom`
+reports its refused allocation by size, and `MapSlot<Int, Int>` went from 20
+bytes at align 4 — under-aligned for the two `Int`s it holds, which is the
+bug — to 24 at align 8. A 16-slot table asks 384 bytes where it asked 320,
+**+20% on that table on a 64-bit host** and nothing on riscv32. That is the
+tag-padding cost the ruling accepted, in the one place the corpus could see
+it.
+
+### What stayed, and why the brief's "delete the scratch dance" reads as it does
+
+The brief asked the fix to delete the scratch-alloca round-trip rather than
+re-type it. It is re-typed and kept, deliberately, and the reason is a
+property of LLVM rather than a preference: **LLVM has no bitcast between
+aggregate VALUES.** Every site that round-trips is handed the enum as an SSA
+aggregate with no pointer to GEP into — `_generate_enum_init` builds one,
+`_extract_result_ok_value` and the match-arm extractor are given one — so
+converting between the union's array type and the active variant's field
+struct is a store at one type and a load at the other, and that needs
+storage. Deleting it would mean making enum construction and extraction
+memory-based throughout, a much larger change than this brief scopes.
+
+The brief's own next sentence is what the code now satisfies: "Any scratch
+that must remain (a genuinely by-value round-trip) is word-granular by
+construction." All seven sites route through one named
+`_payload_scratch_alloca`, whose docstring says why it remains and which
+takes its alignment from the union TYPE rather than the hard-coded `align=8`
+that used to paper over the under-alignment. The IN-PLACE paths — the
+release walk, the retain walk, the copy walk — GEP into the payload directly
+and always did; they simply reach an aligned payload now.

@@ -34,14 +34,16 @@ class MatchMixin:
             return self._generate_match_general(expr)
 
         # An arm may `lend` one of its payload bindings (design 146, DF-146d).
-        # The binding is still EXTRACTED into an alloca — an enum is
-        # `{ i32 tag, [N x i8] payload }`, so a pointer into the payload carries
-        # only the tag's alignment and would be under-aligned for whatever the
-        # payload holds — and the arm stores it back into the scrutinee when the
-        # window closes. Copy-in/copy-out is indistinguishable from aliasing
-        # here: a place window borrows the scrutinee's ROOT for its whole
-        # extent, so the Law of Exclusivity guarantees nothing else can read the
-        # slot while the payload is out.
+        # The binding is still EXTRACTED into an alloca, and the arm stores it
+        # back into the scrutinee when the window closes. Copy-in/copy-out is
+        # indistinguishable from aliasing here: a place window borrows the
+        # scrutinee's ROOT for its whole extent, so the Law of Exclusivity
+        # guarantees nothing else can read the slot while the payload is out.
+        # (The original reason was alignment — the payload union used to be
+        # `[N x i8]`, so a pointer into it carried the tag's alignment and was
+        # under-aligned for whatever the payload held. design 265 U2 types the
+        # union at the payload's own alignment and that reason is gone; the
+        # exclusivity one above is what keeps the shape.)
         lends_payload = any(getattr(arm, 'lent_bindings', None)
                             for arm in expr.arms)
         scrut_ptr = None
@@ -55,7 +57,7 @@ class MatchMixin:
             matched_val = self._generate_expression(expr.matched_expr)
 
         # Extract the tag
-        # Check if enum is simple (i32) or has payload ({ i32, [N x i8] })
+        # Check if enum is simple (i32) or has payload ({ i32, [M x iK] })
         if isinstance(matched_val.type, ir.IntType):
             # Simple enum
             tag = matched_val
@@ -305,8 +307,11 @@ class MatchMixin:
                 param_types = [self._get_llvm_type(t) for _, t in variant_params]
                 param_struct_type = ir.LiteralStructType(param_types)
 
-                # Store bytes to memory, then load as struct
-                payload_alloca = self._entry_alloca(llvm_enum_type.elements[1], name="payload_alloca", align=8)
+                # Store the union to memory, then read it as the variant's
+                # struct (design 265 U2: word-granular, see
+                # `_payload_scratch_alloca`).
+                payload_alloca = self._payload_scratch_alloca(
+                    llvm_enum_type.elements[1], "payload_alloca")
                 self.builder.store(payload_bytes, payload_alloca)
                 struct_ptr = self.builder.bitcast(payload_alloca,
                                                   ir.PointerType(param_struct_type),
@@ -744,7 +749,8 @@ class MatchMixin:
             payload_bytes = self.builder.extract_value(value, 1, name="payload")
             param_types = [self._get_llvm_type(t) for _, t in params]
             param_struct_type = ir.LiteralStructType(param_types)
-            payload_alloca = self._entry_alloca(llvm_enum_type.elements[1], name="payload_alloca", align=8)
+            payload_alloca = self._payload_scratch_alloca(
+                llvm_enum_type.elements[1], "payload_alloca")
             self.builder.store(payload_bytes, payload_alloca)
             struct_ptr = self.builder.bitcast(payload_alloca,
                                               ir.PointerType(param_struct_type),

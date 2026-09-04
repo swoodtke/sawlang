@@ -99,7 +99,7 @@ class ResourcesMixin:
         llvm_type = entry[0]
         if isinstance(llvm_type, ir.IntType):
             return llvm_type
-        # Payload shape `{ tag, [N x i8] }`.
+        # Payload shape `{ tag, [M x iK] }`.
         return llvm_type.elements[0]
 
     def _ext_self_types(self, type_name: str):
@@ -107,7 +107,7 @@ class ResourcesMixin:
 
         One place that knows all three receiver shapes: a primitive
         pseudo-struct (design 57), an ENUM (design 145 — its LLVM type is a bare
-        `i32` tag when payload-free, or `{i32, [N x i8]}` with payloads), and an
+        `i32` tag when payload-free, or `{i32, [M x iK]}` with payloads), and an
         ordinary struct. Getting the SawType KIND right matters as much as the
         LLVM type: a STRUCT-kinded `self` on an enum has no variants, so every
         `match self` in the body would fail to resolve its cases."""
@@ -702,7 +702,7 @@ class ResourcesMixin:
         """Release the active variant's cleanup-needing payload fields of the enum
         at `enum_ptr`, by switching on the runtime tag (brief 23 item 1).
 
-        The enum is laid out `{ i32 tag, [N x i8] payload }`. For each variant
+        The enum is laid out `{ i32 tag, [M x iK] payload }`. For each variant
         that carries any cleanup-needing field we emit a switch case that bitcasts
         the payload bytes to that variant's field struct and drops those fields in
         reverse declaration order (LIFO). Variants with nothing to release (and a

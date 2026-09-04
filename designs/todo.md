@@ -128,7 +128,7 @@ is scheduled and in what order is the whole of what they say.
 - DF-286c — the materialization funnel does not reproduce what codegen's `type_param_context` path did, at four named positions (entry below, same filing; ONE mechanism, four faces — const-generic VALUES, associated-type annotations, the conditional-conformance bounds filter, and a `-> T?` tail's auto-wrap). Its matrix is stage 3c-2's test plan. **CLOSED Sep 2 by stage 3c-2a/3c-2c(1): face 1 both halves, face 2, face 3 (reframed into B1) and face 4 all fixed and pinned; face 4 turned out to be a CONCRETE-path defect the generic path had been hiding — see DF-289d for its residue**
 - DF-294b — a `type` ALIAS binds through the SELECTIVE import form ONLY: the glob leaves it unbound and the qualified spelling mints a name-only type + a not-callable head (entry below, filed Sep 3 from sos-relayed SL-20; workaround `import m.{Alias}`)
 - DF-299d — a QUALIFIED generic `init` drops its explicit type argument: `mutex.Mutex<Int>(value: 5)` is ``argument `value` expects `T` but got `Int` `` while the selective-import spelling compiles (entry below, filed Sep 4 as an incidental of DF-299c's census; PRE-EXISTING at HEAD). The CONSTRUCTOR position of design 150's "a qualifier works everywhere a name appears", which design 256 landed for methods and statics
-- DF-300a — PERF/SIZE: ENUM CONSTRUCTION at a return emits a BYTE-WISE aggregate store — the payload union is `[N x i8]`, so SROA shreds whole words into `lshr`+`store i8` chains (entry below, filed Sep 4 by the lead from a `Vector.map` disassembly). ~60 of `Vector<Int>.map`'s 166 instructions assemble its 36-byte `Result` return; once per construction/unpack, not per element. The enum-construction funnel is the aggregate-copy family member design 261 U2's memcpy fix did NOT convert (it took the `let`/assignment funnels). Evidence for the back-end size lane (the IMAGE SIZE entry). **SCHEDULED Sep 4: design 265 U2 carries the fix. RULED Sep 4 (user; amended same day to the ALIGNMENT rule): the union is typed at the max payload's natural alignment — word copies where payloads are word-aligned, small enums unchanged, no name special case; the -O0 probe identified the shred's producer as the under-aligned payload's scratch-alloca round-trip; closes at 265 U2**
+- DF-300a — PERF/SIZE: ENUM CONSTRUCTION at a return emits a BYTE-WISE aggregate store — the payload union is `[N x i8]`, so SROA shreds whole words into `lshr`+`store i8` chains (entry below, filed Sep 4 by the lead from a `Vector.map` disassembly). ~60 of `Vector<Int>.map`'s 166 instructions assemble its 36-byte `Result` return; once per construction/unpack, not per element. The enum-construction funnel is the aggregate-copy family member design 261 U2's memcpy fix did NOT convert (it took the `let`/assignment funnels). Evidence for the back-end size lane (the IMAGE SIZE entry). **SCHEDULED Sep 4: design 265 U2 carries the fix. RULED Sep 4 (user; amended same day to the ALIGNMENT rule): the union is typed at the max payload's natural alignment — word copies where payloads are word-aligned, small enums unchanged, no name special case; the -O0 probe identified the shred's producer as the under-aligned payload's scratch-alloca round-trip; closes at 265 U2**. **CLOSED Sep 4 at design 265 U2 — the map pin is 160 instructions/75 shred-family down to 69/6, the sibling sweep is zero, host enum-heavy binaries are ~30% smaller, riscv32 .text is byte-identical, and the cost is MapSlot<Int,Int> 20/4 -> 24/8 on 64-bit hosts; see the entry below**
 - DF-299b — a value `if`/`match` ARM forwarding a NoCopy binding is not checkpointed either: the value is bitwise-duplicated and ONE of the two deinits is LOST (entry below, filed Sep 4 by DF-299a's fix agent; PRE-EXISTING, NOT fixed there). A neighbour of DF-299a, not the same defect — the cast is a checkpoint that RUNS and cannot see the node, this is a checkpoint never CALLED at the arm — so it owes its own consumer sweep over every value-branch position
 
 
@@ -508,6 +508,29 @@ construction. Workaround: the selective import.
 ## aggregate store — the payload union's `[N x i8]` type launders the word
 ## structure and SROA amplifies it into `lshr`/`strb` chains (filed Sep 4 by
 ## the lead from a `Vector.map` disassembly; PRE-EXISTING)
+## **FIXED Sep 4 by design 265 U2** — the payload union is typed at the max
+## payload's natural ALIGNMENT (`_enum_payload_union_type` in codegen/core.py
+## is the funnel; the TYPE is what fixes every position at once). The pin:
+## the `Vector<Int>.map` instantiation is 160 instructions with 75
+## shred-family, down to **69 with 6**. The sweep found ZERO shred left in
+## construction, match-arm extraction, by-value enum arguments and by-value
+## enum returns (124 and 40 instructions before, 0 and 0 after, in one
+## program compiled with both compilers); host binaries are ~30% fewer
+## instructions on enum-heavy programs (json/cbor round-trips). The riscv32
+## sos kernel `.text` is byte-identical, exactly as the U0 census predicted
+## for a target whose word alignment is 4, and the embedded root image drops
+## a region step. Cost paid: `MapSlot<Int, Int>` 20/align-4 -> 24/align-8 on
+## 64-bit hosts (+20% on a Map's slot table, nothing on riscv32) — visible in
+## `alloc_map_set_reports_oom`, whose pinned allocation size moved 320 -> 384
+## and which now documents why. Seam fence CLEARED without a ruling: the
+## `@export` whitelist admits no aggregate by value, and `SysError` crosses as
+## a negated integer tag. The scratch-alloca round-trip is RE-TYPED rather
+## than deleted, through one named `_payload_scratch_alloca` — LLVM has no
+## bitcast between aggregate VALUES, and every round-tripping site is handed
+## an SSA enum with no pointer to GEP into, so the conversion needs storage;
+## it is word-granular by construction now, which is the brief's own fallback
+## clause. Gates: suite + freestanding + reemit (0 divergent) + irdet --all.
+## Evidence and the full tables live in designs/265-backend-size-lane.md.
 
 MEASURED (arm64 host, `.build/scratch/dis_map.saw` + `dis_map_ir.ll`, HEAD =
 4f2b73e4): `Vector<Int>.map`'s outlined instantiation is 166 instructions, and

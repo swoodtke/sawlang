@@ -16,10 +16,17 @@
 // Design 123 made `insert` panic and added a `try_insert` twin that reported;
 // design 234 retires the split — `insert` REPORTS, and the table is intact
 // after an `Err`: every key that was in it still is.
+//
+// The refused size is the slot table's, so this line reads the layout of
+// `MapSlot<Int, Int>`: design 265 U2 types an enum's payload union at the
+// payload's own alignment, which took that slot from 20 bytes at align 4 —
+// under-aligned for the two `Int`s it holds — to 24 at align 8, so the
+// 16-slot table asks for 384 bytes rather than 320. On a 32-bit target the
+// slot is unchanged.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // 3
-// insert denied: allocation of 320 bytes (align 4) failed
+// insert denied: allocation of 384 bytes (align 8) failed
 // 30
 // 20
 // true

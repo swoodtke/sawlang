@@ -591,8 +591,10 @@ class ResultsMixin:
         param_types = [self._get_llvm_type(t) for _, t in ok_params]
         param_struct_type = ir.LiteralStructType(param_types)
 
-        # Store bytes to memory, then load as struct
-        payload_alloca = self._entry_alloca(llvm_enum_type.elements[1], name="ok_payload_alloca", align=8)
+        # Store the union to memory, then read it as the Ok variant's struct
+        # (design 265 U2: word-granular, see `_payload_scratch_alloca`).
+        payload_alloca = self._payload_scratch_alloca(
+            llvm_enum_type.elements[1], "ok_payload_alloca")
         self.builder.store(payload_bytes, payload_alloca)
         struct_ptr = self.builder.bitcast(payload_alloca,
                                           ir.PointerType(param_struct_type),
@@ -617,8 +619,10 @@ class ResultsMixin:
         param_types = [self._get_llvm_type(t) for _, t in err_params]
         param_struct_type = ir.LiteralStructType(param_types)
 
-        # Store bytes to memory, then load as struct
-        payload_alloca = self._entry_alloca(llvm_enum_type.elements[1], name="err_payload_alloca", align=8)
+        # Store the union to memory, then read it as the Err variant's struct
+        # (design 265 U2: word-granular, see `_payload_scratch_alloca`).
+        payload_alloca = self._payload_scratch_alloca(
+            llvm_enum_type.elements[1], "err_payload_alloca")
         self.builder.store(payload_bytes, payload_alloca)
         struct_ptr = self.builder.bitcast(payload_alloca,
                                           ir.PointerType(param_struct_type),
@@ -675,14 +679,17 @@ class ResultsMixin:
         param_struct = ir.Constant(param_struct_type, ir.Undefined)
         param_struct = self.builder.insert_value(param_struct, err_value, 0)
 
-        # Convert struct to bytes and store in payload. The scratch slot MUST be
-        # sized to the FULL payload `[N x i8]` (the biggest variant), not the
-        # smaller Err variant struct: the load below reads all N bytes, so an
-        # alloca of only the variant struct is read out of bounds past the slot
-        # (design 94 — the create/extract asymmetry). Alloca the full payload,
-        # store the variant struct into its front, load the whole thing back.
+        # Convert the Err struct into the payload union's type. The scratch
+        # slot MUST be sized to the FULL union (the biggest variant), not the
+        # smaller Err variant struct: the load below reads the whole union, so
+        # an alloca of only the variant struct is read out of bounds past the
+        # slot (design 94 — the create/extract asymmetry). Alloca the full
+        # payload, store the variant struct into its front, load the whole
+        # thing back (design 265 U2: word-granular, see
+        # `_payload_scratch_alloca`).
         payload_type = llvm_enum_type.elements[1]
-        payload_alloca = self._entry_alloca(payload_type, name="err_struct_alloca", align=8)
+        payload_alloca = self._payload_scratch_alloca(
+            payload_type, "err_struct_alloca")
         struct_ptr = self.builder.bitcast(payload_alloca, ir.PointerType(param_struct_type))
         self.builder.store(param_struct, struct_ptr)
 
@@ -726,11 +733,12 @@ class ResultsMixin:
         param_struct = ir.Constant(param_struct_type, ir.Undefined)
         param_struct = self.builder.insert_value(param_struct, ok_value, 0)
 
-        # Convert struct to bytes and store in payload. Size the scratch to the
-        # FULL payload `[N x i8]`, not the smaller Ok variant struct — see
-        # _create_result_err_for_return (design 94: the load reads all N bytes).
+        # Convert the Ok struct into the payload union's type. Size the scratch
+        # to the FULL union, not the smaller Ok variant struct — see
+        # _create_result_err_for_return (design 94: the load reads it whole).
         payload_type = llvm_enum_type.elements[1]
-        payload_alloca = self._entry_alloca(payload_type, name="ok_struct_alloca", align=8)
+        payload_alloca = self._payload_scratch_alloca(
+            payload_type, "ok_struct_alloca")
         struct_ptr = self.builder.bitcast(payload_alloca, ir.PointerType(param_struct_type))
         self.builder.store(param_struct, struct_ptr)
 
@@ -898,11 +906,12 @@ class ResultsMixin:
         param_struct = ir.Constant(param_struct_type, ir.Undefined)
         param_struct = self.builder.insert_value(param_struct, value, 0)
 
-        # Convert struct to bytes and store in payload. Size the scratch to the
-        # FULL payload `[N x i8]`, not the smaller variant struct — see
-        # _create_result_err_for_return (design 94: the load reads all N bytes).
+        # Convert the struct into the payload union's type. Size the scratch to
+        # the FULL union, not the smaller variant struct — see
+        # _create_result_err_for_return (design 94: the load reads it whole).
         payload_type = llvm_enum_type.elements[1]
-        payload_alloca = self._entry_alloca(payload_type, name="union_err_alloca", align=8)
+        payload_alloca = self._payload_scratch_alloca(
+            payload_type, "union_err_alloca")
         struct_ptr = self.builder.bitcast(payload_alloca, ir.PointerType(param_struct_type))
         self.builder.store(param_struct, struct_ptr)
 
