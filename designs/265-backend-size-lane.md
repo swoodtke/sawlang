@@ -41,7 +41,22 @@ table in the landing note — it prices U2 and predicts U1's outliner leg.
 Host-side too: count the pattern across 5 representative examples/ binaries
 (map's 60/166 instructions is the seed datum, `.build/scratch/dis_map*`).
 
-**U1 — the flags (the sure thing).** `-Os` and `-Oz` on sawc:
+**U1 — the flags (the sure thing).** `-Os`, `-Oz` — and `-O2` (user asked
+Sep 4: "would we get perf from O2?"; the answer is a measurement, and the
+plumbing is identical) — on sawc:
+- The whole level set maps through the ONE existing funnel
+  (`core.py` `create_pipeline_tuning_options(speed_level=1)`): `-O2` is
+  `speed_level=2`, the size pair is `size_level` + `optsize`/`minsize`
+  attrs. No `-O3` (rarely beats O2; add only if a measurement ever asks).
+- `-O2` expectation, stated so the bench numbers land against a
+  prediction: wins on sync scalar compute (stronger inlining, GVN,
+  vectorization); MUTED on idiomatic checked loops — always-on
+  bounds/overflow checks put a side-effecting exit in every iteration,
+  which usually blocks the vectorizers, and visitor-boundary closures are
+  indirect calls O2 cannot inline in outlined generic bodies (DF-300a's
+  map disasm is the shape). Record bench O1 vs O2 vs Os vs Oz in the
+  landing note; compile-time cost of O2 recorded too (it will be slower —
+  that is why the DEFAULT stays O1 regardless).
 - CLI + pipeline: map to LLVM's size levels (function attrs
   `optsize`/`minsize`, pass-builder size level, TargetMachine opt level).
   Default UNCHANGED (O1) — freestanding does NOT imply a size level; sos
