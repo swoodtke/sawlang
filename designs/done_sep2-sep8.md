@@ -1094,3 +1094,401 @@ the fixpoint. Strictly less work, and the `known_arg_types` overload path seeds
 the same cache. Pinned by `examples/infer_move_argument_checked_once.saw`
 (function spelling, partial-explicit constructor, fully-inferred constructor).
 [93, 105, 207]
+
+## Queue + backlog records (moved Sep 5, eighth rotation — design 266: the incremental front half)
+
+- Design 266 — the incremental front half — **LANDED Sep 5, U0-U4. U1: the post-transform re-entry is DELETED, replaced by `admit_declarations` — DF-292c CLOSED, driven compile 4.35 s -> 2.03 s (-53%), the admission tail exactly the 4 instances U0's census predicted. U2+U3: effect edges name INSTANCES (recorded at monomorphization time), T5 + its four recorder sites + the poly loop + `_build_fn_mono`'s effect-only mode DELETED — DF-295a CLOSED, and the design-70 both-ways refusal survives the deletion byte-identically. 218c gets Amendment D. DF-303a filed+fixed (the wrap defect the re-entry was masking), DF-303b filed (pre-existing, unrelated).** Both DF entries below (designs/266-incremental-front-half.md; SCHEDULED Sep 4 by the user — "schedule the DF-292c + DF-295a one-design"; lead-authored same night). ONE fact changes: the post-transform re-entry is deleted — synthesized declarations are admitted through one funnel into the settled program, checked by the same pass, effect edges recorded against INSTANCES (the design-70 both-ways refusal with T5 neutralized is the acceptance test). Closes DF-292c + DF-295a; buys C1-C4/T5/`_process_effect_monos` deletions and ~0.6 s per driven compile (-74% on the re-run, measured before the revert). Typechecker/driver — serial; dispatches after 207 integrates. irdet --all + reemit are PER-COMMIT gates (materialization order is the standing risk)
+- DF-292c — design 218c §7 phase 6 says the post-transform re-entry's re-run of the monomorphization fixpoint is cache hits ("the cache makes the re-run cheap"; §4: it "only ADDS entries") and §5's remedy 1 says to verify exactly that. It is not: `run_monomorphization` builds a fresh registry per front-half pass, so **107 of 111 instances are materialized and instance-checked TWICE** on a driven compile. Not fixed with DF-292a because a cache hit would carry an instance BODY the coroutine transform rewrites in place, changing what codegen lowers — a behavioral-contract flip owing obligation 2's sweep with the driven corpus as its matrix. Prize ~0.45 s per driven compile. Filed Sep 2, mechanism and counts in 218c Amendment C (C3/C4). **ATTEMPTED AND STOPPED Sep 3 by the perf batch (item 3): the sweep came back CLEAN and the cache still cannot land — it is pincered between a double-wrap ICE and DF-258a, which makes it design-scale rather than a batch item. Entry below now carries the sweep, the cost split, the working cache and the three legs of the refusal; sequence it with DF-295a as the tracker already says** **SCHEDULED Sep 4 (user): design 266 (in the queue) is the one-design — closes there**
+- ~~DF-295a — 218c census rows C1-C4 shrink rather than delete~~ **CLOSED Sep 5 by design 266 U2+U3**: the effect edge names the INSTANCE (recorded at monomorphization time), T5 and its four recorder sites are DELETED, and the design-70 both-ways refusal survives with the machinery gone. Entry below; 218c gets Amendment D
+
+## DF-292c — the phase-6 re-run is not a cache hit, and CANNOT BE MADE ONE
+## without answering "what does an instance body belong to, the pass or the
+## program?". Filed Sep 2 by 218c Amendment C; ATTEMPTED, MEASURED and STOPPED
+## Sep 3 by the perf batch (item 3). **CLOSED Sep 5 by design 266 U1 — the
+## question is answered THE PROGRAM'S, and the re-run is deleted rather than
+## cached.** Landing note below; the evidence that shaped it is kept verbatim
+
+**CLOSED Sep 5, design 266 U1 (`admit_declarations` in sawc.py).** There is no
+second pass to cache across. The coroutine transform's synthesized declarations
+are admitted into the settled program through one funnel — the std codegen set
+widened for `std.compiler.frame`, the entry module re-checked by the SAME
+`TypeChecker`, the transform's place uses lowered, the merged AST RECONCILED in
+place (never rebuilt, which is what made a spliced instance per-pass), the
+registry EXTENDED (`extend_monomorphization`), and `finalize_effects` re-entered.
+The three legs dissolve rather than being solved: nothing is re-checked, nothing
+is carried unchecked, nothing needs un-checking.
+
+MEASURED on `coro_generic_driven_both.saw`, the entry's own baseline:
+
+    admission tail        4 instances — EXACTLY the 4 the census predicted
+                          (`Slot<Fast>`, `Slot<Slow>`, and their `value<Int>`)
+    copier calls          654 -> 335   (319 settled + the 16 genuinely new)
+    driven compile wall   4.35 s -> 2.03 s   (-53.3%)
+    the funnel itself     0.127 s, of which the registry re-entry is 0.046 s
+
+The prize is ~4x the 0.6 s the brief named, because the re-entry cost more than
+its `substituting_copy`: the front half ran FOUR times on a driven compile
+(place-lowering re-entry, then the transform's, then ITS place-lowering
+re-entry), and passes 3+4 were 2.161 s of a 3.80 s in-process compile — 1.343 s
+of it re-typechecking std TWICE, which nothing had costed. Whole suite: wall
+411 s -> 261 s, CPU 5,671 s -> 3,751 s (-34%).
+
+ONE THING THE RE-ENTRY WAS HIDING, found by deleting it: an instance body
+materialized ONCE from a genuinely pristine template is not the body the old
+pipeline lowered. The corpus sweep says the delta is a single row — 384 driven
+examples, 18,756 shared instance bodies, THREE shape-differing bodies, all three
+`Channel$1$$Opt$Int::try_receive` — and it is a pre-existing wrap defect the
+second pass papered over by re-snapshotting an already-checked template
+(DF-292a's mechanism, read from the other side). Filed and fixed as DF-303a.
+
+Two mechanism notes worth keeping for whoever touches the registry next:
+  * **A MATERIALIZED BODY IS NOT A ROOT.** The admission re-enters the walk over
+    a program phase 2's spliced instances are already IN, and walking a
+    substituted clone re-derives demands from types that were substituted once
+    already — minting keys no template ever named (`Vector$3$Int$GlobalAllocator
+    $Int` for a two-parameter `Vector`). `_SpliceHook` records what it spliced
+    and `_roots` skips exactly that; the set is empty during the first run, so
+    the single-pass walk is unchanged.
+  * **THE DEMAND CACHE MUST BE DROPPED at the re-entry.** It is keyed by
+    declaration identity and the transform rewrites bodies IN PLACE, so a cached
+    descriptor list answers for a body that no longer exists.
+[218c Amendment C C3/C4, §7 phase 6; design 266 U1]
+
+### The evidence that shaped the design (kept verbatim)
+
+Amendment C4 predicted the blocker in one sentence and named the wrong artifact.
+The prediction was that a cache hit would serve a PRE-REWRITE body, because the
+coroutine transform rewrites instance bodies in place between the two runs. The
+obligation-2 sweep says that is not what happens, and the real blocker is worse.
+
+### The consumer sweep (obligation 2), with the driven corpus as its matrix
+
+`.build/scratch/sweep_reentry.py` + `sweep_reentry_worker.py`: one subprocess per
+example, wrapping `materialize_instance` to fingerprint every clone it produces,
+bucketed by monomorphization run, then diffing run 1 against run 2 per instance
+key. The fingerprint is structural — class names plus structural fields, with
+`line`/`column`/`node_id` excluded, and a `SawType` rendered as its source
+spelling rather than walked (its `symbol` reaches the whole namespace).
+
+    59 driven examples entered the post-transform re-entry
+    18,756 instance bodies shared between the two runs
+    179 of them (0.95%) structurally different
+
+And the 179 are not spread: they are the SAME two-to-five std instances in every
+example — `Map$3$String$JsonValue$GlobalAllocator::insert`,
+`Vector$2$$Opt$Box$1$$Any$Resumable$GlobalAllocator::init` — differing ONLY in
+`resolved_type` stamps, never in shape:
+
+    run1  NoneLiteral resolved_type=JsonValue?     run2  resolved_type=OPTIONAL
+    run1  Vector<Box<any Resumable, GlobalAllocator>?, GlobalAllocator>
+    run2  Vector<Box<any Resumable>?, GlobalAllocator>
+
+So C4's rewrite hazard is REAL BUT SELF-CANCELLING: the transform rewrites the
+module ASTs too, and the pass-2 pristine capture happens after it, so a fresh
+pass-2 clone carries the same canonicalizations the pass-1 clone was given
+directly. Both sides are rewritten. That is why the shapes agree.
+
+### The cost split — which half is the money
+
+`.build/scratch/probe_matcheck.py`, `coro_generic_driven_both.saw`:
+
+    mono run 1: wall 0.530s  copy 0.369s (323)  check 0.102s (323)  other 0.059s
+    mono run 2: wall 0.772s  copy 0.609s (339)  check 0.103s (339)  other 0.060s
+
+The re-run is **79% `substituting_copy` and 13% instance check**. So the fix
+shape that matters is "reuse the CLONE, still run the CHECK" — which preserves
+every per-pass conclusion and every effect node, and is a far smaller contract
+change than serving a whole cached body.
+
+### The cache, built and working
+
+A `{(instance key, template discriminators): clone}` map threaded through
+`_prepare_codegen`'s two re-entry sites into `run_monomorphization` ->
+`splice_instances` -> `materialize_instance`, which wraps the copier. Threaded
+and not module-global on purpose: the `reemit` lane compiles twice in ONE
+process and byte-compares, so a global would leak the first compile's bodies
+into the second.
+
+ONE THING WORTH KEEPING whatever the eventual fix is: **the key may not use
+`node_id`.** A pristine template is a `deepcopy` of a module declaration and
+`ASTNode.__deepcopy__` mints a FRESH id for every copied node BY DESIGN (so two
+live instantiations cannot share an identity), so the same declaration's
+snapshot is a different number on every pass — the first key tried was
+`(inst.key, pristine.node_id)` and it scored 0 hits out of 339. What is
+pass-stable is what the MANGLER reads, which is also what DF-289c settled the
+store's own ambiguity with: method name, parameter names, `is_init`, and the
+design-105 `$OL$` tag.
+
+It works, and the prize is bigger than Amendment C estimated:
+
+    run 2 copier calls  339 -> 16   (exactly the transform's genuinely new demands)
+    run 2 copy time     0.609s -> 0.001s
+    run 2 wall          0.772s -> 0.204s   (-74%)
+
+### Why it still cannot land — three legs, one pincer
+
+**Leg 1, reuse + re-check: DOUBLE WRAP.** Full suite, cache on:
+`2366 passed, 6 xfailed, 1 failed`, the one being `optional_generic_concurrency`:
+
+    internal compiler error at sawc/std/channel.saw:373:20 (ResultOkWrap):
+    Can only insert {i1, {i1, i64}} at [0] in {{i1, {i1, i64}}}: got {i1, i64}
+
+A reused clone already carries the `ResultOkWrap` pass 1's check inserted, and
+pass 2's check inserts another. A checked body is not re-checkable.
+
+**Leg 2, reuse + SKIP the check: DF-258a returns.** `_prepare_codegen` builds a
+FRESH `TypeChecker` per pass, so effect nodes belong to a pass. Skipping the
+pass-2 instance check leaves every cached instance with no node for
+`finalize_effects` to settle — which is exactly the state DF-258a was, and
+exactly what 218 stage 4 landed `finalize_effects` re-entrancy to end.
+
+**Leg 3, reuse + `uncheck` + re-check: the wrap cannot be peeled.** `uncheck`'s
+other half removes the `Optional`/`Result` wraps, and that is what
+`transform_place_uses(uncheck_after=False)` already declines on this tree, for
+the reason DF-292a recorded: a transform-synthesized `-> Result<Int, E>` resume
+method's `self.__result = <Int>` store is only well-typed WITH the wrap the
+previous check put there. DF-292a's own note names the casualty — an ICE in
+`std/channel.saw` — and it is THE SAME FILE and THE SAME TEST leg 1 fails on,
+reached from the opposite direction.
+
+### The fix shape
+
+The three legs are one fact: **an instance body is a PASS's artifact, not the
+program's.** It carries that pass's wraps, that pass's stamps, and its effect
+node lives in that pass's typechecker — so it can be neither re-checked nor
+carried unchecked. Nothing smaller than changing that fact buys the 0.6 s.
+
+What would: make the front half stop re-entering. The re-run exists because the
+coroutine transform demands new instances and the driver's answer is to run the
+whole front half again; if the transform's synthesized declarations were checked
+and monomorphized INCREMENTALLY — one settled program, added to — there would be
+no second pass to cache across, and DF-295a's effect-edge problem would dissolve
+into the same change (its own entry says the fix is to derive the effect graph
+over the monomorphized program, and 218 stage 4a's re-entrant `finalize_effects`
+is the half of that which already exists). One design, two findings.
+
+NOT FIXED, and the code is reverted — this entry is the record. [218c Amendment
+C C3/C4, §7 phase 6]
+
+## DF-295a — census rows C1-C4 cannot DELETE at 218 unit 1.5 stage 4; what
+## deletes is the BUILDING, not the walk (filed Sep 3 by stage 4's own census).
+## **CLOSED Sep 5 by design 266 U2+U3 — the edge names the INSTANCE now, and
+## T5 is DELETED.** Landing note below; the evidence is kept verbatim
+
+**CLOSED Sep 5, design 266 U2 (the recording moves) + U3 (the deletions).**
+This entry said the fix is to DERIVE the effect graph over the monomorphized
+program rather than patch it afterwards, and that the RE-ENTRY is what has to
+change. Both happened.
+
+WHAT LANDED. The caller -> callee edge for a generic call is recorded at
+MONOMORPHIZATION time, where the instance key is known:
+`monomorphize._demand_function` appends `(demander, instance key, short, line)`
+as the walk discovers each demand, and `apply_effect_edges` files them into the
+graph once every body has been materialized and instance-checked — immediately
+before `finalize_effects`, which then propagates over real instance nodes. The
+demander is tracked through the walk as a descriptor (`('decl', declaration)` at
+a root, `('clone', (instance key, method name))` inside an instance) and
+resolved to an effect-node key AFTER materialization, because the clone whose
+node the edge starts from does not exist while the walk is running.
+
+Every demand records an edge, not just the first: `_register` dedupes INSTANCES
+(one body, one check) while the effect graph needs one edge per CALLER, so the
+dedupe is per (caller, target) at the applying end.
+
+THE DELETIONS (218c §7 stage 5, and the spec's ledger gets Amendment D):
+T5's `_effect_record_poly_call` and its four recorder sites; `_poly_call_edges`
+and its speculative save/restore in `_infer_snapshot`/`_infer_restore`;
+`poly_candidate` and `_effect_mark_poly` (each had exactly one reader — the
+deferral); `_process_effect_monos`'s poly-materialization loop; and
+`_build_fn_mono`'s `splice=False` effect-only mode, whose only caller that loop
+was. What is KEPT, against the spec's row: `_process_effect_monos`'s shell and
+its three drain loops, which are design 70/74's eager driven / spawn /
+method-generic builds and each probed load-bearing — they were never T5's.
+
+THE ACCEPTANCE TEST, the sharp one this entry's own Sep-3 probe defined. With
+`_effect_record_poly_call` neutralized at runtime, `examples/errors/
+sync_generic_instantiation_suspends.saw` **REFUSES** (the Sep-3 probe had it
+COMPILING, the refusal lost) — and after the machinery was actually deleted the
+diagnostic is byte-identical, naming the instance: ``cannot suspend in `sync
+func` declaration: `sync func caller_slow` calls `run$1$Slow` → `Slow.step` →
+__saw_suspend``. ONE error, so `caller_fast` still compiles and design 70's
+both-ways property is intact.
+
+C2 also converts, which this entry predicted as the method twin of C1:
+`_promote_nested_generic_methods`' method-generic arm ADOPTS phase 2's spliced
+instance instead of building its own. It had to — with the re-entry gone phase
+2's splice survives, so the transform's own clone became a second LLVM
+declaration of one symbol. C1/C3/C4's stage-4 outcome is unchanged: what deletes
+is the BUILDING, and the DISCOVERY walk stays, because mapping a driven call
+site onto a frame key is a transform question and not a registry one.
+
+Gate: full suite 2390 passed / 7 xfailed, freestanding 33 both arches,
+irdet --all OK over 1490 examples, reemit 1495 identical / 0 divergent.
+[218c §2b, §2c, §7 stages 4-5 + Amendment D; design 266 U2/U3]
+
+### The evidence that shaped the design (kept verbatim)
+
+Spec §2c writes C1 (`_promote_nested_generic_calls`) as a straight deletion,
+on the premise that "phase 2 already spliced every instance and rewrote
+nothing". Stage 4 landed the half of that which is true and found the half
+that is not.
+
+WHAT LANDED. C1 no longer BUILDS anything: it adopts phase 2's registered,
+instance-checked body out of the merged AST instead of cloning its own. Census
+row T8 (`_splice_fn_mono`) went with it — C1 was its last caller — so no
+function instance is built at transform time any more. Measured over 232
+coro/generic examples: C1 splices 8 → 0, rewrites 10 → 10.
+
+WHAT CANNOT, and why (obligation 4's mechanism). Those 10 rewrites are not
+bookkeeping; they are the only thing that maps a generic CALL SITE onto an
+instance key, and two facts make phase 2 unable to take the job:
+
+  * THE EFFECT EDGE NAMES THE TEMPLATE. `nested`'s edge was recorded when its
+    body was checked — before any instance existed — so it points at
+    `("fn", "hop")`, and the driven closure walks edges. Nothing but a walk
+    over the driven bodies can seed `hop$1$Int` into that closure. Rewriting
+    the call site does not change the edge.
+  * THE INSTANCE BODY IS PER-PASS. Phase 2 splices into the MERGED ast, which
+    `merge_programs` rebuilds from fresh lists every front-half pass, while the
+    transform's output has to survive the post-transform re-entry — which is
+    why C1 spliced into the ENTRY ast and why the adoption above appends there
+    too. This is the same fact Amendment C4 filed as DF-292c, met from the
+    other side.
+
+The spec's own sentence offers a second spelling — the classifier reads the
+stamped `type_args` and mangles at classification time — which would delete the
+REWRITE but not the DISCOVERY walk, so C1 becomes a smaller walk under another
+name either way. The third option, a whole-program call-site rewrite inside
+phase 2, turns a driven-subtree walk into a per-compile whole-program one on a
+branch whose §5 residual (+32.8% / +23.8%) the user accepted under protest;
+that is a trade for the lead, not an agent.
+
+C2 (`_promote_nested_generic_methods`) is the method twin and has the same
+shape; the census saw it build once over the 232 files. C3 (the gsm table read)
+and C4 (consumption symmetry) were not separately instrumented and are not
+claimed either way here.
+
+THE SAME MECHANISM BLOCKS STAGE 5's OTHER TWO DELETIONS, which is what makes
+this a class rather than one row (obligation 4). §7 stage 5 retires
+`_process_effect_monos`'s shell and T5's poly-candidate machinery on §2b's
+argument that "every demanded instance gets its own effect node unconditionally
+… so the poly-candidate deferral and its four recorder sites delete". The
+effect NODE is not the problem; the EDGE is. Probed, not argued: with
+`_effect_record_poly_call` neutralized and everything else at stage 4b,
+`examples/errors/sync_generic_instantiation_suspends.saw` — design 70's key
+both-ways case, where `run<Slow>` suspends and `run<Fast>` does not —
+**COMPILES**, losing the refusal (`-f generic,coro,place,poly`: 344 passed, 1
+failed, that one). Without T5's caller -> instance edge the `sync` caller has
+only its edge to the TEMPLATE, whose own node has no direct source and no edge
+(its suspension is the type parameter's), so the caller is judged
+suspension-free. `_process_effect_monos`'s three drain loops are the same
+story from the build side, and its gsm loop is C3's input.
+
+Stage 4a's re-entrant `finalize_effects` is what a real fix would build on — it
+already settles the graph over the spliced instances — but the edges it settles
+were recorded against templates, so the fix is to DERIVE the effect graph over
+the monomorphized program rather than to patch it afterwards. That is a design.
+
+NOT FIXED. Recommendation: its own dispatch, sequenced WITH DF-292c — both are
+the question "what does an instance body belong to, the pass or the program?"
+and answering it once is what would let C1-C4, T5 and the
+`_process_effect_monos` shell go rather than shrink. Until then §2c's rows read
+as "no longer BUILDS", which is what the unit-4 ledger records. [218c §2b, §2c,
+§7 stages 4-5]
+
+### FIX-SHAPE NOTE (Sep 3, the perf batch item 3) — STILL NOT FIXED, and the
+### DF-292c attempt says why the two are one design
+
+The batch took DF-292c's half first, since it was the one with a named remedy.
+It built the cache, measured it working (-74% on the re-run), and could not land
+it: a cached instance body can be neither re-checked (pass 2's check inserts a
+second `ResultOkWrap` — a live ICE in `std/channel.saw`) nor carried unchecked
+(a pass's effect nodes live in that pass's `TypeChecker`, so an unchecked
+instance is DF-258a again) nor un-checked first (`uncheck` peels wraps the
+post-transform tree cannot restore — DF-292a's recorded ICE, same file). DF-292c's
+entry above has the three legs in full.
+
+WHAT THAT ADDS HERE. This entry already says the fix is to DERIVE the effect
+graph over the monomorphized program rather than patch it afterwards, and calls
+that a design. The DF-292c attempt reached the same wall from the performance
+side and sharpened what the design has to change: **not the effect graph, the
+RE-ENTRY.** Both findings are consequences of the front half running twice and
+throwing the first run away —
+
+  * DF-295a: the effect edge out of a driven body names the TEMPLATE because it
+    was recorded at body-check time, before instances existed. A second pass
+    does not fix that; it re-records the same template edge.
+  * DF-292c: the second pass cannot reuse the first pass's instances, because a
+    checked body is a pass's artifact.
+
+So the shape to design is an INCREMENTAL front half: the coroutine transform's
+synthesized declarations get checked and monomorphized INTO the settled program
+rather than triggering a whole second pass over it. Then there is no second pass
+to cache across (DF-292c dissolves), and the instances exist before the effect
+graph is settled, so the edges can name INSTANCES instead of templates (DF-295a
+dissolves, and with it C1-C4, T5 and the `_process_effect_monos` shell). Stage
+4a's re-entrant, monotone `finalize_effects` is the piece of that which already
+exists and is the natural seam to build on.
+
+Cost of NOT doing it, measured Sep 3 so the design has a number: ~0.6 s of
+`substituting_copy` per driven compile, which is 79% of the re-run's 0.77 s.
+
+## DF-303a — a value ONE optional layer short of a `Result`'s Ok payload got
+## NO wrap, because the rule asked "is it already optional" instead of "is it
+## the payload". Filed AND FIXED Sep 5 by design 266 U1. PRE-EXISTING, and the
+## post-transform re-entry was what hid it
+
+MECHANISM (obligation 4). `_prepare_ok_payload` (typechecker/types.py) decided
+the `OptionalWrap` with `not value_type.is_optional()`. That is right at one
+layer and wrong at two: an `Int?` landing in a declared `Result<Int??, E>` IS
+the Ok payload and owes exactly one wrap, but it answers "already optional" and
+got none, so the `ResultOkWrap` around it received an `{i1, i64}` where its own
+result type is `{{i1, {i1, i64}}}` — refused by LLVM at the `insertvalue`.
+
+It is the SAME question DF-286c face 4 already answered for the plain-optional
+tail, and the fix is to ask it through that funnel: `_tail_owes_optional_wrap`
+tests whether the value IS the payload, by design-144 identity. One rule, asked
+once. The two entry points (`return` and the tail) both route through
+`_prepare_ok_payload`, so the funnel was already there — only its predicate was
+wrong.
+
+REACHABLE FROM PLAIN CONCRETE CODE, which is what makes it a user-facing bug
+rather than a monomorphization one:
+
+```saw
+func f(x: Int?) -> Result<Int??, String> { x }   // ICE before the fix
+```
+
+THE OBLIGATION-4 SWEEP, by direct compile evidence
+(`.build/scratch/optdepth*.saw`): the mechanism is "a wrap rule that tests
+optionality instead of depth", and the other positions that must insert the
+same layer were probed — a `let` with a declared type, a plain `return`, a
+body's tail, a value `if`, a `match`, an assignment, and a `var` — ALL SEVEN
+ALREADY CORRECT. `_prepare_ok_payload` is the one position DF-286c's fix did
+not reach, so the class is one row and this closes it.
+
+WHY THE CORPUS NEVER SAW IT. `Channel<T>.try_receive` returns
+`Result<T?, ChannelError>`, so `Channel<Int?>` instantiates the Ok payload to
+`Int??` — the one instance in the corpus with the shape. The instance check
+could not derive the wrap, but the coroutine transform's re-entry re-snapshotted
+an ALREADY-CHECKED template (DF-292a: "pristine on the first pass only") and the
+clone INHERITED the wrap from the template's own check. Design 266 deletes that
+re-entry, so the instance is materialized once from a genuinely pristine
+template and the masking stopped.
+
+MEASURED, whole corpus (`.build/scratch/sweep_worker.py` + `sweep_drive.py`,
+structural fingerprint per spliced instance body, run 1 diffed against run 2):
+**384 driven examples, 18,756 shared instance bodies, THREE shape-differing
+bodies — all three the same body, `Channel$1$$Opt$Int::try_receive`, run 2
+carrying one more `OptionalWrap`.** That is the entire delta between the two
+passes across the corpus, and it is this defect. (DF-292c's own sweep reported
+0.95% differing "only in `resolved_type` stamps"; its fingerprint rendered a
+`SawType` as its source spelling and bucketed differently, so this row did not
+surface there.)
+
+FIXED, with `examples/result_optional_payload_owes_one_wrap.saw` as the
+regression test — seven rows (return, tail, the Err path, the bare-`None` outer
+absence, a generic free function, a generic method, and a THREE-layer case to
+prove the rule counts depth rather than special-casing two). It fails on the
+pre-fix tree with the ICE above and passes after. [DF-286c face 4, DF-292a,
+design 266 U1]
