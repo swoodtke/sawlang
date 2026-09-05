@@ -1492,3 +1492,113 @@ absence, a generic free function, a generic method, and a THREE-layer case to
 prove the rule counts depth rather than special-casing two). It fails on the
 pre-fix tree with the ICE above and passes after. [DF-286c face 4, DF-292a,
 design 266 U1]
+
+## Backlog records (moved Sep 5, ninth rotation — DF-299b: value-branch arms take the move checkpoint)
+
+- DF-299b — CLOSED Sep 5, FIXED (entry below): `_check_value_transfer` is now TRANSPARENT through a value-branch node, so every arm result takes the checkpoint at the position it is written, and `break <value>` takes it at the `break`. The obligation-4 sweep widened it from one construct to SIX and from one position to nine; the Copy tier really was correct (codegen re-derives the block-tail retain) and V80 is the guard that it stays a single retain. Conformance rows V77-V81; corpus fallout NONE. The sweep filed DF-304a, a different mechanism left open
+
+## DF-299b — CLOSED Sep 5, FIXED. SOUNDNESS: a value `if`/`match` ARM
+## forwarding a NoCopy binding is not checkpointed: the value is
+## bitwise-duplicated and ONE deinit is LOST (filed Sep 4 by DF-299a's fix
+## agent; PRE-EXISTING, NOT fixed there)
+
+LANDED. `_check_value_transfer` is TRANSPARENT through a value-branch node.
+A branch is not a value — it hands ON one of several block tails — so the
+transfer a site is judging is one transfer PER ARM, and the checkpoint recurses
+into the arm results and judges each where it is written, which is where codegen
+performs the copy and where the author's `move` goes.
+`_value_branch_arm_results` is the one question ("which results does this node
+forward?") and its docstring names the constructs; it sees through the
+`OptionalWrap`/`ResultOkWrap`/`ResultErrWrap` an arm can already be sitting
+inside, because `_wrap_tail_into_optional` distributes INTO the arms (DF-289d).
+
+POSITION IS NOT A FACTOR, because the fix is at the funnel and not at the
+branch: the same edit closes a `let`, a call ARGUMENT, a `return`, a TAIL, a
+struct FIELD, a Vector ELEMENT, an enum PAYLOAD, an assignment RHS and a TUPLE
+element, and a nested branch is just an arm result that is itself a branch. The
+ARGUMENT face was the worst reading of the family — the callee owns its by-value
+parameter and released it at return, so the caller's still-live binding was
+reading freed storage on the next line, not merely losing a drop.
+
+SIX CONSTRUCTS, NOT ONE (the obligation-4 sweep; the line is "does this node's
+value come out of a block tail it forwards?"):
+
+    value `if`                  UNSOUND (the filing)
+    value `if let`              UNSOUND
+    value `match`, bare arms    UNSOUND
+    value `match`, BLOCK arms   UNSOUND (the tail of a multi-statement arm)
+    inline `catch { }`          UNSOUND — a handler's tail is an arm exactly as
+                                an `else` block's is
+    `try { } catch { }` block   UNSOUND, both blocks
+    `break <value>`             UNSOUND, and the ONLY face that ABORTED: two
+      names, one value, both `deinit` — a real double free (SIGABRT at exit)
+      where the branch faces lost a drop instead. The transparency funnel cannot
+      reach it (its home is the LOOP's merged value, not an enclosing
+      expression), so it takes the checkpoint at `_check_break_statement`, which
+      is the rule's second entry point rather than a second rule.
+
+TIERS. NoCopy and ExplicitCopy both refused, at every construct and position.
+The COPY TIER WAS ALREADY CORRECT and the filing's claim held on re-probe: an
+`Arc` through an arm reads 1 -> 2 with the source still live, because
+`_gen_transfer_value` names "an inner-block tail expression" as a site the
+checkpoint does not mark and RE-DERIVES the retain there. So this fence is NOT
+tier-blind — the opposite of V62/V65/V70 — and the risk ran the other way: the
+new stamp must not add a SECOND retain beside the derived one. It does not
+(`_transfer_needs_copy` answers one bool, `_generate_copy` runs at most once per
+transfer), measured at 1 -> 2 through a plain arm and 4 -> 5 through a PLACE arm,
+which is the shape where two marks meet on one transfer. V80 is that guard.
+
+FOUR NEIGHBOURS WERE ALREADY RIGHT, probed rather than assumed: the `??` DEFAULT
+(`_check_nil_coalesce` has always routed it through the checkpoint — the filing's
+`??` cell was masked by the LHS payload-read refusal firing first); `&&`/`||`,
+whose operands are `Bool` and reach no owning tier at all; a `return` written
+INSIDE a branch (`if flag { return a }` is the ordinary refusal, which is the
+asymmetry that made the value tail's silence visible); and the SUSPENDING face,
+refused on the second pass by the place rule with a diagnostic naming a
+compiler-synthesized `self.a.value(…)` — the fix moves that to a clean first-pass
+refusal at the author's arm.
+
+CORPUS: NONE. The full suite (2390 passed, 7 xfail) and the freestanding gate are
+green with no migration owed — std, examples, libs, blade, devtools and selfhost
+have no value arm that forwards an owning binding. The one idiom worth naming as
+now-refused is `match s { case Full(r) -> r, ... }` on an OWNED scrutinee, which
+takes `move r`; it appears nowhere in the tree, and the `return r` spelling of
+the same arm already demanded it.
+
+Conformance rows V77-V81. Spec + saw-lang skill updated; README carries no
+value-branch ownership prose, so it needed none.
+
+ONE FINDING FILED BY THE SWEEP AND NOT FIXED HERE: DF-304a, below.
+
+--- as filed ---
+
+```saw
+let a = Res(w: 7)                       // Res is NoCopy, printing deinit
+let b = if true { a } else { a }        // compiles — no `move`, no `.copy()`
+print("src {}", a.w)                    // `a` is NOT retired; this reads fine
+let c = move a                          // …and this compiles too
+// -> b 7 / c 7 / drop 7 / drop 7   — THREE names, TWO deinits
+```
+
+NOT DF-299a, which is why it is filed rather than folded in. The cast is a
+checkpoint that RUNS and cannot see through the node; this is a checkpoint that
+is never CALLED at the arm — a missing call, not a blind one — so the fix is at
+a different place and owes its own consumer sweep.
+
+SEVERITY, probed rather than assumed: it is an ALIAS plus a LOST deinit, not a
+double free. The escaping face is REFUSED (`return b` out of a function whose
+`a` dies is the ordinary "cannot return NoCopy without `move`"), and the COPY
+tier is CORRECT — an `Arc` through the same arm goes 1 -> 2 and the source still
+reads 2, so the arm retains where the cast did not. The heap face
+(`Vector`) exits 0 with no trap, which is the leak reading rather than the
+double-free one.
+
+WHAT A FIX OWES (obligation 4): the mechanism is "a value-branch arm's tail is
+not a transfer site", so the sweep is every branch construct that yields a value
+— a value `if`, a value `match` arm, a `??` operand, a `break v`, an inner-block
+tail — against every tier. Note codegen already compensates at SOME of these:
+`_gen_transfer_value`'s docstring names "an inner-block tail expression" as one
+of two sites the checkpoint does not mark and it re-derives the retain there,
+which is why the Copy tier is right and the owning tiers are not. The fix is
+plausibly to make the typechecker checkpoint the arm rather than to widen
+codegen's compensation. [131, 139, 195, DF-299a]
