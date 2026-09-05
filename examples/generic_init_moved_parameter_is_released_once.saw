@@ -1,0 +1,32 @@
+// XFAIL: DF-302b — a generic extension's `init` releases a parameter it MOVED
+// into the built value, so the value is torn down twice.
+//
+// `Wrap<T>(value: from)` aggregates the parameter into the returned struct, but
+// the generated init never clears the parameter's drop flag, so its epilogue
+// runs `deinit` on storage the caller now owns. PRE-EXISTING and independent of
+// design 207: it reproduces with the fully explicit `Wrap<Res>(from: move r)`
+// spelling and no inference involved. It was invisible while the caller ALSO
+// failed to drop the built value — a leak and a spurious release cancelling to
+// exit 0 — which is why the double free surfaces at some spellings and not
+// others. The oracle is the deinit count: exactly one teardown per value.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// gone 7
+
+struct Res { id: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("gone {self.id}") }
+}
+
+struct Wrap<T> { value: T }
+
+extension Wrap<T> {
+    init(from: T) -> Wrap<T> { Wrap<T>(value: from) }
+}
+
+func main() {
+    let r = Res(id: 7)
+    let w = Wrap<Res>(from: move r)
+    print(w.value.id)
+}

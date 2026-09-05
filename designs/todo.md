@@ -130,8 +130,92 @@ is scheduled and in what order is the whole of what they say.
 - DF-294b — a `type` ALIAS binds through the SELECTIVE import form ONLY: the glob leaves it unbound and the qualified spelling mints a name-only type + a not-callable head (entry below, filed Sep 3 from sos-relayed SL-20; workaround `import m.{Alias}`)
 - DF-299d — a QUALIFIED generic `init` drops its explicit type argument: `mutex.Mutex<Int>(value: 5)` is ``argument `value` expects `T` but got `Int` `` while the selective-import spelling compiles (entry below, filed Sep 4 as an incidental of DF-299c's census; PRE-EXISTING at HEAD). The CONSTRUCTOR position of design 150's "a qualifier works everywhere a name appears", which design 256 landed for methods and statics
 - DF-299b — a value `if`/`match` ARM forwarding a NoCopy binding is not checkpointed either: the value is bitwise-duplicated and ONE of the two deinits is LOST (entry below, filed Sep 4 by DF-299a's fix agent; PRE-EXISTING, NOT fixed there). A neighbour of DF-299a, not the same defect — the cast is a checkpoint that RUNS and cannot see the node, this is a checkpoint never CALLED at the arm — so it owes its own consumer sweep over every value-branch position
+- DF-302b — a generic extension's `init` RELEASES a parameter it moved into the built value, so the value is torn down TWICE (entry below, filed Sep 4 by design 207's agent; PRE-EXISTING at HEAD, reproduced with fully explicit type arguments and no inference). Pinned by `examples/generic_init_moved_parameter_is_released_once.saw`. A DF-217m/DF-251b sibling — the same init-cleanup analysis, one case further on
 
 
+
+## DF-302a — the inference solver's FIXPOINT re-checked every argument on every
+## pass, so a `move` argument reported use-after-move about ITSELF (filed Sep 4
+## by design 207's agent; PRE-EXISTING, baseline-verified). **CLOSED by the
+## design-207 landing — the fix is in the same solver the brief routes through**
+
+```saw
+func take<A, B: Allocator>(x: Vector<A, B>) -> Int { x.len() }
+// print(take(move v))
+//   error: use of moved variable `v`
+//   hint: value was already moved at line 6 and can no longer be used
+```
+
+MECHANISM (obligation 4). Design 105's solver fixpoints over the argument list,
+re-running phase 1 until no new parameter is solved. Phase 1 called
+`_check_expression` on every non-closure argument on EVERY pass, and the
+inference sandbox rolls back `moved_bindings` only at the END of the solve — so
+within one solve, pass 2's check of `move v` met the move pass 1 had recorded
+and refused it, anchored at the very expression performing the move.
+
+WHY IT LOOKED LIKE A CONSTRUCTOR BUG AND IS NOT: the loop breaks as soon as a
+pass solves nothing new, so a ONE-parameter callee never runs a second pass and
+is unaffected. It takes a callee with 2+ type parameters where an argument
+solves one on pass 1 — which is every `Vector`/`Set`/`Map`/`Box` signature,
+since the defaulted allocator is a second parameter. Baseline-verified at HEAD
+on a generic FREE FUNCTION with no constructor involved; design 207 only made it
+reachable through a third spelling, which is how it was found (`set_from_vector`
+went red).
+
+FIX: an argument is checked at most once per solve, its type cached across
+passes. Sound because nothing the solver learns feeds back into a non-closure
+argument's own type. CLOSURES are still re-checked each pass — their expected
+parameter types sharpen as the substitution grows, which is the whole point of
+the fixpoint. Strictly less work, and the `known_arg_types` overload path seeds
+the same cache. Pinned by `examples/infer_move_argument_checked_once.saw`
+(function spelling, partial-explicit constructor, fully-inferred constructor).
+[93, 105, 207]
+
+## DF-302b — a generic extension's `init` RELEASES a parameter it MOVED into the
+## built value, so the value is torn down TWICE (filed Sep 4 by design 207's
+## agent; PRE-EXISTING at HEAD, NOT design 207's and NOT fixed by it)
+
+```saw
+struct Res { id: Int }
+extension Res: NoCopy { func deinit(&var self) { print("gone {self.id}") } }
+struct Wrap<T> { value: T }
+extension Wrap<T> { init(from: T) -> Wrap<T> { Wrap<T>(value: from) } }
+// let w = Wrap<Res>(from: move r);  print(w.value.id)
+```
+
+Wanted `7` / `gone 7`. Got `gone 7` / `7` / `gone 7` — released BEFORE the read,
+so `w.value.id` reads freed storage and prints 7 by luck, then the caller
+releases it again. Exit 0, silently.
+
+MECHANISM (obligation 4). The generated generic `init` aggregates the parameter
+into the returned struct with an `insertvalue` and never clears that
+parameter's drop flag, so the init epilogue runs `deinit` on storage the caller
+now owns:
+
+```
+%".5" = insertvalue %"Wrap$1$Res" undef, %"Res" %"from.2", 0
+%"from.needsdrop" = load i1, i1* %"from.dropflag"     ; still 1
+drop.from:  call void @"Res_deinit"(%"Res"* %"from.1")
+```
+
+The memberwise-aggregation form of "moved into the built value" is not counted
+by the init-cleanup analysis DF-217m added and DF-251b repaired for the generic
+generator — the same analysis, one case further on, which is why this is
+presumed a CLASS: every generic-extension `init` whose body aggregates an
+OWNING parameter is a candidate, and the plain-function and memberwise-literal
+paths are the neighbours to sweep before a fix.
+
+WHY IT WAS INVISIBLE: it needs a second bug to show. With the explicit
+`Wrap<Vector<Int>>(from: move a)` spelling the CALLER does not drop the built
+value either, so a leak and a spurious release cancel to exit 0 — which is
+exactly what HEAD does. Design 207's inferred spelling resolves the argument's
+type from the argument itself, the caller then drops correctly, and the
+pre-existing release becomes a visible double free. So 207 did not introduce it
+and does not fix it; it removed the mask at one spelling.
+
+Pinned by `examples/generic_init_moved_parameter_is_released_once.saw`
+(deinit-count oracle: exactly one teardown per value).
+[207, DF-217m, DF-251b]
 
 ## DF-294c — the const evaluator's STATIC-NAME leaf folds INTEGERS ONLY, so a
 ## struct-typed static is refused in const positions the design-186 hint
