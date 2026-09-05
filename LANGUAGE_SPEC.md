@@ -5791,6 +5791,32 @@ implicitly anywhere (see "Integer Conversions"): an `Int16` arm beside an
 position exactly as they do in operand position, so the arms above in an
 `-> Int16` function are legal with nothing written.
 
+The rule is about transfers, not about integers, so the copy policy applies at
+an arm exactly as it applies at a `let`. An arm that reads an `ExplicitCopy` or
+`NoCopy` value out of a binding is refused where it is written, and the way out
+is the one a plain transfer names: `move` on the arm, or `.copy()`.
+
+```saw-error
+// error-contains: cannot copy value of type `Res` which implements NoCopy
+struct Res { w: Int }
+extension Res: NoCopy {}
+
+func main() {
+    let a = Res(w: 7)
+    let b = if true { a } else { a }
+    // error: cannot copy value of type `Res` which implements NoCopy
+    // hint: use `move` to transfer ownership instead
+    print(b.w)
+}
+```
+
+Per arm, and only one arm runs, so `if flag { move a } else { move a }` is
+legal and `if flag { move a } else { Res(w: 1) }` is too. The constructs the
+rule covers are the ones whose value is a block tail they hand on: a value
+`if`, an `if let`, a `match`, an inline `catch`, a `try { } catch { }` block,
+and `break <value>`, whose merged home is the loop's. Reading a `Copy` value in
+an arm retains it, the same as reading one anywhere else.
+
 #### Plain transfers take the same rule
 
 **Status: implemented (design 205).**

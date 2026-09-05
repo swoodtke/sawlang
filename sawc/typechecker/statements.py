@@ -4012,6 +4012,13 @@ class StatementsMixin:
         value_type = None
         if stmt.value:
             value_type = self._check_expression(stmt.value)
+            # DF-299b — a `break <value>` hands its value to the LOOP's merged
+            # home exactly as a value-branch arm hands one to the branch's, so
+            # it is a transfer site and takes the transfer checkpoint. Without
+            # it `let b = while { break a }` bitwise-duplicated `a` and both
+            # names ran `deinit`: a double free, aborting at exit.
+            self._check_value_transfer(stmt.value, value_type, "break value",
+                                       stmt.line, stmt.column)
 
         # Update loop break info if we're tracking it
         if self.loop_break_info:

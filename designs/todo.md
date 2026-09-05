@@ -33,7 +33,6 @@ is scheduled and in what order is the whole of what they say.
 
 
 
-- DF-299b fix — the value `if`/`match` ARM transfer checkpoint (SCHEDULED Sep 4 by the user, after 266; entry below). The checkpoint is never CALLED at a value arm forwarding a NoCopy binding — bitwise duplicate, one deinit lost. Owes its consumer sweep over every value-branch position (value `if`, value `match`, `??`/`&&`/`||` RHS arms, the ANF-hoisted expression positions design 120 added) before the fix commit, per obligation 4; DF-288a/DF-299a are the mechanism templates. Typechecker — serial
 - Design 258 — field visibility inherits the type's, amending design 80 (designs/258-field-visibility-inheritance.md; RULED Aug 31 by the user after reading the sos code, three cells pinned: ALL TIERS inherit, FIELDS ONLY — extension members keep per-member marking — and a contextual `private` keyword for narrowing; SCHEDULED after 218 unit 1.5). The consumer sweep IS the migration: every bare field of a visible struct in std/libs/blade gets `private`, surface-preserving; conformance B rows update first (obligation 3)
 - Design 245 v1 — `Scalar` + `scalars()`, `chars()` and `append_scalar` REMOVED (designs/245-unicode-scalar-type.md §6; ruled Aug 27 — no literals in v1, prelude placement). The Aug-27 dispatch NEVER LANDED and is presumed STALE (no Scalar in the tree, Aug-28 check); RESCHEDULED AFTER design 238 (user, Aug 28: sos does not depend on string/character work). Re-dispatch then. Literals + patterns stay open as later units
 - Design 259 — the self-hosted parser (designs/259-selfhost-parser.md; QUEUED Sep 1 by the user, §3 ruling batch fully RULED same day incl. R7′ statement arms). The brief is the source of the next batch: U0 grammar debt + U1 depth funnel are compiler dispatches and serialize with the pipeline (N10's soundness fix goes FIRST after 218/1.5 integrates, by fix-on-discovery — brief §4); U2–U5 are selfhost/-side and may run CONCURRENT with design 258 in a worktree; the Class-2 fix set (incl. DF-287a/b) triages at U0 dispatch
@@ -127,7 +126,8 @@ is scheduled and in what order is the whole of what they say.
 - DF-286c — the materialization funnel does not reproduce what codegen's `type_param_context` path did, at four named positions (entry below, same filing; ONE mechanism, four faces — const-generic VALUES, associated-type annotations, the conditional-conformance bounds filter, and a `-> T?` tail's auto-wrap). Its matrix is stage 3c-2's test plan. **CLOSED Sep 2 by stage 3c-2a/3c-2c(1): face 1 both halves, face 2, face 3 (reframed into B1) and face 4 all fixed and pinned; face 4 turned out to be a CONCRETE-path defect the generic path had been hiding — see DF-289d for its residue**
 - DF-294b — a `type` ALIAS binds through the SELECTIVE import form ONLY: the glob leaves it unbound and the qualified spelling mints a name-only type + a not-callable head (entry below, filed Sep 3 from sos-relayed SL-20; workaround `import m.{Alias}`)
 - DF-299d — a QUALIFIED generic `init` drops its explicit type argument: `mutex.Mutex<Int>(value: 5)` is ``argument `value` expects `T` but got `Int` `` while the selective-import spelling compiles (entry below, filed Sep 4 as an incidental of DF-299c's census; PRE-EXISTING at HEAD). The CONSTRUCTOR position of design 150's "a qualifier works everywhere a name appears", which design 256 landed for methods and statics
-- DF-299b — a value `if`/`match` ARM forwarding a NoCopy binding is not checkpointed either: the value is bitwise-duplicated and ONE of the two deinits is LOST (entry below, filed Sep 4 by DF-299a's fix agent; PRE-EXISTING, NOT fixed there). A neighbour of DF-299a, not the same defect — the cast is a checkpoint that RUNS and cannot see the node, this is a checkpoint never CALLED at the arm — so it owes its own consumer sweep over every value-branch position
+- DF-299b — CLOSED Sep 5, FIXED (entry below): `_check_value_transfer` is now TRANSPARENT through a value-branch node, so every arm result takes the checkpoint at the position it is written, and `break <value>` takes it at the `break`. The obligation-4 sweep widened it from one construct to SIX and from one position to nine; the Copy tier really was correct (codegen re-derives the block-tail retain) and V80 is the guard that it stays a single retain. Conformance rows V77-V81; corpus fallout NONE. The sweep filed DF-304a, a different mechanism left open
+- DF-304a — a CLOSURE body's TAIL is not a transfer site: `{ r in r }` at a move-only `r` compiles and hands out an alias the closure then deinits, while `{ r in return r }` one keyword away is refused (entry below, filed Sep 5 by DF-299b's sweep; PRE-EXISTING, NOT fixed there — a different mechanism: `_check_closure` never calls the tail reconciler at all, branch or no branch)
 - DF-302b — a generic extension's `init` RELEASES a parameter it moved into the built value, so the value is torn down TWICE (entry below, filed Sep 4 by design 207's agent; PRE-EXISTING at HEAD, reproduced with fully explicit type arguments and no inference). Pinned by `examples/generic_init_moved_parameter_is_released_once.saw`. A DF-217m/DF-251b sibling — the same init-cleanup analysis, one case further on
 
 
@@ -366,9 +366,80 @@ positions (alias as a generic argument through a qualifier, alias in an
 extern signature, `E.from(raw:)`-style statics on an aliased backing).
 [150, 144, 188 alias-resolution family, DF-238c, DF-194a]
 
-## DF-299b — a value `if`/`match` ARM forwarding a NoCopy binding is not
-## checkpointed: the value is bitwise-duplicated and ONE deinit is LOST
-## (filed Sep 4 by DF-299a's fix agent; PRE-EXISTING, NOT fixed there)
+## DF-299b — CLOSED Sep 5, FIXED. SOUNDNESS: a value `if`/`match` ARM
+## forwarding a NoCopy binding is not checkpointed: the value is
+## bitwise-duplicated and ONE deinit is LOST (filed Sep 4 by DF-299a's fix
+## agent; PRE-EXISTING, NOT fixed there)
+
+LANDED. `_check_value_transfer` is TRANSPARENT through a value-branch node.
+A branch is not a value — it hands ON one of several block tails — so the
+transfer a site is judging is one transfer PER ARM, and the checkpoint recurses
+into the arm results and judges each where it is written, which is where codegen
+performs the copy and where the author's `move` goes.
+`_value_branch_arm_results` is the one question ("which results does this node
+forward?") and its docstring names the constructs; it sees through the
+`OptionalWrap`/`ResultOkWrap`/`ResultErrWrap` an arm can already be sitting
+inside, because `_wrap_tail_into_optional` distributes INTO the arms (DF-289d).
+
+POSITION IS NOT A FACTOR, because the fix is at the funnel and not at the
+branch: the same edit closes a `let`, a call ARGUMENT, a `return`, a TAIL, a
+struct FIELD, a Vector ELEMENT, an enum PAYLOAD, an assignment RHS and a TUPLE
+element, and a nested branch is just an arm result that is itself a branch. The
+ARGUMENT face was the worst reading of the family — the callee owns its by-value
+parameter and released it at return, so the caller's still-live binding was
+reading freed storage on the next line, not merely losing a drop.
+
+SIX CONSTRUCTS, NOT ONE (the obligation-4 sweep; the line is "does this node's
+value come out of a block tail it forwards?"):
+
+    value `if`                  UNSOUND (the filing)
+    value `if let`              UNSOUND
+    value `match`, bare arms    UNSOUND
+    value `match`, BLOCK arms   UNSOUND (the tail of a multi-statement arm)
+    inline `catch { }`          UNSOUND — a handler's tail is an arm exactly as
+                                an `else` block's is
+    `try { } catch { }` block   UNSOUND, both blocks
+    `break <value>`             UNSOUND, and the ONLY face that ABORTED: two
+      names, one value, both `deinit` — a real double free (SIGABRT at exit)
+      where the branch faces lost a drop instead. The transparency funnel cannot
+      reach it (its home is the LOOP's merged value, not an enclosing
+      expression), so it takes the checkpoint at `_check_break_statement`, which
+      is the rule's second entry point rather than a second rule.
+
+TIERS. NoCopy and ExplicitCopy both refused, at every construct and position.
+The COPY TIER WAS ALREADY CORRECT and the filing's claim held on re-probe: an
+`Arc` through an arm reads 1 -> 2 with the source still live, because
+`_gen_transfer_value` names "an inner-block tail expression" as a site the
+checkpoint does not mark and RE-DERIVES the retain there. So this fence is NOT
+tier-blind — the opposite of V62/V65/V70 — and the risk ran the other way: the
+new stamp must not add a SECOND retain beside the derived one. It does not
+(`_transfer_needs_copy` answers one bool, `_generate_copy` runs at most once per
+transfer), measured at 1 -> 2 through a plain arm and 4 -> 5 through a PLACE arm,
+which is the shape where two marks meet on one transfer. V80 is that guard.
+
+FOUR NEIGHBOURS WERE ALREADY RIGHT, probed rather than assumed: the `??` DEFAULT
+(`_check_nil_coalesce` has always routed it through the checkpoint — the filing's
+`??` cell was masked by the LHS payload-read refusal firing first); `&&`/`||`,
+whose operands are `Bool` and reach no owning tier at all; a `return` written
+INSIDE a branch (`if flag { return a }` is the ordinary refusal, which is the
+asymmetry that made the value tail's silence visible); and the SUSPENDING face,
+refused on the second pass by the place rule with a diagnostic naming a
+compiler-synthesized `self.a.value(…)` — the fix moves that to a clean first-pass
+refusal at the author's arm.
+
+CORPUS: NONE. The full suite (2390 passed, 7 xfail) and the freestanding gate are
+green with no migration owed — std, examples, libs, blade, devtools and selfhost
+have no value arm that forwards an owning binding. The one idiom worth naming as
+now-refused is `match s { case Full(r) -> r, ... }` on an OWNED scrutinee, which
+takes `move r`; it appears nowhere in the tree, and the `return r` spelling of
+the same arm already demanded it.
+
+Conformance rows V77-V81. Spec + saw-lang skill updated; README carries no
+value-branch ownership prose, so it needed none.
+
+ONE FINDING FILED BY THE SWEEP AND NOT FIXED HERE: DF-304a, below.
+
+--- as filed ---
 
 ```saw
 let a = Res(w: 7)                       // Res is NoCopy, printing deinit
@@ -400,6 +471,48 @@ of two sites the checkpoint does not mark and it re-derives the retain there,
 which is why the Copy tier is right and the owning tiers are not. The fix is
 plausibly to make the typechecker checkpoint the arm rather than to widen
 codegen's compensation. [131, 139, 195, DF-299a]
+
+## DF-304a — SOUNDNESS: a CLOSURE body's TAIL is not a transfer site, so it
+## hands out an alias of a value the closure then deinits (filed Sep 5 by
+## DF-299b's sweep; PRE-EXISTING, NOT fixed there)
+
+```saw
+func run(body: (Res) sync -> Res) -> Int {      // Res is NoCopy, printing deinit
+    let made = Res(w: 7)
+    let got = body(move made)
+    got.w
+}
+// run({ r in r })          compiles -> drop 7 / n 7   — the read is after the drop
+// run({ r in return r })   error: cannot return NoCopy type `Res` without `move`
+//                                 in closure
+```
+
+NOT DF-299b, which is why it is filed rather than folded in. DF-299b's arms were
+a checkpoint that is never called AT AN ARM; here the checkpoint is never called
+at the closure TAIL AT ALL, branch or no branch — `_check_closure`
+(`expressions.py`, ~13112) reconciles the tail's TYPE and calls
+`_check_value_transfer` only for its CAPTURES (~13653), while `return` inside the
+same closure routes through `_check_return` and is refused. So DF-299b's
+transparency edit does not reach it: a closure tail that IS a value branch
+(`{ r in if true { r } else { r } }`) is still unchecked today, downstream of
+this, not of the arms.
+
+SEVERITY: worse than DF-299b's branch faces. Design 264 made a by-value closure
+parameter OWNED by the body, so the body releases it at body end — and the tail
+hands an alias of that same value to the caller, which then reads it. `drop 7`
+prints BEFORE the caller's read: a use-after-free at exit 0, not a lost deinit.
+
+WHAT A FIX OWES (obligation 4): the mechanism is "the closure tail reconciler
+does not call the value-transfer checkpoint", so the sweep is the tail against
+every source a closure body can forward — a by-value PARAMETER (above), a
+capture, an enclosing local, a field of one — at every tier, and against the
+escaping/non-escaping faces (design 264's V75 pair), plus the `Result`/optional
+auto-wrapped tail, which is where `_wrap_tail_into_optional` already names
+`_check_closure`'s tail as one of its four entry points. Note the corpus
+DEPENDS on the current silence: `examples/conformance/V71`'s
+`takes_by_value({ p in p }, ...)` and `run_owned({ [move o] in o })` are exactly
+this shape, so the fix owes a migration and V71 owes a re-reading.
+[131, 195, 213, 264, DF-299b]
 
 ## DF-301a — ICE: a SUSPENDING function whose closure PARAMETER's type is a
 ## generic-struct instantiation emits an unparseable coroutine frame (filed

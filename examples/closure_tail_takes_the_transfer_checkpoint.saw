@@ -1,0 +1,31 @@
+// A closure body's TAIL is a transfer site, exactly as its `return` is.
+//
+// XFAIL: DF-304a — `_check_closure` reconciles the tail's TYPE and calls the
+// value-transfer checkpoint only for the closure's CAPTURES, so a tail that
+// forwards an owned move-only binding is unchecked. `return r` one keyword away
+// routes through `_check_return` and IS refused, which is the asymmetry the
+// finding is about. Filed by DF-299b's sweep; a different mechanism from the
+// value-branch arms DF-299b closed, so it was not fixed there.
+//
+// What the silence costs: design 264 makes a by-value closure parameter OWNED
+// by the body, so the body releases `r` at body end and the tail hands the
+// caller an alias of it. The run below prints `drop 7` BEFORE `n 7` — a
+// use-after-free at exit 0.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: without `move` in closure
+
+struct Res { w: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.w) }
+}
+
+func run(body: (Res) sync -> Res) -> Int {
+    let made = Res(w: 7)
+    let got = body(move made)
+    got.w
+}
+
+func main() {
+    print("n {}", run({ r in r }))
+}

@@ -15,7 +15,9 @@ from ast_nodes import (
     SawType, TypeKind, Visibility,
     Expression, Identifier, MoveExpr, ReferenceExpr, IntLiteral, Block,
     MemberAccess, ArrayIndex, TupleIndex, SelfExpr, ClosureExpr,
-    BindOptional, OptionalEvalExpr, ForceUnwrap, MethodCall, CastExpr
+    BindOptional, OptionalEvalExpr, ForceUnwrap, MethodCall, CastExpr,
+    IfExpr, IfLetExpr, MatchExpr, TryExpr, TryCatchExpr,
+    OptionalWrap, ResultOkWrap, ResultErrWrap
 )
 from ast_walk import child_nodes
 from errors import ErrorKind
@@ -4167,6 +4169,64 @@ class TypeUtilsMixin:
         cast.resolved_type = merged
         return cast
 
+    # DF-299b — the nodes whose value IS one of several block tails they hand
+    # on: a value `if` / `if let`, a value `match`, an inline `catch`'s handler
+    # block, and a `try { } catch { }` block. Design 195 rule 2 already says
+    # each arm of one of these is a TRANSFER into one merged home; this is that
+    # sentence's ownership half.
+    _VALUE_BRANCH_TYPES = (IfExpr, IfLetExpr, MatchExpr, TryExpr, TryCatchExpr)
+    # The auto-wraps an arm result can already be sitting inside by the time the
+    # checkpoint runs: `_wrap_tail_into_optional` distributes the tail's
+    # optional wrap INTO the arms (DF-289d), and the match reconciler wraps an
+    # arm body into `Ok`/`Err`. Each forwards its payload, so the checkpoint
+    # sees through them exactly as it sees through the branch itself.
+    _ARM_WRAP_TYPES = (OptionalWrap, ResultOkWrap, ResultErrWrap)
+
+    def _value_branch_arm_results(self, expr: Expression):
+        """The arm RESULTS a value-branch node forwards, or None if it is not one.
+
+        Each entry is `(arm_expr, wrapped)`; `wrapped` says an auto-wrap was
+        peeled, in which case the arm's own `resolved_type` — not the branch's
+        target — is what the checkpoint must judge it against.
+
+        A diverging arm (a `panic`, a block whose every path returned) has no
+        final expression and contributes nothing, which is the same filter
+        `_merge_value_branch_types`' callers apply.
+        """
+        arms = []
+        if isinstance(expr, (IfExpr, IfLetExpr)):
+            blocks = [expr.then_branch, expr.else_branch]
+        elif isinstance(expr, MatchExpr):
+            blocks = []
+            for arm in expr.arms:
+                blocks.append(arm.body)
+        elif isinstance(expr, TryExpr):
+            # Only the CATCH handler: the `try`'s own value comes out of the
+            # subject expression, which is that expression's question (a call
+            # result is already the reader's), not an arm of this branch.
+            if expr.catch_block is None:
+                return None
+            blocks = [expr.catch_block]
+        elif isinstance(expr, TryCatchExpr):
+            blocks = [expr.try_block, expr.catch_block]
+        else:
+            return None
+        for block in blocks:
+            if block is None:
+                continue
+            result = block.final_expr if isinstance(block, Block) else block
+            if result is None:
+                continue
+            wrapped = False
+            while isinstance(result, self._ARM_WRAP_TYPES):
+                result = result.value
+                wrapped = True
+                if result is None:
+                    break
+            if result is not None:
+                arms.append((result, wrapped))
+        return arms
+
     def _check_value_transfer(self, expr: Optional[Expression], target_type: Optional[SawType],
                               context: str, line: int, column: int,
                               is_return: bool = False):
@@ -4174,7 +4234,8 @@ class TypeUtilsMixin:
 
         Every site where a value is copied or moved into a new home (let/var
         initializers, assignment RHS, call arguments, returns, struct-field
-        initializers, array/tuple elements, enum payloads) routes through here.
+        initializers, array/tuple elements, enum payloads, and — since DF-299b —
+        a `break <value>`, whose home is the loop's) routes through here.
         It enforces NoCopy move-discipline and marks Copy sites so codegen
         inserts `copy()` uniformly.
 
@@ -4189,8 +4250,34 @@ class TypeUtilsMixin:
         - Copy type read from an existing binding: annotated
           `expr.needs_copy = True` for codegen. A fresh temporary is fine.
         - anything else: no-op.
+
+        VALUE BRANCHES ARE TRANSPARENT (DF-299b). A value `if`/`if let`, a value
+        `match`, an inline `catch` and a `try { } catch { }` block are not
+        values — they hand ON one of several block tails, so the transfer this
+        site is judging is really one transfer PER ARM. The checkpoint therefore
+        recurses into the arm results and judges each where it is written, which
+        is where codegen performs the copy and where the author's `move` goes.
+        Without it a value arm was the one transfer site nothing checked: `let b
+        = if c { a } else { a }` bitwise-duplicated `a` at every owning tier and
+        LOST one of the two deinits, and `break a` out of a `while { }` double
+        freed outright. Doing it here, rather than at the branch's own checker,
+        is what makes the rule position-blind: every site in the entry-point
+        list above gets it at once, and a nested branch is just an arm result
+        that is itself a branch.
         """
         if expr is None:
+            return
+
+        # DF-299b — the value-branch recursion, ahead of every other arm because
+        # a branch node is never itself a transfer: judging it as one asks the
+        # tier question about a merged home nobody owns.
+        arms = self._value_branch_arm_results(expr)
+        if arms is not None:
+            for arm, wrapped in arms:
+                self._check_value_transfer(
+                    arm, None if wrapped else target_type, context,
+                    getattr(arm, 'line', line), getattr(arm, 'column', column),
+                    is_return=is_return)
             return
 
         # design 24 item 3 (the `sync` boundary): a `sync` function type accepts

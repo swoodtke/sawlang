@@ -1,0 +1,67 @@
+// Conformance row V81 — control: the arm spellings the fence must NOT reach
+//
+// DF-299b. The refusal is only correct if it is narrow, so the neighbouring
+// spellings are counted here against a printing `deinit`. Every value reaches
+// the end alive or dies once on the way, and the drops below are the whole
+// ledger: nothing the fence permits duplicates an owner, and nothing it permits
+// loses a drop.
+//
+//   * `move` in BOTH arms — the way out the diagnostic names. It is legal
+//     because only one arm ever runs, and the move dataflow merges the branch
+//     rather than counting the mentions.
+//   * A FRESH temporary in each arm: a constructed value is already the
+//     reader's, so no arm reads storage anyone else owns.
+//   * MIXED arms (`move` on one side, a temporary on the other) — the fence is
+//     per ARM, not per branch.
+//   * `.copy()` arms at the ExplicitCopy tier, the second way out.
+//   * A GENERIC body's arms. This is the row that could have gone wrong: design
+//     219 wave C judges an abstract transfer by raising a requirement every call
+//     site discharges, and it counts PER PATH — `if flag { a } else { b }` names
+//     each parameter once on its own path and duplicates neither, so the body
+//     stays callable at a move-only type. A per-MENTION reading would have made
+//     the commonest generic shape in the language require `Copy`. `drop 10`
+//     lands BEFORE `generic 9` because the unselected argument is released
+//     inside `pick` — the same ledger, read from the callee's side.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: moved 7
+// EXPECT-OUTPUT: fresh 1
+// EXPECT-OUTPUT: mixed 3
+// EXPECT-OUTPUT: copied 3 3
+// EXPECT-OUTPUT: drop 10
+// EXPECT-OUTPUT: generic 9
+// EXPECT-OUTPUT: drop 9
+// EXPECT-OUTPUT: drop 3
+// EXPECT-OUTPUT: drop 1
+// EXPECT-OUTPUT: drop 7
+
+struct Res { w: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.w) }
+}
+
+func pick<T>(a: T, b: T, flag: Bool) -> T {
+    if flag { a } else { b }
+}
+
+func main() {
+    let a = Res(w: 7)
+    let moved = if true { move a } else { move a }
+    print("moved {}", moved.w)
+
+    let fresh = if true { Res(w: 1) } else { Res(w: 2) }
+    print("fresh {}", fresh.w)
+
+    let d = Res(w: 3)
+    let mixed = if true { move d } else { Res(w: 4) }
+    print("mixed {}", mixed.w)
+
+    let v: Vector<Int> = [1, 2, 3]
+    let w = if true { v.copy() } else { v.copy() }
+    print("copied {} {}", v.len(), w.len())
+
+    let x = Res(w: 9)
+    let y = Res(w: 10)
+    let got = pick(move x, move y, true)
+    print("generic {}", got.w)
+}

@@ -251,6 +251,37 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   arm position, so the same arms at `-> Int16` need nothing written.
   Treat a mismatched-width value `if` as correct now and SUSPECT in
   older builds: it used to hand back the then-arm's value on both paths.
+  **AND THE COPY POLICY APPLIES AT AN ARM TOO (DF-299b, closed Sep 5)** —
+  the rule is about TRANSFERS, so an arm reading an ExplicitCopy/NoCopy
+  value out of a binding is refused where it is written, with the ordinary
+  ways out (`move` on the arm, or `.copy()`):
+  ```saw-error
+  // error-contains: cannot copy value of type `Res` which implements NoCopy
+  struct Res { w: Int }
+  extension Res: NoCopy {}
+
+  func choose(flag: Bool) -> Int {
+      let a = Res(w: 7)
+      let b = if flag { a } else { a }   // error: cannot copy value of type
+      b.w                                //        `Res` which implements NoCopy
+  }
+  ```
+  ```saw-fragment
+  let c = if flag { move a } else { move a }        // legal: one arm runs
+  let d = if flag { move a } else { Res(w: 1) }     // legal: per ARM
+  ```
+  It covers every construct whose value is a block tail it hands on — a
+  value `if`, an `if let`, a `match` (bare and block arms), an inline
+  `catch`, a `try { } catch { }` block, and `break <value>`, whose merged
+  home is the LOOP's — at every position the branch can sit in (a `let`, an
+  argument, a `return`, a tail, a field, an element, an enum payload, an
+  assignment RHS, a tuple element), and nests. A `Copy` arm RETAINS, as it
+  always did. Treat all of it as caught now and SUSPECT in older builds,
+  where every one of those compiled and bitwise-duplicated the value: three
+  names and TWO deinits at exit 0 for the branch faces, and `break a` out of
+  a `while { }` double freed outright (SIGABRT). One shape stays UNCHECKED
+  today: a CLOSURE body's tail (`{ r in r }` at a move-only `r`) — DF-304a,
+  where a `return r` in the same closure is refused.
 - **A CONVERSION IS WRITTEN EVERYWHERE — there is no position exemption
   (design 205).** A PLAIN transfer takes the same rule the arm takes: a
   lossless widening is free, a narrowing or a same-width sign change is

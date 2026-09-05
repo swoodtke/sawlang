@@ -1,0 +1,105 @@
+// Conformance row V78 — …and the refusal reaches EVERY position a value
+// branch can sit in, because the fix is at the checkpoint rather than at the
+// branch
+//
+// DF-299b's obligation-4 sweep. The filing showed the hole at a `let`; a value
+// `if` is an expression, so it sits wherever one does, and each of those is a
+// transfer site with its own home. Rather than teach the branch checker about
+// positions, the checkpoint every position already funnels through was made
+// TRANSPARENT through the branch — one edit, and the row below is what it buys.
+//
+// The positions, one function each: a `let` initializer, a call ARGUMENT, an
+// explicit `return`, a body TAIL, a struct FIELD, a Vector ELEMENT, an enum
+// PAYLOAD, an assignment RHS, and a TUPLE element. The argument face was the
+// worst reading of the family — the callee owns its by-value parameter and
+// released it at return, so the caller's still-live binding was reading freed
+// storage on the next line.
+//
+// The two `return`-shaped positions get the return's own wording, which is the
+// point of routing them here rather than duplicating a rule: the site decides
+// how the refusal reads, and the arm only decides WHERE it is anchored.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot copy value of type `Res` which implements NoCopy
+// EXPECT-ERROR-CONTAINS: cannot return NoCopy type `Res` without `move`
+
+struct Res { w: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.w) }
+}
+
+struct Holder { r: Res }
+extension Holder: NoCopy {}
+
+enum Slot { case Full(r: Res), case Empty }
+extension Slot: NoCopy {}
+
+func take(r: Res) -> Int { r.w }
+
+func let_position() -> Int {
+    let a = Res(w: 7)
+    let b = if true { a } else { a }        // error
+    a.w + b.w
+}
+
+func argument_position() -> Int {
+    let a = Res(w: 7)
+    take(if true { a } else { a }) + a.w    // error
+}
+
+func return_position(flag: Bool) -> Res {
+    let a = Res(w: 7)
+    return if flag { a } else { a }         // error: the return's wording
+}
+
+func tail_position(flag: Bool) -> Res {
+    let a = Res(w: 7)
+    if flag { a } else { a }                // error: the return's wording
+}
+
+func field_position() -> Int {
+    let a = Res(w: 7)
+    let h = Holder(r: if true { a } else { a })     // error
+    a.w + h.r.w
+}
+
+func element_position() -> Int {
+    let a = Res(w: 7)
+    var v = Vector<Res>()
+    try! v.push(if true { a } else { a })           // error
+    a.w + v.len()
+}
+
+func payload_position() -> Int {
+    let a = Res(w: 7)
+    let s = Slot.Full(r: if true { a } else { a })  // error
+    match s {
+        case Full(r) -> a.w + r.w,
+        case Empty -> 0
+    }
+}
+
+func assignment_position() -> Int {
+    let a = Res(w: 7)
+    var b = Res(w: 1)
+    b = if true { a } else { a }                    // error
+    a.w + b.w
+}
+
+func tuple_position() -> Int {
+    let a = Res(w: 7)
+    let t = (if true { a } else { a }, 5)           // error
+    a.w + t.0.w
+}
+
+func main() {
+    print("{}", let_position())
+    print("{}", argument_position())
+    print("{}", return_position(true).w)
+    print("{}", tail_position(true).w)
+    print("{}", field_position())
+    print("{}", element_position())
+    print("{}", payload_position())
+    print("{}", assignment_position())
+    print("{}", tuple_position())
+}

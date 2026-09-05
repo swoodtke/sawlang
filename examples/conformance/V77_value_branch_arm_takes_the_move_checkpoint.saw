@@ -1,0 +1,59 @@
+// Conformance row V77 — a value `if`/`match` ARM forwards a binding into the
+// branch's merged home, so the arm takes the transfer checkpoint
+//
+// DF-299b. `let b = if true { a } else { a }` compiled with no `move` and no
+// `.copy()`, bitwise-duplicating `a`: three names for one value, TWO deinits,
+// and `a` never retired — an alias plus a lost drop at exit 0. The same shape
+// on an ExplicitCopy `Vector` minted a second owner of one buffer.
+//
+// The mechanism is a checkpoint that is never CALLED, which is what separates
+// this from DF-299a next door (a checkpoint that RAN and could not see the
+// node). A branch node is not a value: it hands ON one of several block tails,
+// so the transfer a site is judging is really one transfer PER ARM. The
+// checkpoint recurses into the arm results and judges each where it is
+// written, which is where codegen performs the copy and where the author's
+// `move` goes.
+//
+// Design 195 rule 2 already said arms are transfers — it applied that sentence
+// to integer widening and nothing applied it to ownership. Both owning tiers
+// are here because the refusal is the ordinary one: nothing about an arm earns
+// a weaker rule than the `let b = a` one line away.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot copy value of type `Res` which implements NoCopy
+// EXPECT-ERROR-CONTAINS: which implements ExplicitCopy
+// EXPECT-ERROR-CONTAINS: use `move` to transfer ownership instead
+
+struct Res { w: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.w) }
+}
+
+func if_face() -> Int {
+    let a = Res(w: 7)
+    let b = if true { a } else { a }    // error: NoCopy, once per arm
+    a.w + b.w
+}
+
+func match_face() -> Int {
+    let a = Res(w: 7)
+    let n = 1
+    let b = match n {
+        case 1 -> a,                    // error: NoCopy
+        case _ -> a                     // error: NoCopy
+    }
+    a.w + b.w
+}
+
+func explicitcopy_face() -> Int {
+    var v = Vector<Int>()
+    try! v.push(1)
+    let w = if true { v } else { v }    // error: ExplicitCopy — one buffer,
+    v.len() + w.len()                   //   two owners
+}
+
+func main() {
+    print("{}", if_face())
+    print("{}", match_face())
+    print("{}", explicitcopy_face())
+}
