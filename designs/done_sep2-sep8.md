@@ -1053,3 +1053,44 @@ variant's actual struct (GEP into the union scratch), or memcpy from a typed
 scratch — either rides the back-end size lane or a codegen batch, gated on the
 sos image + `bench` like 261/263.
 [261, 263, DF-293b, IMAGE SIZE entry above]
+
+## Queue + backlog records (moved Sep 4/5 night, seventh rotation — design 207: constructor inference)
+
+- Design 207 — constructors infer their type arguments (designs/207-constructor-inference.md; RULED Aug 10, SCHEDULED Sep 4 by DF-294d's ruling; annotation-driven cell RULED IN Sep 4). **LANDED Sep 4** on `constructor-inference`, all four units. Struct `init` resolution, the memberwise literal, generic enum-variant construction and the payload-free `E.Variant` all solve through the ONE design-93/105 solver (its docstring now names the constructor entry points — obligation 1); the declared slot at a `let`/`static`/parameter-default enters the SAME pass as an extra constraint, so explicit-wins and slot-vs-argument-conflict fall out rather than being coded. Solved args are stamped on the same `type_args` fields the explicit spelling fills and canonicalized identically, and a written PREFIX passes through untouched. **CLOSES DF-294d** (its record is in done_sep2-sep8.md — lead to move/mark; the doubled `NAME: T<...> = T<...>(...)` spelling is gone and the spec/skill interim passages are superseded). **DF-247a is NOT dissolved** — probed on the branch, `work(2)` beside `group.spawn(work(5))` is still ``undefined function `work` ``; its mechanism is the coroutine transform's spawn-root rewrite and has no contact with type-argument inference, so no workaround pressure was relieved. It stays open, unchanged. Two findings: **DF-302a** (solver fixpoint re-checked arguments, breaking `move` — PRE-EXISTING, baseline-verified on a generic free function, **fixed here**) and **DF-302b** (a generic extension's `init` releases a parameter it moved into the built value — PRE-EXISTING, **not** fixed, pinned). One behavior FLIP worth the lead's eye: a supplied argument now beats a type-param default at a constructor, matching design 108 for functions. Gates: suite 2389 passed / 7 xfailed, freestanding 33 both arches, docverify 459 OK, irdet --all, full battery.
+
+## DF-302a — the inference solver's FIXPOINT re-checked every argument on every
+## pass, so a `move` argument reported use-after-move about ITSELF (filed Sep 4
+## by design 207's agent; PRE-EXISTING, baseline-verified). **CLOSED by the
+## design-207 landing — the fix is in the same solver the brief routes through**
+
+```saw
+func take<A, B: Allocator>(x: Vector<A, B>) -> Int { x.len() }
+// print(take(move v))
+//   error: use of moved variable `v`
+//   hint: value was already moved at line 6 and can no longer be used
+```
+
+MECHANISM (obligation 4). Design 105's solver fixpoints over the argument list,
+re-running phase 1 until no new parameter is solved. Phase 1 called
+`_check_expression` on every non-closure argument on EVERY pass, and the
+inference sandbox rolls back `moved_bindings` only at the END of the solve — so
+within one solve, pass 2's check of `move v` met the move pass 1 had recorded
+and refused it, anchored at the very expression performing the move.
+
+WHY IT LOOKED LIKE A CONSTRUCTOR BUG AND IS NOT: the loop breaks as soon as a
+pass solves nothing new, so a ONE-parameter callee never runs a second pass and
+is unaffected. It takes a callee with 2+ type parameters where an argument
+solves one on pass 1 — which is every `Vector`/`Set`/`Map`/`Box` signature,
+since the defaulted allocator is a second parameter. Baseline-verified at HEAD
+on a generic FREE FUNCTION with no constructor involved; design 207 only made it
+reachable through a third spelling, which is how it was found (`set_from_vector`
+went red).
+
+FIX: an argument is checked at most once per solve, its type cached across
+passes. Sound because nothing the solver learns feeds back into a non-closure
+argument's own type. CLOSURES are still re-checked each pass — their expected
+parameter types sharpen as the substitution grows, which is the whole point of
+the fixpoint. Strictly less work, and the `known_arg_types` overload path seeds
+the same cache. Pinned by `examples/infer_move_argument_checked_once.saw`
+(function spelling, partial-explicit constructor, fully-inferred constructor).
+[93, 105, 207]
