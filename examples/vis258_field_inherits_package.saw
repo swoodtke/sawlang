@@ -1,0 +1,13 @@
+// Design 258 (conformance B27), the `public(package)` tier: a BARE field of a
+// `public(package)` struct is `public(package)`, reachable from a sibling in the
+// same package and no wider. This is the shape the ruling was made on — the sos
+// code where a `public(package) struct ProcessSlot` spelled `public(package)` on
+// every one of its fields.
+// EXPECT: success
+// EXPECT-OUTPUT: 7
+import modules.vis258
+
+func main() {
+    let c = vis258.PkgCrate.make(7)
+    print(c.n)     // a bare field at the package tier, read from a sibling
+}

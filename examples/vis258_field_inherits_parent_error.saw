@@ -1,0 +1,13 @@
+// Design 258 (conformance B27), the `public(parent)` tier: a BARE field of a
+// `public(parent)` struct is `public(parent)`, so a module that is not the
+// parent reaches neither the type nor the field it carries. The refusal lands on
+// the TYPE, which is the tier doing its job one level up — a field can never be
+// more reachable than the type it lives in.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `ParentOnlyReading` is public(parent) in `modules.nested.child`
+import modules.nested.child
+
+func main() {
+    let r = child.ParentOnlyReading.make(4)
+    print(r.reading)
+}

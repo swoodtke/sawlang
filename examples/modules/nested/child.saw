@@ -9,6 +9,20 @@ public(parent) struct ParentOnlyData {
     private value: Int
 }
 
+// Design 258: a BARE field inherits `public(parent)` like any other tier — the
+// struct states the tier once and the field rides it. `modules.nested` (the
+// parent) reads `reading` directly; nothing outside the parent can, which is
+// what `vis258_field_inherits_parent_error.saw` pins.
+public(parent) struct ParentOnlyReading {
+    reading: Int
+}
+
+extension ParentOnlyReading {
+    public(parent) static func make(n: Int) -> ParentOnlyReading {
+        ParentOnlyReading(reading: n)
+    }
+}
+
 // This is public, so accessible from anywhere
 public func child_public(n: Int) -> Int {
     n + 1

@@ -1,0 +1,33 @@
+// Design 258 ruling 5 (conformance B30): the INHERITED visibility is what "a
+// public API needs public types" (the Aug-21 ruling, design 193) judges against.
+//
+// This shape was legal the day before 258 and is a refusal now, and that is the
+// point rather than a side effect: the field used to be private, so it exposed
+// nothing; it is public by inheritance now, so its type must keep up. Nothing
+// about the rule changed — only the reach it measures the field's type against.
+//
+// The diagnostic owes a third way out here that it does not owe at a parameter
+// or a return: a FIELD can be narrowed on its own, without narrowing the type
+// around it or the declaration it sits in. That is what `private` is for, and it
+// is how the whole in-tree migration was written.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: field `hidden` of `Shipment` is public, but its type names `Ledger`, which is private
+// EXPECT-ERROR-CONTAINS: mark the field `private`
+
+struct Ledger {
+    n: Int
+}
+
+public struct Shipment {
+    // Bare, so `public` by inheritance — and a public field may not name a
+    // private type.
+    hidden: Ledger,
+    // Marked, so it stays module-private and may name whatever it likes. This
+    // is the fix the hint names, and the one the migration applied 170 times.
+    private kept: Ledger
+}
+
+func main() {
+    let s = Shipment(hidden: Ledger(n: 1), kept: Ledger(n: 2))
+    print(s.hidden.n + s.kept.n)
+}

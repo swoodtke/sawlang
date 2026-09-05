@@ -14,6 +14,7 @@ from typing import Dict, List, Optional, Tuple
 from ast_nodes import (
     TypeDefinition, Struct, Enum, Trait, Function, Extension, Method, Parameter,
     Program, StaticDecl, SawType, TypeKind, Visibility, has_synthesize,
+    effective_field_visibility,
     Block, ReturnStatement, BreakStatement, ContinueStatement, IfExpr, WhileExpr,
     IntLiteral, FloatLiteral, BoolLiteral, UnaryOp, ArrayLiteral, StructInit,
     FunctionCall, ExpressionStatement, SourceLocationLiteral, expr_diverges,
@@ -503,17 +504,24 @@ class RegistrationMixin:
                 fields[field.name] = field.type
                 field_order.append(field.name)
 
-        # Member visibility (design 80): per-field visibility + the struct's
-        # defining module (keyed on source file so std files each form their own
-        # module even under the merged prelude).
-        field_visibility = {f.name: getattr(f, 'visibility', Visibility.PRIVATE)
+        # Member visibility (design 80, amended by design 258): per-field
+        # EFFECTIVE visibility + the struct's defining module (keyed on source
+        # file so std files each form their own module even under the merged
+        # prelude).
+        #
+        # This map is what `_check_field_visible` reads, so routing it through
+        # `effective_field_visibility` is what makes the field READ, the field
+        # WRITE and the cross-module memberwise LITERAL agree by construction:
+        # all three ask the gate, and the gate asks this map.
+        struct_vis = getattr(struct, 'visibility', Visibility.PRIVATE)
+        field_visibility = {f.name: effective_field_visibility(f, struct_vis)
                             for f in struct.fields}
         def_module = self._vis_module_for_source(getattr(struct, 'source_file', None))
         self.namespace.register_struct(struct.name, StructSymbol(
             fields=fields,
             field_order=field_order,
             type_params=struct.type_params,
-            visibility=getattr(struct, 'visibility', Visibility.PRIVATE),
+            visibility=struct_vis,
             field_visibility=field_visibility,
             def_module=def_module,
             type_identity=identity,

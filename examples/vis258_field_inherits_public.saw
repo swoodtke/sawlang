@@ -1,0 +1,24 @@
+// Design 258 (conformance B27), the `public` tier: a BARE field of a `public`
+// struct is public, so it reads, WRITES and names itself in a cross-module
+// memberwise literal — none of which needed a marker on the field.
+// EXPECT: success
+// EXPECT-OUTPUT: 5
+// EXPECT-OUTPUT: 99
+// EXPECT-OUTPUT: 10
+// EXPECT-OUTPUT: 3
+// EXPECT-OUTPUT: 4
+import modules.vis258
+
+func main() {
+    var c = vis258.Crate.make(5)
+    print(c.n)              // 5  — a bare field, read across the boundary
+    c.n = 99                // ...and written: one gate covers both
+    print(c.n)              // 99
+    print(c.sealed())       // 10 — the `private` field is still reached by API
+
+    // Construction visibility IS field visibility, so a struct whose fields are
+    // all bare is memberwise-constructible from here with no `init` written.
+    let p = vis258.Parcel(w: 3, h: 4)
+    print(p.w)              // 3
+    print(p.h)              // 4
+}

@@ -44,7 +44,7 @@ from typing import Any, Dict, List, Optional
 
 from ast_nodes import (
     BoolLiteral, EnumInit, FloatLiteral, Identifier, IntLiteral, NoneLiteral,
-    StringLiteral, Visibility,
+    StringLiteral, Visibility, effective_field_visibility,
 )
 from type_identity import decl_identity, display_name
 
@@ -305,10 +305,15 @@ class DocsBuilder:
         gen = _generics_str(s.type_params)
         fields = []
         for f in s.fields:
-            if f.visibility == Visibility.PRIVATE and not self.include_private:
+            # Design 258: a bare field INHERITS the struct's tier, so the
+            # documented surface has to ask the funnel rather than read the
+            # marker. Both halves depend on it — which fields are listed at all,
+            # and what tier each is listed AT.
+            fvis = effective_field_visibility(f, s.visibility)
+            if fvis == Visibility.PRIVATE and not self.include_private:
                 continue
             fields.append({"name": f.name, "type": _type_str(f.type),
-                           "visibility": _visibility_str(f.visibility),
+                           "visibility": _visibility_str(fvis),
                            "doc": f.doc, "line": f.line})
         # design 130: an `unsafe struct` is a different type from a plain one
         # that merely happens to be NAMED `Unsafe*`, so the signature has to say

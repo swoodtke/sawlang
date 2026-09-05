@@ -1,0 +1,19 @@
+// Design 258 ruling 3 (conformance B28) — the BOUNDARY, and the fence on B27.
+// Fields inherit; extension members do NOT. `Crate` is `public` and `helper` is
+// declared bare in its extension, so `helper` is a module-private helper exactly
+// as a bare free function is, while `Crate.n` one line below is public because
+// it is a FIELD.
+//
+// The rationale, in the user's own frame (Aug 31): an extension method is a
+// FUNCTION that happens to act on a struct, so it needs a DECLARED visibility or
+// else it is a per-module helper. A field is the type's own data and rides the
+// type's tier. Nothing function-shaped inherits reach from a type.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: method `helper` of `Crate` is private
+import modules.vis258
+
+func main() {
+    let c = vis258.Crate.make(5)
+    print(c.n)            // the FIELD inherits: fine
+    print(c.helper())     // the METHOD does not: refused
+}

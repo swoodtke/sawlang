@@ -21,7 +21,8 @@ tier rule does.
 
 from typing import Optional, Tuple
 
-from ast_nodes import SawType, TypeKind, Visibility
+from ast_nodes import (SawType, TypeKind, Visibility,
+                       effective_field_visibility)
 from errors import ErrorKind
 
 
@@ -115,7 +116,8 @@ class SignatureVisibilityMixin:
     # The reach of a declaration, and of a type.
     # ------------------------------------------------------------------ #
 
-    def _decl_reach(self, decl, cap: Optional[Visibility] = None
+    def _decl_reach(self, decl, cap: Optional[Visibility] = None,
+                    vis: Optional[Visibility] = None
                     ) -> Tuple[Visibility, Tuple[str, ...]]:
         """A declaration's EFFECTIVE reach: `(tier, defining module)`.
 
@@ -124,8 +126,16 @@ class SignatureVisibilityMixin:
         says a `public` member of a non-public type is inert, so the effective
         reach is the NARROWER of the two and the rule never demands more of a
         field than its struct can hand out.
+
+        `vis` overrides the tier read off the declaration, for the one kind of
+        declaration whose tier is not simply what it carries: a struct FIELD,
+        which since design 258 INHERITS its type's tier when unmarked. The
+        caller passes `effective_field_visibility`'s answer rather than a second
+        copy of the rule.
         """
-        vis = getattr(decl, 'visibility', Visibility.PRIVATE) or Visibility.PRIVATE
+        if vis is None:
+            vis = getattr(decl, 'visibility', Visibility.PRIVATE)
+        vis = vis or Visibility.PRIVATE
         if cap is not None and _REACH_RANK[cap] < _REACH_RANK[vis]:
             vis = cap
         return (vis, self._vis_module_for_source(
@@ -281,6 +291,13 @@ class SignatureVisibilityMixin:
         # module`" is noise in the single-module case, which is most of them.
         owner = ("" if tuple(type_module) == tuple(decl_module)
                  else f" in `{self._module_label(type_module)}`")
+        # Design 258 ruling 5: a FIELD has a third way out the other positions do
+        # not — it can be narrowed WITHOUT narrowing anything else, because
+        # `private` is exactly the spelling for "this field is not on the type's
+        # surface". Worth naming, because a field that reaches this refusal is
+        # most often one whose tier the author never chose: it inherited it.
+        narrow = ("mark the field `private`" if decl_what.startswith("field `")
+                  else "narrow the declaration")
         self._error(
             ErrorKind.TYPE_MISMATCH,
             f"{decl_what} is {self._vis_word(decl_vis)}, but {what} names "
@@ -288,8 +305,8 @@ class SignatureVisibilityMixin:
             f"public API needs public types",
             line, column,
             hint=f"either widen the type — mark the {word} `{short}` "
-                 f"`{self._vis_word(decl_vis)}`{owner} — or narrow the "
-                 f"declaration, so its signature stays where `{short}` can be "
+                 f"`{self._vis_word(decl_vis)}`{owner} — or {narrow}, so its "
+                 f"signature stays where `{short}` can be "
                  f"named. A caller that can reach a declaration must be able to "
                  f"name every type in its signature",
             source_file=source_file,
@@ -404,12 +421,19 @@ class SignatureVisibilityMixin:
                        getattr(assign, 'column', ext.column),
                        getattr(ext, 'source_file', None))
 
-        # 6. Struct fields — capped by the struct's own tier.
+        # 6. Struct fields — capped by the struct's own tier, and since design
+        # 258 DEFAULTING to it: a bare field inherits its declaring type's tier,
+        # so its type must keep up with that tier. This is ruling 5, and it is
+        # the one place inheritance turns something that used to compile into a
+        # refusal — a public struct's bare field naming a private type was fine
+        # while the field was private, and is a refusal now.
         for struct in getattr(program, 'structs', []):
             src = getattr(struct, 'source_file', None)
             cap = vis_of(struct)
             for field_decl in struct.fields:
-                reach = self._decl_reach(field_decl, cap=cap)
+                reach = self._decl_reach(
+                    field_decl, cap=cap,
+                    vis=effective_field_visibility(field_decl, cap))
                 if not getattr(field_decl, 'source_file', None):
                     reach = (reach[0], self._vis_module_for_source(src))
                 yield (field_decl.type, "its type",
