@@ -1,0 +1,105 @@
+// Design 207: generic CONSTRUCTORS infer their type arguments, through the same
+// design-93/105 solver that serves generic functions and methods. This is the
+// inference matrix for the constructor positions.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 5
+// 1
+// x
+// 2
+// y
+// 7
+// 3
+// 9
+// 11
+// 4
+// 12
+// 0
+// 1
+// 6
+// str
+// none
+// 42
+// 1
+
+struct Wrap<T> { value: T }
+struct Pair<A, B> { a: A, b: B }
+
+extension Wrap<T> {
+    init(doubled: T) -> Wrap<T> { Wrap<T>(value: doubled) }
+}
+
+// design 108 at a constructor: a default VALUE typed by the type parameter
+// drives inference when nothing else determines it.
+struct Tagged<T> { t: T }
+extension Tagged<T> {
+    init(seed: T = 42) -> Tagged<T> { Tagged<T>(t: seed) }
+}
+
+// A type-param DEFAULT fills only what nothing else determines; a supplied
+// argument wins, exactly as design 108 rules for functions.
+struct Defaulted<T = Int> { v: T }
+
+// The DF-294d shape: a const-generic head whose type is otherwise written twice.
+struct Slot { id: Int, live: Bool }
+struct Slab<T, const N: Int> { used: Int, first: T }
+
+enum Holder<T> { case Some(v: T), case Nothing }
+enum Two<A, B> { case Both(a: A, b: B), case Neither }
+
+// SLOT-DRIVEN at a `static`, and at a parameter's DEFAULT VALUE. (A struct
+// FIELD carries no default initializer in Saw, so those are the language's two
+// declaration slots beside the `let`.)
+static W: Wrap<Int> = Wrap(value: 9)
+static EVENTS: Slab<Slot, 8> = Slab(used: 0, first: Slot(id: 1, live: false))
+
+func defaulted_param(w: Wrap<Int> = Wrap(value: 11)) -> Int { w.value }
+
+func main() {
+    // memberwise literal, one type parameter, solved from the argument
+    print(Wrap(value: 5).value)
+    // two parameters, both solved
+    let p = Pair(a: 1, b: "x")
+    print(p.a)
+    print(p.b)
+    // partial explicit: `A` pinned, `B` inferred (explicit always wins)
+    let q = Pair<Int>(a: 2, b: "y")
+    print(q.a)
+    print(q.b)
+    // a custom `init` is an overload candidate like any other
+    print(Wrap(doubled: 7).value)
+    // NESTED: each layer solves from the one below (the dogfood shape)
+    print(Wrap(value: Wrap(value: 3)).value.value)
+    // slot-driven at a `static`, and at a parameter default
+    print(W.value)
+    print(defaulted_param())
+    // the declared slot peels the Optional layer this position auto-wraps
+    let m: Wrap<Int>? = Wrap(value: 4)
+    print(m!.value)
+    // slot-driven at a `let`
+    let s: Wrap<Int> = Wrap(value: 12)
+    print(s.value)
+    // the const-generic static: `Slab<Slot, 8>` written once
+    print(EVENTS.used)
+    print(EVENTS.first.id)
+
+    // generic enum variant construction, payload-solved
+    match Holder.Some(v: 6) {
+        case Some(v) -> print(v),
+        case Nothing -> print(0)
+    }
+    match Two.Both(a: 1, b: "str") {
+        case Both(a, b) -> print(b),
+        case Neither -> print("n")
+    }
+    // a PAYLOAD-FREE variant: no argument can ever solve it, so the declared
+    // slot is the whole of its inference
+    let empty: Holder<Int> = Holder.Nothing
+    match empty { case Some(v) -> print(v), case Nothing -> print("none") }
+
+    // design 108: the init's default VALUE drives inference
+    print(Tagged().t)
+
+    // a type-param default fills when unconstrained; an argument wins when not
+    print(Defaulted(v: 1).v)
+}

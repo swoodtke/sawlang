@@ -11,6 +11,7 @@ Usage:
 
 from typing import Optional, Dict, List, NamedTuple
 from types import SimpleNamespace as _SandboxNode
+from contextlib import contextmanager
 from ast_nodes import (
     Expression, IntLiteral, FloatLiteral, BoolLiteral, StringLiteral,
     StringInterpolation, FormatPlaceholder,
@@ -36,6 +37,7 @@ from errors import ErrorKind
 from const_eval import const_eval, ConstEvalError, CONST_LENGTH_HINT
 from namespace import Visibility, EnumSymbol
 from type_identity import type_identity as _type_identity
+from type_identity import display_name as _display_name
 from .effects import _first_pristine
 
 # design 242: the IDENTITIES of `std.task`'s two thread handles, not their
@@ -3230,8 +3232,28 @@ class ExpressionsMixin:
     def _solve_call_type_args(self, type_params, abstract_params, expr, mapping,
                               base_subst, provided_type_args, what, line, column,
                               silent=False, known_arg_types=None,
-                              default_values=None):
-        """Infer this call's own generic type arguments (design 93 + 105).
+                              default_values=None, arguments=None,
+                              extra_constraints=None, explicit_hint=None):
+        """Infer this call's own generic type arguments (design 93 + 105 + 207).
+
+        THE ONE INFERENCE ENGINE. Every position in the language that solves a
+        generic argument list from the values written at a use site enters here;
+        there is no second solver. Its ENTRY POINTS, named so a new position is
+        added to this funnel rather than beside it:
+
+          * `_check_function_call` — a generic free function (design 93).
+          * `_try_generic_overload_candidates` — one candidate of an overload
+            set, run `silent` (design 105).
+          * `_check_method_call` — a generic method, `base_subst` carrying the
+            receiver's own arguments (design 93).
+          * `_check_static_method_call` — a generic static on a type.
+          * `_solve_constructor_type_args` — the CONSTRUCTOR adapter (design
+            207), which serves struct `init` resolution, the memberwise struct
+            literal and generic enum-variant construction. Constructors write
+            their arguments in `field_inits` rather than an `arguments` list,
+            which is what `arguments` exists for, and the annotation-driven cell
+            enters as an `extra_constraints` pair rather than as a fourth kind
+            of inference.
 
         `abstract_params` are the callee's LOGICAL parameter types (receiver
         excluded), which may mention both the enclosing struct's type params
@@ -3245,6 +3267,21 @@ class ExpressionsMixin:
         does NOT re-check it — avoiding a double `move`/effect record on the real
         state (the sandbox rolls back only what it touches).
 
+        `arguments` overrides `expr.arguments` as the source-argument list. A
+        constructor's arguments are `(label, expression)` pairs on a `StructInit`
+        rather than `Argument` nodes on a call, and `expr` is still wanted for
+        nothing but its identity — so the adapter hands the list in directly
+        instead of fabricating a call node the rest of the checker would then see.
+
+        `extra_constraints` is a list of `(pattern, actual)` pairs unified at the
+        TOP of each fixpoint pass, ahead of the arguments. Design 207's
+        annotation-driven cell is one such pair — the constructed type's own
+        abstract form (`Wrap<T>`) against the declared slot (`Wrap<Int>`) — so
+        the slot is one more inference SOURCE in this pass rather than a separate
+        mechanism: a slot that disagrees with an argument records an ordinary
+        `__conflict__` and reports through the ordinary conflict diagnostic, and
+        an explicit `<...>` still wins because it pinned `out` before the pass ran.
+
         Design 105: `mapping` (source-arg index -> logical parameter index, or
         None for positional identity) makes inference honor labeled/out-of-order
         calls — arguments are paired with parameters BY LABEL before unification.
@@ -3252,7 +3289,11 @@ class ExpressionsMixin:
         the FIXPOINT (repeat passes until no new solution; bounded by param
         count; closures still solved after non-closure args each pass). `silent`
         suppresses the failure diagnostics so an overload candidate can be tried
-        without emitting an error when it does not solve."""
+        without emitting an error when it does not solve. `explicit_hint`
+        overrides the underdetermined error's hint, so a constructor names the
+        constructor spelling rather than a call's."""
+        if arguments is None:
+            arguments = expr.arguments
         own = list(type_params)
         own_names = {tp.name for tp in own}
         out: Dict[str, SawType] = {}
@@ -3270,29 +3311,54 @@ class ExpressionsMixin:
             # parameters are known. Bounded by the parameter count — every pass
             # that changes anything solves at least one new name.
             max_passes = max(1, len(own))
+            # DF-302a: an argument is checked AT MOST ONCE per solve. The
+            # fixpoint may run several passes, and re-checking a non-closure
+            # argument on a later pass re-runs its EFFECTS against state the
+            # first pass already moved — so `f(move v)` on a callee with two
+            # type parameters reported `use of moved variable v` at the very
+            # expression that moves it, the second pass tripping over the
+            # first. The type of a non-closure argument cannot change between
+            # passes (nothing the solver learns feeds back into it), so caching
+            # is both the fix and a strict reduction in work. CLOSURES are
+            # deliberately still re-checked each pass: their expected parameter
+            # types sharpen as `out` grows, which is the whole point of the
+            # fixpoint (design 105).
+            arg_type_cache = (list(known_arg_types)
+                              if known_arg_types is not None
+                              else [None] * len(arguments))
             for _ in range(max_passes):
                 before = len(out)
+                # Phase 0: the non-argument constraints (design 207's declared
+                # slot). Unified FIRST so a slot-vs-argument disagreement reads
+                # "required to be both `<slot>` and `<argument>`" in the order
+                # the author wrote them; correctness does not depend on it,
+                # since a conflict is a conflict whichever side records second.
+                for pattern, actual in (extra_constraints or []):
+                    if pattern is not None and actual is not None:
+                        self._unify_infer(pattern.substitute(base_subst), actual,
+                                          remaining, out)
                 # Phase 1: non-closure arguments pin the parameters they mention.
                 # Unify against `base_subst` only (NOT the growing `out`) so two
                 # arguments binding one parameter to unequal types still record a
                 # conflict rather than silently comparing concrete-vs-concrete.
-                for i, arg in enumerate(expr.arguments):
+                for i, arg in enumerate(arguments):
                     if isinstance(arg.value, ClosureExpr):
                         continue
                     p = mapping[i] if mapping is not None else i
                     if p >= len(abstract_params):
                         continue
-                    if known_arg_types is not None:
-                        at = known_arg_types[i]
-                    else:
+                    at = arg_type_cache[i] if i < len(arg_type_cache) else None
+                    if at is None:
                         at = self._check_expression(arg.value)
+                        if i < len(arg_type_cache):
+                            arg_type_cache[i] = at
                     if at is not None:
                         self._unify_infer(abstract_params[p].substitute(base_subst),
                                           at, remaining, out)
                 # Phase 2: closures. Their parameter types are now concrete (from
                 # the struct and from already-solved params); the inferred RETURN
                 # type solves any remaining parameter (`map<U>`'s `U`).
-                for i, arg in enumerate(expr.arguments):
+                for i, arg in enumerate(arguments):
                     if not isinstance(arg.value, ClosureExpr):
                         continue
                     p = mapping[i] if mapping is not None else i
@@ -3316,7 +3382,7 @@ class ExpressionsMixin:
             # back (they already tainted the callee at its declaration).
             if default_values and '__conflict__' not in out and (own_names - set(out.keys())):
                 bound = (set(mapping) if mapping is not None
-                         else set(range(len(expr.arguments))))
+                         else set(range(len(arguments))))
                 for p, dv in enumerate(default_values):
                     if dv is None or p in bound or p >= len(abstract_params):
                         continue
@@ -3354,11 +3420,349 @@ class ExpressionsMixin:
                     ErrorKind.TYPE_MISMATCH,
                     f"cannot infer type argument `{tp.name}` for {what}",
                     line, column,
-                    hint=f"give the type argument(s) explicitly, "
-                         f"e.g. `{what.split('`')[1] if '`' in what else '...'}"
-                         f"<{tp.name}=...>`")
+                    hint=explicit_hint or (
+                        f"give the type argument(s) explicitly, "
+                        f"e.g. `{what.split('`')[1] if '`' in what else '...'}"
+                        f"<{tp.name}=...>`"))
                 return None
         return {**base_subst, **out}
+
+    # ------------------------------------------------------- design 207
+    # Constructors infer their type arguments. Everything below is ADAPTER: it
+    # turns a construction into the shape `_solve_call_type_args` already
+    # takes, so there is exactly one inference engine in the compiler and a
+    # constructor monomorphizes byte-identically to the explicit spelling (the
+    # solved list is stamped onto the same `type_args` field the author would
+    # have written).
+
+    def _take_decl_slot_type(self):
+        """CONSUME the declared slot a constructor is being checked against.
+
+        Consuming rather than reading is the whole fence: the outermost
+        constructor of a declaration initializer takes the slot, and every
+        constructor nested inside it — an argument, a receiver, an operand —
+        finds None. That is design 207's ruled scope (the declared slot at an
+        initializer, and nothing else) expressed as a single assignment."""
+        slot = self._decl_slot_type
+        self._decl_slot_type = None
+        return slot
+
+    @contextmanager
+    def _decl_slot(self, value_expr, declared_type):
+        """Offer `declared_type` to `value_expr` when it IS a construction.
+
+        The three callers are the three declaration positions carrying an
+        annotation beside an initializer: a `let`/`var` (statements), a module
+        `static` (registration), and a parameter's DEFAULT VALUE (statements).
+        Saw struct FIELDS carry no default initializer, so the parameter
+        default is the third slot the language actually spells.
+
+        Gated on the initializer BEING a construction so nothing is set for an
+        expression that merely contains one — belt to the consuming brace's
+        braces. Three node shapes are constructions: `StructInit`, `EnumInit`,
+        and a `MemberAccess` off a bare NAME, which is how a payload-free enum
+        variant (`Holder.Nothing`) is spelled. The last is narrowed to an
+        `Identifier` object precisely so it cannot become a propagation path:
+        `make(Wrap(value: 1)).field` is a MemberAccess too, and letting it
+        through would hand the declared slot to a constructor sitting in a call
+        ARGUMENT — the general expected-type flow design 207 rules out."""
+        prev = self._decl_slot_type
+        self._decl_slot_type = (
+            declared_type
+            if declared_type is not None
+            and (isinstance(value_expr, (StructInit, EnumInit))
+                 or (isinstance(value_expr, MemberAccess)
+                     and isinstance(value_expr.object, Identifier)))
+            else None)
+        try:
+            yield
+        finally:
+            self._decl_slot_type = prev
+
+    def _ctor_slot_head_matches(self, slot, is_enum, name) -> bool:
+        if slot is None:
+            return False
+        if is_enum:
+            return slot.kind == TypeKind.ENUM and slot.enum_name == name
+        return slot.kind == TypeKind.STRUCT and slot.struct_name == name
+
+    def _ctor_slot_candidates(self, slot, is_enum, name, depth=0):
+        """Every sub-slot of `slot` headed by the type being constructed and
+        reachable by peeling ONLY the layers a declaration initializer
+        AUTO-WRAPS: an `Optional` payload and a `Result`'s Ok/Err payloads.
+
+        Nothing else is peeled. A `Vector<Wrap<Int>>` slot contributes no
+        constraint to a `Wrap(...)` initializer, because no auto-wrap puts a
+        construction there — peeling into arbitrary containers would be the
+        general expected-type propagation design 207 rules out."""
+        if slot is None or depth > 8:
+            return []
+        resolved = self._resolve_type(slot) or slot
+        if self._ctor_slot_head_matches(resolved, is_enum, name):
+            return [resolved]
+        if resolved.is_result():
+            found = []
+            for side in (resolved.unwrap_result_ok(),
+                         resolved.unwrap_result_err()):
+                found.extend(
+                    self._ctor_slot_candidates(side, is_enum, name, depth + 1))
+            return found
+        if resolved.kind == TypeKind.OPTIONAL:
+            return self._ctor_slot_candidates(resolved.inner_type, is_enum,
+                                              name, depth + 1)
+        return []
+
+    def _ctor_slot_constraint(self, is_enum, name, solve_params):
+        """The `(pattern, actual)` pair design 207's annotation-driven cell adds
+        to the solver: the constructed type's ABSTRACT form (`Wrap<T>`) against
+        the peeled declared slot (`Wrap<Int>`).
+
+        Returns None — declining, never guessing — when the slot names no such
+        type, when it names TWO (a `Result<Wrap<Int>, Wrap<String>>` slot could
+        take the construction on either side, and picking one would be a guess),
+        or when the slot is itself unapplied. Declining costs nothing: the
+        constructor falls back to argument-driven inference and, failing that,
+        to the clean underdetermined error naming the explicit spelling, which
+        always compiles."""
+        slot = self._take_decl_slot_type()
+        if slot is None or not solve_params:
+            return None
+        candidates = self._ctor_slot_candidates(slot, is_enum, name)
+        if len(candidates) != 1:
+            return None
+        got = candidates[0]
+        if not got.type_args or len(got.type_args) != len(solve_params):
+            return None
+        pattern = SawType(
+            TypeKind.ENUM if is_enum else TypeKind.STRUCT,
+            enum_name=name if is_enum else None,
+            struct_name=None if is_enum else name,
+            type_args=[SawType(TypeKind.TYPE_PARAM, type_param_name=tp.name)
+                       for tp in solve_params])
+        return (pattern, got)
+
+    def _solve_constructor_type_args(self, solve_params, param_names,
+                                     param_types, arg_pairs, provided_type_args,
+                                     slot_constraint, what, spelling, line,
+                                     column, default_values=None, silent=False):
+        """Design 207's entry into the ONE solver (`_solve_call_type_args`).
+
+        `arg_pairs` are the construction's `(label, expression)` pairs — a
+        `StructInit`'s `field_inits`, or an `EnumInit`'s arguments already
+        reduced to that shape. They are adapted to `Argument`s and paired with
+        the candidate's parameters BY LABEL, which is design 105's mapping for
+        a construction: every constructor argument is labeled, so the mapping
+        is total or the label check downstream is about to report it.
+
+        Returns the solved substitution (param name -> SawType) or None; the
+        solver has already emitted the diagnostic in the None case."""
+        from ast_nodes import Argument
+        index = {nm: i for i, nm in enumerate(param_names)}
+        arguments = []
+        mapping = []
+        for position, (label, value) in enumerate(arg_pairs):
+            if label is None:
+                # A POSITIONAL argument (an enum variant payload may be written
+                # either way; a struct construction is always labeled).
+                if position >= len(param_names):
+                    return None
+                arguments.append(Argument(value=value, name=None))
+                mapping.append(position)
+                continue
+            if label not in index:
+                # An argument naming no parameter: not this pass's error. The
+                # candidate match downstream reports it with the full parameter
+                # list, so inference simply declines to constrain from it.
+                return None
+            arguments.append(Argument(value=value, name=label))
+            mapping.append(index[label])
+        return self._solve_call_type_args(
+            solve_params, list(param_types), None, mapping, {},
+            provided_type_args, what, line, column,
+            arguments=arguments, silent=silent,
+            extra_constraints=[slot_constraint] if slot_constraint else None,
+            default_values=default_values,
+            explicit_hint=f"give the type argument(s) explicitly, "
+                          f"e.g. `{spelling}`")
+
+    def _infer_struct_init_type_args(self, expr, struct_info, matches_fields,
+                                     matching_inits):
+        """Design 207: solve a struct construction's absent type arguments.
+
+        Covers BOTH struct construction shapes, which is why it sits at the one
+        point they share: the MEMBERWISE literal (`Pair(a: 1, b: "x")`, whose
+        parameters are the declared fields in declaration order) and a custom
+        `init` (`Arc(value: r)`, whose parameters are the init's own). Which of
+        the two this construction names has already been decided by label.
+
+        Does nothing — leaving every pre-existing path byte-identical — when the
+        type is non-generic, when a COMPLETE explicit `<...>` was written
+        (explicit always wins), when the written list is too long (an arity
+        error `_fill_or_report_type_args` is about to report properly), or when
+        the construction matches no candidate or matches ambiguously (both are
+        reported downstream against the full parameter list, and guessing a type
+        argument for a construction that is not going to resolve would only bury
+        that diagnostic under a second one)."""
+        # The slot is CONSUMED whatever happens next — including for a
+        # non-generic struct — so a nested constructor can never inherit it.
+        slot_constraint = self._ctor_slot_constraint(
+            False, expr.struct_name, struct_info.type_params)
+        params = struct_info.type_params
+        if not params:
+            return False
+        provided = list(expr.type_args or [])
+        if len(provided) >= len(params):
+            return False
+        if (1 if matches_fields else 0) + len(matching_inits) != 1:
+            return False
+        if matching_inits:
+            init = matching_inits[0]
+            # DF-216h: an extension may RENAME the parameters it re-declares,
+            # and the init's signature is written in ITS names. Solve in those
+            # names and map back POSITIONALLY, which is the relation
+            # `owner_type_params` records — otherwise a renamed extension's
+            # init would leave every parameter unsolved.
+            solve_params = list(
+                getattr(init, 'owner_type_params', None) or params)
+            if len(solve_params) != len(params):
+                solve_params = list(params)
+            # THE DEFAULT LIVES ON THE STRUCT, NOT ON THE EXTENSION. An
+            # extension re-declares the parameters positionally
+            # (`extension Set<T, A>`) and re-declares them BARE — the `= Global`
+            # is written once, at `struct Set<T, A: Allocator = Global>`. Solving
+            # in the extension's names therefore loses every design-37 default
+            # unless it is carried across here, which reads as the parameter
+            # being underdetermined when it is simply defaulted. `Vector`,
+            # `Set`, `Map` and `Box` all have a defaulted allocator, so this is
+            # the common case, not a corner.
+            import copy as _copy
+            merged = []
+            for i, tp in enumerate(solve_params):
+                if getattr(tp, 'default', None) is None and i < len(params) \
+                        and getattr(params[i], 'default', None) is not None:
+                    tp = _copy.copy(tp)
+                    tp.default = params[i].default
+                merged.append(tp)
+            solve_params = merged
+            param_names = list(init.param_names)
+            param_types = list(init.param_types)
+            default_values = list(init.default_values or [])
+        else:
+            solve_params = list(params)
+            param_names = list(
+                getattr(struct_info, 'field_order', None) or
+                struct_info.fields.keys())
+            param_types = [struct_info.fields[n] for n in param_names]
+            default_values = None
+        if len(param_types) != len(param_names):
+            return False
+        # The spelling the hint offers names only the parameters the author
+        # would actually have to write: a trailing DEFAULTED one (`Vector`'s
+        # allocator) fills itself, so `Vector<T>(...)` is the advice and
+        # `Vector<T, A>(...)` would be teaching a spelling nobody writes.
+        _named = list(solve_params)
+        while _named and getattr(_named[-1], 'default', None) is not None:
+            _named.pop()
+        spelling = (f"{_display_name(expr.struct_name)}"
+                    f"<{', '.join(tp.name for tp in _named or solve_params)}>(...)")
+        before = len(self.reporter.errors)
+        solved = self._solve_constructor_type_args(
+            solve_params, param_names, param_types, list(expr.field_inits),
+            provided, slot_constraint, f"struct `{expr.struct_name}`",
+            spelling, expr.line, expr.column, default_values=default_values)
+        if solved is None:
+            # Either the solver REPORTED (underdetermined / conflicting) or it
+            # declined without reporting (a label it cannot map). Report the
+            # difference upward: when the solver spoke, `_fill_or_report_type_args`
+            # must stay quiet, or one missing type argument is two diagnostics
+            # saying the same thing in two vocabularies.
+            return len(self.reporter.errors) > before
+        # KEEP THE WRITTEN PREFIX EXACTLY AS WRITTEN. The solver stores its
+        # explicit pins through `_resolve_type`, and a resolved copy is not
+        # always the same object the old path stamped — resolving an
+        # existential prefix like `Vector<Box<any Shape>>` produced a type that
+        # mangled the same but answered the "owns a deinit" question
+        # differently, so the container's elements stopped being torn down.
+        # Only the genuinely INFERRED tail comes from the solver; the prefix the
+        # author typed goes through untouched, which is what keeps a partial
+        # explicit spelling byte-identical to what it compiled to before.
+        expr.type_args = [
+            provided[i] if i < len(provided) else solved[tp.name]
+            for i, tp in enumerate(solve_params)]
+        return False
+
+    def _infer_payload_free_variant_type_args(self, expr, enum_info):
+        """Design 207 at `E.Variant` with no payload — the slot-only cell.
+
+        Returns the solved type-argument list, or None to leave the existing
+        "requires type arguments" error to fire. Silent: with no arguments the
+        only possible constraint is the declared slot, so a MISSING slot is the
+        ordinary un-annotated case and deserves the existing diagnostic, not a
+        second one about inference."""
+        slot_constraint = self._ctor_slot_constraint(
+            True, self._sym_identity(enum_info, expr.object.name),
+            enum_info.type_params)
+        if slot_constraint is None:
+            return None
+        solved = self._solve_constructor_type_args(
+            list(enum_info.type_params), [], [], [], [], slot_constraint,
+            f"enum `{expr.object.name}`",
+            f"{expr.object.name}<...>.{expr.member}", expr.line, expr.column,
+            silent=True)
+        if solved is None:
+            return None
+        return [solved[tp.name] for tp in enum_info.type_params]
+
+    def _infer_enum_init_type_args(self, expr, enum_info):
+        """Design 207: solve a generic enum variant construction's type args.
+
+        `Wrap.Some(v: 5)` where the variant's payload is the parameter — the
+        enum analogue of a memberwise struct literal, with the variant's payload
+        list standing in for the field list. Payloads may be written POSITIONALLY
+        or by LABEL, and both reach the solver's design-105 mapping.
+
+        A payload-FREE variant (`Wrap.Nothing`) constrains nothing and is left
+        to the existing error, which is correct: no argument mentions `T`, so
+        the type genuinely has to be written."""
+        slot_constraint = self._ctor_slot_constraint(
+            True, expr.enum_name, enum_info.type_params)
+        params = enum_info.type_params
+        if not params:
+            return False
+        provided = list(expr.type_args or [])
+        if len(provided) >= len(params):
+            return False
+        if expr.variant_name not in enum_info.variants:
+            return False        # reported downstream, against the variant list
+        # The payload types ABSTRACTLY — no substitution — since those are the
+        # patterns the arguments are unified against to solve the parameters.
+        payload = self._variant_payload_types(enum_info, expr.variant_name, {})
+        if not payload and slot_constraint is None:
+            return False
+        param_names = [name for name, _ in payload]
+        param_types = [typ for _, typ in payload]
+        arg_pairs = [(a.name if a.is_named else None, a.value)
+                     for a in expr.arguments]
+        if len(arg_pairs) != len(param_types):
+            return False        # arity: reported downstream with both counts
+        _named = list(params)
+        while _named and getattr(_named[-1], 'default', None) is not None:
+            _named.pop()
+        spelling = (f"{_display_name(expr.enum_name)}"
+                    f"<{', '.join(tp.name for tp in _named or params)}>"
+                    f".{expr.variant_name}(...)")
+        before = len(self.reporter.errors)
+        solved = self._solve_constructor_type_args(
+            list(params), param_names, param_types, arg_pairs, provided,
+            slot_constraint, f"enum `{expr.enum_name}`", spelling,
+            expr.line, expr.column)
+        if solved is None:
+            return len(self.reporter.errors) > before
+        # The written prefix passes through untouched — see the struct twin.
+        expr.type_args = [
+            provided[i] if i < len(provided) else solved[tp.name]
+            for i, tp in enumerate(params)]
+        return False
 
     def _check_generic_call_defaults(self, expr, func_info, instantiated_param_types,
                                      mapping):
@@ -6728,6 +7132,25 @@ class ExpressionsMixin:
             enum_info = self.get_enum_info(expr.object.name)
             if enum_info:
                 type_args = expr.object.type_args
+                # design 207: a PAYLOAD-FREE variant (`Holder.Nothing`) is the
+                # one construction no argument can ever solve — there are no
+                # arguments. Only the annotation-driven cell reaches it, so the
+                # declared slot is the whole of its inference. Routed through
+                # the same solver as every other constructor, with an empty
+                # argument list, so the explicit prefix, the type-param
+                # defaults and the underdetermined error all behave alike.
+                if enum_info.type_params and not type_args:
+                    type_args = self._infer_payload_free_variant_type_args(
+                        expr, enum_info) or type_args
+                    # STAMP the solved list onto the type reference itself —
+                    # the same field `Holder<Int>.Nothing` would have filled.
+                    # Codegen reads the reference, not this function's local, so
+                    # an inferred variant that is not written back reaches it as
+                    # a bare `Holder` and dies as `Undefined enum`. Writing it
+                    # here is also what makes the two spellings monomorphize to
+                    # one symbol rather than two.
+                    if type_args:
+                        expr.object.type_args = type_args
                 if enum_info.type_params:
                     if not type_args:
                         self._error(
@@ -7316,11 +7739,49 @@ class ExpressionsMixin:
         # namespace where two of them live.
         expr.struct_name = (getattr(struct_info, 'type_identity', "")
                             or expr.struct_name)
+        # Candidate selection is pure LABEL logic — which parameter set this
+        # construction names — so it runs BEFORE the type arguments are settled
+        # (design 207). Inference has to know which parameter list to solve
+        # against, and the arity/defaults test that picks the list never
+        # consults a type. Nothing here reads `expr.type_args`.
+        provided_params = {field_name for field_name, _ in expr.field_inits}
+        field_names = set(struct_info.fields.keys())
+        matches_fields = provided_params == field_names
+        matching_inits = []
+        # An init matches when the provided named arguments are a subset of its
+        # parameters and every omitted parameter carries a default value
+        # (design 53). With no defaults this reduces to the exact-set match.
+        def _init_matches(method_info):
+            init_names = list(method_info.param_names)
+            if not provided_params.issubset(set(init_names)):
+                return False
+            dv = method_info.default_values or []
+            name_to_default = dict(zip(init_names, dv))
+            return all(name_to_default.get(n) is not None
+                       for n in init_names if n not in provided_params)
+        # Check for init methods in both methods dict (legacy) and init_methods list (namespace)
+        for method_name, method_info in struct_info.methods.items():
+            if method_info.is_init and _init_matches(method_info):
+                matching_inits.append(method_info)
+        # Also check init_methods list (for StructSymbol from namespace)
+        if hasattr(struct_info, 'init_methods'):
+            for method_info in struct_info.init_methods:
+                if _init_matches(method_info):
+                    matching_inits.append(method_info)
+        # design 207: a generic constructor whose `<...>` is absent or a partial
+        # prefix solves the rest through the design-93/105 solver, exactly as a
+        # generic call does. Explicit arguments still win — a COMPLETE list
+        # skips this entirely and takes the path it always took, which is what
+        # makes the whole feature additive.
+        inference_reported = self._infer_struct_init_type_args(
+            expr, struct_info, matches_fields, matching_inits)
         type_mapping: Dict[str, SawType] = {}
         if struct_info.type_params:
-            filled_args = self._fill_or_report_type_args(
-                expr.type_args, struct_info.type_params,
-                f"struct `{expr.struct_name}`", expr.line, expr.column)
+            filled_args = (
+                None if inference_reported
+                else self._fill_or_report_type_args(
+                    expr.type_args, struct_info.type_params,
+                    f"struct `{expr.struct_name}`", expr.line, expr.column))
             if filled_args is not None:
                 # Canonicalize the node's type args to the fully-applied form
                 # (design 37) so codegen mangles the same identity the
@@ -7372,30 +7833,6 @@ class ExpressionsMixin:
             self._check_map_key_copyable(
                 self._resolve_type(expr.type_args[0]), expr,
                 "map key" if expr.struct_name == "Map" else "set element")
-        provided_params = {field_name for field_name, _ in expr.field_inits}
-        field_names = set(struct_info.fields.keys())
-        matches_fields = provided_params == field_names
-        matching_inits = []
-        # An init matches when the provided named arguments are a subset of its
-        # parameters and every omitted parameter carries a default value
-        # (design 53). With no defaults this reduces to the exact-set match.
-        def _init_matches(method_info):
-            init_names = list(method_info.param_names)
-            if not provided_params.issubset(set(init_names)):
-                return False
-            dv = method_info.default_values or []
-            name_to_default = dict(zip(init_names, dv))
-            return all(name_to_default.get(n) is not None
-                       for n in init_names if n not in provided_params)
-        # Check for init methods in both methods dict (legacy) and init_methods list (namespace)
-        for method_name, method_info in struct_info.methods.items():
-            if method_info.is_init and _init_matches(method_info):
-                matching_inits.append(method_info)
-        # Also check init_methods list (for StructSymbol from namespace)
-        if hasattr(struct_info, 'init_methods'):
-            for method_info in struct_info.init_methods:
-                if _init_matches(method_info):
-                    matching_inits.append(method_info)
         total_matches = (1 if matches_fields else 0) + len(matching_inits)
         if total_matches == 0:
             # Collect available init methods from both methods dict and init_methods list
@@ -10294,6 +10731,15 @@ class ExpressionsMixin:
                 line=expr.line,
                 column=expr.column
             )
+            # design 207: ATTACH the resolved construction, exactly as the
+            # module-qualified arm above does. Codegen prefers
+            # `resolved_enum_init` and otherwise rebuilds an `EnumInit` from
+            # `expr.object.type_args` — which is the spelling, not the
+            # resolution. That was invisible while a generic enum's arguments
+            # could only ever BE the spelling; the moment they can be INFERRED,
+            # a solved list stamped on this node is the only place the answer
+            # lives, and dropping it reaches codegen as `Undefined enum`.
+            expr.resolved_enum_init = enum_init
             return self._check_enum_init(enum_init)
         # Design 170: `UInt8.from(x)` / `UInt8.from(truncating: x)`. An integer
         # type name is not a value, so this must be answered before the receiver
@@ -11376,9 +11822,15 @@ class ExpressionsMixin:
         # two tag tables.
         expr.enum_name = (getattr(enum_info, 'type_identity', "")
                           or expr.enum_name)
+        # design 207: a generic enum's variant construction infers its type
+        # arguments from the payload it was handed, through the same solver a
+        # struct construction and a generic call use.
+        inference_reported = self._infer_enum_init_type_args(expr, enum_info)
         type_mapping: Dict[str, SawType] = {}
         if enum_info.type_params:
-            if not expr.type_args:
+            if inference_reported:
+                pass  # the solver already said why; one failure, one diagnostic
+            elif not expr.type_args:
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"generic enum `{expr.enum_name}` requires type arguments",

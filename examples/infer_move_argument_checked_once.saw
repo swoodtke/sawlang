@@ -1,0 +1,39 @@
+// DF-302a: an argument is type-checked AT MOST ONCE per inference solve.
+// Design 105's solver fixpoints over the argument list, and it used to re-check
+// every non-closure argument on each pass. A second pass over a `move` argument
+// re-ran the move against state the first pass had already recorded, so the
+// expression that performs the move reported `use of moved variable` about
+// ITSELF — but only when the callee had two or more type parameters, since a
+// single-parameter solve happens to break after one pass.
+//
+// Both spellings are covered: a generic FUNCTION (where the bug was reachable
+// before design 207) and a generic CONSTRUCTOR (where 207's routing reaches the
+// same solver). `Vector<T, A: Allocator = GlobalAllocator>` is the everyday
+// two-parameter callee that made this the common case rather than a corner.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 1
+// 1
+// 2
+
+func take<A, B: Allocator>(x: Vector<A, B>) -> Int { x.len() }
+
+func main() {
+    var v = Vector<Int>()
+    try! v.push(5)
+    print(take(move v))
+
+    // the constructor spelling: `Set<T, A>` solves `A` from the argument on
+    // pass 1, which is exactly what used to trigger the second pass
+    var src = Vector<Int>()
+    try! src.push(7)
+    let s = try! Set<Int>(from: move src)
+    print(s.len())
+
+    // and with NO explicit prefix at all, so both parameters are inferred
+    var more = Vector<Int>()
+    try! more.push(8)
+    try! more.push(9)
+    let t = try! Set(from: move more)
+    print(t.len())
+}

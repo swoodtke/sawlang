@@ -1591,7 +1591,11 @@ class RegistrationMixin:
             # operands as the compile-time tags they are (design 185 unit 3)
             # instead of as enum-typed values, which is the second of the two
             # refusals DF-185b was pinned on.
-            with self._const_position():
+            # design 207's annotation-driven cell at the STATIC slot — the
+            # position DF-294d filed from, where a generic head otherwise
+            # writes its type twice on a line that cannot break.
+            with self._const_position(), self._decl_slot(static.initializer,
+                                                         resolved_type):
                 init_type = self._check_expression(static.initializer)
             self._stamp_static_init_names(static.initializer)
             self.current_scope = saved_scope

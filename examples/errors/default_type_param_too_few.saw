@@ -1,15 +1,19 @@
-// Too few type arguments with no default (design 37 item 1). `Pair<A, B>` has
-// no default on `B`, so omitting it is an arity error naming the parameter.
+// Too few type arguments with no default, at a CONSTRUCTOR (design 37 item 1,
+// reworded by design 207). `Pair<A, B>` has no default on `B`, so omitting it
+// is still an error — but since constructors infer their type arguments, the
+// error is now the SOLVER's: `B` is underdetermined because no field mentions
+// it, and the hint names the explicit spelling. A partial prefix whose
+// remaining parameters an ARGUMENT can solve compiles instead; that is the
+// success half, in `constructor_infers_type_arguments.saw`.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: expected 2 type argument(s), got 1
-// EXPECT-ERROR-CONTAINS: type parameter `B` has no default
+// EXPECT-ERROR-CONTAINS: cannot infer type argument `B` for struct `Pair`
+// EXPECT-ERROR-CONTAINS: give the type argument(s) explicitly
 
 struct Pair<A, B> {
     a: A
-    b: B
 }
 
 func main() {
-    let p = Pair<Int>(a: 1, b: 2)
+    let p = Pair<Int>(a: 1)
     print(p.a)
 }

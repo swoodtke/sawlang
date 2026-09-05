@@ -1098,7 +1098,12 @@ class StatementsMixin:
                 # out-of-range default (`x: Int8 = 200`) is a clean error and the
                 # spliced default materializes at the right width at call sites.
                 self._apply_literal_expected_type(p.default_value, expected)
-                at = self._check_expression(p.default_value)
+                # design 207: a parameter's DEFAULT VALUE is the third declared
+                # slot beside an initializer (a struct FIELD carries no default
+                # in Saw, so there is no fourth), and a construction written
+                # there infers from it like any other.
+                with self._decl_slot(p.default_value, expected):
+                    at = self._check_expression(p.default_value)
                 if (at is not None and expected is not None
                         and not is_generic and self._is_concrete_type(expected)
                         and not self._arg_type_ok(p.default_value, at, expected)):
@@ -1859,8 +1864,17 @@ class StatementsMixin:
             self._apply_literal_expected_type(
                 stmt.value, self._resolve_type(stmt.type_annotation))
 
-        # Infer or check type
-        value_type = self._check_expression(stmt.value)
+        # Infer or check type. Design 207's annotation-driven cell: an
+        # annotated `let`/`var` whose initializer IS a construction offers the
+        # declared slot to it as one more inference source, so
+        # `let v: Vector<Int> = Vector()` names the element type once. The slot
+        # is peeled through exactly the auto-wrap layers this position inserts
+        # and is consumed by the outermost constructor only.
+        with self._decl_slot(
+                stmt.value,
+                self._resolve_type(stmt.type_annotation)
+                if stmt.type_annotation is not None else None):
+            value_type = self._check_expression(stmt.value)
 
         # Design 122 unit D: binding a `Void` expression produces no value, so
         # there is nothing to name. It used to type-check and then ICE in codegen

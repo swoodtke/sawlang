@@ -421,6 +421,19 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # `_no_move_is_fresh_journey`.
         self._referenced_bindings: set = set()
         self._placement_move_target: bool = False
+        # design 207's annotation-driven cell: the DECLARED SLOT a constructor
+        # is being checked against, or None. Set by the three declaration
+        # positions that carry an annotation beside an initializer — a
+        # `let`/`var`, a module `static`, and a parameter's DEFAULT VALUE — and
+        # only when the initializer IS the constructor expression, never when
+        # the constructor is nested inside one. `_take_decl_slot_type` CONSUMES
+        # it, so the outermost constructor node is the only one that sees it
+        # and `let w: Wrap<Int> = Wrap(value: Wrap(value: 5))` gives the inner
+        # constructor nothing. That consume-once discipline is what keeps the
+        # ruled SCOPE — the declared slot at an initializer and nothing else —
+        # from quietly becoming general expected-type propagation through call
+        # arguments, returns and operators, which design 207 rules OUT.
+        self._decl_slot_type: Optional['SawType'] = None
         # DF-232f: the top-level names bound by `--module-path name=dir`. Each
         # one IS a package (ruled Aug 17): every file under the mapped
         # directory is a sibling, and the entry file — which never appears

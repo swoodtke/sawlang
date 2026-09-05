@@ -1,0 +1,14 @@
+// Design 207's annotation-driven cell: the declared slot joins the solver as
+// one more inference SOURCE, so a slot that disagrees with an argument is an
+// ordinary solver CONFLICT — one parameter required to be two things — and not
+// a silent pick of either side.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot infer type argument `T` for struct `Wrap`
+// EXPECT-ERROR-CONTAINS: required to be both `Int` and `String`
+
+struct Wrap<T> { value: T }
+
+func main() {
+    let w: Wrap<Int> = Wrap(value: "x")
+    print(w.value)
+}

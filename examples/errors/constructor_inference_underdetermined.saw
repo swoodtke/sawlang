@@ -1,0 +1,12 @@
+// Design 207: inference NEVER guesses. `Vector()` mentions `T` nowhere — no
+// argument carries it and no declared slot is in force — so it is the clean
+// underdetermined error, naming the parameter and the explicit spelling. The
+// defaulted allocator is left out of the hint, since nobody writes it.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot infer type argument `T` for struct `Vector`
+// EXPECT-ERROR-CONTAINS: e.g. `Vector<T>(...)`
+
+func main() {
+    let v = Vector()
+    print(v.len())
+}
