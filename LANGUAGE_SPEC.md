@@ -95,8 +95,7 @@ let bad: Vector<Int,> = [1]
 A line break directly after `=` ends the statement like any other, so a
 declaration head that runs long cannot wrap there bare. Parenthesize the right
 side instead: the break then sits inside `(` and `)`, where it carries no
-meaning. Generic statics are where this earns its keep, since a constructor
-does not yet infer its type arguments and the type is written twice:
+meaning.
 
 ```saw
 struct Pool { capacity: Int, used: Int }
@@ -106,6 +105,21 @@ static STARTUP: Pool = (
 
 func main() {
     print(STARTUP.capacity)     // prints: 64
+}
+```
+
+A generic static rarely needs it. The constructor infers its type arguments
+from the declared slot (see *Generic type-argument inference*), so the type is
+written once rather than twice and the head usually fits:
+
+```saw
+struct Slot { id: Int, live: Bool }
+struct Slab<T, const N: Int> { used: Int, first: T }
+
+static EVENTS: Slab<Slot, 8> = Slab(used: 0, first: Slot(id: 1, live: false))
+
+func main() {
+    print(EVENTS.used)          // prints: 0
 }
 ```
 
@@ -9273,8 +9287,8 @@ The method's type arguments may be supplied **explicitly** at the call site
 (`v.map<String>(...)`) or **inferred** from the argument types (design 93):
 `v.map({ $0.to_string() })` solves `U` from the closure's inferred RETURN type,
 `v.fold(0) { ... }` solves the accumulator from the initial argument. Inference
-applies to generic free functions and methods alike; a non-generic call still
-rejects type arguments. Explicit `<...>` always wins; a partial explicit prefix
+applies to generic free functions, methods, and **constructors** alike; a
+non-generic call still rejects type arguments. Explicit `<...>` always wins; a partial explicit prefix
 pins its leading parameters and the rest are inferred; an unconstrained trailing
 parameter with a default type fills from the default. A parameter whose *value*
 default is typed by a type parameter (`func f<T>(a: Int, b: T = 0)`) has that
@@ -9302,6 +9316,77 @@ generic). Each instantiation monomorphizes per `(receiver type arguments, method
 type arguments)` pair; the mangled symbol composes the two
 (`Vector<Int>.map<String>` → `Vector$2$Int$Global_map$1$String`). `init` methods
 take no type parameters of their own — they construct the extension's type.
+
+**Constructors.** A generic struct or enum is constructed without writing its
+type arguments when the construction determines them. The memberwise literal,
+a custom `init`, and a generic enum's variant all solve through the rules
+above, so `Arc(value: r)` builds an `Arc<Res>` and each layer of a nested
+construction solves from the one below:
+
+```saw-body
+import std.mutex.{Mutex}
+
+struct Pair<A, B> { a: A, b: B }
+enum Holder<T> { case Some(v: T), case Nothing }
+
+let p = Pair(a: 1, b: "port")        // Pair<Int, String>
+let q = Pair<Int>(a: 2, b: "host")   // explicit prefix pins A, B is inferred
+let shared = try! Arc(value: Mutex(value: 0))   // Arc<Mutex<Int>>
+let h = Holder.Some(v: 5)            // Holder<Int>
+```
+
+An inferred construction and the explicit spelling compile to the same
+instantiation; the solved arguments are canonicalized exactly as written ones
+are, so `Vector<Int>` and `Vector<Int, GlobalAllocator>` remain one type.
+
+A **declared slot** at an initializer is an inference source too. At a `let` or
+`var`, a module `static`, and a parameter's default value, the annotation's
+type arguments reach the constructor — which is the only thing that can solve a
+construction carrying no arguments at all:
+
+```saw
+struct Slot { id: Int, live: Bool }
+struct Slab<T, const N: Int> { used: Int, first: T }
+enum Holder<T> { case Some(v: T), case Nothing }
+
+static EVENTS: Slab<Slot, 8> = Slab(used: 0, first: Slot(id: 1, live: false))
+
+func main() {
+    let v: Vector<Int> = Vector()          // the element type, written once
+    let empty: Holder<Int> = Holder.Nothing
+    print(EVENTS.used)                     // prints: 0
+    print(v.len())                         // prints: 0
+}
+```
+
+The slot is peeled through the layers the position auto-wraps, so
+`let m: Mutex<Int>? = Mutex(value: 0)` solves through the `Optional`. Explicit
+`<...>` on the constructor still wins, and a slot that disagrees with an
+explicit argument list is the ordinary type-mismatch error at the declaration.
+A slot that disagrees with an *argument* is a solver conflict:
+
+```saw-error
+// error-contains: required to be both `Int` and `String`
+struct Wrap<T> { value: T }
+let w: Wrap<Int> = Wrap(value: "x")
+// error: cannot infer type argument `T` for struct `Wrap`: it is
+//        required to be both `Int` and `String`
+```
+
+The slot reaches the initializer only. An expected type does not flow through
+call arguments, returns, or operators, so a construction in those positions
+writes its own arguments.
+
+Inference never guesses here either. A construction no argument and no slot
+constrains is the underdetermined error, naming the parameter and the explicit
+spelling:
+
+```saw-error
+// error-contains: cannot infer type argument `T` for struct `Vector`
+let v = Vector()
+// error: cannot infer type argument `T` for struct `Vector`
+// hint: give the type argument(s) explicitly, e.g. `Vector<T>(...)`
+```
 
 **Default type parameters.** A trailing type parameter may declare a **default
 type** with `= Type` in the parameter list (types only — there are no value

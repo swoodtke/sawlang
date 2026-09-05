@@ -319,11 +319,18 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   **A DECLARATION HEAD CANNOT BREAK AFTER `=` either** (DF-294d) — same rule,
   same fix: parenthesize the initializer, so the break sits inside `(`:
   ```saw-fragment
-  unsafe static var EVENTS: Slab<EventSlot, MAX_EVENTS> = (
-      Slab<EventSlot, MAX_EVENTS>(...))
+  static REGISTRY: Table = (
+      Table(slots: 64, used: 0))
   ```
-  Generic statics hit this hardest (the type is written twice until design 207
-  lands constructor type-arg inference).
+  GENERIC statics rarely need it any more (design 207): the constructor infers
+  its type arguments from the declared slot, so the type is written ONCE and
+  the head usually fits on the line.
+  ```saw-fragment
+  unsafe static var EVENTS: Slab<EventSlot, MAX_EVENTS> = Slab(used: 0)
+  ```
+  The doubled `NAME: T<...> = T<...>(...)` spelling that made this bite is
+  GONE — reach for the parens when the initializer itself is long, not because
+  the type is written twice.
 - Doc comments (design 121): `///` documents the declaration that FOLLOWS it
   (top-level func/struct/enum/trait/extension/type/static, struct fields, enum
   cases, extension methods + inits, trait methods); a run of `///` lines is one
@@ -1522,12 +1529,39 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   be applied to `UInt8` and `Int` ``, ``cannot compare `UInt8` with `UInt8` ``.
   Int, Float and String worked throughout, which is what made it look like a
   `UInt8` problem.
-- **Generic type-arg inference (design 93 + 105) covers FUNCTIONS and METHODS
-  only — CONSTRUCTORS do not infer yet.** `Arc(value: r)` / `Mutex(value: 0)`
-  are errors demanding `Arc<Res>(value: r)` / `Mutex<Int>(value: 0)`; spell
-  every layer in nested construction. (Ruled to change Aug 10 — design 207
-  routes constructors through the same solver; until it lands, write the
-  arguments.) For functions and methods: a generic free function or
+- **Generic type-arg inference (design 93 + 105) covers FUNCTIONS, METHODS and
+  — since design 207 — CONSTRUCTORS.** `Arc(value: r)` infers `Arc<Res>`,
+  `Mutex(value: 0)` infers `Mutex<Int>`, and each layer of a nested
+  construction solves from the one below, so `Arc(value: Mutex(value: 0))` is
+  written once over. Covers the memberwise literal, a custom `init`, and a
+  generic ENUM's variant (`Holder.Some(v: 5)`). An inferred construction and
+  the explicit spelling are ONE instantiation. Treat all of it as working now
+  and SUSPECT in older builds, where every one of those was ``generic struct
+  `Arc` requires type arguments`` and every layer had to be spelled.
+  **AND THE DECLARED SLOT AT AN INITIALIZER IS AN INFERENCE SOURCE** — a
+  `let`/`var`, a module `static`, and a parameter's DEFAULT VALUE (a struct
+  FIELD carries no default in Saw, so that is the whole list). This is the only
+  thing that can solve a construction carrying NO arguments:
+  ```saw-fragment
+  let v: Vector<Int> = Vector()                 // element type written once
+  let empty: Holder<Int> = Holder.Nothing       // payload-free variant
+  static EVENTS: Slab<Slot, 8> = Slab(used: 0, first: Slot(id: 1))
+  let m: Mutex<Int>? = Mutex(value: 0)          // peels the Optional
+  ```
+  The slot peels exactly the layers the position auto-wraps. Explicit `<...>`
+  still wins; a slot disagreeing with an explicit list is the ordinary
+  type-mismatch at the declaration, and a slot disagreeing with an ARGUMENT is
+  a solver conflict (``required to be both `Int` and `String` ``). SCOPE: the
+  declared slot at an initializer ONLY — an expected type does NOT flow through
+  call arguments, returns or operators, so a construction in those positions
+  writes its own arguments. GOTCHA: an ASSIGNMENT is not a declaration, so it
+  gets no slot — `b = Bag()` under a `var b: Bag<Int>` is the underdetermined
+  error while the `let b: Bag<Int> = Bag()` one line up compiles. Arguments
+  still solve there, so only the zero-argument shape actually bites.
+  A supplied ARGUMENT beats a type-param default (`struct Def<T = Int>` built
+  as `Def(value: "x")` is a `Def<String>`), matching design 108's rule for
+  functions; the default fills only what nothing else determines.
+  For functions and methods: a generic free function or
   method may omit its `<...>` — argument types (and a closure's inferred RETURN
   type) solve them (`wrap(5)`, `first(7,"hi")`, `v.map({...})`, `v.fold(0){...}`).
   Explicit `<...>` always allowed + wins; a partial explicit prefix pins the

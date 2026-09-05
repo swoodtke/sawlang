@@ -357,6 +357,16 @@ let n = first(&names)                       // T = String, inferred
 let lengths = try! names.map({ $0.len() })  // map<Int> solved from the closure
 ```
 
+Constructors infer the same way, and a declared type annotation is one of the
+things they infer from — so a generic type is named once, not twice:
+
+```saw-body
+struct Pair<A, B> { a: A, b: B }
+
+let p = Pair(a: 1, b: "port")     // Pair<Int, String>
+let v: Vector<Int> = Vector()     // the element type, written once
+```
+
 `Equatable`, `Comparable`, `Hashable`, and the copy policies can have their
 bodies derived from the type's fields. Ask for it with `@synthesize`:
 
