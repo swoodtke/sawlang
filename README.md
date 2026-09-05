@@ -720,10 +720,13 @@ Saw is freestanding: the same language targets bare metal.
 - **Sizes in the type**: a generic parameter can carry a value
   (`FixedBuf<const N: Int>`), `[0; N]` spells a zeroed buffer, and an
   integer `static` works anywhere the compiler needs a constant: an array
-  length, a repeat count, a shift, a `static_assert`. A size is written once
-  and derived everywhere else, with the arithmetic done at compile time in
-  the target's integer widths; a shift count the width does not allow is a
-  compile error, not a surprise value. See
+  length, a repeat count, a shift, a `static_assert`. `sizeof<T>()` and
+  `alignof<T>()` are constants in those positions too, so a count is derived
+  from a size rather than restated as a literal:
+  `static PIPE_STAGE_WORDS: Int = PIPE_BODY_BYTES / sizeof<UInt>()`. A size is
+  written once and derived everywhere else, with the arithmetic done at compile
+  time in the target's integer widths; a shift count the width does not allow
+  is a compile error, not a surprise value. See
   [Generics](LANGUAGE_SPEC.md#generics) and
   [Module-level statics](LANGUAGE_SPEC.md#module-level-statics) in the spec.
 - **Formatting without allocating**: the `{}` form of `print` allocates

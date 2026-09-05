@@ -1,0 +1,74 @@
+// DF-307a: the TWO layout oracles answer the same number, row by row.
+//
+// `sizeof`/`alignof` now folds in the front end as well as in codegen, and the
+// two ask different things: codegen asks LLVM for the ABI layout of a built
+// module type, while `TypeChecker._const_type_metric` asks `target_info`'s
+// scalar table, which maps a SawType KIND straight to an LLVM scalar. Two
+// oracles is exactly the shape `const_eval.py`'s own docstring warns about —
+// "two of them drift, and the drift is silent" — so the agreement is not a
+// comment, it is this file.
+//
+// The trick in every row is that ONE expression is folded by each phase:
+//
+//     sizeof<[UInt8; sizeof<T>()]>() == sizeof<T>()
+//                    ^^^^^^^^^^^^                    the FRONT END folds this
+//                                                    (it is an array length)
+//     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^    ^^^^^^^^^^   CODEGEN folds both of
+//                                                    these (`static_assert`)
+//
+// `[UInt8; N]` is N bytes and 1-aligned, so the outer `sizeof` reads back the
+// length the typechecker chose. A disagreement is a compile error here rather
+// than an array allocated at one size and bounds-checked at another.
+//
+// Every row of `target_info._scalar_ir_type` appears below. Adding a kind to
+// that table without adding its row here leaves the new row unproven.
+// EXPECT: success
+// EXPECT-OUTPUT: agreed
+
+// --- the platform pair ---------------------------------------------------
+static_assert(sizeof<[UInt8; sizeof<Int>()]>() == sizeof<Int>(), "Int size")
+static_assert(sizeof<[UInt8; alignof<Int>()]>() == alignof<Int>(), "Int align")
+static_assert(sizeof<[UInt8; sizeof<UInt>()]>() == sizeof<UInt>(), "UInt size")
+static_assert(sizeof<[UInt8; alignof<UInt>()]>() == alignof<UInt>(), "UInt align")
+
+// --- Bool and Float ------------------------------------------------------
+static_assert(sizeof<[UInt8; sizeof<Bool>()]>() == sizeof<Bool>(), "Bool size")
+static_assert(sizeof<[UInt8; alignof<Bool>()]>() == alignof<Bool>(), "Bool align")
+static_assert(sizeof<[UInt8; sizeof<Float>()]>() == sizeof<Float>(), "Float size")
+static_assert(sizeof<[UInt8; alignof<Float>()]>() == alignof<Float>(), "Float align")
+
+// --- the eight fixed widths ----------------------------------------------
+static_assert(sizeof<[UInt8; sizeof<Int8>()]>() == sizeof<Int8>(), "Int8 size")
+static_assert(sizeof<[UInt8; alignof<Int8>()]>() == alignof<Int8>(), "Int8 align")
+static_assert(sizeof<[UInt8; sizeof<Int16>()]>() == sizeof<Int16>(), "Int16 size")
+static_assert(sizeof<[UInt8; alignof<Int16>()]>() == alignof<Int16>(), "Int16 align")
+static_assert(sizeof<[UInt8; sizeof<Int32>()]>() == sizeof<Int32>(), "Int32 size")
+static_assert(sizeof<[UInt8; alignof<Int32>()]>() == alignof<Int32>(), "Int32 align")
+static_assert(sizeof<[UInt8; sizeof<Int64>()]>() == sizeof<Int64>(), "Int64 size")
+static_assert(sizeof<[UInt8; alignof<Int64>()]>() == alignof<Int64>(), "Int64 align")
+static_assert(sizeof<[UInt8; sizeof<UInt8>()]>() == sizeof<UInt8>(), "UInt8 size")
+static_assert(sizeof<[UInt8; alignof<UInt8>()]>() == alignof<UInt8>(), "UInt8 align")
+static_assert(sizeof<[UInt8; sizeof<UInt16>()]>() == sizeof<UInt16>(), "UInt16 size")
+static_assert(sizeof<[UInt8; alignof<UInt16>()]>() == alignof<UInt16>(), "UInt16 align")
+static_assert(sizeof<[UInt8; sizeof<UInt32>()]>() == sizeof<UInt32>(), "UInt32 size")
+static_assert(sizeof<[UInt8; alignof<UInt32>()]>() == alignof<UInt32>(), "UInt32 align")
+static_assert(sizeof<[UInt8; sizeof<UInt64>()]>() == sizeof<UInt64>(), "UInt64 size")
+static_assert(sizeof<[UInt8; alignof<UInt64>()]>() == alignof<UInt64>(), "UInt64 align")
+
+// --- the two pointer-shaped rows -----------------------------------------
+static_assert(sizeof<[UInt8; sizeof<String>()]>() == sizeof<String>(), "String size")
+static_assert(sizeof<[UInt8; alignof<String>()]>() == alignof<String>(), "String align")
+static_assert(sizeof<[UInt8; sizeof<UnsafePointer<Int>>()]>()
+              == sizeof<UnsafePointer<Int>>(), "pointer size")
+static_assert(sizeof<[UInt8; alignof<UnsafePointer<Int>>()]>()
+              == alignof<UnsafePointer<Int>>(), "pointer align")
+
+// A DISTINCT ALIAS measures as its underlying, at both phases — which is what
+// made the pass ORDER load-bearing: the fold runs after the alias pass now, so
+// `sizeof<Word>()` is a constant in a `static` exactly as `sizeof<UInt64>()` is.
+type Word = UInt64
+static_assert(sizeof<[UInt8; sizeof<Word>()]>() == sizeof<UInt64>(), "alias size")
+
+func main() {
+    print("agreed")
+}

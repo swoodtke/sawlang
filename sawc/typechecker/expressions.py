@@ -1410,7 +1410,7 @@ class ExpressionsMixin:
         hi = ((1 << (dst_bits - 1)) - 1) if dst_signed else (1 << dst_bits) - 1
         try:
             value = const_eval(expr.expr, env=self._const_param_env(),
-                               width=width)
+                               metric=self._const_type_metric, width=width)
         except ConstEvalError:
             value = None
         if isinstance(value, bool):
@@ -5914,9 +5914,11 @@ class ExpressionsMixin:
 
         The one evaluator (`const_eval.py`) answers here, in `static_assert`,
         and in an array length, so the three can never disagree about what a
-        constant is. The typechecker passes no layout oracle — it knows the word
-        width but not struct layout — so `sizeof<T>()` in a length is rejected
-        by name here and folded later, in codegen, where the layout exists.
+        constant is. Since DF-307a the layout oracle comes too
+        (`_const_type_metric`), so `sizeof<UInt64>()` is the number the target
+        says it is HERE and not only in codegen; a `sizeof` of an AGGREGATE is
+        the one thing it still declines, by name, because that layout does not
+        exist until codegen builds it.
         """
         # Type-check it first: that surfaces an ordinary type error in the
         # count (and stamps the `Int.max` annotation the evaluator reads)
@@ -5935,7 +5937,9 @@ class ExpressionsMixin:
         # folds beside the `[UInt8; REGION_SIZE]` it fills.
         self._stamp_const_names(expr)
         try:
-            value = const_eval(expr, env=probe, width=self.platform_int_width)
+            value = const_eval(expr, env=probe,
+                               metric=self._const_type_metric,
+                               width=self.platform_int_width)
         except ConstEvalError as e:
             self._error(
                 ErrorKind.TYPE_MISMATCH,
@@ -7580,6 +7584,7 @@ class ExpressionsMixin:
         self._stamp_const_names(expr)
         try:
             value = const_eval(expr, env=self._const_param_env(),
+                               metric=self._const_type_metric,
                                width=self.platform_int_width)
         except ConstEvalError:
             return False

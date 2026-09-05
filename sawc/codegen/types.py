@@ -383,8 +383,19 @@ class TypesMixin:
                 # so one spelling of one rule gave a clean, hint-carrying error
                 # and the other gave an internal compiler error (DF-172f).
                 # DF-172j narrowed what reaches here: a module `static` of type
-                # `Int`/`UInt` initialized by a plain integer literal now folds,
-                # and the ones that still do not say which static and why.
+                # `Int`/`UInt` whose own initializer folds now folds, and the
+                # ones that still do not say which static and why.
+                #
+                # DF-307a: the fold below is TRIED FIRST and its answer KEPT.
+                # It ran here before, with codegen's full layout oracle in hand,
+                # purely to phrase the error — so a length the front end could
+                # not reach at all reported "the length is not allowed here"
+                # (the default `what`, i.e. the fold had SUCCEEDED and the value
+                # was dropped on the floor). The one such length left after the
+                # front end gained its own oracle is one written inside a TYPE
+                # ARGUMENT — `sizeof<[UInt8; sizeof<Int>()]>()` — which no
+                # declared-type walk visits. Codegen is the last position that
+                # can answer, so it answers instead of reporting.
                 from .core import CodegenUserError
                 from const_eval import (const_eval, ConstEvalError,
                                         CONST_LENGTH_HINT)
@@ -394,18 +405,22 @@ class TypesMixin:
                     line = expr.line or 0
                     column = expr.column or 0
                     try:
-                        const_eval(expr, env=self._const_param_env(),
-                                   metric=self._const_type_metric,
-                                   width=self.int_width)
+                        folded = const_eval(expr, env=self._const_param_env(),
+                                            metric=self._const_type_metric,
+                                            width=self.int_width)
+                        if isinstance(folded, int) and \
+                                not isinstance(folded, bool):
+                            size = folded
                     except ConstEvalError as e:
                         what = e.what
                         line = e.line or line
                         column = e.column or column
-                raise CodegenUserError(
-                    f"array length is not a compile-time constant: {what} is "
-                    f"not allowed here", line, column,
-                    hint=CONST_LENGTH_HINT,
-                    source_file=getattr(expr, 'source_file', None))
+                if size is None:
+                    raise CodegenUserError(
+                        f"array length is not a compile-time constant: {what} "
+                        f"is not allowed here", line, column,
+                        hint=CONST_LENGTH_HINT,
+                        source_file=getattr(expr, 'source_file', None))
             if size < 0:
                 # DF-172k: a length that folded to a NEGATIVE number. `[UInt8;
                 # -1]` and `[UInt8; 2 - 3]` reached llvmlite as `[-1 x i8]` and

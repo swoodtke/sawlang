@@ -1743,7 +1743,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         """
         from ast_nodes import (IntLiteral, FloatLiteral, BoolLiteral, UnaryOp,
                                 ArrayLiteral, StructInit, FunctionCall,
-                                SourceLocationLiteral)
+                                SourceLocationLiteral, Identifier, MemberAccess)
         # A static may declare its type through a NAMED ALIAS — `type Region =
         # [UInt8; 65536]` then `static ARENA: Region = [0; 65536]`, which is how
         # a large region gets ONE spelling of its size. `_get_llvm_type` follows
@@ -1839,6 +1839,30 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             by_name = {n: v for n, v in expr.field_inits}
             elems = [self._const_from_expr(by_name[fn], fields[fn]) for fn in field_order]
             return ir.Constant(llvm_type, elems)
+        # DF-294c: a leaf NAMING another module `static`, at a type the evaluator
+        # folds to no number. The typechecker admitted it because the named
+        # static is itself const-initialized, and what an alias means is the same
+        # bytes — so the constant IS the one already emitted for that global,
+        # not a re-derivation of it. Statics are emitted in declaration order and
+        # a static may only name one declared ABOVE it, so the referenced global
+        # always exists by the time this runs.
+        #
+        # An INTEGER leaf is deliberately left to the evaluator below: the
+        # typechecker stamps its value on the node (`const_static_value`), the
+        # arithmetic spellings around it (`static M: Int = N * 2`) can only go
+        # that way, and routing the two through one path would make `[N; 4096]`'s
+        # zerofill test depend on which arm ran.
+        if isinstance(expr, (Identifier, MemberAccess)) and \
+                getattr(expr, 'const_static_value', None) is None:
+            gv = self._static_global(expr)
+            if gv is not None:
+                if gv.initializer is None:
+                    raise ValueError(
+                        f"static `{getattr(expr, 'name', None) or expr.member}` "
+                        f"is named by a constant initializer but its own global "
+                        f"has not been emitted yet — statics must be emitted in "
+                        f"declaration order")
+                return gv.initializer
         # The CONSTANT-EXPRESSION tier (design 186 unit 7): the typechecker
         # admitted this initializer because the one evaluator folds it, so what
         # lands in the image is the FOLDED VALUE, not the expression as written.

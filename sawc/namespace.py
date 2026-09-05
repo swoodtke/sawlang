@@ -294,6 +294,16 @@ class StaticSymbol:
     # to travel with it. Computed once, where the static is registered.
     const_value: Optional[int] = None
     const_reject: Optional[str] = None
+    # DF-294c: whether this static's own initializer was admitted as a CONSTANT
+    # (design 186 tier 2), at ANY type. `const_value` is the same question
+    # narrowed to the INTEGER domain — it is the number the evaluator folds, and
+    # a `Slot`-typed static has none — so a leaf naming one had no way to be
+    # recognized as constant and every aggregate face was refused: the repeat
+    # value `[ZERO_SLOT; N]`, the alias `static ALIAS: Slot = ZERO_SLOT`, and a
+    # struct-literal field. This is the answer for the rest of the domain, and it
+    # rides the symbol for the reason `const_value` does: an import may bind it
+    # under another name, and the answer has to travel with it.
+    const_init: bool = False
 
 
 @dataclass

@@ -1566,10 +1566,15 @@ class RegistrationMixin:
         # permitted only for POD / fixed-array statics (design 41 item 2: no
         # repeat-literal exists, so bare zero-init is the chosen mechanism for
         # large zero regions like slab buffers).
+        # DF-294c: whether this static ends up on design 186's tier 1 or 2 — a
+        # zero-init or a folded constant. Carried to the symbol below, where a
+        # LATER static's initializer naming this one reads it, at any type.
+        const_init = False
         if optional_static:
             pass                      # DF-226f already refused the declaration
         elif static.initializer is None:
-            if not self._is_zero_initable_type(resolved_type):
+            const_init = self._is_zero_initable_type(resolved_type)
+            if not const_init:
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"static `{static.name}` needs an initializer: a static may "
@@ -1629,7 +1634,8 @@ class RegistrationMixin:
                     static.line, static.column, source_file=static.source_file,
                     hint=self._int_conversion_hint(init_type, resolved_type)
                 )
-            if not self._is_const_init(static.initializer):
+            const_init = self._is_const_init(static.initializer)
+            if not const_init:
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"static `{static.name}` must be initialized by a compile-time "
@@ -1637,9 +1643,10 @@ class RegistrationMixin:
                     static.line, static.column, source_file=static.source_file,
                     hint="a static initializer is a CONSTANT EXPRESSION plus "
                          "memberwise aggregation: literals, arithmetic and "
-                         "bitwise over them, `sizeof`/`alignof`, the integer "
-                         "limits, a raw-backed enum case, an earlier module "
-                         "`static`, and struct / fixed-array literals built out "
+                         "bitwise over them, `sizeof`/`alignof` of a primitive "
+                         "or pointer type, the integer limits, a raw-backed "
+                         "enum case, an earlier module `static` of ANY type, "
+                         "and struct / fixed-array literals built out "
                          "of those. A user `init` BODY never runs at compile "
                          "time, and neither does a function call, a String or "
                          "any heap type — state that has to be COMPUTED wants "
@@ -1709,7 +1716,8 @@ class RegistrationMixin:
             column=static.column,
             def_module=def_module,
             const_value=const_value,
-            const_reject=const_reject
+            const_reject=const_reject,
+            const_init=const_init
         ))
 
     def _is_zero_initable_type(self, t: SawType, seen=None) -> bool:
@@ -1895,12 +1903,60 @@ class RegistrationMixin:
         # one position that refuses it.
         if getattr(expr, 'funcpointer_target', None) is not None:
             return True
+        # DF-294c: a leaf that NAMES an earlier module `static`, at any type.
+        # The evaluator tier below already answers for an INTEGER one — the
+        # stamped `const_static_value` is the number it folds to — but a
+        # `Slot`-typed static folds to no number at all, so the three faces of
+        # one alias (`static ALIAS: Slot = ZERO_SLOT`, the repeat value
+        # `[ZERO_SLOT; N]`, and a struct-literal field) were refused by a rule
+        # whose own hint named "an earlier module `static`" as a leaf. What
+        # makes them constant is not a value this pass can compute but the
+        # answer the NAMED static already got: an alias of a constant is a
+        # constant, and codegen emits the very bytes the named static's global
+        # holds.
+        if self._names_const_static(expr):
+            return True
         # The CONSTANT-EXPRESSION tier: anything the one evaluator folds. Asked
         # last so the aggregate arms above keep their own (cheaper, structural)
         # answers, and asked by TRYING rather than by re-listing the grammar —
         # re-listing is what let design 41's rule drift away from the evaluator
         # in the first place.
         return self._folds_as_constant(expr)
+
+    def _names_const_static(self, expr) -> bool:
+        """Does `expr` NAME a module `static` that is itself const-initialized?
+
+        Both spellings, exactly as the evaluator's own static leaf takes both
+        (DF-172j's bare `SIZE` and DF-172l's qualified `dep.SIZE`): an
+        `Identifier`, and a `MemberAccess` whose object is an import qualifier.
+
+        THREE things disqualify a name, and each is the ordinary rule rather
+        than a special case here:
+          * an `unsafe static var` — mutable, so its value is a fact about the
+            running program and not about the source (the same sentence
+            `_static_const_binding` refuses an integer one with);
+          * a static this module may not see — visibility answers, so a
+            module-private static of another module names nothing here;
+          * a static declared BELOW this one — statics register in declaration
+            order, so a forward reference is simply not registered yet, and the
+            declaration-order error has already been reported at the read.
+        """
+        from ast_nodes import Identifier, MemberAccess
+        symbol = None
+        if isinstance(expr, Identifier):
+            symbol = self.namespace.get_static(expr.name,
+                                               self._accessor_vis_module())
+            if symbol is not None and not self.namespace.is_accessible(expr.name):
+                symbol = None
+        elif isinstance(expr, MemberAccess) and \
+                isinstance(expr.object, Identifier):
+            from namespace import SymbolKind
+            found = self._qualified_module_symbol(expr.object.name, expr.member)
+            if found is not None and found.kind == SymbolKind.STATIC:
+                symbol = found
+        if symbol is None or symbol.is_var:
+            return False
+        return bool(getattr(symbol, 'const_init', False))
 
     def _stamp_static_init_names(self, expr) -> None:
         """Resolve the constants a static initializer names, onto its own nodes.
@@ -1935,6 +1991,7 @@ class RegistrationMixin:
         from const_eval import const_eval, ConstEvalError
         try:
             const_eval(expr, env=self._const_param_env(),
+                       metric=self._const_type_metric,
                        width=self.platform_int_width)
         except ConstEvalError:
             return False

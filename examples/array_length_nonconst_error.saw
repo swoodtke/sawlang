@@ -10,10 +10,17 @@
 // is a fact about the running program, not about the source, so it can be no
 // more a length than a `var` local can. The diagnostic names WHICH static and
 // why, rather than reading as "a static may not be named here".
+//
+// DF-307a re-worded the hint's static clause, because "initialized by a plain
+// integer literal" had stopped being true twice over: design 186 made a
+// DERIVED static a constant (`static B: Int = A * 2` is a length), and DF-232g
+// made an IMPORTED one fold too. The clause the hint owes is the one this file
+// is here to teach — the static's own initializer has to fold — and a mutable
+// one has no initializer to fold in that sense at all.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: array length is not a compile-time constant
 // EXPECT-ERROR-CONTAINS: the mutable static `ARENA_BYTES`
-// EXPECT-ERROR-CONTAINS: initialized by a plain integer literal
+// EXPECT-ERROR-CONTAINS: whose own initializer folds
 
 unsafe static var ARENA_BYTES: Int = 1024
 

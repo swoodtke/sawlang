@@ -3551,13 +3551,6 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # folded before anything reads a type-parameter list.
         self._resolve_const_params_in_program(program)
 
-        # DF-172j: same position, same reason. A `static` may be an array
-        # length, so the constant a name denotes has to be known before the
-        # struct pass below resolves the first `[UInt8; REGION_SIZE]` field —
-        # four passes earlier than statics are registered.
-        self._collect_const_statics(program)
-        self._fold_const_lengths_in_program(program)
-
         # design 241 unit 1: the names this unit declares, before the ordered
         # registration passes below start judging references to them.
         self._collect_unit_type_names(program)
@@ -3566,6 +3559,26 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         for type_def in program.type_definitions:
             with self._declaring(type_def):
                 self._register_type_definition(type_def)
+
+        # DF-172j: same position, same reason. A `static` may be an array
+        # length, so the constant a name denotes has to be known before the
+        # struct pass below resolves the first `[UInt8; REGION_SIZE]` field —
+        # three passes earlier than statics are registered.
+        #
+        # DF-307a moved it BELOW the alias pass, which is the earliest point
+        # that keeps it honest. A static's initializer folds through the one
+        # const evaluator, and since DF-307a that evaluator asks a LAYOUT
+        # ORACLE — and the oracle resolves `sizeof<Word>()` for a
+        # `type Word = UInt64` only once `Word` is a registered alias. Run
+        # ahead of that pass, this fold answered "not a constant" for a static
+        # whose own DECLARATION was then admitted one pass later by the same
+        # evaluator, so `static WORD_BYTES: Int = sizeof<Word>()` compiled and
+        # was still "the computed static `WORD_BYTES`" at every length that
+        # named it. Aliases need no static to REGISTER — a length inside one
+        # folds silently here and again in the re-runs below — so nothing
+        # wants the old order.
+        self._collect_const_statics(program)
+        self._fold_const_lengths_in_program(program)
 
         # Second pass: collect struct definitions
         for struct in program.structs:
@@ -4504,13 +4517,9 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # design 148: const VALUE parameters, before any type-param list is read.
         self._resolve_const_params_in_program(module_ast)
 
-        # DF-172j: this module's const-foldable statics, before the struct pass
-        # resolves a field whose length names one.
-        self._collect_const_statics(module_ast)
         # DF-232g residue: which file each declared length was written in, for
         # the codegen-raised refusal that has no enclosing declaration to ask.
         self._stamp_declared_type_sources(module_ast, self.current_module_source)
-        self._fold_const_lengths_in_program(module_ast)
 
         # THE NAMES THIS MODULE DECLARES ITSELF, collected before any of them is
         # registered. The design-194 annotation gate asks whether the AUTHOR
@@ -4539,6 +4548,17 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
             with self._declaring(type_def):
                 self._register_type_definition(type_def)
             ns.make_accessible(type_def.name)
+
+        # DF-172j: this module's const-foldable statics, before the struct pass
+        # below resolves a field whose length names one — and, since DF-307a,
+        # BELOW the alias pass above, for the reason `check()` records: the
+        # const evaluator now asks a layout oracle, and the oracle answers
+        # `sizeof<Word>()` only once `type Word = UInt64` is registered. This is
+        # the pipeline the entry module actually goes through, so the two
+        # orderings have to agree or the same program folds differently
+        # depending on which one compiled it.
+        self._collect_const_statics(module_ast)
+        self._fold_const_lengths_in_program(module_ast)
 
         # Register structs
         for struct in module_ast.structs:

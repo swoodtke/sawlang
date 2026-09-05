@@ -157,3 +157,104 @@ def platform_int_width(target_triple: Optional[str] = None) -> int:
 
     _WIDTH_CACHE[key] = width
     return width
+
+
+# ---------------------------------------------------------------------------
+# The SCALAR layout oracle (DF-307a) — `sizeof`/`alignof` for the front end.
+# ---------------------------------------------------------------------------
+
+#: (size, align) in bytes, per target, for the kinds `_scalar_ir_type` answers.
+_SCALAR_LAYOUT_CACHE: Dict[str, Dict[object, Optional[tuple]]] = {}
+
+
+def _scalar_ir_type(kind, width: int):
+    """The LLVM type a SawType KIND alone determines, or None.
+
+    THE membership test for the front end's layout domain, and the reason it is
+    a whitelist rather than a call into codegen's `_get_llvm_type`: every kind
+    below maps to ONE scalar whatever it is parameterized by, so the answer
+    needs no struct table, no monomorphization and no field walk — the three
+    things codegen has and the typechecker does not. A pointer is a pointer at
+    every pointee; a `Bool` is `i1`; a `String` is `i8*`. Everything else — a
+    struct, an enum, a tuple, an array, an `any Trait` fat pointer, a bare type
+    parameter — has a layout only codegen can compute, and this answers None so
+    the caller refuses it BY NAME instead of guessing.
+
+    Each row is codegen's own mapping (`codegen/types.py:_get_llvm_type`), and
+    `examples/const_sizeof_agrees_across_phases.saw` is the standing proof that
+    the two agree: it folds one `sizeof` HERE (as an array length) and the same
+    `sizeof` in codegen (as a `static_assert` operand) and asserts the two
+    numbers are equal, row by row.
+    """
+    from llvmlite import ir
+    from ast_nodes import TypeKind
+    word = ir.IntType(width)
+    byte_ptr = ir.PointerType(ir.IntType(8))
+    return {
+        TypeKind.INT: word,
+        TypeKind.UINT: word,
+        TypeKind.BOOL: ir.IntType(1),
+        TypeKind.FLOAT: ir.DoubleType(),
+        TypeKind.INT8: ir.IntType(8),
+        TypeKind.INT16: ir.IntType(16),
+        TypeKind.INT32: ir.IntType(32),
+        TypeKind.INT64: ir.IntType(64),
+        TypeKind.UINT8: ir.IntType(8),
+        TypeKind.UINT16: ir.IntType(16),
+        TypeKind.UINT32: ir.IntType(32),
+        TypeKind.UINT64: ir.IntType(64),
+        # `String` is `i8*` and `UnsafePointer<T>` is `T*` — one word each, at
+        # every pointee, in address space 0, which is the only one Saw uses.
+        TypeKind.STRING: byte_ptr,
+        TypeKind.POINTER: byte_ptr,
+    }.get(kind)
+
+
+def scalar_layout(kind, target_triple: Optional[str] = None):
+    """`(size, align)` in BYTES for a SawType `kind`, or None outside the domain.
+
+    Asked by the FRONT END, which needs `sizeof<UInt64>()` to be a number while
+    it is still deciding an array length — before any LLVM module exists. The
+    numbers come from LLVM's own data layout for the effective target, not from
+    a table of what alignments ought to be: `i64` is 8-aligned on riscv32 and
+    4-aligned on i386, and a hand-written guess would be a second opinion the
+    backend then silently overrides.
+
+    Cached per triple: the query parses a probe module, far too expensive to
+    repeat, and one compile asks for the same dozen kinds over and over.
+    Answers None if LLVM cannot describe the triple, which makes the caller
+    refuse by name — the one thing this must never do is return a
+    wrong-but-plausible size, since nothing downstream could catch it.
+    """
+    from llvmlite import binding, ir
+
+    key = target_triple or ""
+    table = _SCALAR_LAYOUT_CACHE.get(key)
+    if table is None:
+        table = {}
+        _SCALAR_LAYOUT_CACHE[key] = table
+    if kind in table:
+        return table[kind]
+
+    llvm_type = _scalar_ir_type(kind, platform_int_width(target_triple))
+    answer = None
+    if llvm_type is not None:
+        try:
+            binding.initialize_native_target()
+            binding.initialize_native_asmprinter()
+            binding.initialize_all_targets()
+            triple = target_triple or binding.get_default_triple()
+            machine = binding.Target.from_triple(triple).create_target_machine()
+            probe = ir.Module()
+            probe.triple = triple
+            ir.GlobalVariable(probe, llvm_type, name="__saw_layout_probe")
+            with binding.parse_assembly(str(probe)) as llmod:
+                ref = llmod.get_global_variable(
+                    "__saw_layout_probe").global_value_type
+                answer = (machine.target_data.get_abi_size(ref),
+                          machine.target_data.get_abi_alignment(ref))
+        except Exception:
+            answer = None
+
+    table[kind] = answer
+    return answer

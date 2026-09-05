@@ -40,13 +40,14 @@ is scheduled and in what order is the whole of what they say.
 
 
 - CONFORMANCE GAP (flagged Sep 5 by design 266 U0's obligation-3 check): the design-70 both-ways refusal — `run<Slow>` suspends so a `sync` caller refuses, `run<Fast>` stays sync — has NO `examples/conformance/` row, though its covering test exists (`examples/errors/sync_generic_instantiation_suspends.saw`, now also 266's acceptance test). The fix is an INDEX.md row naming that test (design 191's "existing test" form); rides the next brief that touches the effect surface, or a docs batch
+- DF-307b — `sizeof<Struct>()` folds in a `static_assert` and refuses at the five earlier const positions, because a struct's ABI layout is built during code generation and the front end declines rather than computing a second opinion (entry below, filed Sep 5 by DF-307a as its own documented boundary; NOT a defect). Costs the wire-struct idiom one restated length; nobody has asked for it. The fix shape is all-or-nothing — a partial one reintroduces the by-position divergence DF-307a removed
 - DF-303b — ICE: a generic METHOD whose name collides with a generic FREE FUNCTION is never discovered by the monomorphization fixpoint, so codegen's registry lookup misses and reports "monomorphization did not discover the instance" (entry below, filed Sep 5 by design 266; PRE-EXISTING and unrelated to 266 — both trees ICE identically). One line at a named funnel; the mechanism is that `_method_call_demands` arm (a) disambiguates the module-qualified free call by NAME rather than by the stamps that tell the two shapes apart
 - DF-301a — ICE: a SUSPENDING function whose closure PARAMETER's type is a generic-struct instantiation emits an unparseable coroutine frame (entry below, filed Sep 4 by design 264 U3's census; PRE-EXISTING, verified byte-identical pre-U2). Mechanism is frame type emission, not ownership — `Cell<Int>` fails exactly as `Arc<Res>` does. No corpus site has the shape
 - DF-301b — a closure literal assigned to an ANNOTATED `let` of function type does not infer its parameter type, then reports the mismatch against the `Int` fallback (entry below, filed Sep 4 by design 264 U3; PRE-EXISTING, minor). The PARAMETER position of the expected-type ladder DF-226a/DF-232h walked for closure returns
 - DF-297a — the template snapshot's SECOND namespace back-pointer, a `SawType.symbol` on a DECLARED annotation, which DF-292b's park does not reach and should not: the capture still rebuilds 1,628 namespace method declarations per driven compile, worth ~0.22 s (targeted memo seeding) to ~0.48 s (symbols decline to be copied) more (entry below, filed Sep 3 by the perf batch). Wants a RULING first — should a namespace symbol ever be deep-copied into a template snapshot? — because either fix changes what the snapshot contains and owes obligation 2's sweep **RULED Sep 4 (user): NO COPY — a symbol is namespace identity and snapshots stop AT it; the fix rides a future perf dispatch and owes obligation 2 (everything reading type.symbol off a materialized instance)**
-- DF-294c — the const evaluator's STATIC-NAME leaf folds integers only, so a struct-typed static is refused in every const position design 186's own hint says it works in — the repeat value `[ZERO_SLOT; N]`, plain `static ALIAS: Slot = ZERO_SLOT`, and a struct-literal field (entry below, filed Sep 3 from sos SL-21; compliance defect vs 186 tier 2, no ruling owed; workarounds relayed). **SCHEDULED Sep 5: joins the 0.10.0 release paired with DF-300c — one const-eval dispatch, one leaf table**
+- DF-294c — the const evaluator's STATIC-NAME leaf folds integers only, so a struct-typed static is refused in every const position design 186's own hint says it works in — the repeat value `[ZERO_SLOT; N]`, plain `static ALIAS: Slot = ZERO_SLOT`, and a struct-literal field (entry below, filed Sep 3 from sos SL-21; compliance defect vs 186 tier 2, no ruling owed; workarounds relayed). **SCHEDULED Sep 5: joins the 0.10.0 release paired with DF-300c — one const-eval dispatch, one leaf table** — **CLOSED Sep 5 by DF-307a** (branch `const-eval-leaves`): the leaf is `StaticSymbol.const_init`, the tier-1-or-2 answer the named static already got, and codegen emits the very bytes that static's global holds; all three faces plus the `unsafe static var` container and a bare zero-static leaf are `examples/const_static_leaf_at_struct_type.saw`
 - DF-300b — NO ALIGNMENT REQUEST exists in the type system: a `[UInt8; N]` local's alloca carries NO align attribute (probed: `alloca [128 x i8]`, bare), so a byte buffer whose ABI needs word alignment cannot state it and gets whatever the optimizer packs — sos SL-26's pipe sysapi faulted on riscv32 the first time `-Oz` repacked two frames, arm64 passed by luck (entry below, filed Sep 5 by the lead from sos SL-26 at the 0.8.0 pin bump; DESIGN GAP, not a bug — the contract was unstatable so it was never stated. **RULED Sep 5 (user): `@align(N)` on locals/statics lands as v1 IN THE 0.10.0 RELEASE — attribute grammar per the `@export`/`@section` precedent, N a const power of two, emitted as the alloca/global's align, with an -Oz riscv32 freestanding test proving it survives; the TYPE-CARRIED aligned-array form (signature-enforceable, deletes sos's staging copy entirely) is its own later brief ruled together. sos's vet shrinks to a never-taken branch at v1**) — **V1 HALF DONE Sep 5** (branch `align-attribute`): `@align(N)` on locals + statics through the existing attribute funnel, const-folded, power-of-two, capped at 4096, emitted as the alloca's and the global's align; two oracles (the `ircontract` lane reads the align off the emitted globals at -O0/-Oz on host AND riscv32; a new riscv32 -Oz freestanding case proves such a program builds and runs); conformance rows N08-N11. **ENTRY STAYS OPEN for the TYPE-CARRIED half** — the signature-enforceable form that actually deletes sos's staging copy. DF-306a filed (a frame-resident local cannot carry an alignment, so v1 refuses there)
-- DF-300c — `sizeof`/`alignof` do not fold at the STATIC-INITIALIZER, ARRAY-LENGTH or REPEAT-COUNT positions, and the static hint PROMISES them: `static C: Int = sizeof<UInt64>()` refuses with a hint listing `sizeof`/`alignof` as allowed (entry below, filed Sep 5 by the lead from sos SL-27, probe WIDENED it — sos claimed array length folds; it refuses too, honestly worded). DF-294c's family: the design-186 static-initializer evaluator supports fewer LEAF kinds than its hint and tier-2 claim, while `static_assert`'s evaluator folds both builtins fine. Compliance defect, no ruling owed. Workaround relayed: literal count + `static_assert` pinning it. **SCHEDULED Sep 5 (user): joins the 0.10.0 release, PAIRED with DF-294c in one const-eval dispatch — same design-186 evaluator, two missing leaf kinds, one leaf table shared by every const position, the two entries' position matrices combined as the test plan**
+- DF-300c — `sizeof`/`alignof` do not fold at the STATIC-INITIALIZER, ARRAY-LENGTH or REPEAT-COUNT positions, and the static hint PROMISES them: `static C: Int = sizeof<UInt64>()` refuses with a hint listing `sizeof`/`alignof` as allowed (entry below, filed Sep 5 by the lead from sos SL-27, probe WIDENED it — sos claimed array length folds; it refuses too, honestly worded). DF-294c's family: the design-186 static-initializer evaluator supports fewer LEAF kinds than its hint and tier-2 claim, while `static_assert`'s evaluator folds both builtins fine. Compliance defect, no ruling owed. Workaround relayed: literal count + `static_assert` pinning it. **SCHEDULED Sep 5 (user): joins the 0.10.0 release, PAIRED with DF-294c in one const-eval dispatch — same design-186 evaluator, two missing leaf kinds, one leaf table shared by every const position, the two entries' position matrices combined as the test plan** — **CLOSED Sep 5 by DF-307a** (branch `const-eval-leaves`): the typechecker gained a layout oracle (`TypeChecker._const_type_metric`, scalar kinds only) and every const_eval site it owns passes it, so all five positions fold plus `@align` and the const-generic argument; the boundary that remains is `sizeof<Struct>()` outside a `static_assert`, filed as DF-307b
 - DF-294d — a static declaration's initializer cannot break after `=` (DF-172d's no-wrap family at the declaration head), which generic statics hit hardest because constructors do not infer type args, forcing `NAME: T<...> = T<...>(...)` on one line; PARENTHESIZING the initializer works today and design 207 (ruled Aug 10, unbuilt) deletes the doubled spelling entirely (entry below, filed Sep 3 from sos SL-22; RESOLUTION PATH is a user call) **RULED Sep 4 (user): design 207 SCHEDULED (+ the annotation-driven cell flagged in its Sep-4 amendment) with the paren idiom blessed in the spec/skill as the interim; DF-294d closes when 207 lands** — **CLOSED Sep 4 by the design-207 landing**: the constructor infers from the declared slot, so `static EVENTS: Slab<EventSlot, MAX_EVENTS> = Slab(...)` writes the type once and fits; the spec/skill interim passages now say the parens are for a long INITIALIZER, not for a doubled type. The grammar is untouched — cell (a) was not taken, so a bare break after `=` is still a parse error
 - docverify tier 2 (262's standing debt, recorded at U1/U2 integration Sep 3) — 46 error demos are `saw-fragment` because scaffolding (an elided struct, a missing import) refuses them BEFORE the check they exist to show, so their claimed diagnostics are uncertified; the tightening is real scaffolding per block until each pins its OWN error text. README's 11 front-door fragments stay exempt BY CHOICE (padding them would cost the prose its punch). Also recorded: the lane's two U1 refinements (declaration hoisting in `saw-body`; message-keyed vacuous detection) are lead-approved amendments to the brief's Amendment A
 - IMAGE SIZE (sos, Sep 2) — kernel images "very large"; NO size option exists today (`-O0`/O1 only). **SOS'S NUMBERS ARRIVED (process_isolation.elf, riscv32 virt, sawc 0.4.0 @ 46eebb36) and the measurement CONVICTS `.text` and exonerates everything else**: .text 360,638 B (~92% of the sawc-attributable loadable ~392KB; .rodata just 27KB, bt-table 138 B / zero frames — the kernel has no coroutine frames, so that machinery contributes NOTHING; .bss 152KB is RAM not flash and is their deliberate arenas; ~78KB of their Total is non-loadable debug — `llvm-strip` for the flash artifact; .payload/.childimg 39KB is their own embedding). The FUNCTION SIZE DISTRIBUTION is the finding: `end_process` 35,134 B, `drop_reference` 23,294, `free_object` 19,764, `deliver_attachment` 17,400 — single functions at 20-35KB on riscv32 WITH +c. LEAD-PROBED Sep 2 (`.build/scratch/dropbloat*.saw`): the naive per-exit-edge inline-deinit story is DISPROVEN — an 8-early-return function with 6 owning deep locals compiles to the SAME bytes as its 1-return twin (LLVM's tail merging handles mergeable cleanup), so the bloat is code tail-merging CANNOT merge. Remaining suspects, each testable from one artifact: (1) per-site CHECK/PANIC argument setup — every bounds/overflow/tier check materializes a unique (FILE, LINE) argument island, unmergeable by construction, thousands of sites; (2) ENUM-release ladders inlined per release site (`_emit_release_at` recurses inline; a kernel object enum's variant switch × payload trees per site); (3) generic dispatch fan-out. **DIAGNOSED Sep 2 (lead, from a scratch clone of sawos built against this tree — the rebuilt elf is BYTE-IDENTICAL on every filed symbol size, so the vintage matches):** `end_process` disassembled (10,119 instructions, only 79 calls — NOT panic islands, NOT release-ladder calls). The mass is TWO compounding emissions: **(A) fully-unrolled FIELD-BY-FIELD aggregate copies** — ~5,600 of the 10,119 instructions are raw loads/stores walking one base register into another at byte/half/word granularity with an `andi 0x1` bool renormalization per flag field (the renorm is what stops LLVM folding the walk into memcpy), over structs ≥1.2KB (field offsets to 0x4bc observed); the by-value transfer sites — `&self` receivers arrive BY VALUE, returns, moves — are the producers, and a kernel's object/table structs are exactly the big ones. **(B) far-offset stack addressing** — the copies live in an ≥8KB stack frame (`lui 0x2` off fp), and riscv32's ±2KB store immediate makes every deep-frame access a 3-instruction `lui/sub/sw` triplet, un-CSE'd (~1,720 pairs ≈ 12KB of the 35KB by themselves). REMEDIES for the brief, in order of leverage: (1) emit aggregate copies as `llvm.memcpy` — the store-side bool invariant (bools are stored 0/1) makes the per-field renorm redundant, and memcpy also dissolves (B)'s addressing cost; (2) large-`&self` BY POINTER (the cell-carrying by-pointer receiver precedent exists; semantics preserved for a receiver the body never mutates — design care owed against the documented arrives-by-value model); (3) an `-Os`/`-Oz` flag (cheap, helps at the margin, does NOT fix (A) — it is front-end emission). bt-table/panic-island/drop-ladder remedies NOT needed on this evidence. **BRIEF AUTHORED + USER-RULED Sep 2: `designs/261-reference-passing-and-memcpy.md`** (all references by pointer — the one-predicate `&self` flip — + aggregate memcpy; the sos image is the acceptance metric). **INSTANCE DEDUP MEASURED IRRELEVANT for this image (lead, Sep 2): relinking with `ld.lld --icf=safe` folds 0 bytes and `--icf=all` folds 32 of 429,034 `.text` bytes — near-zero byte-identical bodies exist, because the bloat is few giant copy-filled functions with per-struct field offsets, not many similar instances. Registry-identity dedup already exists (one materialization per (template, canonical args)); body-level dedup is not a size lever here.** Codegen surface — 261 dispatches after the stage-3 branch integrates. **261 LANDED Sep 3 (branch `worktree-agent-ab91b99172139c953`, 5 commits) AND ITS ACCEPTANCE MEASUREMENT REFUTES DIAGNOSIS (A) — the image does NOT move.** U1 (every aggregate `&self` by pointer, `noalias` stamped, `readonly` inferred): 429,034 -> 427,616 B of text, -0.3%. U2 (aggregate copies as one `llvm.memcpy` at the `let`/assignment funnels): 427,616 -> 427,642 B. `end_process` is **35,134 B at all three points, unchanged to the byte**, and the five biggest symbols are unchanged (`drop_reference` 23,294, `free_object` 19,764, `deliver_attachment` 17,400, `take_staged` 16,642, `staged_count` 16,468). Compile time unchanged within noise (clean sos build 28.4s before / 29.1-33.5s after across runs on a loaded machine; the one path that COULD have regressed it — `_abi_size` parses a probe module per call and U2 asks it per candidate store — is now memoized, which also speeds every pre-existing caller). **WHAT THE IMAGE IS ACTUALLY MADE OF, measured (agent, Sep 3):** the whole `.text` is 101,757 instructions of which 64,988 (64%) are load/store and 2,527 are the `andi …, 0x1` bool renorm; but the kernel IR holds only 164 aggregate stores and **NINE** adjacent aggregate load->store pairs, so copies are not the producer. `end_process` (2,157 IR instructions -> 35,134 B) contains **33 × `alloca [512 x i8]` = 16.9KB of stack** and **844 of its 1,909 instructions (44%) are design-137 inline PANIC-MESSAGE ASSEMBLY** (`panic_base`/`panic_room`/`panic_over`/`panic_take`/`panic_seg`), plus 130 `memcpy` calls and 33 `__saw_fmt_int` calls, all from that assembly — 49 panic sites, each expanding a full inline formatting sequence with its own 512-byte scratch buffer. THAT is also the origin of (B): the 33 buffers are what make the frame ≥8KB, so the `lui/sub/sw` triplets are downstream of the panic scratch, not of aggregate copies. **NEXT BRIEF, in order of leverage: (1) hoist or OUTLINE the panic scratch buffer — one per FUNCTION instead of one per panic SITE, or an outlined helper per panic, which addresses ~44% of the biggest symbol and the whole ≥8KB-frame story; (2) narrow the field read — sawc emits `load <whole struct>` + `extractvalue` for every field access (825 aggregate loads in the kernel IR, 58 of them ≥64 B), where a GEP + scalar load would do.** Neither is in 261's scope. Findings filed: DF-293a (FIXED here), DF-293b, DF-293c. **Design 263 built both NEXT-BRIEF levers Sep 3 (image -67.1%; its done-file record carries the numbers); the remaining tier is the BACK-END SIZE LANE — -Oz / machine outliner / riscv save-restore + a function-sections+gc-sections emission census — UNAUTHORED and UNSCHEDULED. DF-300a (Sep 4, entry below) is new evidence for that lane: the enum-construction funnel still emits byte-wise aggregate stores — the 261-U2 memcpy conversion's missing sibling — worth folding into the lane's brief as a front-end cell beside the back-end flags**. **DESIGN 265 U0 CENSUS LANDED Sep 4 (agent; table in the brief's "U0 — THE CENSUS" section, not restated here): baseline CORRECTED to 102,492 B (.text 68,184 + .rodata 24,404 + .data 9,904; 21,434 instructions) — the brief's 140,776 B does not reproduce and a pre-264 rebuild is byte-identical, so it is an accounting difference, not a movement. Bytes by producer: address/constant materialization 30.8%, loads 25.4%, branches 18.2%, stores 7.7%; the DF-300a byte-shred is only 1,408 B (2.1%) on riscv32, while outliner-shaped repetition is up to 34 KB (49.8%, upper bound) — so the census predicts U1's -Oz outliner leg, not U2, carries this image's size win. Per-enum table: riscv32 39 of 40 payload enums byte-identical under the alignment rule (+4 B total, the one grower being std's f64-carrying JsonValue, which the kernel does not instantiate) and the kernel declares NO payload enum of its own; host arm64 +160 B over 40 enums, of which one row (+8) refutes the brief's zero-rounding claim — max size and max alignment are taken over variants independently, so an enum whose largest variant is not its most-aligned one rounds. Host shred share 4.4-16.4% across five examples binaries**. **U1 LANDED Sep 4 (agent): -O2/-Os/-Oz through the one OPTIMIZATION_LEVELS table, default still O1, freestanding still implies no level. sos image at -Oz 102,492 -> 77,894 B (-24.0%; .text alone -36.6%), -Os -22.4%, -O2 -1.9%, and every level BOOTS AND PASSES under QEMU. bench: O2 -4.9% (the brief's muted-by-checked-loops prediction landing), Os +51%, Oz +375%, checksums held at all four. Two legs re-scoped with probe evidence: llvmlite exposes no size level so the levels are delivered as optsize/minsize function attributes (which is also what turns the outliner on, no process-global cl::opt needed), and RISC-V does not outline at all — zero bodies with -enable-machine-outliner=always, while the host's negative control (=never) drops 601 to 0, so set_option works and the target does not; riscv +save-restore is NOT auto-enabled because it emits __riscv_save_N calls the -nostdlib freestanding link cannot resolve**. **U2 LANDED Sep 4 (agent) — DF-300a closed, entry below. U3 CENSUS Sep 4 (report-only, no code change): function-sections + gc-sections are ALREADY on every link path (design 112 freestanding, design 168 unit 1 hosted ELF, `-dead_strip`/`--gc-sections` on every sawc/runner link), and what they still reclaim is 216 B (0.2%) on the sos image and a near-constant ~384 B per freestanding case — a fixed tail out of support.c, not Saw code, because design 168's compile-time reachability stripping already keeps the unreachable stdlib bodies from being emitted. Nothing to flip; no obligation-2 linker-script sweep owed**
@@ -274,6 +275,7 @@ holding an aligned TYPE is the same layout question.
 ## array-length and repeat-count positions; the static hint lists them as
 ## ALLOWED (filed Sep 5 by the lead from sos SL-27; PRE-EXISTING; DF-294c's
 ## family — compliance defect vs design 186 tier 2, no ruling owed)
+## **CLOSED Sep 5 by DF-307a below**
 
 PROBED on main at HEAD (`.build/scratch/sl27_*.saw`):
 
@@ -309,6 +311,7 @@ count + `static_assert` pinning it to the derived expression.
 ## struct-typed static is refused in const positions the design-186 hint
 ## advertises (filed Sep 3 by the lead from sos-relayed SL-21; PRE-EXISTING;
 ## COMPLIANCE defect vs 186 tier 2 — no ruling owed)
+## **CLOSED Sep 5 by DF-307a below**
 
 THREE FACES, one mechanism, lead-probed Sep 3
 (`.build/scratch/sl21_{control,error,faces,field,body}.saw`):
@@ -335,6 +338,108 @@ WORKAROUNDS relayed to sos: (1) an ALL-ZERO table wants NO initializer at
 all — `unsafe static var B: [Slot; N]` bare is zerofill (.bss, design 149),
 which is what a slab zero-table actually is; (2) otherwise the inline struct
 literal, as they found. [148, 149, 186, DF-172j]
+
+## DF-307a — ONE leaf table, one evaluator, every const position: the fix that
+## closes DF-300c and DF-294c (landed Sep 5, branch `const-eval-leaves`). CLOSED
+
+THE MECHANISM both findings share (obligation 4): `const_eval` was already one
+evaluator with one leaf table, and what differed per position was an ARGUMENT.
+The typechecker passed `metric=None` — it had no layout facility of any kind,
+not even for `Bool` — so `sizeof<UInt64>()`, a number the target fixes, was
+"not a compile-time constant" at every position the FRONT END owns while
+folding fine at the two codegen owns. And the static leaf answered with a
+`const_value` INTEGER, which a `Slot`-typed static does not have. Two missing
+answers, one shape: the leaf table was complete, the ANSWERERS were not.
+
+THE FIX, in the two halves the mechanism has:
+
+1. **A layout oracle for the front end** — `target_info.scalar_layout` maps a
+   SawType KIND to `(size, align)` through LLVM's data layout for the effective
+   target, for the fifteen kinds a KIND alone determines (the integers, `Bool`,
+   `Float`, `String`, a pointer). `TypeChecker._const_type_metric` is the
+   funnel; its docstring names its ten entry points, and every const_eval call
+   the typechecker owns passes it. `const_eval`'s metric contract gained one
+   thing: a metric may answer None, which becomes a refusal NAMING the type,
+   never a guess.
+2. **`StaticSymbol.const_init`** — the tier-1-or-2 answer for the rest of the
+   domain, beside `const_value`'s integer one and riding the symbol for the
+   same reason (an import may bind it under another name). `_is_const_init`
+   gains `_names_const_static`, and codegen's `_const_from_expr` gains the arm
+   that emits the named global's own initializer — an alias IS the same bytes.
+
+THREE POSITION GAPS surfaced while probing the matrix, each fixed here rather
+than filed, because each was the same rule answering differently by position:
+
+- The static/length fold ran BEFORE the type-alias pass, in BOTH registration
+  pipelines, so `sizeof<Word>()` for a `type Word = UInt64` made a static that
+  compiled and was still "the computed static" at every length naming it.
+  Moved below the alias pass in both.
+- Codegen's array-length arm folded with its full metric and THREW THE ANSWER
+  AWAY, using it only to phrase the error (which is why an unreachable length
+  said "the length is not allowed here" — the default `what`). It keeps the
+  value now, which is what lets a length inside a TYPE ARGUMENT work at all.
+- `_is_const_expr_start` committed to the const-expr grammar only on INT/MINUS,
+  so `Ring<sizeof<UInt64>()>` was a parse error while `Ring<0 + sizeof<...>()>`
+  parsed. `sizeof`/`alignof` are built-in names and can never begin a type, so
+  they join the test — not as an exception to it.
+
+THE MATRIX, as tests: `examples/const_builtin_leaf_every_position.saw` (both
+builtins at six positions plus sos SL-27's `PIPE_BODY_BYTES / sizeof<UInt>()`),
+`examples/const_static_leaf_at_struct_type.saw` (DF-294c's three faces, the
+`unsafe static var` container, a bare-static leaf, and the body-position
+control that always worked), and three refusal controls —
+`errors/const_builtin_aggregate_length_error.saw`,
+`errors/const_static_leaf_names_mutable_error.saw`,
+`errors/static_string_not_const.saw` — beside the function-call and
+user-`init`-body controls that already existed.
+
+CONFORMANCE (obligation 3): the ledger has no const-expression claim group and
+this fix only LIFTS refusals, so no existing row moved. ONE row is owed and
+added — **Z07**, because the fix introduced a SECOND layout oracle, and
+`const_eval.py`'s own docstring names that hazard ("two of them drift, and the
+drift is silent"). A drift here is an array allocated at one size and
+bounds-checked at another, so `examples/const_sizeof_agrees_across_phases.saw`
+asserts the agreement per scalar kind rather than arguing it: each row folds one
+`sizeof` in EACH phase and fails the build on a mismatch.
+
+CORPUS FALLOUT: refusals only lifted. One pin re-worded —
+`array_length_nonconst_error.saw` asserted the hint clause "initialized by a
+plain integer literal", which had been false since design 186 (a DERIVED static
+is a length) and DF-232g (an IMPORTED one is too). Nothing migrated.
+[186, 148, 149, 185, DF-172j, DF-172l, DF-232g, DF-283b, DF-300b, DF-294c,
+DF-300c, sos SL-21, sos SL-27]
+
+## DF-307b — the front end's layout oracle answers for SCALAR kinds only, so
+## `sizeof<Struct>()` still refuses outside a `static_assert` (filed Sep 5 by
+## DF-307a as its own documented boundary; NOT a defect — a deliberate v1 line)
+
+`sizeof<Region>()` folds in a `static_assert` (codegen has the ABI layout) and
+is refused at an array length, a repeat count, a `static` initializer, an
+`@align` and a const generic argument, by name:
+
+    array length is not a compile-time constant: `sizeof<Region>()`, whose
+    layout only code generation knows, is not allowed here
+
+MECHANISM: a struct's layout is built during code generation, later than an
+array length is resolved, and `TypeChecker._const_type_metric` refuses rather
+than computing a second opinion the backend would then override. That refusal
+is the RIGHT default — a wrong size is the one answer nothing downstream could
+catch, and it would break the bounds checks conformance rows T10/T14 claim.
+
+WHY IT IS FILED ANYWAY: the wire-struct idiom pins layout with
+`static_assert(sizeof<T>() == N)` and then writes N again as a buffer length,
+which is the derive-don't-restate duplication DF-300c existed to remove, one
+level up. sos has not asked for it; nothing in the corpus wants it.
+
+FIX SHAPE, if it is ever wanted: NOT a second layout computation. Either (a)
+give the front end the real one by building the LLVM type through a mapping
+codegen shares — which is the whole `_get_llvm_type` recursion, monomorphization
+included, and is why this was not done here; or (b) DEFER the fold, which works
+for a `static` initializer (the typechecker needs only a boolean there and
+codegen already re-folds with the metric) and does NOT work for an array length,
+whose integer is needed at typecheck for type identity and mangling. A partial
+(b) would reintroduce exactly the by-position divergence DF-307a removed, so a
+fix is (a) or nothing. [186, DF-300c, DF-307a]
 
 ## DF-294d — a static declaration's initializer cannot BREAK after `=`
 ## (filed Sep 3 by the lead from sos-relayed SL-22; DF-172d's no-wrap family

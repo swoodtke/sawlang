@@ -1,0 +1,21 @@
+// design 186 unit 7 tier (c), pinned by DF-307a: a String is not a constant
+// initializer, and the hint says so in the same breath as the function call
+// (`static_non_const.saw`) and the user `init` body
+// (`static_user_init_not_const.saw`).
+//
+// This row exists because DF-307a WIDENED the tier — `sizeof`/`alignof` of a
+// primitive folds now, and a leaf may name an earlier static of ANY type — and
+// a widening owes a control for every clause it did NOT touch. A String is a
+// refcounted heap value built at run time; a static is image bytes.
+//
+// Two errors, deliberately: the const-init rule and design 41's own rule that a
+// static may not own a resource. Neither is redundant — the second is what
+// would still refuse the declaration if somebody made string literals foldable.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: static `GREETING` must be initialized by a compile-time constant
+// EXPECT-ERROR-CONTAINS: neither does a function call, a String or any heap type
+// EXPECT-ERROR-CONTAINS: owns a resource (Deinit)
+
+static GREETING: String = "hello"
+
+func main() { print(GREETING) }

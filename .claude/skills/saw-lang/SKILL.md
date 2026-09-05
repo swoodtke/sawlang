@@ -3360,6 +3360,22 @@ slab in std/slab.saw; `UnsafeMemory<T, Device|Normal>` for MMIO
   FIELD AGGREGATION FOLDS, USER `init` BODIES DO NOT: `Region(bytes:
   PAGE_SIZE, pages: 1)` is a constant and `Region(pages: 1)` through a
   hand-written `init` is not, even where the body visibly would fold.
+  **THE "EARLIER STATIC" LEAF IS NOT ONLY INTEGERS (DF-294c, closed Sep 5)** —
+  a static of ANY type may name an earlier one, and the alias carries the same
+  bytes, so a table is seeded from a NAMED value instead of a repeated literal:
+  ```saw-fragment
+  static FREE_SLOT: Slot = Slot(generation: 0, owner: -1)
+  static SPARE: Slot = FREE_SLOT                            // the alias
+  unsafe static var SLOTS: [Slot; MAX_SLOTS] = [FREE_SLOT; MAX_SLOTS]
+  static ROOT: Region = Region(head: FREE_SLOT, count: 0)   // a field
+  ```
+  All three were refused before Sep 5 — by a rule whose own hint listed "an
+  earlier module `static`" as a leaf — while `[ZERO_INT; N]` and the inline
+  `[Slot(generation: 0, owner: -1); N]` compiled beside them, so the workaround
+  was to repeat the literal. Treat them as working now and SUSPECT in older
+  builds. The named static must itself be tier 1 or tier 2: an
+  `unsafe static var` is mutable and is refused as a leaf, exactly as it is
+  refused in an array length.
 - **INTERIOR MUTABILITY: the wrapper idiom (design 186).** A `&self`
   method that WRITES needs an `UnsafeMutableInterior<T>` field. That is
   the one primitive; it holds an inline `T` (no wrapper cost, and
@@ -3462,8 +3478,10 @@ error). You only touch this when authoring `sawc/rt/`.
   }
   ```
   `N` is a CONST expression on an array length's terms (a literal, a module
-  `static`, const arithmetic — one evaluator, so `@align(WORD)` and
-  `[UInt8; WORD * 4]` agree), a POWER OF TWO, at most 4096. It only ever
+  `static`, `sizeof`/`alignof` of a primitive, const arithmetic — one
+  evaluator, so `@align(WORD)` and `[UInt8; WORD * 4]` agree, and
+  `@align(sizeof<UInt64>())` says word-aligned without naming the number), a
+  POWER OF TWO, at most 4096. It only ever
   STRENGTHENS (max with the type's own), composes with `@section`, and costs
   an all-zero static nothing (still zerofill). REFUSED, each cleanly: `let _`
   and a `Void` binding (no storage); a FIELD or a PARAMETER (that is the
@@ -3786,7 +3804,11 @@ construct in the owner and lend `&driver` down.
   Aug 31, so a build that rejects either predates its amendment.
   The generic-ARGUMENT position keeps the smaller design-148 grammar (`>` is the
   shift token, so `FixedBuf<1 << 8>` cannot parse) — write `FixedBuf<2 * 128>`
-  or a `static`.
+  or a `static`. `sizeof`/`alignof` is exempt and parses bare there
+  (`Ring<sizeof<UInt64>()>`, DF-307a): both are built-in names, so neither can
+  begin a type and there is nothing to be ambiguous about. It was
+  `Parse error: Expected '>' after type arguments` before Sep 5, with
+  `Ring<0 + sizeof<UInt64>()>` as the spelling that happened to work.
 - **`static` IS REQUIRED ON A STATIC METHOD, and there is no inference**
   (design 236). Write the keyword at the declaration and call it on the TYPE:
   ```saw-error
@@ -4268,8 +4290,29 @@ construct in the owner and lend `&driver` down.
   predates the fix. Statics fold in DECLARATION ORDER and always did; naming
   one declared BELOW is `static `LATER` is declared after this point`, which
   a fixed-width slot silently folded past until DF-283b (same day).
+  **`sizeof`/`alignof` IS A LEAF AT EVERY ONE OF THOSE POSITIONS (DF-300c,
+  closed Sep 5)** — a `static` initializer, an array length, a repeat count, a
+  const generic argument and `@align(N)`, alongside the `static_assert` that
+  always worked. So the count is DERIVED from the size instead of restated:
+  ```saw-fragment
+  static PIPE_BODY_BYTES: Int = 4096
+  static PIPE_STAGE_WORDS: Int = PIPE_BODY_BYTES / sizeof<UInt>()
+  static STAGE: [UInt8; sizeof<UInt64>()] = [0; sizeof<UInt64>()]
+  ```
+  Every one of those was ``not a compile-time constant`` before Sep 5 — while
+  the static hint LISTED `sizeof`/`alignof` as allowed — so a build that
+  refuses them predates the fix and wants a literal count with a
+  `static_assert` pinning it. THE ONE LIMIT: `T` must be a type the target
+  alone fixes (the integers, `Bool`, `Float`, `String`, any `UnsafePointer<T>`;
+  a distinct alias measures as its underlying, so `sizeof<Byte>()` is 1). A
+  STRUCT, enum, tuple or array is laid out during code generation, later than
+  an array length is resolved, so `[UInt8; sizeof<Region>()]` is a clean
+  refusal naming the type — put a layout claim in a `static_assert`, which runs
+  after layout exists and takes any `T`, and which is where one belongs anyway.
   What does NOT fold: an `unsafe static var` (mutable), a static of a
-  non-integer type, and one with no initializer — each a clean error NAMING
+  non-integer type WHERE AN INTEGER IS REQUIRED (it is a fine leaf in a
+  `static` initializer — see the statics tiers above), and one with no
+  initializer — each a clean error NAMING
   which static and why (``the mutable static `ARENA_BYTES` is not allowed
   here``). A local shadows a static here as anywhere else, so a derived shadow
   is the runtime value it looks like. Cross-module follows visibility: a

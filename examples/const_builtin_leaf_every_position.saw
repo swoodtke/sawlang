@@ -1,0 +1,87 @@
+// DF-307a (closing DF-300c): `sizeof`/`alignof` is a CONST LEAF at every const
+// position, not only in a `static_assert` and a function body.
+//
+// The design-186 evaluator has folded these two since design 53, but only where
+// CODEGEN called it — codegen owns the ABI layout oracle and the typechecker
+// passed none, so the same expression was a number in a `static_assert` and
+// "not a compile-time constant" one line above it in a `static` initializer, an
+// array length, a repeat count, a `@align` and a const generic argument. The
+// static hint LISTED `sizeof`/`alignof` as allowed the whole time, which is the
+// half that cost a round-trip per encounter.
+//
+// The fix is the funnel, not the five call sites: `TypeChecker._const_type_metric`
+// answers for every type a SawType KIND alone determines, and every const_eval
+// call the typechecker owns passes it. `errors/const_builtin_aggregate_length_error.saw`
+// is the other side — a `sizeof` the front end genuinely cannot answer, refused
+// by name.
+//
+// One row per (leaf x position) cell. The numbers are target-independent:
+// `UInt64` is 8 bytes and `UInt32` is 4-aligned on every target Saw builds for.
+// EXPECT: success
+// EXPECT-OUTPUT: 8
+// EXPECT-OUTPUT: 4
+// EXPECT-OUTPUT: 512
+// EXPECT-OUTPUT: 8
+// EXPECT-OUTPUT: 4
+// EXPECT-OUTPUT: 16
+// EXPECT-OUTPUT: 8
+// EXPECT-OUTPUT: 4
+// EXPECT-OUTPUT: 8
+// EXPECT-OUTPUT: 4
+
+// POSITION 1: a `static` INITIALIZER, both builtins.
+static WORD_BYTES: Int = sizeof<UInt64>()
+static WORD_ALIGN: Int = alignof<UInt32>()
+
+// ...and the MIXED-ARITHMETIC spelling the finding was filed from (sos SL-27):
+// derive the count from the size instead of restating it as a literal.
+static PIPE_BODY_BYTES: Int = 4096
+static PIPE_STAGE_WORDS: Int = PIPE_BODY_BYTES / sizeof<UInt64>()
+
+// POSITION 2: a declared ARRAY LENGTH, in a `static`'s own type...
+static STAGE: [UInt8; sizeof<UInt64>()] = [0; sizeof<UInt64>()]
+
+// ...and in a struct FIELD, which is the position that forces the fold to
+// happen before registration.
+struct Header { pad: [UInt8; alignof<UInt32>()] }
+
+// POSITION 3: a CONST GENERIC ARGUMENT. The bare spelling parses since
+// DF-307a — `sizeof` is a built-in name, so it can never begin a type.
+struct Ring<const N: Int> { data: [UInt8; N] }
+
+extension Ring<N> {
+    func capacity(&self) -> Int { N }
+}
+
+// POSITION 4: a `static_assert` operand — the one position that already worked,
+// kept here as the control that says the two phases agree.
+static_assert(sizeof<UInt64>() == WORD_BYTES, "one evaluator, two phases")
+static_assert(alignof<UInt32>() == WORD_ALIGN, "the same, for alignof")
+
+// POSITION 5: `@align(N)` (DF-300b), which came out working with the funnel and
+// never needed a rule of its own.
+@align(sizeof<UInt64>())
+static ALIGNED_WINDOW: [UInt8; 16] = [0; 16]
+
+func main() {
+    print(WORD_BYTES)                 // 8
+    print(WORD_ALIGN)                 // 4
+    print(PIPE_STAGE_WORDS)           // 512
+
+    print(STAGE.len())                // 8
+    let h = Header(pad: [0; alignof<UInt32>()])
+    print(h.pad.len())                // 4
+    print(ALIGNED_WINDOW.len())       // 16
+
+    // POSITION 6: a REPEAT COUNT, and a local annotation's length beside it.
+    var scratch: [UInt8; sizeof<UInt64>()] = [0; sizeof<UInt64>()]
+    print(scratch.len())              // 8
+
+    // ...and `@align` on a local, the funnel's second entry point.
+    @align(alignof<UInt32>())
+    var staged: [UInt8; alignof<UInt32>()] = [0; alignof<UInt32>()]
+    print(staged.len())               // 4
+
+    print(Ring<sizeof<UInt64>()>(data: [0; 8]).capacity())     // 8
+    print(Ring<alignof<UInt32>()>(data: [0; 4]).capacity())    // 4
+}

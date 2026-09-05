@@ -835,6 +835,7 @@ Claim source: behavioral, not error-message — no single claim section
 | Z04 | a shared window read leaves a `let` root unmutated | `place_shared_window_readonly.saw` |  |
 | Z05 | an escaping closure copied: its captured env is torn down exactly once | `Z05_escaping_closure_env_deinit_once.saw` |  |
 | Z06 | a window reached through a FIELD chain — does the write land? | `coro_ref_param_mut.saw` |  |
+| Z07 | the front end's `sizeof`/`alignof` and codegen's answer the SAME number, per scalar kind | `const_sizeof_agrees_across_phases.saw` | DF-307a — a new row because the fix introduced a SECOND layout oracle. `sizeof<UInt64>()` now folds while types are still being resolved (an array length needs the number before any LLVM module exists), so `target_info.scalar_layout` answers beside codegen's `_abi_size`/`_abi_align`, and `const_eval.py`'s own docstring names the hazard: "two of them drift, and the drift is silent". The drift is not silent HERE — a disagreement means an array allocated at one size and bounds-checked at another, i.e. rows T10/T14 checking the wrong length — so the agreement is asserted rather than argued. Each row folds one `sizeof` in EACH phase (`sizeof<[UInt8; sizeof<T>()]>() == sizeof<T>()`, the inner length in the front end and both outer ones in `static_assert`) and fails the build on a mismatch. Every kind in the scalar table has a row; adding a kind without adding its row leaves the new one unproven |
 
 ## What changed since the audit ran
 

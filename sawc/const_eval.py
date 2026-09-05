@@ -14,10 +14,20 @@ resolved — so the phase-dependent parts became parameters instead:
             the other route (DF-172j): the typechecker stamps its value on the
             identifier node, because the question "which `SIZE` is this, and may
             this file see it" is a namespace question and this file has none.
-  `metric`  the layout oracle behind `sizeof<T>()` / `alignof<T>()`. Codegen
-            passes one; the typechecker passes None, since it knows the word
-            width but not struct layout, and `sizeof` in a type-resolution
-            position is then rejected by name rather than answered wrongly.
+  `metric`  the layout oracle behind `sizeof<T>()` / `alignof<T>()`, called as
+            `metric(saw_type, 'size'|'align')` and free to answer None for a
+            type it cannot describe HERE — which the evaluator turns into a
+            refusal naming the type, never into a guess. BOTH phases pass one
+            (DF-307a): codegen's has the whole ABI layout and never declines;
+            the typechecker's (`TypeChecker._const_type_metric`) answers for
+            every type a SawType KIND alone determines — the integers, `Bool`,
+            `Float`, `String`, a pointer — and declines a struct, an enum, a
+            tuple, an array or a type parameter, whose layout does not exist
+            until codegen builds it. The typechecker used to pass NOTHING,
+            which made `sizeof<UInt64>()` — a number fixed by the target — a
+            refusal at an array length, a repeat count, a `static` initializer
+            and an `@align`, while the hint at each of those listed it as
+            allowed.
   `width`   the platform integer width, for `Int.max` / `UInt.min`.
 
 Growing a second evaluator was the alternative and is the thing to keep not
@@ -77,9 +87,11 @@ CAST_INT_KINDS = {
 # declared array length in codegen — so a drift between them would read as a
 # disagreement about what a length may be.
 CONST_LENGTH_HINT = (
-    "a length is fixed at compile time — use a literal, a const generic "
-    "parameter, arithmetic over them, or a module `static` of type `Int` or "
-    "`UInt` initialized by a plain integer literal"
+    "a length is fixed at compile time — use an integer literal, a const "
+    "generic parameter, a module `static` of type `Int` or `UInt` whose own "
+    "initializer folds, the integer limits, a raw-backed enum case, "
+    "`sizeof`/`alignof` of a primitive or pointer type, or arithmetic and "
+    "bitwise operators over any of those"
 )
 
 
@@ -216,12 +228,22 @@ def const_eval(expr, env=None, metric=None, width: int = 64):
         _reject(expr, f"operator `{op}`")
     if isinstance(expr, FunctionCall):
         if expr.name in ('sizeof', 'alignof'):
-            if metric is None:
-                _reject(expr, f"`{expr.name}<T>()`")
             if not expr.type_args or len(expr.type_args) != 1:
                 _reject(expr, f"`{expr.name}` needs one type argument")
+            if metric is None:
+                _reject(expr, f"`{expr.name}<T>()`")
             which = 'size' if expr.name == 'sizeof' else 'align'
-            return metric(expr.type_args[0], which)
+            answer = metric(expr.type_args[0], which)
+            # DF-307a: a metric may DECLINE a type rather than answer wrongly.
+            # The front end's oracle knows the layout of every type a KIND alone
+            # determines and of nothing else, so a `sizeof<Region>()` in an
+            # array length is refused by name here instead of being folded
+            # against a layout the typechecker guessed and the backend then
+            # overrode. Codegen's metric has the whole layout and never declines.
+            if answer is None:
+                _reject(expr, f"`{expr.name}<{expr.type_args[0]}>()`, whose "
+                              f"layout only code generation knows,")
+            return int(answer)
         _reject(expr, f"call to `{expr.name}`")
     if isinstance(expr, MemberAccess):
         limit = getattr(expr, 'int_limit', None)

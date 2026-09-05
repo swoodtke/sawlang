@@ -8838,15 +8838,39 @@ Statics obey four rules, ratified in design 19:
      which is what makes `static LOCK: SpinLock<T>` a legal declaration.
   2. **A constant expression, plus memberwise aggregation.** Whatever the
      const evaluator folds — literals, arithmetic and the bitwise operators
-     over them, `sizeof`/`alignof`, the integer limits, a raw-backed enum
-     case, an earlier module `static`, and an IMPORTED one in either
-     spelling (`A` under `import dep.{A}`, `dep.A` under `import dep`) — and
-     struct literals, fixed-array literals (including a `[v; N]` repeat),
-     `Atomic(<int>)` and `UnsafeMemory(<int>)` built out of those. The
-     initializer and every other const position share ONE evaluator, so an
+     over them, `sizeof`/`alignof` (see
+     [Layout in a constant](#layout-in-a-constant)), the integer limits, a
+     raw-backed enum case, an earlier module `static`, and an IMPORTED one in
+     either spelling (`A` under `import dep.{A}`, `dep.A` under `import dep`)
+     — and struct literals, fixed-array literals (including a `[v; N]`
+     repeat), `Atomic(<int>)` and `UnsafeMemory(<int>)` built out of those.
+     The initializer and every other const position share ONE evaluator, so an
      expression that folds in an array length folds here too — which is what
      lets a derived size be declared APART from the numbers it derives from:
      `static SLOTS: Int = dep.EVENTS + dep.TIMERS`.
+
+     **Aggregation over a named constant.** The "earlier module `static`" leaf
+     is not restricted to integers. A static of any type may name an earlier
+     one, and the alias carries the same bytes — which is what lets a table be
+     seeded from a named value instead of a repeated literal:
+
+     ```saw-fragment
+     struct Slot { generation: Int, owner: Int }
+     struct Region { head: Slot, count: Int }
+
+     static MAX_SLOTS: Int = 64
+     static FREE_SLOT: Slot = Slot(generation: 0, owner: -1)
+
+     static SPARE: Slot = FREE_SLOT                          // the alias
+     unsafe static var SLOTS: [Slot; MAX_SLOTS] = [FREE_SLOT; MAX_SLOTS]
+     static ROOT: Region = Region(head: FREE_SLOT, count: 0)  // a field
+     ```
+
+     The named static must be one the compiler already accepted at tier 1 or
+     tier 2. An `unsafe static var` is not: it is mutable, so its value is a
+     fact about the running program rather than about the source, and naming
+     one in a constant is the same refusal that keeps it out of an array
+     length.
   3. **Runtime-computed state is never a static initializer, in any form.**
      A user `init` BODY does not run at compile time — even one that visibly
      would fold, because folding bodies is const-fn and Saw does not have it
@@ -9518,7 +9542,9 @@ Scope, deliberately narrow in this version:
   `static_assert` operand, `sizeof` arithmetic, a repeat-literal count, and any
   expression position wanting an `Int`.
 - **Const arithmetic** in instantiation position: literals, const parameters,
-  and `+ - * / %` over them. `FixedBuf<2 * 128>` and `FixedBuf<256>` are the
+  and `+ - * / %` over them, plus `sizeof<T>()` / `alignof<T>()`
+  (`Ring<sizeof<UInt64>()>`, which is `Ring<8>`; both are built-in names, so
+  neither can begin a type). `FixedBuf<2 * 128>` and `FixedBuf<256>` are the
   same instantiation — the value is folded before anything mangles it, the same
   identity rule default type arguments follow. The bit operators are not part
   of the grammar in this position: an argument list is closed by `>`, which is
@@ -9670,11 +9696,14 @@ exactly as the `UInt32` spelling of it does. It accepts:
 - unary `-`, `not`, and `~`;
 - `+ - * / %`, the comparisons, `&&` / `||`;
 - the bitwise `&`, `|`, `^` and the shifts `<<`, `>>`;
-- `sizeof<T>()` / `alignof<T>()`;
+- `sizeof<T>()` / `alignof<T>()`, at every position for a primitive or pointer
+  `T`, and at a `static_assert` for any `T` at all (see *Layout in a constant*
+  below);
 - the `Int.max` / `Int.min` limits, on every integer type;
 - a const generic parameter in scope;
-- a module `static` of type `Int`/`UInt` whose own initializer folds, bare or
-  module-qualified;
+- a module `static` whose own initializer folds, bare or module-qualified — of
+  type `Int`/`UInt` where an integer is required, and of **any type** as the
+  leaf of a `static` initializer (see *Aggregation over a named constant*);
 - a case of a raw-backed enum, and an `as` between integer types.
 
 Anything else — a runtime function call, a `let` local, a case of an enum with
@@ -9695,9 +9724,48 @@ why `1 << 63` is refused at a `UInt64` and `~0` at a `UInt` — write the value
 (`UInt.max`) or mask it back. Division and modulo truncate toward zero, matching
 the runtime semantics above.
 
-Array lengths and const arguments are resolved during type checking, which is
-earlier than struct layout is known, so `sizeof<T>()` is rejected in those
-positions while remaining available in a `static_assert`.
+#### Layout in a constant
+
+`sizeof<T>()` and `alignof<T>()` are constants wherever a constant is required —
+a `static` initializer, an array length, a repeat count, a const generic
+argument, `@align(N)`, and a `static_assert` — for every `T` whose layout the
+target alone fixes: the integers, `Bool`, `Float`, `String`, and any
+`UnsafePointer<T>` / `UnsafeConstPointer<T>`. A distinct alias measures as its
+underlying type, so `sizeof<Byte>()` is 1. Write the size once and derive the
+rest:
+
+```saw-fragment
+static PIPE_BODY_BYTES: Int = 4096
+static PIPE_STAGE_WORDS: Int = PIPE_BODY_BYTES / sizeof<UInt>()
+
+static STAGE: [UInt8; sizeof<UInt64>()] = [0; sizeof<UInt64>()]
+
+@align(sizeof<UInt64>())
+static DMA_WINDOW: [UInt8; 256] = [0; 256]
+```
+
+A **struct, enum, tuple or array** `T` is the exception, and only outside a
+`static_assert`. Its ABI layout is built during code generation, later than an
+array length is resolved, so the four earlier positions refuse it by name:
+
+```saw-error
+// error-contains: whose layout only code generation knows
+struct Region { a: Int, b: Int }
+
+func main() {
+    var buf: [UInt8; sizeof<Region>()] = [0; 16]
+    // error: array length is not a compile-time constant: `sizeof<Region>()`,
+    //        whose layout only code generation knows, is not allowed here
+    print(buf[0])
+}
+```
+
+`static_assert` runs after layout exists and takes any `T`, which is where a
+claim about a struct's layout belongs anyway:
+
+```saw-fragment
+static_assert(sizeof<Region>() == 16, "Region must stay two words")
+```
 
 ```saw-fragment
 // Kernel register-block drift check

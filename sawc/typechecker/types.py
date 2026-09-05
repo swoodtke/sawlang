@@ -2090,7 +2090,8 @@ class TypeUtilsMixin:
 
         stamp(expr)
         try:
-            value = const_eval(expr, width=self.platform_int_width)
+            value = const_eval(expr, metric=self._const_type_metric,
+                               width=self.platform_int_width)
         except ConstEvalError:
             return None
         if isinstance(value, bool) or not isinstance(value, int):
@@ -2462,6 +2463,7 @@ class TypeUtilsMixin:
             self._stamp_const_names(expr)
             try:
                 const_eval(expr, env=self._const_param_env(),
+                           metric=self._const_type_metric,
                            width=self.platform_int_width)
             except ConstEvalError as e:
                 self._error(
@@ -2537,13 +2539,15 @@ class TypeUtilsMixin:
         self._stamp_const_names(expr)
         try:
             value = const_eval(expr, env=self._const_param_env(),
+                               metric=self._const_type_metric,
                                width=self.platform_int_width)
         except ConstEvalError as e:
             refuse(
                 f"`@align` on {what} is not a compile-time constant: "
                 f"{e.what} is not allowed here",
                 hint="an alignment is fixed at compile time — use an integer "
-                     "literal, a module `static` of type `Int` or `UInt`, or "
+                     "literal, a module `static` of type `Int` or `UInt`, "
+                     "`sizeof`/`alignof` of a primitive or pointer type, or "
                      "const arithmetic over them",
                 at_line=e.line, at_column=e.column)
             return
@@ -2571,6 +2575,49 @@ class TypeUtilsMixin:
             return
         attr.align_value = value
 
+    def _const_type_metric(self, saw_type, which: str):
+        """The layout oracle `const_eval` calls for `sizeof`/`alignof` (DF-307a).
+
+        THE front end's half of the one layout question, named to match
+        codegen's `_const_type_metric` because the two are one contract with two
+        domains: this one answers for every type a SawType KIND alone determines
+        and returns None for the rest, codegen's answers for everything. Its
+        callers are every const_eval site the typechecker owns, and they are:
+
+          - `_folds_as_constant` (registration) — a `static` INITIALIZER;
+          - `_fold_static_decl` — that static's own value, so a later const
+            position reading its NAME sees the same number;
+          - `_check_declared_array_lengths` and `_try_const_value` — a DECLARED
+            array length `[T; N]`, in every position a type is written;
+          - `_const_count` (expressions) — a REPEAT COUNT `[v; N]` and the
+            array-literal length beside it;
+          - `_check_align_attribute` — `@align(N)`;
+          - `_fold_const_expression_into`, `_adopting_int_source`,
+            `_adopting_const_operand` and `_check_const_cast_range`
+            (expressions) — the ADOPTION positions, which DF-240a made full
+            const positions.
+
+        Two sites deliberately DO NOT pass it, and each is a rule rather than an
+        oversight. A raw-BACKED enum's case value (`_check_enum_raw_values`) is
+        fixed by its own declaration before anything else is known — its hint
+        says so, and it names no static and no other enum's case either. A const
+        PARAMETER's default is a closed constant for the same reason.
+
+        Aliases resolve first, so `type Word = UInt64` measures as `UInt64`;
+        a raw-backed enum is NOT reduced to its backing here, because an enum's
+        layout is codegen's (design 145 pins the tag WIDTH, not the type's ABI
+        size, and the two need not agree).
+        """
+        from target_info import scalar_layout
+        if saw_type is None:
+            return None
+        resolved = self._get_underlying_type(saw_type)
+        answer = scalar_layout(getattr(resolved, 'kind', None),
+                               getattr(self, 'target_triple', None))
+        if answer is None:
+            return None
+        return answer[0] if which == 'size' else answer[1]
+
     def _try_const_value(self, expr):
         """Fold a constant expression, or return None if it cannot be folded yet.
 
@@ -2583,6 +2630,7 @@ class TypeUtilsMixin:
         self._stamp_const_names(expr)
         try:
             value = const_eval(expr, env=self._const_param_env(),
+                               metric=self._const_type_metric,
                                width=self.platform_int_width)
         except ConstEvalError:
             return None
@@ -3701,6 +3749,7 @@ class TypeUtilsMixin:
         from const_eval import const_eval, ConstEvalError
         try:
             value = const_eval(expr, env=self._const_param_env(),
+                               metric=self._const_type_metric,
                                width=self.platform_int_width)
         except (ConstEvalError, Exception):
             return False
@@ -3743,6 +3792,7 @@ class TypeUtilsMixin:
         self._stamp_const_names(expr)
         try:
             value = const_eval(expr, env=self._const_param_env(),
+                               metric=self._const_type_metric,
                                width=self.platform_int_width)
         except (ConstEvalError, Exception):
             return False

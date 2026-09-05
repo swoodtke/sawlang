@@ -637,7 +637,19 @@ class TypeParsingMixin:
         identifier stays a type as far as the parser is concerned — `Foo<N>` is
         ambiguous by design, and the typechecker decides it against the
         parameter it lands on, which is the only place that knows.
+
+        DF-307a adds `sizeof`/`alignof` on the same test, not as an exception to
+        it: both are BUILT-IN names, a declaration of either is already a
+        duplicate-definition error, so neither can ever begin a type and there is
+        nothing to be ambiguous about. Without them the const-expr parser —
+        which has understood `sizeof<T>()` since design 148 — was simply never
+        ENTERED at a generic argument, so `Ring<sizeof<UInt64>()>` was
+        `Parse error: Expected '>' after type arguments` while
+        `Ring<0 + sizeof<UInt64>()>` parsed and folded. One leaf, one position,
+        two answers decided by a `0 +` the author had no reason to write.
         """
+        if token.type == TokenType.IDENT:
+            return token.value in ("sizeof", "alignof")
         return token.type in (TokenType.INT, TokenType.MINUS)
 
     def _array_type(self, element_type: SawType, size_expr) -> SawType:
