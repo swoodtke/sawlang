@@ -160,10 +160,13 @@ class DeclarationsMixin:
         fields = []
         while not self.match(TokenType.RBRACE, TokenType.EOF):
             field_doc = self.doc_text(self._take_doc())
-            # Member visibility (design 80): an optional `public` /
-            # `public(package)` / `public(parent)` modifier precedes the field
-            # name; omitted means private-by-default outside the defining module.
-            field_visibility = self._parse_visibility()
+            # Member visibility (design 80, amended by design 258): an optional
+            # `public` / `public(package)` / `public(parent)` / `private`
+            # modifier precedes the field name. OMITTED no longer means private
+            # — a bare field inherits its declaring type's tier — so what the
+            # parser records is the pair (tier, was-one-written) and
+            # `effective_field_visibility` decides what it means.
+            field_visibility, field_vis_written = self._parse_field_visibility()
             field_name_token = self.expect(TokenType.IDENT, "Expected field name")
             self.expect(TokenType.COLON, "Expected ':' after field name")
             type_anchor = self.current()
@@ -175,6 +178,7 @@ class DeclarationsMixin:
                                         field_type, type_anchor)
             fields.append(StructField(name=field_name_token.value, type=field_type,
                                       visibility=field_visibility,
+                                      visibility_written=field_vis_written,
                                       line=field_name_token.line,
                                       column=field_name_token.column,
                                       doc=field_doc))
@@ -371,6 +375,10 @@ class DeclarationsMixin:
         associated_types = []
         while not self.match(TokenType.RBRACE, TokenType.EOF):
             member_doc = self._take_doc()
+            # Design 258 ruling 3: a trait REQUIREMENT carries no visibility of
+            # its own (the trait's tier is the bar), so `private` on one is the
+            # same misuse the other two positions report.
+            self._reject_private_modifier()
             if self.at_type_alias_start():
                 # Parse associated type: type Item
                 assoc_type = self.parse_associated_type()
@@ -566,6 +574,11 @@ class DeclarationsMixin:
         type_assignments = []
         while not self.match(TokenType.RBRACE, TokenType.EOF):
             member_doc = self._take_doc()
+            # Design 258 ruling 3 (see `_reject_private_modifier`): checked at
+            # the member HEAD, ahead of the kind dispatch — a misused modifier is
+            # not a member kind, so the dispatch below would only ever report it
+            # as "expected `func`".
+            self._reject_private_modifier()
             if self.at_type_alias_start():
                 # Parse type assignment: type Item = Int
                 type_assign = self.parse_type_assignment()

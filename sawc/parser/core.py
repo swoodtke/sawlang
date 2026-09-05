@@ -3,7 +3,7 @@ Saw Language Parser
 Recursive descent parser that builds an AST from tokens.
 """
 
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from lexer import Token, TokenType
 from ast_nodes import (
     Program, Function, Parameter, Block, Statement, Expression,
@@ -390,8 +390,77 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
             self._generic_depth -= 1
         return params
 
+    # The narrowing spelling (design 258 ruling 2). CONTEXTUAL — an ordinary
+    # identifier everywhere else, so `let private = 3`, a parameter labelled
+    # `private:` and a field NAMED `private` all keep compiling. It is a word the
+    # parser recognizes by POSITION, never a token type: adding one would change
+    # what the selfhost lexer must emit and break lexdiff parity over a word that
+    # is not a keyword.
+    _PRIVATE_MODIFIER = "private"
+
+    def _at_private_modifier(self) -> bool:
+        """Is the parser looking at `private` USED AS A MODIFIER?
+
+        Two spellings share the token. `private buffer: T` is the modifier — an
+        identifier follows it. `private: Int` is a FIELD NAMED `private`, and a
+        colon follows. One token of lookahead separates them, and it has to,
+        because both are legal in exactly the same position.
+        """
+        return (self.match(TokenType.IDENT)
+                and self.current().value == self._PRIVATE_MODIFIER
+                and self.peek(1).type == TokenType.IDENT)
+
+    def _parse_field_visibility(self) -> Tuple[Visibility, bool]:
+        """A struct FIELD's visibility modifier — the one position `private` is
+        legal in (design 258).
+
+        Answers `(tier, written)`. The second half is the whole point: before
+        258 a bare field and an explicitly-private one were one state, and
+        inheritance needs them to be two. `effective_field_visibility` in
+        `ast_nodes` is what turns the pair into a tier.
+        """
+        if self._at_private_modifier():
+            self.advance()
+            return (Visibility.PRIVATE, True)
+        if not self.match(TokenType.PUBLIC):
+            return (Visibility.PRIVATE, False)
+        return (self._parse_visibility(), True)
+
+    def _reject_private_modifier(self) -> None:
+        """`private` written on a declaration that is not a field (design 258
+        ruling 2) — a clean error naming the default it restates.
+
+        Called from every position that parses an optional visibility modifier
+        and is NOT a struct field: the top-level declaration loop and the
+        extension-member loop. Those are the two, because they are the two
+        places `_parse_visibility` is reached from with a declaration behind it;
+        a parameter, a local and an expression never look for a modifier at all,
+        which is what keeps the word ordinary there.
+
+        No lookahead is owed HERE, unlike `_at_private_modifier`: a declaration
+        never begins with a bare identifier (`type` and `module` are matched by
+        name ahead of this, and a member head is `func` / `init` / `static` /
+        `type`), so an IDENT `private` in either position is the misuse and
+        nothing else. Reporting it as the ruling rather than as "expected a
+        declaration, got IDENT" is the whole value of the arm.
+        """
+        if not (self.match(TokenType.IDENT)
+                and self.current().value == self._PRIVATE_MODIFIER):
+            return
+        self.error_at(
+            self.current(),
+            "`private` is not a declaration modifier — a declaration with no "
+            "modifier is already module-private. Delete it; `private` narrows a "
+            "struct FIELD back down when its type is `public`, and that is the "
+            "only place it is written")
+
     def _parse_visibility(self) -> Visibility:
-        """Parse optional visibility modifier: public, public(package), public(parent)."""
+        """Parse optional visibility modifier: public, public(package), public(parent).
+
+        Design 258: this is the NON-field door. A field goes through
+        `_parse_field_visibility`, which reports whether a modifier was written
+        at all and accepts the narrowing `private` beside the `public` family.
+        """
         if not self.match(TokenType.PUBLIC):
             return Visibility.PRIVATE
 
@@ -743,6 +812,11 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
             attrs = self.parse_attributes()
             self.skip_newlines()
             return self._parse_attributed_decl(p, attrs)
+
+        # Design 258 ruling 2: `private` is a struct-FIELD modifier and nothing
+        # else. Checked ahead of the kind dispatch, which would otherwise report
+        # the ruling as "expected a declaration, got IDENT".
+        self._reject_private_modifier()
 
         if self.match_ident("import"):
             p.imports.append(self.parse_import())

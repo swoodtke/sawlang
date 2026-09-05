@@ -2196,14 +2196,60 @@ class StructField:
     """A field in a struct declaration."""
     name: str
     type: SawType
-    # Member visibility (design 80): private-by-default outside the defining
-    # module. `public` / `public(package)` / `public(parent)` per field.
+    # Member visibility (design 80, amended by design 258): the tier this field
+    # was DECLARED with. Meaningful only when `visibility_written` is True — a
+    # bare field inherits its declaring type's tier, and the one place that is
+    # decided is `effective_field_visibility` below. Never read this attribute
+    # directly to answer "how visible is this field".
     visibility: 'Visibility' = Visibility.PRIVATE
+    # Design 258: did the author WRITE a modifier on this field? `public` /
+    # `public(package)` / `public(parent)` / `private` all set it; a bare field
+    # leaves it False, which is what makes inheritance distinguishable from an
+    # explicit narrowing. Before 258 the two were one state (PRIVATE), which is
+    # exactly why the default could not be changed without this bit.
+    visibility_written: bool = False
     line: int = 0
     column: int = 0
     # Doc comment (design 121): the `///` block immediately preceding the field,
     # markers stripped and lines joined with "\n". None when undocumented.
     doc: Optional[str] = None
+
+
+def effective_field_visibility(field_decl, struct_visibility) -> 'Visibility':
+    """THE FIELD-VISIBILITY FUNNEL (design 258, obligation 1).
+
+    A struct field's EFFECTIVE tier: the marker the author wrote, else the tier
+    of the type DECLARING it. `private` is the narrowing spelling and lands here
+    as a written PRIVATE, so a marked field means exactly what a bare one meant
+    before 258 and an unmarked one now rides its type.
+
+    ENTRY POINTS — every place a field's tier is read, each asking at a
+    different moment, and the reason this is a function rather than four
+    agreeing constants:
+      * `TypeChecker._register_struct` — builds `StructSymbol.field_visibility`,
+        the map the design-80 gate (`_check_field_visible`) reads, which is what
+        covers the field READ, the field WRITE and the cross-module memberwise
+        LITERAL in one place.
+      * `SignatureVisibilityMixin._signature_visibility_positions` — the
+        design-193 "a public API needs public types" walk, whose struct-field
+        row judges the field's TYPE against the field's reach. Inheriting the
+        tier is what turns a public struct's bare field of a private type from
+        legal into a refusal (ruling 5).
+      * `DocsEmitter._struct_item` — the `--emit-docs` surface, which both
+        FILTERS on the tier and REPORTS it. A bare field of a public struct is
+        part of that surface now and must be listed as `public`.
+      * `Namespace.register_struct`'s callers reach it through the first entry
+        point; nothing rebuilds the map independently.
+
+    Widening stays capped elsewhere, not here: a field marked wider than its
+    struct is legal-but-inert by design 80's own rule (gotcha 3), which
+    `_decl_reach`'s `cap` and the gate's own relation already apply. This
+    answers only "which tier was chosen", never "how far does it reach".
+    """
+    if getattr(field_decl, 'visibility_written', False):
+        return getattr(field_decl, 'visibility', Visibility.PRIVATE) \
+            or Visibility.PRIVATE
+    return struct_visibility or Visibility.PRIVATE
 
 
 @dataclass

@@ -1,0 +1,13 @@
+// Design 258 ruling 2: `private` is a struct-FIELD modifier and nothing else.
+// On any other declaration it is a clean error naming the default it restates —
+// a declaration with no modifier is already module-private, so the word would
+// only ever be noise there.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `private` is not a declaration modifier
+// EXPECT-ERROR-CONTAINS: already module-private
+
+private func helper() -> Int { 3 }
+
+func main() {
+    print(helper())
+}
