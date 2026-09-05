@@ -33,7 +33,7 @@ is scheduled and in what order is the whole of what they say.
 
 
 
-- Design 266 — the incremental front half (designs/266-incremental-front-half.md; SCHEDULED Sep 4 by the user — "schedule the DF-292c + DF-295a one-design"; lead-authored same night). ONE fact changes: the post-transform re-entry is deleted — synthesized declarations are admitted through one funnel into the settled program, checked by the same pass, effect edges recorded against INSTANCES (the design-70 both-ways refusal with T5 neutralized is the acceptance test). Closes DF-292c + DF-295a; buys C1-C4/T5/`_process_effect_monos` deletions and ~0.6 s per driven compile (-74% on the re-run, measured before the revert). Typechecker/driver — serial; dispatches after 207 integrates. irdet --all + reemit are PER-COMMIT gates (materialization order is the standing risk)
+- Design 266 — the incremental front half — **U1 LANDED Sep 5: the post-transform re-entry is DELETED, replaced by `admit_declarations`. DF-292c CLOSED (entry below). Driven compile 4.35 s -> 2.03 s (-53%), suite CPU -34%; the admission tail is exactly the 4 instances U0's census predicted. DF-303a filed+fixed (the wrap defect the re-entry was masking), DF-303b filed (pre-existing, unrelated).** U2/U3 status in the entry below (designs/266-incremental-front-half.md; SCHEDULED Sep 4 by the user — "schedule the DF-292c + DF-295a one-design"; lead-authored same night). ONE fact changes: the post-transform re-entry is deleted — synthesized declarations are admitted through one funnel into the settled program, checked by the same pass, effect edges recorded against INSTANCES (the design-70 both-ways refusal with T5 neutralized is the acceptance test). Closes DF-292c + DF-295a; buys C1-C4/T5/`_process_effect_monos` deletions and ~0.6 s per driven compile (-74% on the re-run, measured before the revert). Typechecker/driver — serial; dispatches after 207 integrates. irdet --all + reemit are PER-COMMIT gates (materialization order is the standing risk)
 - DF-299b fix — the value `if`/`match` ARM transfer checkpoint (SCHEDULED Sep 4 by the user, after 266; entry below). The checkpoint is never CALLED at a value arm forwarding a NoCopy binding — bitwise duplicate, one deinit lost. Owes its consumer sweep over every value-branch position (value `if`, value `match`, `??`/`&&`/`||` RHS arms, the ANF-hoisted expression positions design 120 added) before the fix commit, per obligation 4; DF-288a/DF-299a are the mechanism templates. Typechecker — serial
 - Design 258 — field visibility inherits the type's, amending design 80 (designs/258-field-visibility-inheritance.md; RULED Aug 31 by the user after reading the sos code, three cells pinned: ALL TIERS inherit, FIELDS ONLY — extension members keep per-member marking — and a contextual `private` keyword for narrowing; SCHEDULED after 218 unit 1.5). The consumer sweep IS the migration: every bare field of a visible struct in std/libs/blade gets `private`, surface-preserving; conformance B rows update first (obligation 3)
 - Design 245 v1 — `Scalar` + `scalars()`, `chars()` and `append_scalar` REMOVED (designs/245-unicode-scalar-type.md §6; ruled Aug 27 — no literals in v1, prelude placement). The Aug-27 dispatch NEVER LANDED and is presumed STALE (no Scalar in the tree, Aug-28 check); RESCHEDULED AFTER design 238 (user, Aug 28: sos does not depend on string/character work). Re-dispatch then. Literals + patterns stay open as later units
@@ -243,7 +243,57 @@ a second wrap rule beside the bracket rule is two rules where one exists.
 ## DF-292c — the phase-6 re-run is not a cache hit, and CANNOT BE MADE ONE
 ## without answering "what does an instance body belong to, the pass or the
 ## program?". Filed Sep 2 by 218c Amendment C; ATTEMPTED, MEASURED and STOPPED
-## Sep 3 by the perf batch (item 3). NOT FIXED — the evidence is below
+## Sep 3 by the perf batch (item 3). **CLOSED Sep 5 by design 266 U1 — the
+## question is answered THE PROGRAM'S, and the re-run is deleted rather than
+## cached.** Landing note below; the evidence that shaped it is kept verbatim
+
+**CLOSED Sep 5, design 266 U1 (`admit_declarations` in sawc.py).** There is no
+second pass to cache across. The coroutine transform's synthesized declarations
+are admitted into the settled program through one funnel — the std codegen set
+widened for `std.compiler.frame`, the entry module re-checked by the SAME
+`TypeChecker`, the transform's place uses lowered, the merged AST RECONCILED in
+place (never rebuilt, which is what made a spliced instance per-pass), the
+registry EXTENDED (`extend_monomorphization`), and `finalize_effects` re-entered.
+The three legs dissolve rather than being solved: nothing is re-checked, nothing
+is carried unchecked, nothing needs un-checking.
+
+MEASURED on `coro_generic_driven_both.saw`, the entry's own baseline:
+
+    admission tail        4 instances — EXACTLY the 4 the census predicted
+                          (`Slot<Fast>`, `Slot<Slow>`, and their `value<Int>`)
+    copier calls          654 -> 335   (319 settled + the 16 genuinely new)
+    driven compile wall   4.35 s -> 2.03 s   (-53.3%)
+    the funnel itself     0.127 s, of which the registry re-entry is 0.046 s
+
+The prize is ~4x the 0.6 s the brief named, because the re-entry cost more than
+its `substituting_copy`: the front half ran FOUR times on a driven compile
+(place-lowering re-entry, then the transform's, then ITS place-lowering
+re-entry), and passes 3+4 were 2.161 s of a 3.80 s in-process compile — 1.343 s
+of it re-typechecking std TWICE, which nothing had costed. Whole suite: wall
+411 s -> 261 s, CPU 5,671 s -> 3,751 s (-34%).
+
+ONE THING THE RE-ENTRY WAS HIDING, found by deleting it: an instance body
+materialized ONCE from a genuinely pristine template is not the body the old
+pipeline lowered. The corpus sweep says the delta is a single row — 384 driven
+examples, 18,756 shared instance bodies, THREE shape-differing bodies, all three
+`Channel$1$$Opt$Int::try_receive` — and it is a pre-existing wrap defect the
+second pass papered over by re-snapshotting an already-checked template
+(DF-292a's mechanism, read from the other side). Filed and fixed as DF-303a.
+
+Two mechanism notes worth keeping for whoever touches the registry next:
+  * **A MATERIALIZED BODY IS NOT A ROOT.** The admission re-enters the walk over
+    a program phase 2's spliced instances are already IN, and walking a
+    substituted clone re-derives demands from types that were substituted once
+    already — minting keys no template ever named (`Vector$3$Int$GlobalAllocator
+    $Int` for a two-parameter `Vector`). `_SpliceHook` records what it spliced
+    and `_roots` skips exactly that; the set is empty during the first run, so
+    the single-pass walk is unchanged.
+  * **THE DEMAND CACHE MUST BE DROPPED at the re-entry.** It is keyed by
+    declaration identity and the transform rewrites bodies IN PLACE, so a cached
+    descriptor list answers for a body that no longer exists.
+[218c Amendment C C3/C4, §7 phase 6; design 266 U1]
+
+### The evidence that shaped the design (kept verbatim)
 
 Amendment C4 predicted the blocker in one sentence and named the wrong artifact.
 The prediction was that a cache hit would serve a PRE-REWRITE body, because the

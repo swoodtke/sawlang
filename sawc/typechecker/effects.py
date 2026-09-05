@@ -970,6 +970,13 @@ class EffectsMixin:
           * `sawc.compile_saw` under `--runtime-build` / `--emit-docs`, where
             the entry module is checked with `is_entry=False` and nothing above
             has settled the graph.
+          * `sawc.admit_declarations`, design 266's step 6 — the coroutine
+            transform's synthesized declarations are checked and monomorphized
+            INTO the settled program rather than triggering a second front half,
+            so the graph is extended once more and settled again. This entry is
+            what the re-entrancy below was actually built for: 218 stage 4a
+            landed it against a driver that still re-ran everything, and 266 is
+            the pass that stopped.
 
         Re-entry is sound because the fixpoint is MONOTONE — a node flips to
         `suspends` and never back, so a later run only ADDS. The three

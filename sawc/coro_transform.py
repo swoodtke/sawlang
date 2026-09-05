@@ -9658,12 +9658,33 @@ def _promote_nested_generic_methods(program, funcs_by_name, seed_names, all_exts
     over-approximating in the safe direction, and the same answer both rejectors
     have always used.
     """
-    from codegen.mangle import mangle_named
+    from codegen.mangle import mangle_named, mangle_method
     out = {}
     pristine_gs = getattr(typechecker, '_pristine_generic_struct_methods', None) or {}
     pristine_m = getattr(typechecker, '_pristine_generic_methods', None) or {}
     if not pristine_gs and not pristine_m:
         return out
+    # Phase 2's METHOD instances, by mangled symbol — the store the
+    # method-generic arm adopts from, exactly as C1 adopts free functions out of
+    # the merged AST's `is_mono_instance` functions (census row C2, design 266).
+    #
+    # WHY ADOPTION AND NOT A BUILD. `_build_method_mono` splices its clone onto
+    # the AUTHOR's extension under the mono NAME (`wrap$1$String`), while phase 2
+    # splices the same instance onto its own concrete extension under the mono
+    # SYMBOL (`wrap`, `mangled_symbol=Holder_wrap$1$String`). Both mangle to one
+    # symbol, so two producers of one instance are two LLVM declarations of one
+    # name. Nothing caught it while the post-transform re-entry rebuilt the
+    # merged AST from scratch each pass and dropped phase 2's splice on the way;
+    # design 266 keeps that splice, so the second producer has to stop. The frame
+    # builder copies before rewriting anything on a non-entry extension (the
+    # design-146/223 rule at `nested_method_fbs`), so the adopted body survives
+    # being framed.
+    spliced_methods = {}
+    for _ext in all_exts:
+        for _m in _ext.methods:
+            _sym = getattr(_m, 'mangled_symbol', None)
+            if _sym and getattr(_m, 'is_mono_instance', False):
+                spliced_methods.setdefault(_sym, (_m, _ext))
     # Resolve + register under the entry module's symbol scope: the namespace was
     # reset after `check_module` returned, exactly as for the free-function twin.
     entry_ns = getattr(typechecker, "_entry_module_ns", None)
@@ -9720,6 +9741,15 @@ def _promote_nested_generic_methods(program, funcs_by_name, seed_names, all_exts
             return None
         _pristine, ext = entry
         args = resolved_args_of(mc.type_args)
+        # ADOPT phase 2's instance if it has one (design 266); build only when
+        # the demand walk did not reach this call, which is the same fallback
+        # arm C1 keeps for the same reason.
+        symbol = mangle_method(owner, mc.method_name, method_type_args=args)
+        adopted = spliced_methods.get(symbol)
+        if adopted is not None:
+            clone, _ext = adopted
+            mc.coro_frame_key = _method_frame_key(owner, clone.name, symbol)
+            return clone
         mono_name = mangle_named(mc.method_name, args)
         typechecker._build_method_mono(owner, mc.method_name, args, mono_name)
         clone = next((m for m in ext.methods

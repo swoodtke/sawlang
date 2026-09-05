@@ -1120,6 +1120,188 @@ def _synthesize_main_exit_funnel(entry_ast):
         is_synthesized=True, line=line, column=col, source_file=src))
 
 
+class _Admission:
+    """Everything `admit_declarations` needs from the settled front half.
+
+    A plain carrier, not a phase: `_prepare_codegen` fills it as it settles the
+    program and hands it over once. It exists so the funnel has ONE parameter
+    instead of sixteen, and so the state the admission mutates is enumerable by
+    reading this list.
+    """
+
+    __slots__ = ("entry_ast", "entry_ns", "merged_ast", "merged_ns",
+                 "builtin_ast", "reentry_builtin_ast", "builtin_ns",
+                 "checked_modules", "excluded_std_leaves",
+                 "excluded_std_symbols", "typechecker", "reporter", "mono",
+                 "verbose", "object_only", "source_path", "import_asts",
+                 # Declaration-list name -> the ids the ENTRY ast held before
+                 # the transform ran. What the transform CONSUMED is exactly
+                 # what this set holds and the post-transform entry AST does
+                 # not, and nothing else in the merged AST may be judged by it.
+                 "entry_decl_ids")
+
+    def __init__(self, **kw):
+        for name in self.__slots__:
+            setattr(self, name, kw.get(name))
+
+
+def _decl_lists(program):
+    """The declaration lists a `Program` carries, by name — the reconciliation's
+    subject. Named once so the add/remove sweep below cannot cover five of six.
+    """
+    return ("functions", "structs", "enums", "extensions", "traits",
+            "statics", "type_definitions", "static_asserts")
+
+
+def admit_declarations(adm) -> bool:
+    """Admit the coroutine transform's synthesized declarations into the
+    SETTLED front half — design 266's one funnel.
+
+    CALLERS (obligation 1 — one entry point, named here so a second cannot
+    appear unnoticed):
+      * `_prepare_codegen`, in the coroutine transform's `changed` branch. That
+        is the only post-transform admission the compiler performs.
+
+    THE FACT THIS REPLACES. Until design 266 the answer to "the transform
+    synthesized declarations the checked program never saw" was to re-enter
+    `_prepare_codegen`: re-typecheck std, re-typecheck every imported module,
+    re-typecheck the entry file, rebuild the monomorphization registry from
+    nothing, and throw the first run's conclusions away. Two findings were
+    consequences of that one fact — an instance body was a PASS's artifact, so
+    nothing survived the boundary (DF-292c), and an effect edge out of a driven
+    body was recorded before any instance existed, so it named the TEMPLATE
+    (DF-295a). There is no second pass now; the transform's output joins the
+    program that is already settled, in six steps:
+
+      1. WIDEN the std codegen set. A frame's storage is a `Slot<T>` and its
+         signals are `Poll`/`Resumable`, all in `std.compiler.frame` — which
+         design 82 Part B's reference scan cannot see referenced, because the
+         references are not in any source. The transform wrote them. The leaf
+         is forced in exactly as the re-entry forced it, and the declarations
+         that adds join the merged AST and the merged namespace.
+      2. CHECK, with the SAME `TypeChecker`. The entry module is re-checked —
+         its synthesized declarations registered, its rewritten drive and spawn
+         call sites re-resolved — by the checker that settled the program, so
+         every effect node the graph already holds is the node this check
+         extends. A FRESH checker is what DF-258a was.
+      3. LOWER the places the transform emitted (`Slot.value()` is a `borrows`
+         accessor), then check once more if it lowered any. `uncheck_after` is
+         False for the reason `transform_place_uses` records: the transformed
+         tree has no author to restore to.
+      4. RECONCILE the merged AST in place — drop the driven roots the
+         transform consumed, add what it synthesized. REBUILDING it is what
+         made a spliced instance per-pass (`_SpliceHook`'s docstring), so the
+         reconciliation is the half of this design that buys DF-292c.
+      5. EXTEND the registry (`extend_monomorphization`): re-index, re-run the
+         fixpoint, materialize only the tail. On `coro_generic_driven_both.saw`
+         that is 4 instances and 16 copier calls, against the 335 the re-entry
+         paid for the same program.
+      6. RE-ENTER `finalize_effects`, which is re-entrant and monotone (218
+         stage 4a) and is the seam this design was able to build on.
+
+    Returns True when the program is admitted, False when it reported errors
+    (the caller prints and exits — the admission never exits itself, so a
+    diagnostic reaches the reporter's ordering like any other).
+    """
+    from monomorphize import extend_monomorphization
+    from namespace import Namespace
+    from place_uses import transform_place_uses
+
+    tc = adm.typechecker
+    reporter = adm.reporter
+
+    # --- 1. widen the std codegen set -------------------------------------
+    # The post-transform question differs from the pre-transform one by exactly
+    # one forced leaf, so it is asked through the SAME funnel with the same
+    # inputs plus that force, and the answer is DIFFERENCED against the one the
+    # settled program was built from.
+    leaves, symbols = compute_std_codegen_exclusions(
+        adm.builtin_ns, adm.import_asts, force_leaves=(FRAME_STD_MODULE,))
+    if leaves != adm.excluded_std_leaves:
+        widened = (_filter_std_ast(adm.reentry_builtin_ast, leaves) if leaves
+                   else adm.reentry_builtin_ast)
+        for field in _decl_lists(adm.merged_ast):
+            have = {id(d) for d in getattr(adm.merged_ast, field, None) or []}
+            getattr(adm.merged_ast, field).extend(
+                d for d in getattr(widened, field, None) or []
+                if id(d) not in have)
+        adm.builtin_ast = widened
+    adm.excluded_std_leaves, adm.excluded_std_symbols = leaves, symbols
+
+    # --- 2/3. check the admitted declarations, lowering their places ------
+    # The four design-218a §6 exemptions describe SOURCE-level rules, and what
+    # is being checked from here on is synthesized, so they are set for the
+    # admission exactly as the re-entry's fresh checker set them.
+    tc.post_transform = True
+    tc.exempt_hidden_alloc = True
+    tc.exempt_ext_scope = True
+    tc.exempt_shadowed_qualifier = True
+    tc.exempt_prelude_gate = True
+
+    for attempt in range(2):
+        entry_ns = run_typecheck(tc, lambda: tc.check_module(
+            adm.entry_ast, (), adm.checked_modules, adm.builtin_ns,
+            parent_namespace=None, is_entry=True,
+            require_main=not adm.object_only))
+        if entry_ns is None or reporter.has_errors():
+            return False
+        adm.entry_ns = entry_ns
+        adm.merged_ns = _merge_namespaces(adm, entry_ns)
+        if attempt or not transform_place_uses(
+                [adm.entry_ast], adm.merged_ns, reporter, uncheck_after=False):
+            break
+        if reporter.has_errors():
+            return False
+        if adm.verbose:
+            print("  Lowered the admitted declarations' place uses")
+
+    # --- 4. reconcile the merged AST --------------------------------------
+    # The entry AST's declarations are the SAME objects the merge concatenated
+    # (`merge_programs` shares, it does not copy), so a body the transform
+    # rewrote is already visible here and only membership needs settling. The
+    # spliced instances, which live in this AST and in no other, are untouched.
+    for field in _decl_lists(adm.entry_ast):
+        merged = getattr(adm.merged_ast, field, None)
+        entry = getattr(adm.entry_ast, field, None)
+        if merged is None or entry is None:
+            continue
+        live = {id(d) for d in entry}
+        was_entry = adm.entry_decl_ids.get(field, set())
+        kept = [d for d in merged
+                if id(d) not in was_entry or id(d) in live]
+        have = {id(d) for d in kept}
+        kept.extend(d for d in entry if id(d) not in have)
+        setattr(adm.merged_ast, field, kept)
+
+    # --- 5. extend the registry -------------------------------------------
+    extend_monomorphization(adm.mono, adm.merged_ast, adm.merged_ns, tc,
+                            verbose=adm.verbose)
+    if reporter.has_errors():
+        return False
+
+    # --- 6. settle the effect graph over the enlarged program --------------
+    tc.finalize_effects()
+    return not reporter.has_errors()
+
+
+def _merge_namespaces(adm, entry_ns):
+    """The merged namespace, rebuilt from the module namespaces that are still
+    good. Only the ENTRY module was re-checked, so this is a re-merge and not a
+    re-derivation; the collision report the first merge already made is not
+    made twice (two identical diagnostics for one program).
+    """
+    from namespace import Namespace
+    merged = Namespace()
+    merged.merge_into(adm.builtin_ns, source_label="<builtins>",
+                      exclude=adm.excluded_std_symbols)
+    for mod_path, (_mod_ast, mod_ns) in adm.checked_modules.items():
+        merged.merge_into(mod_ns,
+                          source_label='.'.join(mod_path) if mod_path
+                          else "<entry>")
+    merged.merge_into(entry_ns, source_label="<entry>")
+    return merged
+
+
 def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bool = False, object_only: bool = False, target_triple: str = None, freestanding: bool = False, module_paths: dict = None, runtime_build: bool = False, docs_out: dict = None, post_transform: bool = False, target_features: str = None, parsed=None, places_lowered: bool = False, no_hidden_alloc: bool = False, runtime_provider: bool = False, builtins=None, opt_level: str = DEFAULT_OPTIMIZATION_LEVEL):
     """Resolve modules, load builtins, and type-check the whole program.
 
@@ -1726,6 +1908,15 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
               or getattr(typechecker, "_main_suspends", False))
     if driven:
         from coro_transform import transform_program, CoroTransformError
+        # design 266 step 4's input, taken BEFORE the transform runs: what the
+        # ENTRY ast held. Differencing it against the entry AST afterwards is
+        # what tells a declaration the transform CONSUMED from one that was
+        # never the entry module's — the merged AST holds std's, every imported
+        # module's and phase 2's spliced instances too, and none of those may
+        # be judged by a driven root's disappearance.
+        entry_decl_ids = {field: {id(d) for d in getattr(entry_ast, field, None)
+                                  or []}
+                          for field in _decl_lists(entry_ast)}
         try:
             changed = transform_program(entry_ast, typechecker,
                                         imported_ast=merged_ast)
@@ -1748,28 +1939,29 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
             sys.exit(1)
         if changed:
             if verbose:
-                print("  Applied coroutine transform; re-checking...")
-            # design 218 stage 1: the re-entry re-runs the PLACE lowering.
-            # A frame's storage is a `Slot<T>` and the transform reads it with
-            # `value()`, which is a `borrows` accessor — an ordinary place use,
-            # and place uses become window calls in the pass above. The
-            # transform emits its output AFTER that pass has run, so without
-            # this the generated calls reach codegen unlowered and it reports
-            # the accessor undefined. Lowering is idempotent: an already-
-            # lowered use is a window call, not a place use, so the pass finds
-            # nothing to do in every module but the one just rewritten.
-            return _prepare_codegen(source_path, entry_ast, entry_source, verbose,
-                                    object_only, target_triple, freestanding,
-                                    module_paths, runtime_build,
-                                    post_transform=True,
-                                    target_features=target_features,
-                                    parsed={'module_map': module_map,
-                                            'module_sources': module_sources,
-                                            'builtin_ast': reentry_builtin_ast},
-                                    places_lowered=False,
-                                    no_hidden_alloc=no_hidden_alloc,
-                                    runtime_provider=runtime_provider,
-                                    opt_level=opt_level)
+                print("  Applied coroutine transform; admitting...")
+            # design 266: ADMITTED, not re-entered. The whole-front-half re-run
+            # this used to be — a second std typecheck, a second check of every
+            # module, a second monomorphization registry, the first run's
+            # conclusions discarded — is what made an instance body a pass's
+            # artifact (DF-292c) and an effect edge a template's name
+            # (DF-295a). `admit_declarations` names the six steps.
+            adm = _Admission(
+                entry_ast=entry_ast, merged_ast=merged_ast,
+                merged_ns=merged_ns, builtin_ast=builtin_ast,
+                reentry_builtin_ast=reentry_builtin_ast, builtin_ns=builtin_ns,
+                checked_modules=checked_modules,
+                excluded_std_leaves=excluded_std_leaves,
+                excluded_std_symbols=excluded_std_symbols,
+                typechecker=typechecker, reporter=reporter, mono=mono,
+                verbose=verbose, object_only=object_only,
+                source_path=source_path, import_asts=import_asts,
+                entry_decl_ids=entry_decl_ids)
+            if not admit_declarations(adm):
+                reporter.print_all()
+                sys.exit(1)
+            reporter.print_warnings()
+            merged_ast, merged_ns = adm.merged_ast, adm.merged_ns
 
     # Set this as the typechecker's namespace for compatibility
     typechecker.namespace = merged_ns

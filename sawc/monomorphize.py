@@ -187,8 +187,30 @@ class Monomorphizer:
         # `_receiver_key` for the bare-receiver recovery below; the worklist is
         # drained one entry at a time, so a single slot is the whole state.
         self._owner = None
+        # The splice hook, minted on first use and kept: design 266's admission
+        # re-enters the fixpoint over an enlarged program, and the second entry
+        # has to land its methods on the extensions the first entry built.
+        self._splice_hook = None
 
         self._build_tables()
+
+    def splice_hook(self):
+        """The registry's ONE splice hook, retargeted at the current program.
+
+        `_SpliceHook` holds two pieces of cross-call state — which mangled
+        receiver already has a concrete extension, and which function names are
+        already defined — and both must survive design 266's admission. The
+        program object is the same one throughout a compile now (the admission
+        RECONCILES the merged AST rather than rebuilding it), but its function
+        list changes under the coroutine transform, so `existing` is refreshed
+        here rather than at construction.
+        """
+        if self._splice_hook is None:
+            self._splice_hook = _SpliceHook(self.program)
+        else:
+            self._splice_hook.program = self.program
+            self._splice_hook.existing = {f.name for f in self.program.functions}
+        return self._splice_hook
 
     # ---------------------------------------------------------------- tables
     def _build_tables(self):
@@ -295,6 +317,20 @@ class Monomorphizer:
                   f"discovered")
         return self
 
+    def _materialized(self, decl) -> bool:
+        """Whether THIS registry already spliced `decl` as an instance body.
+
+        Design 266's admission re-enters the walk over a program that holds the
+        settled run's spliced instances, and an instance is not a root: its
+        demands were taken from the TEMPLATE under its own binding when it was
+        materialized. Asked of the splice hook rather than of an
+        `is_mono_instance` mark, so it answers for exactly what this phase put
+        there — the design-70/74 builders splice instances into the ENTRY ast
+        too, and those have always been walked as roots.
+        """
+        hook = self._splice_hook
+        return hook is not None and id(decl) in hook.spliced_ids
+
     def _roots(self):
         """Every concrete declaration, in declaration order.
 
@@ -304,6 +340,8 @@ class Monomorphizer:
         prog = self.program
         for func in prog.functions:
             if not getattr(func, 'type_params', None):
+                if self._materialized(func):
+                    continue
                 yield func, _site(func)
         for ext in prog.extensions:
             # A specialized extension head is also spelled with type PARAMETERS
@@ -315,6 +353,8 @@ class Monomorphizer:
             for m in ext.methods:
                 if getattr(m, 'type_params', None):
                     continue      # method-generic: reached through its calls
+                if self._materialized(m):
+                    continue
                 yield m, _site(m)
         for static in getattr(prog, 'statics', []):
             yield static, _site(static)
@@ -1406,6 +1446,17 @@ class _SpliceHook:
         self.extensions: dict = {}
         self.symbols: set = set()
         self.spliced = 0
+        # id() of every clone this hook put into the program, held alive by
+        # `spliced_decls`. Design 266: the admission re-enters the fixpoint over
+        # a program these bodies are ALREADY IN, and a materialized body is not
+        # a root — its demands were walked at materialization, on the TEMPLATE
+        # under the instance's binding. Walking the substituted clone instead
+        # re-derives them from types that have already been substituted once,
+        # which mints keys no template ever named (`Vector$3$Int$GlobalAllocator
+        # $Int` for a two-parameter `Vector`). Empty during the first run — the
+        # splice happens after it — so the single-pass walk is unchanged.
+        self.spliced_ids: set = set()
+        self.spliced_decls: list = []
 
     def skip(self, inst):
         """Whether this instance already has a definition in the program.
@@ -1420,10 +1471,15 @@ class _SpliceHook:
     def before(self, inst, method_name, flavor):
         pass
 
+    def _note(self, clone):
+        self.spliced_ids.add(id(clone))
+        self.spliced_decls.append(clone)
+
     def after(self, inst, method_name, flavor, clone):
         if flavor == "fn":
             self.program.functions.append(clone)
             self.existing.add(clone.name)
+            self._note(clone)
             self.spliced += 1
             return
         if flavor == "type-method":
@@ -1444,6 +1500,7 @@ class _SpliceHook:
             return
         self.symbols.add(symbol)
         self._extension_for(recv_name).methods.append(clone)
+        self._note(clone)
         self.spliced += 1
 
     @staticmethod
@@ -1479,19 +1536,27 @@ class _SpliceHook:
 _OVERLOAD_TAG = "$OL$"
 
 
-def splice_instances(mono, typechecker, verbose=False):
-    """Materialize and splice EVERY registered instance (spec stage 3c).
+def splice_instances(mono, typechecker, verbose=False, start=0):
+    """Materialize and splice every registered instance (spec stage 3c).
 
     Free functions become concrete functions; a type instance's methods and a
     method-generic's instances become methods of one concrete extension per
     mangled receiver. In registry order, which is the program's own declaration
     order — the order the spliced declarations are emitted in, and therefore an
     irdet obligation.
+
+    `start` is design 266's incremental re-entry: `extend_monomorphization`
+    passes the registry length it saw before re-running the fixpoint, so the
+    admission splices exactly the instances the coroutine transform's
+    declarations demanded and re-materializes none of the settled ones. The
+    hook is the REGISTRY's, not this call's, so the second pass lands a method
+    on the extension the first pass built for that receiver instead of a second
+    one — an emission-order fact, hence an irdet one.
     """
     if typechecker is None:
         return
-    hook = _SpliceHook(mono.program)
-    for key in list(mono.order):
+    hook = mono.splice_hook()
+    for key in list(mono.order[start:]):
         inst = mono.instances[key]
         if hook.skip(inst):
             continue
@@ -1517,4 +1582,36 @@ def run_monomorphization(program, namespace, reporter, verbose=False,
         measure_splice_all(mono, typechecker)
         return mono
     splice_instances(mono, typechecker, verbose=verbose)
+    return mono
+
+
+def extend_monomorphization(mono, program, namespace, typechecker,
+                            verbose=False):
+    """Re-enter phase 2 over an ENLARGED program — design 266's step 5.
+
+    Called from `admit_declarations` and nowhere else (obligation 1). The
+    coroutine transform's synthesized declarations name types the settled
+    program never named — a frame's `Slot<Fast>` storage, its `value()` lend —
+    and those demands are answered by the registry that is already here rather
+    than by a registry rebuilt from nothing.
+
+    Three things are refreshed and the rest is kept. The TABLES are rebuilt
+    (the program has new declarations, and the driven roots it consumed are
+    gone). The DEMAND CACHE is dropped: it is keyed by declaration identity and
+    the transform rewrote bodies in place — a drive site is a different call
+    now — so a cached descriptor list would answer for a body that no longer
+    exists. Everything else — `instances`, `order`, the splice hook's
+    extensions — is the settled program's and stays, which is precisely what
+    the re-entry could not do (DF-292c: an instance body was a PASS's artifact).
+
+    Only the registry's NEW tail is materialized: `mono.order` grows, and
+    `splice_instances` starts where it ended.
+    """
+    mono.program = program
+    mono.namespace = namespace
+    settled = len(mono.order)
+    mono._build_tables()
+    mono._demand_cache.clear()
+    mono.run()
+    splice_instances(mono, typechecker, verbose=verbose, start=settled)
     return mono
