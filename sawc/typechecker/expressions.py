@@ -3199,7 +3199,7 @@ class ExpressionsMixin:
         suspend node (key=None) catches effect edges recorded at the enclosing
         node level; per-instantiation queues are truncated on restore."""
         snap = (dict(self.moved_bindings), self.current_scope,
-                len(self._suspend_stack), len(self._poly_call_edges),
+                len(self._suspend_stack),
                 len(self._pending_mono), len(self._pending_method_mono),
                 len(self._pending_generic_struct_method_mono),
                 set(self._mono_built))
@@ -3207,11 +3207,10 @@ class ExpressionsMixin:
         return snap
 
     def _infer_restore(self, snap):
-        (moved, scope, stack_n, poly_n, pm_n, pmm_n, pgm_n, mono_built) = snap
+        (moved, scope, stack_n, pm_n, pmm_n, pgm_n, mono_built) = snap
         self.moved_bindings = moved
         self.current_scope = scope
         del self._suspend_stack[stack_n:]
-        del self._poly_call_edges[poly_n:]
         del self._pending_mono[pm_n:]
         del self._pending_method_mono[pmm_n:]
         del self._pending_generic_struct_method_mono[pgm_n:]
@@ -4058,14 +4057,10 @@ class ExpressionsMixin:
             self._check_type_param_bounds(
                 func_info.type_params, type_map, expr.line, expr.column,
                 callee_decl=func_info.ast_node, display=f"`{expr.name}`")
-            # design 70 (A5): record the deferred poly-call edge so a suspending
-            # instantiation taints the caller / drives (mirrors the singleton
-            # generic path), only when the args are fully concrete.
-            resolved_args = [type_map.get(tp.name) for tp in func_info.type_params]
-            if all(a is not None and self._is_concrete_type(a)
-                   for a in resolved_args):
-                self._effect_record_poly_call(
-                    expr.name, resolved_args, f"`{expr.name}`", expr.line)
+            # (Design 266 U3: the deferred poly-call edge was recorded here, and
+            # named the TEMPLATE because no instance existed yet. The
+            # monomorphization walk records it against the INSTANCE now —
+            # `monomorphize._demand_function`. DF-295a.)
             param_types = [t.substitute(type_map) for t in func_info.param_types]
             return_type = (func_info.return_type.substitute(type_map)
                            if func_info.return_type else func_info.return_type)
@@ -5190,18 +5185,13 @@ class ExpressionsMixin:
                 f"`{expr.name}`", expr.line, expr.column)
             self._tier_check_instance_unsafe(
                 func_info, f"`{expr.name}`", type_map, expr.line, expr.column)
-            # design 70 (A5): record a deferred effect edge to this instantiation.
-            # Materialized at finalize only if `expr.name`'s template is
-            # effect-polymorphic (calls a method on a type-param receiver), so an
-            # instantiation whose concrete `T` suspends taints its caller / trips a
-            # sync context, while ordinary generic calls stay untouched. Only when
-            # the concrete args are fully resolved (not themselves type params of an
-            # enclosing generic — that call is re-inferred when the OUTER template
-            # is instantiated).
-            resolved_args = [type_map.get(tp.name) for tp in func_info.type_params]
-            if all(a is not None and self._is_concrete_type(a) for a in resolved_args):
-                self._effect_record_poly_call(
-                    expr.name, resolved_args, f"`{expr.name}`", expr.line)
+            # (Design 266 U3: census row T5's deferred edge was recorded here.
+            # It named the TEMPLATE — the recording ran at body-check time, long
+            # before any instance existed — and a template node has no direct
+            # source and no edge of its own, so a `sync` caller of a suspending
+            # instantiation looked suspension-free unless the deferral was
+            # materialized later. The edge is recorded against the INSTANCE at
+            # monomorphization time now; DF-295a.)
             param_types = [t.substitute(type_map) for t in func_info.param_types]
             return_type = func_info.return_type.substitute(type_map)
         else:
@@ -9316,11 +9306,15 @@ class ExpressionsMixin:
                 receiver_mutable=bool(getattr(method_sym, 'self_mutable', False)),
                 param_names=list(method_sym.param_names or []))
             # design 70 (A5): a method call on a type-PARAMETER receiver makes the
-            # enclosing body effect-polymorphic — its suspendability depends on the
-            # concrete `T`. A trait method contributes no edge here (abstract body),
-            # so instead we flag the body; a call to it with concrete type args then
-            # re-infers effects on the instantiation.
-            self._effect_mark_poly()
+            # enclosing body effect-polymorphic — its suspendability depends on
+            # the concrete `T`, and a trait method contributes no edge here (the
+            # body is abstract). The body used to be FLAGGED here so that
+            # `_process_effect_monos` could decide a deferred call edge was worth
+            # materializing; design 266 U3 deleted the flag with the deferral,
+            # because every demanded instance is now materialized and
+            # instance-checked unconditionally and the edge names it directly.
+            # Per-instantiation re-inference is unchanged — it IS the instance
+            # check.
             if method_sym.return_type is None:
                 return SawType(TypeKind.VOID)
             return self._resolve_type(method_sym.return_type)
@@ -11287,12 +11281,9 @@ class ExpressionsMixin:
                 type_map[tp.name] = self._resolve_type(ta)
             self._check_type_param_bounds(
                 func_info.type_params, type_map, expr.line, expr.column)
-            resolved_args = [type_map.get(tp.name) for tp in func_info.type_params]
-            if all(a is not None and self._is_concrete_type(a)
-                   for a in resolved_args):
-                self._effect_record_poly_call(
-                    expr.method_name, resolved_args,
-                    f"`{expr.method_name}`", expr.line)
+            # (Design 266 U3: T5's deferred edge, at the module-qualified
+            # spelling. Recorded against the INSTANCE at monomorphization time
+            # now — DF-295a.)
             param_types = [t.substitute(type_map) for t in param_types]
             if return_type is not None:
                 return_type = return_type.substitute(type_map)
@@ -11494,15 +11485,8 @@ class ExpressionsMixin:
                 func_info.type_params, type_map, expr.line, expr.column,
                 callee_decl=func_info.ast_node,
                 display=f"`{expr.method_name}`")
-            # design 70 (A5): the deferred poly-call edge, as the bare path
-            # records it, so a suspending instantiation taints this caller.
-            resolved_args = [type_map.get(tp.name)
-                             for tp in func_info.type_params]
-            if all(a is not None and self._is_concrete_type(a)
-                   for a in resolved_args):
-                self._effect_record_poly_call(
-                    expr.method_name, resolved_args, f"`{expr.method_name}`",
-                    expr.line)
+            # (Design 266 U3: T5's fourth and last recorder site. Recorded
+            # against the INSTANCE at monomorphization time now — DF-295a.)
             param_types = [t.substitute(type_map) if t is not None else t
                            for t in param_types]
             if return_type is not None:

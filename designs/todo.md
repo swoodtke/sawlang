@@ -33,7 +33,7 @@ is scheduled and in what order is the whole of what they say.
 
 
 
-- Design 266 — the incremental front half — **U1 LANDED Sep 5: the post-transform re-entry is DELETED, replaced by `admit_declarations`. DF-292c CLOSED (entry below). Driven compile 4.35 s -> 2.03 s (-53%), suite CPU -34%; the admission tail is exactly the 4 instances U0's census predicted. DF-303a filed+fixed (the wrap defect the re-entry was masking), DF-303b filed (pre-existing, unrelated).** U2/U3 status in the entry below (designs/266-incremental-front-half.md; SCHEDULED Sep 4 by the user — "schedule the DF-292c + DF-295a one-design"; lead-authored same night). ONE fact changes: the post-transform re-entry is deleted — synthesized declarations are admitted through one funnel into the settled program, checked by the same pass, effect edges recorded against INSTANCES (the design-70 both-ways refusal with T5 neutralized is the acceptance test). Closes DF-292c + DF-295a; buys C1-C4/T5/`_process_effect_monos` deletions and ~0.6 s per driven compile (-74% on the re-run, measured before the revert). Typechecker/driver — serial; dispatches after 207 integrates. irdet --all + reemit are PER-COMMIT gates (materialization order is the standing risk)
+- Design 266 — the incremental front half — **LANDED Sep 5, U0-U4. U1: the post-transform re-entry is DELETED, replaced by `admit_declarations` — DF-292c CLOSED, driven compile 4.35 s -> 2.03 s (-53%), the admission tail exactly the 4 instances U0's census predicted. U2+U3: effect edges name INSTANCES (recorded at monomorphization time), T5 + its four recorder sites + the poly loop + `_build_fn_mono`'s effect-only mode DELETED — DF-295a CLOSED, and the design-70 both-ways refusal survives the deletion byte-identically. 218c gets Amendment D. DF-303a filed+fixed (the wrap defect the re-entry was masking), DF-303b filed (pre-existing, unrelated).** Both DF entries below (designs/266-incremental-front-half.md; SCHEDULED Sep 4 by the user — "schedule the DF-292c + DF-295a one-design"; lead-authored same night). ONE fact changes: the post-transform re-entry is deleted — synthesized declarations are admitted through one funnel into the settled program, checked by the same pass, effect edges recorded against INSTANCES (the design-70 both-ways refusal with T5 neutralized is the acceptance test). Closes DF-292c + DF-295a; buys C1-C4/T5/`_process_effect_monos` deletions and ~0.6 s per driven compile (-74% on the re-run, measured before the revert). Typechecker/driver — serial; dispatches after 207 integrates. irdet --all + reemit are PER-COMMIT gates (materialization order is the standing risk)
 - DF-299b fix — the value `if`/`match` ARM transfer checkpoint (SCHEDULED Sep 4 by the user, after 266; entry below). The checkpoint is never CALLED at a value arm forwarding a NoCopy binding — bitwise duplicate, one deinit lost. Owes its consumer sweep over every value-branch position (value `if`, value `match`, `??`/`&&`/`||` RHS arms, the ANF-hoisted expression positions design 120 added) before the fix commit, per obligation 4; DF-288a/DF-299a are the mechanism templates. Typechecker — serial
 - Design 258 — field visibility inherits the type's, amending design 80 (designs/258-field-visibility-inheritance.md; RULED Aug 31 by the user after reading the sos code, three cells pinned: ALL TIERS inherit, FIELDS ONLY — extension members keep per-member marking — and a contextual `private` keyword for narrowing; SCHEDULED after 218 unit 1.5). The consumer sweep IS the migration: every bare field of a visible struct in std/libs/blade gets `private`, surface-preserving; conformance B rows update first (obligation 3)
 - Design 245 v1 — `Scalar` + `scalars()`, `chars()` and `append_scalar` REMOVED (designs/245-unicode-scalar-type.md §6; ruled Aug 27 — no literals in v1, prelude placement). The Aug-27 dispatch NEVER LANDED and is presumed STALE (no Scalar in the tree, Aug-28 check); RESCHEDULED AFTER design 238 (user, Aug 28: sos does not depend on string/character work). Re-dispatch then. Literals + patterns stay open as later units
@@ -46,7 +46,7 @@ is scheduled and in what order is the whole of what they say.
 - DF-301a — ICE: a SUSPENDING function whose closure PARAMETER's type is a generic-struct instantiation emits an unparseable coroutine frame (entry below, filed Sep 4 by design 264 U3's census; PRE-EXISTING, verified byte-identical pre-U2). Mechanism is frame type emission, not ownership — `Cell<Int>` fails exactly as `Arc<Res>` does. No corpus site has the shape
 - DF-301b — a closure literal assigned to an ANNOTATED `let` of function type does not infer its parameter type, then reports the mismatch against the `Int` fallback (entry below, filed Sep 4 by design 264 U3; PRE-EXISTING, minor). The PARAMETER position of the expected-type ladder DF-226a/DF-232h walked for closure returns
 - DF-297a — the template snapshot's SECOND namespace back-pointer, a `SawType.symbol` on a DECLARED annotation, which DF-292b's park does not reach and should not: the capture still rebuilds 1,628 namespace method declarations per driven compile, worth ~0.22 s (targeted memo seeding) to ~0.48 s (symbols decline to be copied) more (entry below, filed Sep 3 by the perf batch). Wants a RULING first — should a namespace symbol ever be deep-copied into a template snapshot? — because either fix changes what the snapshot contains and owes obligation 2's sweep **RULED Sep 4 (user): NO COPY — a symbol is namespace identity and snapshots stop AT it; the fix rides a future perf dispatch and owes obligation 2 (everything reading type.symbol off a materialized instance)**
-- DF-295a — 218c census rows C1-C4 shrink rather than delete; the driven-body walk that maps a generic call site onto an instance key cannot move into phase 2 (entry below, filed by 218 unit 1.5 stage 4). Sequence it WITH DF-292c — one question, two sides. **SCHEDULED Sep 4 (user): design 266 (in the queue) is the one-design — closes there**
+- ~~DF-295a — 218c census rows C1-C4 shrink rather than delete~~ **CLOSED Sep 5 by design 266 U2+U3**: the effect edge names the INSTANCE (recorded at monomorphization time), T5 and its four recorder sites are DELETED, and the design-70 both-ways refusal survives with the machinery gone. Entry below; 218c gets Amendment D
 - DF-294c — the const evaluator's STATIC-NAME leaf folds integers only, so a struct-typed static is refused in every const position design 186's own hint says it works in — the repeat value `[ZERO_SLOT; N]`, plain `static ALIAS: Slot = ZERO_SLOT`, and a struct-literal field (entry below, filed Sep 3 from sos SL-21; compliance defect vs 186 tier 2, no ruling owed; workarounds relayed)
 - DF-294d — a static declaration's initializer cannot break after `=` (DF-172d's no-wrap family at the declaration head), which generic statics hit hardest because constructors do not infer type args, forcing `NAME: T<...> = T<...>(...)` on one line; PARENTHESIZING the initializer works today and design 207 (ruled Aug 10, unbuilt) deletes the doubled spelling entirely (entry below, filed Sep 3 from sos SL-22; RESOLUTION PATH is a user call) **RULED Sep 4 (user): design 207 SCHEDULED (+ the annotation-driven cell flagged in its Sep-4 amendment) with the paren idiom blessed in the spec/skill as the interim; DF-294d closes when 207 lands** — **CLOSED Sep 4 by the design-207 landing**: the constructor infers from the declared slot, so `static EVENTS: Slab<EventSlot, MAX_EVENTS> = Slab(...)` writes the type once and fits; the spec/skill interim passages now say the parens are for a long INITIALIZER, not for a doubled type. The grammar is untouched — cell (a) was not taken, so a bare break after `=` is still a parse error
 - docverify tier 2 (262's standing debt, recorded at U1/U2 integration Sep 3) — 46 error demos are `saw-fragment` because scaffolding (an elided struct, a missing import) refuses them BEFORE the check they exist to show, so their claimed diagnostics are uncertified; the tightening is real scaffolding per block until each pins its OWN error text. README's 11 front-door fragments stay exempt BY CHOICE (padding them would cost the prose its punch). Also recorded: the lane's two U1 refinements (declaration hoisting in `saw-body`; message-keyed vacuous detection) are lead-approved amendments to the brief's Amendment A
@@ -925,7 +925,62 @@ the two documents stop offering it; the status quo promises a spelling the
 language does not have. [122, 129]
 
 ## DF-295a — census rows C1-C4 cannot DELETE at 218 unit 1.5 stage 4; what
-## deletes is the BUILDING, not the walk (filed Sep 3 by stage 4's own census)
+## deletes is the BUILDING, not the walk (filed Sep 3 by stage 4's own census).
+## **CLOSED Sep 5 by design 266 U2+U3 — the edge names the INSTANCE now, and
+## T5 is DELETED.** Landing note below; the evidence is kept verbatim
+
+**CLOSED Sep 5, design 266 U2 (the recording moves) + U3 (the deletions).**
+This entry said the fix is to DERIVE the effect graph over the monomorphized
+program rather than patch it afterwards, and that the RE-ENTRY is what has to
+change. Both happened.
+
+WHAT LANDED. The caller -> callee edge for a generic call is recorded at
+MONOMORPHIZATION time, where the instance key is known:
+`monomorphize._demand_function` appends `(demander, instance key, short, line)`
+as the walk discovers each demand, and `apply_effect_edges` files them into the
+graph once every body has been materialized and instance-checked — immediately
+before `finalize_effects`, which then propagates over real instance nodes. The
+demander is tracked through the walk as a descriptor (`('decl', declaration)` at
+a root, `('clone', (instance key, method name))` inside an instance) and
+resolved to an effect-node key AFTER materialization, because the clone whose
+node the edge starts from does not exist while the walk is running.
+
+Every demand records an edge, not just the first: `_register` dedupes INSTANCES
+(one body, one check) while the effect graph needs one edge per CALLER, so the
+dedupe is per (caller, target) at the applying end.
+
+THE DELETIONS (218c §7 stage 5, and the spec's ledger gets Amendment D):
+T5's `_effect_record_poly_call` and its four recorder sites; `_poly_call_edges`
+and its speculative save/restore in `_infer_snapshot`/`_infer_restore`;
+`poly_candidate` and `_effect_mark_poly` (each had exactly one reader — the
+deferral); `_process_effect_monos`'s poly-materialization loop; and
+`_build_fn_mono`'s `splice=False` effect-only mode, whose only caller that loop
+was. What is KEPT, against the spec's row: `_process_effect_monos`'s shell and
+its three drain loops, which are design 70/74's eager driven / spawn /
+method-generic builds and each probed load-bearing — they were never T5's.
+
+THE ACCEPTANCE TEST, the sharp one this entry's own Sep-3 probe defined. With
+`_effect_record_poly_call` neutralized at runtime, `examples/errors/
+sync_generic_instantiation_suspends.saw` **REFUSES** (the Sep-3 probe had it
+COMPILING, the refusal lost) — and after the machinery was actually deleted the
+diagnostic is byte-identical, naming the instance: ``cannot suspend in `sync
+func` declaration: `sync func caller_slow` calls `run$1$Slow` → `Slow.step` →
+__saw_suspend``. ONE error, so `caller_fast` still compiles and design 70's
+both-ways property is intact.
+
+C2 also converts, which this entry predicted as the method twin of C1:
+`_promote_nested_generic_methods`' method-generic arm ADOPTS phase 2's spliced
+instance instead of building its own. It had to — with the re-entry gone phase
+2's splice survives, so the transform's own clone became a second LLVM
+declaration of one symbol. C1/C3/C4's stage-4 outcome is unchanged: what deletes
+is the BUILDING, and the DISCOVERY walk stays, because mapping a driven call
+site onto a frame key is a transform question and not a registry one.
+
+Gate: full suite 2390 passed / 7 xfailed, freestanding 33 both arches,
+irdet --all OK over 1490 examples, reemit 1495 identical / 0 divergent.
+[218c §2b, §2c, §7 stages 4-5 + Amendment D; design 266 U2/U3]
+
+### The evidence that shaped the design (kept verbatim)
 
 Spec §2c writes C1 (`_promote_nested_generic_calls`) as a straight deletion,
 on the premise that "phase 2 already spliced every instance and rewrote

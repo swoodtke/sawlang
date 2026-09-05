@@ -191,6 +191,16 @@ class Monomorphizer:
         # re-enters the fixpoint over an enlarged program, and the second entry
         # has to land its methods on the extensions the first entry built.
         self._splice_hook = None
+        # DESIGN 266 U2 — THE EFFECT EDGES THIS WALK DISCOVERS, which name
+        # INSTANCES. `(demander descriptor, instance key, short, line)`, applied
+        # by `apply_effect_edges` once the bodies exist. See `_demander`.
+        self.effect_edges: list = []
+        # Who is being walked, as a descriptor `apply_effect_edges` can resolve
+        # to an effect-node key AFTER materialization: `('decl', declaration)`
+        # at a root, `('clone', (instance key, method name))` inside an instance.
+        # A walk with no effect node (a static, a static assert) leaves it None
+        # and records nothing.
+        self._demander = None
 
         self._build_tables()
 
@@ -309,7 +319,9 @@ class Monomorphizer:
     def run(self):
         """Walk the roots, then the instances they demand, to a fixpoint."""
         for root, site in self._roots():
+            self._demander = _demander_of_decl(root)
             self._walk(root, {}, depth=0, chain=(), site=site)
+        self._demander = None
         while self._worklist:
             self._process(self._worklist.pop(0))
         if self.verbose:
@@ -692,8 +704,18 @@ class Monomorphizer:
             return None
         for a in args:
             self._demand_type_closure(a, depth, chain, site)
-        return self._register(mangle_function(name, args), 'fn', name, args,
-                              depth, chain, site)
+        key = mangle_function(name, args)
+        # DESIGN 266 U2 — THE EFFECT EDGE, RECORDED WHERE THE INSTANCE IS KNOWN.
+        # Every demand records one, not just the first: `_register` dedupes
+        # INSTANCES (one body, one check) while the effect graph needs one edge
+        # per CALLER, and `apply_effect_edges` dedupes per (caller, target).
+        # This is what census row T5 did from the body check, where no instance
+        # existed yet and the edge could only name the template — DF-295a.
+        if self._demander is not None:
+            self.effect_edges.append(
+                (self._demander, key, f"`{name}`",
+                 (site[1] if site else 0)))
+        return self._register(key, 'fn', name, args, depth, chain, site)
 
     def _demand_method(self, recv_type, recv_key, method_name, raw_args, subst,
                        depth, chain, site):
@@ -776,6 +798,7 @@ class Monomorphizer:
             self._process_inner(inst)
         finally:
             self._owner = None
+            self._demander = None
 
     def _process_inner(self, inst):
         if inst.kind == 'fn':
@@ -783,6 +806,9 @@ class Monomorphizer:
             if template is None:
                 return
             subst = _zip_params(getattr(template, 'type_params', None), inst.args)
+            # An edge out of THIS body names this instance, not the template it
+            # was cloned from — design 266 U2, and the whole of DF-295a.
+            self._demander = ('clone', (inst.key, None))
             self._walk(template, subst, inst.depth, inst.chain, inst.demand)
             return
         if inst.kind in ('struct', 'enum'):
@@ -824,6 +850,7 @@ class Monomorphizer:
             for m in ext.methods:
                 if m.name in skip or getattr(m, 'type_params', None):
                     continue
+                self._demander = ('clone', (inst.key, m.name))
                 self._walk(m, ext_subst, inst.depth, inst.chain, inst.demand)
 
     def _applicable_extensions(self, base, args):
@@ -892,6 +919,7 @@ class Monomorphizer:
                     subst[alias] = subst[declared_name]
         subst.update(_zip_params(getattr(method, 'type_params', None),
                                  inst.method_args or []))
+        self._demander = ('clone', (inst.key, inst.method_name))
         self._walk(method, subst, inst.depth, inst.chain, inst.demand)
 
 
@@ -1083,6 +1111,84 @@ def _is_abstract(t):
             if _is_abstract(child):
                 return True
     return False
+
+
+def _demander_of_decl(decl):
+    """The design 266 U2 descriptor for a ROOT declaration being walked.
+
+    A root is a concrete declaration whose effect node the ordinary body check
+    already minted, so the descriptor holds the declaration itself and
+    `_effect_node_key` reads the key off it. Statics and static asserts have no
+    effect node and get None, which records no edge.
+    """
+    from ast_nodes import Function, Method
+    if isinstance(decl, (Function, Method)):
+        return ('decl', decl)
+    return None
+
+
+def _effect_node_key(decl):
+    """The key `EffectsMixin` files `decl`'s suspend node under.
+
+    The two spellings, mirrored from `_effect_enter_function` /
+    `_effect_enter_method` — a free function by its mangled symbol or name, a
+    method by `node_id`. Mirrored rather than shared because the effect mixin
+    keys nodes as it ENTERS a body and this asks after the fact; if the two ever
+    disagree the edges silently go nowhere, so they are named together here.
+    """
+    from ast_nodes import Function
+    if isinstance(decl, Function):
+        return ("fn", getattr(decl, 'mangled_symbol', None) or decl.name)
+    return getattr(decl, 'node_id', None)
+
+
+def apply_effect_edges(mono, typechecker):
+    """Add the walk's caller -> INSTANCE effect edges to the graph (266 U2).
+
+    Called from `run_monomorphization` and `extend_monomorphization`, after
+    every instance body has been materialized and instance-checked — which is
+    when the nodes on both ends of these edges exist. `finalize_effects` runs
+    next and propagates over them.
+
+    THIS IS WHAT CENSUS ROW T5 WAS FOR, done where the answer is knowable.
+    `_effect_record_poly_call` ran at BODY-CHECK time, before any instance
+    existed, so all it could name was the template — and a template node has no
+    direct source and no edge of its own (its suspension is the type
+    parameter's), so a `sync` caller of a suspending instantiation looked
+    suspension-free. That is DF-295a, and it is why the design-70 both-ways
+    refusal needed T5's deferred materialization to survive at all. The walk
+    knows the instance key at the demand, so the edge names it.
+
+    Skipped silently in two cases, both meaning "there is nothing to connect":
+    a demander whose body was never checked (no node), and a target instance
+    with no node of its own (an instance the materialization funnel declined —
+    a specially-lowered one, say). Neither can make a sync context look safe:
+    the ordinary template edge `_effect_call_function` records is still there.
+    """
+    if typechecker is None:
+        return
+    nodes = getattr(typechecker, '_suspend_nodes', None)
+    if not nodes or not mono.effect_edges:
+        return
+    from typechecker.effects import SuspendEdge
+    hook = mono._splice_hook
+    clones = hook.clones if hook is not None else {}
+    for demander, target_key, short, line in mono.effect_edges:
+        kind, payload = demander
+        if kind == 'decl':
+            caller_key = _effect_node_key(payload)
+        else:
+            clone = clones.get(payload)
+            caller_key = _effect_node_key(clone) if clone is not None else None
+        if caller_key is None:
+            continue
+        caller = nodes.get(caller_key)
+        target = ("fn", target_key)
+        if caller is None or target not in nodes:
+            continue
+        if any(e.target == target for e in caller.edges):
+            continue
+        caller.edges.append(SuspendEdge(target=target, short=short, line=line))
 
 
 def _site(node):
@@ -1457,6 +1563,11 @@ class _SpliceHook:
         # splice happens after it — so the single-pass walk is unchanged.
         self.spliced_ids: set = set()
         self.spliced_decls: list = []
+        # (instance key, method name or None) -> the materialized clone, so
+        # design 266 U2's effect edges can be resolved to the node the INSTANCE
+        # CHECK minted for that body. The walk records who demanded what before
+        # any clone exists; this is the map that closes the gap afterwards.
+        self.clones: dict = {}
 
     def skip(self, inst):
         """Whether this instance already has a definition in the program.
@@ -1476,6 +1587,7 @@ class _SpliceHook:
         self.spliced_decls.append(clone)
 
     def after(self, inst, method_name, flavor, clone):
+        self.clones.setdefault((inst.key, method_name), clone)
         if flavor == "fn":
             self.program.functions.append(clone)
             self.existing.add(clone.name)
@@ -1582,6 +1694,7 @@ def run_monomorphization(program, namespace, reporter, verbose=False,
         measure_splice_all(mono, typechecker)
         return mono
     splice_instances(mono, typechecker, verbose=verbose)
+    apply_effect_edges(mono, typechecker)
     return mono
 
 
@@ -1614,4 +1727,5 @@ def extend_monomorphization(mono, program, namespace, typechecker,
     mono._demand_cache.clear()
     mono.run()
     splice_instances(mono, typechecker, verbose=verbose, start=settled)
+    apply_effect_edges(mono, typechecker)
     return mono

@@ -252,12 +252,14 @@ class SuspendNode:
     direct: List[SuspendSource] = field(default_factory=list)
     edges: List[SuspendEdge] = field(default_factory=list)
     suspends: bool = False              # computed by the fixpoint
-    # design 70 (A5): set when this body calls a method on a type-PARAMETER
-    # receiver (`w.step()` for `w: T`). Such a body's suspendability is
-    # effect-polymorphic — it depends on the concrete `T` — so a call to this
-    # generic function with concrete type args triggers per-INSTANTIATION effect
-    # re-inference (monomorphize + re-check the body with `T` bound).
-    poly_candidate: bool = False
+    # design 70 (A5) had a `poly_candidate` flag here — set when a body called a
+    # method on a type-PARAMETER receiver, and read in exactly one place, to
+    # decide whether a deferred template-named call edge was worth materializing
+    # into an instance one. Design 266 U3 deleted that decision: every demanded
+    # instance is materialized and instance-checked by phase 2 and the edge is
+    # recorded against it at monomorphization time, so there is no deferral left
+    # to gate. Per-instantiation effect re-inference is unchanged — it is what
+    # the instance check has always been.
 
 
 class EffectsMixin:
@@ -346,11 +348,10 @@ class EffectsMixin:
         # is deferred to `_process_effect_monos` (safe there — not nested inside
         # another body check, so it won't clobber the active scope).
         self._pending_generic_struct_method_mono: List[Any] = []
-        # Deferred potential effect edges from a generic CALL with concrete type
-        # args to its instantiation node: (caller_node_key, template_name,
-        # resolved_type_args, short, line). Materialized into real edges (after
-        # building the instantiation) only when the template is effect-polymorphic.
-        self._poly_call_edges: List[Any] = []
+        # (Design 266 U3 deleted `_poly_call_edges` from here — census row T5's
+        # deferred template-named call edges. The edge is recorded at
+        # monomorphization time now, against the INSTANCE, and lives on the
+        # registry until `monomorphize.apply_effect_edges` files it.)
         # design 223 unit 3 (DF-223b). A frame is a COMPILE-TIME identity — the
         # caller embeds the callee's frame by value — and dynamic dispatch has
         # none, so a suspending conformance body reached through `any Trait` can
@@ -597,14 +598,6 @@ class EffectsMixin:
                 "a call through a non-`sync` function value", line)
 
     # ---------------------------------------------- design 70: effect polymorphism
-    def _effect_mark_poly(self):
-        """Flag the current body as effect-polymorphic (it calls a method on a
-        type-parameter receiver, so its suspendability depends on the concrete
-        binding — re-inferred per instantiation)."""
-        node = self._effect_current()
-        if node is not None:
-            node.poly_candidate = True
-
     def _effect_queue_fn_mono(self, template_name: str, resolved_args) -> str:
         """Queue a build of the concrete instantiation `template_name<args>` and
         return its mangled symbol. Idempotent per mangled symbol. Used at driven /
@@ -714,25 +707,33 @@ class EffectsMixin:
         self._driven_generic_struct_methods[key] = (recv_type, clone)
         return True
 
-    def _effect_record_poly_call(self, template_name: str, resolved_args,
-                                 short: str, line: int):
-        """Record a deferred potential effect edge from the current body to the
-        instantiation `template_name<args>`. Materialized (and the instantiation
-        built) at finalize time ONLY if the template turns out effect-polymorphic,
-        so ordinary generic calls (identity/map/…) are untouched."""
-        node = self._effect_current()
-        if node is None or node.key is None:
-            return
-        self._poly_call_edges.append(
-            (node.key, template_name, list(resolved_args), short, line))
-
     def _process_effect_monos(self, module_ast):
         """Build every queued generic instantiation (design 70): clone its pristine
         template, substitute the concrete type args, register + splice it into the
         entry AST, and re-check its body so it gets its OWN effect node keyed by the
-        mangled symbol. Runs to a fixpoint (a clone may itself queue more monos or
-        record more polymorphic calls). Must run AFTER all normal bodies are checked
-        (every concrete method's effect node exists) and BEFORE `finalize_effects`.
+        mangled symbol. Runs to a fixpoint (a clone may itself queue more monos).
+        Must run AFTER all normal bodies are checked (every concrete method's
+        effect node exists) and BEFORE `finalize_effects`.
+
+        WHAT LEFT AT DESIGN 266 U3 (218c §7 stage 5, census row T5). This used to
+        carry a FOURTH step: a list of deferred "polymorphic call" edges, each
+        naming a TEMPLATE and a concrete argument list, materialized here into a
+        caller -> instantiation edge whenever the template turned out
+        effect-polymorphic — building the instance's effect node on the side
+        (`_build_fn_mono(splice=False)`) because no real instance existed to
+        carry one.
+
+        Both halves of that are gone. The edge is recorded at MONOMORPHIZATION
+        time now, where the instance key is known
+        (`monomorphize.apply_effect_edges`), and phase 2 materializes and
+        instance-checks the body, so the node it names is a real spliced
+        instance's. The deferral existed only because the recording site could
+        not see an instance; that is DF-295a, and design 266 is what made an
+        instance exist before the effect graph settles.
+
+        The three DRAIN loops below stay. They are not the poly machinery — they
+        are the eager driven/spawn/method-generic builds design 70 and 74 need
+        BEFORE the coroutine transform runs, and each was probed load-bearing.
         """
         progress = True
         while progress:
@@ -756,46 +757,26 @@ class EffectsMixin:
                         struct_name, method_name, resolved_args, method_args,
                         mono_name):
                     progress = True
-            # 2. Materialize polymorphic call edges whose template is poly. Build
-            #    the instantiation, then add a real edge caller -> instantiation.
-            #    Snapshot + clear first: a clone's re-check may append NEW edges,
-            #    which accumulate for the next fixpoint round (not this one).
-            edges, self._poly_call_edges = self._poly_call_edges, []
-            for (caller_key, template_name, resolved_args, short, line) in edges:
-                tmpl_node = self._suspend_nodes.get(("fn", template_name))
-                if tmpl_node is None or not tmpl_node.poly_candidate:
-                    continue  # ordinary generic call — leave conservative behavior
-                from codegen.mangle import mangle_function
-                mangled = mangle_function(template_name, resolved_args)
-                if ("fn", mangled) not in self._suspend_nodes:
-                    # Effect-only build: create the instantiation's suspend node
-                    # WITHOUT splicing it (codegen still monomorphizes it from the
-                    # template — a spliced clone would double-define the symbol).
-                    self._build_fn_mono(module_ast, template_name, resolved_args,
-                                        mangled, splice=False)
-                    progress = True
-                caller = self._suspend_nodes.get(caller_key)
-                if caller is not None and not any(
-                        e.target == ("fn", mangled) for e in caller.edges):
-                    caller.edges.append(SuspendEdge(
-                        target=("fn", mangled), short=short, line=line))
 
-    def _build_fn_mono(self, module_ast, template_name, resolved_args, mangled,
-                       splice=True):
+    def _build_fn_mono(self, module_ast, template_name, resolved_args, mangled):
         """Clone + substitute + re-check one free-function instantiation. Returns
-        True if a clone was built. Errors from the re-check are SUPPRESSED — this
-        pass only harvests effect edges; genuine instantiation errors surface
-        through the normal codegen monomorphization path.
+        True if a clone was built.
 
-        `splice=True` (driven / spawn roots) registers the clone and appends it to
-        the entry AST so the coroutine transform sees it as an ordinary concrete
-        function (and then REMOVES it, replacing it with a frame — so codegen never
-        double-defines it). `splice=False` (an effect-polymorphic plain call) only
-        creates the effect node: the instantiation stays codegen's job (from the
-        template), so the clone must NOT be left in the AST / namespace."""
+        The clone is registered and appended to the entry AST so the coroutine
+        transform sees it as an ordinary concrete function (and then REMOVES it,
+        replacing it with a frame — so codegen never double-defines it).
+
+        THE EFFECT-ONLY MODE IS GONE (218c §2b row T7's rider on T5, deleted by
+        design 266 U3). A second, non-splicing mode existed for one caller: the
+        poly-edge materialization, which needed an instantiation's effect NODE
+        without a body in the program, because codegen would monomorphize the
+        instantiation from the template itself and a spliced clone would have
+        double-defined the symbol. Phase 2 splices every demanded instance now
+        and codegen looks them up rather than building any, so there is no
+        caller left that wants a node without a body."""
         if ("fn", mangled) in self._suspend_nodes:
             return False  # effect node already built (a prior pass / dual role)
-        if splice and self.namespace.has_function(mangled):
+        if self.namespace.has_function(mangled):
             return False
         pristine = self._pristine_generics.get(template_name)
         if pristine is None:
@@ -811,9 +792,8 @@ class EffectsMixin:
         clone.type_params = []
         clone.mangled_symbol = None
         clone.is_mono_instance = True   # marks a synthesized instantiation
-        if splice:
-            self._register_function(clone)
-            module_ast.functions.append(clone)
+        self._register_function(clone)
+        module_ast.functions.append(clone)
         # Check the body in the TEMPLATE's home module scope (design 210 unit
         # 4) — a template naming its own module's private helper must find it
         # here, or the instantiation carries no types at all.

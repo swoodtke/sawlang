@@ -1272,3 +1272,39 @@ batch** — DF-292c (the phase cache across the re-entry, WITH its owed
 obligation-2 sweep) and DF-292b (the capture's 4.2s deepcopy,
 pre-existing both sides). Laziness stays in reserve, unauthorized.
 With this ruling stage 3 INTEGRATES and is CLOSED.
+
+## Amendment D (Sep 5) — §7 STAGE 5's ROWS, COMPLETED BY DESIGN 266
+
+Stage 5 ("the old shell") was the one staging row this spec could not finish.
+Its argument in §2b was that "every demanded instance gets its own effect node
+unconditionally … so the poly-candidate deferral and its four recorder sites
+delete", and DF-295a proved that argument reached the wrong half: **the effect
+NODE was never the problem, the EDGE was.** With `_effect_record_poly_call`
+neutralized and everything else at stage 4b, `sync_generic_instantiation_
+suspends.saw` COMPILED — the design-70 both-ways refusal lost, because without
+T5's caller -> instance edge the `sync` caller had only its edge to the
+TEMPLATE, whose node has no direct source and no edge of its own.
+
+Design 266 changed the fact underneath rather than patching either half: the
+post-transform re-entry is deleted, so instances exist before the effect graph
+settles and an edge can NAME one. The rows, with their dispositions:
+
+| row | spec disposition | what actually landed |
+|-----|------------------|----------------------|
+| **T5** `_effect_record_poly_call` + its 4 recorder sites | ABSORBED, deletes | **DELETED** (266 U3). The recording moved to monomorphization time — `monomorphize._demand_function` records `(demander, instance key)` and `apply_effect_edges` files it once every body exists. `poly_candidate`, `_effect_mark_poly` and `_poly_call_edges` went with it: each had exactly one reader, the deferral |
+| **T7**'s `splice=False` mode | "deletes with T5" | **DELETED**. Its only caller was the poly-edge materialization, which wanted an instantiation's effect node WITHOUT a body because codegen would build the instance itself. Codegen looks instances up now, so no caller wants that shape |
+| **T6** `_process_effect_monos` — the poly-edge materialization loop | REPLACED by the one fixpoint | **DELETED** (the fourth step of its loop) |
+| **T6** `_process_effect_monos` — the SHELL + its three drain loops | "REPLACED by the one monomorphization fixpoint" | **KEPT, and the spec's row is amended.** The drain loops are not poly machinery: they are design 70/74's EAGER driven / spawn / method-generic builds, which must run BEFORE the coroutine transform, and each was probed load-bearing. Only the poly step was T5's |
+| **C2** `_promote_nested_generic_methods` | DELETES (§2c) | **SHRANK to an ADOPTION** (266 U1), as C1 did at stage 4. Its method-generic arm reads phase 2's spliced instance out of the merged AST instead of building one. It could not stay a build: with the re-entry gone, phase 2's splice SURVIVES, so the transform's own clone became a second LLVM declaration of one symbol |
+| **C1 / C3 / C4** | DELETE (§2c) | unchanged from stage 4's outcome — C1 no longer BUILDS, and DF-295a's "what deletes is the BUILDING, not the walk" still stands. The DISCOVERY walk stays: it maps a driven call site onto a frame key, which is a transform question, not a registry one |
+
+THE ACCEPTANCE TEST, run both ways: with `_effect_record_poly_call`
+monkeypatched to record nothing, `examples/errors/sync_generic_instantiation_
+suspends.saw` REFUSES — and after the machinery was actually deleted it refuses
+with a byte-identical diagnostic, naming the instance
+(``calls `run$1$Slow` → `Slow.step` → __saw_suspend``). One error, so
+`caller_fast` still compiles: the both-ways property is intact.
+
+§5's envelope is not disturbed by this — 266 does not change what phase 2
+materializes, only how many times the front half runs. It runs ONCE per driven
+compile now instead of four times; see DF-292c's landing note for the numbers.
