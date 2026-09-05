@@ -19,6 +19,7 @@ from ast_nodes import (
     Identifier, MemberAccess, ArrayIndex, SelfExpr, TupleIndex,
     OptionalEvalExpr, OptionalChainAssign, ForceUnwrap, MethodCall,
     IfLetExpr,
+    LOCAL_ATTRIBUTES,
 )
 
 # Compound assignment token to operator mapping
@@ -100,8 +101,10 @@ class StatementsMixin:
         elif self.match(TokenType.CONTINUE):
             return self.parse_continue_statement()
         elif self.match(TokenType.AT):
-            # Attributes (design 58) are only legal on top-level func/static.
-            self.error("attributes are not supported on local declarations")
+            # DF-300b: `@align(N)` ahead of a local `let`/`var` — the one
+            # attribute a statement accepts. Every other name, and every other
+            # statement kind, is refused through the two position funnels.
+            return self._parse_attributed_local()
         elif self.match_ident("static_assert") and self.peek(1).type == TokenType.LPAREN:
             # Compile-time assertion in statement position (design 53).
             return self.parse_static_assert()
@@ -110,6 +113,37 @@ class StatementsMixin:
             # We need to parse the target expression first to handle both
             # simple assignments (x = value) and field assignments (obj.field = value)
             return self.parse_assignment_or_expression_statement()
+
+    def _parse_attributed_local(self) -> Statement:
+        """Parse an attribute block ahead of a local binding (DF-300b).
+
+        The statement-position entry of `parse_attributes`. Only `@align(N)`
+        is legal here and only on a `let`/`var` that binds ONE name — a
+        destructuring `let` binds several, and one alignment cannot say which
+        of them it is about, so it is refused where it is written rather than
+        silently applied to the first.
+        """
+        at_token = self.current()
+        at_pos = self.pos
+        attrs = self.parse_attributes()
+        self.skip_newlines()
+        if not self.match(TokenType.LET, TokenType.VAR):
+            # `_reject_attribute_position` reads the token after the `@` to
+            # name the attribute, so wind back onto it. Nothing is re-parsed:
+            # the call raises.
+            self.pos = at_pos
+            self._reject_attribute_position("this statement")
+        self._reject_misplaced_attributes(attrs, LOCAL_ATTRIBUTES,
+                                          "local declarations")
+        stmt = self.parse_let_statement(mutable=self.match(TokenType.VAR))
+        if not isinstance(stmt, LetStatement):
+            self.error_at(
+                at_token,
+                "`@align` may not be written on a destructuring `let`: it "
+                "binds several names and one alignment cannot say which of "
+                "them it is about — bind them separately")
+        stmt.attributes = attrs
+        return stmt
 
     def parse_guard_statement(self) -> GuardLetStatement:
         start = self.advance()  # consume 'guard'

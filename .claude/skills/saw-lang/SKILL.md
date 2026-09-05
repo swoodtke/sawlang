@@ -3445,7 +3445,35 @@ value; an exported return may not be optional — a seam returns a raw
 error — EXCEPT under `sawc --runtime-build` (design 113b), which lets the
 per-host runtime under `sawc/rt/` export exactly the frozen `__saw_rt_*`
 ABI (sync-only; a non-ABI `__saw_rt_*` name / a suspending body is a clean
-error). You only touch this when authoring `sawc/rt/`. `static_assert(
+error). You only touch this when authoring `sawc/rt/`.
+- **`@align(N)` STATES A SLOT'S ALIGNMENT (DF-300b)** — on a local `let`/`var`
+  or a `static`, and nowhere else. A `[UInt8; N]` is 1-aligned by ABI, so a
+  byte buffer whose ABI wants word alignment has no other way to say so, and
+  without it the optimizer places the slot wherever it likes (a `-Oz` repack
+  is what turned this from latent to a fault):
+  ```saw-fragment
+  @align(64)
+  static DMA_WINDOW: [UInt8; 256] = [0; 256]
+
+  func stage() -> Int {
+      @align(8)
+      var body: [UInt8; 128] = [0; 128]
+      send(&body)                       // the alignment travels with the storage
+  }
+  ```
+  `N` is a CONST expression on an array length's terms (a literal, a module
+  `static`, const arithmetic — one evaluator, so `@align(WORD)` and
+  `[UInt8; WORD * 4]` agree), a POWER OF TWO, at most 4096. It only ever
+  STRENGTHENS (max with the type's own), composes with `@section`, and costs
+  an all-zero static nothing (still zerofill). REFUSED, each cleanly: `let _`
+  and a `Void` binding (no storage); a FIELD or a PARAMETER (that is the
+  type-carried aligned form, a later design — the error says so); a
+  destructuring `let` (several names, one alignment); and a local that lives
+  in a COROUTINE FRAME rather than on the stack. That last one is keyed on
+  frame RESIDENCY, not on whether the function suspends — an aligned local in
+  a suspending function is fine while its own scope does not span the
+  suspension, and the fix when it does is a `sync` helper or an `@align`ed
+  `static`. `static_assert(
 sizeof<T>() == N, "msg")`; struct layout = declaration-order natural ABI
 (documented rule) — a Saw struct can mirror a C struct for FFI.
 - **`FuncPointer<F>` IS the callback/entry-point type (design 226)** — one word,

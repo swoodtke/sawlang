@@ -37,15 +37,24 @@ class DeclarationsMixin:
         return name
 
     def parse_attributes(self) -> List[Attribute]:
-        """Parse zero or more attribute lines (design 58): `@name` or
-        `@name("string")`, each immediately preceding a declaration.
+        """Parse zero or more attribute lines (design 58): `@name`,
+        `@name("string")` or `@name(<const expr>)`, each immediately preceding
+        a declaration.
+
+        THE attribute grammar funnel (obligation 1). Its entry points are
+        `Parser._dispatch_toplevel_decl` (a top-level declaration) and
+        `Parser.parse_statement` (a local `let`/`var`, DF-300b); every `@` the
+        language accepts is read here, so a new attribute is a row in
+        `KNOWN_ATTRIBUTES` plus an arity rule below and nothing else.
 
         Grammar-level checks live here (Part 1): the name must be a known
         attribute, `@export` takes zero args or one string literal, `@section`
-        requires exactly one string literal, `@synthesize` takes none, and an
+        requires exactly one string literal, `@synthesize` takes none,
+        `@align` requires exactly one constant integer EXPRESSION, and an
         attribute may not repeat. Position (which declaration kinds accept
         which attribute) and semantic rules are enforced by the caller and the
-        typechecker respectively.
+        typechecker respectively — for `@align` that means the power-of-two,
+        range and constant-ness rules, which need the const evaluator.
         """
         attrs: List[Attribute] = []
         while self.match(TokenType.AT):
@@ -58,12 +67,22 @@ class DeclarationsMixin:
                 self.error(f"unknown attribute `@{name}` (known attributes: {known})")
 
             arg: Optional[str] = None
+            expr_arg = None
             if self.match(TokenType.LPAREN):
                 self.advance()  # consume '('
-                str_tok = self.expect(
-                    TokenType.STRING,
-                    f"attribute `@{name}` expects a string-literal argument")
-                arg = str_tok.value
+                if name == "align":
+                    # `@align(N)` takes a VALUE, so its argument is an ordinary
+                    # expression — a literal, a `static`, const arithmetic over
+                    # either. Folding it here would need a namespace the parser
+                    # does not have (which `WORD` is this, may this file see
+                    # it), so the expression travels to the typechecker exactly
+                    # as an array length's does.
+                    expr_arg = self.parse_expression()
+                else:
+                    str_tok = self.expect(
+                        TokenType.STRING,
+                        f"attribute `@{name}` expects a string-literal argument")
+                    arg = str_tok.value
                 self.expect(TokenType.RPAREN, f"Expected ')' to close `@{name}(...)`")
 
             # Per-attribute arity/type (Part 1).
@@ -72,13 +91,16 @@ class DeclarationsMixin:
                            "string-literal argument, e.g. `@section(\".text.boot\")`")
             if name == "synthesize" and arg is not None:
                 self.error("attribute `@synthesize` takes no argument")
+            if name == "align" and expr_arg is None:
+                self.error("attribute `@align` requires exactly one "
+                           "constant integer argument, e.g. `@align(8)`")
 
             # Duplicate attribute is an error.
             for prev in attrs:
                 if prev.name == name:
                     self.error(f"duplicate attribute `@{name}`")
 
-            attrs.append(Attribute(name=name, arg=arg,
+            attrs.append(Attribute(name=name, arg=arg, expr_arg=expr_arg,
                                    line=at_tok.line, column=at_tok.column))
             self.skip_newlines()
         return attrs
@@ -166,6 +188,10 @@ class DeclarationsMixin:
             # — a bare field inherits its declaring type's tier — so what the
             # parser records is the pair (tier, was-one-written) and
             # `effective_field_visibility` decides what it means.
+            if self.match(TokenType.AT):
+                # DF-300b: an `@align` on a FIELD is the type-carried form,
+                # which v1 does not have; the funnel says so by name.
+                self._reject_attribute_position("struct fields")
             field_visibility, field_vis_written = self._parse_field_visibility()
             field_name_token = self.expect(TokenType.IDENT, "Expected field name")
             self.expect(TokenType.COLON, "Expected ':' after field name")
@@ -621,8 +647,10 @@ class DeclarationsMixin:
                 method.doc = self.doc_text(member_doc)
                 methods.append(method)
             elif self.match(TokenType.AT):
-                # Attributes (design 58) are only legal on top-level func/static.
-                self.error("attributes are not supported on methods")
+                # Attributes (design 58) are only legal on top-level
+                # func/static, on an extension HEAD, and — since DF-300b — on a
+                # local `let`/`var`. Never on a method.
+                self._reject_attribute_position("methods")
             else:
                 self.error(f"Expected 'type', 'func', or 'init' in extension, got {self.current().type.name}")
             self.skip_newlines()
@@ -1013,6 +1041,11 @@ class DeclarationsMixin:
             return params, self_mutable, self_is_reference
 
         while True:
+            if self.match(TokenType.AT):
+                # DF-300b: same answer a field gets — a parameter's alignment
+                # is a property of its TYPE, which v1 cannot spell.
+                self._reject_attribute_position("parameters")
+
             # Check for '&' before parameter (for reference parameters and &self/&var self)
             is_ref = False
             is_var = False

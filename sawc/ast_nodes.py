@@ -2078,6 +2078,9 @@ class LetStatement(Statement):
     # redefinition point. `None` on every un-transformed body, where the two
     # bindings still share their source name.
     coro_redefines: Optional[str] = annotation(None)
+    # DF-300b: `@align(N)` lines written ahead of this `let`/`var`. The only
+    # attribute a LOCAL accepts; the parser refuses every other name here.
+    attributes: List['Attribute'] = field(default_factory=list)
 
 
 @dataclass
@@ -2545,26 +2548,58 @@ class Method(ASTNode):
 
 @dataclass
 class Attribute(ASTNode):
-    """A Swift-style declaration attribute (design 58): `@name` or `@name("arg")`.
+    """A Swift-style declaration attribute (design 58): `@name` or `@name(arg)`.
 
     Attached to the declaration immediately following it. The legal names are
-    `export` and `section` (on a top-level func/static) and `synthesize` (on an
-    extension, design 128); `export` takes zero args or one string literal,
-    `section` requires exactly one string literal, `synthesize` takes none.
-    `arg` is the decoded string literal content (no quotes), or None for the
-    bare `@name` form.
+    `export` and `section` (on a top-level func/static), `synthesize` (on an
+    extension, design 128) and `align` (DF-300b: on a `static` or on a local
+    `let`/`var`); `export` takes zero args or one string literal, `section`
+    requires exactly one string literal, `synthesize` takes none, and `align`
+    requires exactly one CONSTANT INTEGER EXPRESSION.
+
+    Two argument slots, because the two argument grammars are different: `arg`
+    is the decoded string literal content (no quotes) for the string-taking
+    attributes, and `expr_arg` is the unevaluated expression for `@align`,
+    which the typechecker folds through the ONE const evaluator
+    (`const_eval`) exactly as an array length is folded.
     """
     name: str
     arg: Optional[str] = None
+    # `@align(N)`'s argument, before folding. Parser-set, so a declared field
+    # rather than an annotation.
+    expr_arg: Optional['Expression'] = None
+    # DF-300b: the folded, validated `N`. Stamped by
+    # `TypeChecker._check_align_attribute` — the ONE place that folds, range
+    # checks and power-of-two checks an `@align` — and read by codegen. None
+    # until that check runs, and None on any attribute that is not `@align`.
+    align_value: Optional[int] = annotation(None)
 
 
 # Known attribute names. Used for the unknown-name diagnostic.
-KNOWN_ATTRIBUTES = ("export", "section", "synthesize")
+KNOWN_ATTRIBUTES = ("export", "section", "synthesize", "align")
 
 # Where each attribute may appear. The parser enforces this (position is a
 # grammar property); the typechecker owns the per-attribute semantics.
-FUNC_STATIC_ATTRIBUTES = ("export", "section")
+FUNC_ATTRIBUTES = ("export", "section")
+STATIC_ATTRIBUTES = ("export", "section", "align")
 EXTENSION_ATTRIBUTES = ("synthesize",)
+LOCAL_ATTRIBUTES = ("align",)
+
+# DF-300b: the largest alignment `@align(N)` will accept. Chosen as one page on
+# every target Saw builds for — an alignment beyond a page is not something a
+# stack slot or an ordinary global can honour anyway, and a cap keeps a typo
+# (`@align(4096000)`) a compile error instead of a linker failure or a frame
+# the target cannot address.
+MAX_ALIGN = 4096
+
+# The sentence every `@align` position refusal ends with. Written once because
+# the refusal is reported from four places (a function, an extension, a struct
+# field, a parameter) and a reader who meets it in one of them is asking the
+# same question in all four.
+ALIGN_SURFACE_HINT = (
+    "`@align(N)` is accepted on a `static` declaration and on a local "
+    "`let`/`var`. A field, a parameter or a type cannot state an alignment "
+    "yet — an alignment the TYPE carries is its own design")
 
 
 def find_attribute(node: 'ASTNode', name: str) -> Optional['Attribute']:
@@ -2593,6 +2628,20 @@ def section_name(node: 'ASTNode') -> Optional[str]:
     """The object-file section requested by `@section("name")`, or None."""
     attr = find_attribute(node, 'section')
     return attr.arg if attr is not None else None
+
+
+def requested_align(node: 'ASTNode') -> Optional[int]:
+    """The alignment `@align(N)` requests on `node`, or None (DF-300b).
+
+    THE reader (obligation 1). Codegen asks this at the two emission sites the
+    attribute reaches — a local's `alloca` and a `static`'s global — and never
+    reads `attributes` directly, so a request that the typechecker refused
+    (non-constant, not a power of two, out of range) reads as absent here
+    rather than reaching LLVM half-checked: `align_value` is stamped only on
+    the path that validated it.
+    """
+    attr = find_attribute(node, 'align')
+    return getattr(attr, 'align_value', None) if attr is not None else None
 
 
 def has_synthesize(node: 'ASTNode') -> bool:

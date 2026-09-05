@@ -407,12 +407,83 @@ def check_opt_level_attributes(failures):
                     f"STRONGER level — the level table leaked (design 265 U1)")
 
 
+def check_align_attribute(failures):
+    """`@align(N)` reaches the emitted IR — the alloca's and the global's
+    align — at EVERY optimization level, on a 64-bit and a 32-bit target
+    (DF-300b).
+
+    No examples test can express this. A running program can only observe an
+    ADDRESS, and at a size level LLVM propagates the alignment it was given and
+    constant-folds `addr % N == 0` to `true` — so a runtime oracle that passes
+    proves the optimizer BELIEVED the attribute, and one that would fail
+    without it fails only by luck of where the slot happened to land. The
+    attribute in the IR is the thing DF-300b is actually about: sos SL-26's
+    riscv32 fault was a slot the optimizer was free to place because nothing in
+    the IR said otherwise.
+
+    riscv32 is checked beside the host because that is the target the fault
+    appeared on, and `-Oz` because that is the level that repacked the frames.
+    """
+    source = os.path.join(ROOT, "examples",
+                          "align_attribute_survives_optimization.saw")
+    if not os.path.exists(source):
+        failures.append("align_attribute_survives_optimization.saw: missing "
+                        "from examples/")
+        return
+    targets = [("host", []),
+               ("riscv32", ["--target", "riscv32-unknown-none-elf",
+                            "--target-features", "+m,+a,+c"])]
+    for tag, target_flags in targets:
+        for flag in ("-O0", "-Oz"):
+            out = os.path.join(ROOT, ".build", "ircontract",
+                               f"align_{tag}_{flag.lstrip('-')}")
+            os.makedirs(os.path.dirname(out), exist_ok=True)
+            _sawc([source, "--emit-ir", flag, "-o", out] + target_flags)
+            with open(out + ".ll") as f:
+                text = f.read()
+            where = f"{tag} {flag}"
+            # The three statics the fixture declares, each with the alignment
+            # it asked for. A global cannot be optimized away here: every one
+            # of them has its address taken by the fixture's own checks.
+            for name, want in (("align_fixture_arena", 64),
+                               ("align_fixture_seeded", 16),
+                               ("align_fixture_placed", 32)):
+                pattern = re.compile(
+                    r'^@"?' + name + r'"?\s*=.*?,\s*align\s+(\d+)\s*$',
+                    re.MULTILINE)
+                found = pattern.search(text)
+                if found is None:
+                    failures.append(
+                        f"align ({where}): the static `{name}` carries no "
+                        f"`align` in the emitted IR — an `@align` that does "
+                        f"not reach the object is an alignment the program "
+                        f"asked for and did not get (DF-300b)")
+                elif int(found.group(1)) < want:
+                    failures.append(
+                        f"align ({where}): the static `{name}` is emitted "
+                        f"`align {found.group(1)}`, below the `@align({want})` "
+                        f"it declares")
+            # ...and the zerofill rule design 149 owes it: an all-zero static
+            # stays `global ... zeroinitializer`, never `constant`, so asking
+            # for an alignment never moves it out of .bss and into the image.
+            if not re.search(
+                    r'^@"?align_fixture_arena"?\s*=\s*(?:\w+\s+)*'
+                    r'global\s+\[256 x i8\] zeroinitializer',
+                    text, re.MULTILINE):
+                failures.append(
+                    f"align ({where}): the all-zero `@align`ed static "
+                    f"`align_fixture_arena` is no longer emitted as a "
+                    f"zerofill `global` — an alignment request must not cost "
+                    f"image bytes (design 149)")
+
+
 def main() -> int:
     failures = []
     check_embedding(failures)
     check_seam_widths(failures)
     check_cell_static_placement(failures)
     check_opt_level_attributes(failures)
+    check_align_attribute(failures)
 
     if failures:
         print("IR contract violations:\n")
@@ -426,7 +497,9 @@ def main() -> int:
           f"{len(CELL_STATICS) + len(MUTEX_STATICS) + len(ONCE_STATICS)} "
           f"statics land in the segment the cell-carrying property picks; "
           f"{len(OPT_LEVEL_ATTRS)} optimization levels stamp exactly their own "
-          f"function attributes")
+          f"function attributes; `@align` reaches the IR at -O0 and -Oz on a "
+          f"64-bit and a 32-bit target, without costing a zero static its "
+          f"zerofill")
     return 0
 
 

@@ -593,7 +593,13 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     def _entry_alloca(self, llvm_type, name="", align=None):
         """Create an alloca in the current function's entry block.
 
-        `align` overrides the slot's alignment. Payload scratch used to pass
+        `align` STRENGTHENS the slot's alignment: the emitted number is the
+        maximum of the request and the type's own ABI alignment, so a caller
+        can only ever ask for more than the type would get and never for less
+        (DF-300b — a `@align(2)` on an `Int64` local must not produce a
+        2-aligned slot the loads would then fault on).
+
+        Payload scratch used to pass
         `align=8` for a reason design 265 U2 removed: an enum payload was typed
         `[N x i8]` (ABI align 1) and bitcast-and-loaded as the active variant's
         field struct, whose pointers and `i64`s require 8-alignment, so a
@@ -623,7 +629,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             builder.position_at_end(entry)
         slot = builder.alloca(llvm_type, name=name)
         if align is not None:
-            slot.align = align
+            slot.align = max(align, self._abi_align(llvm_type))
         builder.position_at_end(saved_block)
         return slot
 
@@ -803,7 +809,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         """The `@section` specifier to stamp, or a clean refusal (DF-225f).
 
         THE ONE PLACE a section name is validated (obligation 1). ENTRY POINTS:
-        the `@section` stamp on a `static` (`_declare_static_global`) and on a
+        the `@section` stamp on a `static` (`_emit_static_global`) and on a
         function (`_declare_function`) — the only two positions the attribute is
         legal in.
 
@@ -1970,7 +1976,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         written in place via atomics). A bare declaration (no initializer) is a
         `zeroinitializer`. Reads resolve through `self.static_globals`.
         """
-        from ast_nodes import is_exported, export_symbol, section_name
+        from ast_nodes import (is_exported, export_symbol, section_name,
+                               requested_align)
         exported = is_exported(static)
         c_symbol = export_symbol(static) if exported else None
 
@@ -2023,6 +2030,16 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         sec = self._checked_section(section_name(static), static)
         if sec:
             gv.section = sec
+        # DF-300b: `@align(N)`, already folded and validated by the
+        # typechecker's align funnel. Maximum with the type's own ABI
+        # alignment, exactly as `_entry_alloca` does for the local half, so an
+        # `@align` only ever strengthens. This composes with `@section` above
+        # and with the design-149 zerofill rule below it: llvmlite renders
+        # `section` and `align` side by side, and an all-zero aligned static
+        # still lands in `.bss` and still costs no image bytes.
+        align = requested_align(static)
+        if align is not None:
+            gv.align = max(align, self._abi_align(gv.value_type))
         if exported and gv not in self._exported_llvm_globals:
             self._exported_llvm_globals.append(gv)
 

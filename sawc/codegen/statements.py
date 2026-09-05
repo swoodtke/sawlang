@@ -16,6 +16,7 @@ from ast_nodes import (
     WhileExpr, ForLoop, Identifier, MemberAccess, ArrayIndex, SelfExpr,
     TupleIndex, MoveExpr, NoneLiteral, SawType, TypeKind,
     WildcardPattern, BindingPattern, TuplePattern,
+    requested_align,
 )
 from ast_walk import pattern_binding_names
 
@@ -379,11 +380,25 @@ class StatementsMixin:
         # error:` with an EMPTY message. There is nothing to store and nothing to
         # clean up, so record the name as void-valued and read it back as Void.
         if isinstance(value.type, ir.VoidType):
+            # DF-300b: a Void binding has no storage, so an alignment request
+            # on it could only be dropped. Refuse instead of dropping.
+            if requested_align(stmt) is not None:
+                from .core import CodegenUserError
+                raise CodegenUserError(
+                    f"`@align` cannot be written on `{stmt.name}`: it binds a "
+                    f"`Void` value, which occupies no storage",
+                    getattr(stmt, 'line', 0), getattr(stmt, 'column', 0),
+                    hint="only a binding with storage can state an alignment")
             self.void_variables.add(stmt.name)
             self.variables.pop(stmt.name, None)
             return
 
-        alloca = self._entry_alloca(value.type, name=stmt.name)
+        # DF-300b: `@align(N)` on this local, already folded and validated by
+        # the typechecker's align funnel. `_entry_alloca` takes the MAXIMUM of
+        # the request and the type's own ABI alignment, so an `@align` can
+        # only ever strengthen a slot, never weaken one.
+        alloca = self._entry_alloca(value.type, name=stmt.name,
+                                    align=requested_align(stmt))
         # design 261 U2: `let b = a` on an aggregate is a COPY, and one
         # `llvm.memcpy` is what it should be rather than a field walk.
         self._store_transfer(value, alloca)

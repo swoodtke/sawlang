@@ -1,0 +1,12 @@
+// DF-300b: v1 spells `@align` on LOCALS and STATICS. A field's alignment is a
+// property of its TYPE, which is the type-carried aligned form — its own
+// design. The refusal names the surface rather than reading as a typo.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: attributes are not supported on struct fields
+struct Frame {
+    @align(8)
+    body: [UInt8; 16]
+}
+func main() {
+    print(Frame(body: [0; 16])[0])
+}

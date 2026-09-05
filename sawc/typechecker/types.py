@@ -2479,6 +2479,98 @@ class TypeUtilsMixin:
                         self._check_declared_array_lengths(
                             item, what, line, column, seen)
 
+    def _check_align_attribute(self, node, what: str) -> None:
+        """Fold and validate an `@align(N)` on `node` (DF-300b).
+
+        THE align funnel (obligation 1), and its entry points are:
+          - `TypeChecker._check_attribute_semantics` — a module `static`,
+            including `unsafe static var`;
+          - `TypeChecker._check_let_statement` — a local `let`/`var`.
+
+        Those two are the only positions the parser admits an `@align` in, so
+        every alignment request in the language is folded, range-checked and
+        stamped here. Codegen reads the answer back through
+        `ast_nodes.requested_align`, never by re-deriving it: an attribute
+        this method REFUSED carries no `align_value`, so a bad request
+        reaches LLVM as no request at all instead of half-checked. That is
+        also what keeps the parser half honest — a `@align` that parses and
+        is silently dropped would be exactly the hidden failure the doctrine
+        forbids.
+
+        `N` folds through the ONE const evaluator, so it is a literal, a
+        module `static`, or const arithmetic over either, on the same terms
+        an array length is — `@align(WORD)` beside `[UInt8; WORD * 4]` can
+        never disagree about what `WORD` is.
+        """
+        from ast_nodes import find_attribute, MAX_ALIGN
+        from const_eval import const_eval, ConstEvalError
+        attr = find_attribute(node, 'align')
+        if attr is None or attr.expr_arg is None:
+            return
+        expr = attr.expr_arg
+        line = getattr(expr, 'line', 0) or node.line
+        column = getattr(expr, 'column', 0) or node.column
+        source_file = getattr(node, 'source_file', "") or ""
+
+        def refuse(message, hint=None, at_line=None, at_column=None):
+            self._error(ErrorKind.TYPE_MISMATCH, message,
+                        at_line or line, at_column or column, hint=hint,
+                        source_file=source_file)
+
+        # Type-check the argument first, in a CONST position, so an ordinary
+        # type error inside it reports as itself rather than as "not a
+        # constant" (the `_const_count` precedent).
+        with self._const_position():
+            if self._check_expression(expr) is None:
+                return
+        # An alignment is a NUMBER the emitter writes into the object file, so
+        # unlike an array length it has no abstract form: a const generic
+        # parameter has no value in the body where the attribute is written,
+        # and the instantiation is not re-checked here. Refuse it by name
+        # rather than fold it to a stand-in and emit that.
+        if self._mentions_const_param(expr) and not self._const_param_env():
+            refuse(
+                f"`@align` on {what} must be a constant this declaration "
+                f"already knows: a const generic parameter has no value here",
+                hint="write the alignment as a literal or a module `static`")
+            return
+        self._stamp_const_names(expr)
+        try:
+            value = const_eval(expr, env=self._const_param_env(),
+                               width=self.platform_int_width)
+        except ConstEvalError as e:
+            refuse(
+                f"`@align` on {what} is not a compile-time constant: "
+                f"{e.what} is not allowed here",
+                hint="an alignment is fixed at compile time — use an integer "
+                     "literal, a module `static` of type `Int` or `UInt`, or "
+                     "const arithmetic over them",
+                at_line=e.line, at_column=e.column)
+            return
+        if isinstance(value, bool) or not isinstance(value, int):
+            refuse(f"`@align` on {what} must be an integer")
+            return
+        if value <= 0:
+            refuse(f"`@align` on {what} must be positive, but is `{value}`",
+                   hint="an alignment counts bytes, so the smallest one is 1")
+            return
+        if value & (value - 1) != 0:
+            refuse(
+                f"`@align` on {what} must be a power of two, but is `{value}`",
+                hint="an address is aligned to a power of two — the nearest "
+                     f"are `{1 << (value.bit_length() - 1)}` and "
+                     f"`{1 << value.bit_length()}`")
+            return
+        if value > MAX_ALIGN:
+            refuse(
+                f"`@align` on {what} is `{value}`, above the largest "
+                f"alignment Saw will request (`{MAX_ALIGN}`)",
+                hint=f"`{MAX_ALIGN}` is one page on every target Saw builds "
+                     f"for; a stack slot or an ordinary global cannot honour "
+                     f"more")
+            return
+        attr.align_value = value
+
     def _try_const_value(self, expr):
         """Fold a constant expression, or return None if it cannot be folded yet.
 

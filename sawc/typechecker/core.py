@@ -4071,6 +4071,9 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                     ErrorKind.TYPE_MISMATCH,
                     "`@section` name must be a non-empty string",
                     static.line, static.column, source_file=static.source_file)
+            # DF-300b: one of the align funnel's two entry points.
+            self._check_align_attribute(
+                static, f"the static `{static.name}`")
             if not is_exported(static):
                 continue
             sym = export_symbol(static)

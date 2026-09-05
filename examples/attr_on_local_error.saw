@@ -1,6 +1,9 @@
-// design 58 Part 1: attributes are rejected on local declarations.
+// design 58 Part 1, narrowed by DF-300b: a local declaration takes `@align`
+// and nothing else. It used to take no attribute at all; what did not change is
+// that `@export` is refused there, and the message now names what IS legal
+// rather than saying attributes are wholesale unsupported.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: attributes are not supported on local declarations
+// EXPECT-ERROR-CONTAINS: attribute `@export` is not supported on local declarations (legal here: @align)
 
 func main() {
     @export

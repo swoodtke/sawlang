@@ -264,6 +264,15 @@ XMARK = f"{YELLOW}x{RESET}"
 # reason MUST cite a DF number, the expectations state the INTENDED behavior,
 # and an xfail case that PASSES fails the run so the marker cannot go stale.
 #
+# `extra_flags` appends sawc flags for ONE case (DF-300b). The suite otherwise
+# compiles at the default O1 pipeline, which is the right default — the point of
+# these cases is the freestanding profile, not an optimization level. It exists
+# because an alignment request is only interesting where an optimizer would
+# otherwise be free to place the slot: design 265's `-Oz` repacked two riscv32
+# frames and that is what made DF-300b a fault rather than a latent gap. Keep it
+# to cases that are ABOUT a level; a case that merely happens to pass at one
+# does not need it.
+#
 # ONE NOTE ON WHAT THE CASES DELIBERATELY DO NOT DO: none of them divides or
 # checked-multiplies a 64-bit value beyond what `hal/support.c` supplies
 # libcalls for, because the rest reach compiler-rt entries a freestanding link
@@ -473,6 +482,23 @@ TEST_CASES = [
         # that reaches for it: the formatter divides `UInt64`s, and
         # `hal/support.c` supplies `__udivdi3`. A violation of that rule is a
         # link failure, not a wrong answer.
+        # DF-300b: `@align(N)` reaches the object at `-Oz`. riscv32 only —
+        # this is the arch and the level design 265's repacking faulted on
+        # (arm64 passed by luck), and the case is a claim about that pairing.
+        "name": "align_attribute",
+        "src": "align_attribute.saw",
+        "extra_flags": ["-Oz"],
+        "arches": ["riscv32"],
+        "expect_out": ["fs check local_align_8=1",
+                       "fs check local_align_64=1",
+                       "fs check local_align_by_ref=1",
+                       "fs check static_align_64=1",
+                       "fs check static_align_16=1",
+                       "fs check seeded_value=1",
+                       "fs done align_attribute ok"],
+        "expect_clean_exit": True,
+    },
+    {
         "name": "float_text",
         "src": "float_text.saw",
         "expect_out": ["fs check integral=1",
@@ -704,6 +730,7 @@ def _sawc_command(case, arch, obj):
     if case.get("modules", True):
         for name in sorted(MODULES):
             cmd += ["--module-path", f"{name}={MODULES[name]}"]
+    cmd += case.get("extra_flags", [])
     return cmd
 
 

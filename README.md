@@ -735,6 +735,12 @@ Saw is freestanding: the same language targets bare metal.
   in the spec.
 - **C-ABI exports**: `@export("name")` gives a function an exact, unmangled
   symbol with the C calling convention.
+- **Stated alignment**: `@align(N)` on a local or a `static` emits the slot at
+  an alignment of at least `N` bytes. A `[UInt8; N]` is 1-aligned by ABI, so a
+  buffer that an ABI needs word-aligned has no way to say so otherwise, and the
+  requirement fails as a fault rather than a diagnostic. `N` is a compile-time
+  constant, a power of two, at most 4096. Fields, parameters and types cannot
+  state an alignment yet.
 
 ```saw
 import std.spinlock.*
@@ -749,6 +755,9 @@ struct UartRegs {
 static_assert(sizeof<UartRegs>() == 8, "UartRegs layout drift")
 
 static PENDING: SpinLock<Int>
+
+@align(64)
+static DMA_WINDOW: [UInt8; 256] = [0; 256]
 
 @export("kernel_add")
 func add(a: Int, b: Int) -> Int { a + b }

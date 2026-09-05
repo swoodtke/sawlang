@@ -1820,6 +1820,21 @@ class StatementsMixin:
     def _check_let_statement(self, stmt: LetStatement):
         """Check a let/var statement."""
         from .core import VariableInfo
+        from ast_nodes import find_attribute
+        # DF-300b: the align funnel's LOCAL entry point. Asked before the
+        # `let _` discard returns below, so a `@align` on a binding that owns
+        # no storage is refused rather than quietly accepted and dropped.
+        if find_attribute(stmt, 'align') is not None:
+            if stmt.name == "_":
+                self._error(
+                    ErrorKind.TYPE_MISMATCH,
+                    "`@align` cannot be written on `let _`: a discard binds "
+                    "no storage, so there is nothing to align",
+                    stmt.line, stmt.column,
+                    hint="bind a name if the slot's alignment matters")
+            else:
+                self._check_align_attribute(
+                    stmt, f"the local `{stmt.name}`")
         # A `T -> T?` wrap this check INSERTED on an earlier pass over the same
         # AST (the place lowering and the coroutine transform both re-enter the
         # front half). It is not idempotent as a premise: the wrap is decided

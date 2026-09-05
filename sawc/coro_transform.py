@@ -3732,6 +3732,40 @@ class _FrameBuilder:
             return ot.inner_type
         return None
 
+    def _reject_frame_align(self, stmt):
+        """Refuse `@align(N)` on a local that is becoming a FRAME FIELD.
+
+        DF-306a. `@align` is emitted as an `alloca`'s align attribute, and a
+        frame-resident local is not an alloca: it becomes a field of the
+        synthesized `__Frame_*` struct, whose layout is the ordinary
+        declaration-order struct layout with no per-field alignment control
+        anywhere in codegen — and, for a spawned root, that struct is then
+        heap-allocated through `__saw_rt_alloc`, whose `align` argument
+        `sawc/rt/ABI.md` documents as currently ignored. Honouring the request
+        needs three separate contracts to change; SILENTLY dropping it would
+        hand back a 1-aligned buffer to code that asked for 8 and said so,
+        which is the failure DF-300b was filed about in the first place. So v1
+        refuses, and says which of the two answers to reach for.
+
+        Keyed on RESIDENCY, not on "does this function suspend": the caller is
+        the promotion decision itself, so every reason a local becomes a field
+        reaches this — a scope spanning a suspension, DF-218s's owning local
+        of a `return`-containing block (which needs NO suspension crossing
+        it), and DF-245d's propagating-`try` binding. A suspending function's
+        local that is NOT promoted keeps its alloca and its alignment.
+        """
+        from ast_nodes import find_attribute
+        if find_attribute(stmt, 'align') is None:
+            return
+        raise CoroTransformError(
+            f"`@align` is not supported on `{stmt.name}`: it lives in this "
+            f"function's coroutine frame, not on the stack, and a frame field "
+            f"cannot carry an alignment yet — move the aligned buffer into a "
+            f"`sync` helper that does not suspend, or hold it in an `@align`ed "
+            f"`static`",
+            stmt.line, stmt.column,
+            getattr(self.func, 'source_file', None))
+
     def _collect_frame_locals(self):
         """Conservative-by-scope liveness (design 52 Part 0): every local whose
         lexical scope SPANS a suspension is frame-resident. A block "spans a
@@ -3829,6 +3863,12 @@ class _FrameBuilder:
                     t = s.type_annotation or getattr(s.value, 'resolved_type', None)
                     if (scope_spans or (ret_scope and _type_owns(t))
                             or self._has_propagating_try(s)):
+                        # DF-306a: this local is about to stop being a stack
+                        # slot, so an `@align` on it has nowhere to go.
+                        # Refused HERE, against the residency predicate
+                        # itself, so the diagnostic can never drift from the
+                        # rule that decides it.
+                        self._reject_frame_align(s)
                         add(s.name, t, s.line, s.column)
                 return
             if isinstance(s, DestructuringLet):

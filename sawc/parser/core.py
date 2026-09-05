@@ -23,7 +23,8 @@ from ast_nodes import (
     SawType, TypeKind, Argument, TypeParameter,
     ClosureExpr, ClosureParam,
     ImportDecl, ModuleDecl, ExportDecl, Visibility,
-    FUNC_STATIC_ATTRIBUTES, EXTENSION_ATTRIBUTES
+    FUNC_ATTRIBUTES, STATIC_ATTRIBUTES, EXTENSION_ATTRIBUTES,
+    ALIGN_SURFACE_HINT
 )
 from .types import TypeParsingMixin, GenericListTrailingComma
 from .declarations import DeclarationsMixin
@@ -910,13 +911,13 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
             self._error_unsafe_prefix()
 
         if self.match(TokenType.FUNC):
-            self._reject_misplaced_attributes(attrs, FUNC_STATIC_ATTRIBUTES,
+            self._reject_misplaced_attributes(attrs, FUNC_ATTRIBUTES,
                                               "function declarations")
             fn = self.parse_function(visibility)
             fn.attributes = attrs
             p.functions.append(fn)
         elif self.match(TokenType.STATIC):
-            self._reject_misplaced_attributes(attrs, FUNC_STATIC_ATTRIBUTES,
+            self._reject_misplaced_attributes(attrs, STATIC_ATTRIBUTES,
                                               "static declarations")
             st = self.parse_static(visibility, unsafe)
             st.attributes = attrs
@@ -935,15 +936,44 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
     def _reject_misplaced_attributes(self, attrs, allowed, where: str):
         """Error on any attribute in `attrs` that is not legal on `where`.
 
-        Position is a grammar property, so it is enforced here rather than in
-        the typechecker: `@export` belongs on a func/static, `@synthesize` on an
-        extension, and each is a clean error on the other.
+        THE attribute POSITION funnel (obligation 1), for the case where the
+        attributes parsed and the declaration that followed turned out to be
+        the wrong kind. Position is a grammar property, so it is enforced here
+        rather than in the typechecker: `@export`/`@section` belong on a
+        func/static, `@synthesize` on an extension, `@align` on a static (its
+        other home, a local `let`/`var`, is reached through
+        `Parser.parse_statement` rather than through this method), and each is
+        a clean error in the other's place.
         """
         for attr in attrs:
             if attr.name not in allowed:
                 legal = ", ".join("@" + a for a in allowed)
+                surface = (" — " + ALIGN_SURFACE_HINT
+                           if attr.name == "align" else "")
                 self.error(f"attribute `@{attr.name}` is not supported on "
-                           f"{where} (legal here: {legal})")
+                           f"{where} (legal here: {legal}){surface}")
+
+    def _reject_attribute_position(self, where: str):
+        """Refuse an `@attribute` at a position that parses none at all.
+
+        The companion of `_reject_misplaced_attributes` (obligation 1's other
+        half): that one runs when the attributes PARSED and the declaration
+        after them was the wrong kind; this one runs at the positions the
+        grammar never reads an attribute in — a struct FIELD, a PARAMETER, an
+        extension METHOD, a statement that is not a `let`/`var`. Its entries
+        are exactly those four, and each passes its own noun.
+
+        The current token is the `@`, so the attribute NAME is one token
+        ahead. Reading it is what lets an `@align` written on a field or a
+        parameter say which surface v1 has instead of the bare "not
+        supported": those two positions are where an author reaching for an
+        aligned BUFFER TYPE would try first, and the answer they need is that
+        the type-carried form is a later design, not that they mistyped.
+        """
+        nxt = self.peek(1)
+        name = nxt.value if nxt.type == TokenType.IDENT else None
+        surface = " — " + ALIGN_SURFACE_HINT if name == "align" else ""
+        self.error(f"attributes are not supported on {where}{surface}")
 
     def _describe_decl_kind(self) -> str:
         """Human phrase for the declaration at the current token (used in the

@@ -1,0 +1,54 @@
+// Conformance row N08 — `@align(N)` on a local: the slot's address is a
+// multiple of N (DF-300b).
+//
+// The guarantee is the one sos SL-26 could not state: a byte buffer whose ABI
+// needs word alignment says so, and the compiler emits it. A `[UInt8; N]` has
+// ABI alignment 1, so every bit of alignment observed here comes from the
+// attribute — without it the optimizer is free to place the slot anywhere,
+// which is exactly what `-Oz` did when it repacked two riscv32 frames.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 0
+// 0
+// 0
+// 65
+
+func aligned_8() unsafe -> Int {
+    @align(8)
+    var body: [UInt8; 24] = [0; 24]
+    ((&body) as UnsafePointer<UInt8> as Int) % 8
+}
+
+func aligned_64() unsafe -> Int {
+    @align(64)
+    var body: [UInt8; 24] = [0; 24]
+    ((&body) as UnsafePointer<UInt8> as Int) % 64
+}
+
+// The alignment travels with the storage, so passing the buffer on by
+// reference does not lose it: the callee is looking at the same slot.
+func offset_of(buf: &[UInt8; 24]) unsafe -> Int {
+    ((&buf) as UnsafePointer<UInt8> as Int) % 8
+}
+
+func through_a_reference() unsafe -> Int {
+    @align(8)
+    var body: [UInt8; 24] = [0; 24]
+    offset_of(&body)
+}
+
+// A `let` is aligned exactly as a `var` is — the attribute is about storage,
+// not about mutability.
+func immutable_binding() unsafe -> Int {
+    @align(8)
+    let body: [UInt8; 24] = [65; 24]
+    body[0] as Int
+}
+
+func main() unsafe {
+    print(aligned_8())
+    print(aligned_64())
+    print(through_a_reference())
+    print(immutable_binding())
+}

@@ -11132,15 +11132,17 @@ the same rule every function type follows. The `FuncPointer` itself stays safe.
 
 ### Attributes (design 58)
 
-**Status: implemented.** Attributes are Swift-style `@name` / `@name("string")`
-lines placed immediately before a declaration. They are legal on top-level
-`func` and `static` declarations (`@export`, `@section`) and on `extension`
-declarations (`@synthesize`). An attribute on a struct, enum, trait, type alias,
-extern block, method, or local is a clean "attributes are not supported on X"
-error; an attribute on the wrong one of the two accepting positions names what
-is legal there instead. An unknown attribute name, a repeated attribute, or the
-wrong argument shape is a compile error. The set is `@export`, `@section` and
-`@synthesize`; `@inline` is reserved for a later design.
+**Status: implemented.** Attributes are Swift-style `@name`, `@name("string")`
+or `@name(<constant>)` lines placed immediately before a declaration. They are
+legal on top-level `func` and `static` declarations (`@export`, `@section`), on
+`extension` declarations (`@synthesize`), and on a local `let`/`var`
+(`@align`, which a `static` also takes). An attribute on a struct, enum, trait,
+type alias, extern block, method, struct field, or parameter is a clean
+"attributes are not supported on X" error; an attribute in the wrong one of the
+accepting positions names what is legal there instead. An unknown attribute
+name, a repeated attribute, or the wrong argument shape is a compile error. The
+set is `@export`, `@section`, `@synthesize` and `@align`; `@inline` is reserved
+for a later design.
 
 **`@export` / `@export("sym")`** makes a function or static callable from C. It
 is one unified attribute whose meaning is inseparable: **C calling convention +
@@ -11215,6 +11217,81 @@ func kernel_entry() -> Int32 { 0 }
 @section(".vector_table")
 static VECTORS: [UInt32; 64]        // externally-visible, kept alive, in-section
 ```
+
+#### Alignment
+
+**`@align(N)`** states the alignment of one piece of storage: a local `let`/`var`
+or a module `static`. The declaration's slot — the stack slot for a local, the
+global for a static — is emitted with an alignment of at least `N` bytes.
+
+```saw-fragment
+@align(8)
+static HEADER: [UInt8; 64] = [0; 64]
+
+func send(body: &[UInt8; 128]) -> Int { 0 }
+
+func stage() -> Int {
+    @align(8)
+    var body: [UInt8; 128] = [0; 128]
+    send(&body)
+}
+```
+
+Without it a `[UInt8; N]` has an ABI alignment of 1, so its address is whatever
+the optimizer finds convenient. That is fine until the bytes have to satisfy an
+ABI — a device descriptor, a message a kernel copies word-at-a-time, a buffer a
+peer reads as `UInt64`s — at which point the requirement is real and, before
+`@align`, unstatable. A requirement that cannot be written cannot be checked, so
+it fails as a fault at a distance rather than as a diagnostic.
+
+`N` is a compile-time constant on the same terms an array length is: an integer
+literal, a module `static`, or const arithmetic over them, folded by the same
+evaluator, so `@align(WORD)` and `[UInt8; WORD * 4]` can never disagree about
+what `WORD` is. It must be a power of two and at most 4096, which is one page on
+every target Saw builds for. A non-constant, non-power-of-two, zero, negative or
+oversized `N` is a compile error naming which it was.
+
+The attribute only ever strengthens: the emitted alignment is the larger of `N`
+and the type's own, so `@align(2)` on an `Int64` local still yields an 8-aligned
+slot rather than one its own loads would fault on. It composes with `@section`,
+and it does not cost a zero static its zerofill — an all-zero `@align`ed static
+still occupies no image bytes.
+
+Two positions refuse it. A binding with no storage — `let _`, or a binding of a
+`Void` value — has nothing to align. And a local that lives in a **coroutine
+frame** rather than on the stack is refused where it is written:
+
+```saw-error
+// error-contains: it lives in this function's coroutine frame
+import std.task.*
+
+func worker() -> Int {
+    @align(8)
+    var scratch: [UInt8; 32] = [0; 32]
+    yield_now()
+    scratch[0] as Int
+}
+
+func main() {
+    var group = TaskGroup()
+    print(group.spawn(worker()).join())
+}
+// error: `@align` is not supported on `scratch`: it lives in this function's
+//        coroutine frame, not on the stack, and a frame field cannot carry an
+//        alignment yet — move the aligned buffer into a `sync` helper that does
+//        not suspend, or hold it in an `@align`ed `static`
+```
+
+A local whose scope spans a suspension becomes a field of the frame struct,
+which carries no per-field alignment. The refusal is keyed on that residency and
+not on whether the enclosing function suspends: an aligned local in a suspending
+function is fine as long as its own scope does not span the suspension, and a
+suspending function nothing ever spawns builds no frame at all, so its locals
+stay ordinary stack slots and keep their alignment.
+
+Fields, parameters and types cannot state an alignment. `@align` is about one
+named piece of storage; an alignment the TYPE carries, which a signature could
+then enforce, is a separate design and is not yet spellable.
 
 #### Synthesized conformances
 

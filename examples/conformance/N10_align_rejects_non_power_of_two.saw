@@ -1,0 +1,15 @@
+// Conformance row N10 — `@align(N)` refuses an N that is not a power of two
+// (DF-300b).
+//
+// An address is aligned to a power of two; any other N names no alignment at
+// all. Refusing it is what keeps the attribute from being a number the emitter
+// quietly rounds or drops.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `@align` on the local `body` must be a power of two, but is `24`
+
+func main() {
+    @align(24)
+    var body: [UInt8; 32] = [0; 32]
+    print(body[0])
+}

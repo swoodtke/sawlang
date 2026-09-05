@@ -45,7 +45,7 @@ is scheduled and in what order is the whole of what they say.
 - DF-301b — a closure literal assigned to an ANNOTATED `let` of function type does not infer its parameter type, then reports the mismatch against the `Int` fallback (entry below, filed Sep 4 by design 264 U3; PRE-EXISTING, minor). The PARAMETER position of the expected-type ladder DF-226a/DF-232h walked for closure returns
 - DF-297a — the template snapshot's SECOND namespace back-pointer, a `SawType.symbol` on a DECLARED annotation, which DF-292b's park does not reach and should not: the capture still rebuilds 1,628 namespace method declarations per driven compile, worth ~0.22 s (targeted memo seeding) to ~0.48 s (symbols decline to be copied) more (entry below, filed Sep 3 by the perf batch). Wants a RULING first — should a namespace symbol ever be deep-copied into a template snapshot? — because either fix changes what the snapshot contains and owes obligation 2's sweep **RULED Sep 4 (user): NO COPY — a symbol is namespace identity and snapshots stop AT it; the fix rides a future perf dispatch and owes obligation 2 (everything reading type.symbol off a materialized instance)**
 - DF-294c — the const evaluator's STATIC-NAME leaf folds integers only, so a struct-typed static is refused in every const position design 186's own hint says it works in — the repeat value `[ZERO_SLOT; N]`, plain `static ALIAS: Slot = ZERO_SLOT`, and a struct-literal field (entry below, filed Sep 3 from sos SL-21; compliance defect vs 186 tier 2, no ruling owed; workarounds relayed). **SCHEDULED Sep 5: joins the 0.10.0 release paired with DF-300c — one const-eval dispatch, one leaf table**
-- DF-300b — NO ALIGNMENT REQUEST exists in the type system: a `[UInt8; N]` local's alloca carries NO align attribute (probed: `alloca [128 x i8]`, bare), so a byte buffer whose ABI needs word alignment cannot state it and gets whatever the optimizer packs — sos SL-26's pipe sysapi faulted on riscv32 the first time `-Oz` repacked two frames, arm64 passed by luck (entry below, filed Sep 5 by the lead from sos SL-26 at the 0.8.0 pin bump; DESIGN GAP, not a bug — the contract was unstatable so it was never stated. **RULED Sep 5 (user): `@align(N)` on locals/statics lands as v1 IN THE 0.10.0 RELEASE — attribute grammar per the `@export`/`@section` precedent, N a const power of two, emitted as the alloca/global's align, with an -Oz riscv32 freestanding test proving it survives; the TYPE-CARRIED aligned-array form (signature-enforceable, deletes sos's staging copy entirely) is its own later brief ruled together. sos's vet shrinks to a never-taken branch at v1**)
+- DF-300b — NO ALIGNMENT REQUEST exists in the type system: a `[UInt8; N]` local's alloca carries NO align attribute (probed: `alloca [128 x i8]`, bare), so a byte buffer whose ABI needs word alignment cannot state it and gets whatever the optimizer packs — sos SL-26's pipe sysapi faulted on riscv32 the first time `-Oz` repacked two frames, arm64 passed by luck (entry below, filed Sep 5 by the lead from sos SL-26 at the 0.8.0 pin bump; DESIGN GAP, not a bug — the contract was unstatable so it was never stated. **RULED Sep 5 (user): `@align(N)` on locals/statics lands as v1 IN THE 0.10.0 RELEASE — attribute grammar per the `@export`/`@section` precedent, N a const power of two, emitted as the alloca/global's align, with an -Oz riscv32 freestanding test proving it survives; the TYPE-CARRIED aligned-array form (signature-enforceable, deletes sos's staging copy entirely) is its own later brief ruled together. sos's vet shrinks to a never-taken branch at v1**) — **V1 HALF DONE Sep 5** (branch `align-attribute`): `@align(N)` on locals + statics through the existing attribute funnel, const-folded, power-of-two, capped at 4096, emitted as the alloca's and the global's align; two oracles (the `ircontract` lane reads the align off the emitted globals at -O0/-Oz on host AND riscv32; a new riscv32 -Oz freestanding case proves such a program builds and runs); conformance rows N08-N11. **ENTRY STAYS OPEN for the TYPE-CARRIED half** — the signature-enforceable form that actually deletes sos's staging copy. DF-306a filed (a frame-resident local cannot carry an alignment, so v1 refuses there)
 - DF-300c — `sizeof`/`alignof` do not fold at the STATIC-INITIALIZER, ARRAY-LENGTH or REPEAT-COUNT positions, and the static hint PROMISES them: `static C: Int = sizeof<UInt64>()` refuses with a hint listing `sizeof`/`alignof` as allowed (entry below, filed Sep 5 by the lead from sos SL-27, probe WIDENED it — sos claimed array length folds; it refuses too, honestly worded). DF-294c's family: the design-186 static-initializer evaluator supports fewer LEAF kinds than its hint and tier-2 claim, while `static_assert`'s evaluator folds both builtins fine. Compliance defect, no ruling owed. Workaround relayed: literal count + `static_assert` pinning it. **SCHEDULED Sep 5 (user): joins the 0.10.0 release, PAIRED with DF-294c in one const-eval dispatch — same design-186 evaluator, two missing leaf kinds, one leaf table shared by every const position, the two entries' position matrices combined as the test plan**
 - DF-294d — a static declaration's initializer cannot break after `=` (DF-172d's no-wrap family at the declaration head), which generic statics hit hardest because constructors do not infer type args, forcing `NAME: T<...> = T<...>(...)` on one line; PARENTHESIZING the initializer works today and design 207 (ruled Aug 10, unbuilt) deletes the doubled spelling entirely (entry below, filed Sep 3 from sos SL-22; RESOLUTION PATH is a user call) **RULED Sep 4 (user): design 207 SCHEDULED (+ the annotation-driven cell flagged in its Sep-4 amendment) with the paren idiom blessed in the spec/skill as the interim; DF-294d closes when 207 lands** — **CLOSED Sep 4 by the design-207 landing**: the constructor infers from the declared slot, so `static EVENTS: Slab<EventSlot, MAX_EVENTS> = Slab(...)` writes the type once and fits; the spec/skill interim passages now say the parens are for a long INITIALIZER, not for a doubled type. The grammar is untouched — cell (a) was not taken, so a bare break after `=` is still a parse error
 - docverify tier 2 (262's standing debt, recorded at U1/U2 integration Sep 3) — 46 error demos are `saw-fragment` because scaffolding (an elided struct, a missing import) refuses them BEFORE the check they exist to show, so their claimed diagnostics are uncertified; the tightening is real scaffolding per block until each pins its OWN error text. README's 11 front-door fragments stay exempt BY CHOICE (padding them would cost the prose its punch). Also recorded: the lane's two U1 refinements (declaration hoisting in `saw-body`; message-keyed vacuous detection) are lead-approved amendments to the brief's Amendment A
@@ -205,7 +205,70 @@ requirement is statable and the staging copy becomes deletable. A RULING
 picks the spelling; freestanding/kernel use is the motivating case, per the
 kernels-first doctrine. Repro: sawos `tests/pipe-donate` at `-Oz` on riscv32,
 any sawos commit before their sysapi fix.
-[186, 265, design 80 attribute grammar, sos SL-26]
+
+**V1 HALF DONE Sep 5** (branch `align-attribute`): `@align(N)` on LOCALS and
+STATICS, through the `@export`/`@section` grammar funnel — no new attribute
+machinery. `N` folds through the ONE const evaluator on an array length's
+terms (literal / module `static` / const arithmetic), must be a power of two
+and at most 4096 (one page on every target; documented). Emitted as the
+alloca's align (`_entry_alloca`, whose `align` parameter already existed) and
+the global's (`_emit_static_global`), MAX'd with the type's own so it can only
+strengthen; composes with `@section`, and design 149's zerofill rule holds (an
+all-zero `@align`ed static still costs no image bytes). Refusals, each clean
+and each tested: non-const, non-power-of-two, zero, negative, over the cap,
+`let _`, a `Void` binding, a destructuring `let`, a function, an extension, a
+method, a struct FIELD and a PARAMETER (the last two naming the type-carried
+form as the reason, since that is where an author reaches first). Two ORACLES,
+complementary: the `ircontract` lane reads the `align` off the emitted globals
+at `-O0` and `-Oz` on host AND riscv32 (the direct "it reached the object"
+claim — a runtime address check cannot make it, because at a size level LLVM
+folds `addr % N == 0` to a constant), and a new riscv32 `-Oz` freestanding case
+proves such a program builds, links and runs on the target and level that
+faulted (`extra_flags` is a new per-case runner hook). Conformance rows
+N08-N11 + INDEX. DF-306a filed for the one refusal that is a real gap.
+
+**THE ENTRY STAYS OPEN** for the TYPE-CARRIED half, which is the part that
+deletes sos's staging copy: an alignment a signature can ENFORCE
+(`&[UInt8; N] align 8`, or an aligned-array type), so a caller passing an
+under-aligned buffer is a compile error at the call rather than a fault in the
+callee. v1 gives the callee no way to demand it — sos's vet shrinks to a
+never-taken branch, as the ruling anticipated, but does not disappear. Owed:
+the spelling ruling, a field/parameter position matrix, and the layout work a
+frame field would need (see DF-306a, which is the same missing mechanism seen
+from the local side).
+[186, 265, design 80 attribute grammar, sos SL-26, DF-306a]
+
+## DF-306a — a coroutine-frame-RESIDENT local cannot carry an alignment, so
+## `@align(N)` refuses there rather than dropping it (filed Sep 5 by the
+## `@align` v1 landing; DESIGN GAP, not a bug — v1's honest answer)
+
+A local whose scope spans a suspension stops being an alloca: `_FrameBuilder.
+_collect_frame_locals` carries it as a bare `(name, SawType)` pair into a
+synthesized `__Frame_*` `Struct`, which is lowered by the ordinary
+declaration-order struct path. There is no `StructField` alignment, no packed
+or aligned struct lowering, and — for a spawned root — the frame is then heap
+allocated through `__saw_rt_alloc`, whose `align` argument `sawc/rt/ABI.md`
+documents as currently ignored. So an `@align` on such a local has nowhere to
+travel, and v1 REFUSES it where it is written (`_reject_frame_align`) rather
+than accepting it and emitting a 1-aligned field — which is precisely the
+silent-loss failure DF-300b was filed about.
+
+MECHANISM (obligation 4) and why the refusal is keyed where it is: the trigger
+is frame RESIDENCY, not "does this function suspend", and those differ. The
+refusal sits ON the promotion decision itself, so all three residency reasons
+reach it — a scope spanning a suspension, DF-218s's owning local of a
+`return`-containing block (which needs no suspension crossing it at all), and
+DF-245d's propagating-`try` binding. A local in a suspending function that is
+NOT promoted keeps its slot and its alignment; that half is pinned by
+`examples/align_nonresident_local_in_suspending_function.saw`, the refusal by
+conformance row N11.
+
+FIX SHAPE, if it is ever wanted: three contracts, not one — an alignment on
+`StructField` plus a struct lowering that honours it, the `(name, SawType)`
+pair widened to carry it, and an allocator that honours `align`. Worth doing
+with the type-carried half of DF-300b rather than alone, since a frame field
+holding an aligned TYPE is the same layout question.
+[DF-300b, 218 (DF-218s), 234 (DF-245d), rt/ABI.md]
 
 ## DF-300c — `sizeof`/`alignof` refuse at the static-initializer,
 ## array-length and repeat-count positions; the static hint lists them as

@@ -1,0 +1,10 @@
+// DF-300b: `@align(N)` caps N at 4096 — one page on every target Saw builds
+// for. A typo past the cap is a compile error rather than a linker failure or a
+// frame the target cannot address.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: above the largest alignment Saw will request (`4096`)
+func main() {
+    @align(8192)
+    var body: [UInt8; 32] = [0; 32]
+    print(body[0])
+}

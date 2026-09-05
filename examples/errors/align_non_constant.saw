@@ -1,0 +1,11 @@
+// DF-300b: `@align(N)`'s N folds through the ONE const evaluator, so a runtime
+// value is refused exactly as it is in an array length. A `let` local is not a
+// constant, which is the case an author is most likely to try.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `@align` on the local `body` is not a compile-time constant
+func main() {
+    let width = 8
+    @align(width)
+    var body: [UInt8; 32] = [0; 32]
+    print(body[0])
+}

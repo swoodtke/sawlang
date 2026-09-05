@@ -1,0 +1,32 @@
+// Conformance row N11 — `@align(N)` on a coroutine-frame-resident local is a
+// clean refusal, never a silently dropped alignment (DF-300b / DF-306a).
+//
+// A local whose scope spans a suspension stops being a stack slot: it becomes a
+// field of the synthesized frame struct, which has no per-field alignment
+// control, and for a spawned root that struct is heap-allocated through a seam
+// whose `align` argument is documented as ignored. Honouring the request is a
+// later design; DROPPING it would hand back a 1-aligned buffer to code that
+// asked for 8 and said so, which is the failure this whole attribute exists to
+// prevent. So v1 refuses where the request is written.
+//
+// The refusal is keyed on frame RESIDENCY, not on whether the function
+// suspends — `N08_align_local_is_honored.saw` covers the honoured side, and
+// `align_nonresident_local_in_suspending_function.saw` covers the local that
+// stays a real slot inside a suspending body.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: `@align` is not supported on `scratch`: it lives in this function's coroutine frame
+
+import std.task.*
+
+func worker() -> Int {
+    @align(8)
+    var scratch: [UInt8; 32] = [0; 32]
+    yield_now()
+    scratch[0] as Int
+}
+
+func main() {
+    var group = TaskGroup()
+    print(group.spawn(worker()).join())
+}

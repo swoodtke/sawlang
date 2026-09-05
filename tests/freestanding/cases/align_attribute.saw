@@ -1,0 +1,84 @@
+// DF-300b: `@align(N)` survives `-Oz`, on the target and at the optimization
+// level that turned a latent gap into a fault.
+//
+// This is the motivating case, reproduced. sos SL-26's pipe sysapi takes a
+// `&[UInt8; N]` whose ABI needs word alignment; under `-O1` every test
+// program's buffer happened to land word-aligned, and design 265's `-Oz`
+// repacked two riscv32 frames until `pipe_donate` faulted. Nothing was wrong
+// with `-Oz` or with the kernel — the requirement was UNSTATABLE, so no
+// diagnostic could ever have fired and no test could have caught it.
+//
+// A `[UInt8; N]` has ABI alignment 1, so EVERY aligned bit observed here comes
+// from the attribute. The case runs at `-Oz` (`extra_flags` in the runner)
+// precisely because that is the level with the most freedom to place a slot.
+//
+// WHAT THIS CASE IS AND IS NOT. It is the END-TO-END half: an `@align`ing
+// program compiles, links and RUNS correctly on riscv32 at `-Oz`, which is the
+// combination that faulted. It is NOT the oracle for "the attribute reached the
+// object" — at a size level LLVM propagates the alignment it was given and
+// folds `addr % N == 0` to a constant, so a runtime address check here largely
+// asserts that the optimizer believed the attribute. The direct oracle is the
+// `ircontract` lane (`tools/test_ir_contract.py::check_align_attribute`), which
+// reads the `align` off the emitted globals at `-O0` and `-Oz` on this very
+// target. The two are complementary and neither replaces the other.
+//
+// Both the local and the static halves are here, and the static half also
+// pins design 149's rule — `ARENA` is `@align`ed AND all-zero, so it must
+// still be zerofill, which the link would show as image growth if it were not.
+
+import fscore.*
+
+static WORD: UInt = 8
+
+@align(64)
+static ARENA: [UInt8; 256] = [0; 256]
+
+// The alignment is a constant expression, so it may name a module `static`.
+@align(WORD * 2)
+static SEEDED: [UInt8; 8] = [7; 8]
+
+func local_offset() unsafe -> UInt {
+    @align(8)
+    var body: [UInt8; 24] = [0; 24]
+    body[0] = 65
+    ((&body) as UnsafePointer<UInt8> as UInt) % 8
+}
+
+func local_offset_wide() unsafe -> UInt {
+    @align(64)
+    var body: [UInt8; 24] = [0; 24]
+    body[0] = 66
+    ((&body) as UnsafePointer<UInt8> as UInt) % 64
+}
+
+// The alignment belongs to the storage, so handing the buffer on by reference
+// does not lose it — this is the sos shape, where the callee is the one that
+// needs the guarantee.
+func offset_through(buf: &[UInt8; 24]) unsafe -> UInt {
+    ((&buf) as UnsafePointer<UInt8> as UInt) % 8
+}
+
+func local_offset_by_reference() unsafe -> UInt {
+    @align(8)
+    var body: [UInt8; 24] = [0; 24]
+    offset_through(&body)
+}
+
+@export("fs_main")
+func fs_main() unsafe {
+    check_unsigned("local_align_8", local_offset(), 0)
+    check_unsigned("local_align_64", local_offset_wide(), 0)
+    check_unsigned("local_align_by_ref", local_offset_by_reference(), 0)
+
+    check_unsigned("static_align_64",
+                   ((&ARENA) as UnsafePointer<UInt8> as UInt) % 64, 0)
+    check_unsigned("static_align_16",
+                   ((&SEEDED) as UnsafePointer<UInt8> as UInt) % 16, 0)
+
+    // The aligned buffers still hold what was written into them — an
+    // alignment that moved the storage out from under the writes would show
+    // up here rather than as a silent pass.
+    check_value("seeded_value", SEEDED[0] as Int, 7)
+
+    finish("align_attribute")
+}
