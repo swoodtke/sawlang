@@ -2515,17 +2515,39 @@ class TypeUtilsMixin:
         * a bare payload value is wrapped in `OptionalWrap` first, so the
           ResultOkWrap around it receives the `T?` it is declared to hold.
 
-        Returns the expression to put inside the `ResultOkWrap`. Anything already
-        optional (an `Optional<T>`-typed expression) is handed back untouched —
-        matching a `Result<T?, E>` and binding through `if let` always worked, so
-        the shape was only ever broken at the auto-wrap boundary.
+        Returns the expression to put inside the `ResultOkWrap`.
+
+        DF-303a — WHICH QUESTION DECIDES THE WRAP. This asked "is the value
+        already optional", and that is right at one layer and wrong at two: an
+        `Int?` landing in a declared `Result<Int??, E>` IS the Ok payload and
+        owes exactly one wrap, but it answers "already optional" and got none —
+        so the `ResultOkWrap` around it received an `{i1, i64}` where its own
+        result type is `{{i1, {i1, i64}}}`, which LLVM refuses at the
+        `insertvalue`. `_tail_owes_optional_wrap` is that question asked
+        correctly (is the value THE PAYLOAD, by design-144 identity), landed for
+        the plain-optional tail by DF-286c face 4; this is the same rule at the
+        RESULT boundary, which that fix did not reach. One rule, asked once.
+
+        The defect was PRE-EXISTING and reachable from plain concrete code
+        (`func f(x: Int?) -> Result<Int??, String> { x }` ICEd), but the corpus
+        only ever met it through a generic: `Channel<T>.try_receive`'s
+        `-> Result<T?, ChannelError>` at `T = Int?`. There it was MASKED, and by
+        the mechanism DF-292a describes — the template's own check inserts the
+        wrap correctly (abstractly `T` is not optional), the coroutine
+        transform's re-entry then snapshotted the ALREADY-CHECKED template, and
+        the clone inherited the wrap it could not re-derive. Design 266 deletes
+        that re-entry, so the instance is materialized once, from a genuinely
+        pristine template, and the defect stopped being invisible. Swept over
+        the corpus: 384 driven examples, 18,756 shared instance bodies, and this
+        is the ONLY body whose shape differed between the two passes.
         """
         if value_expr is None or ok_type is None or not ok_type.is_optional():
             return value_expr
         if value_type is not None and value_type.is_none_literal():
             self._annotate_none_in_expr(value_expr, ok_type)
             return value_expr
-        if value_type is not None and not value_type.is_optional():
+        if value_type is not None and self._tail_owes_optional_wrap(
+                value_type, ok_type):
             from ast_nodes import OptionalWrap as _OW
             return _OW(value=value_expr, target_type=ok_type,
                        line=getattr(value_expr, 'line', 0),

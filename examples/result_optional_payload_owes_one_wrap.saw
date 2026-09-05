@@ -1,0 +1,113 @@
+// DF-303a: a value ONE optional layer short of a `Result`'s Ok payload owes
+// exactly one wrap — including when it is already an optional itself.
+//
+// `_prepare_ok_payload` decided the wrap by asking "is the value already an
+// optional", which is right at one layer and wrong at two: an `Int?` landing in
+// a declared `Result<Int??, E>` IS the Ok payload and owes one wrap, but it
+// answered "already optional" and got none. The `ResultOkWrap` around it then
+// received an `{i1, i64}` where its own result type is `{{i1, {i1, i64}}}`, and
+// the program died in codegen with an internal compiler error at the author's
+// line. `_tail_owes_optional_wrap` is that question asked correctly, landed for
+// the plain-optional tail by DF-286c face 4; this pins it at the Result
+// boundary, which that fix did not reach.
+//
+// The generic rows are the shape the corpus actually met — `Channel<T>`'s
+// `try_receive` returns `Result<T?, ChannelError>`, so a `Channel<Int?>`
+// instantiates `T?` to `Int??`. It compiled only because the coroutine
+// transform's re-entry re-snapshotted an ALREADY-CHECKED template and the clone
+// inherited the wrap the instance check could not re-derive (DF-292a). Design
+// 266 deletes that re-entry, so the instance is materialized once from a
+// genuinely pristine template and the defect stopped being invisible.
+// EXPECT: success
+// EXPECT-OUTPUT: return 7
+// EXPECT-OUTPUT: tail 8
+// EXPECT-OUTPUT: err
+// EXPECT-OUTPUT: absent
+// EXPECT-OUTPUT: generic 9
+// EXPECT-OUTPUT: method 10
+// EXPECT-OUTPUT: deep 11
+
+// The explicit `return`: an `Int?` into a declared `Result<Int??, String>`.
+func by_return(x: Int?) -> Result<Int??, String> {
+    if x.is_none() { return "no value" }
+    return x
+}
+
+// The TAIL spelling of the same transfer.
+func by_tail(x: Int?) -> Result<Int??, String> {
+    x
+}
+
+// A bare `None` still means the OUTER absence and is wrapped as `Ok(None)`,
+// which is the branch `_prepare_ok_payload` answers ahead of the depth question.
+func absent() -> Result<Int??, String> {
+    return None
+}
+
+// The generic shape: `T?` is `Int??` at `T = Int?`, so the instance owes the
+// wrap its abstract template derived and the instance check must re-derive.
+func carry<T>(v: T) -> Result<T?, String> {
+    return v
+}
+
+struct Holder { tag: Int }
+
+// Named `hold` and not `carry`: a generic METHOD whose name collides with a
+// generic FREE function is never discovered by the monomorphization fixpoint
+// (DF-303b, pre-existing and unrelated to this rule).
+extension Holder {
+    func hold<T>(&self, v: T) -> Result<T?, String> {
+        return v
+    }
+}
+
+// Three layers, to prove the rule counts depth rather than special-casing two.
+func deep(x: Int??) -> Result<Int???, String> {
+    x
+}
+
+func main() {
+    let seven: Int? = 7
+    match by_return(seven) {
+        case Ok(v) -> { if let w = v { if let z = w { print("return {}", z) } } },
+        case Err(e) -> print("unexpected {}", e)
+    }
+
+    let eight: Int? = 8
+    match by_tail(eight) {
+        case Ok(v) -> { if let w = v { if let z = w { print("tail {}", z) } } },
+        case Err(e) -> print("unexpected {}", e)
+    }
+
+    let nothing: Int? = None
+    match by_return(nothing) {
+        case Ok(_) -> print("unexpected ok"),
+        case Err(_) -> print("err")
+    }
+
+    match absent() {
+        case Ok(v) -> { if v.is_none() { print("absent") } },
+        case Err(e) -> print("unexpected {}", e)
+    }
+
+    let nine: Int? = 9
+    match carry(nine) {
+        case Ok(v) -> { if let w = v { if let z = w { print("generic {}", z) } } },
+        case Err(e) -> print("unexpected {}", e)
+    }
+
+    let h = Holder(tag: 0)
+    let ten: Int? = 10
+    match h.hold(ten) {
+        case Ok(v) -> { if let w = v { if let z = w { print("method {}", z) } } },
+        case Err(e) -> print("unexpected {}", e)
+    }
+
+    let eleven: Int?? = 11
+    match deep(eleven) {
+        case Ok(v) -> {
+            if let w = v { if let z = w { if let q = z { print("deep {}", q) } } }
+        },
+        case Err(e) -> print("unexpected {}", e)
+    }
+}

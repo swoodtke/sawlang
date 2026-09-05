@@ -42,6 +42,7 @@ is scheduled and in what order is the whole of what they say.
 ## [BACKLOG] — filed, not scheduled
 
 
+- DF-303b — ICE: a generic METHOD whose name collides with a generic FREE FUNCTION is never discovered by the monomorphization fixpoint, so codegen's registry lookup misses and reports "monomorphization did not discover the instance" (entry below, filed Sep 5 by design 266; PRE-EXISTING and unrelated to 266 — both trees ICE identically). One line at a named funnel; the mechanism is that `_method_call_demands` arm (a) disambiguates the module-qualified free call by NAME rather than by the stamps that tell the two shapes apart
 - DF-301a — ICE: a SUSPENDING function whose closure PARAMETER's type is a generic-struct instantiation emits an unparseable coroutine frame (entry below, filed Sep 4 by design 264 U3's census; PRE-EXISTING, verified byte-identical pre-U2). Mechanism is frame type emission, not ownership — `Cell<Int>` fails exactly as `Arc<Res>` does. No corpus site has the shape
 - DF-301b — a closure literal assigned to an ANNOTATED `let` of function type does not infer its parameter type, then reports the mismatch against the `Int` fallback (entry below, filed Sep 4 by design 264 U3; PRE-EXISTING, minor). The PARAMETER position of the expected-type ladder DF-226a/DF-232h walked for closure returns
 - DF-297a — the template snapshot's SECOND namespace back-pointer, a `SawType.symbol` on a DECLARED annotation, which DF-292b's park does not reach and should not: the capture still rebuilds 1,628 namespace method declarations per driven compile, worth ~0.22 s (targeted memo seeding) to ~0.48 s (symbols decline to be copied) more (entry below, filed Sep 3 by the perf batch). Wants a RULING first — should a namespace symbol ever be deep-copied into a template snapshot? — because either fix changes what the snapshot contains and owes obligation 2's sweep **RULED Sep 4 (user): NO COPY — a symbol is namespace identity and snapshots stop AT it; the fix rides a future perf dispatch and owes obligation 2 (everything reading type.symbol off a materialized instance)**
@@ -357,6 +358,113 @@ is the half of that which already exists). One design, two findings.
 
 NOT FIXED, and the code is reverted — this entry is the record. [218c Amendment
 C C3/C4, §7 phase 6]
+
+## DF-303a — a value ONE optional layer short of a `Result`'s Ok payload got
+## NO wrap, because the rule asked "is it already optional" instead of "is it
+## the payload". Filed AND FIXED Sep 5 by design 266 U1. PRE-EXISTING, and the
+## post-transform re-entry was what hid it
+
+MECHANISM (obligation 4). `_prepare_ok_payload` (typechecker/types.py) decided
+the `OptionalWrap` with `not value_type.is_optional()`. That is right at one
+layer and wrong at two: an `Int?` landing in a declared `Result<Int??, E>` IS
+the Ok payload and owes exactly one wrap, but it answers "already optional" and
+got none, so the `ResultOkWrap` around it received an `{i1, i64}` where its own
+result type is `{{i1, {i1, i64}}}` — refused by LLVM at the `insertvalue`.
+
+It is the SAME question DF-286c face 4 already answered for the plain-optional
+tail, and the fix is to ask it through that funnel: `_tail_owes_optional_wrap`
+tests whether the value IS the payload, by design-144 identity. One rule, asked
+once. The two entry points (`return` and the tail) both route through
+`_prepare_ok_payload`, so the funnel was already there — only its predicate was
+wrong.
+
+REACHABLE FROM PLAIN CONCRETE CODE, which is what makes it a user-facing bug
+rather than a monomorphization one:
+
+```saw
+func f(x: Int?) -> Result<Int??, String> { x }   // ICE before the fix
+```
+
+THE OBLIGATION-4 SWEEP, by direct compile evidence
+(`.build/scratch/optdepth*.saw`): the mechanism is "a wrap rule that tests
+optionality instead of depth", and the other positions that must insert the
+same layer were probed — a `let` with a declared type, a plain `return`, a
+body's tail, a value `if`, a `match`, an assignment, and a `var` — ALL SEVEN
+ALREADY CORRECT. `_prepare_ok_payload` is the one position DF-286c's fix did
+not reach, so the class is one row and this closes it.
+
+WHY THE CORPUS NEVER SAW IT. `Channel<T>.try_receive` returns
+`Result<T?, ChannelError>`, so `Channel<Int?>` instantiates the Ok payload to
+`Int??` — the one instance in the corpus with the shape. The instance check
+could not derive the wrap, but the coroutine transform's re-entry re-snapshotted
+an ALREADY-CHECKED template (DF-292a: "pristine on the first pass only") and the
+clone INHERITED the wrap from the template's own check. Design 266 deletes that
+re-entry, so the instance is materialized once from a genuinely pristine
+template and the masking stopped.
+
+MEASURED, whole corpus (`.build/scratch/sweep_worker.py` + `sweep_drive.py`,
+structural fingerprint per spliced instance body, run 1 diffed against run 2):
+**384 driven examples, 18,756 shared instance bodies, THREE shape-differing
+bodies — all three the same body, `Channel$1$$Opt$Int::try_receive`, run 2
+carrying one more `OptionalWrap`.** That is the entire delta between the two
+passes across the corpus, and it is this defect. (DF-292c's own sweep reported
+0.95% differing "only in `resolved_type` stamps"; its fingerprint rendered a
+`SawType` as its source spelling and bucketed differently, so this row did not
+surface there.)
+
+FIXED, with `examples/result_optional_payload_owes_one_wrap.saw` as the
+regression test — seven rows (return, tail, the Err path, the bare-`None` outer
+absence, a generic free function, a generic method, and a THREE-layer case to
+prove the rule counts depth rather than special-casing two). It fails on the
+pre-fix tree with the ICE above and passes after. [DF-286c face 4, DF-292a,
+design 266 U1]
+
+## DF-303b — a generic METHOD whose name collides with a generic FREE FUNCTION
+## is never discovered by the fixpoint. Filed Sep 5 by design 266 U1;
+## PRE-EXISTING and NOT 266's — probed identical on both trees. NOT FIXED
+
+Repro, no optionals, no coroutines, no modules
+(`.build/scratch/methgen3.saw`):
+
+```saw
+func carry<T>(v: T) -> T { v }
+struct Holder { tag: Int }
+extension Holder { func carry<T>(&self, v: T) -> T { v } }
+func main() { print("{}", carry(9))  print("{}", Holder(tag: 0).carry(10)) }
+```
+
+    internal compiler error: monomorphization did not discover the instance
+    `Holder_carry$1$Int` of generic method `Holder.carry`, demanded while
+    lowering main
+
+MECHANISM (obligation 4), named at `monomorphize.py:_method_call_demands` arm
+(a). That arm exists for the MODULE-QUALIFIED free-function call, which the
+checker parses as a member access — but it identifies one by NAME:
+
+```python
+for candidate in (sym, name):
+    if candidate and candidate in self.generic_functions:
+        self._demand_function(candidate, targs, subst, depth, chain, where)
+        return
+```
+
+so an ORDINARY instance-method call whose method name happens to match a
+generic free function is routed to `_demand_function` and RETURNS, never
+reaching arm (b), where the method instance would be demanded. The
+discriminators that actually tell the two shapes apart are stamped on the node
+(the arm's own comment says the qualified call is "stamped like a
+`FunctionCall`"); the name fallback is the bug.
+
+POSITIONS THE MECHANISM REACHES, probed (`.build/scratch/methgen4.saw`): the
+instance-method call and the STATIC-method call both fail (the static one is
+what that file reports first). Every `MethodCall`-shaped generic call whose
+method name collides is a candidate, so the fix is to gate arm (a) on the
+qualified-call stamp rather than on the name — one funnel, one predicate.
+
+NOT FIXED HERE: it is pre-existing, it does not block design 266, and it is a
+different funnel from the one 266 touches. Design 266's own regression test
+names its method `hold` rather than `carry` to stay off the collision, with a
+comment citing this entry.
 
 ## DF-297a — the template snapshot's SECOND namespace back-pointer: a
 ## `SawType.symbol` on a DECLARED annotation. Filed Sep 3 by the perf batch
