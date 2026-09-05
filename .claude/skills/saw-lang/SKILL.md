@@ -279,9 +279,35 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   always did. Treat all of it as caught now and SUSPECT in older builds,
   where every one of those compiled and bitwise-duplicated the value: three
   names and TWO deinits at exit 0 for the branch faces, and `break a` out of
-  a `while { }` double freed outright (SIGABRT). One shape stays UNCHECKED
-  today: a CLOSURE body's tail (`{ r in r }` at a move-only `r`) — DF-304a,
-  where a `return r` in the same closure is refused.
+  a `while { }` double freed outright (SIGABRT).
+- **AND A CLOSURE BODY'S TAIL IS A TRANSFER TOO (DF-304a, closed Sep 5).** The
+  tail hands its value to the CALLER, so it owes exactly what the closure's own
+  `return` owes, in the same words:
+  ```saw-error
+  // error-contains: cannot return NoCopy type `Res` without `move` in closure
+  run({ r in r })            // error: cannot return NoCopy type `Res` without
+                             //        `move` in closure
+  ```
+  ```saw-fragment
+  run({ r in move r })                     // the spelling the refusal names
+  run_owned({ [move o] in move o })        // a move capture hands on the same way
+  run({ r in if c { move r } else { Res(w: 1) } })   // per ARM, as ever
+  ```
+  It reaches every source a tail can forward — a by-value parameter (escaping
+  or not), a `[move o]` capture, a local of the body, a `&var` parameter, a
+  borrow capture, a FIELD of an owned binding — and through a `-> T?` /
+  `-> Result<T, E>` slot, where the tail is judged BEFORE the auto-wrap so the
+  `move` goes where you wrote the value. A `Copy` tail retains exactly once, as
+  it always did. Treat all of it as caught now and SUSPECT in older builds,
+  where every one compiled: at an OWNED source one invocation transferred by
+  accident and a bound closure's SECOND invocation ran `deinit` three times on
+  one value; at a source the closure only BORROWS it was two `deinit`s per
+  value, exit 0. Two faces have no `move` spelling and want restructuring
+  instead — a borrowed binding is DF-290a's refusal (the move-out belongs to
+  the owner) and a field is the no-partial-moves error. ONE shape stays
+  UNCHECKED today: the same transfer written as a `return` through an auto-wrap
+  (`{ [&var o] in return o }` at `-> Res?`) — DF-305a, which the named
+  function's wrapped tail shares.
 - **A CONVERSION IS WRITTEN EVERYWHERE — there is no position exemption
   (design 205).** A PLAIN transfer takes the same rule the arm takes: a
   lossless widening is free, a narrowing or a same-width sign change is

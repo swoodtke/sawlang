@@ -127,7 +127,8 @@ is scheduled and in what order is the whole of what they say.
 - DF-286c — the materialization funnel does not reproduce what codegen's `type_param_context` path did, at four named positions (entry below, same filing; ONE mechanism, four faces — const-generic VALUES, associated-type annotations, the conditional-conformance bounds filter, and a `-> T?` tail's auto-wrap). Its matrix is stage 3c-2's test plan. **CLOSED Sep 2 by stage 3c-2a/3c-2c(1): face 1 both halves, face 2, face 3 (reframed into B1) and face 4 all fixed and pinned; face 4 turned out to be a CONCRETE-path defect the generic path had been hiding — see DF-289d for its residue**
 - DF-294b — a `type` ALIAS binds through the SELECTIVE import form ONLY: the glob leaves it unbound and the qualified spelling mints a name-only type + a not-callable head (entry below, filed Sep 3 from sos-relayed SL-20; workaround `import m.{Alias}`)
 - DF-299d — a QUALIFIED generic `init` drops its explicit type argument: `mutex.Mutex<Int>(value: 5)` is ``argument `value` expects `T` but got `Int` `` while the selective-import spelling compiles (entry below, filed Sep 4 as an incidental of DF-299c's census; PRE-EXISTING at HEAD). The CONSTRUCTOR position of design 150's "a qualifier works everywhere a name appears", which design 256 landed for methods and statics
-- DF-304a — a CLOSURE body's TAIL is not a transfer site: `{ r in r }` at a move-only `r` compiles and hands out an alias the closure then deinits, while `{ r in return r }` one keyword away is refused (entry below, filed Sep 5 by DF-299b's sweep; PRE-EXISTING, NOT fixed there — a different mechanism: `_check_closure` never calls the tail reconciler at all, branch or no branch). **SCHEDULED Sep 5 (user): joins the 0.10.0 release — dispatches after design 258 integrates (typechecker, serial); the entry's obligation-4 sweep list is the dispatch shape; 0.10.0 cuts after BOTH land**
+- DF-304a — CLOSED Sep 5, FIXED (entry below): the closure tail takes the transfer checkpoint at `_check_no_copy_return`'s third entry point, called BEFORE the auto-wraps so the author's expression is what is judged. The obligation-4 sweep ran the tail against thirteen sources and split them — the OWNED ones were unchecked-but-sound at one invocation and a triple free at the second, the ALIASING ones (a `&var` parameter, a borrow capture, a field) were two `deinit`s per value at exit 0 — and the branch tail came out of DF-299b's transparency with no second rule. Copy tier still one retain (V84). Conformance rows V82-V85; corpus fallout TWO files (V71's two spellings take `move`, the XFAIL pin flips). The sweep filed DF-305a, a different mechanism left open. **Joined the 0.10.0 release; version bump is the lead's**
+- DF-305a — SOUNDNESS: a `return`/tail whose value the compiler AUTO-WRAPPED into an `Optional`/`Result` is not judged — the checkpoint runs after the wrap and a wrap node is not an aliasing expression, so an ALIASING source double frees at exit 0 (entry below, filed Sep 5 by DF-304a's sweep; PRE-EXISTING, NOT fixed there — DF-299a's shape at a third site, a checkpoint that RUNS and cannot see the node). Reaches the closure's `return` and the NAMED function's tail alike; pinned by `examples/wrapped_return_takes_the_transfer_checkpoint.saw`. A fix has a RULING attached — making the checkpoint transparent through the wrap also refuses `func opt(r: Res) -> Res? { r }`, which is sound today
 - DF-302b — a generic extension's `init` RELEASES a parameter it moved into the built value, so the value is torn down TWICE (entry below, filed Sep 4 by design 207's agent; PRE-EXISTING at HEAD, reproduced with fully explicit type arguments and no inference). Pinned by `examples/generic_init_moved_parameter_is_released_once.saw`. A DF-217m/DF-251b sibling — the same init-cleanup analysis, one case further on
 
 
@@ -430,9 +431,70 @@ positions (alias as a generic argument through a qualifier, alias in an
 extern signature, `E.from(raw:)`-style statics on an aliased backing).
 [150, 144, 188 alias-resolution family, DF-238c, DF-194a]
 
-## DF-304a — SOUNDNESS: a CLOSURE body's TAIL is not a transfer site, so it
-## hands out an alias of a value the closure then deinits (filed Sep 5 by
-## DF-299b's sweep; PRE-EXISTING, NOT fixed there)
+## DF-304a — CLOSED Sep 5, FIXED. SOUNDNESS: a CLOSURE body's TAIL is not a
+## transfer site, so it hands out an alias of a value the closure then deinits
+## (filed Sep 5 by DF-299b's sweep; PRE-EXISTING, NOT fixed there)
+
+LANDED. The closure tail routes through `_check_no_copy_return`, which is now a
+funnel with THREE named entry points — a function's tail, a method's, and a
+closure's — and the closure calls it BEFORE its Result/Optional auto-wraps, so
+the expression judged is the one the author wrote and the `move` goes where the
+value is. One call; the tail is refused in the `return`'s own words, which is
+the asymmetry the filing was about.
+
+THE BRANCH TAIL CAME FREE, as designed rather than by luck: `_check_value_transfer`
+has been transparent through a value-branch node since DF-299b, so the single
+call judges `{ r in if c { r } else { r } }` per ARM, anchored at each arm.
+
+THIRTEEN SOURCES, AND THE SEVERITY SPLITS ALONG THEM (the obligation-4 sweep,
+each cell compiled and run against a printing `deinit`, before and after). The
+filing's own severity reading needed correcting: `drop 7 / n 7` is what a SOUND
+program prints in that harness, because `run(...)` completes before the `print`
+that consumes it. With a marker between the call and the read the picture is:
+
+    OWNED sources — by-value parameter (escaping and non-escaping), `[move o]`
+      capture, a local of the body, and the same through a `-> T?` / `-> Result`
+      slot. ONE invocation transferred correctly — codegen made it an implicit
+      move — so these were UNCHECKED rather than broken. The SECOND invocation
+      of one bound closure was not: `{ [move o] in o }` called twice ran
+      `deinit` on one value THREE times (once per call, once at the env's
+      teardown), exit 0.
+    ALIASING sources — a `&var` closure PARAMETER, a `[&var o]` borrow capture,
+      a FIELD of an owned binding. Every one was TWO `deinit`s per value at
+      exit 0. These are the real double frees, and two of them have no `move`
+      spelling at all: DF-290a's fence refuses the borrowed binding (verified
+      still refused, both spellings) and the field is the no-partial-moves
+      error. Restructuring is the answer there, which is what the refusal's
+      family wording already says.
+
+TIERS. NoCopy and ExplicitCopy refused at every source. The COPY tier was
+already correct and stays exactly one retain (1 -> 2 through a plain tail, and
+through a PLACE tail, where design 146's mark meets the new one) — V80's lesson
+at the neighbouring site: `_gen_transfer_value` re-derives the block-tail retain,
+so the risk was a SECOND retain and it did not appear.
+
+ONE CARVE-OUT, EARNED BY THE SWEEP: a synthesized PLACE WINDOW is excluded
+(`is_place_window`). `place_uses._window_call` writes "run this while the window
+is open" as a closure whose tail is the value of the place expression the author
+wrote in the ENCLOSING scope, already judged at its own site; judging it again
+refused the lowering's own bookkeeping. Found by
+`examples/match_borrowed_payload_in_a_driven_body.saw`, whose driven
+`match plan.job` lowers to a window whose tail IS `plan.job`.
+
+CORPUS: TWO files. `examples/conformance/V71`'s `run_owned({ [move o] in o })`
+and `takes_by_value({ p in p }, ...)` take `move` (the row's own text already
+said an owned binding "may move it on"; its outputs are unchanged, one `deinit`
+per value), and `examples/closure_tail_takes_the_transfer_checkpoint.saw` loses
+its XFAIL marker. Nothing in std, blade, libs, devtools or selfhost forwards a
+closure tail at an owning tier.
+
+Conformance rows V82-V85. Spec gained "A closure body's tail is a transfer";
+the saw-lang skill's value-branch entry gained the tail rule beside it; README
+carries no closure-ownership prose and needed none.
+
+ONE FINDING FILED BY THE SWEEP AND NOT FIXED HERE: DF-305a, below.
+
+--- as filed ---
 
 ```saw
 func run(body: (Res) sync -> Res) -> Int {      // Res is NoCopy, printing deinit
@@ -471,6 +533,63 @@ DEPENDS on the current silence: `examples/conformance/V71`'s
 `takes_by_value({ p in p }, ...)` and `run_owned({ [move o] in o })` are exactly
 this shape, so the fix owes a migration and V71 owes a re-reading.
 [131, 195, 213, 264, DF-299b]
+
+## DF-305a — SOUNDNESS: a `return`/tail the compiler AUTO-WRAPPED into an
+## `Optional`/`Result` is not judged, so an aliasing source double frees (filed
+## Sep 5 by DF-304a's sweep; PRE-EXISTING, NOT fixed there)
+
+```saw
+func run_opt(body: () sync -> Res?) -> Int {    // Res is NoCopy, printing deinit
+    let got = body()
+    if let g = move got { g.w } else { 0 }
+}
+// var o = Res(w: 81)
+// run_opt({ [&var o] in return o })   compiles -> drop 81 / n 81 / end / drop 81
+func field_opt(h: Holder) -> Res? { h.inner }   // the NAMED twin, same two drops
+```
+
+NOT DF-304a, which is why it is filed rather than folded in. DF-304a was a
+checkpoint never CALLED at the tail; this is a checkpoint that RUNS and cannot
+see through the node — DF-299a's shape at a third site. `_check_return_statement`
+performs the Result/Optional auto-wrap and THEN calls `_check_value_transfer`,
+by a deliberate comment ("a wrapped value is a fresh temporary (not aliasing)"),
+and an `OptionalWrap`/`ResultOkWrap` is not an aliasing expression, so the
+transfer passes silently. `_check_function`/`_check_method` call after their own
+wrap for the same reason and inherit it.
+
+TWO SITES, ONE MECHANISM: a closure's `return` and a NAMED function's or
+method's TAIL. DF-304a's fix judges the CLOSURE tail before the wraps, so that
+one spelling is already covered — which is what makes the residue visible as an
+asymmetry inside one closure.
+
+SEVERITY, probed rather than assumed. At an OWNED source the wrap really does
+transfer (codegen clears the source's drop flag), so `func opt(r: Res) -> Res?
+{ r }` is unchecked and SOUND, exactly one `deinit` in the right place. At an
+ALIASING source it is a DOUBLE FREE at exit 0: `81` above is released by the
+closure's caller and again by `o`'s own scope, and the named `h.inner` face
+releases `82` twice the same way.
+
+WHAT A FIX OWES (obligation 4): the mechanism is "the checkpoint judges a
+synthesized wrap node instead of the value inside it", so the sweep is every
+site that wraps before checkpointing — `_check_return_statement` (function,
+method and closure `return`), `_check_function`'s tail, `_check_method`'s — and
+every wrap kind the ladder can insert (`OptionalWrap`, `ResultOkWrap`,
+`ResultErrWrap`, and the nested `T??` distribution DF-289d added), against
+both the owned and the aliasing sources.
+
+AND IT WANTS A RULING FIRST. The mechanical fix is to make the checkpoint
+transparent through a top-level wrap, exactly as DF-299b's arm recursion peels
+one — but that also refuses `func opt(r: Res) -> Res? { r }`, a shape that is
+sound today and appears wherever a `-> T?` body hands on an owned local. So the
+question is which of the two neighbours is right: `func plain(r: Res) -> Res
+{ r }` is refused and demands `move`, while the same body one `?` later
+compiles and moves implicitly. Either the wrap is transparent (one rule, a
+corpus migration to `move`) or the implicit move at a wrap is the intended
+behaviour and DF-304a's closure tail should match it instead. Pinned by
+`examples/wrapped_return_takes_the_transfer_checkpoint.saw` (XFAIL, aliasing
+face only — any correct fix must refuse that one whichever way the ruling
+goes).
+[131, 195, 213, 264, DF-299a, DF-299b, DF-304a]
 
 ## DF-301a — ICE: a SUSPENDING function whose closure PARAMETER's type is a
 ## generic-struct instantiation emits an unparseable coroutine frame (filed

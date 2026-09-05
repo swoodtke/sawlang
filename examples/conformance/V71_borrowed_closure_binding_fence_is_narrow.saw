@@ -10,6 +10,12 @@
 //     it really does transfer, and the value is released exactly once.
 //   * A closure parameter taken BY VALUE (no sigil), which owns what it is
 //     handed and may move it on.
+//
+// The last two HAND THE VALUE ON out of the closure's tail, so since DF-304a
+// each spells the `move` there that the same transfer has always owed at a
+// `return`. Nothing about the fence moved: what those two rows say is that an
+// OWNED binding may be moved on at all, which is exactly what `move o` /
+// `move p` write down.
 //   * The sigil-less `{ e in ... }` over a `&T`-lending std method, which is
 //     refused by the ORDINARY reference test — the binding keeps its reference
 //     type there, which is the asymmetry that identified the mechanism.
@@ -49,10 +55,10 @@ func main() {
 
     // The `[move x]` value capture — the way out the refusal names.
     let o = Owned(w: 5)
-    let got = run_owned({ [move o] in o })
+    let got = run_owned({ [move o] in move o })
     print("moved {}", got.w)
 
     // A by-value closure parameter owns what it is handed.
-    let out = takes_by_value({ p in p }, Owned(w: 3))
+    let out = takes_by_value({ p in move p }, Owned(w: 3))
     print("byvalue {}", out.w)
 }

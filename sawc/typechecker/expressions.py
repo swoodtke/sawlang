@@ -13425,6 +13425,43 @@ class ExpressionsMixin:
         # that made it. The `with_ref` identity closure `{ e in e }` is NOT this
         # case — reading a reference binding yields the VALUE, so it infers `T`.
         return_type = self._reject_reference_closure_return(expr, return_type)
+        # DF-304a — THE TAIL IS A TRANSFER, and this is where it takes the
+        # checkpoint. A closure body's tail hands its value to the CALLER, so it
+        # performs the same transfer `return <value>` in the same body performs —
+        # and that spelling has always routed through `_check_return_statement`
+        # and been refused. Nothing checkpointed the tail at all, so `{ r in r }`
+        # at a move-only `r` compiled while `{ r in return r }` one keyword away
+        # did not; design 264 (the body OWNS its by-value parameter and releases
+        # it at body end) made the difference a USE-AFTER-FREE rather than a lost
+        # deinit, since the release ran before the caller read what the tail
+        # aliased out.
+        #
+        # BEFORE THE AUTO-WRAPS BELOW, which is where the AUTHOR's expression
+        # still is. DF-299b's arm recursion judges an arm by peeling the
+        # `OptionalWrap`/`ResultOkWrap` it may already sit inside, for the same
+        # reason: a transfer is judged where it is written, which is where the
+        # `move` goes. Judging the wrap node instead judges a synthesized
+        # temporary and sees nothing — DF-305a is that blindness at the closure's
+        # `return`, which wraps before it checkpoints.
+        #
+        # The VALUE-BRANCH tail (`{ r in if c { r } else { r } }`) needs no
+        # second rule: the checkpoint has been transparent through a branch node
+        # since DF-299b, so this one call judges every arm where it is written.
+        # A PLACE WINDOW is not a closure in the language's sense (DF-169h's
+        # `is_place_window`): `place_uses._window_call` synthesizes it to write
+        # down "run this while the window is open", and its tail is the value of
+        # the PLACE EXPRESSION the author wrote in the ENCLOSING scope. That
+        # expression is judged at its own site — a `let` initializer, an
+        # argument, design 146's place rule for a move-only element — so judging
+        # it a second time here would refuse the lowering's own bookkeeping for a
+        # program that spells no transfer at the window at all. (Measured:
+        # `examples/match_borrowed_payload_in_a_driven_body.saw`, whose driven
+        # `match plan.job` lowers to a window whose tail IS `plan.job`.)
+        if not getattr(expr, 'is_place_window', False):
+            self._check_no_copy_return(
+                return_type, expr.body.final_expr, "closure",
+                getattr(expr.body.final_expr, 'line', expr.line),
+                getattr(expr.body.final_expr, 'column', expr.column))
         # A closure passed to a known function type takes its RETURN CONTEXT from
         # that type, the same way a function body takes it from its signature —
         # so a bare `None` in tail position learns what it is a `None` OF. The

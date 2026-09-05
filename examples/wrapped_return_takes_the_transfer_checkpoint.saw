@@ -1,0 +1,38 @@
+// A `return`/tail whose value the compiler auto-wrapped into an `Optional` or
+// a `Result` is still a transfer, and is still judged.
+//
+// XFAIL: DF-305a — the checkpoint runs AFTER the auto-wrap, so it judges the
+// synthesized `OptionalWrap`/`ResultOkWrap` node instead of the author's
+// expression. A wrap node is not an aliasing expression, so the transfer passes
+// silently. This is DF-299a's shape at a third site: a checkpoint that RUNS and
+// cannot see through the node, not one that is never called (DF-304a, closed).
+//
+// At an OWNED source the wrap really does transfer — codegen clears the
+// source's drop flag — so the hole is invisible there. At an ALIASING source,
+// below, it is a DOUBLE FREE at exit 0: the borrow capture hands out storage
+// the enclosing frame still owns and releases, and `deinit` runs on `81` twice.
+// The named-function twin (`func f(h: Holder) -> Res? { h.inner }`) is the same
+// mechanism through `_check_function`'s tail and double frees identically.
+//
+// DF-304a judges the closure TAIL before the wraps, which is why the tail
+// spelling of this program is already refused; the `return` spelling routes
+// through `_check_return_statement`, which wraps first.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: without `move` in closure
+
+struct Res { w: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.w) }
+}
+
+func run_opt(body: () sync -> Res?) -> Int {
+    let got = body()
+    if let g = move got { g.w } else { 0 }
+}
+
+func main() {
+    var o = Res(w: 81)
+    print("n {}", run_opt({ [&var o] in return o }))
+    print("end")
+}

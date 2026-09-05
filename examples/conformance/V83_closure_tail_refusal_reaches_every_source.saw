@@ -1,0 +1,103 @@
+// Conformance row V83 — …and it reaches EVERY source a closure tail can
+// forward, at both copy tiers and through the auto-wraps
+//
+// DF-304a's obligation-4 sweep. The mechanism is "the tail is not a transfer
+// site", so the axis is what the tail FORWARDS, and the cost differs sharply
+// along it — which is why the whole axis is counted here rather than the filed
+// face alone:
+//
+//   OWNED sources — a by-value parameter (escaping and not), a `[move o]`
+//   capture, a local of the body. One invocation of these transferred
+//   correctly by accident, so they were unchecked rather than broken; the
+//   SECOND invocation of one bound closure was not. Measured before the fix:
+//   `{ [move o] in o }` called twice ran `deinit` on one value THREE times
+//   (once per call, once at the env's teardown), exit 0.
+//
+//   ALIASING sources — a `&var` closure PARAMETER, a `[&var o]` borrow
+//   capture, a FIELD of an owned binding. These hand out storage somebody else
+//   still owns and releases. Measured before the fix: two `deinit`s per value,
+//   every one of them, exit 0. The field face is a partial move written as an
+//   alias, which is why `move` cannot be the answer there (no partial moves —
+//   restructure, per the DF-290a family's wording).
+//
+//   THE AUTO-WRAPPED tail — a `-> T?` or `-> Result<T, E>` slot. Judged
+//   BEFORE the wrap, where the author's expression is, exactly as DF-299b's
+//   arm recursion peels the wrap it may already sit inside.
+//
+//   THE BRANCH tail — `{ r in if c { r } else { r } }`. No second rule: the
+//   checkpoint has been transparent through a branch node since DF-299b, so
+//   this one call judges each arm where it is written, and the anchors below
+//   are per ARM.
+//
+// ExplicitCopy is on the same list and gets its own wording (it has a
+// `.copy()`, so the refusal offers it). The Copy tier is NOT a refusal at all —
+// V84 counts it.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot return NoCopy type `Res` without `move` in closure
+// EXPECT-ERROR-CONTAINS: cannot copy value of type `Cell` which implements ExplicitCopy
+
+struct Res { w: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.w) }
+}
+
+struct Holder { inner: Res }
+extension Holder: NoCopy {}
+
+struct Cell { w: Int }
+extension Cell: ExplicitCopy {
+    func copy(&self) -> Cell { Cell(w: self.w) }
+    func deinit(&var self) { print("drop {}", self.w) }
+}
+
+enum Bad { case Nope }
+
+func run(body: (Res) sync -> Res) -> Int { body(Res(w: 7)).w }
+func run_loose(body: (Res) -> Res) -> Int { body(Res(w: 7)).w }
+func run_owned(body: () sync -> Res) -> Int { body().w }
+func hand(body: (&var Res) sync -> Res) -> Int {
+    var held = Res(w: 9)
+    body(&var held).w
+}
+func run_holder(body: (Holder) sync -> Res) -> Int {
+    body(Holder(inner: Res(w: 6))).w
+}
+func run_cell(body: (Cell) sync -> Cell) -> Int { body(Cell(w: 2)).w }
+func run_opt(body: (Res) sync -> Res?) -> Int {
+    let got = body(Res(w: 8))
+    if let g = move got { g.w } else { 0 }
+}
+func run_res(body: (Res) sync -> Result<Res, Bad>) -> Int {
+    (try! body(Res(w: 11))).w
+}
+
+func main() {
+    // OWNED sources.
+    print("{}", run({ r in r }))                        // by-value parameter
+    let bound = { r: Res in r }                         // escaping: same rule
+    print("{}", run_loose(bound))
+    let o = Res(w: 5)
+    print("{}", run_owned({ [move o] in o }))           // a move capture
+    print("{}", run_owned({                             // a local of the body
+        let r = Res(w: 3)
+        r
+    }))
+
+    // ALIASING sources.
+    print("{}", hand({ p in p }))                       // a `&var` parameter
+    var b = Res(w: 4)
+    print("{}", run_owned({ [&var b] in b }))           // a borrow capture
+    print("{}", run_holder({ h in h.inner }))           // a field of an owned value
+
+    // THE AUTO-WRAPS, judged before the wrap.
+    print("{}", run_opt({ r in r }))
+    print("{}", run_res({ r in r }))
+
+    // THE BRANCH tail — per arm, through DF-299b's transparency.
+    print("{}", run({ r in if true { r } else { r } }))
+    print("{}", run({ r in match 1 { case 1 -> r, case _ -> r } }))
+
+    // The other owning tier.
+    print("{}", run_cell({ c in c }))
+}

@@ -4234,8 +4234,9 @@ class TypeUtilsMixin:
 
         Every site where a value is copied or moved into a new home (let/var
         initializers, assignment RHS, call arguments, returns, struct-field
-        initializers, array/tuple elements, enum payloads, and — since DF-299b —
-        a `break <value>`, whose home is the loop's) routes through here.
+        initializers, array/tuple elements, enum payloads, since DF-299b a
+        `break <value>` whose home is the loop's, and since DF-304a a CLOSURE
+        body's TAIL, whose home is the caller's) routes through here.
         It enforces NoCopy move-discipline and marks Copy sites so codegen
         inserts `copy()` uniformly.
 
@@ -4527,6 +4528,17 @@ class TypeUtilsMixin:
         Thin wrapper delegating to the shared value-transfer checkpoint so that
         implicit tail returns and explicit `return x` statements enforce the
         same rule.
+
+        THREE ENTRY POINTS, one per body a tail can end:
+          1. `_check_function` (statements.py) — a free function's tail, generic
+             and plain.
+          2. `_check_method`   (statements.py) — a method's.
+          3. `_check_closure`  (expressions.py) — a CLOSURE's, since DF-304a.
+             It calls BEFORE its Result/Optional auto-wraps, so the expression
+             judged is the one the author wrote; the other two call after, which
+             is why DF-305a's wrap blindness reaches them and not this one. A
+             synthesized PLACE WINDOW is not a body in this sense and is
+             excluded there (`is_place_window`).
         """
         self._check_value_transfer(final_expr, return_type, context_name,
                                     line, column, is_return=True)

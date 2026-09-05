@@ -1,0 +1,37 @@
+// Conformance row V82 — a closure body's TAIL hands its value to the caller,
+// so it takes the transfer checkpoint its own `return` takes
+//
+// DF-304a. `_check_closure` reconciled the tail's TYPE and called the
+// value-transfer checkpoint only for the closure's CAPTURES, so nothing judged
+// the tail at all — while `return r`, one keyword away in the same body, routed
+// through `_check_return_statement` and was refused. One closure, two spellings
+// of one transfer, two answers.
+//
+// It is a MISSING CALL, not a blind one, which is what separates it from
+// DF-299b next door: that fix made the checkpoint transparent through a value
+// BRANCH, and a branch inside a tail nothing checkpointed is still unchecked.
+// So the fix is one call at the funnel, and the branch tail (V83) comes out of
+// DF-299b's transparency for free.
+//
+// The two spellings below are refused in the same words, which is the row: the
+// site decides the wording ("return ... in closure"), and where the author put
+// the value decides nothing.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot return NoCopy type `Res` without `move` in closure
+
+struct Res { w: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.w) }
+}
+
+func run(body: (Res) sync -> Res) -> Int {
+    let made = Res(w: 7)
+    let got = body(move made)
+    got.w
+}
+
+func main() {
+    print("tail {}", run({ r in r }))            // error: the tail
+    print("return {}", run({ r in return r }))   // error: and always was
+}

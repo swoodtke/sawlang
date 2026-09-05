@@ -1,16 +1,18 @@
 // A closure body's TAIL is a transfer site, exactly as its `return` is.
 //
-// XFAIL: DF-304a — `_check_closure` reconciles the tail's TYPE and calls the
+// DF-304a. `_check_closure` reconciled the tail's TYPE and called the
 // value-transfer checkpoint only for the closure's CAPTURES, so a tail that
-// forwards an owned move-only binding is unchecked. `return r` one keyword away
-// routes through `_check_return` and IS refused, which is the asymmetry the
-// finding is about. Filed by DF-299b's sweep; a different mechanism from the
-// value-branch arms DF-299b closed, so it was not fixed there.
+// forwarded an owned move-only binding was unchecked while `return r` one
+// keyword away routed through `_check_return_statement` and WAS refused. That
+// asymmetry is the finding; the fix routes the tail through the same checkpoint,
+// before the Result/Optional auto-wraps, so the AUTHOR's expression is what is
+// judged and the `move` goes where it is written.
 //
-// What the silence costs: design 264 makes a by-value closure parameter OWNED
-// by the body, so the body releases `r` at body end and the tail hands the
-// caller an alias of it. The run below prints `drop 7` BEFORE `n 7` — a
-// use-after-free at exit 0.
+// The tail is the same transfer the `return` performs, so it is refused in the
+// same words. What the silence cost is counted in V82-V86: at a source the
+// closure does not OWN — a `&var` parameter, a borrow capture, a field of an
+// owned binding — the tail handed out an alias of storage somebody else
+// released, and both halves ran `deinit`.
 //
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: without `move` in closure

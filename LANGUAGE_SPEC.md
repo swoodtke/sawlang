@@ -5817,6 +5817,46 @@ rule covers are the ones whose value is a block tail they hand on: a value
 and `break <value>`, whose merged home is the loop's. Reading a `Copy` value in
 an arm retains it, the same as reading one anywhere else.
 
+#### A closure body's tail is a transfer
+
+The tail expression of a closure body hands its value to the caller. That is
+the transfer the closure's own `return` performs, and it takes the same rule
+and the same wording.
+
+```saw-error
+// error-contains: cannot return NoCopy type `Res` without `move` in closure
+struct Res { w: Int }
+extension Res: NoCopy {}
+
+func run(body: (Res) sync -> Res) -> Int {
+    let made = Res(w: 7)
+    let got = body(move made)
+    got.w
+}
+
+func main() {
+    print(run({ r in r }))
+    // error: cannot return NoCopy type `Res` without `move` in closure
+    // hint: use `move` to transfer ownership instead
+}
+```
+
+`run({ r in move r })` compiles, and a value capture handed on the same way
+(`run_owned({ [move o] in move o })`) does too. What the tail forwards does not
+change the rule: a by-value parameter, a value capture, a local of the body, a
+`&var` parameter, a borrow capture, and a field of an owned binding are judged
+alike. Two of those have no `move` spelling. Moving out of a borrowed binding is
+refused because the move-out belongs to the value's owner, and a field would be
+a partial move, which Saw does not have. Restructure there: take the value by
+value, or use the move-out its owner publishes (`take()` on an `Optional` field,
+`swap_out` on an indexed place).
+
+A tail landing in a `-> T?` or `-> Result<T, E>` slot is judged before the
+auto-wrap, so the `move` goes on the value you wrote rather than on a
+construction the compiler inserted. A tail that is itself a value `if` or
+`match` is judged per arm, by the previous section's rule. Reading a `Copy`
+value in a tail retains it, once.
+
 #### Plain transfers take the same rule
 
 **Status: implemented (design 205).**

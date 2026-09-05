@@ -1,0 +1,60 @@
+// Conformance row V84 — the Copy tier through a closure tail retains EXACTLY
+// ONCE, before the fix and after it
+//
+// DF-304a, and V80's lesson at the neighbouring site. The Copy tier was already
+// correct here for the same reason it was correct through a value arm: codegen's
+// `_gen_transfer_value` names "an inner-block tail expression" as a site the
+// checkpoint does not mark and RE-DERIVES the retain there. So the risk this
+// fix carries is not a missing retain but a SECOND one beside the derived one,
+// and the counts below are what say it did not appear.
+//
+// The place tail (`v[0]`) is counted because that read carries its own
+// design-146 mark: a Copy element reached through a window is the shape where
+// two marks meet on one transfer, and it is where a double retain would show
+// first.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: start 1
+// EXPECT-OUTPUT: tail 2 2
+// EXPECT-OUTPUT: stored 4
+// EXPECT-OUTPUT: place 5 5
+// EXPECT-OUTPUT: string 5
+// EXPECT-OUTPUT: trivial 5
+// EXPECT-OUTPUT: drop 7
+
+struct Res { w: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.w) }
+}
+
+func run_arc(body: (Arc<Res>) sync -> Arc<Res>, a: Arc<Res>) -> Arc<Res> {
+    body(move a)
+}
+
+func run_place(body: (&Vector<Arc<Res>>) sync -> Arc<Res>,
+               v: &Vector<Arc<Res>>) -> Arc<Res> { body(&v) }
+
+func run_string(body: (String) sync -> String) -> Int { body("hello").len() }
+func run_int(body: (Int) sync -> Int) -> Int { body(5) }
+
+func main() {
+    let a = try! Arc(value: Res(w: 7))
+    print("start {}", a.strong_count())
+
+    // The tail retains, the source keeps its own reference: 1 -> 2, both live.
+    let b = run_arc({ x in x }, a.copy())
+    print("tail {} {}", a.strong_count(), b.strong_count())
+
+    var v = Vector<Arc<Res>>()
+    try! v.push(a.copy())
+    try! v.push(a.copy())
+    print("stored {}", a.strong_count())
+
+    // A PLACE tail: one retain for the read, not two.
+    let c = run_place({ vv in vv[0] }, &v)
+    print("place {} {}", a.strong_count(), c.strong_count())
+
+    // The other Copy face, and the trivial one below it.
+    print("string {}", run_string({ s in s }))
+    print("trivial {}", run_int({ n in n }))
+}
