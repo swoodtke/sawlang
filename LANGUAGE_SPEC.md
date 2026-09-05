@@ -9797,17 +9797,30 @@ hint: mark it `public` in `pkg.secret` to expose it — a `public import`
       wider tier
 ```
 
-#### Member visibility (design 80)
+#### Member visibility
 
-Struct FIELDS and extension METHODS (including `init` and static methods) are
-**private-by-default OUTSIDE the defining module** — the same rule and the same
-modifier family (`public` / `public(package)` / `public(parent)`) as top-level
-declarations. Inside the defining module, member access is unrestricted.
+Member access is gated OUTSIDE the defining module only. Inside the module that
+declares a type, every field and every method of it is reachable with no
+modifier written anywhere. The gate uses the same modifier family as top-level
+declarations: `public`, `public(package)`, `public(parent)`.
+
+Fields and methods take their default from different places, and the split is
+the thing to learn.
+
+**A field's default is its declaring type's visibility.** A field is the type's
+own data, so it rides the type's tier: the fields of a `public struct` are
+public, the fields of a `public(package) struct` are `public(package)`, and the
+fields of a private struct are module-private. The tier is stated once, on the
+type.
+
+**`private` narrows a field back down.** It is the spelling for a field that is
+not on the type's surface — storage the type keeps to itself.
 
 ```saw-fragment
 public struct Account {
-    public name: String    // readable/writable cross-module
-    balance: Int           // private: only this module can touch it
+    name: String            // public, like the struct: readable and writable
+                            // cross-module
+    private balance: Int    // narrowed: only this module can touch it
 }
 
 extension Account {
@@ -9816,6 +9829,28 @@ extension Account {
     func settle(&var self) { ... }                          // private helper
 }
 ```
+
+`private` is a contextual keyword. It is a modifier only immediately ahead of a
+field's name, and an ordinary identifier everywhere else — `let private = 3`, a
+parameter labelled `private:`, and a field NAMED `private` all compile. On any
+other declaration it is refused, because a declaration with no modifier is
+already module-private:
+
+```
+error: `private` is not a declaration modifier — a declaration with no modifier
+       is already module-private. Delete it; `private` narrows a struct FIELD
+       back down when its type is `public`, and that is the only place it is
+       written
+```
+
+**An extension member inherits nothing.** A method, a static method and an
+`init` each carry their own visibility, and a bare one is module-private
+whatever its receiver's tier is. A method is a function that happens to act on a
+struct, so it needs a declared visibility or else it is a per-module helper;
+`settle` above is private on a `public struct` for that reason. Two idioms rest
+on it: a bare extension method on a std or foreign type is a safe local
+utility precisely because bare means private there, and an extension HEAD
+carries no modifier at all (below).
 
 **An extension HEAD carries no visibility, and writing one is an error.** An
 extension is not a nameable entity: nothing imports it, nothing calls it, and
@@ -9834,11 +9869,15 @@ Consequences:
 - A member marked `public` on a member of a non-public struct is legal but
   inert — the struct itself gates reachability.
 - **Cross-module memberwise construction** (`Account(name:, balance:)`) requires
-  ALL fields visible; if any field is private, use a visible `init` instead. The
-  same rule governs any field access — reads AND writes go through one gate, so a
-  private field cannot be corrupted from another module (this is what closes the
-  `Vector.length`/`capacity` memory-safety hole: those invariants are private,
-  and a bounds-checked `get()` can no longer be tricked into an OOB read).
+  ALL fields visible, because construction visibility is field visibility. A
+  `public struct` whose fields are all bare is therefore memberwise-constructible
+  from anywhere with no `init` written; one that marks a field `private` needs a
+  visible `init` instead, which is `Account`'s case above. The same rule governs
+  any field access — reads AND writes go through one gate, so a `private` field
+  cannot be corrupted from another module (this is what closes the
+  `Vector.length`/`capacity` memory-safety hole: those invariants are marked
+  `private`, and a bounds-checked `get()` can no longer be tricked into an OOB
+  read).
 - **Trait-conformance methods follow the trait**: a method satisfying a visible
   trait's requirement is callable wherever the conformance is visible (a
   `public` marker on it is allowed and redundant); dispatch through `any Trait`
@@ -9859,9 +9898,33 @@ Consequences:
 A declaration may not name a type less visible than the declaration's own
 reach. A `public` function's parameters and return type are `public`; a
 `public(package)` declaration's signature names types that are at least
-`public(package)`; a `public` field's type is at least as visible as the field.
-A private declaration may name anything, because nothing it names can leave the
+`public(package)`; a field's type is at least as visible as the field. A
+private declaration may name anything, because nothing it names can leave the
 module.
+
+A field's reach here is the INHERITED one, so a `public` struct's bare field
+whose type is private is refused. The fix is usually the narrowing marker rather
+than a wider type, and the diagnostic names it:
+
+```saw-fragment
+struct Ledger {
+    n: Int
+}
+
+public struct Shipment {
+    private kept: Ledger    // without `private`, the field would be public and
+                            // would expose a private type
+}
+```
+
+```
+error: field `hidden` of `Shipment` is public, but its type names `Ledger`,
+       which is private — a public API needs public types
+hint: either widen the type — mark the struct `Ledger` `public` — or mark the
+      field `private`, which takes it off the type's surface, where `Ledger` can
+      be named. A caller that can reach a declaration must be able to name every
+      type in its signature
+```
 
 ```saw-fragment
 struct Hidden {

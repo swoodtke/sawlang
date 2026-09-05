@@ -296,8 +296,12 @@ class SignatureVisibilityMixin:
         # `private` is exactly the spelling for "this field is not on the type's
         # surface". Worth naming, because a field that reaches this refusal is
         # most often one whose tier the author never chose: it inherited it.
-        narrow = ("mark the field `private`" if decl_what.startswith("field `")
-                  else "narrow the declaration")
+        if decl_what.startswith("field `"):
+            narrow = (f"mark the field `private`, which takes it off the type's "
+                      f"surface, where `{short}` can be named")
+        else:
+            narrow = (f"narrow the declaration, so its signature stays where "
+                      f"`{short}` can be named")
         self._error(
             ErrorKind.TYPE_MISMATCH,
             f"{decl_what} is {self._vis_word(decl_vis)}, but {what} names "
@@ -305,9 +309,8 @@ class SignatureVisibilityMixin:
             f"public API needs public types",
             line, column,
             hint=f"either widen the type — mark the {word} `{short}` "
-                 f"`{self._vis_word(decl_vis)}`{owner} — or {narrow}, so its "
-                 f"signature stays where `{short}` can be "
-                 f"named. A caller that can reach a declaration must be able to "
+                 f"`{self._vis_word(decl_vis)}`{owner} — or {narrow}. A caller "
+                 f"that can reach a declaration must be able to "
                  f"name every type in its signature",
             source_file=source_file,
         )

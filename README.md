@@ -584,16 +584,32 @@ extension methods of the modules you publish, without importing them itself.
 
 Visibility is scoped: besides `public` and the private default, a declaration
 can be `public(package)` — visible to the other files of its package and
-nobody else — or `public(parent)`, visible to the enclosing module. Struct
-fields and extension methods are private by default outside their defining
-module, and `public` marks the API surface.
+nobody else — or `public(parent)`, visible to the enclosing module. Members are
+gated outside their defining module only; inside it, everything is reachable
+with nothing marked.
+
+A struct's fields take the struct's visibility. The tier is written once, on
+the type, and `private` narrows an individual field back down:
+
+```saw
+public struct Account {
+    name: String            // public, like the struct
+    private balance: Int    // this module only
+}
+```
+
+`private` is contextual, so it stays an ordinary identifier everywhere but
+directly ahead of a field name. Extension methods are the deliberate exception:
+a method is a declaration in its own right, so a bare one is module-private
+whatever its receiver's tier, and `public` marks the ones you mean to publish.
 
 A public API needs public types. A declaration may not name a type less
 visible than itself, so a `public` function's parameters and return type are
-`public` and a `public(package)` one's are at least `public(package)`. The
-refusal is at the declaration and offers both fixes, widen the type or narrow
-the declaration; a private declaration may name anything. Otherwise a caller
-ends up holding a value with no name it can write.
+`public` and a `public(package)` one's are at least `public(package)`. A field
+is judged at the tier it inherits, which is why an internal field of a public
+struct is marked `private` rather than left bare. The refusal is at the
+declaration and names its fixes; a private declaration may name anything.
+Otherwise a caller ends up holding a value with no name it can write.
 
 Type identity is the defining module plus the name, so a dependency's private
 `struct Header` reserves nothing in your program, and two packages' public

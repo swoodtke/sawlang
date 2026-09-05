@@ -3104,20 +3104,52 @@ public import wire.{Header}  // RE-EXPORT: `Header` joins THIS module's surface
 - Visibility: `public`, `public(package)`, `public(parent)`, private
   default. Package layout: `src/lib.saw` ← `import <pkgname>` (Blade
   `--module-path`); `src/main.saw` for binaries.
-- MEMBER visibility (design 80): struct FIELDS and extension METHODS
-  (incl. `init`/static) are **also private-by-default outside the defining
-  module** — mark your API surface `public` (`public name: String`,
-  `public func get(...)`, `public init(...)`). Same-module access is
-  unrestricted. Gotchas: (1) a cross-module memberwise literal
-  `T(a:, b:)` needs ALL fields visible — expose a `public init` when a
-  field is private; reads AND writes are gated, so another module cannot
-  corrupt a private field. Do NOT cargo-cult `public` onto fields/methods in a
-  SINGLE-module program or test — same-module access is ungated, so it is inert
-  noise there. (2) A method satisfying a visible trait's
+- **MEMBER visibility (design 80, amended by design 258): a FIELD inherits its
+  TYPE's tier, a METHOD inherits nothing.** The gate applies outside the
+  defining module only; same-module access is unrestricted, always.
+  ```saw-fragment
+  public struct Account {
+      name: String            // public, like the struct — no marker owed
+      private balance: Int    // narrowed: this module only
+  }
+  extension Account {
+      public func balance_of(&self) -> Int { self.balance }
+      func settle(&var self) { ... }   // BARE: module-private, tier or no tier
+  }
+  ```
+  The tier goes on the TYPE, once. A `public(package) struct` no longer spells
+  `public(package)` on every field, which is the duplication the ruling removes;
+  the in-tree migration marked 170 fields `private` and changed no surface.
+  `private` is CONTEXTUAL — a modifier only right before a field name, an
+  ordinary identifier everywhere else (`let private = 3`, a `private:` label, a
+  field NAMED `private`), and a clean error on any other declaration ("a
+  declaration with no modifier is already module-private"). Before Aug 31 a bare
+  field was PRIVATE and `private` was not a word, so a `public struct` whose
+  fields you can read from another module means the build has 258; one whose
+  fields you cannot means it predates it.
+  Gotchas: (1) a cross-module memberwise literal `T(a:, b:)` needs ALL fields
+  visible — which a public struct with all-bare fields now IS, by default, so
+  `T(a:, b:)` works cross-module with no `init` written; mark a field `private`
+  and you owe a `public init` again. Reads AND writes are gated, so another
+  module cannot corrupt a `private` field. Do NOT cargo-cult `public` onto
+  fields/methods in a SINGLE-module program or test — same-module access is
+  ungated, so it is inert noise there. (2) A method satisfying a visible trait's
   requirement is callable through the conformance with no `public` needed.
-  (3) `public` on a member of a private struct is legal but inert. std is
-  under the gate too — you reach its public API, never its internals; each std
-  FILE is its own module (design 82), so std internals are private per-file.
+  (3) `public` on a member of a private struct is legal but inert — a field can
+  never out-reach its type. (4) A `public` struct's BARE field whose type is
+  less visible is now the design-193 refusal ("a public API needs public
+  types"), and the hint's third out is the one to reach for: mark the field
+  `private`. std is under the gate too — you reach its public API, never its
+  internals; each std FILE is its own module (design 82), so std internals are
+  private per-file.
+- **WHY METHODS ARE EXCLUDED, and what rests on it** (user ruling, Aug 31): an
+  extension method is a FUNCTION that happens to act on a struct, so it needs a
+  DECLARED visibility or else it is a per-module helper; a field is the type's
+  own data and rides the type's tier. Nothing function-shaped inherits reach
+  from a type. Two standing idioms are consequences: the safe-utility-extension
+  idiom (a bare helper on a foreign/std type is safe BECAUSE bare means private
+  there) works unchanged on `public` receivers, and the
+  no-visibility-on-extension-heads rule stands.
 - **AN EXTENSION HEAD CARRIES NO VISIBILITY** (ruled Aug 20): `public extension
   Point { … }` is a declaration-site ERROR ("an extension cannot carry a
   visibility modifier … visibility belongs on members"), and so are
