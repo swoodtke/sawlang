@@ -21,12 +21,22 @@
 // none
 // 42
 // 1
+// 0
+// 0
 
 struct Wrap<T> { value: T }
 struct Pair<A, B> { a: A, b: B }
 
 extension Wrap<T> {
     init(doubled: T) -> Wrap<T> { Wrap<T>(value: doubled) }
+}
+
+// A ZERO-ARGUMENT construction parses as a call, not a struct literal, and is
+// exactly the shape no argument can solve — the declared slot is all it has.
+struct Bag<T> { n: Int }
+extension Bag<T> {
+    init() -> Bag<T> { Bag<T>(n: 0) }
+    func count(&self) -> Int { self.n }
 }
 
 // design 108 at a constructor: a default VALUE typed by the type parameter
@@ -102,4 +112,10 @@ func main() {
 
     // a type-param default fills when unconstrained; an argument wins when not
     print(Defaulted(v: 1).v)
+
+    // the zero-argument shapes: the element type written once, not twice
+    let empty_vec: Vector<Int> = Vector()
+    print(empty_vec.len())
+    let bag: Bag<String> = Bag()
+    print(bag.count())
 }

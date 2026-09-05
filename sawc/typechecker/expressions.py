@@ -3470,7 +3470,7 @@ class ExpressionsMixin:
         self._decl_slot_type = (
             declared_type
             if declared_type is not None
-            and (isinstance(value_expr, (StructInit, EnumInit))
+            and (isinstance(value_expr, (StructInit, EnumInit, FunctionCall))
                  or (isinstance(value_expr, MemberAccess)
                      and isinstance(value_expr.object, Identifier)))
             else None)
@@ -3531,7 +3531,15 @@ class ExpressionsMixin:
         if len(candidates) != 1:
             return None
         got = candidates[0]
-        if not got.type_args or len(got.type_args) != len(solve_params):
+        # A PREFIX is enough, and is the common spelling: an annotation writes
+        # `Vector<Int>` and the defaulted allocator is filled later (by
+        # `_finish_type_args`, not by `_resolve_type`), so the slot carries one
+        # argument where the type has two. Unifying the arguments the slot DOES
+        # carry pins those parameters and leaves the rest to their defaults,
+        # which is exactly what the written spelling means. Requiring an exact
+        # count here made `let v: Vector<Int> = Vector()` — the headline case —
+        # silently decline.
+        if not got.type_args or len(got.type_args) > len(solve_params):
             return None
         pattern = SawType(
             TypeKind.ENUM if is_enum else TypeKind.STRUCT,
@@ -4152,6 +4160,15 @@ class ExpressionsMixin:
 
     def _check_function_call(self, expr: FunctionCall) -> Optional[SawType]:
         """Check a function call."""
+        # design 207: a construction with NO named arguments — `Vector()`,
+        # `Bag()` — parses as a FunctionCall (the StructInit production needs an
+        # `IDENT COLON` lookahead) and only becomes a construction below. That
+        # is precisely the zero-argument shape the declared slot exists to
+        # solve, so the slot has to survive the trip. CONSUME it here and hand
+        # it back only at the conversion: an ordinary call must not pass it to
+        # its ARGUMENTS, which would be the expected-type propagation design 207
+        # rules out.
+        _ctor_slot = self._take_decl_slot_type()
         # Atomic construction (design 41 item 4): `Atomic(<int>)`. A compiler-
         # known positional construction — the general struct-init path requires
         # named arguments, so intercept it here. v1 supports Atomic<Int> only.
@@ -4953,6 +4970,9 @@ class ExpressionsMixin:
                     line=expr.line,
                     column=expr.column
                 )
+                # Hand the declared slot to the construction this call turned
+                # out to be (design 207).
+                self._decl_slot_type = _ctor_slot
                 result = self._check_struct_init(struct_init)
                 # The canonicalized argument list belongs to the CALL node too:
                 # codegen monomorphizes from this one, and design 37's
