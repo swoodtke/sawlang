@@ -1606,3 +1606,110 @@ codegen's compensation. [131, 139, 195, DF-299a]
 ## Queue record (moved Sep 5, tenth rotation — design 258: field visibility inheritance)
 
 - Design 258 — field visibility inherits the type's, amending design 80 — **LANDED Sep 5** (designs/258-field-visibility-inheritance.md; RULED Aug 31 by the user after reading the sos code, three cells pinned: ALL TIERS inherit, FIELDS ONLY — extension members keep per-member marking — and a contextual `private` keyword for narrowing). Five commits, each green: conformance B rows first (obligation 3 — B01/B02/B03 re-pinned on the `private` marker, B07 gained the inheritance half, new B27-B30); then the `private` keyword + `StructField.visibility_written` + the `effective_field_visibility` funnel with the default UNCHANGED; then the migration as its own no-op commit (obligation 2 — 170 bare fields marked `private`: std 123, blade 24, libs 11, examples 12; sawc/rt, builtin.saw, devtools, selfhost and tests declare no visible struct at all); then the FLIP, routing the gate's `field_visibility` map, the design-193 signature walk and `--emit-docs` through the one funnel (obligation 1); then docs. Ruling 5 fell out as designed — a public struct's bare field naming a private type is now the design-193 refusal, and its hint gained the third out (mark the field `private`). No DF filed: nothing in the corpus needed a workaround. Terminal battery green. **Owes a MINOR version bump at integration** (language semantics), which the lead cuts covering this + DF-299b
+
+## Backlog records (moved Sep 5, eleventh rotation — DF-304a: the closure tail takes the transfer checkpoint)
+
+- DF-304a — CLOSED Sep 5, FIXED (entry below): the closure tail takes the transfer checkpoint at `_check_no_copy_return`'s third entry point, called BEFORE the auto-wraps so the author's expression is what is judged. The obligation-4 sweep ran the tail against thirteen sources and split them — the OWNED ones were unchecked-but-sound at one invocation and a triple free at the second, the ALIASING ones (a `&var` parameter, a borrow capture, a field) were two `deinit`s per value at exit 0 — and the branch tail came out of DF-299b's transparency with no second rule. Copy tier still one retain (V84). Conformance rows V82-V85; corpus fallout TWO files (V71's two spellings take `move`, the XFAIL pin flips). The sweep filed DF-305a, a different mechanism left open. **Joined the 0.10.0 release; version bump is the lead's**
+
+## DF-304a — CLOSED Sep 5, FIXED. SOUNDNESS: a CLOSURE body's TAIL is not a
+## transfer site, so it hands out an alias of a value the closure then deinits
+## (filed Sep 5 by DF-299b's sweep; PRE-EXISTING, NOT fixed there)
+
+LANDED. The closure tail routes through `_check_no_copy_return`, which is now a
+funnel with THREE named entry points — a function's tail, a method's, and a
+closure's — and the closure calls it BEFORE its Result/Optional auto-wraps, so
+the expression judged is the one the author wrote and the `move` goes where the
+value is. One call; the tail is refused in the `return`'s own words, which is
+the asymmetry the filing was about.
+
+THE BRANCH TAIL CAME FREE, as designed rather than by luck: `_check_value_transfer`
+has been transparent through a value-branch node since DF-299b, so the single
+call judges `{ r in if c { r } else { r } }` per ARM, anchored at each arm.
+
+THIRTEEN SOURCES, AND THE SEVERITY SPLITS ALONG THEM (the obligation-4 sweep,
+each cell compiled and run against a printing `deinit`, before and after). The
+filing's own severity reading needed correcting: `drop 7 / n 7` is what a SOUND
+program prints in that harness, because `run(...)` completes before the `print`
+that consumes it. With a marker between the call and the read the picture is:
+
+    OWNED sources — by-value parameter (escaping and non-escaping), `[move o]`
+      capture, a local of the body, and the same through a `-> T?` / `-> Result`
+      slot. ONE invocation transferred correctly — codegen made it an implicit
+      move — so these were UNCHECKED rather than broken. The SECOND invocation
+      of one bound closure was not: `{ [move o] in o }` called twice ran
+      `deinit` on one value THREE times (once per call, once at the env's
+      teardown), exit 0.
+    ALIASING sources — a `&var` closure PARAMETER, a `[&var o]` borrow capture,
+      a FIELD of an owned binding. Every one was TWO `deinit`s per value at
+      exit 0. These are the real double frees, and two of them have no `move`
+      spelling at all: DF-290a's fence refuses the borrowed binding (verified
+      still refused, both spellings) and the field is the no-partial-moves
+      error. Restructuring is the answer there, which is what the refusal's
+      family wording already says.
+
+TIERS. NoCopy and ExplicitCopy refused at every source. The COPY tier was
+already correct and stays exactly one retain (1 -> 2 through a plain tail, and
+through a PLACE tail, where design 146's mark meets the new one) — V80's lesson
+at the neighbouring site: `_gen_transfer_value` re-derives the block-tail retain,
+so the risk was a SECOND retain and it did not appear.
+
+ONE CARVE-OUT, EARNED BY THE SWEEP: a synthesized PLACE WINDOW is excluded
+(`is_place_window`). `place_uses._window_call` writes "run this while the window
+is open" as a closure whose tail is the value of the place expression the author
+wrote in the ENCLOSING scope, already judged at its own site; judging it again
+refused the lowering's own bookkeeping. Found by
+`examples/match_borrowed_payload_in_a_driven_body.saw`, whose driven
+`match plan.job` lowers to a window whose tail IS `plan.job`.
+
+CORPUS: TWO files. `examples/conformance/V71`'s `run_owned({ [move o] in o })`
+and `takes_by_value({ p in p }, ...)` take `move` (the row's own text already
+said an owned binding "may move it on"; its outputs are unchanged, one `deinit`
+per value), and `examples/closure_tail_takes_the_transfer_checkpoint.saw` loses
+its XFAIL marker. Nothing in std, blade, libs, devtools or selfhost forwards a
+closure tail at an owning tier.
+
+Conformance rows V82-V85. Spec gained "A closure body's tail is a transfer";
+the saw-lang skill's value-branch entry gained the tail rule beside it; README
+carries no closure-ownership prose and needed none.
+
+ONE FINDING FILED BY THE SWEEP AND NOT FIXED HERE: DF-305a, below.
+
+--- as filed ---
+
+```saw
+func run(body: (Res) sync -> Res) -> Int {      // Res is NoCopy, printing deinit
+    let made = Res(w: 7)
+    let got = body(move made)
+    got.w
+}
+// run({ r in r })          compiles -> drop 7 / n 7   — the read is after the drop
+// run({ r in return r })   error: cannot return NoCopy type `Res` without `move`
+//                                 in closure
+```
+
+NOT DF-299b, which is why it is filed rather than folded in. DF-299b's arms were
+a checkpoint that is never called AT AN ARM; here the checkpoint is never called
+at the closure TAIL AT ALL, branch or no branch — `_check_closure`
+(`expressions.py`, ~13112) reconciles the tail's TYPE and calls
+`_check_value_transfer` only for its CAPTURES (~13653), while `return` inside the
+same closure routes through `_check_return` and is refused. So DF-299b's
+transparency edit does not reach it: a closure tail that IS a value branch
+(`{ r in if true { r } else { r } }`) is still unchecked today, downstream of
+this, not of the arms.
+
+SEVERITY: worse than DF-299b's branch faces. Design 264 made a by-value closure
+parameter OWNED by the body, so the body releases it at body end — and the tail
+hands an alias of that same value to the caller, which then reads it. `drop 7`
+prints BEFORE the caller's read: a use-after-free at exit 0, not a lost deinit.
+
+WHAT A FIX OWES (obligation 4): the mechanism is "the closure tail reconciler
+does not call the value-transfer checkpoint", so the sweep is the tail against
+every source a closure body can forward — a by-value PARAMETER (above), a
+capture, an enclosing local, a field of one — at every tier, and against the
+escaping/non-escaping faces (design 264's V75 pair), plus the `Result`/optional
+auto-wrapped tail, which is where `_wrap_tail_into_optional` already names
+`_check_closure`'s tail as one of its four entry points. Note the corpus
+DEPENDS on the current silence: `examples/conformance/V71`'s
+`takes_by_value({ p in p }, ...)` and `run_owned({ [move o] in o })` are exactly
+this shape, so the fix owes a migration and V71 owes a re-reading.
+[131, 195, 213, 264, DF-299b]
