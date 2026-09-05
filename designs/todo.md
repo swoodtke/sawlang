@@ -31,7 +31,7 @@ is scheduled and in what order is the whole of what they say.
 
 ## [QUEUE] — scheduled, in order (user-approved)
 
-- Design 207 — constructors infer their type arguments (designs/207-constructor-inference.md; RULED Aug 10, SCHEDULED Sep 4 by DF-294d's ruling). Dispatches after the soundness pair integrates (typechecker surface, serial); ONE cell needs the user's ruling at dispatch: the Sep-4 amendment's annotation-driven inference (the slot's type as a solver source — SL-22's own shape solves no other way). Closes DF-294d on landing; plausibly dissolves DF-247a's workaround pressure too (check at integration).
+- Design 207 — constructors infer their type arguments (designs/207-constructor-inference.md; RULED Aug 10, SCHEDULED Sep 4 by DF-294d's ruling; **annotation-driven cell RULED IN Sep 4 (user)** — the declared slot at an initializer joins the solver, explicit `<...>` wins, mismatch is the ordinary error, scope is the slot only; **DISPATCHED Sep 4**, worktree, DF range 302a+). Typechecker surface, serial. Closes DF-294d on landing; plausibly dissolves DF-247a's workaround pressure too (check at integration).
 
 
 - Design 258 — field visibility inherits the type's, amending design 80 (designs/258-field-visibility-inheritance.md; RULED Aug 31 by the user after reading the sos code, three cells pinned: ALL TIERS inherit, FIELDS ONLY — extension members keep per-member marking — and a contextual `private` keyword for narrowing; SCHEDULED after 218 unit 1.5). The consumer sweep IS the migration: every bare field of a visible struct in std/libs/blade gets `private`, surface-preserving; conformance B rows update first (obligation 3)

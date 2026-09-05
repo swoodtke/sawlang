@@ -5,20 +5,30 @@ the un-wrappable generic static head exists because constructors write
 the type twice; the user ruled "design 207 + interim doc"). The interim
 spec/skill lines blessing the parenthesized-initializer wrap landed
 Sep 4; this brief dispatches after the soundness pair integrates
-(typechecker surface, serial). **ONE NEW CELL THE MOTIVATING CASE
-DEMANDS, flagged for a ruling before dispatch:** the brief's matrix as
-authored is ARGUMENT-driven, but sos's shape is
-`static EVENTS: Slab<EventSlot, MAX_EVENTS> = Slab(...)` — an EMPTY
-constructor whose arguments mention no type parameter, solvable only
-from the ANNOTATED SLOT. The lead-recommended widening: the expected
-type joins the solver as an inference source for constructors (the
-slot's `T<Args>` unifies with the constructed type — exactly the
-adoption shape bare literals already take at annotated slots; explicit
-`<...>` still wins; a MISMATCH between slot and explicit args is the
-ordinary transfer error, not a solver conflict). Without this cell, 207
-deletes the doubled spelling only where an argument happens to name
-every parameter, and SL-22's nine declarations keep their second
-spelling.
+(typechecker surface, serial). **THE ANNOTATION-DRIVEN CELL IS RULED IN
+(user, Sep 4):** at a declaration with an explicit annotation
+(`let`/`static`/field initializer), the slot's `T<Args>` joins the
+design-93/105 solver as one more inference source for the constructor —
+the shape bare-literal adoption already takes at annotated slots,
+extended from literals to constructors. Fences, as recommended and
+ruled: explicit `<...>` on the constructor ALWAYS wins; a mismatch
+between slot and explicit args is the ordinary type-transfer error, not
+a solver conflict; underdetermined stays a clean error naming the
+explicit spelling. SCOPE: the declared slot at an initializer position
+ONLY — no expected-type propagation through call arguments, returns, or
+operators (those remain out, below). This is what closes SL-22's shape
+(`static EVENTS: Slab<EventSlot, MAX_EVENTS> = Slab(...)`, an empty
+constructor no argument can solve) and with it DF-294d in full.
+MATRIX ROWS THE CELL ADDS (unit 1 covers them like every other row):
+slot-driven at `static`, at `let`, at a struct-field initializer;
+slot + partial-explicit (slot pins what explicit args left open);
+slot-vs-explicit MISMATCH (the ordinary error, its wording checked);
+slot-vs-ARGUMENT conflict (a solver conflict, clean error); and the
+AUTO-WRAP rows — `let m: Mutex<Int>? = Mutex(value: 0)` and the
+`Result` analogue, where the slot unwraps exactly the auto-wrap layers
+before unifying. Per the gates: any auto-wrap/erased-`Box` row the
+matrix reveals as genuinely ambiguous STOPS and files rather than
+guessing.
 
 **Status: RULED Aug 10 (user: "generic constructors should infer their
 type arguments — anything we can accurately infer should be inferred")
@@ -86,9 +96,9 @@ STOPS and files rather than guessing.
 
 ## Explicitly out
 
-Expected-type-DRIVEN inference (`let m: Mutex<Int> = Mutex(value: 0)`
-already works via arguments; a future "target typing" step where the
-ANNOTATION solves an otherwise-underdetermined constructor is its own
-brief under the same principle — noted, not taken); variadic or
-higher-kinded anything; `Box<any Trait>.make`'s erased spelling
-(unchanged).
+GENERAL expected-type propagation — the annotation-driven cell ruled in
+Sep 4 covers the DECLARED SLOT at an initializer position only; the
+expected type does NOT flow through call arguments, returns, operators,
+or any other context (each would be its own brief under the same
+principle); variadic or higher-kinded anything; `Box<any Trait>.make`'s
+erased spelling (unchanged).
