@@ -285,8 +285,18 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   `return` owes, in the same words:
   ```saw-error
   // error-contains: cannot return NoCopy type `Res` without `move` in closure
-  run({ r in r })            // error: cannot return NoCopy type `Res` without
-                             //        `move` in closure
+  struct Res { w: Int }
+  extension Res: NoCopy {}
+
+  func run(body: (Res) sync -> Res) -> Int {
+      let made = Res(w: 7)
+      let got = body(move made)
+      got.w
+  }
+
+  func main() {
+      print(run({ r in r }))   // error: cannot return NoCopy type `Res`
+  }                            //        without `move` in closure
   ```
   ```saw-fragment
   run({ r in move r })                     // the spelling the refusal names
