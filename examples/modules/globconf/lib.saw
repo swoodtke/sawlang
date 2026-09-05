@@ -4,7 +4,7 @@
 // conformance along, or its own containment check wrongly rejects Bag.
 // Skipped by the test runner (under a `modules/` directory).
 public struct Bag {
-    items: Vector<Int>
+    private items: Vector<Int>
 }
 
 extension Bag: NoCopy {

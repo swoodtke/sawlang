@@ -120,12 +120,12 @@ func record_build_stamp(layout: &BuildLayout, hash: &String) {
 // =============================================================================
 
 public struct Builder {
-    manifest: Manifest
-    layout: BuildLayout
+    private manifest: Manifest
+    private layout: BuildLayout
     // The triple `--target` asked for, kept as WRITTEN rather than only as the
     // layout's directory name: an SOS package may carry a `[sos.<triple>]`
     // section per machine, and selecting one needs the request itself.
-    requested_target: String
+    private requested_target: String
 }
 
 extension Builder {

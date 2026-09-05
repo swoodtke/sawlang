@@ -4,7 +4,7 @@
 //! not separately isolated.
 // EXPECT: skip
 
-public struct Crate { n: Int }
+public struct Crate { private n: Int }
 extension Crate {
     func secret_method(&self) -> Int { self.n }
     static func secret_make() -> Crate { Crate(n: 1) }

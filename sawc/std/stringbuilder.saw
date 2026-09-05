@@ -34,15 +34,15 @@ static MARKER_BYTE_2: Byte = 166
 static MIN_FIXED_CAPACITY: Int = 5
 
 public struct StringBuilder {
-    buffer: UnsafePointer<Int8>?
-    length: Int
-    capacity: Int
+    private buffer: UnsafePointer<Int8>?
+    private length: Int
+    private capacity: Int
     // Fixed mode (design 137): the buffer is caller-provided storage that is
     // never grown and never freed. Overflow truncates and marks instead of
     // reallocating, which is what lets `panic`, `assert` and `print` assemble a
     // message with the allocator refusing everything.
-    fixed: Bool
-    truncated: Bool
+    private fixed: Bool
+    private truncated: Bool
 }
 
 // design 186: the buffer pointer blocks the derivation, and a `StringBuilder`

@@ -6,7 +6,7 @@ public(parent) func parent_only(n: Int) -> Int {
 }
 
 public(parent) struct ParentOnlyData {
-    value: Int
+    private value: Int
 }
 
 // This is public, so accessible from anywhere

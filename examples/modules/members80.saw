@@ -3,7 +3,7 @@
 
 public struct Gadget {
     public label: Int     // public field — readable cross-module
-    secret: Int           // private field — NOT accessible cross-module
+    private secret: Int           // private field — NOT accessible cross-module
 }
 
 extension Gadget {

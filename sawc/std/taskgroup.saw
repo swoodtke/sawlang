@@ -546,10 +546,10 @@ public trait __TaskCell {
 // The cell for a task whose body returns a value. `__result` is the slot
 // `Task<T>.result_ptr` addresses and `join` empties with `Optional.take`.
 public struct __ResultCell<T> {
-    __result: T?
-    __cancel: Bool
-    __fated: Bool
-    __detached: Bool
+    private __result: T?
+    private __cancel: Bool
+    private __fated: Bool
+    private __detached: Bool
 }
 
 extension __ResultCell<T>: NoCopy {}
@@ -568,9 +568,9 @@ extension __ResultCell<T>: __TaskCell {
 // The cell for a `Void` task (design 102 item 1) and for the ambient scheduler's
 // root frame: a cancel word and nothing else, so no value outlives the task.
 public struct __VoidCell {
-    __cancel: Bool
-    __fated: Bool
-    __detached: Bool
+    private __cancel: Bool
+    private __fated: Bool
+    private __detached: Bool
 }
 
 extension __VoidCell: __TaskCell {
@@ -582,17 +582,17 @@ extension __VoidCell: __TaskCell {
 }
 
 public struct TaskGroup {
-    tasks: Vector<Box<any Resumable>?>
+    private tasks: Vector<Box<any Resumable>?>
     // design 134: the per-task cells, parallel to `tasks`. A slot's cell outlives
     // its frame — it holds the result until `join` takes it (or until teardown)
     // and the cancel word a stale handle may still address.
-    cells: Vector<Box<any __TaskCell>?>
-    done: Vector<Bool>
-    remaining: Vector<Int>
+    private cells: Vector<Box<any __TaskCell>?>
+    private done: Vector<Bool>
+    private remaining: Vector<Int>
     // design 75 (A2): per-task "a worker is resuming this frame right now" flag,
     // so no two workers ever resume the same frame (D6 one-thread-at-a-time). Set
     // under the lock at claim, cleared under the lock at the resume's outcome.
-    active: Vector<Bool>
+    private active: Vector<Bool>
     // design 134: the slot free-list and its generation counters. A slot with
     // nothing left to hold goes on `free` for the next `spawn` to claim, and its
     // generation retires so a handle to the task that used to live there is
@@ -602,9 +602,9 @@ public struct TaskGroup {
     // `pin` marks a slot whose raw cancel ADDRESS escaped through `cancel_addr()`
     // — that address has to outlive the task, so the slot keeps its cell and is
     // never handed out again.
-    gen: Vector<Int>
-    free: Vector<Int>
-    pin: Vector<Bool>
+    private gen: Vector<Int>
+    private free: Vector<Int>
+    private pin: Vector<Bool>
     // design 225: the task-dump's view of a slot's frame, recorded at enqueue
     // and cleared at completion — the frame TYPE's backtrace-table index
     // (`Resumable.bt_desc`, -1 when the binary carries no table) and the frame
@@ -619,41 +619,41 @@ public struct TaskGroup {
     // pointer, while these are single words that are correct or absent.
     // Constant per task (a box does not move and a frame does not change type),
     // so there is nothing to keep up to date between the two writes.
-    frame_desc: Vector<Int>
-    frame_addr: Vector<Int>
+    private frame_desc: Vector<Int>
+    private frame_addr: Vector<Int>
     // design 75 (A2): requested worker count. 0/1 => the single-threaded engine
     // (byte-identical to the pre-75 group); >=2 => the multi-threaded fork-join
     // drain (a mutex-protected shared queue drained by `workers` OS threads).
-    workers: Int
+    private workers: Int
     // design 75 (A2): the run-queue mutex (a 64-byte pthread_mutex_t slot; see
     // std/mutex.saw for the conservative-size rationale). `None` for the
     // single-threaded engine — no lock is ever taken there.
-    lock: UnsafePointer<Int8>?
+    private lock: UnsafePointer<Int8>?
     // design 225: the idle workers' condition variable, in the SAME allocation
     // as the mutex (at +64), because the two are one object — a condvar without
     // its mutex is meaningless and a separate allocation would be a second way
     // for one to exist without the other. `None` exactly when `lock` is.
-    cond: UnsafePointer<Int8>?
+    private cond: UnsafePointer<Int8>?
     // design 225: has the pool been started, and has it been told to stop?
     // Both under the run-queue lock. `started` flips once, at the first spawn
     // (D-a: a group that never spawns costs no threads); `stopping` flips once,
     // in `Deinit`, and a worker exits only when it is set AND no live task is
     // left — which is what keeps teardown a structured join.
-    started: Bool
-    stopping: Bool
+    private started: Bool
+    private stopping: Bool
     // design 225: the worker pool's 21b thread handles, joined at `Deinit`.
     // Touched by the OWNING thread only (start and teardown), so no lock.
-    crew: Vector<VoidThread>
+    private crew: Vector<VoidThread>
     // design 89: intrusive ambient-scheduler list link. `next` = address of the
     // next registered single-threaded group (0 = end); `registered` = whether this
     // group is currently in the `__saw_exec_head` list. Set/cleared by
     // `__register`/`__unregister`; unused by MT groups (they never register).
-    next: Int
-    registered: Bool
+    private next: Int
+    private registered: Bool
     // design 158: the diagnostics-list link, the twin of `next`/`registered`
     // above. Separate because every group joins this one — see `__saw_bt_head`.
-    bt_next: Int
-    bt_linked: Bool
+    private bt_next: Int
+    private bt_linked: Bool
 }
 
 // The result of resuming one frame, carried OUT of a `with_var_ref` borrow
@@ -1656,28 +1656,28 @@ extension TaskGroup: NoMove {}
 /// Dropping the handle does nothing; the result is released when the group is
 /// torn down.
 public struct Task<T> {
-    result_ptr: UnsafePointer<T?>
-    cancel_ptr: UnsafePointer<Bool>
+    private result_ptr: UnsafePointer<T?>
+    private cancel_ptr: UnsafePointer<Bool>
     // design 242 rulings 5/9b: the cell's `__fated` word. `join`/`detach`/
     // `cancel` write it and `deinit` reads it — through the cell, because the
     // cell is what outlives the task (design 134) and a handle's destructor may
     // run long after its frame is gone.
-    fate_ptr: UnsafePointer<Bool>
+    private fate_ptr: UnsafePointer<Bool>
     // design 242 ruling 6: PROVENANCE, not type. A handle minted by
     // `Task.spawn` carries the must-consume obligation and faults when it is
     // dropped unconsumed; one minted by `group.spawn` is free to drop, because
     // the group is a declared consumer. The two are one type, so the bit is
     // what tells them apart — the alternative, keying the fault on the type,
     // would break the accept-loop idiom.
-    background: Bool
-    group_ptr: UnsafePointer<TaskGroup>
+    private background: Bool
+    private group_ptr: UnsafePointer<TaskGroup>
     // design 89 + 134: this task's slot index in its group's queue, paired with
     // the generation the slot carried when the task was spawned. `join` drives the
     // ambient scheduler until THIS slot is done, so it returns as soon as its own
     // task finishes (siblings may still run); the generation is what tells a live
     // task apart from a successor occupying the same reclaimed index.
-    slot: Int
-    generation: Int
+    private slot: Int
+    private generation: Int
 }
 
 extension Task<T> {
@@ -1841,14 +1841,14 @@ extension Task<T>: NoCopy {
 /// task to completion and returns. Cancellation and drop-if-unjoined behavior
 /// matches `Task<T>`.
 public struct VoidTask {
-    cancel_ptr: UnsafePointer<Bool>
+    private cancel_ptr: UnsafePointer<Bool>
     // design 242 rulings 5/9b — see `Task<T>`'s two fields for what they are
     // and why the fate word lives in the cell rather than in the handle.
-    fate_ptr: UnsafePointer<Bool>
-    background: Bool
-    group_ptr: UnsafePointer<TaskGroup>
-    slot: Int
-    generation: Int
+    private fate_ptr: UnsafePointer<Bool>
+    private background: Bool
+    private group_ptr: UnsafePointer<TaskGroup>
+    private slot: Int
+    private generation: Int
 }
 
 extension VoidTask {

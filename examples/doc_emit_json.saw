@@ -223,7 +223,7 @@ public struct Tick {
     /// Ticks since the counter started.
     public count: Int
     /// Scratch space the documentation must not show.
-    scratch: Int
+    private scratch: Int
 }
 
 /// Which end of a span a reading came from.

@@ -37,9 +37,9 @@ enum MapSlot<K, V> {
 // of slots (a power of two, 0 before the first insert); `count` is the number
 // of live (Occupied) entries.
 public struct Map<K, V, A: Allocator = GlobalAllocator> {
-    slots: Vector<MapSlot<K, V>, A>
-    count: Int
-    cap: Int
+    private slots: Vector<MapSlot<K, V>, A>
+    private count: Int
+    private cap: Int
 }
 
 // Lookup / insert / remove require hashing and comparing keys, so the whole

@@ -134,7 +134,7 @@ public struct Channel<T: Send> {
     // panics rather than build an inert one (design 123). The field keeps its
     // optional TYPE because the block is also reached through the refcounted
     // handle protocol below; the `None` case is unreachable.
-    block: UnsafePointer<Int8>?
+    private block: UnsafePointer<Int8>?
 }
 
 // design 186: a `Channel` handle is an Arc-like pointer at a shared block whose

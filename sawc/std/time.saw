@@ -44,7 +44,7 @@ extern "C" {
 /// instant means nothing on its own. Compare two of them through `elapsed` or
 /// `duration_since`.
 public struct Instant {
-    nanos: Int64
+    private nanos: Int64
 }
 
 /// Reading the monotonic clock and measuring spans on it.

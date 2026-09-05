@@ -62,7 +62,7 @@ static GETCWD_INITIAL_BYTES: Int = 1024
 static GETCWD_MAX_BYTES: Int = 1048576
 
 public struct Directory {
-    _unused: Int
+    private _unused: Int
 }
 
 extension Directory {

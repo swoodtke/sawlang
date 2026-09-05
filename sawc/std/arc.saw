@@ -27,7 +27,7 @@ public struct Arc<T> {
     // 123). The field keeps its optional TYPE because codegen's payload-method
     // forwarding reads this exact `{ i1, i8* }` layout out of the Arc struct;
     // the `None` case is unreachable, not a state the library can produce.
-    ptr: UnsafePointer<Int8>?
+    private ptr: UnsafePointer<Int8>?
 }
 
 // The thread-safety `Arc` has always had, said out loud (design 186 — it used

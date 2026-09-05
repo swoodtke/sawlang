@@ -81,8 +81,8 @@ static_assert((State.Unset as Int) == 0, "zero must mean UNSET")
 /// payload is two retains of one control block). `Send` needs no declaration —
 /// a cell moves fine, so it derives from `T`'s own.
 public struct Once<T> {
-    state: Atomic<Int>,
-    value: UnsafeMutableInterior<T>
+    private state: Atomic<Int>,
+    private value: UnsafeMutableInterior<T>
 }
 
 extension Once<T>: NoCopy {}

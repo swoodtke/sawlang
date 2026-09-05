@@ -24,7 +24,7 @@
 public struct Box<T, A: Allocator = GlobalAllocator> {
     // Points directly at the heap `T`. Always valid in a live Box: `make`
     // returns `Err` without constructing one, so no inert/None state exists.
-    ptr: UnsafePointer<T>
+    private ptr: UnsafePointer<T>
 }
 
 extension Box<T, A: Allocator = GlobalAllocator> {

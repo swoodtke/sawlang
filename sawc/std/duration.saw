@@ -38,7 +38,7 @@ static MAX_SECS: UInt64 = 18446744073
 /// Build one with `Duration.ns`, `us`, `ms` or `secs`, or get one by subtracting
 /// instants. Durations compare and print.
 public struct Duration {
-    nanos: UInt64
+    private nanos: UInt64
 }
 
 /// Construction and whole-unit readout for `Duration`.

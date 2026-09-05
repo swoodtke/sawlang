@@ -48,7 +48,7 @@ extension LockEntry: Deserialize {}
 
 public struct LockData {
     public manifest_hash: String
-    entries: Vector<LockEntry>
+    private entries: Vector<LockEntry>
 }
 
 extension LockData: NoCopy {}

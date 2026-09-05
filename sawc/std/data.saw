@@ -142,9 +142,9 @@ extension DataBuf: NoCopy {
 public struct Data {
     // `None` is the empty Data: no storage, and none allocated until the first
     // byte arrives. `offset`/`length` are then both 0.
-    storage: Arc<DataBuf>?
-    offset: Int   // where this window starts in the buffer
-    length: Int   // how many bytes it covers
+    private storage: Arc<DataBuf>?
+    private offset: Int   // where this window starts in the buffer
+    private length: Int   // how many bytes it covers
 }
 
 extension Data {
@@ -611,8 +611,8 @@ extension Data: Copy {}
 // =============================================================================
 
 public struct DataIterator {
-    source: Data
-    index: Int
+    private source: Data
+    private index: Int
 }
 
 extension DataIterator: Iterator {

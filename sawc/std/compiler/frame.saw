@@ -46,7 +46,7 @@
 public struct Slot<T> {
     // Private (design 80): the tag is not separately addressable from the
     // payload, which is the whole exactly-once argument.
-    v: T?
+    private v: T?
 }
 
 extension Slot<T>: NoCopy {}

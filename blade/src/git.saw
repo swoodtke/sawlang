@@ -10,9 +10,9 @@
 
 import std.process.{Command}
 public struct GitTags {
-    versions: Vector<String>   // "1.2.0"
-    tags: Vector<String>       // the git ref name, e.g. "v1.2.0" (for cloning)
-    revs: Vector<String>       // commit sha
+    private versions: Vector<String>   // "1.2.0"
+    private tags: Vector<String>       // the git ref name, e.g. "v1.2.0" (for cloning)
+    private revs: Vector<String>       // commit sha
 }
 
 extension GitTags: NoCopy {}

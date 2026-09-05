@@ -178,9 +178,9 @@ struct JsonDecLevel {
 /// item still owed is `EncodeFault.CountMismatch`, exactly as
 /// `CborEncoder.finish` reports the same shape.
 public struct JsonEncoder {
-    out: StringBuilder
-    levels: Vector<JsonLevel>
-    max_depth: Int
+    private out: StringBuilder
+    private levels: Vector<JsonLevel>
+    private max_depth: Int
 }
 
 extension JsonEncoder: NoCopy {}
@@ -452,12 +452,12 @@ extension JsonEncoder: Encoder {
 /// `begin_array`/`begin_map` time, so hostile input still cannot reach the
 /// call stack or run unbounded.
 public struct JsonDecoder {
-    input: String
-    pos: Int
-    len: Int
-    levels: Vector<JsonDecLevel>
-    max_depth: Int
-    max_size: Int
+    private input: String
+    private pos: Int
+    private len: Int
+    private levels: Vector<JsonDecLevel>
+    private max_depth: Int
+    private max_size: Int
 }
 
 extension JsonDecoder: NoCopy {}

@@ -12,7 +12,7 @@
 /// bytes live wherever the buffer does: a local puts them on the stack, a field
 /// puts them in the enclosing value, a `static` puts them in `.bss`.
 public struct FixedBuf<const N: Int> {
-    data: [Byte; N]
+    private data: [Byte; N]
 }
 
 extension FixedBuf<N> {
@@ -98,8 +98,8 @@ extension FixedBuf<N> {
 /// print(out.as_string())
 /// ```
 public struct FixedStringBuilder<const N: Int> {
-    storage: FixedBuf<N>
-    builder: StringBuilder
+    private storage: FixedBuf<N>
+    private builder: StringBuilder
 }
 
 extension FixedStringBuilder<N> {

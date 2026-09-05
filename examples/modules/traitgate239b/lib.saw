@@ -13,7 +13,7 @@ public trait Sink {
 }
 
 public struct ByteSink {
-    seen: Int
+    private seen: Int
 }
 
 extension ByteSink: Sink {

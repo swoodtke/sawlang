@@ -43,8 +43,8 @@ extension TomlError: Error {
 // =============================================================================
 
 public struct TomlValue {
-    key: String
-    value: String
+    private key: String
+    private value: String
 }
 
 extension TomlValue {
@@ -65,8 +65,8 @@ extension TomlValue {
 // audit DF-232q found inverted); the Aug-21 signature-visibility rule refuses
 // the result, and the accessors are the side that was right.
 public struct TomlTable {
-    key: String
-    values: Vector<TomlValue>
+    private key: String
+    private values: Vector<TomlValue>
 }
 
 extension TomlTable: NoCopy {}
@@ -96,9 +96,9 @@ extension TomlTable {
 }
 
 public struct TomlSection {
-    name: String
-    values: Vector<TomlValue>
-    tables: Vector<TomlTable>
+    private name: String
+    private values: Vector<TomlValue>
+    private tables: Vector<TomlTable>
 }
 
 extension TomlSection: NoCopy {}
@@ -231,7 +231,7 @@ func parse_inline_table(key: String, raw: String) -> TomlTable {
 }
 
 public struct TomlDoc {
-    sections: Vector<TomlSection>
+    private sections: Vector<TomlSection>
 }
 
 extension TomlDoc: NoCopy {}

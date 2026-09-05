@@ -41,9 +41,9 @@ extern "C" {
 /// defaults to GlobalAllocator.
 
 public struct Vector<T, A: Allocator = GlobalAllocator> {
-    buffer: UnsafePointer<T>?
-    length: Int
-    capacity: Int
+    private buffer: UnsafePointer<T>?
+    private length: Int
+    private capacity: Int
 }
 
 // DF-182e, RULED by the user Aug 8 ("containers are Send if T is Send") and
@@ -769,9 +769,9 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
 // types (Aug 21), and a caller that holds the value of a `for x in v.iter()`
 // must be able to name its type. The fields stay private.
 public struct VectorIterator<T> {
-    buffer: UnsafePointer<T>?
-    length: Int
-    index: Int
+    private buffer: UnsafePointer<T>?
+    private length: Int
+    private index: Int
 }
 
 // `T: ExplicitCopy` (design 122 unit A, restated by 219): `next()` yields an
@@ -809,9 +809,9 @@ extension VectorIterator<T: ExplicitCopy>: Iterator {
 // `public` for the same reason as `VectorIterator` above:
 // `Vector.enumerated()` returns one.
 public struct EnumeratedIterator<T> {
-    buffer: UnsafePointer<T>?
-    length: Int
-    index: Int
+    private buffer: UnsafePointer<T>?
+    private length: Int
+    private index: Int
 }
 
 // `T: ExplicitCopy` + `.copy()` for the same reason as `VectorIterator` above:

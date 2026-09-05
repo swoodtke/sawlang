@@ -19,7 +19,7 @@ extern "C" {
 // =============================================================================
 
 public struct Path {
-    value: String
+    private value: String
 }
 
 extension Path {

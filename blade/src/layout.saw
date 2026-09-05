@@ -99,7 +99,7 @@ public struct BuildLayout {
     // The sawc `--target` triple this build is for. Empty means the default
     // hosted build; no triple is the empty string, so it cannot be mistaken for
     // one.
-    target: String
+    private target: String
 }
 
 extension BuildLayout {

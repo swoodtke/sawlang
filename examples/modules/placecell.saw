@@ -7,7 +7,7 @@ public struct Cell {
 }
 
 public struct Bag {
-    cells: Vector<Cell>
+    private cells: Vector<Cell>
 }
 
 extension Bag: NoCopy {}

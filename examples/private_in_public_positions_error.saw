@@ -46,7 +46,11 @@ public func wrapped() -> Vector<Hidden> {
 
 public struct Exposed {
     public slot: Hidden,
-    inner: Hidden
+    // Marked, so this row stays the ONE public-field row it was written to be.
+    // Since design 258 a bare field would inherit `Exposed`'s `public` and be a
+    // second instance of the same refusal, which teaches nothing the `slot` line
+    // above does not — the narrowing spelling is what keeps it a counterexample.
+    private inner: Hidden
 }
 
 public struct Boxed<T: HiddenTrait> {

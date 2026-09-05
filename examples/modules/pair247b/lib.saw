@@ -11,7 +11,7 @@ public trait Named {
 }
 
 public struct Widget {
-    n: Int
+    private n: Int
 }
 
 extension Widget {

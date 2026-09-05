@@ -14,7 +14,7 @@
 // =============================================================================
 
 public struct SemverError {
-    message: String
+    private message: String
 }
 
 extension SemverError {
@@ -99,8 +99,8 @@ enum ReqKind {
 }
 
 public struct VersionReq {
-    kind: ReqKind
-    version: Version
+    private kind: ReqKind
+    private version: Version
 }
 
 // Parse a requirement string. A bare version is an EXACT pin (design 64 ruling);

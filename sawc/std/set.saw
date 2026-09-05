@@ -22,7 +22,7 @@
 struct SetMark {}
 
 public struct Set<T, A: Allocator = GlobalAllocator> {
-    map: Map<T, SetMark, A>
+    private map: Map<T, SetMark, A>
 }
 
 extension Set<T: Hashable + Equatable, A: Allocator = GlobalAllocator> {

@@ -67,8 +67,8 @@ static_assert((LockState.Unlocked as Int) == 0, "zero must mean UNLOCKED")
 /// whose atomics are real instructions. On one whose base ISA omits them — rv32i
 /// — naming a `SpinLock` is a compile error naming `--target-features +a`.
 public struct SpinLock<T> {
-    state: Atomic<Int>,
-    value: UnsafeMutableInterior<T>
+    private state: Atomic<Int>,
+    private value: UnsafeMutableInterior<T>
 }
 
 // The `Sync` this type has always had, said out loud (design 186). A `SpinLock`

@@ -1,7 +1,7 @@
 // Dependency module for the visibility probes.
 public struct Thing {
     public name: String,
-    secret: Int
+    private secret: Int
 }
 
 extension Thing {

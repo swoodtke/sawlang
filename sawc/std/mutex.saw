@@ -62,10 +62,10 @@ public struct Mutex<T> {
     // The lock word. An interior CELL, which is what makes `lock` a `&self`
     // method that reaches the CALLER's word rather than a copy of it: a
     // cell-carrying receiver travels by pointer (design 186).
-    state: UnsafeMutableInterior<Int>,
+    private state: UnsafeMutableInterior<Int>,
     // The guarded value, inline. No control block, no second allocation, and
     // no fixed offset arithmetic — the payload is a field.
-    value: UnsafeMutableInterior<T>
+    private value: UnsafeMutableInterior<T>
 }
 
 extension Mutex<T: Send>: UnsafeSync {}

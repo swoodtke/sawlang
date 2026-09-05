@@ -12,7 +12,7 @@ import std.path.{Path}
 // =============================================================================
 
 public struct ManifestError {
-    message: String
+    private message: String
 }
 
 extension ManifestError {
@@ -74,7 +74,7 @@ extension Dependency {
 // `TomlValue`/`String`-shaped value. With the erased box normalized to one
 // canonical arity across registration and lookup, natural rows work.)
 public struct DepList {
-    deps: Vector<Dependency>
+    private deps: Vector<Dependency>
 }
 
 extension DepList: NoCopy {}
@@ -104,19 +104,19 @@ extension DepList {
 }
 
 public struct Package {
-    name: String
-    version: String
+    private name: String
+    private version: String
     // design 149: `runtime = true` declares this package a RUNTIME PROVIDER —
     // it implements the `__saw_rt_*` seams itself. Blade passes
     // `--runtime-provider`, which permits the exports, checks each seam's
     // signature against sawc/rt/ABI.md, and links no runtime of ours beside it.
     // Absent or any other value means false; a package is not a runtime by
     // accident.
-    runtime: Bool
+    private runtime: Bool
 }
 
 public struct Manifest {
-    package: Package
+    private package: Package
     public root_dir: Path
 }
 

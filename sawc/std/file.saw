@@ -90,7 +90,7 @@ enum SeekWhence: UInt8 {
 // =============================================================================
 
 public struct File {
-    fd: Int32
+    private fd: Int32
 }
 
 extension File {

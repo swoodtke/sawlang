@@ -89,9 +89,9 @@ extension PosixThread: NativeThread {
 /// place owns the thread.
 public struct Thread<T> {
     // Points at the thread control block (`None` only on the inert OOM path).
-    handle: UnsafePointer<Int8>?
+    private handle: UnsafePointer<Int8>?
     // Set once the thread has been joined, so `deinit` does not double-join/free.
-    joined: Bool
+    private joined: Bool
 }
 
 // design 186: the control-block pointer blocks both derivations. A handle is
@@ -202,8 +202,8 @@ extension Thread<T>: NoCopy {
 /// waits for the thread and returns; `detach` gives the thread to the process.
 /// One of the two on every path, checked where the thread is spawned.
 public struct VoidThread {
-    handle: UnsafePointer<Int8>?
-    joined: Bool
+    private handle: UnsafePointer<Int8>?
+    private joined: Bool
 }
 
 extension VoidThread: UnsafeSend {}

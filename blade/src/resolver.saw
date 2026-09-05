@@ -33,7 +33,7 @@ import std.path.{Path}
 // =============================================================================
 
 public struct ResolveError {
-    message: String
+    private message: String
 }
 
 extension ResolveError {
@@ -57,14 +57,14 @@ extension ResolveError: Error {
 // =============================================================================
 
 public struct Resolution {
-    names: Vector<String>
-    versions: Vector<String>
-    kinds: Vector<String>       // "path" / "git"
-    locs: Vector<String>        // resolved directory (path) / url (git) — used
+    private names: Vector<String>
+    private versions: Vector<String>
+    private kinds: Vector<String>       // "path" / "git"
+    private locs: Vector<String>        // resolved directory (path) / url (git) — used
                                 // internally and for the build module-path
-    declareds: Vector<String>   // source AS DECLARED (relative path / url) — the
+    private declareds: Vector<String>   // source AS DECLARED (relative path / url) — the
                                 // portable value recorded in Saw.lock
-    revs: Vector<String>        // "" for path
+    private revs: Vector<String>        // "" for path
 }
 
 extension Resolution: NoCopy {}

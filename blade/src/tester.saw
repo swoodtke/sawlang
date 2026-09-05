@@ -24,8 +24,8 @@ extern "C" {
 }
 
 public struct Tester {
-    manifest: Manifest
-    layout: BuildLayout
+    private manifest: Manifest
+    private layout: BuildLayout
 }
 
 extension Tester {

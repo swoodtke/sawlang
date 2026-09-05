@@ -983,9 +983,9 @@ extension Utf8Error: Error {
 // internals were all along — `std.data`'s `DataIterator` was already written
 // this way.
 public struct StringBytes {
-    s: String
-    index: Int
-    length: Int
+    private s: String
+    private index: Int
+    private length: Int
 }
 
 extension StringBytes: Iterator {
@@ -1005,9 +1005,9 @@ extension StringBytes: Iterator {
 // `public` for the same reason as `StringBytes` above: `String.chars()` returns
 // one.
 public struct StringChars {
-    s: String
-    index: Int
-    length: Int
+    private s: String
+    private index: Int
+    private length: Int
 }
 
 extension StringChars: Iterator {

@@ -34,7 +34,7 @@ import std.path.{Path}
 // =============================================================================
 
 public struct SosError {
-    message: String
+    private message: String
 }
 
 extension SosError {

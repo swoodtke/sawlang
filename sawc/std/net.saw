@@ -513,9 +513,9 @@ extension IoErrorKind: Printable {
 /// refused)` — the KIND only, so the text reads the same on every host. The
 /// raw code is for a log that wants the number, and is read explicitly.
 public struct IoError {
-    syscall: String
-    kind: IoErrorKind
-    code: Int32
+    private syscall: String
+    private kind: IoErrorKind
+    private code: Int32
 }
 
 // The raw code this thread's last classification captured (design 234 §2), as
@@ -639,7 +639,7 @@ func resolve_error(host: String, tag: Int) -> IoError {
 // The fd is a PRIVATE field — the public surface exposes no raw fds or pointers.
 
 public struct TcpListener {
-    fd: Int
+    private fd: Int
 }
 
 extension TcpListener {
@@ -705,7 +705,7 @@ extension TcpListener: NoCopy {
 // a pointer.
 
 public struct TcpStream {
-    fd: Int
+    private fd: Int
 }
 
 extension TcpStream {

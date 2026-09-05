@@ -19,8 +19,8 @@ extension Hidden {
 }
 
 public struct Carrier {
-    slot: Hidden,
-    cells: Vector<Hidden>
+    private slot: Hidden,
+    private cells: Vector<Hidden>
 }
 
 extension Carrier: NoCopy {}

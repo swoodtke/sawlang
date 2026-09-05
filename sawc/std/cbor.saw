@@ -122,11 +122,11 @@ struct CborLevel {
 /// `EncodeFault.BufferFull` rather than a panic, so a value can be encoded
 /// under a constrained allocator.
 public struct CborEncoder {
-    out: Data
-    levels: Vector<CborLevel>
-    max_depth: Int
-    bytes_left: Int
-    bytes_start: Int
+    private out: Data
+    private levels: Vector<CborLevel>
+    private max_depth: Int
+    private bytes_left: Int
+    private bytes_start: Int
 }
 
 extension CborEncoder: NoCopy {}
@@ -467,12 +467,12 @@ struct CborScanFrame {
 /// `DecodeError` naming the byte offset it was found at; no input, however
 /// hostile, panics or reaches the call stack.
 public struct CborDecoder {
-    input: Data
-    pos: Int
-    max_depth: Int
-    max_size: Int
-    max_items: Int
-    bytes_left: Int
+    private input: Data
+    private pos: Int
+    private max_depth: Int
+    private max_size: Int
+    private max_items: Int
+    private bytes_left: Int
 }
 
 extension CborDecoder: NoCopy {}

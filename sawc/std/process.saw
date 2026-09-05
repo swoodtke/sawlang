@@ -139,9 +139,9 @@ func decode_wait_status(status: Int32) -> Int32 {
 // the child launched fine and is still out there — so it says so rather than
 // borrowing the launch wording (`cancelled()` below tells the two apart).
 public struct ProcessError {
-    program: String
+    private program: String
     // True when the wait was cancelled rather than the launch failing.
-    was_cancelled: Bool
+    private was_cancelled: Bool
 }
 
 extension ProcessError {
@@ -199,21 +199,21 @@ extension CommandOutput {
 // =============================================================================
 
 public struct Command {
-    program: String
+    private program: String
     // One element per argument, kept SEPARATE all the way to `execvp`. The old
     // representation was a single space-joined byte buffer handed to `system()`,
     // which meant the shell re-split it: `arg("one two")` became two arguments
     // and `arg("; echo hi")` ran a second command (design 122 unit C).
-    args: Vector<String>
+    private args: Vector<String>
     // True once `merge_stderr` has been called: the child's standard error then
     // goes wherever its standard output goes.
-    merged_stderr: Bool
+    private merged_stderr: Bool
     // Environment OVERRIDES, one `NAME=VALUE` element per variable, in the order
     // `env` first named them. Overrides, not a replacement environment: the
     // child inherits everything this process has and these names win. Empty for
     // a Command nobody called `env` on, which then spawns through the seam that
     // knows nothing about environments at all.
-    envs: Vector<String>
+    private envs: Vector<String>
 }
 
 // Does the `NAME=VALUE` entry name exactly the variable `name`? Compares the
