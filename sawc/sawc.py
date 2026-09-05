@@ -1127,6 +1127,12 @@ class _Admission:
     program and hands it over once. It exists so the funnel has ONE parameter
     instead of sixteen, and so the state the admission mutates is enumerable by
     reading this list.
+
+    Every field is assigned by NAME below rather than through a loop over
+    `__slots__`: design 126's graft gate reads attribute writes statically, and
+    a computed `setattr` is exactly the shape it exists to refuse — a carrier
+    whose fields cannot be found by reading is the thing that made a grafted
+    AST attribute invisible in the first place.
     """
 
     __slots__ = ("entry_ast", "entry_ns", "merged_ast", "merged_ns",
@@ -1134,15 +1140,36 @@ class _Admission:
                  "checked_modules", "excluded_std_leaves",
                  "excluded_std_symbols", "typechecker", "reporter", "mono",
                  "verbose", "object_only", "source_path", "import_asts",
-                 # Declaration-list name -> the ids the ENTRY ast held before
-                 # the transform ran. What the transform CONSUMED is exactly
-                 # what this set holds and the post-transform entry AST does
-                 # not, and nothing else in the merged AST may be judged by it.
                  "entry_decl_ids")
 
-    def __init__(self, **kw):
-        for name in self.__slots__:
-            setattr(self, name, kw.get(name))
+    def __init__(self, entry_ast, merged_ast, merged_ns, builtin_ast,
+                 reentry_builtin_ast, builtin_ns, checked_modules,
+                 excluded_std_leaves, excluded_std_symbols, typechecker,
+                 reporter, mono, verbose, object_only, source_path,
+                 import_asts, entry_decl_ids):
+        self.entry_ast = entry_ast
+        self.merged_ast = merged_ast
+        self.merged_ns = merged_ns
+        self.builtin_ast = builtin_ast
+        self.reentry_builtin_ast = reentry_builtin_ast
+        self.builtin_ns = builtin_ns
+        self.checked_modules = checked_modules
+        self.excluded_std_leaves = excluded_std_leaves
+        self.excluded_std_symbols = excluded_std_symbols
+        self.typechecker = typechecker
+        self.reporter = reporter
+        self.mono = mono
+        self.verbose = verbose
+        self.object_only = object_only
+        self.source_path = source_path
+        self.import_asts = import_asts
+        # Declaration-list name -> the ids the ENTRY ast held before the
+        # transform ran. What the transform CONSUMED is exactly what this set
+        # holds and the post-transform entry AST does not, and nothing else in
+        # the merged AST may be judged by it.
+        self.entry_decl_ids = entry_decl_ids
+        # Filled by the admission's own check, never by the caller.
+        self.entry_ns = None
 
 
 def _decl_lists(program):
