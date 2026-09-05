@@ -1713,3 +1713,76 @@ DEPENDS on the current silence: `examples/conformance/V71`'s
 `takes_by_value({ p in p }, ...)` and `run_owned({ [move o] in o })` are exactly
 this shape, so the fix owes a migration and V71 owes a re-reading.
 [131, 195, 213, 264, DF-299b]
+
+## Backlog records (moved Sep 5, twelfth rotation — the const-eval batch: DF-300c + DF-294c closed by DF-307a)
+
+- DF-294c — the const evaluator's STATIC-NAME leaf folds integers only, so a struct-typed static is refused in every const position design 186's own hint says it works in — the repeat value `[ZERO_SLOT; N]`, plain `static ALIAS: Slot = ZERO_SLOT`, and a struct-literal field (entry below, filed Sep 3 from sos SL-21; compliance defect vs 186 tier 2, no ruling owed; workarounds relayed). **SCHEDULED Sep 5: joins the 0.10.0 release paired with DF-300c — one const-eval dispatch, one leaf table** — **CLOSED Sep 5 by DF-307a** (branch `const-eval-leaves`): the leaf is `StaticSymbol.const_init`, the tier-1-or-2 answer the named static already got, and codegen emits the very bytes that static's global holds; all three faces plus the `unsafe static var` container and a bare zero-static leaf are `examples/const_static_leaf_at_struct_type.saw`
+- DF-300c — `sizeof`/`alignof` do not fold at the STATIC-INITIALIZER, ARRAY-LENGTH or REPEAT-COUNT positions, and the static hint PROMISES them: `static C: Int = sizeof<UInt64>()` refuses with a hint listing `sizeof`/`alignof` as allowed (entry below, filed Sep 5 by the lead from sos SL-27, probe WIDENED it — sos claimed array length folds; it refuses too, honestly worded). DF-294c's family: the design-186 static-initializer evaluator supports fewer LEAF kinds than its hint and tier-2 claim, while `static_assert`'s evaluator folds both builtins fine. Compliance defect, no ruling owed. Workaround relayed: literal count + `static_assert` pinning it. **SCHEDULED Sep 5 (user): joins the 0.10.0 release, PAIRED with DF-294c in one const-eval dispatch — same design-186 evaluator, two missing leaf kinds, one leaf table shared by every const position, the two entries' position matrices combined as the test plan** — **CLOSED Sep 5 by DF-307a** (branch `const-eval-leaves`): the typechecker gained a layout oracle (`TypeChecker._const_type_metric`, scalar kinds only) and every const_eval site it owns passes it, so all five positions fold plus `@align` and the const-generic argument; the boundary that remains is `sizeof<Struct>()` outside a `static_assert`, filed as DF-307b
+
+## DF-300c — `sizeof`/`alignof` refuse at the static-initializer,
+## array-length and repeat-count positions; the static hint lists them as
+## ALLOWED (filed Sep 5 by the lead from sos SL-27; PRE-EXISTING; DF-294c's
+## family — compliance defect vs design 186 tier 2, no ruling owed)
+## **CLOSED Sep 5 by DF-307a below**
+
+PROBED on main at HEAD (`.build/scratch/sl27_*.saw`):
+
+    static C: Int = sizeof<UInt64>()      refused — and the hint's own list
+                                          includes "`sizeof`/`alignof`"
+    let a: [UInt8; sizeof<UInt64>()]      refused: "array length is not a
+                                          compile-time constant: `sizeof<T>()`
+                                          is not allowed here"
+    [0; sizeof<UInt64>()]                 refused, same wording (repeat count)
+    static_assert(sizeof<UInt64>() == 8)  FOLDS
+    function body                         works
+
+The probe WIDENED sos's filing: they reported array length folding; it
+refuses on this tree — honestly worded, unlike the static hint, which is the
+face that costs a round-trip per encounter (a hint listing the refused
+spelling as allowed).
+
+MECHANISM (obligation 4, DF-294c's named family): the design-186
+static-initializer evaluator supports fewer LEAF kinds than the hint and the
+tier-2 spec claim — DF-294c is the STATIC-NAME leaf folding integers only;
+this is the BUILTIN-CALL leaf missing entirely at three positions while
+`static_assert`'s path folds it. The fix is one evaluator (or one leaf
+table) shared by every const position, per obligation 1 — the position
+matrix above is the test plan. Fix EITHER folds the builtins at all three
+positions (the hint's promise; sos's derive-don't-restate spelling
+`static PIPE_STAGE_WORDS: Int = PIPE_BODY_BYTES / sizeof<UInt>()` starts
+compiling) OR corrects the hint — folding is the obvious ruling-free choice
+since design 186 tier 2 names these builtins. Workaround relayed: literal
+count + `static_assert` pinning it to the derived expression.
+[186, DF-294c, sos SL-27]
+
+## DF-294c — the const evaluator's STATIC-NAME leaf folds INTEGERS ONLY, so a
+## struct-typed static is refused in const positions the design-186 hint
+## advertises (filed Sep 3 by the lead from sos-relayed SL-21; PRE-EXISTING;
+## COMPLIANCE defect vs 186 tier 2 — no ruling owed)
+## **CLOSED Sep 5 by DF-307a below**
+
+THREE FACES, one mechanism, lead-probed Sep 3
+(`.build/scratch/sl21_{control,error,faces,field,body}.saw`):
+- `unsafe static var C: [Slot; N] = [ZERO_SLOT; N]` — refused (sos's face),
+  while `[ZERO_INT; N]` and `[Slot(a: 0, b: 0); N]` both compile beside it.
+- `static ALIAS_SLOT: Slot = ZERO_SLOT` — the degenerate face, same refusal.
+- `static R: Region = Region(zero: ZERO_SLOT, n: 1)` — the aggregation face.
+CONTROL: the BODY-position repeat (`var local: [Slot; 2] = [ZERO_SLOT; 2]`)
+compiles and RUNS — the runtime copy path is fine; only the const-eval path
+refuses. The diagnostic's own hint names "an earlier module `static`" as a
+leaf and "memberwise aggregation over those" — design 186 tier 2's text —
+which is exactly what is refused, so either reading makes this a defect: the
+evaluator's static-reference leaf answers integer VALUES only and never
+learned aggregates, though the memberwise machinery it would feed exists
+(struct literals fold).
+
+MECHANISM (obligation 4): one leaf in the const evaluator; the fix teaches it
+to answer a folded AGGREGATE value for a static whose own initializer folded,
+and the three faces above are the test matrix plus the fix sweep's question:
+any OTHER reader of the folded-static table assuming integer domain
+(static_assert operands and array lengths are integer-typed by construction —
+unaffected; `sizeof` takes types — unaffected; enumerate at fix time).
+WORKAROUNDS relayed to sos: (1) an ALL-ZERO table wants NO initializer at
+all — `unsafe static var B: [Slot; N]` bare is zerofill (.bss, design 149),
+which is what a slab zero-table actually is; (2) otherwise the inline struct
+literal, as they found. [148, 149, 186, DF-172j]
