@@ -142,8 +142,11 @@ inherit.
 
 - `Scalar` in std, PRELUDE-registered (the prelude list + the `preludegate`
   lane move together): the §2 invariant, `init(value: Int) ->
-  Result<Scalar, InvalidScalar>` (lenient labels make `try! Scalar(34)`
-  legal), a total `value(&self) -> Int` read, `@synthesize`
+  Result<Scalar, InvalidScalar>` (~~lenient labels make `try! Scalar(34)`
+  legal~~ FALSE, and always was — struct construction is order-independent
+  NAME matching by design 66, so the v1 spelling is `try! Scalar(value: 34)`;
+  DF-308a, filed at the landing, prices §4's literal question against the
+  real spelling), a total `value(&self) -> Int` read, `@synthesize`
   Equatable/Comparable/Hashable, hand-written Printable that renders the
   CHARACTER. `InvalidScalar` is an enum naming the cause (surrogate /
   out-of-range), Printable + Error.
