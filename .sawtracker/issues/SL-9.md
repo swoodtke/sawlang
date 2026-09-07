@@ -1,5 +1,5 @@
 ---
-{"assignee":"","author":"agent:codex-todo-import","body_bytes":9974,"created":"1788791150","id":"SL-9","labels":["todo-import","backlog","design","plan","design-proposal"],"priority":"normal","project":"SL","revision":1,"sequence":9,"status":"open","title":"DF-300b: Design type-carried alignment for byte buffers","updated":"1788791150"}
+{"assignee":"","author":"agent:codex-todo-import","body_bytes":10167,"created":"1788791150","id":"SL-9","labels":["todo-import","backlog","design","plan","design-proposal"],"priority":"normal","project":"SL","revision":2,"sequence":203,"status":"open","title":"DF-300b: Design type-carried alignment for byte buffers","updated":"1788791294"}
 ---
 
 
@@ -26,6 +26,12 @@ Scheduling: backlog; no new implementation order is assigned by this import.
 - [ ] The design names a concrete consumer or retains its recorded revisit trigger.
 - [ ] Existing rulings are preserved; unresolved choices and a recommended option are explicit.
 - [ ] The proposed API/semantics, migration scope and acceptance tests are reviewable. Drafting this plan does not mark an unruled design approved.
+
+## Related tracker work
+
+These are related findings/plans; a reference alone does not imply a blocking dependency.
+
+- SL-81 — DF‑306a: Design alignment for coroutine-frame-resident locals
 
 ## Existing design references
 
