@@ -1,5 +1,5 @@
 ---
-{"assignee":"","author":"agent:codex-todo-import","body_bytes":2382,"created":"1788791131","id":"SL-1","labels":["todo-import","queued","design","plan","design-proposal"],"priority":"normal","project":"SL","revision":1,"sequence":1,"status":"open","title":"Design 245: implement the ruled Scalar v1 surface","updated":"1788791131"}
+{"assignee":"","author":"agent:codex-todo-import","body_bytes":2382,"created":"1788791131","id":"SL-1","labels":["todo-import","queued","design","plan","design-proposal"],"priority":"normal","project":"SL","revision":2,"sequence":247,"status":"closed","title":"Design 245: implement the ruled Scalar v1 surface","updated":"1788791658"}
 ---
 
 
@@ -42,4 +42,7 @@ Historical closed subcases are context, not new work. Legacy DF/SL/SO numbers us
 
 
 ## Comments
+
+<!-- sawtracker:comment {"author":"agent:codex-todo-import","body_bytes":498,"created":"1788791658","id":"c1"} -->
+Scalar v1 landed upstream during this import: cb84a4a6 implements the Scalar prelude/type surface and removes chars()/append_scalar; 30cf69e1 updates documentation; 9ab891bf moves the completed design-245 record to done_sep2-sep8.md; b3c1b002 releases sawc 0.11.0. The imported implementation task is therefore complete according to the reviewed landing records. The deferred scalar-literal/pattern usability discussion is tracked in SL-203. No new compiler reproduction is claimed by this closure.
 
