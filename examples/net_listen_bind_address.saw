@@ -1,0 +1,18 @@
+// EXPECT: default true
+// EXPECT: wildcard true
+// EXPECT: conflict refused
+// EXPECT: invalid host
+// EXPECT: invalid port
+import std.net.{TcpListener}
+func main() {
+    let local = try! TcpListener.listen(0)
+    print("default {local.local_port() > 0}")
+    let all = try! TcpListener.listen(0, host: "0.0.0.0")
+    print("wildcard {all.local_port() > 0}")
+    let conflict = TcpListener.listen(all.local_port(), host: "127.0.0.1")
+    match conflict { case Err(_) -> print("conflict refused"), case Ok(_) -> print("wrong conflict") }
+    let bad_host = TcpListener.listen(0, host: "localhost")
+    match bad_host { case Err(_) -> print("invalid host"), case Ok(_) -> print("wrong host") }
+    let bad_port = TcpListener.listen(-1, host: "0.0.0.0")
+    match bad_port { case Err(_) -> print("invalid port"), case Ok(_) -> print("wrong port") }
+}

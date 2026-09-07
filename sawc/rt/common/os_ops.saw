@@ -148,12 +148,18 @@ func ipv4_sockaddr(addr: UInt32, port: Int) unsafe -> SockAddrIn {
 // would otherwise clobber it.
 @export("__saw_rt_tcp_listen")
 func rt_tcp_listen(port: Int) unsafe -> Int {
+    rt_tcp_listen_on(LOOPBACK_BE as Int, port)
+}
+
+// Explicit address, network-order IPv4 bits carried in a platform word.
+@export("__saw_rt_tcp_listen_on")
+func rt_tcp_listen_on(addr_be: Int, port: Int) unsafe -> Int {
     let fd = socket(AF_INET, SOCK_STREAM, PROTO_DEFAULT)
     if fd < (0 as Int32) {
         return -__saw_rt_last_syserror()
     }
     let _ = __saw_rt_set_nonblocking(fd as Int)
-    var sa = ipv4_sockaddr(LOOPBACK_BE, port)
+    var sa = ipv4_sockaddr(addr_be as UInt32, port)
     let ap = (&sa) as UnsafePointer<Int8>
     if bind(fd, ap, SOCKADDR_IN_LEN) != (0 as Int32) {
         let e = __saw_rt_last_syserror()

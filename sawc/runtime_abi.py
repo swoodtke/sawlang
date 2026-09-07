@@ -44,6 +44,7 @@ RUNTIME_ABI_SYMBOLS = frozenset({
     "__saw_rt_sin_set_family",
     # Status-carrying network ops (design 117)
     "__saw_rt_tcp_listen",
+    "__saw_rt_tcp_listen_on",
     "__saw_rt_tcp_local_port",
     "__saw_rt_tcp_accept",
     "__saw_rt_tcp_connect_start",

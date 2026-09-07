@@ -295,6 +295,13 @@ is captured with `__saw_rt_last_syserror()` right after the failing syscall.
 Socket+set_nonblocking+bind+listen on 127.0.0.1:`port` (0 = ephemeral). Returns
 the listen fd or `-tag`. errno is captured BEFORE the cleanup `close()`.
 
+### `__saw_rt_tcp_listen_on(addr_be: word, port: word) -> word`
+The same nonblocking listener and error contract, bound to the supplied IPv4
+address (network-order bits in a platform word). Address zero binds all IPv4
+interfaces. The original listen seam delegates here with loopback, preserving
+existing callers. `TcpListener.listen(port, host: "0.0.0.0")` exposes the explicit
+address path; the host must be a dotted IPv4 literal and the port 0..65535.
+
 ### `__saw_rt_tcp_local_port(fd: word) -> word`
 `getsockname` → the bound local port (resolves an ephemeral 0).
 

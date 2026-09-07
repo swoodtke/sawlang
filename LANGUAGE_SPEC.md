@@ -8323,6 +8323,16 @@ The design-76 raw layer (`tcp_*` / `net_*` free functions + `io_wait(fd, dir)`, 
 as the PRIVATE implementation std.net's methods drive — it is not part of the public
 surface.
 
+### Explicit IPv4 listener binding
+
+`TcpListener.listen(port)` binds loopback as before.
+`TcpListener.listen(port, host: "0.0.0.0")` binds all IPv4 interfaces; another
+dotted IPv4 literal selects that local address. The explicit-host overload
+accepts ports 0..65535 (0 selects an ephemeral port), performs no DNS lookup,
+and reports invalid text/ports as `IoErrorKind.InvalidArgument`. Ownership,
+nonblocking accept, cancellation and socket-close behavior are unchanged.
+
+
 **The host argument of `connect` is an IPv4 address or a name.** A dotted quad
 (four octets, one to three digits each, no leading zero, nothing else in the
 string) is an address already, so it is parsed in Saw and dialled directly:

@@ -38,6 +38,7 @@ extern "C" {
     // does its syscall and returns >= 0 on success/count or the NEGATED portable
     // SysError tag on failure (rt/ABI.md) — the errno accessors are gone.
     func __saw_rt_tcp_listen(port: Int) -> Int
+    func __saw_rt_tcp_listen_on(addr_be: Int, port: Int) -> Int
     func __saw_rt_tcp_local_port(fd: Int) -> Int
     func __saw_rt_tcp_accept(listen_fd: Int) -> Int
     func __saw_rt_tcp_connect_start(addr_be: Int, port: Int) -> Int
@@ -650,6 +651,21 @@ extension TcpListener {
         if fd < 0 {
             return io_error("listen", -fd)
         }
+        return TcpListener(fd: fd)
+    }
+
+    /// Bind an IPv4 address explicitly. Use "0.0.0.0" for all IPv4 interfaces.
+    /// Only dotted IPv4 literals are accepted; listening never performs DNS.
+    /// The one-argument overload keeps its loopback-only default.
+    public static func listen(port: Int, host: String) -> Result<TcpListener, IoError> {
+        if port < 0 || port > 65535 {
+            return IoError.of(syscall: "listen: port must be 0..65535", kind: IoErrorKind.InvalidArgument)
+        }
+        guard let addr = parse_ipv4_literal(host) else {
+            return IoError.of(syscall: "listen: expected an IPv4 address", kind: IoErrorKind.InvalidArgument)
+        }
+        let fd = __saw_rt_tcp_listen_on(addr as Int, port)
+        if fd < 0 { return io_error("listen", -fd) }
         return TcpListener(fd: fd)
     }
 

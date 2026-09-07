@@ -2226,6 +2226,8 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         # failure). Read/write take (fd, buf, len); the rest take Int args.
         tcp_listen = ir.Function(self.module, ir.FunctionType(word, [word]),
                                  name="__saw_rt_tcp_listen")
+        tcp_listen_on = ir.Function(self.module, ir.FunctionType(word, [word, word]),
+                                    name="__saw_rt_tcp_listen_on")
         tcp_local_port = ir.Function(self.module, ir.FunctionType(word, [word]),
                                      name="__saw_rt_tcp_local_port")
         tcp_accept = ir.Function(self.module, ir.FunctionType(word, [word]),
@@ -2287,7 +2289,7 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         blocking_sleep = ir.Function(self.module, ir.FunctionType(word, [word]),
                                      name="__saw_rt_blocking_sleep")
         io_fns = (create, reg, poll, wake, destroy, setnb, setfam, last_err,
-                  tcp_listen, tcp_local_port, tcp_accept, tcp_connect_start,
+                  tcp_listen, tcp_listen_on, tcp_local_port, tcp_accept, tcp_connect_start,
                   tcp_connect_check, tcp_read, tcp_write, fs_unlink, fs_rename,
                   fs_mkdir, fs_rmdir, fs_chdir, env_set, env_unset, budtick,
                   budreset, offload_start, offload_done, offload_fd, offload_take,

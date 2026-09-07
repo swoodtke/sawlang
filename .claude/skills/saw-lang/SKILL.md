@@ -2269,6 +2269,8 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   the methods (each parks on the global kqueue/epoll reactor internally):
   ```saw-fragment
   let listener = try! TcpListener.listen(0)    // Result<TcpListener, IoError>
+  // Explicit IPv4 binding (no DNS); one-argument listen stays on loopback.
+  let public_listener = try! TcpListener.listen(0, host: "0.0.0.0")
   let port = listener.local_port()
   let stream = try! listener.accept()          // Result<TcpStream, IoError>; suspends
   let chunk = try! stream.read()               // Result<Data, IoError>; Ok(EMPTY) = EOF
