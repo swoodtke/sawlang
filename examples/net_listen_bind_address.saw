@@ -1,8 +1,11 @@
-// EXPECT: default true
-// EXPECT: wildcard true
-// EXPECT: conflict refused
-// EXPECT: invalid host
-// EXPECT: invalid port
+// EXPECT: success
+// EXPECT-OUTPUT:
+// default true
+// wildcard true
+// conflict refused
+// invalid host
+// invalid port
+
 import std.net.{TcpListener}
 func main() {
     let local = try! TcpListener.listen(0)
