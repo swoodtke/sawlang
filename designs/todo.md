@@ -33,6 +33,7 @@ is scheduled and in what order is the whole of what they say.
 
 
 
+- DF-300d — sos SL-28: an `@export` in the ENTRY module is reported as a duplicate of ITSELF whenever the coroutine transform runs (entry below, filed Sep 7 by the lead from the sos relay; REGRESSION at 39b3d6a1, design 266 U1; BLOCKS the sos pin bump — fix-on-discovery, DISPATCHED Sep 7 ahead of the standing queue)
 - Design 259 — the self-hosted parser (designs/259-selfhost-parser.md; QUEUED Sep 1 by the user, §3 ruling batch fully RULED same day incl. R7′ statement arms). The brief is the source of the next batch: U0 grammar debt + U1 depth funnel are compiler dispatches and serialize with the pipeline (N10's soundness fix goes FIRST after 218/1.5 integrates, by fix-on-discovery — brief §4); U2–U5 are selfhost/-side and may run CONCURRENT with design 258 in a worktree; the Class-2 fix set (incl. DF-287a/b) triages at U0 dispatch
 
 ## [BACKLOG] — filed, not scheduled
@@ -130,6 +131,65 @@ is scheduled and in what order is the whole of what they say.
 - DF-302b — a generic extension's `init` RELEASES a parameter it moved into the built value, so the value is torn down TWICE (entry below, filed Sep 4 by design 207's agent; PRE-EXISTING at HEAD, reproduced with fully explicit type arguments and no inference). Pinned by `examples/generic_init_moved_parameter_is_released_once.saw`. A DF-217m/DF-251b sibling — the same init-cleanup analysis, one case further on
 
 
+
+## DF-300d — sos SL-28: an entry-module `@export` is a duplicate of ITSELF
+## whenever the coroutine transform runs (filed Sep 7 by the lead from the sos
+## relay, found at sos's eighth pin bump; REGRESSION at `39b3d6a1`, design 266
+## U1, sos-bisected with the repro as the oracle; BLOCKS the sos 0.10.0 bump)
+
+```saw-error
+// error-contains: duplicate `@export` symbol `my_c_hook` (already exported by `my_c_hook` at line 4)
+import std.task.*
+
+@export("my_c_hook")
+func my_c_hook() -> Int { 0 }
+
+func work() -> Int {
+    yield_now()
+    1
+}
+
+func main() -> Int {
+    var group = TaskGroup()
+    let h = group.spawn(work())
+    h.join() + my_c_hook()
+}
+```
+
+Lead-reproduced verbatim on main at 0.11.0. The "duplicate" and the "already
+exported" are ONE declaration, and the hint cannot be followed. Hosted and
+freestanding alike, default flags; every entry-module `@export` fires at once,
+renamed and same-name forms both. Drop the spawn (or the `yield_now`, leaving
+nothing to transform) and it compiles; move the `@export` into an IMPORTED
+module and it compiles — the trigger is exactly {an `@export` in the entry
+module} × {the coroutine transform running}.
+
+MECHANISM (obligation 4, lead-verified in tree): `admit_declarations` step 2
+(`sawc.py`) re-checks the ENTRY module with the SAME `TypeChecker` — that
+sameness is the design's point (a fresh checker is what DF-258a was) — and
+`check_module` re-runs `_check_attribute_semantics`, whose export registration
+(`typechecker/core.py:4010-4023`) inserts into the program-global
+`_export_symbol_table` keyed by SYMBOL alone, unconditioned on declaration
+identity. The second registration of the same declaration is indistinguishable
+from a genuine collision. THE CLASS: the admission re-check re-runs every
+per-module registration the checker performs, and any program-global table
+populated during `check_module` without identity-keyed or re-entrant insertion
+has this bug — 266's landing made the effect graph re-entrant (218 4a) and
+missed the export table; the fix's obligation-4 sweep enumerates the checker's
+other program-global registrations/checks that fire during the entry re-check
+and probes each for a self-collision or double-registration twin.
+
+WHERE IT BIT sos: `tests/taskdump.saw`, the one kernel entry that both
+`@export`s its stub seams + `kmain` AND spawns — fails to build on all three
+gate profiles (379/382); no in-tree workaround taken (dodging means moving the
+test body behind a new runner knob — worth more than the wait). FIX SHAPE:
+make the registration idempotent under re-check — key by declaration identity
+(skip when `prev` is the same declaration) or skip already-admitted
+declarations at step 2; the duplicate check itself is RIGHT and keeps firing
+on two DISTINCT declarations. Tests owed: the repro as a hosted example +
+a freestanding case with {@export × spawn} (the suite had NO test with that
+product, which is why 266's battery stayed green), same-name and renamed
+export variants, and a still-firing genuine-duplicate control. [266, 58]
 
 ## DF-308a — a struct construction takes NO POSITIONAL argument, so a one-value
 ## wrapper's constructor always writes its label (filed Sep 7 by design 245 v1;
