@@ -24,8 +24,8 @@ func handle_client(
             break
         }
         let text = try! chunk.to_string()
-        for c in text.chars() {
-            if c == 10 {
+        for c in text.scalars() {
+            if c.value() == 10 {
                 let msg = "{id}: {line.as_str()}"
                 try! ch0.send(msg)
                 try! ch1.send(msg)
@@ -34,7 +34,7 @@ func handle_client(
                 received = received + 1
                 line.clear()
             } else {
-                let _ = line.append_scalar(c)
+                let _ = line.append(c)
             }
         }
     }
@@ -74,12 +74,12 @@ func run_client(id: Int, port: Int) -> Int {
             break
         }
         let text = try! chunk.to_string()
-        for c in text.chars() {
-            if c == 10 {
+        for c in text.scalars() {
+            if c.value() == 10 {
                 received = received + 1
                 line.clear()
             } else {
-                let _ = line.append_scalar(c)
+                let _ = line.append(c)
             }
         }
     }

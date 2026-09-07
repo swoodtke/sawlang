@@ -10789,6 +10789,7 @@ need one of the three [import forms](#imports).
 | `std.vector` | `Vector<T, A>` | yes |
 | `std.map` / `std.set` | `Map<K, V, A>`, `Set<T, A>` | yes |
 | `std.string` | `String` methods, `Utf8Error` | `String` only |
+| `std.scalar` | `Scalar`, `InvalidScalar` | yes |
 | `std.stringbuilder` | `StringBuilder` | yes |
 | `std.arc` / `std.box` | `Arc<T>`, `Box<T, A>` | yes |
 | `std.alloc` | `Allocator`, `GlobalAllocator`, `AllocError` | `Allocator`, `GlobalAllocator` |

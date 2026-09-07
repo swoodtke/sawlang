@@ -695,8 +695,9 @@ extension Lexer {
             return self.err("Unicode escape is a surrogate code point")
         }
         // `cp` is already validated (<= 0x10FFFF, not a surrogate) above, so the
-        // std encoder always succeeds here; the byte count is discarded.
-        let _ = out.append_scalar(cp)
+        // construction always succeeds here.
+        let sc = try! Scalar(value: cp)
+        let _ = out.append(sc)
         return
     }
 

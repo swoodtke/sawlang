@@ -55,9 +55,11 @@ func main() {
     try! g.append("hello".byte_at(0) as Int)
     print("byte digits  {}", g.build())
 
-    // `append_scalar` is the one that speaks characters: it UTF-8-encodes.
+    // The `Scalar` overload is the one that speaks characters: it UTF-8-encodes
+    // (design 245). A `Scalar` is not an integer either, so it joins the family
+    // on the same terms `Byte` did.
     var h = StringBuilder()
-    let _ = try! h.append_scalar(233)
+    try! h.append(try! Scalar(value: 233))
     print("scalar       {}", h.build())
 
     // The same family on the inline-storage builder.

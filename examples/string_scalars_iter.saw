@@ -1,0 +1,39 @@
+// String.scalars() iterator (design 245): decodes UTF-8 and yields `Scalar`,
+// which PRINTS AS THE CHARACTER. `value()` is the total read back to the code
+// point. Covers 1-, 2-, 3- and 4-byte sequences.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// h 104
+// i 105
+// a 97
+// é 233
+// € 8364
+// 😀 128512
+// 4
+// count 0
+
+func main() {
+    // ASCII "hi" -> the characters, then their code points.
+    for c in "hi".scalars() {
+        print("{} {}", c, c.value())
+    }
+
+    // "aé€😀": a(1) é(2) €(3) 😀(4) — mixed sequence lengths.
+    //   a  = U+0061 = 97
+    //   é  = U+00E9 = 233
+    //   €  = U+20AC = 8364
+    //   😀 = U+1F600 = 128512
+    var scalars = 0
+    for c in "aé€😀".scalars() {
+        print("{} {}", c, c.value())
+        scalars = scalars + 1
+    }
+    print(scalars)        // 4 scalars (even though the string is 10 bytes)
+
+    // An empty string yields nothing.
+    var empty = 0
+    for _c in "".scalars() {
+        empty = empty + 1
+    }
+    print("count {}", empty)
+}

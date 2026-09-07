@@ -654,7 +654,7 @@ extension Vector<T: Copy, A: Allocator = GlobalAllocator> {
     // of the slot, so an owning element (`Vector<String>`, `Vector<Vector<..>>`,
     // `Vector<File>`) was owned by BOTH the loop variable and the vector and
     // deinit'd twice (design 122 unit A). This follows the `StringBytes`/
-    // `StringChars` model — an iterator yields values the consumer owns
+    // `StringScalars` model — an iterator yields values the consumer owns
     // outright, with their own retain — rather than a scoped-borrow shape:
     // a borrow iterator would have to hold the container borrowed for the
     // whole loop, which is exactly what `with_ref`/`with_var_ref` already

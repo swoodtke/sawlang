@@ -714,7 +714,8 @@ extension String {
     //   - nbytes == 0 signals a malformed sequence STARTING at `i` (invalid
     //     lead, bad/short continuation, overlong, surrogate, or > U+10FFFF).
     // This is the single source of UTF-8 truth: `_utf8_error_offset` (feeding
-    // `fromBytes`) and `StringChars` (feeding `chars()`) both decode through it.
+    // `fromBytes`) and `StringScalars` (feeding `scalars()`) both decode
+    // through it.
     // Scalar assembly uses multiplication rather than bit-shifts (no bitwise
     // operators in Saw): the code-unit shifts are *64 (6 bits), *4096 (12),
     // *262144 (18).
@@ -843,14 +844,18 @@ extension String {
         StringBytes(s: self, index: 0, length: self.len())
     }
 
-    // Iterate Unicode scalar values, decoded from UTF-8, yielded as Int. There
-    // is no Char type yet (brief 38 scope note), so scalars are plain Int. Like
-    // `bytes()`, the iterator retains the String. String contents are always
-    // valid UTF-8 (literals are source-encoded; `fromBytes` validates), so a
-    // decode error is unreachable; should unsafe code ever corrupt a buffer, the
-    // iterator stops (defined behavior — see `StringChars.next`).
-    public func chars(&self) -> StringChars {
-        StringChars(s: self, index: 0, length: self.len())
+    // Iterate Unicode scalar values, decoded from UTF-8, yielded as `Scalar`.
+    // Like `bytes()`, the iterator retains the String. String contents are
+    // always valid UTF-8 (literals are source-encoded; `fromBytes` validates),
+    // so a decode error is unreachable; should unsafe code ever corrupt a
+    // buffer, the iterator stops (defined behavior — see `StringScalars.next`).
+    //
+    // This was `chars()` yielding a bare `Int` until design 245. The name said
+    // "character" for a scalar, which is Rust's standing footgun, and the
+    // element type could not say what it was — so a `for` loop over one printed
+    // NUMBERS where every reader expected characters.
+    public func scalars(&self) -> StringScalars {
+        StringScalars(s: self, index: 0, length: self.len())
     }
 
     // Scoped C-string borrow (brief 38 item 3). Hands `body` an
@@ -973,8 +978,8 @@ extension Utf8Error: Error {
 // Both iterators store the source String by value. String is Copy, so
 // the field initialization RETAINS it (refcount bump) and the struct's
 // synthesized deinit RELEASES it when the iterator dies. That independent retain
-// is what makes a temporary receiver safe: in `for c in makeString().chars()`
-// the temporary String is released right after `chars()` returns, but the
+// is what makes a temporary receiver safe: in `for c in makeString().scalars()`
+// the temporary String is released right after `scalars()` returns, but the
 // iterator's own reference keeps the bytes alive across every `next()`.
 
 // `public` because `String.bytes()` HANDS ONE OUT: a public API needs public
@@ -1002,18 +1007,18 @@ extension StringBytes: Iterator {
     }
 }
 
-// `public` for the same reason as `StringBytes` above: `String.chars()` returns
-// one.
-public struct StringChars {
+// `public` for the same reason as `StringBytes` above: `String.scalars()`
+// returns one.
+public struct StringScalars {
     private s: String
     private index: Int
     private length: Int
 }
 
-extension StringChars: Iterator {
-    type Item = Int
+extension StringScalars: Iterator {
+    type Item = Scalar
 
-    public func next(&var self) -> Int? {
+    public func next(&var self) -> Scalar? {
         if self.index >= self.length {
             return None
         }
@@ -1025,6 +1030,9 @@ extension StringChars: Iterator {
             return None
         }
         self.index = self.index + d.1
-        d.0
+        // `_decode_at` rejects surrogates and anything past U+10FFFF, so this
+        // construction cannot fail. `try!` is what says so at the one place the
+        // invariant is checked, rather than a second copy of the range tests.
+        try! Scalar(value: d.0)
     }
 }

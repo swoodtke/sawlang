@@ -35,8 +35,8 @@ func main() {
     match String.fromBytes(&cafe) {
         case Ok(s) -> {
             print(s.len())            // 5 bytes
-            for c in s.chars() {
-                print(c)              // 99, 97, 102, 233
+            for c in s.scalars() {
+                print(c.value())      // 99, 97, 102, 233
             }
         },
         case Err(e) -> print(-1)

@@ -45,7 +45,7 @@ func check_short_escapes() {
 }
 
 // Decodes `text` as a lone string and prints the hex codepoint of its first
-// (only) scalar, read back through `chars()`.
+// (only) scalar, read back through `scalars()`.
 func check_decodes_to_scalar(label: String, text: String) {
     var dec = match JsonDecoder.open(text: text) {
         case Ok(d) -> move d,
@@ -54,8 +54,8 @@ func check_decodes_to_scalar(label: String, text: String) {
     match dec.read_text() {
         case Ok(back) -> {
             var scalar = -1
-            for c in back.chars() {
-                scalar = c
+            for c in back.scalars() {
+                scalar = c.value()
             }
             print("{} decoded: {}", label, to_hex(scalar))
         },

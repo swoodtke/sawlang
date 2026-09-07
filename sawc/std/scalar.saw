@@ -1,0 +1,121 @@
+//! Unicode scalar values.
+//!
+//! A `Scalar` is one Unicode scalar value: an integer in `0..0x10FFFF` that is
+//! not a UTF-16 surrogate. That is the domain UTF-8 encodes, so a `Scalar` is
+//! exactly what a `String` is a sequence of — `String.scalars()` yields them and
+//! `StringBuilder.append` writes them back out.
+//!
+//! The invariant is checked in ONE place, the fallible `init`. Everything past
+//! it is total: `value()` always answers, `append` always encodes, and a
+//! `Scalar` printed is the CHARACTER rather than its number.
+//!
+//! `Scalar` is in the prelude and needs no import, for the reason `Byte` is:
+//! every scalar API in std names it, so there is no module a reader would think
+//! to import it from. Nothing here allocates and nothing here touches the OS, so
+//! both types are available freestanding.
+
+// std.scalar (design 245 v1). The type sits in its own file rather than in
+// `std.string` because prelude membership is decided per FILE (the module gate
+// in `sawc.py`), and `std.string` carries a per-symbol carve-out already.
+//
+// The scalar space, written as the Unicode standard writes it. A code point is
+// 0..0x10FFFF; the block 0xD800..0xDFFF is reserved for UTF-16 surrogate pairs
+// and no scalar value occupies it, which is why UTF-8 refuses to encode one.
+static MAX_SCALAR: Int = 0x10FFFF
+static SURROGATE_MIN: Int = 0xD800
+static SURROGATE_MAX: Int = 0xDFFF
+
+/// Why an integer is not a Unicode scalar value.
+///
+/// The two causes are disjoint, and each carries the number it refused, so a
+/// rejection is loggable without the caller re-deriving what went wrong.
+public enum InvalidScalar {
+    /// Outside `0..0x10FFFF` — negative, or past the last code point.
+    case OutOfRange(value: Int),
+    /// Inside the UTF-16 surrogate block `0xD800..0xDFFF`, which is reserved
+    /// for UTF-16 and which UTF-8 does not encode.
+    case Surrogate(value: Int)
+}
+
+/// Rejections print the number and the cause.
+extension InvalidScalar: Printable {
+    /// Writes the refused value and why it is not a scalar.
+    public func format(&self, into: &var StringBuilder) {
+        match self {
+            case OutOfRange(value) -> {
+                try! into.append(value)
+                try! into.append(" is not a Unicode scalar value: outside 0..0x10FFFF")
+            },
+            case Surrogate(value) -> {
+                try! into.append(value)
+                try! into.append(" is not a Unicode scalar value: a UTF-16 surrogate")
+            }
+        }
+    }
+}
+
+extension InvalidScalar: Error {}
+
+/// One Unicode scalar value.
+///
+/// Build one with `Scalar(value:)`, read the code point back with `value()`.
+/// Scalars compare and hash by code point, and print as the character they
+/// stand for.
+public struct Scalar {
+    private raw: Int
+}
+
+/// Construction and readout for `Scalar`.
+extension Scalar {
+    /// Builds the scalar for code point `value`, or reports why there is none.
+    ///
+    /// This is the one place the invariant is checked. `Err(InvalidScalar)`
+    /// names the cause: `OutOfRange` for a negative value or one past
+    /// `0x10FFFF`, `Surrogate` for the `0xD800..0xDFFF` block. A caller for whom
+    /// absence is the whole answer writes `try? Scalar(value: n)`.
+    ///
+    /// Construction is order-independent NAME matching, like every other struct
+    /// construction, so the label is written:
+    ///
+    /// ```saw
+    /// let quote = try! Scalar(value: 34)   // U+0022, the ASCII quote
+    /// print(quote)                         // prints: "
+    /// print(quote.value())                 // prints: 34
+    /// ```
+    public init(value: Int) -> Result<Scalar, InvalidScalar> {
+        if value < 0 || value > MAX_SCALAR {
+            return InvalidScalar.OutOfRange(value: value)
+        }
+        if value >= SURROGATE_MIN && value <= SURROGATE_MAX {
+            return InvalidScalar.Surrogate(value: value)
+        }
+        return Scalar(raw: value)
+    }
+
+    /// Returns the code point, in `0..0x10FFFF`.
+    ///
+    /// Total: a `Scalar` exists only for a value in the domain, so there is
+    /// nothing to report. This is the read a comparison goes through —
+    /// `ch.value() == 34` — until scalar literals exist.
+    public func value(&self) -> Int {
+        self.raw
+    }
+}
+
+// `Scalar` is a trivial (POD) struct, so it auto-conforms to Equatable and
+// Hashable; the `@synthesize`d compare runs over the single `raw` field, i.e.
+// code-point order.
+/// Scalars order by code point.
+@synthesize
+extension Scalar: Comparable {
+}
+
+/// Scalars print as the character they stand for.
+extension Scalar: Printable {
+    /// Writes the scalar's UTF-8 encoding — the character, not its number.
+    ///
+    /// `print(scalar)` writes `é`, where `print(scalar.value())` writes 233.
+    public func format(&self, into: &var StringBuilder) {
+        try! into.append(self)
+    }
+}

@@ -36,8 +36,8 @@ func check_decodes_to_scalar(label: String, text: String) {
         case Ok(v) -> {
             let back = v.as_text() ?? "?"
             var scalar = -1
-            for c in back.chars() {
-                scalar = c
+            for c in back.scalars() {
+                scalar = c.value()
             }
             print("{} decoded: {}", label, to_hex(scalar))
         },

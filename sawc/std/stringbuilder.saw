@@ -243,7 +243,7 @@ extension StringBuilder {
     ///
     /// This was `append_char(c: Int8)` before design 250. The name said
     /// "character" for something that is one byte of a possibly multi-byte
-    /// scalar; `append_scalar` is the one that speaks characters.
+    /// scalar; the `Scalar` overload below is the one that speaks characters.
     ///
     /// THE FIFTH `append` OVERLOAD IS NOT IN THIS FILE: `append(value: Float)`
     /// is declared in `sawc/std/float.saw`, beside `String.to_float` and the
@@ -329,48 +329,44 @@ extension StringBuilder {
         }
     }
 
-    // Append the UTF-8 encoding of a Unicode scalar value, returning the number
-    // of bytes appended (1..4), or None if `scalar` is not a valid Unicode scalar
-    // — negative, a UTF-16 surrogate (0xD800..0xDFFF), or greater than 0x10FFFF —
-    // in which case nothing is appended. The encoding inverse of
-    // `String.chars()` (design 119, closing DF-116c): a scalar that `chars()`
-    // yields always re-encodes to `Some`. Assembles the code units with
-    // multiplication rather than bit shifts (Saw has no bitwise operators): the
-    // shifts are *64 (6 bits), *4096 (12), *262144 (18).
-    //
-    // The `None` answers exactly one question — "is that a scalar value?" — and
-    // never doubles as an out-of-memory report: the two answers ride separate
-    // channels, `Ok(None)` for "not a scalar" and `Err(AllocError)` for the
-    // allocator (design 234 §1, the same peeling `try_receive` uses). Design 123
-    // kept them apart by panicking on the second, which cost the caller the
-    // report entirely.
-    public func append_scalar(&var self, scalar: Int) -> Result<Int?, AllocError> {
-        if scalar < 0 || scalar > 1114111 {
-            return None
+    /// Appends the UTF-8 encoding of `scalar` — the character, not its number.
+    ///
+    /// The overload of `append` that speaks characters, where the `Byte`
+    /// sibling above writes one raw byte and the `Int`/`UInt` ones write
+    /// decimal digits. It is the encoding inverse of `String.scalars()`, so an
+    /// encode/decode round-trip is the identity on every scalar.
+    ///
+    /// Reports allocator exhaustion as `Err(AllocError)`, and nothing else can
+    /// go wrong: a `Scalar` is a scalar by construction, which is what retired
+    /// the `Ok(None)` the old `append_scalar` answered for an invalid one
+    /// (design 245 §3 — the refusal now lives at `Scalar(value:)`, where it
+    /// names its cause and cannot be dropped on the floor).
+    ///
+    /// Assembles the code units with multiplication rather than bit shifts, the
+    /// spelling the decoder in `sawc/std/string.saw` uses: the shifts are *64
+    /// (6 bits), *4096 (12), *262144 (18).
+    public func append(&var self, scalar: Scalar) -> Result<Void, AllocError> {
+        let code = scalar.value()
+        if code < 128 {
+            let _ = try self.append(self._scalar_byte(code))
+            return
         }
-        if scalar >= 55296 && scalar <= 57343 {
-            return None                 // UTF-16 surrogate: not a scalar value
+        if code < 2048 {
+            let _ = try self.append(self._scalar_byte(192 + code / 64))
+            let _ = try self.append(self._scalar_byte(128 + code % 64))
+            return
         }
-        if scalar < 128 {
-            let _ = try self.append(self._scalar_byte(scalar))
-            return 1
+        if code < 65536 {
+            let _ = try self.append(self._scalar_byte(224 + code / 4096))
+            let _ = try self.append(self._scalar_byte(128 + (code / 64) % 64))
+            let _ = try self.append(self._scalar_byte(128 + code % 64))
+            return
         }
-        if scalar < 2048 {
-            let _ = try self.append(self._scalar_byte(192 + scalar / 64))
-            let _ = try self.append(self._scalar_byte(128 + scalar % 64))
-            return 2
-        }
-        if scalar < 65536 {
-            let _ = try self.append(self._scalar_byte(224 + scalar / 4096))
-            let _ = try self.append(self._scalar_byte(128 + (scalar / 64) % 64))
-            let _ = try self.append(self._scalar_byte(128 + scalar % 64))
-            return 3
-        }
-        let _ = try self.append(self._scalar_byte(240 + scalar / 262144))
-        let _ = try self.append(self._scalar_byte(128 + (scalar / 4096) % 64))
-        let _ = try self.append(self._scalar_byte(128 + (scalar / 64) % 64))
-        let _ = try self.append(self._scalar_byte(128 + scalar % 64))
-        return 4
+        let _ = try self.append(self._scalar_byte(240 + code / 262144))
+        let _ = try self.append(self._scalar_byte(128 + (code / 4096) % 64))
+        let _ = try self.append(self._scalar_byte(128 + (code / 64) % 64))
+        let _ = try self.append(self._scalar_byte(128 + code % 64))
+        return
     }
 
     // A code unit 0..255, computed in `Int` by the scalar encoder above, AS a

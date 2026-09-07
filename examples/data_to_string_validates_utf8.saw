@@ -1,7 +1,7 @@
 // Design 122 unit B: `Data.to_string()` decodes UTF-8 and SURFACES a failure
 // instead of minting a String that breaks the always-valid-UTF-8 invariant.
 //
-// Before, `[0x68, 0xC8, 0x69]` produced a `len() == 3` String whose `chars()`
+// Before, `[0x68, 0xC8, 0x69]` produced a `len() == 3` String whose `scalars()`
 // yielded ONE scalar and then stopped — std silently truncated the caller's
 // data. Now the same bytes return `Err(Utf8Error)` carrying the offset of the
 // first malformed sequence, the same failure type `String.fromBytes` uses.
@@ -22,7 +22,7 @@ func decode_erased(d: &Data) -> Result<String, Box<any Error>> {
 
 func scalars(s: String) -> Int {
     var n = 0
-    for _c in s.chars() {
+    for _c in s.scalars() {
         n = n + 1
     }
     n

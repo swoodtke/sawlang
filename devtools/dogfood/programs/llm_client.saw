@@ -38,40 +38,41 @@ extension ClientError: Error {}
 // JSON — outbound (escaping) and inbound (anchored scan)
 // =============================================================================
 
-// Encodes one Unicode scalar as the \u00XX escape's hex digit at nibble
-// value `n` (0..15), returned as the scalar of the ASCII hex character.
-func hex_digit_scalar(n: Int) -> Int {
-    if n < 10 { return 48 + n }
-    return 87 + n
+// The \u00XX escape's hex digit at nibble value `n` (0..15), as the scalar of
+// the ASCII hex character.
+func hex_digit_scalar(n: Int) -> Scalar {
+    if n < 10 { return try! Scalar(value: 48 + n) }
+    return try! Scalar(value: 87 + n)
 }
 
 // Appends `s` to `b` as a double-quoted, RFC 8259-escaped JSON string.
-// Bytes >= 0x80 pass through as UTF-8: `chars()` decodes the source string's
-// scalars and `append_scalar` re-encodes each one, which is the identity on
-// the valid-UTF-8 domain a `String` already guarantees.
+// Bytes >= 0x80 pass through as UTF-8: `scalars()` decodes the source string's
+// scalars and `append` re-encodes each one, which is the identity on the
+// valid-UTF-8 domain a `String` already guarantees.
 func append_json_string(b: &var StringBuilder, s: String) {
     try! b.append("\"")
-    for ch in s.chars() {
-        if ch == 34 {
+    for ch in s.scalars() {
+        let code = ch.value()
+        if code == 34 {
             try! b.append("\\\"")
-        } else if ch == 92 {
+        } else if code == 92 {
             try! b.append("\\\\")
-        } else if ch == 10 {
+        } else if code == 10 {
             try! b.append("\\n")
-        } else if ch == 13 {
+        } else if code == 13 {
             try! b.append("\\r")
-        } else if ch == 9 {
+        } else if code == 9 {
             try! b.append("\\t")
-        } else if ch == 8 {
+        } else if code == 8 {
             try! b.append("\\b")
-        } else if ch == 12 {
+        } else if code == 12 {
             try! b.append("\\f")
-        } else if ch < 0x20 {
+        } else if code < 0x20 {
             try! b.append("\\u00")
-            let _ = try! b.append_scalar(scalar: hex_digit_scalar(ch / 16))
-            let _ = try! b.append_scalar(scalar: hex_digit_scalar(ch % 16))
+            try! b.append(hex_digit_scalar(code / 16))
+            try! b.append(hex_digit_scalar(code % 16))
         } else {
-            let _ = try! b.append_scalar(scalar: ch)
+            try! b.append(ch)
         }
     }
     try! b.append("\"")
@@ -192,10 +193,10 @@ func parse_json_string(s: String, start: Int) -> (String, Int)? {
                 try! out.append("\t")
                 i += 1
             } else if e == 98 {
-                let _ = try! out.append_scalar(scalar: 8)
+                try! out.append(try! Scalar(value: 8))
                 i += 1
             } else if e == 102 {
-                let _ = try! out.append_scalar(scalar: 12)
+                try! out.append(try! Scalar(value: 12))
                 i += 1
             } else if e == 117 {
                 i += 1
@@ -206,7 +207,8 @@ func parse_json_string(s: String, start: Int) -> (String, Int)? {
                         guard let (cp2, ni2) = parse_hex4(s, i + 2) else { return None }
                         if cp2 >= 0xDC00 && cp2 <= 0xDFFF {
                             let scalar = 0x10000 + ((cp - 0xD800) * 0x400) + (cp2 - 0xDC00)
-                            let _ = try! out.append_scalar(scalar: scalar)
+                            guard let sc = try? Scalar(value: scalar) else { return None }
+                            try! out.append(sc)
                             i = ni2
                         } else {
                             return None
@@ -217,7 +219,8 @@ func parse_json_string(s: String, start: Int) -> (String, Int)? {
                 } else if cp >= 0xDC00 && cp <= 0xDFFF {
                     return None
                 } else {
-                    let _ = try! out.append_scalar(scalar: cp)
+                    guard let sc = try? Scalar(value: cp) else { return None }
+                    try! out.append(sc)
                 }
             } else {
                 return None

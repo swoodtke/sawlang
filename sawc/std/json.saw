@@ -912,7 +912,18 @@ extension JsonDecoder {
                     } else if hi >= SURROGATE_LOW_MIN && hi <= SURROGATE_LOW_MAX {
                         return DecodeError(offset: esc_at, fault: DecodeFault.Malformed)
                     }
-                    match out.append_scalar(scalar) {
+                    // The surrogate arithmetic above lands inside the scalar
+                    // domain for every input this far, but the decoder answers
+                    // malformed input with an error and never a panic — so the
+                    // construction is matched, not `try!`d.
+                    let sc = match Scalar(value: scalar) {
+                        case Ok(s) -> s,
+                        case Err(_) -> {
+                            return DecodeError(offset: esc_at,
+                                               fault: DecodeFault.Malformed)
+                        }
+                    }
+                    match out.append(sc) {
                         case Ok(_) -> {},
                         case Err(_) -> { return __json_alloc_decoded(esc_at) }
                     }

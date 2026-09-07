@@ -1,0 +1,20 @@
+// Design 245 v1 removed both halves of the old "char" surface OUTRIGHT — no
+// alias, no deprecation window (user ruling, Aug 27: nothing char-named
+// survives until a grapheme type exists to claim the word). `chars()` is
+// `scalars()` and `append_scalar` is an `append` overload, and the refusals
+// point at both replacements through the available-methods hint.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: type `String` has no method `chars`
+// EXPECT-ERROR-CONTAINS: scalars
+// EXPECT-ERROR-CONTAINS: type `StringBuilder` has no method `append_scalar`
+// EXPECT-ERROR-CONTAINS: append
+
+func main() {
+    for c in "hi".chars() {
+        print(c)
+    }
+
+    var sb = StringBuilder()
+    let _ = try! sb.append_scalar(scalar: 233)
+    print(sb.build())
+}
