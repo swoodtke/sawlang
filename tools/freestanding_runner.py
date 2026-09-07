@@ -499,6 +499,23 @@ TEST_CASES = [
         "expect_clean_exit": True,
     },
     {
+        # DF-300d: an entry-module `@export` in a program whose coroutine
+        # transform RUNS. The suite carried both halves and never the product —
+        # every case here `@export`s `fs_main` and none of them spawned — which
+        # is why design 266's admission re-check could report an entry-module
+        # export as a duplicate of ITSELF with the battery green. Both `@export`
+        # spellings plus an exported `static`, since the table takes all three
+        # through one funnel.
+        "name": "export_with_coroutine",
+        "src": "export_with_coroutine.saw",
+        "expect_out": ["fs check bare_export_callable=1",
+                       "fs check renamed_export_callable=1",
+                       "fs check exported_static_readable=1",
+                       "fs check coroutine_ran=1",
+                       "fs done export_with_coroutine ok"],
+        "expect_clean_exit": True,
+    },
+    {
         "name": "float_text",
         "src": "float_text.saw",
         "expect_out": ["fs check integral=1",

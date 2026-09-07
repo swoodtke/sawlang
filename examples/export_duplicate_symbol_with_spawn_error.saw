@@ -1,0 +1,30 @@
+// DF-300d's control: making the export registration idempotent under design
+// 266's admission re-check must not make it blind. Two DISTINCT declarations
+// asking for one C symbol is still an error, and this one asks it in the
+// program shape the fix touches — an entry module whose coroutine transform
+// runs, so the re-check that used to invent a duplicate is running here too.
+//
+// `export_duplicate_symbol_error.saw` is the same refusal WITHOUT the
+// transform, and it stays the plain statement of design 58's rule; this file
+// exists only to hold the idempotence honest.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: duplicate `@export` symbol `shared_c_hook`
+
+import std.task.*
+
+@export("shared_c_hook")
+func first_hook() -> Int { 1 }
+
+@export("shared_c_hook")
+func second_hook() -> Int { 2 }
+
+func doubled(n: Int) -> Int {
+    yield_now()
+    n * 2
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(doubled(5))
+    print("{}", h.join() + first_hook() + second_hook())
+}

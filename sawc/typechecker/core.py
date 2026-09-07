@@ -5,7 +5,7 @@ Performs type checking and semantic analysis on the AST.
 
 import itertools
 from contextlib import contextmanager
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 from dataclasses import dataclass, field
 from ast_nodes import (
     Program, Function, Block, Statement, Expression,
@@ -694,8 +694,11 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # design 58: whole-program C-export symbol table for hygiene checks
         # (duplicate exported symbols across the compilation unit). Accumulated
         # across every module the shared checker instance visits. Maps the
-        # requested C symbol -> (declaration name, line, column, source_file).
-        self._export_symbol_table: Dict[str, Tuple[str, int, int, Optional[str]]] = {}
+        # requested C symbol -> (declaration name, line, column, source_file,
+        # declaring AST node). The node is the DF-300d identity key — see
+        # `_readmitted_declaration`.
+        self._export_symbol_table: Dict[
+            str, Tuple[str, int, int, Optional[str], Any]] = {}
 
         # Unified namespace (Phase 0 of module system)
         # Populated in parallel with legacy dicts during migration
@@ -3961,6 +3964,51 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                  f"document links cleanly and misbehaves at run time",
             source_file=getattr(func, 'source_file', None))
 
+    def _readmitted_declaration(self, registered_nodes: Iterable, node) -> bool:
+        """Is `node` a declaration one of `registered_nodes` ALREADY IS — the
+        same declaration re-presented, not a second one colliding with it?
+
+        THE FACT THIS EXISTS FOR (DF-300d). Design 266's admission
+        (`sawc.admit_declarations`, step 2) RE-CHECKS the entry module with the
+        SAME `TypeChecker` — that sameness is the design's point, since a fresh
+        checker is what DF-258a was. So every registration `check_module`
+        performs runs TWICE for the entry module, and any table the checker
+        keeps PROGRAM-GLOBAL (populated by one module's check and still there
+        for the next) sees each entry-module declaration a second time. A table
+        that uniqueness-checks by NAME alone cannot tell that second
+        registration from a genuine collision, and reports a declaration as a
+        duplicate of ITSELF — an error whose hint cannot be followed.
+
+        CALLERS (obligation 1 — the checker's program-global registrations that
+        a `check_module` populates and that uniqueness-check, named here so a
+        third cannot appear unnoticed):
+          * `_register_export_symbol`, below — the `@export` C-symbol table,
+            keyed by symbol across the whole compilation unit.
+          * `_register_extension` (registration.py) — a struct's or enum's
+            method, overload, init and specialized-method tables, which design
+            142 SHARES across every module in the link, so an entry-module
+            extension of an IMPORTED type writes into a table that outlives the
+            re-check. (An extension of a LOCAL type writes into the fresh
+            per-module namespace and was never reachable this way.)
+
+        Everything else the entry re-check touches either writes into the fresh
+        per-module `Namespace` (function/struct/enum/static registration,
+        overload symbol stamping) or is idempotent by construction (set
+        membership, dict assignment, the `_*_reported` de-duplication sets) —
+        see the DF-300d sweep matrix in the tracker for the probe evidence.
+
+        IDENTITY IS THE NODE OBJECT. The re-check walks `adm.entry_ast`, the
+        very `Program` the first check walked: `merge_programs` SHARES its
+        declarations rather than copying them, the coroutine transform rewrites
+        bodies in place, and the admission's step-4 reconciliation settles
+        MEMBERSHIP only. Positional identity (source_file:line:column) would
+        give the same answer with a looser test; the object test is exact, and
+        its failure direction is the loud one — a node that somehow WAS rebuilt
+        reports the duplicate it reports today rather than silently swallowing
+        a real collision.
+        """
+        return any(prev is node for prev in registered_nodes if prev is not None)
+
     def _register_export_symbol(self, sym: str, node) -> None:
         """Symbol hygiene (design 58): reserved-symbol collision + duplicate
         exported-symbol detection across the whole compilation unit."""
@@ -4009,7 +4057,13 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                 return
         prev = self._export_symbol_table.get(sym)
         if prev is not None:
-            pname, pline, _pcol, _pfile = prev
+            pname, pline, _pcol, _pfile, pnode = prev
+            # DF-300d: the entry module is checked twice (design 266's
+            # admission re-check), so THIS declaration is already in the table.
+            # Its own second registration is not a collision — see
+            # `_readmitted_declaration`.
+            if self._readmitted_declaration((pnode,), node):
+                return
             self.reporter.error(
                 ErrorKind.TYPE_MISMATCH,
                 f"duplicate `@export` symbol `{sym}` (already exported by "
@@ -4020,7 +4074,7 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                 source_file=src)
             return
         self._export_symbol_table[sym] = (
-            getattr(node, 'name', sym), node.line, node.column, src)
+            getattr(node, 'name', sym), node.line, node.column, src, node)
 
     def _check_attribute_semantics(self, program: Program) -> None:
         """design 58 Part 2/3: validate @export and @section semantics on the

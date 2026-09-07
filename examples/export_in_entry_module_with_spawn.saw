@@ -1,0 +1,50 @@
+// DF-300d: an `@export` in the ENTRY module of a program whose coroutine
+// transform runs. It used to be reported as a duplicate of ITSELF —
+// `duplicate `@export` symbol `my_c_hook` (already exported by `my_c_hook` at
+// line 4)` — with a hint that could not be followed, because the "other"
+// declaration was this one.
+//
+// THE MECHANISM: design 266's admission (`admit_declarations` step 2) re-checks
+// the entry module with the SAME `TypeChecker`, deliberately — a fresh checker
+// is what DF-258a was. So `_check_attribute_semantics` runs over the entry
+// module twice, and the export table was keyed by C symbol alone, with nothing
+// to tell a second registration of one declaration from a genuine collision.
+// The transform is what makes the admission run at all, which is why dropping
+// the spawn (or the `yield_now`, leaving nothing to transform) used to compile
+// and why moving the `@export` into an imported module did too.
+//
+// All three spellings are here — bare `@export`, renamed `@export("name")` and
+// an `@export`ed `static` — because `_register_export_symbol` is the one funnel
+// all three arrive at.
+// EXPECT: success
+// EXPECT-OUTPUT: bare 3
+// EXPECT-OUTPUT: renamed 4
+// EXPECT-OUTPUT: slot 41
+// EXPECT-OUTPUT: spun 22
+
+import std.task.*
+
+@export("my_c_slot")
+static MY_C_SLOT: Int = 41
+
+@export
+func my_bare_hook() -> Int { 3 }
+
+@export("my_renamed_hook")
+func renamed_hook() -> Int { 4 }
+
+func doubled(n: Int) -> Int {
+    yield_now()
+    n * 2
+}
+
+func main() {
+    print("bare {}", my_bare_hook())
+    print("renamed {}", renamed_hook())
+    print("slot {}", MY_C_SLOT)
+
+    var group = TaskGroup()
+    let a = group.spawn(doubled(5))
+    let b = group.spawn(doubled(6))
+    print("spun {}", a.join() + b.join())
+}

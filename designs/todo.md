@@ -33,7 +33,7 @@ is scheduled and in what order is the whole of what they say.
 
 
 
-- DF-300d — sos SL-28: an `@export` in the ENTRY module is reported as a duplicate of ITSELF whenever the coroutine transform runs (entry below, filed Sep 7 by the lead from the sos relay; REGRESSION at 39b3d6a1, design 266 U1; BLOCKS the sos pin bump — fix-on-discovery, DISPATCHED Sep 7 ahead of the standing queue)
+- ~~DF-300d — sos SL-28: an `@export` in the ENTRY module is reported as a duplicate of ITSELF whenever the coroutine transform runs~~ **LANDED Sep 7** (entry below carries the sweep matrix and the funnel; the obligation-4 sweep found a SIBLING with eight faces — an entry-module extension of an IMPORTED type — fixed in the same funnel). The sos pin bump is unblocked
 - Design 259 — the self-hosted parser (designs/259-selfhost-parser.md; QUEUED Sep 1 by the user, §3 ruling batch fully RULED same day incl. R7′ statement arms). The brief is the source of the next batch: U0 grammar debt + U1 depth funnel are compiler dispatches and serialize with the pipeline (N10's soundness fix goes FIRST after 218/1.5 integrates, by fix-on-discovery — brief §4); U2–U5 are selfhost/-side and may run CONCURRENT with design 258 in a worktree; the Class-2 fix set (incl. DF-287a/b) triages at U0 dispatch
 
 ## [BACKLOG] — filed, not scheduled
@@ -136,6 +136,7 @@ is scheduled and in what order is the whole of what they say.
 ## whenever the coroutine transform runs (filed Sep 7 by the lead from the sos
 ## relay, found at sos's eighth pin bump; REGRESSION at `39b3d6a1`, design 266
 ## U1, sos-bisected with the repro as the oracle; BLOCKS the sos 0.10.0 bump)
+## **FIXED Sep 7 — see the closing note below; the sos bump is unblocked**
 
 ```saw-error
 // error-contains: duplicate `@export` symbol `my_c_hook` (already exported by `my_c_hook` at line 4)
@@ -190,6 +191,58 @@ on two DISTINCT declarations. Tests owed: the repro as a hosted example +
 a freestanding case with {@export × spawn} (the suite had NO test with that
 product, which is why 266's battery stayed green), same-name and renamed
 export variants, and a still-firing genuine-duplicate control. [266, 58]
+
+**FIXED Sep 7.** THE FUNNEL is `TypeChecker._readmitted_declaration`
+(`typechecker/core.py`) — "is this declaration one the table ALREADY holds,
+re-presented by the admission re-check, rather than a second one colliding with
+it?" — keyed on the AST NODE OBJECT, which is exact because the re-check walks
+`adm.entry_ast` itself (`merge_programs` shares its declarations, the transform
+rewrites bodies in place, step 4 settles membership only). Its docstring NAMES
+its callers, per obligation 1. The duplicate checks themselves are untouched and
+still fire on two distinct declarations.
+
+THE SWEEP (obligation 4) — 17 probes over the entry module's constructs ×
+{transform runs}, each compiled AND run, plus no-transform controls; probe
+sources and the runner under `.build/scratch/probes/`. It found a SIBLING of
+the same mechanism, so the class is TWO program-global tables, not one:
+  * `_export_symbol_table` (the filed defect) — MISFIRED at all three spellings:
+    renamed `@export("n")`, bare `@export`, and an `@export`ed `static`.
+  * A type's METHOD / OVERLOAD / INIT / SPECIALIZED-METHOD tables, which design
+    142 deliberately SHARES across every module in the link — so an entry-module
+    extension of an IMPORTED type writes into a table that outlives the
+    re-check. MISFIRED at eight faces, all reported as `already defined for
+    struct X with an indistinguishable signature` except the `init`, whose
+    re-registration is an APPEND and so came out as `ambiguous initializer`:
+    instance method, static method, `init`, trait-conformance method, a
+    conformance whose trait has a DEFAULT body, an associated-type conformance,
+    an ENUM extension method, and a SPECIALIZED extension of a std generic
+    (`extension Vector<Int>`). Fixed by skipping the already-registered
+    declaration, which also stops the double APPEND into the overload set.
+  * NOT MISFIRING, probed and clean: every extension of a type declared in the
+    ENTRY module (method, static, `init`, conformance, `@synthesize` derivation)
+    — those register into the module's own FRESH `Namespace`, which is what made
+    the imported half look like a spelling problem; free-function and method
+    OVERLOAD registration; `@section`; `static_assert`; a `type` alias; generic
+    instantiation (`extend_monomorphization` is re-entrant by design 266's own
+    step 5). The remaining program-global state on the checker is idempotent by
+    construction — set membership (`_derived_*`, `_unit_type_names`,
+    `_poisoned_type_names`, `free_function_owners`), keyed dict assignment
+    (`_module_scope_by_file`, `_direct_imports_by_module`, `_std_symbol_file`,
+    `register_conformance`) and the `_*_reported` de-duplication sets, which
+    exist precisely to survive a second visit.
+
+TESTS: `examples/export_in_entry_module_with_spawn.saw` (the repro, all three
+export spellings), `examples/extension_of_imported_type_with_spawn.saw` (the
+sibling's eight faces, over `examples/modules/df300d_shapes.saw`),
+`tests/freestanding/cases/export_with_coroutine.saw` + its runner row (the
+product the suite had NO test for — `__saw_drive` rather than a `TaskGroup`,
+which would reach the reactor and thread seams `tests/freestanding/rt` does not
+supply), and two genuine-duplicate CONTROLS in the shape the fix touches:
+`examples/export_duplicate_symbol_with_spawn_error.saw` and
+`examples/extension_method_duplicate_on_imported_type_error.saw`. The
+transform-free statements of the same two rules already existed and are
+unchanged — `examples/export_duplicate_symbol_error.saw` and
+`examples/errors/method_overload_identical_signature.saw`.
 
 ## DF-308a — a struct construction takes NO POSITIONAL argument, so a one-value
 ## wrapper's constructor always writes its label (filed Sep 7 by design 245 v1;

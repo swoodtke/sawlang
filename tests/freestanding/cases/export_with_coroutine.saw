@@ -1,0 +1,61 @@
+// DF-300d: an `@export` in the ENTRY module, in a program whose coroutine
+// transform RUNS.
+//
+// The suite had every half of that product and never the product itself: each
+// case here `@export`s `fs_main` from its entry module, and none of them
+// spawned, so design 266's admission re-check never ran over an entry module
+// holding an `@export`. That gap is exactly why 266's battery stayed green
+// while the sos kernel's one entry that both exports its seams and spawns
+// (`tests/taskdump.saw`) stopped building on all three profiles.
+//
+// The re-check registers every entry-module declaration a SECOND time into the
+// checker's program-global tables, and the export table was keyed by C symbol
+// alone — so the declaration was reported as a duplicate of ITSELF, with a hint
+// naming the very declaration it pointed at. Both `@export` spellings are here
+// (bare and renamed) plus an `@export`ed static, because the table takes all
+// three through one funnel.
+//
+// The concurrency half is `__saw_drive`, design 44's test-only entry: the point
+// is that the transform RUNS at all, not what it computes, so the body is
+// arithmetic whose answer is the same on both targets. A `TaskGroup` would say
+// the same thing and cost more — a group reaches the scheduler, which reaches
+// the reactor and the thread seams, and `tests/freestanding/rt` supplies
+// neither. `__saw_drive` needs only a frame, so it needs only the allocator
+// seam this suite already provides.
+
+import fscore.*
+import std.task.*
+
+@export("fs_exported_slot")
+static EXPORTED_SLOT: Int = 41
+
+@export
+func fs_bare_hook() -> Int { 3 }
+
+@export("fs_renamed_hook")
+func renamed_hook() -> Int { 4 }
+
+func doubled(n: Int) -> Int {
+    yield_now()
+    n * 2
+}
+
+func spun() -> Int {
+    __saw_drive(doubled(5)) + __saw_drive(doubled(6))
+}
+
+@export("fs_main")
+func fs_main() unsafe {
+    // The exported declarations are callable and readable from the program
+    // that declares them — a self-collision would have refused the compile,
+    // so reaching them at all is the first half of the claim.
+    check_value("bare_export_callable", fs_bare_hook(), 3)
+    check_value("renamed_export_callable", renamed_hook(), 4)
+    check_value("exported_static_readable", EXPORTED_SLOT, 41)
+
+    // …and the transform that made the re-check run produced a working
+    // program, rather than merely compiling.
+    check_value("coroutine_ran", spun(), 22)
+
+    finish("export_with_coroutine")
+}

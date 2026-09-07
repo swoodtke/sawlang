@@ -1,0 +1,86 @@
+// DF-300d's sibling, found by its obligation-4 sweep: an ENTRY-module
+// extension of an IMPORTED type, in a program whose coroutine transform runs.
+// Every member below used to be reported as already defined for a type that
+// declares it exactly once — `method `doubled` is already defined for struct
+// `Reading` with an indistinguishable signature` — and the `init` face came out
+// as `ambiguous initializer for `Reading``, because a re-registered init is
+// APPENDED to the list rather than checked against it.
+//
+// ONE MECHANISM WITH THE EXPORT TABLE'S: design 266's admission re-checks the
+// entry module with the SAME checker, so every registration runs twice, and
+// design 142 SHARES a type's method / overload / init / specialized-method
+// tables across every module in the link — so the second registration finds the
+// first sitting there. An extension of a type declared in THIS module writes
+// into the entry module's own fresh namespace and never saw any of this, which
+// is what made the imported half look like a spelling problem.
+//
+// Every face the sweep probed is here, because they are one funnel's rows:
+// instance method, static method, `init`, a trait-conformance method (with the
+// trait's DEFAULT body over it), an associated type, an ENUM extension, and a
+// SPECIALIZED extension of a std generic.
+// EXPECT: success
+// EXPECT-OUTPUT: doubled 42
+// EXPECT-OUTPUT: origin 0
+// EXPECT-OUTPUT: square 9
+// EXPECT-OUTPUT: described 31
+// EXPECT-OUTPUT: carried 2
+// EXPECT-OUTPUT: band 2
+// EXPECT-OUTPUT: total 6
+// EXPECT-OUTPUT: spun 22
+
+import std.task.*
+import modules.df300d_shapes.{Reading, Band}
+
+trait Described {
+    type Item
+    func base(&self) -> Int
+    func carried(&self) -> Item
+    func described(&self) -> Int { self.base() + 10 }
+}
+
+extension Reading {
+    func doubled(&self) -> Int { self.raw * self.scale }
+    static func origin() -> Int { 0 }
+    init(square: Int) -> Reading { Reading(raw: square * square, scale: 1) }
+}
+
+extension Reading: Described {
+    type Item = Int
+    func base(&self) -> Int { self.raw }
+    func carried(&self) -> Int { self.scale }
+}
+
+extension Band {
+    func weight(&self) -> Int { (self as UInt8) as Int }
+}
+
+extension Vector<Int> {
+    func total(&self) -> Int {
+        var sum = 0
+        for n in self.iter() { sum = sum + n }
+        sum
+    }
+}
+
+func doubled_after_yield(n: Int) -> Int {
+    yield_now()
+    n * 2
+}
+
+func main() {
+    let r = Reading(raw: 21, scale: 2)
+    print("doubled {}", r.doubled())
+    print("origin {}", Reading.origin())
+    print("square {}", Reading(square: 3).raw)
+    print("described {}", r.described())
+    print("carried {}", r.carried())
+    print("band {}", Band.high.weight())
+
+    let v: Vector<Int> = [1, 2, 3]
+    print("total {}", v.total())
+
+    var group = TaskGroup()
+    let a = group.spawn(doubled_after_yield(5))
+    let b = group.spawn(doubled_after_yield(6))
+    print("spun {}", a.join() + b.join())
+}

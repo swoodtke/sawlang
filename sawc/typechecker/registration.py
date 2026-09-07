@@ -3256,6 +3256,28 @@ class RegistrationMixin:
             else:
                 method_key = method.name
 
+            # DF-300d: design 266's admission RE-CHECKS the entry module with
+            # the same checker, and design 142 shares these method tables across
+            # every module in the link — so an entry-module extension of an
+            # IMPORTED type finds its OWN first registration sitting here. That
+            # is not a redeclaration: the symbol is already registered, and
+            # re-running the loop body would report a duplicate that cannot be
+            # fixed AND append the method to its overload set a second time.
+            # `_readmitted_declaration` (typechecker/core.py) is the funnel; its
+            # docstring names both callers. An extension of a LOCAL type
+            # registers into the fresh per-module namespace, so `prior` is empty
+            # there and nothing changes.
+            if method.is_init:
+                prior = struct_info.init_methods
+            elif is_specialized:
+                prior = list(struct_info.specialized_methods.get(
+                    specialization_key, {}).values())
+            else:
+                prior = struct_info.method_overloads.get(method.name, [])
+            if self._readmitted_declaration(
+                    (getattr(s, 'decl_node', None) for s in prior), method):
+                continue
+
             # Check for duplicate methods in target dict.
             #
             # Overloading (design 55): a non-init method on the ordinary (non-
