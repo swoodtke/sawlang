@@ -979,6 +979,63 @@ unambiguous pair rather than a trap. And `Byte` may not be an enum's raw backing
 (`enum E: Byte` is an error, since a raw backing is a fixed-width integer), so
 wire enums keep `UInt8`.
 
+#### `Scalar`
+
+`Scalar` is the type of one Unicode scalar value: a `struct` in the prelude,
+carrying the invariant that its code point lies in `0..0x10FFFF` and is not a
+UTF-16 surrogate. That is the domain UTF-8 encodes, so a `Scalar` is what a
+`String` is a sequence of.
+
+The invariant is checked in exactly one place, a fallible `init`. Everything
+past it is total.
+
+```saw-body
+let quote = try! Scalar(value: 34)     // U+0022
+print(quote)                           // prints: "     — the CHARACTER
+print(quote.value())                   // prints: 34    — the code point
+
+match Scalar(value: 0xD800) {
+    case Ok(s) -> print(s),
+    case Err(e) -> print("{e}")
+}
+// prints: 55296 is not a Unicode scalar value: a UTF-16 surrogate
+```
+
+`InvalidScalar` names the cause: `OutOfRange(value:)` for a negative code point
+or one past `0x10FFFF`, `Surrogate(value:)` for the `0xD800..0xDFFF` block.
+It conforms to `Printable` and `Error`, and each case carries the number it
+refused. A caller for whom absence is the whole answer writes
+`try? Scalar(value: n)`.
+
+`Scalar` is a trivial struct, so it is `Copy`, `Equatable` and `Hashable`
+without a declaration; `Comparable` orders by code point. `Printable` writes
+the scalar's UTF-8 encoding — the character — which is what a bare `Int`
+scalar could not do: a loop over the old `chars()` printed numbers where every
+reader expected letters.
+
+Construction takes the label, like every other struct construction
+(see [Functions](#functions), *Labeled arguments*): `Scalar(value: 34)`, not
+`Scalar(34)`. There is no scalar literal syntax, so a comparison reads the
+code point back — `ch.value() == 34` — or compares against a hoisted constant.
+
+```saw-body
+static QUOTE: Int = 34
+
+func escape_count(s: String) -> Int {
+    var n = 0
+    for ch in s.scalars() {
+        if ch.value() == QUOTE { n = n + 1 }
+    }
+    n
+}
+
+print(escape_count("say \"hi\""))      // prints: 2
+```
+
+A `Scalar` is not a grapheme cluster. Segmenting `é` written as `e` plus a
+combining accent, or a flag emoji, needs Unicode tables that no part of the
+standard library carries.
+
 ### Never
 
 `Never` is the bottom type: the type of an expression that does not produce a
@@ -1113,27 +1170,28 @@ language with no `move` discipline — `greet(s)` does not consume `s`.
   interpolates and boxes at an erased `Result<T, Box<any Error>>` boundary.
 - **Access views, never `s[i]`.** There is deliberately no integer indexing (it
   conflates bytes with scalars). Two iterator views are provided instead:
-  `bytes()` yields the raw bytes and `chars()` yields Unicode scalar values
-  decoded from UTF-8. Bytes are [`Byte`](#byte) — from `byte_at(i)` and from
-  `bytes()` alike, the same type `Data` yields — so a byte at or above 0x80 is
-  the number it is: `"café".byte_at(4) as Int` is 169, not -87. Scalars are yielded
-  as `Int` — there is no `Char` primitive type yet (a scalar is just an `Int`).
+  `bytes()` yields the raw bytes and `scalars()` yields the Unicode scalar
+  values decoded from UTF-8. Each view has its own type, and neither is an
+  `Int`: bytes are [`Byte`](#byte) — from `byte_at(i)` and from `bytes()`
+  alike, the same type `Data` yields — so a byte at or above 0x80 is the number
+  it is (`"café".byte_at(4) as Int` is 169, not -87), and scalars are
+  [`Scalar`](#scalar), which prints as the character it stands for.
   `String` itself *is* `Comparable` (byte-lexicographic ordering, design 48).
   Each iterator holds its OWN retain on the source string, so iterating a
-  temporary (`for c in makeString().chars()`) is safe.
+  temporary (`for c in makeString().scalars()`) is safe.
+
+  There is no grapheme view. A grapheme cluster needs Unicode segmentation
+  tables, which is a library's problem rather than the standard library's; the
+  names `characters()` and `graphemes()` are left free for one.
 - **Byte search.** `index_of(b: UInt8) -> Int?` and `last_index_of(b: UInt8)`
   give the offset of the first and last byte equal to `b`, or `None`. The needle
   is the underlying `UInt8`, so `index_of(47)` is written with no ceremony and a
   `Byte` from any source flows in.
-- **Encoding a scalar** (`designs/119`). `StringBuilder.append_scalar(scalar:
-  Int) -> Result<Int?, AllocError>` is the inverse of `chars()`: it UTF-8-encodes
-  one Unicode scalar and appends it, answering the byte count (1..4). An invalid
-  scalar — negative, a UTF-16 surrogate (`0xD800..0xDFFF`), or greater than
-  `0x10FFFF` — is `Ok(None)` and appends nothing (never a silent drop). The two
-  answers ride separate channels on purpose: `Ok(None)` says "not a scalar
-  value" and `Err(AllocError)` says the builder could not grow, so neither can be
-  mistaken for the other. Because `chars()` yields only valid scalars, an
-  encode/decode round-trip is the identity on that domain.
+- **Encoding a scalar.** `StringBuilder.append(scalar: Scalar) ->
+  Result<Void, AllocError>` is the inverse of `scalars()`: it UTF-8-encodes one
+  scalar and appends it. Validity is not in the signature, because a `Scalar`
+  is a scalar by construction, so the only failure left is the allocator. The
+  round-trip is the identity on the whole domain.
 - **FFI: `withCString`.** `s.withCString { ptr in ... }` hands a closure an
   `UnsafePointer<Int8>` to the string's NUL-terminated bytes, valid for the
   duration of the call. The payload is already NUL-terminated, so the pointer is
@@ -11977,7 +12035,7 @@ match frames.push(Frame(id: 1)) {
 
 The operations are `Vector.push`/`reserve`/`map`, `Map.insert`/`keys`/`values`,
 `Set.insert` and its algebra, `Data.push`/`set`/`append`/`append_bytes`/
-`reserve`/`detached`, `StringBuilder.append`/`append_scalar`,
+`reserve`/`detached`, `StringBuilder.append`,
 `Box.make`, `String.split`/`to_data`, `Env.args`, `Command.arg`/`env`/`output`,
 and the constructors `Vector(capacity:)`, `Data(capacity:)`,
 `StringBuilder(capacity:)`, `Arc(value:)`, `Channel()` and

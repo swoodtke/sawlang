@@ -668,6 +668,23 @@ The standard library lives in `sawc/std/` and includes:
   implicitly.
   That is what lets `StringBuilder.append(65)` render the digits `65` and
   `append(Byte(65))` write the byte `A` under one name.
+- **Scalar** — the type of a Unicode scalar value, also in the prelude. It
+  carries the invariant (`0..0x10FFFF`, no UTF-16 surrogates) and checks it in
+  one place, its fallible constructor, so an invalid scalar is unrepresentable
+  rather than a status flag every caller has to test. `String.scalars()` yields
+  them and `StringBuilder.append` writes them back as UTF-8. A `Scalar` prints
+  as the character it stands for, where the bare integer it replaced printed
+  the number:
+
+  ```saw-body
+  for ch in "héllo".scalars() {
+      print("{} {}", ch, ch.value())
+  }
+  // prints: h 104 / é 233 / l 108 / l 108 / o 111, one per line
+  ```
+
+  There is no grapheme type. Segmenting a combining accent or a flag emoji
+  needs Unicode tables the standard library does not carry.
 - **Float ↔ text** — shortest round-trip formatting and correctly-rounded
   parsing, both without an import. `f.to_string()` gives the shortest decimal
   that reads back as `f`, and `s.to_float()` gives the nearest `Float` to the

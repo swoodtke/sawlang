@@ -4150,12 +4150,43 @@ construct in the owner and lend `&driver` down.
 - `index_of_char`/`last_index_of_char`/`append_char` are GONE (design 250):
   `index_of(b: UInt8)`, `last_index_of(b: UInt8)`, `append(b: Byte)`. The
   "char" names lied — each was one byte of a possibly multi-byte scalar.
-- String `chars()` yields Int scalars (no Char type); the inverse is
-  `StringBuilder.append_scalar(scalar: Int) -> Result<Int?, AllocError>`
-  (design 119, reshaped by 234) — UTF-8 encodes + appends a scalar, answers the
-  byte count (1..4), and `Ok(None)` (appends nothing) for an invalid scalar
-  (negative / surrogate / > 0x10FFFF). TWO CHANNELS: the `None` is only ever
-  "not a scalar value", the `Err` only ever the allocator.
+- **SCALAR — the prelude type of a Unicode scalar value (design 245).** A
+  struct carrying the invariant `0..0x10FFFF` minus the UTF-16 surrogate block,
+  checked in ONE place — the fallible init. `String.scalars()` yields them and
+  `StringBuilder.append(scalar: Scalar) -> Result<Void, AllocError>` is the
+  encoding inverse; validity is not in that signature at all, so the only
+  failure left is the allocator.
+  ```saw-body
+  let quote = try! Scalar(value: 34)
+  print(quote)                      // prints: "    — Printable is the CHARACTER
+  print(quote.value())              // prints: 34   — the total read back
+
+  var out = StringBuilder()
+  for ch in "héllo".scalars() {
+      if ch.value() == 34 { try! out.append("\\\"") } else { try! out.append(ch) }
+  }
+  print(out.build())                // prints: héllo
+  ```
+  Trivial POD, so `Copy`/`Equatable`/`Hashable` come free; `Comparable` orders
+  by code point. `InvalidScalar` NAMES the cause — `OutOfRange(value:)` (which
+  covers negative) and `Surrogate(value:)`, both `Printable + Error` and both
+  carrying the refused number — so `"{e}"` reads
+  `55296 is not a Unicode scalar value: a UTF-16 surrogate`. `try? Scalar(value: n)`
+  is the spelling when absence is the whole answer.
+  GOTCHA: **`Scalar(34)` does NOT compile.** Struct/`init` construction is
+  order-independent NAME matching, so the label is written —
+  `try! Scalar(value: 34)`, and the refusal is `struct initialization requires
+  named arguments`. There are no scalar LITERALS and no scalar match patterns
+  in v1 either, so a comparison reads the code point back (`ch.value() == 34`)
+  or compares against a hoisted `static`.
+- `String.chars()` and `StringBuilder.append_scalar` are GONE (design 245),
+  with no alias and no deprecation window: `scalars()` and the `append`
+  overload. The "char" name lied (Rust's `str::chars()` footgun — it yields
+  scalars, not graphemes) and the element type could not say what it was, so a
+  `for` loop over one PRINTED NUMBERS. `append_scalar`'s `Ok(None)` for an
+  invalid scalar was an ignorable refusal the tree really did drop on the
+  floor; it is unrepresentable now. There is no grapheme view —
+  `characters()`/`graphemes()` are left free for one.
 - `to_int()`/`to_int(radix:)`/`to_float()` are whole-string, no trimming →
   Optional; `to_uint()`/`to_uint(radix:)` (design 119) are the unsigned
   companions (→ `UInt?`), reaching the `2^63..2^64-1` range signed parsing

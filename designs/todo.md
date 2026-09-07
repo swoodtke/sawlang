@@ -33,12 +33,13 @@ is scheduled and in what order is the whole of what they say.
 
 
 
-- Design 245 v1 — `Scalar` + `scalars()`, `chars()` and `append_scalar` REMOVED (designs/245-unicode-scalar-type.md §6; ruled Aug 27 — no literals in v1, prelude placement). The Aug-27 dispatch NEVER LANDED and is presumed STALE (no Scalar in the tree, Aug-28 check); RESCHEDULED AFTER design 238 (user, Aug 28: sos does not depend on string/character work). Re-dispatch then. Literals + patterns stay open as later units
+- ~~Design 245 v1 — `Scalar` + `scalars()`, `chars()` and `append_scalar` REMOVED~~ **LANDED Sep 7** (branch `scalar-type`, 2 commits): `sawc/std/scalar.saw` (its own file, for `std/duration.saw`'s reason — prelude membership is per FILE) carrying `Scalar` (private `raw: Int`, the 0..0x10FFFF-minus-surrogates invariant checked ONLY in `init(value:) -> Result<Scalar, InvalidScalar>`, total `value()`, auto Equatable/Hashable + `@synthesize`d Comparable, Printable rendering the CHARACTER) and `InvalidScalar` (`OutOfRange(value:)` / `Surrogate(value:)`, Printable + Error, negative folded into OutOfRange); the spec module table's `| std.scalar | … | yes |` row in the same commit, which is what `preludegate` reads. `String.chars()/StringChars` -> `scalars()/StringScalars` and `StringBuilder.append_scalar` -> the `append(scalar: Scalar) -> Result<Void, AllocError>` overload, both old names removed OUTRIGHT. Consumers re-swept and migrated whole: std `json.saw` (which now MATCHES the construction so malformed input stays an error, never a panic), `selfhost/lexer`, eight examples, two dogfood programs. Four tests: `scalar_type`, `string_scalars_iter`, `stringbuilder_append_scalar`, `scalar_removed_char_surface`. **DF-308a filed against the brief, not the compiler**: §6's "lenient labels make `try! Scalar(34)` legal" is false and always was — the v1 spelling is `try! Scalar(value: 34)`. Literals + patterns (§4) stay open as later units, and their ergonomic cost is one label higher than the brief assumed
 - Design 259 — the self-hosted parser (designs/259-selfhost-parser.md; QUEUED Sep 1 by the user, §3 ruling batch fully RULED same day incl. R7′ statement arms). The brief is the source of the next batch: U0 grammar debt + U1 depth funnel are compiler dispatches and serialize with the pipeline (N10's soundness fix goes FIRST after 218/1.5 integrates, by fix-on-discovery — brief §4); U2–U5 are selfhost/-side and may run CONCURRENT with design 258 in a worktree; the Class-2 fix set (incl. DF-287a/b) triages at U0 dispatch
 
 ## [BACKLOG] — filed, not scheduled
 
 
+- DF-308a — a struct construction takes NO positional argument, through a user `init` as through the memberwise literal, so a one-value wrapper is built as `Scalar(value: 34)` and never `Scalar(34)` (entry below, filed Sep 7 by design 245 v1). NOT A DEFECT — the spec rules it deliberate — but it is what makes §4's scalar-literal question cost one label more than design 245 §6 assumed, and the brief's own premise sentence is wrong and wants correcting
 - CONFORMANCE GAP (flagged Sep 5 by design 266 U0's obligation-3 check): the design-70 both-ways refusal — `run<Slow>` suspends so a `sync` caller refuses, `run<Fast>` stays sync — has NO `examples/conformance/` row, though its covering test exists (`examples/errors/sync_generic_instantiation_suspends.saw`, now also 266's acceptance test). The fix is an INDEX.md row naming that test (design 191's "existing test" form); rides the next brief that touches the effect surface, or a docs batch
 - DF-307b — `sizeof<Struct>()` folds in a `static_assert` and refuses at the five earlier const positions, because a struct's ABI layout is built during code generation and the front end declines rather than computing a second opinion (entry below, filed Sep 5 by DF-307a as its own documented boundary; NOT a defect). Costs the wire-struct idiom one restated length; nobody has asked for it. The fix shape is all-or-nothing — a partial one reintroduces the by-position divergence DF-307a removed
 - DF-303b — ICE: a generic METHOD whose name collides with a generic FREE FUNCTION is never discovered by the monomorphization fixpoint, so codegen's registry lookup misses and reports "monomorphization did not discover the instance" (entry below, filed Sep 5 by design 266; PRE-EXISTING and unrelated to 266 — both trees ICE identically). One line at a named funnel; the mechanism is that `_method_call_demands` arm (a) disambiguates the module-qualified free call by NAME rather than by the stamps that tell the two shapes apart
@@ -130,6 +131,41 @@ is scheduled and in what order is the whole of what they say.
 - DF-302b — a generic extension's `init` RELEASES a parameter it moved into the built value, so the value is torn down TWICE (entry below, filed Sep 4 by design 207's agent; PRE-EXISTING at HEAD, reproduced with fully explicit type arguments and no inference). Pinned by `examples/generic_init_moved_parameter_is_released_once.saw`. A DF-217m/DF-251b sibling — the same init-cleanup analysis, one case further on
 
 
+
+## DF-308a — a struct construction takes NO POSITIONAL argument, so a one-value
+## wrapper's constructor always writes its label (filed Sep 7 by design 245 v1;
+## NOT A DEFECT — the spec rules it deliberate. Filed because a BRIEF asserts
+## the opposite and because it prices §4)
+
+```saw-error
+// error-contains: struct initialization requires named arguments
+struct Wrap { raw: Int }
+extension Wrap {
+    init(value: Int) -> Wrap { Wrap(raw: value) }
+}
+let a = Wrap(7)   // error: struct initialization requires named arguments
+```
+Design 245 §6 says "`init(value: Int) -> Result<Scalar, InvalidScalar>`
+(lenient labels make `try! Scalar(34)` legal)". They do not, and never did.
+LANGUAGE_SPEC's own labeling section rules it: "Struct/`init` and enum payload
+construction keep their own **order-independent** name matching …; they are a
+separate resolution scheme from the ordered call binding rule, by design
+(design 66)." MECHANISM, matching the ruling exactly:
+`_check_function_call`'s struct branch (`typechecker/expressions.py:4957`)
+rewrites the call into a `StructInit` and requires every argument to carry a
+name BEFORE `_check_struct_init` resolves which `init` (if any) the call means
+— so the refusal reaches every struct with an `init`, fallible or not, generic
+or not, one field or several. It is uniform and it is documented, which is why
+this is a NOTE and not a bug.
+
+What it costs, and why the tracker carries it: design 245 v1 shipped with the
+labeled spelling (`try! Scalar(value: 34)`), and §4's still-open scalar-literal
+question is priced against it. The comparison idiom the brief calls "honest"
+is unaffected (`ch.value() == 34` names no constructor), but every
+CONSTRUCTION in a would-be-literal position is `try! Scalar(value: N)` — nine
+words where the brief budgeted six. Two things want doing, neither scheduled:
+correct §6's premise sentence, and re-read §4's "unusable" verdict against the
+real spelling. [245, 66]
 
 ## DF-302b — a generic extension's `init` RELEASES a parameter it MOVED into the
 ## built value, so the value is torn down TWICE (filed Sep 4 by design 207's
