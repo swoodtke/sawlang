@@ -1,5 +1,5 @@
 ---
-{"assignee":"","author":"agent:codex-todo-import","body_bytes":2533,"created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"priority":"normal","project":"SL","revision":1,"sequence":2,"status":"open","title":"Design 259: implement the self-hosted parser in its ruled stages","updated":"1788791147"}
+{"assignee":"","author":"agent:codex-todo-import","body_bytes":2735,"created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"priority":"normal","project":"SL","revision":2,"sequence":202,"status":"open","title":"Design 259: implement the self-hosted parser in its ruled stages","updated":"1788791293"}
 ---
 
 
@@ -24,6 +24,12 @@ Scheduling: retain the source’s queue order and prerequisites; seed/scoping ta
 - [ ] The design names a concrete consumer or retains its recorded revisit trigger.
 - [ ] Existing rulings are preserved; unresolved choices and a recommended option are explicit.
 - [ ] The proposed API/semantics, migration scope and acceptance tests are reviewable. Drafting this plan does not mark an unruled design approved.
+
+## Related tracker work
+
+These are related findings/plans; a reference alone does not imply a blocking dependency.
+
+- SL-74 — DF‑287a: Keep fall-through ownership after a move in a diverging catch
 
 ## Existing design references
 
