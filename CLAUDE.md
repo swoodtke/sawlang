@@ -86,6 +86,12 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
 - `make test` (venv active) or `./.venv/bin/python test_runner.py` —
   full compiler suite, ~1 min uncontended. Multi-pattern filter:
   `./.venv/bin/python test_runner.py -f test_a,test_b`.
+- `./build.sh test` — the sawtracker patch gate's entry point
+  (`.sawtracker/tests.json` runs it on every submitted patch):
+  bootstraps `.venv` if absent, then runs the compiler's per-commit
+  gate (full suite + freestanding, both arches) under the machine-wide
+  suite lock, so a server-side patch test and a local suite run never
+  overlap.
 - **PER-COMMIT GATE POLICY (user, Aug 17; amended Aug 21; NARROWED to
   sawlang Aug 28 when design 238 unit 5 moved sos/ out):** a COMPILER
   change gates on the full compiler suite AND
@@ -230,12 +236,49 @@ heredocs/echo (not auto-approved). Instead:
   `git commit -F <file>`. Never pipe via stdin/heredoc.
 - `git add` explicit paths only — never `-A`/`.`.
 
+## Sawtracker (issues + the merge gate)
+All issue tracking AND merge gating live in sawtracker, a webserver at
+`Mac-Studio.local:8787` (CLI: `~/bin/sawtracker`; env `SAWTRACKER_HOST`/
+`PORT`/`ACTOR`; agents identify as `--actor agent:<name>`). Projects:
+SL (sawlang), SO (sawos). `.sawtracker/` in this repo is the SERVER'S
+state (`issues/`, `events/`, `project.md`) — read freely, NEVER edit —
+with ONE exception that is ours: `.sawtracker/tests.json`, which tells
+the server how to test a submitted patch (`./build.sh test`).
+
+**THE MERGE PATH (user, Sep 8 2026): GitHub is DOWNSTREAM of
+sawtracker.** This checkout's deploy key (`.claude/sawlang_deploy_key`,
+wired via repo-local `core.sshCommand` with `.claude/known_hosts`) is
+PULL-ONLY, and GitHub CI runs on manual dispatch only — so nothing can
+land by local commit + push. Every change to main, docs and briefs
+included, travels as a PATCH:
+
+1. File or claim an SL issue (`sawtracker create/list/show`).
+2. Build + validate in an isolated worktree (gates unchanged, below).
+3. The LEAD squashes the finished branch to ONE diff
+   (`git diff main...<branch>`) and submits it:
+   `sawtracker patch add SL-N --title "..." --file <diff>`.
+4. The server applies it to its own branch, runs `./build.sh test`,
+   and holds it at `proposed`. Review, approval
+   (`patch review SL-N.p1 --approve`) and the merge are the USER'S.
+5. After the merge: `git fetch origin && git merge --ff-only
+   origin/main`, close the issue with a landing note, remove the
+   worktree, delete the branch.
+
+Direct commits on local main are RETIRED — they diverge from a remote
+we cannot push, and the old "lead may commit docs directly" carve-out
+is gone with them. Tracker commits (`sawtracker: ...`) arrive from the
+server on every fetch; a fast-forward is the only merge local main ever
+does. Revise a patch with `patch revise SL-N.p1 --file <diff>`; inspect
+with `patch show`/`patch list`. The server's `./build.sh test` runs the
+per-commit gate (suite + freestanding) on the applied patch — but the
+lead still validates in the worktree first, and a compiler branch's
+TERMINAL battery obligation is unchanged and runs BEFORE submitting.
+
 ## Design-brief workflow
 Design decisions are made WITH the user, recorded as `designs/NN-*.md`
-briefs, implemented by dispatched agents (one at a time on `main`;
-concurrent only in isolated worktrees, cherry-picked back — linear
-history, no merge commits). Each brief lands in small per-unit commits,
-full suite green each.
+briefs, implemented by dispatched agents (one at a time; concurrent
+only in isolated worktrees). Each finished brief unit reaches main as a
+squashed sawtracker patch (section above), full suite green.
 
 **DIVISION OF LABOR + MODELS (user rulings, Aug 13-18):** the user
 designs and RULES; the LEAD (session model) writes briefs, dispatches,
@@ -250,21 +293,22 @@ the per-cell rule authorities, and a no-guessing rule (undetermined
 cells flagged OPEN, never invented expectations) — per-task,
 user-approved.
 
-**WORKTREES + INTEGRATION:** ALL implementation work happens in
-isolated worktrees — never commit implementation directly on main (the
-lead may commit docs/briefs/tracker rulings directly). Integrate by
-cherry-pick/rebase only, never merge commits; agents keep their own
-branches linear (rebase on main if behind). Resolve conflicts HUNK BY
-HUNK with the editor — NEVER `checkout --theirs/--ours` on a shared
-accumulator file (todo.md, INDEX.md, SKILL.md): it replaces the whole
-file and silently discards the other side's non-conflicted entries
-(this happened Aug 17; recovered from history). After any
-accumulator-file resolution, sanity-grep a couple of entries that exist
-only on the other side. After integrating: remove the worktree, delete
-the branch, run the integration gate on main. Two concurrent agents WILL
-collide on DF numbers — assign ranges at dispatch or renumber at
-integration. SOS-side branches PARK for USER review before merging;
-compiler briefs follow the normal flow.
+**WORKTREES + INTEGRATION (patch flow, Sep 8 2026):** ALL work happens
+in isolated worktrees — NOTHING is committed directly on main any more
+(the deploy key cannot push; see the sawtracker section). Agents keep
+their own branches linear (rebase on main if behind). When a branch
+passes the lead's validation and its gates, the LEAD squashes it to one
+diff and submits it as a sawtracker patch; the user reviews and merges;
+the lead fast-forwards main from origin, closes the issue, and removes
+the worktree + branch. Resolve rebase conflicts HUNK BY HUNK with the
+editor — NEVER `checkout --theirs/--ours` on a shared accumulator file
+(todo.md, INDEX.md, SKILL.md): it replaces the whole file and silently
+discards the other side's non-conflicted entries (this happened Aug 17;
+recovered from history). After any accumulator-file resolution,
+sanity-grep a couple of entries that exist only on the other side. Two
+concurrent agents WILL collide on DF numbers — assign ranges at
+dispatch or renumber at submission. SOS-side branches PARK for USER
+review before submission; compiler briefs follow the normal flow.
 
 **AGENT CONDUCT:** no workarounds — an agent that hits a language bug or
 blocked dependency STOPS that unit, files a DF (mechanism named, per
