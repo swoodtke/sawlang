@@ -1,9 +1,10 @@
 name: CI
 
+# Gating moved to sawtracker (Sep 2026): patches are tested and approved
+# there before they merge to GitHub, so nothing triggers on push/PR any
+# more. Manual runs stay available while sawtracker's runner ramps up.
 on:
-  push:
-    branches: [main]
-  pull_request:
+  workflow_dispatch:
 
 # Cancel superseded runs on the same ref.
 concurrency:
