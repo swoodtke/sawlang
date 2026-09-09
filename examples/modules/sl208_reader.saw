@@ -1,0 +1,38 @@
+// SL-208 / DF-300e face 1: a per-connection handler that PARKS on a socket
+// read (`stream.read()` -> io_wait), living in an IMPORTED module. When the
+// entry-module spawn root that calls it embeds its frame, this body's io_wait
+// must register with the ROOT frame's real `__wake` reactor token — a token of
+// 0 never clears the park, so the parked read (and, through the one shared
+// reactor, every other task) wedges forever.
+//
+// THE GREETING IS WHAT MAKES THE PARK CERTAIN (review r1 finding 3). The
+// handler writes `READY` BEFORE it reads, and the client sends nothing until it
+// has received those bytes — so the read below is issued against a socket the
+// peer provably has not written to, and it can only park. The earlier shape
+// (client writes the whole request on connect) let the handler find the bytes
+// already buffered and return without ever parking, which is why the buggy
+// compiler passed 2 of 5 runs of it.
+//
+// The ordering is a property of the one cooperative executor, not of timing: a
+// parked task becomes runnable only through a reactor poll, and the poll runs
+// only when nothing else can, so the client stays parked on `READY` for as long
+// as this handler is runnable — which it is from the accept until the read
+// below parks it.
+import std.data.{Data}
+import std.net.{TcpStream}
+
+public func handle(stream: TcpStream) -> Int {
+    try! stream.write("READY\n")
+    var req = Data()
+    var done = 0
+    while done == 0 {
+        let chunk = try! stream.read()
+        if chunk.len() == 0 { return 0 }
+        try! req.append(move chunk)
+        if (try! req.to_string()).contains("\r\n\r\n") {
+            try! stream.write("HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello")
+            done = 1
+        }
+    }
+    done
+}

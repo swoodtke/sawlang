@@ -1,0 +1,100 @@
+// SL-208 / DF-300e: a module-qualified suspending free-function call
+// (`modules.sl208_calls.respondN()`) embeds and drives correctly in each
+// drivable position — a bare TOP-LEVEL statement, a LET-BINDING, and a MATCH
+// ARM — and matches the same-module control at each. These are the SL-208
+// acceptance matrix's ACCEPTED cells. The transform used to classify the
+// module-qualified spelling as a non-suspending plain call (the silent wedge),
+// while the bare same-module spelling was a `FunctionCall` that embedded fine;
+// the two agree now. The match-arm cell is the one the sawtracker production
+// workaround relies on — accepted-and-correct in BOTH modules.
+//
+// THE STEP COUNTS ARE WHAT MAKE THIS AN ORACLE (review r1 finding 3's sibling
+// check). The values alone discriminate nothing: the buggy compiler lowered
+// each cross-module call as a plain call, which ran the callee to completion
+// and produced exactly these six numbers — it lost the SUSPENSION, not the
+// answer. `__saw_drive_steps` counts `Pending` resumes, so it reports the
+// suspension directly: on a compiler that embeds the callee the four cross
+// cells are 1/1/1/2, and on one that does not they are 0/0/0/0 while the two
+// same-module controls stay 1 and 2 either way. Deterministic by construction —
+// one cooperative thread, fixed inputs, no sockets and no timing.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 100
+// 10
+// 5
+// 9
+// 6
+// 5
+// 1
+// 1
+// 1
+// 2
+// 1
+// 2
+
+import std.task.{yield_now}
+import modules.sl208_calls.{Failure}
+import modules.sl208_calls
+
+func respond_local() -> Int {
+    yield_now()
+    5
+}
+
+func fallible_local(x: Int) -> Result<Int, Failure> {
+    yield_now()
+    if x < 0 { return Failure(message: "neg") }
+    x + 1
+}
+
+// cross-module: bare top-level statement (result discarded)
+func cross_toplevel() -> Int {
+    sl208_calls.respondN()
+    100
+}
+
+// cross-module: let-binding
+func cross_letbind() -> Int {
+    let n = sl208_calls.respondN()
+    n + 1
+}
+
+// cross-module: match arm (accepted-and-correct in both modules)
+func cross_matcharm(x: Int) -> Int {
+    let r = match sl208_calls.fallibleN(x) {
+        case Ok(v) -> v,
+        case Err(_) -> sl208_calls.respondN()
+    }
+    r
+}
+
+// same-module controls
+func same_letbind() -> Int {
+    let n = respond_local()
+    n + 1
+}
+
+func same_matcharm(x: Int) -> Int {
+    let r = match fallible_local(x) {
+        case Ok(v) -> v,
+        case Err(_) -> respond_local()
+    }
+    r
+}
+
+func main() {
+    print(__saw_drive(cross_toplevel()))    // 100
+    print(__saw_drive(cross_letbind()))     // 10
+    print(__saw_drive(cross_matcharm(4)))   // 5  (fallibleN(4) = Ok(5))
+    print(__saw_drive(cross_matcharm(-1)))  // 9  (Err -> respondN())
+    print(__saw_drive(same_letbind()))      // 6
+    print(__saw_drive(same_matcharm(-1)))   // 5  (Err -> respond_local())
+
+    // The same six calls, counting suspensions instead of reading values.
+    print(__saw_drive_steps(cross_toplevel()))   // 1
+    print(__saw_drive_steps(cross_letbind()))    // 1
+    print(__saw_drive_steps(cross_matcharm(4)))  // 1  (one call suspends)
+    print(__saw_drive_steps(cross_matcharm(-1))) // 2  (Err path: both suspend)
+    print(__saw_drive_steps(same_letbind()))     // 1
+    print(__saw_drive_steps(same_matcharm(-1)))  // 2
+}

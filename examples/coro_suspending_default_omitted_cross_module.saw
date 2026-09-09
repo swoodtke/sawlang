@@ -1,0 +1,29 @@
+// SL-221, the CROSS-MODULE half of `coro_suspending_default_omitted.saw`. The
+// callee is `modules.sl208_calls.suspdefN`, whose default calls a suspending
+// helper private to that module, and the omitting call is module-qualified.
+//
+// The pair exists to pin that the two modules answer ALIKE: same refusal, same
+// wording, differing only in the callee's name. That is the SL-208 claim at the
+// refusal end — before it, this spelling COMPILED and printed the right answer
+// with the suspension silently dropped (0 Pending resumes under
+// `__saw_drive_steps`), while the same-module spelling crashed the compiler with
+// `IndexError: list index out of range`. One sentence now, in both modules.
+//
+// The position is EMBEDDED here, as it is in the same-module file, and that is
+// forced rather than chosen: a module-qualified call cannot BE a drive or spawn
+// root (SL-217), so every cross-module cell of the matrix reaches a frame
+// through an entry-module wrapper like `root` below. One funnel answers every
+// position (`_arity_args`), so the same-module file's root cells cover the
+// entry points this one cannot reach.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: the default value of parameter `x` of `suspdefN` suspends
+
+import modules.sl208_calls
+
+func root() -> Int {
+    sl208_calls.suspdefN()
+}
+
+func main() {
+    print(__saw_drive(root()))
+}

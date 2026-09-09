@@ -1,0 +1,69 @@
+// SL-208 review r1 finding 2: an imported body spliced into the driven closure
+// carries its own suspending GENERIC call, and it must be promoted like any
+// entry-module one.
+//
+// The generic-promotion walk (`_promote_nested_generic_calls`, design 74 shape
+// 3) ran over the driven SEEDS — the roots — and its own worklist follows only
+// names it PROMOTED. A body that joins the driven closure any other way was
+// never scanned, so the `identityN<Int>(x)` inside it kept its generic AST: no
+// instantiation adopted, the call left as a plain call in what became a resume
+// method, and the author handed
+//
+//   cannot suspend in `sync func` method: method `__Frame_wrapped.resume`
+//   calls `identityN$1$Int` → yield_now
+//
+// — two frames they never wrote, about a `sync` region they never asked for.
+// The promotion now runs for EVERY body as it joins the closure, which is the
+// one place that knows the full driven set.
+//
+// SO BOTH SIDES OF THIS TEST ARE REAL CELLS, not a fix beside a control. The
+// cross-module one is what the review found: the imported body is not even in
+// the function table until the walk splices it mid-flight. The SAME-MODULE one
+// is the older half of the same hole — `same_generic -> wrapped_local ->
+// identity_local<Int>` is reached over a plain call edge the seed walk does not
+// follow, so depth 1 (a root making the generic call itself) compiled and depth
+// 2 did not, in one module with nothing imported.
+//
+// THE STEP COUNT IS THE ORACLE for the cross cell, not the value. The old
+// cross-module lowering (a plain call) produced 42 too — it dropped the
+// suspension, not the answer — so this checks `__saw_drive_steps`, which counts
+// `Pending` resumes: 1 where the instantiation suspends inside its embedded
+// frame, 0 where the yield was erased. Deterministic: one cooperative thread,
+// fixed inputs, no sockets.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 42
+// 42
+// 1
+// 1
+
+import std.task.{yield_now}
+import modules.sl208_calls
+
+func identity_local<T>(x: T) -> T {
+    yield_now()
+    x
+}
+
+func wrapped_local(x: Int) -> Int {
+    identity_local<Int>(x)
+}
+
+// The cross-module root: `wrappedN`'s body is imported and spliced mid-walk,
+// and its generic callee is promoted as that body joins the closure.
+func cross_generic() -> Int {
+    sl208_calls.wrappedN(42)
+}
+
+// The same-module root, one plain call edge above the generic call — the depth
+// the seed walk never reached.
+func same_generic() -> Int {
+    wrapped_local(42)
+}
+
+func main() {
+    print(__saw_drive(cross_generic()))         // 42
+    print(__saw_drive(same_generic()))          // 42
+    print(__saw_drive_steps(cross_generic()))   // 1 — the yield survived the splice
+    print(__saw_drive_steps(same_generic()))    // 1 — …and the plain call edge
+}

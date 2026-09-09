@@ -2662,7 +2662,16 @@ class StatementsMixin:
         if (value_type is not None and resolved is not None
                 and value_type.is_none_literal() and resolved.is_optional()):
             self._propagate_optional_type(stmt.value, resolved)
-            value_type = resolved
+            # SL-208 / DF-300e: reconcile the `None` to the TARGET type as
+            # WRITTEN (`Byte?`), not the alias-resolved underlying (`UInt8?`).
+            # The transfer check just below compares against `target_type`
+            # unresolved, so handing it `resolved` made a bare `None` assignment
+            # into an alias-optional field (`Slot<Byte>.clear`'s `self.v = None`,
+            # a coroutine frame's `Byte` local) fail as `cannot assign UInt8? to
+            # field of type Byte?` — the two spellings of one type. The
+            # expression still carries the concrete `resolved` optional (stamped
+            # above) so codegen sizes its `{i1, T}` unchanged.
+            value_type = target_type
         if (value_type is not None and target_type is not None
                 and not self._transfer_compatible(value_type, target_type)):
             self._error(

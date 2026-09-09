@@ -4830,7 +4830,8 @@ class _FrameBuilder:
                 f"coroutine transform: a nested suspending call to a generic "
                 f"function `{fc.name}` inside `{self.name}` is not yet supported "
                 f"(design 70 A5-rest)", fc.line, fc.column)
-        return {'callee': fc.name, 'args': list(fc.arguments), 'target': target,
+        return {'callee': fc.name, 'args': list(fc.arguments),
+                'plan': getattr(fc, 'arg_plan', None), 'target': target,
                 'ret': is_ret, 'line': getattr(fc, 'line', 0) or 0}
 
     def _classify_method_call(self, stmt, target, is_ret):
@@ -4865,13 +4866,34 @@ class _FrameBuilder:
             is_ret = True
         if mc is None:
             return None
+        # SL-208 / DF-300e: a module-qualified FREE-FUNCTION call (`mod.f(...)`)
+        # parses as a `MethodCall` but is a free function, not an instance
+        # method — embed it exactly as `_classify_call` embeds a same-module
+        # `FunctionCall` (callee keyed by name, no `__recv`). Only when the
+        # callee is in the driven closure (`self._suspends`); a non-suspending
+        # cross-module free call stays a plain module call for codegen.
+        mfree = getattr(mc, 'module_free_call', None)
+        if mfree is not None and mfree in self._suspends:
+            if getattr(mc, 'type_args', None):
+                # Mirror `_classify_call`'s generic-nested refusal (design 70).
+                raise CoroTransformError(
+                    f"coroutine transform: a nested suspending call to a generic "
+                    f"function `{mfree}` inside `{self.name}` is not yet supported "
+                    f"(design 70 A5-rest)", mc.line, mc.column,
+                    source_file=self.src_file)
+            return {'callee': mfree, 'args': list(mc.arguments),
+                    'plan': getattr(mc, 'arg_plan', None),
+                    'target': target, 'ret': is_ret,
+                    'line': getattr(mc, 'line', 0) or 0}
         # DF-184a: the classifier answers for a STATIC call too, whose `recv` is
         # None — the sub-frame it embeds has no `__recv` to seed.
         tgt = _suspending_method_target(mc, self._tc)
         if tgt.kind != 'embed':
             return None
         return {'callee': tgt.frame_key,
-                'args': list(mc.arguments), 'target': target, 'ret': is_ret,
+                'args': list(mc.arguments),
+                'plan': getattr(mc, 'arg_plan', None),
+                'target': target, 'ret': is_ret,
                 'recv': None if tgt.is_static else mc.object,
                 'recv_struct': tgt.owner,
                 'is_method': True, 'has_recv': not tgt.is_static,
@@ -4974,13 +4996,24 @@ class _FrameBuilder:
         # refused before any call site is reached.
         return {'call': fc, 'target': target, 'ret': is_ret}
 
+    def _module_free_call_suspends(self, mc):
+        """SL-208 / DF-300e: True if `mc` is a module-qualified FREE-FUNCTION
+        call (`mod.f(...)`) to a callee in the driven closure. Such a call
+        parses as a `MethodCall` but must be treated as a suspending free-call
+        everywhere a same-module `FunctionCall` to a driven callee is — every
+        suspension-detection site below, so the split/embed and the rejections
+        see it, never a plain lowering (the SL-208 wedge)."""
+        mfree = getattr(mc, 'module_free_call', None)
+        return mfree is not None and mfree in self._suspends
+
     def _method_call_suspends(self, mc):
         """design 84 + 223: True if `mc` is a call to a suspending method — one
         this frame can EMBED, or one it cannot NAME. Both are suspensions, and
         the second is exactly what must not be answered `False`: the callers are
         the expression-position hoists and `_reject_buried_suspend_call`, so a
         `False` here is a suspension lowered in place as a plain call."""
-        return _suspending_method_target(mc, self._tc).suspends
+        return (self._module_free_call_suspends(mc)
+                or _suspending_method_target(mc, self._tc).suspends)
 
     def _suspending_method_call(self, stmt):
         """If `stmt` is a top-level `let x = recv.m(args)` / bare `recv.m(args)`
@@ -5178,6 +5211,16 @@ class _FrameBuilder:
             # `ch.receive()` is supported) is rejected rather than miscompiled.
             elif isinstance(n, MethodCall) and getattr(n, 'is_chan_recv', False):
                 found.append(("recv", _FakeCall("receive", n.line, n.column)))
+            # SL-208 / DF-300e: a module-qualified FREE-FUNCTION call (`mod.f(...)`)
+            # in an inexpressible position is a free call, not a method — report
+            # it with the free-function message and the callee's own name, so the
+            # cross-module spelling reads identically to the same-module one (the
+            # `respond()` in a catch block that motivated this) rather than the
+            # `?.respond(...)` method wording its `MethodCall` shape would give.
+            elif (isinstance(n, MethodCall)
+                  and self._module_free_call_suspends(n)):
+                found.append(("fn", _FakeCall(
+                    n.module_free_call, n.line, n.column)))
             # design 101: a suspending METHOD call in a position no hoist lifted and
             # the CFG walk cannot split (an `if let`/`guard let` body). Reject with
             # the same workaround the top-level buried-method rejection names.
@@ -6955,18 +6998,30 @@ class _FrameBuilder:
         forgets = []
         arg_vals = []
         cap_lets = []
-        for i, a in enumerate(info['args']):
+        # SL-208 review r1: one value per FORMAL, omitted defaults materialized
+        # (`_arity_args`) — the call's own argument list is short whenever the
+        # callee declares a default the site did not fill.
+        for i, (aval, from_source) in enumerate(_arity_args(
+                info['args'], info.get('plan'), callee_fb.params,
+                info['callee'], info.get('line', 0) or 0, 0, self._tc,
+                src_file=self.src_file)):
             is_ref_param = (i < len(callee_fb.params)
                             and callee_fb.encmap.get(
                                 callee_fb.params[i].name) == "ref")
-            forwarded = (self._forwarded_ref_handle(a.value)
+            forwarded = (self._forwarded_ref_handle(aval)
                          if is_ref_param else None)
             if forwarded is not None:
                 arg_vals.append(_unsaferef_init(
                     forwarded, callee_fb.params[i].type.inner_type))
                 continue
-            caps, val = self._rewrite_hosting(a.value, forgets)
-            cap_lets.extend(caps)
+            if from_source:
+                caps, val = self._rewrite_hosting(aval, forgets)
+                cap_lets.extend(caps)
+            else:
+                # A materialized default is the CALLEE's expression: it names
+                # its own module's constants, never a local of this frame, so
+                # the hosting rewrite has nothing to do and must not guess.
+                val = aval
             # design 88 (D6): a reference argument to a nested suspending callee is
             # seeded into the callee sub-frame's field as a raw pointer into THIS
             # (caller) frame's storage — the referent lives in the task frame, so
@@ -8302,6 +8357,177 @@ def _seed_field(fb: _FrameBuilder, name, saw_type, value):
     return value
 
 
+def _default_expr_suspends(expr, tc):
+    """Does evaluating `expr` — a parameter's DEFAULT VALUE — suspend?
+
+    A default that suspends cannot be materialized as an ordinary expression:
+    its callee is one the transform LOWERS (the declaration is rewritten into a
+    frame and, once nothing else needs it, removed), so a copy of the default
+    naming it is a reference to a function that will not be there. `_arity_args`
+    refuses such a default where a site omits it, and that refusal needs this
+    question answered before any copy is made.
+
+    Structural, over the whole expression: a suspending free call (by effect
+    node, under the resolved symbol the mangling uses), a module-qualified free
+    call (SL-208's `mod.f(...)`, whose `MethodCall` shape hides a free callee), a
+    suspending METHOD call in any of design 223's shapes, the cooperative-yield
+    intrinsic, and a channel receive. Conservative in the safe direction: an
+    UNSUPPORTED method target counts as suspending too, because it is a
+    suspension this transform cannot express either way."""
+    nodes = getattr(tc, "_suspend_nodes", {}) or {}
+
+    def _fn_suspends(name):
+        n = nodes.get(("fn", name)) if name else None
+        return n is not None and n.suspends
+
+    def walk(n):
+        if n is None:
+            return False
+        if isinstance(n, FunctionCall):
+            if _fn_suspends(getattr(n, 'resolved_symbol', None) or n.name):
+                return True
+        elif isinstance(n, MethodCall):
+            if (getattr(n, 'is_yield_intrinsic', False)
+                    or getattr(n, 'is_chan_recv', False)):
+                return True
+            if _fn_suspends(getattr(n, 'module_free_call', None)):
+                return True
+            if _suspending_method_target(n, tc).suspends:
+                return True
+        return any(walk(c) for c in _child_nodes(n))
+
+    return walk(expr)
+
+
+def _arity_args(call_args, arg_plan, params, callee, line, column, tc,
+                src_file=None):
+    """The values a call supplies to a callee's frame: ONE PER FORMAL PARAMETER,
+    in declaration order, with every OMITTED DEFAULT materialized from the
+    callee's own declaration.
+
+    Returns `[(value_expr, from_source), ...]`. `from_source` is False for a
+    materialized default — the callee declaration's expression, which names
+    nothing in the CALLER's frame, so `_build_sub_frame` must not run it through
+    the frame-local rewrite.
+
+    WHY THIS EXISTS. A frame wants one value per formal; a CALL carries only the
+    arguments the author wrote. Design 53 lets a trailing default be omitted and
+    design 66 lets a label skip forward over a defaulted parameter, so the two
+    lists differ whenever the callee declares a default. The transform used to
+    read the call's list straight through, which is an `IndexError` in
+    `_build_frame_init` at an embedded call and an arity error against a
+    synthesized wrapper name at a root (SL-208 review r1 finding 1).
+
+    WHY AT THE SITE, and not on the generated wrapper. Revision 2 answered the
+    ROOT half by copying the callee's defaults onto the synthesized
+    `__saw_drive_<f>` / `__spawn_<f>` parameters. That is the wrong altitude: a
+    default lives in a DECLARATION, so the copy was made whether or not any site
+    needed it, and a default calling a suspending helper then named a function
+    the closure walk had lowered and removed — `undefined function seed`, from
+    the second typecheck, on a program whose every call passed the argument
+    explicitly (SL-208 review r2). Materializing HERE, at the site, is what
+    makes an explicitly-supplied argument never even look at the default: the
+    loop below only reaches `_default_for` for a slot the site left empty.
+
+    A SUSPENDING DEFAULT IS REFUSED, cleanly and at the site's own line. The
+    expression would have to become an embedded sub-frame of the caller, which
+    is a feature, not a fix; base (7467b1f2) supported it nowhere either — the
+    omitted spelling was an arity error at a root and an `IndexError` compiler
+    crash when embedded — so nothing that worked is lost. Same-module and
+    cross-module take this one path, so the refusal reads identically in both.
+
+    `arg_plan` is the typechecker's binding plan, stamped when the call carries
+    a LABEL: a list over LOGICAL formals (`self` already stripped, matching
+    `fb.params`) holding the source-argument index that binds each, or None for
+    a default-filled slot. It never REORDERS — `_compute_binding` refuses a
+    backward label outright — so the positional arm below is the same walk with
+    no plan, and neither arm has a reordering case to answer.
+
+    ENTRY POINTS (process rule 1), one per position a call feeds a frame:
+      * `_build_sub_frame` — an EMBEDDED callee, through the three classifiers
+        that feed it (`_classify_call`, and `_classify_method_call`'s
+        module-free and method/static arms).
+      * `_rewrite_drive_sites` — a `__saw_drive` / `__saw_drive_steps` ROOT, in
+        each of its three arms (free function, method, static method).
+      * `_spawn_site_rule` — a `group.spawn` / `Task.spawn` ROOT."""
+    import copy as _copy
+
+    def _default_for(p_i):
+        dflt = params[p_i].default_value if p_i < len(params) else None
+        pname = params[p_i].name if p_i < len(params) else f"#{p_i}"
+        if dflt is None:
+            # The typechecker bound this call, so a formal with no argument has
+            # a default. Say so if that ever stops holding, rather than handing
+            # a short list on again.
+            raise CoroTransformError(
+                f"coroutine transform: no argument and no default for parameter "
+                f"`{pname}` of `{callee}`", line, column, source_file=src_file)
+        if _default_expr_suspends(dflt, tc):
+            raise CoroTransformError(
+                f"coroutine transform: the default value of parameter `{pname}` "
+                f"of `{callee}` suspends, and a suspending default cannot be "
+                f"materialized at a call that omits it — the expression would "
+                f"need a coroutine frame of its own at every such call. Pass "
+                f"the argument explicitly, or give the parameter a "
+                f"non-suspending default", line, column, source_file=src_file)
+        # The callee's own declaration keeps its node: the copy travels into
+        # ANOTHER body and both are re-typechecked after the transform.
+        clone = _copy.deepcopy(dflt)
+        # …and it travels under design 210's embed contract, exactly as a
+        # spliced imported BODY does. A default is an expression the CALLEE's
+        # declaration typecheck already resolved in the CALLEE's namespace
+        # (`_check_parameter_defaults`), so the names in it — a module-private
+        # helper, a private `static` — are ones the entry module cannot see.
+        # Marking the copy says "already answered" and the second typecheck
+        # stops re-resolving it; without this, `f(x: Int = helper())` in a
+        # dependency was `undefined function helper` at every entry-module call
+        # that omitted `x`.
+        #
+        # The ROOT node needs marking by hand: `_mark_embed_preserved` walks
+        # CHILDREN, which is right for the body it is normally handed and one
+        # node short here, where the expression IS the root.
+        if (isinstance(clone, _EMBED_SCOPED_KINDS)
+                and getattr(clone, 'resolved_type', None) is not None):
+            clone.embed_preserved = True
+        _mark_embed_preserved(clone)
+        return clone
+
+    if arg_plan is not None:
+        if len(arg_plan) != len(params):
+            raise CoroTransformError(
+                f"coroutine transform: the argument binding plan for `{callee}` "
+                f"covers {len(arg_plan)} parameter(s), but its frame has "
+                f"{len(params)}", line, column, source_file=src_file)
+        out = []
+        for p_i, a_i in enumerate(arg_plan):
+            if a_i is not None and a_i < len(call_args):
+                out.append((call_args[a_i].value, True))
+            else:
+                out.append((_default_for(p_i), False))
+        return out
+    out = [(a.value, True) for a in call_args]
+    for p_i in range(len(call_args), len(params)):
+        out.append((_default_for(p_i), False))
+    return out
+
+
+def _arity_arguments(call, params, callee, tc):
+    """`_arity_args` at a ROOT SITE, as an `Argument` list ready to hand to the
+    synthesized wrapper — full arity, positional (the plan already resolved the
+    labels, and it never reorders, so the names have nothing left to say).
+
+    `params` None means the callee's parameter list is not in hand; the site's
+    own arguments pass through unchanged, which is exactly what the site did
+    before defaults were materialized anywhere."""
+    args = list(getattr(call, 'arguments', None) or [])
+    if params is None:
+        return args
+    filled = _arity_args(args, getattr(call, 'arg_plan', None), params, callee,
+                         getattr(call, 'line', 0) or 0,
+                         getattr(call, 'column', 0) or 0, tc)
+    return [Argument(name=None, value=v) for (v, _from_source) in filled]
+
+
 def _build_frame_init(fb: _FrameBuilder, param_values, fbs, recv_value=None,
                       cellp_value=None):
     """A `StructInit` for `fb`'s frame: param fields from `param_values` (an
@@ -8626,6 +8852,8 @@ def _make_driver(fb: _FrameBuilder, mode, fbs):
     # the driver AS A REFERENCE. The drive site writes `&var x` and nothing more;
     # the driver forwards it and casts inside its own body, where the `unsafe`
     # declaration that owns the crossing already is.
+    # No DEFAULT travels: the drive SITE fills them (`_arity_args`), so the call
+    # the rewrite emits is already full arity.
     driver_params = [Parameter(name=p.name, type=p.type,
                                is_reference=(p.type.kind == TypeKind.REFERENCE),
                                reference_mutable=bool(
@@ -8665,7 +8893,12 @@ def _helper_param(fb: _FrameBuilder, p):
     position, design 222 unit 2 for the spelling): the spawn SITE writes
     `&var x`, the helper takes `&var T`, and `_frame_param_arg` does the crossing
     inside the helper's own `unsafe`-declared body. Everything else keeps its own
-    type."""
+    type.
+
+    NO DEFAULT travels: the SITE fills the callee's defaults (`_arity_args`), so
+    every call the rewrite emits is already full arity. Revision 2 copied them
+    onto this parameter instead and that is the wrong altitude — see
+    `_arity_args`, whose docstring records what the copy cost."""
     is_ref = getattr(p.type, 'kind', None) == TypeKind.REFERENCE
     return Parameter(name=p.name, type=p.type, is_reference=is_ref,
                      reference_mutable=bool(is_ref and p.type.reference_mutable))
@@ -9043,6 +9276,9 @@ def _make_spawn_trampoline(func, root_name):
     # Fresh `Parameter`s, not the originals: a frame builder renames what it owns,
     # and `f`'s own builder is looking at the same list. The spawn gates anchor at
     # `f`'s builder, so these carry no source position and owe none.
+    # No DEFAULTS either (`_helper_param` builds the spawn helper's parameters
+    # from this list): the spawn SITE fills them, so every emitted call is full
+    # arity by the time it reaches the helper.
     params = [Parameter(name=p.name, type=p.type, is_reference=p.is_reference,
                         reference_mutable=p.reference_mutable)
               for p in func.parameters]
@@ -9135,7 +9371,7 @@ def _labeled_call_rule(node):
     return node
 
 
-def _spawn_site_rule(node):
+def _spawn_site_rule(node, params_of, tc):
     """Rewrite a cooperative spawn site to its synthesized helper call. Both
     forms were stamped with `spawn_root` by the typechecker:
 
@@ -9151,13 +9387,18 @@ def _spawn_site_rule(node):
     `(&group) as UnsafeConstPointer<TaskGroup>` spliced into the body it wrote,
     and then owed an `unsafe` declaration for a pointer nobody typed. `&group` is
     what the author would have written; `__spawn_<f>` takes it and does the
-    crossing in its own `unsafe`-declared body."""
+    crossing in its own `unsafe`-declared body.
+
+    The helper takes one parameter per formal of `f` and carries no defaults, so
+    the arguments are filled to full arity HERE (`_arity_arguments`) — the spawn
+    half of `_arity_args`'s entry points."""
     if (isinstance(node, FunctionCall) and node.name == "Task.spawn"
             and getattr(node, 'spawn_root', None)):
         inner = node.arguments[0].value
         call = FunctionCall(
             name=f"__bgspawn_{node.spawn_root}",
-            arguments=[_ref_arg_to_ptr(a) for a in inner.arguments],
+            arguments=[_ref_arg_to_ptr(a) for a in _arity_arguments(
+                inner, params_of(node.spawn_root), node.spawn_root, tc)],
             line=node.line, column=node.column)
         call.resolved_type = getattr(node, 'resolved_type', None)
         return call
@@ -9171,7 +9412,8 @@ def _spawn_site_rule(node):
         call = FunctionCall(
             name=f"__spawn_{root}",
             arguments=([Argument(name=None, value=group_ptr)]
-                       + [_ref_arg_to_ptr(a) for a in inner.arguments]),
+                       + [_ref_arg_to_ptr(a) for a in _arity_arguments(
+                           inner, params_of(root), root, tc)]),
             line=node.line, column=node.column)
         # Carry the handle type so a suspending spawner can type the frame-resident
         # `let h = ...` binding (conservative-by-scope liveness reads it).
@@ -9180,9 +9422,13 @@ def _spawn_site_rule(node):
     return node
 
 
-def _rewrite_spawn_sites(node):
-    """Rewrite every `group.spawn(f(args))` under `node` (see `_spawn_site_rule`)."""
-    return _rewrite_nodes(node, _spawn_site_rule)
+def _rewrite_spawn_sites(node, params_of, tc):
+    """Rewrite every `group.spawn(f(args))` under `node` (see `_spawn_site_rule`).
+
+    `params_of(root_name)` answers the spawned function's parameter list (or
+    None when it is not in hand), which is what lets the rule fill an omitted
+    default at the site."""
+    return _rewrite_nodes(node, lambda n: _spawn_site_rule(n, params_of, tc))
 
 
 # --------------------------------------------------------------------------- #
@@ -9203,9 +9449,15 @@ def _ref_arg_to_ptr(arg):
     return arg
 
 
-def _rewrite_drive_sites(node, roots):
+def _rewrite_drive_sites(node, roots, params_of, tc):
     """Rewrite `__saw_drive(f(args))` -> `__saw_drive_f(args)` and
-    `__saw_drive_steps(f(args))` -> `__saw_drive_steps_f(args)` in place, everywhere."""
+    `__saw_drive_steps(f(args))` -> `__saw_drive_steps_f(args)` in place, everywhere.
+
+    `params_of(frame_key)` answers the driven callee's parameter list (or None
+    when it is not in hand). The driver takes one parameter per formal and
+    carries no defaults, so each of the three arms below fills the arguments to
+    full arity (`_arity_arguments`) — the drive half of `_arity_args`'s entry
+    points."""
     if isinstance(node, FunctionCall) and node.name in ("__saw_drive", "__saw_drive_steps"):
         inner = node.arguments[0].value  # validated in the typechecker
         prefix = "__saw_drive_steps_" if node.name == "__saw_drive_steps" else "__saw_drive_"
@@ -9218,10 +9470,12 @@ def _rewrite_drive_sites(node, roots):
             # DF-184a: a STATIC method's frame has no `__recv`, so its driver
             # takes the arguments alone.
             if _method_call_is_static(inner):
-                node.name = prefix + _method_frame_key(
+                key = _method_frame_key(
                     getattr(inner, 'static_receiver', None), inner.method_name,
                     getattr(inner, 'resolved_symbol', None))
-                node.arguments = [_ref_arg_to_ptr(a) for a in inner.arguments]
+                node.name = prefix + key
+                node.arguments = [_ref_arg_to_ptr(a) for a in _arity_arguments(
+                    inner, params_of(key), inner.method_name, tc)]
                 return node
             recv_type = getattr(inner.object, 'resolved_type', None)
             struct_name = getattr(recv_type, 'struct_name', None)
@@ -9236,14 +9490,18 @@ def _rewrite_drive_sites(node, roots):
                                      in_argument_position=True)
             # design 95: name the driver by the resolved-signature frame key so an
             # overloaded method's driver matches its frame.
-            node.name = prefix + _method_frame_key(
+            key = _method_frame_key(
                 struct_name, inner.method_name,
                 getattr(inner, 'resolved_symbol', None))
+            node.name = prefix + key
             node.arguments = ([Argument(name=None, value=recv_ptr)]
-                              + [_ref_arg_to_ptr(a) for a in inner.arguments])
+                              + [_ref_arg_to_ptr(a) for a in _arity_arguments(
+                                  inner, params_of(key), inner.method_name,
+                                  tc)])
             return node
         node.name = prefix + inner.name
-        node.arguments = [_ref_arg_to_ptr(a) for a in inner.arguments]
+        node.arguments = [_ref_arg_to_ptr(a) for a in _arity_arguments(
+            inner, params_of(inner.name), inner.name, tc)]
         return node
     if isinstance(node, ASTNode):
         # A drive site is rewritten IN PLACE (the `FunctionCall` keeps its
@@ -9251,7 +9509,7 @@ def _rewrite_drive_sites(node, roots):
         # back — which is what lets this share `_child_nodes` with the read-only
         # walks and pick up their tuple reach (DF-187b).
         for c in _child_nodes(node):
-            _rewrite_drive_sites(c, roots)
+            _rewrite_drive_sites(c, roots, params_of, tc)
     return node
 
 
@@ -9951,12 +10209,21 @@ def transform_program(program, typechecker, imported_ast=None):
     # transformed (a suspending `main` holding the group in its own frame) has its
     # spawn sites lowered to plain calls before its body becomes a resume method.
     # `__spawn_<f>` is non-suspending, so it never triggers a suspension split.
+    def _spawn_root_params(root):
+        """The spawned function's formals, for the site's default filling. The
+        spawn trampoline (`_make_spawn_trampoline`) copies this same list, so
+        the helper's parameters and these agree by construction."""
+        fn = funcs_by_name.get(root)
+        return None if fn is None else list(fn.parameters)
+
     if spawn_roots:
         for f in program.functions:
-            f.body = _rewrite_spawn_sites(f.body)
+            f.body = _rewrite_spawn_sites(f.body, _spawn_root_params,
+                                          typechecker)
         for ext in program.extensions:
             for m in ext.methods:
-                m.body = _rewrite_spawn_sites(m.body)
+                m.body = _rewrite_spawn_sites(m.body, _spawn_root_params,
+                                              typechecker)
 
     # design 74 (A5-rest, shape 1): the set of (struct, method) whose body suspends
     # — used to detect a BURIED suspending method call in a driven body and reject
@@ -10184,6 +10451,78 @@ def transform_program(program, typechecker, imported_ast=None):
                     _susp_changed = True
                     break
 
+    # SL-208 / DF-300e: imported (cross-module) FREE functions, by codegen name.
+    # A same-module free callee lives in `funcs_by_name` (the entry module); a
+    # cross-module one is reached through a module-qualified call
+    # (`mod.f(...)`), whose effect edge connects in this one shared graph but
+    # whose body sits only in the merged `imported_ast`. When the closure walk
+    # follows such an edge it SPLICES the callee body into the driven closure —
+    # exactly as an imported extension METHOD is embedded (`_all_exts` /
+    # `methods_by_id`) and a generic INSTANCE is (`_promote_nested_generic_calls`)
+    # — so a cross-module suspending free callee gets a frame and is embedded +
+    # driven, instead of lowering as a plain call whose park no-ops / wedges the
+    # reactor (the SL-208 wedge). Entry names win, so shadow them out here.
+    imported_free_fns = {}
+    for _f in (getattr(imported_ast, 'functions', None) or []):
+        if _f.name not in funcs_by_name and _f.name not in imported_free_fns:
+            imported_free_fns[_f.name] = _f
+
+    def _splice_imported_free_fn(name):
+        """Pull an imported free function into the entry driven closure: a
+        deep COPY (the transform REWRITES the body it is handed, and the
+        imported module's own AST must survive the post-transform re-entry —
+        the same reason the imported-method path copies), preprocessed exactly
+        as the entry bodies were above, registered in `funcs_by_name` and the
+        entry `program.functions` (the list re-entry reads). Returns the copy,
+        or None when the name is not an importable free function body.
+
+        Generic promotion is NOT done here: `_promote_joining_body` below runs
+        it for every body that joins the closure, spliced or not."""
+        src = imported_free_fns.get(name)
+        if src is None or getattr(src, 'type_params', None):
+            return None
+        import copy as _copy
+        clone = _copy.deepcopy(src)
+        clone.body = _rewrite_labeled_calls(clone.body)
+        clone.body = _rewrite_yield_intrinsic_calls(clone.body)
+        if spawn_roots:
+            clone.body = _rewrite_spawn_sites(clone.body, _spawn_root_params,
+                                              typechecker)
+        funcs_by_name[name] = clone
+        program.functions.append(clone)
+        return clone
+
+    def _promote_joining_body(name, work):
+        """Promote the suspending GENERIC calls of a body AS IT JOINS the driven
+        closure, and enqueue each instantiation (SL-208 review r1 finding 2).
+
+        `_promote_nested_generic_calls` above ran over `seed_names` — the driven
+        ROOTS — and its own worklist follows only names it PROMOTED. So a body
+        that joins the closure any other way was never scanned, and a suspending
+        generic call inside one kept its generic AST: no instantiation adopted,
+        the call left as a plain call in what became a resume method, and the
+        author handed ``cannot suspend in `sync func` method:
+        `__Frame_wrapped.resume` calls `identity$1$Int` `` — two frames they
+        never wrote, about a `sync` region they never asked for.
+
+        TWO ways a body joins that the seed walk cannot reach, one mechanism:
+        an ordinary free callee reached through a plain call edge (a same-module
+        `root -> wrapped -> identity<Int>` — depth 1 worked, depth 2 did not),
+        and SL-208's cross-module callee, whose body is not even in
+        `funcs_by_name` until `_splice_imported_free_fn` puts it there mid-walk.
+        The closure walk is the one place that knows the full driven set, so
+        that is where the promotion belongs; the seed call above is kept because
+        it is what feeds `work` deterministically before the walk starts.
+
+        Idempotent: a call the seed walk already rewrote has no `type_args`
+        left, so a second visit promotes nothing. Sorted for the DF-126b reason
+        the seed list is sorted — a SET's iteration order is per-process
+        string-hash order, and it would reach `closure`, then `fbs`, then the
+        order the frame structs are emitted in."""
+        for _m in sorted(_promote_nested_generic_calls(
+                program, funcs_by_name, [name], typechecker, imported_ast)):
+            work.append(("fn", _m))
+
     closure = []
     method_closure = {}   # method.node_id -> (struct_name, method_ast, extension)
     seen = set()
@@ -10203,6 +10542,12 @@ def transform_program(program, typechecker, imported_ast=None):
         if kind == "fn":
             func = funcs_by_name.get(key)
             if func is None:
+                # SL-208 / DF-300e: a CROSS-MODULE suspending free callee,
+                # reached through a module-qualified call. Splice its body into
+                # the entry closure (see `_splice_imported_free_fn`) so it gets a
+                # frame and is embedded, exactly as an imported method already is.
+                func = _splice_imported_free_fn(key)
+            if func is None:
                 raise CoroTransformError(
                     f"coroutine transform: suspending function `{key}` not found in "
                     f"the entry module (driving supports entry-module free functions "
@@ -10218,6 +10563,7 @@ def transform_program(program, typechecker, imported_ast=None):
                 # user-anchored line — by `_classify_call` when its caller lowers.
                 continue
             closure.append(key)
+            _promote_joining_body(key, work)
             work.extend(_scan_method_callees(func.body))
             node = nodes.get(("fn", key))
         else:  # a nested suspending method callee
@@ -10266,6 +10612,16 @@ def transform_program(program, typechecker, imported_ast=None):
                     continue
                 is_fn_edge = (isinstance(e.target, tuple) and e.target[0] == "fn"
                               and e.target[1] in funcs_by_name)
+                # SL-208 / DF-300e: a free-fn edge to a CROSS-MODULE callee (in
+                # `imported_free_fns`, not yet in `funcs_by_name`). Splice its
+                # body into the entry closure and follow the edge — otherwise a
+                # cross-module suspending free callee is missed and lowers as a
+                # plain call whose park wedges the reactor.
+                if (not is_fn_edge and t.suspends
+                        and isinstance(e.target, tuple) and e.target[0] == "fn"
+                        and e.target[1] in imported_free_fns):
+                    if _splice_imported_free_fn(e.target[1]) is not None:
+                        is_fn_edge = True
                 # design 96: follow a free-fn edge whose target the fixpoint left
                 # `suspends=False` but which STRUCTURALLY suspends via a buried
                 # method call (see `structurally_susp_fns` above) — otherwise a
@@ -10552,11 +10908,19 @@ def transform_program(program, typechecker, imported_ast=None):
 
     # Rewrite all `__saw_drive(...)` sites across the entry module's function and
     # method bodies to call the synthesized drivers.
+    def _driven_params(key):
+        """The driven callee's formals, keyed as its frame is — a free
+        function's name, or a method's `_method_frame_key`. `fbs` is the one
+        table that holds both, and its `params` already drop `self`, which is
+        the same shape a drive site's argument list has."""
+        fb = fbs.get(key)
+        return None if fb is None else fb.params
+
     for f in program.functions:
-        _rewrite_drive_sites(f.body, roots)
+        _rewrite_drive_sites(f.body, roots, _driven_params, typechecker)
     for ext in program.extensions:
         for m in ext.methods:
-            _rewrite_drive_sites(m.body, roots)
+            _rewrite_drive_sites(m.body, roots, _driven_params, typechecker)
 
 
     # Strip driven methods from their extensions (replaced by frame + resume) —

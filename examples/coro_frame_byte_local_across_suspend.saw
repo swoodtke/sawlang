@@ -1,0 +1,36 @@
+// SL-208 / DF-300e face 2: a `Byte` local held ACROSS a suspension becomes a
+// `Slot<Byte>` coroutine-frame field. Materializing that frame instantiated
+// `Slot<Byte>`, whose `clear` does `self.v = None` into a `Byte?` field — and
+// the bare `None` was reconciled to the alias-RESOLVED `UInt8?` and then
+// compared against the unresolved `Byte?`, failing to build as `cannot assign
+// UInt8? to field of type Byte?` (the two spellings of one type, `Byte =
+// UInt8`). The None now reconciles to the target type AS WRITTEN, so the frame
+// builds — in the entry module AND across a module boundary (the cross-module
+// twin, once SL-208 made it embed too, hit the identical error).
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 104
+// 66
+// 104
+
+import std.task.{yield_now}
+import modules.sl208_calls
+
+// Entry-module: the minimal face-2 shape — a `Byte` local across a suspend.
+func first_byte_local(s: String) -> Int {
+    let b: Byte = s.byte_at(0)
+    yield_now()
+    b as Int
+}
+
+// Cross-module twin: an entry root embedding the imported `first_byte`, whose
+// own frame carries the same `Slot<Byte>` field materialized cross-module.
+func first_byte_cross(s: String) -> Int {
+    sl208_calls.first_byte(s)
+}
+
+func main() {
+    print(__saw_drive(first_byte_local("hi")))    // 'h' = 104
+    print(__saw_drive(first_byte_local("Bee")))   // 'B' = 66
+    print(__saw_drive(first_byte_cross("hi")))    // cross-module twin: 104
+}

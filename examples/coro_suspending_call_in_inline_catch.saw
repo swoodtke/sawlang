@@ -1,0 +1,46 @@
+// XFAIL: SL-215 the inline `try EXPR catch { }` catch block does not CFG-split,
+// so a suspending call in it is refused ("suspending call to `respond` ...
+// appears in a nested/expression position"). Pre-existing and MODULE-
+// INDEPENDENT: SL-208 fixed the separate module-boundary divergence that made
+// this face's CROSS-module spelling silently token-0 miscompile, so the
+// same-module and cross-module spellings now report this SAME clean refusal
+// (no more silent wedge). The block form `try { } catch { respond() }` and the
+// match-arm form both embed a suspending catch correctly today — those are the
+// workaround. This XPASSes when SL-215 routes the inline form through the
+// design-196 try/catch split.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// caught 0
+// ok 5
+
+import std.task.{yield_now}
+
+struct Failure { message: String }
+extension Failure: Error {
+    public func format(&self, into: &var StringBuilder) { try! into.append(self.message) }
+}
+
+// A suspending void free function called from the catch block.
+func respond() {
+    yield_now()
+}
+
+func fallible(x: Int) -> Result<Int, Failure> {
+    yield_now()
+    if x < 0 { return Failure(message: "neg") }
+    x
+}
+
+func caller(x: Int) -> Int {
+    let n = try fallible(x) catch {
+        respond()
+        return 0
+    }
+    n
+}
+
+func main() {
+    print("caught {__saw_drive(caller(-1))}")   // Err -> catch runs respond(), returns 0
+    print("ok {__saw_drive(caller(5))}")        // Ok  -> 5
+}

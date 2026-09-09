@@ -11437,11 +11437,20 @@ class ExpressionsMixin:
         # precisely the one that says which module is meant.
         if getattr(func_info, 'mangled_name', ""):
             expr.resolved_symbol = func_info.mangled_name
+        # SL-208 / DF-300e: mark this as a module-qualified FREE-FUNCTION call and
+        # record the callee's codegen name — the same string
+        # `_generate_module_function_call` resolves against `self.functions`
+        # (`resolved_symbol or method_name`). The coroutine transform reads it to
+        # embed a cross-module suspending free callee exactly as it does a
+        # same-module `FunctionCall`; without it the qualified spelling was a
+        # `MethodCall` no owner could name and its suspension was lost.
+        expr.module_free_call = expr.resolved_symbol or expr.method_name
         # design 24 item 3: record the suspend-graph edge for a module-qualified
-        # call. In the whole-program (single-file) path the callee's node is
-        # registered under its name and the edge connects; a cross-module callee
-        # into a separately-checked module resolves to no node and is a
-        # non-suspending leaf (design 22 §5), which is safe today.
+        # call. All modules share one typechecker, so the callee's node is in
+        # this graph and the edge connects (keyed by `mangled_name or name`,
+        # matching `_effect_enter_function`); the coroutine transform follows it
+        # cross-module now (SL-208), pulling the callee body into the driven
+        # closure so it gets a frame instead of lowering as a plain call.
         self._effect_call_function(func_info, expr.method_name, expr.line)
         # DF-238a: THREAD THE RESOLVED CALLEE'S SIGNATURE, exactly as the bare
         # spelling of this same call does. This path resolved the callee and

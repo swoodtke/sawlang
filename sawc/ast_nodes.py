@@ -1696,6 +1696,18 @@ class MethodCall(Expression):
     # See FunctionCall.arg_plan / .resolved_symbol -- same meaning here.
     arg_plan: Optional[List[Optional[int]]] = annotation(None)
     resolved_symbol: Optional[str] = annotation(None)
+    # SL-208 / DF-300e: this MethodCall is a MODULE-QUALIFIED FREE-FUNCTION call
+    # (`mod.f(...)`), not an instance/static method call — the parser cannot
+    # tell the two apart, and only the typechecker knows `mod` names a module
+    # and `f` a free function in it. Holds the callee's codegen name (the same
+    # `resolved_symbol or method_name` string `_generate_module_function_call`
+    # resolves against `self.functions`). The coroutine transform reads it to
+    # embed a CROSS-MODULE suspending free callee exactly as it embeds a
+    # same-module one — a same-module `f()` is a `FunctionCall` the free-function
+    # classifier already handled, and without this the qualified spelling was a
+    # `MethodCall` no owner could name, so it lowered as a plain call and its
+    # park silently no-op'd / wedged the reactor (the SL-208 wedge root cause).
+    module_free_call: Optional[str] = annotation(None)
     # Dispatch shape decided during checking.
     existential_dispatch: Optional[str] = annotation(None)   # trait name, for `any Trait` vtable dispatch
     # design 239: `"Equatable"` / `"Comparable"` when this is an `equals` /
