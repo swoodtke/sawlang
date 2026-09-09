@@ -32,10 +32,23 @@ cell that is green. That is what happened to
 `visibility_package_relative_import_fails_open.saw`, which cited DF-232n for two
 days after DF-232n closed.
 
-This lane closes that direction. It collects every DF citation the tree makes —
-the first DF of a `// XFAIL:` reason in any tracked `.saw` file, and the leading
-DF of each row of the harness known-ledgers under `tools/` — and checks each
-against the tracker's CLOSED set.
+This lane closes that direction. It collects every citation the tree makes —
+the first finding id of a `// XFAIL:` reason in any tracked `.saw` file, and
+the leading id of each row of the harness known-ledgers under `tools/` — and
+checks each against the tracker's CLOSED set.
+
+TWO ID SCHEMES, TWO AUTHORITIES (Sep 9). A citation may name a `DF-` number or
+an `SL-` sawtracker issue, since the user's Sep-9 ruling retired MINTING new DF
+numbers in favour of filing issues. The ids already in the tree keep working
+unchanged; what is new is that an `SL-` citation is checked against
+`.sawtracker/issues/SL-<n>.md` — the server's own state, which this repo
+carries — rather than against the markdown tracker. That is a better authority
+than the DF path has: it is the tracker itself rather than a hand-maintained
+mirror, so there is no drift to police, and it is local, so the lane stays
+offline and deterministic. An SL citation whose issue the server has closed is
+stale on the next fetch, with no human step in between. An OPEN `designs/todo.md`
+entry still wins over a closure in both schemes, because the residue rule is
+about partial closure and does not care which scheme spelled the finding.
 
 It does NOT look at the other half of the promise, whether the pin still fails
 for the reason it names (DF-248c face 2). That needs the RUN's character, which
@@ -59,10 +72,15 @@ WHAT COUNTS AS CLOSED, and why the rules are shaped this way:
     The tracker spells that as a RESIDUE entry, so a citation is stale only when
     NOTHING anchored on that DF is still open.
 
+  * AN SL ISSUE'S STATUS IS THE ISSUE FILE'S. `"status":"open"` keeps the pin;
+    anything else is a closure. An id with no file in `.sawtracker/issues/` is
+    undecided, not stale — that is a checkout behind the server, not a promise
+    broken.
+
 A lint that cries wolf gets deleted, so anything this cannot decide — a DF with
-no entry anywhere, a citation shaped in a way the anchors do not recognise — is
-reported as INFO and passes. Only a citation whose finding is fully closed
-fails the lane.
+no entry anywhere, an SL id this checkout has never fetched, a citation shaped
+in a way the anchors do not recognise — is reported as INFO and passes. Only a
+citation whose finding is fully closed fails the lane.
 
   tools/check_citations.py            # the lane: report, exit 1 on a finding
   tools/check_citations.py --list     # every citation and its verdict
@@ -97,21 +115,51 @@ CONFLICT_OPEN_RE = re.compile(r"^<<<<<<<(?:\s|$)")
 CONFLICT_CLOSE_RE = re.compile(r"^>>>>>>>(?:\s|$)")
 CONFLICT_ALLOWED: tuple[str, ...] = ()
 
+# THE TWO ID SCHEMES A CITATION MAY NAME, and they have DIFFERENT AUTHORITIES.
+#
+# `DF-<n><letters>` is the historical finding id. Its status lives in the
+# markdown tracker — `designs/todo.md` plus the `done_*.md` archive — and the
+# rules for reading it are the ones in the module docstring.
+#
+# `SL-<n>` is a SAWTRACKER ISSUE, which is what new findings are filed as since
+# the Sep-9 ruling retired new DF numbers. NO LETTER SUFFIX: a DF number could
+# grow `a`/`b`/`c` siblings, an issue id never does — it is a server-assigned
+# integer. Its status lives in `.sawtracker/issues/SL-<n>.md`, the SERVER'S OWN
+# STATE checked into this repo, which is a better authority than the markdown
+# ever was for a DF: it is the tracker itself rather than a hand-maintained
+# mirror of it, it is local (no network in a gate lane) and it is deterministic.
+#
+# Both schemes are recognised everywhere a citation or an entry can appear, so
+# the two can coexist for as long as the DF ids already in the tree do. Existing
+# DF citations are untouched by this — the Sep-9 ruling retires MINTING new DF
+# numbers, not the ones already cited.
 DF = r"DF-\d+[a-z]*"
+SL = r"SL-\d+"
+IDENT = r"(?:" + DF + r"|" + SL + r")"
 
 XFAIL_RE = re.compile(r"//\s*XFAIL:\s*(.*)$")
-DF_RE = re.compile(DF)
+IDENT_RE = re.compile(IDENT)
 
-# An ENTRY line: a markdown list item or heading whose SUBJECT is a DF number.
+# An ENTRY line: a markdown list item or heading whose SUBJECT is a finding id.
 # The marker is what separates an entry from a wrapped paragraph line that
 # merely happens to begin with a bolded cross-reference (`**DF-239b** below.`),
 # which is not a status about DF-239b at all.
 ANCHOR_RE = re.compile(
     r"^(?:#{1,6}\s+|[-*]\s+)"      # heading or list marker — required
     r"((?:\*\*|~~|__|_)*)\s*"      # emphasis/strikethrough openers
-    r"(" + DF + r")\b"             # the subject
+    r"(" + IDENT + r")\b"          # the subject
     r"(.*)$"
 )
+
+# Where the sawtracker server keeps its issue state. Read-only for us — the
+# repo's own rule is "read freely, NEVER edit" — and read here rather than
+# asked over the network so the lane stays offline and deterministic.
+ISSUES_DIR = REPO_ROOT / ".sawtracker" / "issues"
+
+# The issue file's front matter is one JSON object between `---` fences. Only
+# two fields matter here, and they are read with a regex rather than a JSON
+# parse so a schema addition cannot break the lane.
+ISSUE_STATUS_RE = re.compile(r'"status"\s*:\s*"([a-z]+)"')
 
 # "— CLOSED", "— LANDED Aug 21", "(filed …) — FIXED", "— **CLOSED**".
 CLOSED_RE = re.compile(
@@ -126,16 +174,20 @@ RESIDUE_RE = re.compile(r"^\s*(?:\*\*)?\s*RESIDUE\b", re.IGNORECASE)
 
 @dataclass
 class Citation:
-    df: str
+    ident: str    # a DF number or an SL issue id; "" when the reason cites none
     path: Path
     line: int
     kind: str     # "xfail" | "ledger"
     text: str
 
+    @property
+    def is_issue(self) -> bool:
+        return self.ident.startswith("SL-")
+
 
 @dataclass
 class Anchor:
-    df: str
+    ident: str
     path: Path
     line: int
     closed: bool
@@ -187,8 +239,26 @@ def find_conflict_markers() -> list[tuple[str, int, int, str]]:
     return found
 
 
+def issue_status(ident: str) -> str | None:
+    """An SL issue's status from the server state, or None if it has no file.
+
+    `open` / `closed` are the two the tracker writes. None means "this repo has
+    never seen that issue" — a citation minted against a server this checkout
+    has not fetched from, or a typo — and the caller reports it UNDECIDED
+    rather than failing, on the same "a lint that cries wolf gets deleted"
+    rule the DF path uses for a number with no entry anywhere.
+    """
+    path = ISSUES_DIR / f"{ident}.md"
+    try:
+        head = path.read_text(encoding="utf-8", errors="replace")[:4096]
+    except OSError:
+        return None
+    hit = ISSUE_STATUS_RE.search(head)
+    return hit.group(1) if hit else None
+
+
 def collect_citations() -> list[Citation]:
-    """Every DF citation the tree makes, in file order."""
+    """Every finding citation the tree makes, in file order."""
     found: list[Citation] = []
     # TRACKED .saw files only — an rglob also walks agent WORKTREES under
     # .claude/worktrees/ (another checkout's in-flight pins are not this
@@ -208,13 +278,13 @@ def collect_citations() -> list[Citation]:
             if not hit:
                 continue
             reason = hit.group(1)
-            # THE FIRST DF is the citation; a later mention in the same reason
-            # is prose (a sibling finding, the branch that narrowed this one),
-            # and holding prose to the citation's standard is how a lint starts
-            # crying wolf. A pin that genuinely rests on two findings is
-            # justified by the first one being open.
-            df = DF_RE.search(reason)
-            found.append(Citation(df.group(0) if df else "",
+            # THE FIRST ID is the citation, whichever scheme it is in; a later
+            # mention in the same reason is prose (a sibling finding, the branch
+            # that narrowed this one), and holding prose to the citation's
+            # standard is how a lint starts crying wolf. A pin that genuinely
+            # rests on two findings is justified by the first one being open.
+            ident = IDENT_RE.search(reason)
+            found.append(Citation(ident.group(0) if ident else "",
                                   path, number, "xfail", reason.strip()))
 
     for name in KNOWN_LEDGERS:
@@ -226,21 +296,22 @@ def collect_citations() -> list[Citation]:
             stripped = line.strip()
             if not stripped or stripped.startswith("#"):
                 continue
-            df = DF_RE.match(stripped)
-            if df:
-                found.append(Citation(df.group(0), path, number, "ledger", stripped))
+            ident = IDENT_RE.match(stripped)
+            if ident:
+                found.append(
+                    Citation(ident.group(0), path, number, "ledger", stripped))
     return found
 
 
 def parse_anchors(text: str, path: Path,
                   always_closed: bool) -> dict[str, list[Anchor]]:
-    """Tracker entries keyed by DF. `always_closed` is the done-file rule."""
+    """Tracker entries keyed by id. `always_closed` is the done-file rule."""
     anchors: dict[str, list[Anchor]] = {}
     for number, line in enumerate(text.splitlines(), start=1):
         hit = ANCHOR_RE.match(line)
         if not hit:
             continue
-        openers, df, rest = hit.group(1), hit.group(2), hit.group(3)
+        openers, ident, rest = hit.group(1), hit.group(2), hit.group(3)
         if always_closed:
             closed = True
         else:
@@ -251,13 +322,13 @@ def parse_anchors(text: str, path: Path,
             struck = "~~" in openers
             residue = bool(RESIDUE_RE.match(rest))
             closed = (struck or bool(CLOSED_RE.match(rest))) and not residue
-        anchors.setdefault(df, []).append(
-            Anchor(df, path, number, closed, line.strip()))
+        anchors.setdefault(ident, []).append(
+            Anchor(ident, path, number, closed, line.strip()))
     return anchors
 
 
 def collect_anchors() -> tuple[dict[str, list[Anchor]], dict[str, list[Anchor]]]:
-    """Tracker entries keyed by DF: (todo.md anchors, done-file anchors)."""
+    """Tracker entries keyed by id: (todo.md anchors, done-file anchors)."""
     todo: dict[str, list[Anchor]] = {}
     done: dict[str, list[Anchor]] = {}
     if TODO.exists():
@@ -297,6 +368,32 @@ SELF_TEST_TODO = [
     ("**DF-239b** below. The erasure diagnostic's wording wart went with it: a",
      None, None),
     ("DF-232n's minimal two-file repro alongside the audit's larger", None, None),
+    # SL ISSUE IDS anchor exactly as DF numbers do (Sep 9). Real lines from the
+    # tracker as it stood when the recogniser was widened.
+    ("## SL-218 / SL-219 / SL-220 — the three UNCHECKED ownership boundaries "
+     "design", "SL-218", False),
+    ("- SL-218 / SL-219 / SL-220 — the three ownership boundaries design 267's",
+     "SL-218", False),
+    ("- ~~SL-207~~ — CLOSED Sep 9, the strikethrough reading at the new scheme",
+     "SL-207", True),
+    ("- SL-211 — LANDED Sep 9: the forwarding taxonomy", "SL-211", True),
+    # …and an SL id in prose is not an entry either.
+    ("**SL-209** is the epic these three units belong to, not a status line",
+     None, None),
+]
+
+# The ID RECOGNISER itself, at the boundary the two schemes meet. An SL id takes
+# NO letter suffix, so `SL-218a` must read as `SL-218` followed by prose rather
+# than as an id of its own — the opposite of the DF rule one line up, and the
+# only place the two vocabularies actually differ.
+SELF_TEST_IDENTS = [
+    ("DF-299a", "DF-299a"),
+    ("DF-232n's minimal repro", "DF-232n"),
+    ("SL-218", "SL-218"),
+    ("SL-218 — `_is_aliasing_expr` is a node-type test", "SL-218"),
+    ("SL-218a", "SL-218"),
+    ("no id here at all", None),
+    ("SO-31 is another project's", None),
 ]
 
 
@@ -317,11 +414,31 @@ def self_test() -> list[str]:
             state = "closed" if want_closed else "open"
             failures.append(f"{want_df} should read {state}: {line[:60]}")
 
+    for text, want in SELF_TEST_IDENTS:
+        hit = IDENT_RE.search(text)
+        got = hit.group(0) if hit else None
+        if got != want:
+            failures.append(f"id recogniser read {got!r}, wanted {want!r}: "
+                            f"{text[:48]}")
+
     # The historical case, end to end: a pin citing a DF whose entry has moved
     # to a done file is STALE even though the DF also still sits in todo.md.
     done = parse_anchors("## DF-232n — CLOSED Aug 20", fake, True)
     if not done.get("DF-232n") or not done["DF-232n"][0].closed:
         failures.append("a done-file entry must read as closed")
+
+    # The ISSUE-STATUS reader, against the exact front-matter shape sawtracker
+    # writes. It reports `open` on a healthy tree, so without this it would be
+    # indistinguishable from a reader that recognises nothing and silently sends
+    # every SL citation to UNDECIDED.
+    for blob, want in (
+            ('{"id":"SL-218","status":"open","title":"x"}', "open"),
+            ('{"id":"SL-207","priority":"high","status":"closed"}', "closed"),
+            ('{"id":"SL-1","title":"no status field"}', None)):
+        hit = ISSUE_STATUS_RE.search(blob)
+        got = hit.group(1) if hit else None
+        if got != want:
+            failures.append(f"issue status read {got!r}, wanted {want!r}")
 
     # The conflict-marker recognisers, against the exact lines git wrote into
     # the three blocks that reached main on Aug 24.
@@ -425,19 +542,47 @@ def main() -> int:
     ok = 0
 
     for cite in citations:
-        if not cite.df:
-            info.append((cite, "the XFAIL reason cites no DF number"))
+        if not cite.ident:
+            info.append((cite, "the XFAIL reason cites no finding id "
+                               "(a `DF-` number or an `SL-` issue)"))
             continue
-        open_entries = [a for a in todo_anchors.get(cite.df, []) if not a.closed]
+        # AN OPEN todo.md ENTRY WINS OVER EVERY CLOSURE, in both schemes and for
+        # the same reason: a finding is often closed in part, and the tracker
+        # spells that as a RESIDUE entry that must keep its pin alive.
+        open_entries = [a for a in todo_anchors.get(cite.ident, [])
+                        if not a.closed]
         if open_entries:
             ok += 1
             if args.list:
                 first = open_entries[0]
-                print(f"  open   {cite.df:<10} {_rel(cite.path)}:{cite.line}"
+                print(f"  open   {cite.ident:<10} {_rel(cite.path)}:{cite.line}"
                       f"  <- {_rel(first.path)}:{first.line}")
             continue
-        closures = [a for a in todo_anchors.get(cite.df, []) if a.closed]
-        closures += done_anchors.get(cite.df, [])
+
+        if cite.is_issue:
+            # AN SL CITATION ASKS THE TRACKER, not the markdown. The issue file
+            # is the server's own record, so there is no mirror to drift: an
+            # issue nobody has closed keeps its pin, and the moment the server
+            # closes it every pin citing it is stale on the next fetch.
+            status = issue_status(cite.ident)
+            if status == "open":
+                ok += 1
+                if args.list:
+                    print(f"  open   {cite.ident:<10} "
+                          f"{_rel(cite.path)}:{cite.line}  <- .sawtracker")
+                continue
+            if status is not None and status != "open":
+                stale.append((cite, Anchor(
+                    cite.ident, ISSUES_DIR / f"{cite.ident}.md", 1, True,
+                    f"sawtracker issue {cite.ident} is {status}")))
+                continue
+            info.append((cite, "no sawtracker issue file for it in "
+                               "`.sawtracker/issues/` — is this checkout "
+                               "behind the server?"))
+            continue
+
+        closures = [a for a in todo_anchors.get(cite.ident, []) if a.closed]
+        closures += done_anchors.get(cite.ident, [])
         if closures:
             stale.append((cite, closures[0]))
             continue
@@ -479,14 +624,14 @@ def main() -> int:
         print(f"UNDECIDED ({len(info)}) — reported, not failed:")
         for cite, why in info:
             print(f"  {_rel(cite.path)}:{cite.line}: "
-                  f"{cite.df or '(no DF)'} — {why}")
+                  f"{cite.ident or '(no id)'} — {why}")
 
     if stale:
         print()
         print(f"STALE ({len(stale)}) — the cited finding is CLOSED:")
         for cite, closure in stale:
-            print(f"  {_rel(cite.path)}:{cite.line} cites {cite.df}, which is "
-                  f"closed at {_rel(closure.path)}:{closure.line}")
+            print(f"  {_rel(cite.path)}:{cite.line} cites {cite.ident}, which "
+                  f"is closed at {_rel(closure.path)}:{closure.line}")
             print(f"      citation: {cite.text[:100]}")
             print(f"      closure:  {closure.text[:100]}")
         print()

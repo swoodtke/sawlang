@@ -1,0 +1,71 @@
+// Conformance row V87 — a `try` FORWARDS its subject's storage, so a `try` over
+// a binding or a field takes the transfer checkpoint the bare read takes
+//
+// XFAIL: SL-219 — the sibling of V86 (SL-218) and the same mechanism read the
+// other way. `_is_aliasing_expr` sees through nodes that FORWARD a read only
+// where somebody added the transparency by hand (`ForceUnwrap`, design 131; a
+// forwarding `CastExpr`, DF-299a). `TryExpr` is in `_VALUE_BRANCH_TYPES`, but
+// `_value_branch_arm_results` deliberately hands back the CATCH handler alone —
+// its comment says the `try`'s own value "comes out of the subject expression,
+// which is that expression's question" — and nothing ever asks that question.
+// So the Ok payload is extracted out of storage the subject still owns, at
+// every tier, with no check.
+//
+// The count is what names it: ONE value, THREE `drop` lines. The binding's own
+// drop, plus one per extraction. Exit 0.
+//
+// FOUR SPELLINGS, all measured (SL-219 carries the evidence): `try`, `try!`,
+// `try?`, and `try ... catch { }` — whose catch ARM is judged (DF-299b's
+// recursion) while its subject is not — plus a FIELD subject, so this is not
+// binding-specific. Two are below; `try` is first, so the assertion is the
+// ordinary non-return wording.
+//
+// The LINE the fix has to draw is DF-299a's: `try make()` over a CALL RESULT
+// forwards a fresh temporary the reader already owns and must stay legal, the
+// way a BUILDING cast stayed legal when a forwarding one stopped being. The
+// control at the bottom of `main` is that half of the row.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot copy value of type `Res` which implements NoCopy
+
+struct Res { w: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.w) }
+}
+
+enum Bad { case Nope }
+extension Bad: NoCopy {}
+
+struct Held { r: Result<Res, Bad> }
+extension Held: NoCopy {}
+
+func make(n: Int) -> Result<Res, Bad> { Res(w: n) }
+
+// A BINDING subject, read twice: two extractions out of storage `r` keeps.
+func from_binding() -> Result<Int, Bad> {
+    let r = make(1)
+    let a = try r
+    let b = try r
+    a.w + b.w
+}
+
+// A FIELD subject, through the `try!` spelling.
+func from_field() -> Int {
+    let h = Held(r: make(2))
+    let a = try! h.r
+    a.w
+}
+
+func main() {
+    print("binding {}", try! from_binding())
+    print("field {}", from_field())
+    // CONTROL — a `try` over a CALL RESULT is a fresh temporary the reader
+    // already owns, and stays legal. A fix that refused this would be the
+    // over-broad one DF-299a's building-cast control exists to prevent.
+    //
+    // It asserts LEGALITY and nothing about the drop: this exact shape LEAKS
+    // its payload (SL-220 — `drop 3` never runs), which is the opposite error
+    // at the same boundary and a separate fix. Recorded here so the control is
+    // not misread as a claim that the temporary path is correct.
+    print("temp {}", (try! make(3)).w)
+}

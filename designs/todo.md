@@ -38,6 +38,12 @@ is scheduled and in what order is the whole of what they say.
 ## [BACKLOG] — filed, not scheduled
 
 
+- SL-218 / SL-219 / SL-220 — the three ownership boundaries design 267's
+  producer census found UNCHECKED (entry below, filed Sep 9 by SL-210). Two are
+  one mechanism (`_is_aliasing_expr`'s node-type set) and pinned XFAIL as
+  conformance rows V86/V87; the third is a leak with no pin yet. Sequenced with
+  SL-211 (unit B) — the fixes are language-rule changes, which is why unit A
+  filed and did not fix them
 - DF-308a — a struct construction takes NO positional argument, through a user `init` as through the memberwise literal, so a one-value wrapper is built as `Scalar(value: 34)` and never `Scalar(34)` (entry below, filed Sep 7 by design 245 v1). NOT A DEFECT — the spec rules it deliberate — but it is what makes §4's scalar-literal question cost one label more than design 245 §6 assumed, and the brief's own premise sentence is wrong and wants correcting
 - CONFORMANCE GAP (flagged Sep 5 by design 266 U0's obligation-3 check): the design-70 both-ways refusal — `run<Slow>` suspends so a `sync` caller refuses, `run<Fast>` stays sync — has NO `examples/conformance/` row, though its covering test exists (`examples/errors/sync_generic_instantiation_suspends.saw`, now also 266's acceptance test). The fix is an INDEX.md row naming that test (design 191's "existing test" form); rides the next brief that touches the effect surface, or a docs batch
 - DF-307b — `sizeof<Struct>()` folds in a `static_assert` and refuses at the five earlier const positions, because a struct's ABI layout is built during code generation and the front end declines rather than computing a second opinion (entry below, filed Sep 5 by DF-307a as its own documented boundary; NOT a defect). Costs the wire-struct idiom one restated length; nobody has asked for it. The fix shape is all-or-nothing — a partial one reintroduces the by-position divergence DF-307a removed
@@ -130,6 +136,41 @@ is scheduled and in what order is the whole of what they say.
 - DF-302b — a generic extension's `init` RELEASES a parameter it moved into the built value, so the value is torn down TWICE (entry below, filed Sep 4 by design 207's agent; PRE-EXISTING at HEAD, reproduced with fully explicit type arguments and no inference). Pinned by `examples/generic_init_moved_parameter_is_released_once.saw`. A DF-217m/DF-251b sibling — the same init-cleanup analysis, one case further on
 
 
+
+## SL-218 / SL-219 / SL-220 — the three UNCHECKED ownership boundaries design
+## 267's producer census found (filed Sep 9 by SL-210, unit A of the SL-209
+## epic; all three PRE-EXISTING and none fixed there — unit A is
+## behaviour-preserving and every fix changes which programs compile)
+
+Brief: `designs/267-ownership-boundary-inventory.md` (§ "The boundaries that
+reach NO funnel"). Evidence, repro programs and the tier spread live in the
+three issues; not restated here.
+
+- **SL-218** — a `self` RECEIVER read is not an aliasing expression, so every
+  by-value transfer of `self` is judged a fresh temporary. Double free at exit 0
+  (NoCopy), SIGABRT (ExplicitCopy), and CORRECT on `Copy` — because codegen's
+  `_transfer_needs_copy` carries `SelfExpr` in a list of its own and takes the
+  retain there. Six faces measured. Pinned: conformance row V86.
+- **SL-219** — a `try`/`try!`/`try?`/`try…catch` over a BINDING or FIELD
+  forwards its subject unjudged; one value, three `drop` lines, exit 0. Pinned:
+  conformance row V87.
+- **SL-220** — the OPPOSITE error at the same boundary: a payload extracted from
+  a fresh temporary inline is never released (`(try! f()).x` and `f()!.x` both
+  leak; the bound spelling is correct). No pin — the program exits 0 with the
+  right output, so the oracle is the issue's own first task.
+
+MECHANISM (obligation 4): SL-218 and SL-219 are ONE mechanism in two
+sub-classes — `_is_aliasing_expr` is a node-type test over four classes plus
+two hand-added transparencies, so a node that IS a read and is not in the set
+(`SelfExpr`) and a node that FORWARDS a read and is not transparent (`TryExpr`)
+both silently become fresh temporaries at every tier at once. DF-216a and
+DF-299a are the same mechanism's earlier members; the remaining known member is
+the auto-wrap family, already filed as SL-79. SL-220 is the cleanup-registration
+side, hypothesised to belong with SL-213 (unit D).
+
+SEQUENCING: with SL-211 (unit B, the forwarding taxonomy), which is where the
+producer question gets its structural answer. Each fix owes a corpus sweep and
+V62/V65's tier-blindness argument — fence every tier, not only the owning ones.
 
 ## DF-308a — a struct construction takes NO POSITIONAL argument, so a one-value
 ## wrapper's constructor always writes its label (filed Sep 7 by design 245 v1;

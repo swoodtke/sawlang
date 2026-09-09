@@ -1,0 +1,63 @@
+// Conformance row V86 — reading `self` out of a BORROWED receiver and handing
+// it to a new owner is a TRANSFER, and takes the transfer checkpoint
+//
+// XFAIL: SL-218 — `_is_aliasing_expr` is a node-type test over four classes
+// (Identifier, MemberAccess, ArrayIndex, TupleIndex) plus two hand-added
+// transparencies, and `SelfExpr` is on none of the lists. So a receiver read is
+// judged a FRESH TEMPORARY at every tier arm: NoCopy and ExplicitCopy skip
+// their refusal and the Copy tier skips its `needs_copy` stamp. Same mechanism
+// as DF-216a (the synthesized call constructions that skipped the checkpoint)
+// and DF-299a (`CastExpr`), which is why it is filed as a class.
+//
+// A `&self` receiver names storage the CALLER owns — that is what a shared
+// borrow IS — so handing it on by value mints a second owner of one value.
+// Today every face below compiles and the program prints `drop 1` twice, at
+// exit 0; at the ExplicitCopy tier the same shape SIGABRTs on the second free
+// of one `Vector` buffer. Codegen hides the Copy tier's half of it: its own
+// `_transfer_needs_copy` carries `SelfExpr` in a SEPARATE isinstance list and
+// takes the retain there (`Arc.strong_count()` reads 1 -> 2 correctly), so the
+// hole is invisible on the tier a second opinion can paper over and fatal on
+// the two it cannot. That asymmetry is SL-209's thesis in one program.
+//
+// SIX FACES, all measured (SL-218 carries the evidence): a return, a by-value
+// argument, a `let` binding, a struct field, a tuple element, and a `&var self`
+// receiver. Three are below; the argument face is FIRST so the assertion below
+// is the ordinary non-return wording. The return face's own refusal reads
+// `cannot return NoCopy type ... without `move` in method ...`, which is the
+// same arm one branch over.
+//
+// The way out is not a `move`: a borrowed receiver has nothing to move (the
+// value is the caller's), so an author who means to duplicate declares a
+// duplicable tier and spells `.copy()`, and one who means to consume declares
+// the method `consumes` (design 260). That is DF-290a's shape at the receiver.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot copy value of type `Res` which implements NoCopy
+
+struct Res { w: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.w) }
+}
+
+struct Holder { r: Res }
+extension Holder: NoCopy {}
+
+func sink(r: Res) -> Int { r.w }
+
+extension Res {
+    // The ARGUMENT face: `self` handed to a by-value parameter.
+    func hand_on(&self) -> Int { sink(self) }
+    // The BINDING face: `self` read into a local the body then owns.
+    func to_local(&self) -> Int { let b = self  b.w }
+    // The AGGREGATE face: `self` stored into a struct field.
+    func to_field(&self) -> Int { let h = Holder(r: self)  h.r.w }
+}
+
+func main() {
+    let a = Res(w: 1)
+    print("arg {}", a.hand_on())
+    let b = Res(w: 2)
+    print("local {}", b.to_local())
+    let c = Res(w: 3)
+    print("field {}", c.to_field())
+}

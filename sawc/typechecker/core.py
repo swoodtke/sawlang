@@ -44,6 +44,7 @@ from .serde import SerdeMixin
 from .tierreq import TierRequirementsMixin
 from .sigvis import SignatureVisibilityMixin
 from .consumes import ConsumesMixin
+from .ownership import OwnershipLedgerMixin
 
 
 # design 218 unit 1.5 stage 2 — A MONOMORPHIZED INSTANCE'S DIAGNOSTICS ARE REAL.
@@ -382,7 +383,7 @@ class Scope:
         return self.variables.get(name)
 
 
-class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtilsMixin, EffectsMixin, PlacesMixin, SerdeMixin, TierRequirementsMixin, SignatureVisibilityMixin, ConsumesMixin):
+class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtilsMixin, EffectsMixin, PlacesMixin, SerdeMixin, TierRequirementsMixin, SignatureVisibilityMixin, ConsumesMixin, OwnershipLedgerMixin):
     """Type checks a Saw program."""
 
     def __init__(self, reporter: ErrorReporter, freestanding: bool = False,
@@ -395,6 +396,12 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
                  package_identities: Optional[
                      Dict[Tuple[str, ...], str]] = None):
         self.reporter = reporter
+        # design 267 step 3 (SL-210): the ledger of ownership TRANSFER
+        # DECISIONS, one per boundary the transfer checkpoint reaches. One
+        # table per compile, so a decision never outlives the program it was
+        # made for; see `typechecker/ownership.py` for the shape and for why
+        # it is a side table rather than an AST annotation.
+        self._ownership_ledger_init()
         # design 218 unit 1.5: the MONOMORPHIZED INSTANCE being checked, as
         # `(display, demand-site)`, or None outside one. Set only by
         # `_checking_instance`; read by `_error` for §3's attribution note and

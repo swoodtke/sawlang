@@ -820,6 +820,15 @@ class ExpressionsMixin:
         the inner type T. This provides implicit dereference semantics.
         """
         var_info = self.current_scope.lookup(expr.name)
+        # design 267 (SL-210 review): THE identity capture for a name. Stamped
+        # here, in the scope that owns the binding, because this is the only
+        # moment the answer is knowable — the ownership ledger asks for it from
+        # a tail or a branch arm whose scope has since popped. Assigned on both
+        # paths, never merely on the hit: the front half runs more than once
+        # over one AST (design 218 stage 1), so a pass that resolves to nothing
+        # has to SAY so or a previous pass's id would stand.
+        expr.resolved_binding_id = (
+            var_info.binding_id if var_info is not None else None)
         if not var_info:
             # A const generic parameter reads as a plain value of its declared
             # type (design 148) — `N` in a `FixedBuf<const N: Int>` body IS an
@@ -987,6 +996,15 @@ class ExpressionsMixin:
             return None
 
         var_info = self.current_scope.lookup(expr.variable)
+        # design 267 (SL-210 review): the identity of the binding this `move`
+        # RETIRES, captured where it resolves. `variable` is a bare name, so
+        # without this the ledger recorded `retire-source` with no source
+        # identified — the one shape where a missing identity is not merely
+        # incomplete but unusable, since retiring is the action a consumer must
+        # attribute to exactly one binding. Assigned on both paths, per the
+        # re-check rule in `_check_identifier`.
+        expr.resolved_binding_id = (
+            var_info.binding_id if var_info is not None else None)
         if not var_info:
             self._error(
                 ErrorKind.UNDEFINED_VARIABLE,
@@ -13701,6 +13719,15 @@ class ExpressionsMixin:
             # explicit semantics we apply the same rule everywhere.
             ident = Identifier(name=cap_name, line=expr.line, column=expr.column)
             ident.resolved_type = ctype
+            # design 267 (SL-210 review): this Identifier is SYNTHESIZED, so
+            # `_check_identifier` never runs over it and never stamps its
+            # identity. Resolve it here instead — `current_scope` was restored
+            # to `outer_scope` above precisely so this loop sees the enclosing
+            # frame, which makes this the capture's OWN scope rather than a
+            # later ambient one.
+            _cap_info = self.current_scope.lookup(cap_name)
+            ident.resolved_binding_id = (
+                _cap_info.binding_id if _cap_info is not None else None)
             self._check_value_transfer(ident, ctype, "closure capture",
                                        expr.line, expr.column)
         # A closure with reference parameters is non-storable: legal only as a

@@ -17,7 +17,7 @@ from ast_nodes import (
     MemberAccess, ArrayIndex, TupleIndex, SelfExpr, ClosureExpr,
     BindOptional, OptionalEvalExpr, ForceUnwrap, MethodCall, CastExpr,
     IfExpr, IfLetExpr, MatchExpr, TryExpr, TryCatchExpr,
-    OptionalWrap, ResultOkWrap, ResultErrWrap
+    OptionalWrap, ResultOkWrap, ResultErrWrap, expr_diverges
 )
 from ast_walk import child_nodes
 from errors import ErrorKind
@@ -26,6 +26,7 @@ from type_identity import display_name
 from namespace import (
     SymbolKind, StructSymbol, EnumSymbol, FunctionSymbol, TraitSymbol, TypeAliasSymbol
 )
+from . import ownership
 
 
 class TypeUtilsMixin:
@@ -4372,15 +4373,82 @@ class TypeUtilsMixin:
     def _check_value_transfer(self, expr: Optional[Expression], target_type: Optional[SawType],
                               context: str, line: int, column: int,
                               is_return: bool = False):
-        """Single checkpoint every copy/move site funnels through.
+        """THE ownership-transfer checkpoint, and the one that RECORDS.
 
-        Every site where a value is copied or moved into a new home (let/var
-        initializers, assignment RHS, call arguments, returns, struct-field
-        initializers, array/tuple elements, enum payloads, since DF-299b a
-        `break <value>` whose home is the loop's, and since DF-304a a CLOSURE
-        body's TAIL, whose home is the caller's) routes through here.
-        It enforces NoCopy move-discipline and marks Copy sites so codegen
-        inserts `copy()` uniformly.
+        Every site where a value acquires a new owner routes through here. It
+        enforces NoCopy/ExplicitCopy move-discipline, marks Copy sites so
+        codegen inserts `copy()` uniformly, and — since design 267 step 3
+        (SL-210) — returns an explicit `TransferDecision` filed in the
+        typechecker's ledger. EVERY exit path produces one, the trivial copies
+        and the take-temporaries that used to leave no trace included, so
+        "checked and nothing owed" is distinguishable from "never checked":
+        the PRESENCE of a ledger entry is the distinction, which a false or
+        absent `needs_copy` could never make. See `typechecker/ownership.py`.
+
+        ENTRY POINTS (obligation 1 — this is the funnel, so this list is the
+        audit surface: a boundary that is not on it is a boundary nothing
+        checks). Grouped by WHERE the value acquires its new owner. The full
+        boundary-by-producer matrix, including the positions that reach a
+        DIFFERENT funnel and the ones that reach none, is
+        `designs/267-ownership-boundary-inventory.md`.
+
+        BINDINGS
+          1. `_check_let_statement` (statements.py) — a `let`/`var`
+             initializer, context "let binding".
+          2. `_check_let_statement` again — the design-151 explicit discard,
+             context "discard `let _`".
+          3. `_check_destructuring_let` (statements.py) — the tuple `let`'s
+             RHS, context "destructuring binding".
+          4. `_check_parameter_defaults` (statements.py) — a parameter's
+             DEFAULT VALUE, context "default parameter value".
+
+        ASSIGNMENT
+          5. `_check_assign_rhs` (statements.py) — every assignment target
+             kind; the context names the target.
+          6. `_check_optional_chain_assign` (expressions.py) — `x?.y = v`,
+             context "optional-chain assignment".
+
+        ARGUMENTS (one arm per call shape the resolver can take)
+          7. `_check_function_call` (expressions.py, three sites: the
+             planned/labeled path, the positional path, and the
+             unresolved-parameter path).
+          8. `_finish_overloaded_args` (expressions.py) — the overload set's
+             chosen candidate.
+          9. `_check_method_call`, `_check_field_call`,
+             `_check_existential_method_call`, `_check_static_method_call`,
+             `_check_module_function_call` (expressions.py).
+         10. `_check_erased_box_make` (expressions.py) — the erased
+             `Box<any Trait>.make` argument.
+
+        RETURNS AND TAILS
+         11. `_check_return_statement` (statements.py) — an explicit `return`.
+         12. `_check_no_copy_return` (below) — a body's TAIL, whose own three
+             entry points its docstring names: `_check_function`,
+             `_check_method` and (since DF-304a) `_check_closure`.
+
+        AGGREGATE ELEMENTS
+         13. `_check_struct_init` / `_check_module_struct_init`
+             (expressions.py) — a struct field and an `init` argument.
+         14. `_check_enum_init` (expressions.py) — an enum payload.
+         15. `_check_tuple_literal`, `_check_array_literal`,
+             `_check_repeat_literal`, `_check_map_literal`,
+             `_check_set_literal` (expressions.py).
+
+        CAPTURES
+         16. `_check_closure` (expressions.py) — a closure's capture list,
+             context "closure capture".
+
+        LOOP RESULTS
+         17. `_check_break_statement` (statements.py) — `break <value>`,
+             whose home is the LOOP's merged result (DF-299b).
+
+        OPERANDS THAT OWN
+         18. `_check_nil_coalesce` (expressions.py) — the `??` DEFAULT
+             operand. (`??`'s LEFT operand is a payload read and reaches
+             `_check_payload_read` instead; see the inventory.)
+
+        RECURSION
+         19. This function itself, once per arm of a value branch (below).
 
         Behavior by the source expression and its resolved type:
         - `move x`: ownership transfers; a transfer is neither a copy nor a
@@ -4409,19 +4477,38 @@ class TypeUtilsMixin:
         that is itself a branch.
         """
         if expr is None:
-            return
+            # A boundary with no source expression: a valueless `return`, an
+            # arm that diverged, an initializer an earlier error left unbuilt.
+            # No value, so no transfer — recorded all the same, so the boundary
+            # is never mistaken for one nothing reached.
+            return self._decide_transfer(
+                expr, target_type, context, line, column,
+                action=ownership.ACTION_NONE,
+                cleanup=ownership.CLEANUP_NONE,
+                reason="the boundary has no source expression",
+                is_return=is_return)
 
         # DF-299b — the value-branch recursion, ahead of every other arm because
         # a branch node is never itself a transfer: judging it as one asks the
         # tier question about a merged home nobody owns.
         arms = self._value_branch_arm_results(expr)
         if arms is not None:
+            delegates = []
             for arm, wrapped in arms:
-                self._check_value_transfer(
+                decision = self._check_value_transfer(
                     arm, None if wrapped else target_type, context,
                     getattr(arm, 'line', line), getattr(arm, 'column', column),
                     is_return=is_return)
-            return
+                if decision is not None:
+                    delegates.append(decision.key)
+            return self._decide_transfer(
+                expr, target_type, context, line, column,
+                action=ownership.ACTION_DELEGATED,
+                cleanup=ownership.CLEANUP_NONE,
+                delegates=tuple(delegates),
+                reason="a value branch is one transfer PER ARM (DF-299b); the "
+                       "arms' own decisions are in `delegates`",
+                is_return=is_return)
 
         # design 24 item 3 (the `sync` boundary): a `sync` function type accepts
         # only a `sync` value. A closure LITERAL is exempt — it is effect-checked
@@ -4482,16 +4569,35 @@ class TypeUtilsMixin:
         # `move x` transfers ownership; a move is never a copy/NoCopy violation.
         # Moved-from recording happens in `_check_move_expr` (design 15).
         if isinstance(expr, MoveExpr):
-            return
+            return self._decide_transfer(
+                expr, target_type, context, line, column,
+                action=ownership.ACTION_MOVE,
+                cleanup=ownership.CLEANUP_RETIRE_SOURCE,
+                source_type=getattr(expr, 'resolved_type', None),
+                reason="an explicit `move`; `_check_move_expr` records the "
+                       "source's moved-from state (design 15)",
+                is_return=is_return)
 
         # `&x` / `&var x` bind to a by-reference parameter; the callee mutates
         # the caller's value in place -- no transfer, no copy.
         if isinstance(expr, ReferenceExpr):
-            return
+            return self._decide_transfer(
+                expr, target_type, context, line, column,
+                action=ownership.ACTION_BORROW,
+                cleanup=ownership.CLEANUP_NONE,
+                source_type=getattr(expr, 'resolved_type', None),
+                reason="a by-reference argument: borrowing grants no ownership",
+                is_return=is_return)
 
         src_type = getattr(expr, 'resolved_type', None) or target_type
         if src_type is None:
-            return
+            return self._decide_transfer(
+                expr, target_type, context, line, column,
+                action=ownership.ACTION_NONE,
+                cleanup=ownership.CLEANUP_NONE,
+                reason="no type is known for the source, so there is no "
+                       "transfer to judge (an earlier error)",
+                is_return=is_return)
 
         # An escaping closure forwarded into a NON-escaping (borrowing) slot is a
         # LEND, not an ownership transfer (design 71 / design 16/29 variance): the
@@ -4508,7 +4614,14 @@ class TypeUtilsMixin:
                 and not getattr(target_type, 'func_is_escaping', False)):
             if isinstance(expr, (Identifier, MemberAccess, ArrayIndex, TupleIndex)):
                 expr.closure_lend = True
-            return
+            return self._decide_transfer(
+                expr, target_type, context, line, column,
+                action=ownership.ACTION_BORROW,
+                cleanup=ownership.CLEANUP_NONE,
+                source_type=src_type,
+                reason="an escaping closure LENT into a non-escaping slot "
+                       "(design 71/73): the caller keeps ownership",
+                is_return=is_return)
 
         # design 131: `o!` in a value position is a payload read out of storage
         # `o` still owns. Route it to the shared place rule, which applies the
@@ -4519,7 +4632,14 @@ class TypeUtilsMixin:
         if isinstance(expr, ForceUnwrap):
             self._check_payload_read(expr.expr, src_type, expr, context,
                                      line, column)
-            return
+            return self._decide_transfer(
+                expr, target_type, context, line, column,
+                action=ownership.ACTION_DELEGATED,
+                cleanup=ownership.CLEANUP_NONE,
+                source_type=src_type,
+                reason="a payload read: `_check_payload_read` owns the rule "
+                       "and marks the retain on the unwrap (design 131)",
+                is_return=is_return)
 
         # design 131/139: a read the coroutine transform synthesized out of a
         # frame slot carries its own ownership bookkeeping — a paired
@@ -4531,7 +4651,14 @@ class TypeUtilsMixin:
         # guard since design 131; the un-projected path needs it for the same
         # reason, and needed it the moment `Result<T, E>` gained a tier.
         if getattr(expr, 'frame_place_read', False):
-            return
+            return self._decide_transfer(
+                expr, target_type, context, line, column,
+                action=ownership.ACTION_DEFERRED,
+                cleanup=ownership.CLEANUP_NONE,
+                source_type=src_type,
+                reason="a coroutine-frame read: the transform's own "
+                       "bookkeeping settled it on the pre-transform AST",
+                is_return=is_return)
 
         # PROVENANCE SKIP (design 218c §1c, skip 4) — A TRANSFER OF A BY-VALUE
         # PARAMETER WHOSE TYPE ARRIVED BY SUBSTITUTION. In the template that
@@ -4543,7 +4670,14 @@ class TypeUtilsMixin:
         # transfer. `_transfer_is_substituted_param` is the whole question; its
         # docstring carries the triage and says why it is this narrow.
         if self._transfer_is_substituted_param(expr):
-            return
+            return self._decide_transfer(
+                expr, target_type, context, line, column,
+                action=ownership.ACTION_DEFERRED,
+                cleanup=ownership.CLEANUP_NONE,
+                source_type=src_type,
+                reason="design 218c §1c skip 4: the TEMPLATE raised the "
+                       "requirement and every call site discharged it",
+                is_return=is_return)
 
         # PROVENANCE SKIP (design 218c §1c) — SKIP 5, the same argument at the
         # RETURN. The template returned a type PARAMETER, so design 219 wave C
@@ -4555,7 +4689,14 @@ class TypeUtilsMixin:
         # field write and a binding inside the same instance are re-judged
         # unchanged. See `_mono_return_is_substituted`.
         if is_return and self._mono_return_is_substituted():
-            return
+            return self._decide_transfer(
+                expr, target_type, context, line, column,
+                action=ownership.ACTION_DEFERRED,
+                cleanup=ownership.CLEANUP_NONE,
+                source_type=src_type,
+                reason="design 218c §1c skip 5: the TEMPLATE judged this "
+                       "return abstractly and the call sites discharged it",
+                is_return=is_return)
 
         # design 131: a type carrying a deinit but NO copy policy used to fall
         # through every arm below and take the default bitwise path — an alias
@@ -4574,7 +4715,13 @@ class TypeUtilsMixin:
                 hint="this is a compiler bug — a copy policy is required at the "
                      "conformance, so no such type should exist"
             )
-            return
+            return self._decide_transfer(
+                expr, target_type, context, line, column,
+                action=ownership.ACTION_REFUSED,
+                cleanup=ownership.CLEANUP_NONE,
+                source_type=src_type,
+                reason="the deinit-without-a-policy tripwire (design 131)",
+                is_return=is_return)
 
         # design 139: ONE policy lookup decides this transfer. The chain used to
         # end in a bespoke owning-enum arm — a retain that fired only for a
@@ -4584,46 +4731,141 @@ class TypeUtilsMixin:
         # double-dropped (DF-131a). The oracle folds that enum case into the
         # 'implicit' tier and answers for the wrappers at the same time.
         tier = self.namespace.copy_tier(src_type)
+        # ONE aliasing question, asked once and reused by every arm below. It
+        # is the PRODUCER half of design 267's two questions — does this
+        # expression read out of storage somebody else keeps, or hand over a
+        # value the reader already owns — and it is what every tier arm has
+        # always gated on.
+        aliasing = self._is_aliasing_expr(expr)
+
+        # A DIVERGING SOURCE ACQUIRES NOTHING (SL-210 review). `let x: Int =
+        # panic("stop")` has a `Never`-typed initializer: control never reaches
+        # the binding, so there is no value, no temporary and no obligation to
+        # adopt. Classifying it as a fresh temporary — which is what the
+        # non-aliasing arm below does to every expression it is handed —
+        # recorded an ownership acquisition that can never occur, and design
+        # 267's own rule table says "diverging expression -> no value and no
+        # transfer" in as many words.
+        #
+        # AHEAD of the fresh-temporary classification and behind everything
+        # else, so the arms with side effects (the closure lend's stamp, the
+        # payload-read hand-off, the provenance skips) are untouched and only
+        # the CLASSIFICATION changes. `expr_diverges` is the shared oracle
+        # design 228 decides divergence with everywhere else, so a diverging
+        # `while { }` — which carries a flag rather than a stamped type — is
+        # answered here on the same terms as a `-> Never` call.
+        if expr_diverges(expr) or src_type.kind == TypeKind.NEVER:
+            return self._decide_transfer(
+                expr, target_type, context, line, column,
+                action=ownership.ACTION_NONE,
+                cleanup=ownership.CLEANUP_NONE,
+                tier=tier, source_type=src_type,
+                reason="the source diverges: no value reaches this boundary, "
+                       "so nothing is transferred and nothing is adopted",
+                is_return=is_return)
+
+        if not aliasing:
+            # A FRESH OWNED TEMPORARY, at every tier: a call result, a
+            # construction, a literal. Ownership transfers whole and nothing
+            # is duplicated, which is why no tier arm below refuses one.
+            return self._decide_transfer(
+                expr, target_type, context, line, column,
+                action=ownership.ACTION_TAKE,
+                cleanup=ownership.CLEANUP_ADOPT_TEMPORARY,
+                tier=tier, source_type=src_type,
+                reason="a fresh owned temporary",
+                is_return=is_return)
+
         if tier == 'nocopy':
-            if self._is_aliasing_expr(expr):
-                if is_return:
-                    self._error(
-                        ErrorKind.CANNOT_COPY,
-                        f"cannot return NoCopy type `{src_type}` without `move` in {context}",
-                        line, column,
-                        hint=self._transfer_refusal_hint(src_type, expr, 'nocopy')
-                    )
-                else:
-                    self._error(
-                        ErrorKind.CANNOT_COPY,
-                        f"cannot copy value of type `{src_type}` which implements NoCopy",
-                        line, column,
-                        hint=self._transfer_refusal_hint(src_type, expr, 'nocopy')
-                    )
-        elif tier == 'explicit':
+            if is_return:
+                self._error(
+                    ErrorKind.CANNOT_COPY,
+                    f"cannot return NoCopy type `{src_type}` without `move` in {context}",
+                    line, column,
+                    hint=self._transfer_refusal_hint(src_type, expr, 'nocopy')
+                )
+            else:
+                self._error(
+                    ErrorKind.CANNOT_COPY,
+                    f"cannot copy value of type `{src_type}` which implements NoCopy",
+                    line, column,
+                    hint=self._transfer_refusal_hint(src_type, expr, 'nocopy')
+                )
+            return self._decide_transfer(
+                expr, target_type, context, line, column,
+                action=ownership.ACTION_REFUSED,
+                cleanup=ownership.CLEANUP_NONE,
+                tier=tier, source_type=src_type,
+                reason="a NoCopy value read out of storage the source keeps: "
+                       "only a `move` transfers it",
+                is_return=is_return)
+
+        if tier == 'explicit':
             # ExplicitCopy gets the same move-required treatment as NoCopy:
             # the compiler never implicitly duplicates it. Duplication must be a
             # visible `.copy()`; a plain transfer must be a `move`.
-            if self._is_aliasing_expr(expr):
-                self._error(
-                    ErrorKind.CANNOT_COPY,
-                    f"cannot copy value of type `{src_type}` which implements ExplicitCopy",
-                    line, column,
-                    hint=self._transfer_refusal_hint(src_type, expr, 'explicit')
-                )
-        elif tier == 'implicit':
-            if self._is_aliasing_expr(expr):
-                expr.needs_copy = True
-        elif tier == 'abstract':
+            self._error(
+                ErrorKind.CANNOT_COPY,
+                f"cannot copy value of type `{src_type}` which implements ExplicitCopy",
+                line, column,
+                hint=self._transfer_refusal_hint(src_type, expr, 'explicit')
+            )
+            return self._decide_transfer(
+                expr, target_type, context, line, column,
+                action=ownership.ACTION_REFUSED,
+                cleanup=ownership.CLEANUP_NONE,
+                tier=tier, source_type=src_type,
+                reason="an ExplicitCopy value read out of storage the source "
+                       "keeps: a spelled `.copy()` or a `move` transfers it",
+                is_return=is_return)
+
+        if tier == 'implicit':
+            expr.needs_copy = True
+            return self._decide_transfer(
+                expr, target_type, context, line, column,
+                action=ownership.ACTION_COPY,
+                cleanup=ownership.CLEANUP_RETAIN_SOURCE,
+                tier=tier, source_type=src_type,
+                reason="the silent Copy tier: codegen duplicates through the "
+                       "type's own copy operation and the source stays live",
+                is_return=is_return)
+
+        if tier == 'abstract':
             # design 219 wave C, entry point 1. `'abstract'` used to fall off
             # the end of this chain — the whole of DF-217i: a generic body was
             # judged once with `T` abstract, the most permissive answer, and
             # nothing re-judged it at instantiation. The transfer now RAISES A
             # REQUIREMENT on the type parameters it names, which every call
             # site discharges against its concrete argument.
-            if self._is_aliasing_expr(expr):
-                self._tier_req_transfer(expr, src_type, line, column,
-                                        is_return=is_return)
+            self._tier_req_transfer(expr, src_type, line, column,
+                                    is_return=is_return)
+            return self._decide_transfer(
+                expr, target_type, context, line, column,
+                action=ownership.ACTION_DEFERRED,
+                cleanup=ownership.CLEANUP_NONE,
+                tier=tier, source_type=src_type,
+                pending=tuple(self._tier_abstract_params_in(src_type)),
+                reason="the tier is a property of the instantiation: design "
+                       "219 wave C raises the requirement and every call site "
+                       "discharges it",
+                is_return=is_return)
+
+        # THE TRIVIAL TIER — `'free'`, the one that used to fall off the end of
+        # the chain with nothing recorded. Duplicating a POD value is the
+        # bitwise copy the ABI already performs, so nothing is stamped and no
+        # cleanup obligation exists on either side. It is recorded because
+        # design 267's acceptance criterion says every successful boundary
+        # carries an explicit decision INCLUDING the trivial copies: a silent
+        # fall-through is exactly the "checked, nothing owed" that used to be
+        # indistinguishable from "never checked".
+        return self._decide_transfer(
+            expr, target_type, context, line, column,
+            action=ownership.ACTION_COPY,
+            cleanup=ownership.CLEANUP_NONE,
+            tier=tier, source_type=src_type,
+            reason="a trivial (POD) duplicate: the bitwise copy costs nothing "
+                   "and neither side owes a drop",
+            is_return=is_return)
 
     def _transfer_refusal_hint(self, src_type: SawType, expr: Expression,
                                tier: str) -> str:
@@ -4682,8 +4924,8 @@ class TypeUtilsMixin:
              synthesized PLACE WINDOW is not a body in this sense and is
              excluded there (`is_place_window`).
         """
-        self._check_value_transfer(final_expr, return_type, context_name,
-                                    line, column, is_return=True)
+        return self._check_value_transfer(final_expr, return_type, context_name,
+                                          line, column, is_return=True)
 
     # ------------------------------------------------------------------
     # Static exclusivity check for by-reference arguments (design 08/10).

@@ -1096,6 +1096,18 @@ class Identifier(Expression):
     # signature, and codegen works from one merged namespace.
     funcpointer_target: Optional['SawType'] = annotation(None)
     funcpointer_symbol: Optional[str] = annotation(None)
+    # design 267 (SL-210 review): the `VariableInfo.binding_id` this name
+    # resolved to, stamped WHERE IT RESOLVES — `_check_identifier`, inside the
+    # scope that owns the binding. It rides the node for the reason
+    # `resolved_static_symbol` does: resolution is scope-sensitive and the
+    # answer cannot be re-derived later. The ownership ledger asks a body's
+    # TAIL and a value branch's ARM results for their source identity AFTER
+    # their scopes have popped, so a lookup at record time either misses (a
+    # tail resolved to None) or, worse, finds an OUTER binding of the same name
+    # and reports a shadowed arm as its own shadower. None means the name is
+    # not a local binding at all (a module `static`, a const generic parameter,
+    # a name an earlier error poisoned) — never "not looked up".
+    resolved_binding_id: Optional[int] = annotation(None)
 
 
 @dataclass
@@ -1155,6 +1167,12 @@ class MoveExpr(Expression):
     # cannot re-derive it: post-transform `self` names the coroutine FRAME, so
     # the receiver's field table is no longer reachable from this node.
     consumes_field_type: Optional['SawType'] = annotation(None)
+    # design 267 (SL-210 review): the `VariableInfo.binding_id` of the ROOT
+    # binding this `move` retires, stamped in `_check_move_expr` where the name
+    # resolves. `variable` is a NAME, so the ownership ledger cannot recover the
+    # identity later — and a `move` tail is exactly the case that recorded
+    # `retire-source` with no source identified. Same rule as `Identifier`'s.
+    resolved_binding_id: Optional[int] = annotation(None)
 
 
 @dataclass
