@@ -149,19 +149,33 @@ _install_volatile_ir_support()
 #: 265,284, Os 225,256 (-15.4%), Oz 183,672 (-31.0%) with 783 outlined-body
 #: references where O1 has none.
 #:
-#: The TargetMachine's codegen opt level is deliberately NOT in this table: it
-#: stays at llvmlite's default (2) for every level, which is what the compiler
-#: has always used and what clang itself uses for `-Os`/`-Oz`. Moving it would
-#: change the DEFAULT level's output, which this brief does not do.
+#: The TargetMachine's CODEGEN opt level is the table's fourth knob (added by
+#: the Sep 10 2026 perf measurement; design 265 U1 had left it out because
+#: moving it for the default level would change that level's output).
+#: `_make_target_machine` reads it. Every level except `-O0` keeps llvmlite's
+#: default of 2, so the default level and every size level emit byte-identical
+#: objects to before; `-O0` alone drops to 0.
+#:
+#: WHY `-O0` MOVES. `-O0` skipped the IR pipeline and then ran the BACK END at
+#: full strength anyway, so a debug build paid for optimized instruction
+#: selection and scheduling it had explicitly asked not to have. Measured on
+#: the sawtracker server (6 modules, 2,015 emitted functions, 31.7 MB of IR),
+#: host arm64: `TargetMachine.emit_object` takes 79.3 s at codegen level 2 and
+#: 12.4 s at 0 — 6.4x, on the phase that is 80% of that compile. The cost
+#: concentrates in the coroutine transform's frame `resume` bodies, which are
+#: thousands of tiny basic blocks each (`__Frame_mutate_patch_resume`: 5,394
+#: blocks over 19,940 instructions), and LLVM's Machine Instruction Scheduler
+#: — half the back-end time at level 2, off entirely at level 0 — pays a
+#: per-region cost across every one of them.
 OptimizationLevel = namedtuple(
-    "OptimizationLevel", "flag speed_level function_attributes")
+    "OptimizationLevel", "flag speed_level function_attributes codegen_level")
 
 OPTIMIZATION_LEVELS = {
-    "0": OptimizationLevel("-O0", 0, ()),
-    "1": OptimizationLevel("-O1", 1, ()),
-    "2": OptimizationLevel("-O2", 2, ()),
-    "s": OptimizationLevel("-Os", 2, ("optsize",)),
-    "z": OptimizationLevel("-Oz", 2, ("optsize", "minsize")),
+    "0": OptimizationLevel("-O0", 0, (), 0),
+    "1": OptimizationLevel("-O1", 1, (), 2),
+    "2": OptimizationLevel("-O2", 2, (), 2),
+    "s": OptimizationLevel("-Os", 2, ("optsize",), 2),
+    "z": OptimizationLevel("-Oz", 2, ("optsize", "minsize"), 2),
 }
 
 #: The level a compile runs at when nobody says otherwise. Unchanged by design
@@ -4380,6 +4394,11 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         Used by both IR optimization and object emission so `--target` flows
         through to the emitted object and the optimization pipeline.
 
+        The machine's CODEGEN opt level comes from the level funnel
+        (`OPTIMIZATION_LEVELS[...].codegen_level`), so `-O0` gets a back end
+        that matches the pipeline it already asked for; see that table for the
+        measurement that moved it.
+
         Hosted builds request the PIC relocation model: modern Linux toolchains
         (ubuntu-latest) link PIE by default, and LLVM's default reloc for
         x86_64-linux is non-PIC — a bare `clang obj.o -o exe` then fails with
@@ -4388,11 +4407,14 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         no-op there. Freestanding/embedded keeps the LLVM default (bare-metal
         links its own way via a linker script; PIC is usually wrong there).
         """
+        codegen_level = OPTIMIZATION_LEVELS[self.opt_level].codegen_level
         target = binding.Target.from_triple(self.triple)
         if self.freestanding:
-            return target.create_target_machine(features=self.target_features)
+            return target.create_target_machine(features=self.target_features,
+                                                opt=codegen_level)
         return target.create_target_machine(reloc='pic',
-                                            features=self.target_features)
+                                            features=self.target_features,
+                                            opt=codegen_level)
 
     def emit_ir(self, optimize: bool = True) -> str:
         """Return the module's LLVM IR as text.

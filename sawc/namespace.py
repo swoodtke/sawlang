@@ -1653,9 +1653,22 @@ class Namespace:
 
     def imported_search_namespaces(self):
         """The namespaces of `imported_search_sources`, for callers with no
-        diagnostic to write."""
-        for _label, ns in self.imported_search_sources():
-            yield ns
+        diagnostic to write.
+
+        Spelled out rather than delegating to `imported_search_sources` and
+        dropping the label: this is the hottest iteration in the checker (40M
+        yields on a six-module program), and a generator delegating to a
+        generator paid two Python frames per element for a label nobody here
+        reads. The two loops below are that function's two loops; the pair
+        must stay in step, which is why they sit adjacent.
+        """
+        for module_sym in self.modules.values():
+            ns = getattr(module_sym, 'namespace', None)
+            if ns is not None:
+                yield ns
+        for _label, ns in self.selective_sources:
+            if ns is not None:
+                yield ns
 
     def coherence_search_namespaces(self):
         """Every namespace a COHERENCE query reaches from here (DF-238c).
@@ -1811,24 +1824,55 @@ class Namespace:
             return None
         return self._PRIMITIVE_CONFORMANCE_KEYS.get(saw_type.kind)
 
-    def _lookup_struct_deep(self, name: str) -> Optional[StructSymbol]:
+    # THE DEEP-LOOKUP WALK (struct / type-alias / enum — one shape, three
+    # tables). Each searches this namespace, then every namespace
+    # `imported_search_namespaces` reaches, transitively.
+    #
+    # `_seen` is a dedup set over namespace IDENTITY, and it is what keeps the
+    # walk linear in the import GRAPH rather than exponential in its PATHS. A
+    # module reached by two routes — the ordinary diamond, and the module
+    # imported both wholly and selectively, which `imported_search_sources`
+    # deliberately yields twice — used to be searched once per route, and every
+    # namespace below it once per route above it. On the sawtracker server
+    # (six modules over std) one `_lookup_type_alias_deep` call from the
+    # checker averaged 82 namespace visits; 243,542 calls became 19,986,260.
+    #
+    # Skipping a namespace already in `_seen` returns the same answer it
+    # returned the first time: the walk only continues past a namespace that
+    # answered None, so a second visit would answer None again. The set also
+    # makes the walk terminate on an import cycle, which `find_import_cycle`
+    # rejects earlier but which the recursion itself never guarded against.
+
+    def _lookup_struct_deep(self, name: str, _seen=None) -> Optional[StructSymbol]:
         """Look up a struct in this namespace or any imported module namespace."""
         result = self.lookup_struct(name)
         if result:
             return result
+        if _seen is None:
+            _seen = {id(self)}
         for ns in self.imported_search_namespaces():
-            found = ns._lookup_struct_deep(name)
+            key = id(ns)
+            if key in _seen:
+                continue
+            _seen.add(key)
+            found = ns._lookup_struct_deep(name, _seen)
             if found:
                 return found
         return None
 
-    def _lookup_type_alias_deep(self, name: str) -> Optional[TypeAliasSymbol]:
+    def _lookup_type_alias_deep(self, name: str, _seen=None) -> Optional[TypeAliasSymbol]:
         """Look up a type alias in this namespace or any imported module namespace."""
         result = self.lookup_type_alias(name)
         if result:
             return result
+        if _seen is None:
+            _seen = {id(self)}
         for ns in self.imported_search_namespaces():
-            found = ns._lookup_type_alias_deep(name)
+            key = id(ns)
+            if key in _seen:
+                continue
+            _seen.add(key)
+            found = ns._lookup_type_alias_deep(name, _seen)
             if found:
                 return found
         return None
@@ -3102,12 +3146,19 @@ class Namespace:
                         out.append((f"{variant}.{fname}", resolved))
         return out
 
-    def _lookup_enum_deep(self, name: str) -> Optional[EnumSymbol]:
+    def _lookup_enum_deep(self, name: str, _seen=None) -> Optional[EnumSymbol]:
+        """The enum twin of `_lookup_struct_deep`; `_seen` is documented there."""
         result = self.lookup_enum(name)
         if result:
             return result
+        if _seen is None:
+            _seen = {id(self)}
         for ns in self.imported_search_namespaces():
-            found = ns._lookup_enum_deep(name)
+            key = id(ns)
+            if key in _seen:
+                continue
+            _seen.add(key)
+            found = ns._lookup_enum_deep(name, _seen)
             if found:
                 return found
         return None
