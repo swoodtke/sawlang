@@ -207,15 +207,40 @@ class TestCase:
         return self.out_name or self.name
 
 
+def _colors_enabled() -> bool:
+    """SL-225: the runner's own decoration colors only a terminal.
+
+    Piped or captured output — the sawtracker server's patch-test capture, a
+    redirected local run, CI logs — gets plain text: every `Colors` constant
+    becomes the empty string, and everything built from them (the status
+    symbols, headers, the verdict line) degrades with no per-site changes.
+    `NO_COLOR` (any value, per the no-color.org convention) forces plain even
+    on a terminal; `FORCE_COLOR` forces color even piped, which is the escape
+    hatch for a pager or a color-preserving capture.
+
+    This gates the RUNNER's decoration only. Captured COMPILER diagnostics are
+    deliberately untouched — `compile_saw_in_process` documents the invariant
+    that a test's captured stderr is byte-identical to what the CLI subprocess
+    emits (assertion fidelity for examples/errors), and the ICE line beside it
+    mimics the CLI for the same reason.
+    """
+    if os.environ.get('FORCE_COLOR'):
+        return True
+    if os.environ.get('NO_COLOR') is not None:
+        return False
+    return sys.stdout.isatty()
+
+
 class Colors:
-    """ANSI color codes"""
-    GREEN = '\033[92m'
-    RED = '\033[91m'
-    YELLOW = '\033[93m'
-    BLUE = '\033[94m'
-    BOLD = '\033[1m'
-    DIM = '\033[2m'
-    RESET = '\033[0m'
+    """ANSI color codes — empty strings when stdout is not a terminal."""
+    _ON = _colors_enabled()
+    GREEN = '\033[92m' if _ON else ''
+    RED = '\033[91m' if _ON else ''
+    YELLOW = '\033[93m' if _ON else ''
+    BLUE = '\033[94m' if _ON else ''
+    BOLD = '\033[1m' if _ON else ''
+    DIM = '\033[2m' if _ON else ''
+    RESET = '\033[0m' if _ON else ''
 
 
 STATUS_SYMBOLS = {
