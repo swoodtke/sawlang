@@ -73,7 +73,6 @@ static B_DEL: Int = 127
 static B_CONT_LO: Int = 128
 static B_CONT_HI: Int = 191
 static B_ONE_TWENTY_SEVEN: Int = 127
-static B_MARKER: Int = 1     // 0x01 escaped-brace sentinel (mirrors the Python lexer)
 
 // =============================================================================
 // Byte helpers
@@ -233,18 +232,58 @@ public enum TokenKind {
     case Eof
 }
 
-// A lexed token. `value` holds the token's canonical text (decoded, for strings;
-// underscores stripped, for numbers). `suffix` is the fixed-width integer suffix
-// (one of i8/i16/i32/i64/u8/u16/u32/u64) when the literal was written `255u8` /
-// `0xFF_u8`, mirroring sawc/lexer.py's Token; None for every non-suffixed token.
-// (Restored once DF-116a — the Optional<String>-into-Vector-field miscompile that
-// had stopped this unit — was fixed; design 119 Part D.)
+// Which half of an interpolated string one segment is (design 268).
+public enum SegmentKind {
+    case Text,
+    case Expr
+}
+
+// One piece of an InterpString token's content — design 268's typed segment,
+// and THE definition of the segment record form for this lexer. `read_string`
+// is the only producer; `format_token` is the only consumer.
+//
+// - `Text`: `text` is the DECODED literal content of one run between
+//   interpolations (escapes applied, so an escaped brace is an ordinary `{`/`}`
+//   byte here). `line`/`col` are unused (0).
+// - `Expr`: `text` is the RAW source text between an interpolation's braces
+//   (never escape-decoded — a parser sub-lexes it), and `line`/`col` are the
+//   EXACT source position of its opening `{`. Blank `text` is a design-137
+//   format placeholder.
+//
+// This replaced the protocol where an escaped brace was encoded in-band as the
+// two bytes 0x01 + brace: those bytes are also what a real `\u{1}` before a
+// brace produces, so the decode silently deleted content (SL-238). No content
+// byte carries metadata now.
+//
+// Segments live in ONE FLAT ARENA per lex (`LexResult.segments`) and a token
+// names its own run with `seg_start`/`seg_count`. The arena is what keeps
+// `Token` in the automatic Copy tier: an owning `Vector` field would make the
+// whole token move-only, so every token read would become a borrow.
+public struct StringSegment {
+    public kind: SegmentKind
+    public text: String
+    public line: Int
+    public col: Int
+}
+
+// A lexed token. `value` holds the token's canonical text (decoded, for a plain
+// string; the RAW source spelling between the quotes, for an InterpString,
+// whose parse input is its SEGMENTS; underscores stripped, for numbers).
+// `suffix` is the fixed-width integer suffix (one of i8/i16/i32/i64/u8/u16/u32/
+// u64) when the literal was written `255u8` / `0xFF_u8`, mirroring
+// sawc/lexer.py's Token; None for every non-suffixed token. (Restored once
+// DF-116a — the Optional<String>-into-Vector-field miscompile that had stopped
+// this unit — was fixed; design 119 Part D.)
+// `seg_start`/`seg_count` name this token's run in the lex's segment arena
+// (design 268): `seg_count` is 0 on every token but an InterpString.
 public struct Token {
     public kind: TokenKind
     public value: String
     public line: Int
     public col: Int
     public suffix: String?
+    public seg_start: Int
+    public seg_count: Int
 }
 
 // A lex error, positioned at 1-based line:col. Message prose is informational
@@ -268,12 +307,14 @@ public struct DocComment {
     public col: Int
 }
 
-// The full output of a lex: the token stream plus the doc-comment trivia. `lex`
-// returns just the tokens (the common path); `lex_all` returns both so the CLI's
-// `--docs` mode and the differential harness can dump the trivia.
+// The full output of a lex: the token stream, the doc-comment trivia (design
+// 121) and the string-segment arena (design 268). One entry point — `lex` —
+// returns all three, because a token's `seg_start`/`seg_count` mean nothing
+// without the arena they index into.
 public struct LexResult {
     public tokens: Vector<Token>
     public docs: Vector<DocComment>
+    public segments: Vector<StringSegment>
 }
 
 extension LexResult: NoCopy {}
@@ -462,10 +503,39 @@ public func escape_text(s: String) -> String {
     out.build()
 }
 
+// One canonical segment field (design 268) for an INTERP_STRING record:
+//
+//   T:<escaped text>              a literal run (decoded content)
+//   E:<line>:<col>:<escaped text> an interpolation (RAW text, the `{` position)
+//
+// `escape_text` never emits a tab or a newline, so the fields stay splittable.
+// tools/dump_tokens.py's `format_segment` emits the identical shape.
+public func format_segment(s: &StringSegment) -> String {
+    var out = StringBuilder()
+    match s.kind {
+        case Text -> try! out.append("T:"),
+        case Expr -> {
+            try! out.append("E:")
+            try! out.append(s.line)
+            try! out.append(":")
+            try! out.append(s.col)
+            try! out.append(":")
+        }
+    }
+    try! out.append(escape_text(s.text))
+    out.build()
+}
+
 // One canonical record: KIND<TAB>line:col<TAB>escaped-text[<TAB>suffix]. The
 // 4th column is present only for a suffixed integer literal (e.g. `255u8` dumps
 // `INT<TAB>1:1<TAB>255<TAB>u8`); every other token stops at the escaped text.
-public func format_token(t: &Token) -> String {
+//
+// An INTERP_STRING (design 268) instead continues with ONE FIELD PER TYPED
+// SEGMENT, in source order, after the escaped text (which for that token is the
+// literal's raw source spelling). No token carries both a suffix and segments,
+// so the tail is unambiguous. `segments` is the arena the token's
+// `seg_start`/`seg_count` index into — the `segments` of the lex it came from.
+public func format_token(t: &Token, segments: &Vector<StringSegment>) -> String {
     var out = StringBuilder()
     try! out.append(kind_name(t.kind))
     try! out.append("\t")
@@ -477,6 +547,14 @@ public func format_token(t: &Token) -> String {
     if let sfx = t.suffix {
         try! out.append("\t")
         try! out.append(sfx)
+    }
+    var i = 0
+    while i < t.seg_count {
+        if let s = segments.get(t.seg_start + i) {
+            try! out.append("\t")
+            try! out.append(format_segment(&s))
+        }
+        i = i + 1
     }
     out.build()
 }
@@ -596,7 +674,8 @@ extension Lexer {
     // A token at the CURRENT position (used before advancing over operators).
     // Never a suffixed literal, so `suffix` is None.
     func tok(&self, kind: TokenKind, value: String) -> Token {
-        Token(kind: kind, value: value, line: self.line, col: self.col, suffix: None)
+        Token(kind: kind, value: value, line: self.line, col: self.col, suffix: None,
+              seg_start: 0, seg_count: 0)
     }
 
     func skip_whitespace(&var self) {
@@ -701,13 +780,23 @@ extension Lexer {
         return
     }
 
-    // Read a string literal, detecting interpolation markers. Escapes are decoded
-    // exactly as in the Python lexer; escaped braces store a 0x01 sentinel byte;
-    // interpolation braces are preserved raw. Returns the token.
-    func read_string(&var self) -> Result<Token, LexError> {
+    // Read a string literal, segmenting it at its interpolations (design 268).
+    // Escapes are decoded exactly as in the Python lexer, and an escaped brace is
+    // an ordinary brace byte — nothing is encoded in-band any more.
+    //
+    // A plain string's `value` is its decoded content. An InterpString's `value`
+    // is the RAW source spelling between the quotes (for diagnostics and the
+    // dump) and its parse input is the SEGMENTS appended to `segments`, which the
+    // returned token names by `seg_start`/`seg_count`. Adjacent literal runs are
+    // merged and an EMPTY `Text` segment is never emitted; sawc/lexer.py's
+    // `read_string` follows the same two rules, which is what keeps the two
+    // dumps byte-identical (tools/lexdiff.py).
+    func read_string(&var self, segments: &var Vector<StringSegment>) -> Result<Token, LexError> {
         let start_line = self.line
         let start_col = self.col
         let _ = self.advance()  // consume opening quote
+        let content_start = self.pos   // first byte after the opening quote
+        let seg_start = segments.len()
         var out = StringBuilder()
         var has_interp = false
         // Position of the FIRST interpolation `{` opened in this literal (0 = none
@@ -727,14 +816,10 @@ extension Lexer {
                 else if ch == B_D0 { try! out.append(to_byte(0)) }
                 else if ch == B_QUOTE { try! out.append(to_byte(B_QUOTE)) }
                 else if ch == B_BACKSLASH { try! out.append(to_byte(B_BACKSLASH)) }
-                else if ch == B_LBRACE {
-                    try! out.append(to_byte(B_MARKER))
-                    try! out.append(to_byte(B_LBRACE))
-                }
-                else if ch == B_RBRACE {
-                    try! out.append(to_byte(B_MARKER))
-                    try! out.append(to_byte(B_RBRACE))
-                }
+                // `\{` / `\}` is just a brace: the segments, not a marker byte,
+                // carry which braces opened an interpolation.
+                else if ch == B_LBRACE { try! out.append(to_byte(B_LBRACE)) }
+                else if ch == B_RBRACE { try! out.append(to_byte(B_RBRACE)) }
                 else if ch == B_LO_U {
                     try self.read_unicode_escape(&var out)
                 }
@@ -742,6 +827,9 @@ extension Lexer {
                     return self.err("unknown escape in a string literal")
                 }
             } else if self.peek() == B_LBRACE {
+                // An unescaped `{` opens an interpolation: close the pending text
+                // run and emit an `Expr` segment carrying the RAW text between the
+                // braces plus the brace's exact position.
                 has_interp = true
                 let open_line = self.line
                 let open_col = self.col
@@ -749,18 +837,28 @@ extension Lexer {
                     interp_line = open_line
                     interp_col = open_col
                 }
-                try! out.append(to_byte(self.advance()))  // keep '{'
+                let run = out.build()
+                if run.len() > 0 {
+                    try! segments.push(StringSegment(kind: SegmentKind.Text, text: run, line: 0, col: 0))
+                }
+                out.clear()
+                let _ = self.advance()  // consume the opening '{'
                 var depth = 1
+                var raw = StringBuilder()
                 while self.peek() != -1 && depth > 0 {
                     let c = self.peek()
                     if c == B_LBRACE { depth = depth + 1 }
                     else if c == B_RBRACE { depth = depth - 1 }
-                    try! out.append(to_byte(self.advance()))
+                    // The outer braces are structure; only the interior is kept.
+                    if depth > 0 { try! raw.append(to_byte(c)) }
+                    let _ = self.advance()
                 }
                 if depth > 0 {
                     // This interpolation ran to EOF without a closing `}`.
                     return self.err_at("unterminated interpolation in string literal, opened at this `\{` (write `\\\{` for a literal brace)", open_line, open_col)
                 }
+                try! segments.push(StringSegment(kind: SegmentKind.Expr, text: raw.build(),
+                                                 line: open_line, col: open_col))
             } else {
                 try! out.append(to_byte(self.advance()))
             }
@@ -776,9 +874,19 @@ extension Lexer {
             }
             return self.err("Unterminated string")
         }
+        let content_end = self.pos   // the closing quote's byte index
         let _ = self.advance()  // consume closing quote
-        let kind = if has_interp { TokenKind.InterpString } else { TokenKind.StringLit }
-        Token(kind: kind, value: out.build(), line: start_line, col: start_col, suffix: None)
+        if not has_interp {
+            return Token(kind: TokenKind.StringLit, value: out.build(), line: start_line,
+                         col: start_col, suffix: None, seg_start: seg_start, seg_count: 0)
+        }
+        let tail = out.build()
+        if tail.len() > 0 {
+            try! segments.push(StringSegment(kind: SegmentKind.Text, text: tail, line: 0, col: 0))
+        }
+        Token(kind: TokenKind.InterpString, value: self.src.substring(content_start, content_end),
+              line: start_line, col: start_col, suffix: None,
+              seg_start: seg_start, seg_count: segments.len() - seg_start)
     }
 
     // Positioned just after an integer's digits, tentatively read a fixed-width
@@ -835,7 +943,8 @@ extension Lexer {
             if not literal_fits(index_str, 10, 64) {
                 return self.err_at("integer literal out of range for a 64-bit integer", start_line, start_col)
             }
-            return Token(kind: TokenKind.IntLit, value: index_str, line: start_line, col: start_col, suffix: None)
+            return Token(kind: TokenKind.IntLit, value: index_str, line: start_line, col: start_col, suffix: None,
+                         seg_start: 0, seg_count: 0)
         }
 
         let n = self.peek1()
@@ -869,7 +978,8 @@ extension Lexer {
             try! vb.append("0")
             try! vb.append(prefix_str)
             try! vb.append(digit_str)
-            return Token(kind: TokenKind.IntLit, value: vb.build(), line: start_line, col: start_col, suffix: suffix)
+            return Token(kind: TokenKind.IntLit, value: vb.build(), line: start_line, col: start_col, suffix: suffix,
+                         seg_start: 0, seg_count: 0)
         }
 
         // Decimal integer or float, with underscore digit separators.
@@ -900,7 +1010,8 @@ extension Lexer {
         }
         let value = val.build()
         if is_float {
-            return Token(kind: TokenKind.FloatLit, value: value, line: start_line, col: start_col, suffix: None)
+            return Token(kind: TokenKind.FloatLit, value: value, line: start_line, col: start_col, suffix: None,
+                         seg_start: 0, seg_count: 0)
         }
         let suffix = self.try_read_int_suffix()
         if let sfx = suffix {
@@ -912,7 +1023,8 @@ extension Lexer {
                 return self.err_at("integer literal out of range for a 64-bit integer", start_line, start_col)
             }
         }
-        Token(kind: TokenKind.IntLit, value: value, line: start_line, col: start_col, suffix: suffix)
+        Token(kind: TokenKind.IntLit, value: value, line: start_line, col: start_col, suffix: suffix,
+              seg_start: 0, seg_count: 0)
     }
 
     func read_hash_directive(&var self) -> Result<Token, LexError> {
@@ -933,7 +1045,8 @@ extension Lexer {
         if not known {
             return self.err_at("unknown directive after `#`", start_line, start_col)
         }
-        Token(kind: TokenKind.HashDirective, value: name_str, line: start_line, col: start_col, suffix: None)
+        Token(kind: TokenKind.HashDirective, value: name_str, line: start_line, col: start_col, suffix: None,
+              seg_start: 0, seg_count: 0)
     }
 
     func read_identifier(&var self) -> Token {
@@ -944,7 +1057,8 @@ extension Lexer {
             try! sb.append(to_byte(self.advance()))
         }
         let value = sb.build()
-        Token(kind: keyword_kind(value), value: value, line: start_line, col: start_col, suffix: None)
+        Token(kind: keyword_kind(value), value: value, line: start_line, col: start_col, suffix: None,
+              seg_start: 0, seg_count: 0)
     }
 
     func read_dollar(&var self) -> Result<Token, LexError> {
@@ -959,12 +1073,15 @@ extension Lexer {
         while is_digit(self.peek()) {
             try! num.append(to_byte(self.advance()))
         }
-        Token(kind: TokenKind.DollarParam, value: num.build(), line: start_line, col: start_col, suffix: None)
+        Token(kind: TokenKind.DollarParam, value: num.build(), line: start_line, col: start_col, suffix: None,
+              seg_start: 0, seg_count: 0)
     }
 
-    // Run the lexer to EOF. Doc-comment trivia is appended to `docs` (design 121);
-    // the returned token stream is exactly what it was before doc comments existed.
-    func tokenize(&var self, docs: &var Vector<DocComment>) -> Result<Vector<Token>, LexError> {
+    // Run the lexer to EOF. Doc-comment trivia is appended to `docs` (design 121)
+    // and every interpolated string's typed segments to `segments` (design 268);
+    // the returned token stream is exactly what it was before either existed.
+    func tokenize(&var self, docs: &var Vector<DocComment>,
+                  segments: &var Vector<StringSegment>) -> Result<Vector<Token>, LexError> {
         var tokens = Vector<Token>()
         while self.pos < self.slen {
             self.skip_whitespace()
@@ -978,7 +1095,7 @@ extension Lexer {
                 try! tokens.push(self.tok(TokenKind.Newline, "\n"))
                 let _ = self.advance()
             } else if ch == B_QUOTE {
-                try! tokens.push(try self.read_string())
+                try! tokens.push(try self.read_string(&var segments))
             } else if is_digit(ch) {
                 // Design 161: one-token lookback. Digits right after a member-access
                 // `.` are a tuple index, not the start of a float.
@@ -1197,19 +1314,15 @@ func in_base_set(b: Int, base: Int) -> Bool {
     b >= B_D0 && b <= B_D7
 }
 
-// Tokenize `source` into a Vector of tokens (terminated by an EOF token), or
-// return the first lex error. Mirrors sawc/lexer.py's observable output.
-public func lex(source: String) -> Result<Vector<Token>, LexError> {
+// Tokenize `source`, or return the first lex error. Mirrors sawc/lexer.py's
+// observable output: the token stream (terminated by an EOF token), the
+// doc-comment trivia (design 121) and the string-segment arena (design 268),
+// which is why there is ONE entry point rather than a tokens-only twin — a
+// token's `seg_start`/`seg_count` index into that arena.
+public func lex(source: String) -> Result<LexResult, LexError> {
     var lexer = Lexer(src: source, slen: source.len(), pos: 0, line: 1, col: 1)
     var docs = Vector<DocComment>()
-    lexer.tokenize(&var docs)
-}
-
-// Tokenize AND capture doc-comment trivia (design 121). Returns both the token
-// stream and the doc records in source order, or the first lex error.
-public func lex_all(source: String) -> Result<LexResult, LexError> {
-    var lexer = Lexer(src: source, slen: source.len(), pos: 0, line: 1, col: 1)
-    var docs = Vector<DocComment>()
-    let toks = try lexer.tokenize(&var docs)
-    LexResult(tokens: move toks, docs: move docs)
+    var segments = Vector<StringSegment>()
+    let toks = try lexer.tokenize(&var docs, &var segments)
+    LexResult(tokens: move toks, docs: move docs, segments: move segments)
 }

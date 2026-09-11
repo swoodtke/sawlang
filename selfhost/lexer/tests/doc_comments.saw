@@ -1,10 +1,10 @@
 // Doc comments (`///`, `//!`) are captured as trivia: they never enter the token
-// stream, and `lex_all` reports them separately (design 121).
+// stream, and the lex result reports them separately (design 121).
 import src.lib.*
 
 func recs(s: String) -> Vector<String> {
     var out = Vector<String>()
-    match lex_all(s) {
+    match lex(s) {
         case Ok(r) -> {
             var i = 0
             while i < r.docs.len() {
@@ -25,10 +25,10 @@ func at(rs: &Vector<String>, i: Int) -> String {
 func kinds(s: String) -> String {
     var out = StringBuilder()
     match lex(s) {
-        case Ok(ts) -> {
+        case Ok(r) -> {
             var i = 0
-            while i < ts.len() {
-                if let t = ts.get(i) { try! out.append(format_token(&t)) }
+            while i < r.tokens.len() {
+                if let t = r.tokens.get(i) { try! out.append(format_token(&t, &r.segments)) }
                 try! out.append("|")
                 i = i + 1
             }

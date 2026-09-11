@@ -168,7 +168,7 @@ Expression parsing with operator precedence.
 | `_is_closure_with_named_params()` | Detect named param closure |
 | `_parse_closure_params()` | Parse closure parameters |
 | `_parse_closure_body()` | Parse closure body |
-| `_parse_interpolated_string(raw, line, col)` | Parse string interpolation |
+| `_parse_interpolated_string(segments, line, col)` | Parse string interpolation from the token's typed segments (design 268) |
 | `_count_shorthand_params(body)` | Count `$0`, `$1`, etc. usage |
 
 #### Trailing Closure Handling

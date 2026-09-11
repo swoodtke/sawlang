@@ -1,17 +1,17 @@
 // Integer / float / string / bool literal forms.
 import src.lib.*
 
-func toks(s: String) -> Vector<Token> {
+func lexed(s: String) -> LexResult {
     match lex(s) {
-        case Ok(t) -> move t,
+        case Ok(r) -> move r,
         case Err(e) -> panic("unexpected lex error at {e.line}:{e.col}: {e.message}")
     }
 }
 
 // The canonical dump line for token `i` (kind + position + escaped text).
-func at(ts: &Vector<Token>, i: Int) -> String {
-    if let t = ts.get(i) {
-        format_token(&t)
+func at(r: &LexResult, i: Int) -> String {
+    if let t = r.tokens.get(i) {
+        format_token(&t, &r.segments)
     } else {
         panic("no token at index {i}")
     }
@@ -20,7 +20,7 @@ func at(ts: &Vector<Token>, i: Int) -> String {
 func main() {
     // Decimal, hex (digit case preserved, prefix lowercased), binary, octal,
     // underscores stripped, float.
-    let a = toks("42 0XFf 0b1010 0o17 1_000 3.14")
+    let a = lexed("42 0XFf 0b1010 0o17 1_000 3.14")
     assert(at(&a, 0).equals("INT\t1:1\t42"), "decimal")
     assert(at(&a, 1).equals("INT\t1:4\t0xFf"), "hex: prefix lowercased, digits kept")
     assert(at(&a, 2).equals("INT\t1:9\t0b1010"), "binary")
@@ -31,56 +31,56 @@ func main() {
     // Width-suffixed literals lex as a single INT with the digits as the value
     // and the suffix as the dump's 4th column (design 119 Part D). 255u8 is in
     // range (no error).
-    let b = toks("255u8 65535u16 1_000i32")
+    let b = lexed("255u8 65535u16 1_000i32")
     assert(at(&b, 0).equals("INT\t1:1\t255\tu8"), "255u8 -> INT 255 u8")
     assert(at(&b, 1).equals("INT\t1:7\t65535\tu16"), "65535u16 -> INT 65535 u16")
     assert(at(&b, 2).equals("INT\t1:16\t1000\ti32"), "1_000i32 -> INT 1000 i32")
 
     // `5abc` stays INT + IDENT (no bogus suffix, no 4th column); `0xFace` is hex.
-    let c = toks("5abc 0xFace")
+    let c = lexed("5abc 0xFace")
     assert(at(&c, 0).equals("INT\t1:1\t5"), "5abc: INT")
     assert(at(&c, 1).equals("IDENT\t1:2\tabc"), "5abc: IDENT")
     assert(at(&c, 2).equals("INT\t1:6\t0xFace"), "0xFace hex")
 
     // Design 161 LOOKBACK: digits right after a member-access `.` are a TUPLE
     // INDEX — a bare integer that stops at a second `.` and takes no suffix.
-    let e = toks("t.0.name")
+    let e = lexed("t.0.name")
     assert(at(&e, 0).equals("IDENT\t1:1\tt"), "t.0.name: receiver")
     assert(at(&e, 1).equals("DOT\t1:2\t."), "t.0.name: index dot")
     assert(at(&e, 2).equals("INT\t1:3\t0"), "t.0.name: an index, not a float")
     assert(at(&e, 3).equals("DOT\t1:4\t."), "t.0.name: the member dot survives")
     assert(at(&e, 4).equals("IDENT\t1:5\tname"), "t.0.name: field")
 
-    let f = toks("t.0.1")
+    let f = lexed("t.0.1")
     assert(at(&f, 2).equals("INT\t1:3\t0"), "t.0.1: first hop")
     assert(at(&f, 3).equals("DOT\t1:4\t."), "t.0.1: two hops, not the float 0.1")
     assert(at(&f, 4).equals("INT\t1:5\t1"), "t.0.1: second hop")
 
-    let g = toks("t.0u8")
+    let g = lexed("t.0u8")
     assert(at(&g, 2).equals("INT\t1:3\t0"), "a tuple index takes no width suffix")
     assert(at(&g, 3).equals("IDENT\t1:4\tu8"), "the suffix bytes stay an identifier")
 
     // Design 161 LOOKAHEAD: a `.` continues a number only when a DIGIT follows
     // it, so a method call on a literal lexes and `7.` is INT + DOT.
-    let h = toks("7.to_string()")
+    let h = lexed("7.to_string()")
     assert(at(&h, 0).equals("INT\t1:1\t7"), "7.to_string(): the literal")
     assert(at(&h, 1).equals("DOT\t1:2\t."), "7.to_string(): member dot")
     assert(at(&h, 2).equals("IDENT\t1:3\tto_string"), "7.to_string(): method name")
 
-    let i = toks("7.")
+    let i = lexed("7.")
     assert(at(&i, 0).equals("INT\t1:1\t7"), "trailing dot: INT")
     assert(at(&i, 1).equals("DOT\t1:2\t."), "trailing dot: DOT, never a float")
 
     // A separate lex: the lookback rule reads the PREVIOUS token, so a float has
     // to start a stream of its own to be judged as one (`7. 7.5` in one line
     // would make that second number an index off the first dot).
-    let j = toks("7.5.len")
+    let j = lexed("7.5.len")
     assert(at(&j, 0).equals("FLOAT\t1:1\t7.5"), "digit-dot-digit is still a float")
     assert(at(&j, 1).equals("DOT\t1:4\t."), "and the float's own member dot")
     assert(at(&j, 2).equals("IDENT\t1:5\tlen"), "method name after a float")
 
     // Keywords vs identifiers; true/false map to their own kinds.
-    let d = toks("func x let true false module")
+    let d = lexed("func x let true false module")
     assert(at(&d, 0).equals("FUNC\t1:1\tfunc"), "func keyword")
     assert(at(&d, 1).equals("IDENT\t1:6\tx"), "ident")
     assert(at(&d, 2).equals("LET\t1:8\tlet"), "let keyword")

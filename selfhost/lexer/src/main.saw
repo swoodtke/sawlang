@@ -59,7 +59,7 @@ func main() -> Int {
     }
 
     if docs_mode {
-        match lex_all(source) {
+        match lex(source) {
             case Ok(r) -> {
                 var j = 0
                 while j < r.docs.len() {
@@ -77,11 +77,11 @@ func main() -> Int {
         }
     } else {
         match lex(source) {
-            case Ok(tokens) -> {
+            case Ok(r) -> {
                 var j = 0
-                while j < tokens.len() {
-                    if let t = tokens.get(j) {
-                        print(format_token(&t))
+                while j < r.tokens.len() {
+                    if let t = r.tokens.get(j) {
+                        print(format_token(&t, &r.segments))
                     }
                     j = j + 1
                 }

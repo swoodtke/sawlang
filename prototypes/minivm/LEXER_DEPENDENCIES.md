@@ -42,13 +42,16 @@ the numbered milestone designs define each isolated slice.
   inequality on this enum are required (`lib.saw:985` and elsewhere). Numeric
   discriminants, payload cases, raw-value APIs, and user-defined enum layout are
   not required by this lexer.
-- Public field structs `Token`, `LexError`, `DocComment`, and `LexResult` at
-  `lib.saw:242-279`, plus private `Lexer` at `lib.saw:559-565`. Construction uses
+- Public field structs `StringSegment`, `Token`, `LexError`, `DocComment`, and
+  `LexResult` at `lib.saw:262-318` (design 268 added `StringSegment` and the
+  payload-free enum `SegmentKind` at `lib.saw:236`, and gave `Token` its
+  `seg_start`/`seg_count` fields), plus private `Lexer` at
+  `lib.saw:598-604`. Construction uses
   order-independent named fields, field reads, and mutable field assignment
   through `&var self` (`advance`, `lib.saw:576-586`). Visibility must parse and
   type-check; cross-module consumers need the four public models and their public
   fields. Private fields and custom initializers are unnecessary here.
-- `extension LexResult: NoCopy {}` (`lib.saw:279`) and `extension Lexer { ... }`
+- `extension LexResult: NoCopy {}` (`lib.saw:320`) and `extension Lexer { ... }`
   (`lib.saw:567-1189`). The former must suppress implicit copying; the latter
   supplies instance methods with `&self` and `&var self` receivers. Traits in
   general and extension dispatch across arbitrary types are outside this slice.
@@ -92,12 +95,15 @@ the numbered milestone designs define each isolated slice.
   arithmetic, and unsafe user pointers are not used by lexer source.
 - Copy versus move behavior must distinguish scalar/Copy values (`Int`, `Bool`,
   `String`, payload-free `TokenKind`, `Byte`, unsigned integers) from aggregate
-  ownership. `LexResult` is explicitly `NoCopy`; its two vectors are moved into
-  the result at `lib.saw:1210-1215`. Vector elements include owning `String` and
+  ownership. `LexResult` is explicitly `NoCopy`; its three vectors — tokens, doc
+  trivia and design 268's string segments — are moved into the result at
+  `lib.saw:1322-1327`. Vector elements include owning `String` and
   `String?`, so pushing/returning structs must retain/move/drop exactly once.
-  The lexer explicitly moves both vectors into `LexResult` at `lib.saw:1215`;
+  The lexer explicitly moves all three vectors into `LexResult` at
+  `lib.saw:1327`;
   other transfers and copies must follow each payload's copy policy.
 - Generic type application is needed for `Vector<Token>`, `Vector<DocComment>`,
+  `Vector<StringSegment>`,
   `Result<T, LexError>`, and `String?`. The lexer declares no generic function or
   type itself. A monomorphized built-in/runtime implementation is sufficient;
   generic declaration parsing, bounds, defaults, and arbitrary specialization
@@ -206,7 +212,8 @@ precise rejection. Keep all earlier milestone tests green at every gate.
    `literal_fits`, and `Lexer.advance`; compare their outputs to hand-written
    oracles.
 7. **Whole-module compile and differential lexing.** Compile the unchanged
-   `selfhost/lexer/src/lib.saw`, call `lex` and `lex_all`, and compare canonical
+   `selfhost/lexer/src/lib.saw`, call `lex` (one entry point since design 268,
+   returning tokens + doc trivia + string segments), and compare canonical
    token/error/doc records against the production lexer. Minimum cases: every
    keyword/operator, comments/docs, decimal/base/float/suffix boundaries,
    escaped and interpolated strings, Unicode scalar edges, raw multi-byte UTF-8

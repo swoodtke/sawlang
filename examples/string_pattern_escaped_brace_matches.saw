@@ -1,0 +1,34 @@
+// A string PATTERN holding an escaped brace matches the equal literal.
+//
+// Design 268 made the lexer hand the parser a fully decoded plain-string value,
+// which closes a second face of SL-238: the pattern position built its literal
+// straight from the token value with no marker strip (the value position had
+// one), so the two sides of `match` disagreed byte for byte and the arm could
+// never be taken — `classify("a\{b")` answered 0.
+// EXPECT: success
+// EXPECT-OUTPUT: 1
+// EXPECT-OUTPUT: 2
+// EXPECT-OUTPUT: 3
+// EXPECT-OUTPUT: 0
+// EXPECT-OUTPUT: 0
+
+func classify(s: String) -> Int {
+    match s {
+        case "a\{b" -> 1,
+        case "\u{1}\u{7b}" -> 2,
+        case "\}" -> 3,
+        case _ -> 0
+    }
+}
+
+func main() {
+    // Each pattern matches the literal written the same way.
+    print(classify("a\{b"))
+    print(classify("\u{1}\u{7b}"))
+    print(classify("\}"))
+
+    // …and the escaped brace is NOT equal to the U+0001 + brace pair, which is
+    // exactly the distinction the old encoding could not make.
+    print(classify("\{"))
+    print(classify("\u{1}\u{7d}"))
+}

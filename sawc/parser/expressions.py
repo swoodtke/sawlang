@@ -727,13 +727,15 @@ class ExpressionsMixin:
 
         elif self.match(TokenType.STRING):
             self.advance()
-            # Convert escaped brace markers back to literal braces
-            value = token.value.replace('\x01{', '{').replace('\x01}', '}')
-            return StringLiteral(value=value, line=token.line, column=token.column)
+            # The lexer fully decoded it (design 268): a brace in the value is
+            # just a brace, so there is nothing left to un-encode here.
+            return StringLiteral(value=token.value, line=token.line,
+                                 column=token.column)
 
         elif self.match(TokenType.INTERP_STRING):
             self.advance()
-            return self._parse_interpolated_string(token.value, token.line, token.column)
+            return self._parse_interpolated_string(
+                token.segments, token.line, token.column)
 
         elif self.match(TokenType.IDENT):
             self.advance()
@@ -1861,79 +1863,47 @@ class ExpressionsMixin:
             # expression statement — closures mutate captured `&var` state.
             return self.parse_assignment_or_expression_statement()
 
-    def _parse_interpolated_string(self, raw_value: str, line: int, column: int) -> StringInterpolation:
-        """Parse a string with {expr} interpolations into parts and expressions.
+    def _parse_interpolated_string(self, segments, line: int, column: int) -> StringInterpolation:
+        """Build a `StringInterpolation` from an INTERP_STRING token's typed
+        SEGMENTS (design 268) — the ONE consumer of a segment list on the
+        Python side.
 
-        The raw_value contains the string with braces preserved, e.g. "Hello {name}!"
-        Escaped braces are marked as \x01{ and \x01} by the lexer.
-        Returns a StringInterpolation node with parts and expressions separated.
+        The lexer already decided which braces open interpolations and decoded
+        every escape (see `lexer.StringSegment`), so there is no byte re-scan
+        here and no escaped-brace marker to un-encode: a `text` segment
+        contributes literal content, an `expr` segment contributes one
+        expression (or a design-137 `FormatPlaceholder` when its raw text is
+        blank), and each expression is sub-parsed at the EXACT source position
+        of its opening `{` (design 99: the line was already exact, the column
+        is now exact under escapes too).
+
+        The result keeps the node's invariant `len(parts) == len(expressions)
+        + 1`: the pending text run is flushed as a part at every `expr`
+        segment, so two adjacent interpolations are separated by an empty part.
         """
-        from lexer import Lexer
-
         parts = []
         expressions = []
-        current_part = []
-        i = 0
+        pending = []
 
-        while i < len(raw_value):
-            # Check for escaped brace markers (\x01{ and \x01})
-            if raw_value[i] == '\x01' and i + 1 < len(raw_value) and raw_value[i + 1] in '{}':
-                # Convert marker back to literal brace
-                current_part.append(raw_value[i + 1])
-                i += 2
-            elif raw_value[i] == '{':
-                # Real interpolation start
-                # Save current string part
-                parts.append(''.join(current_part))
-                current_part = []
+        for seg in segments:
+            if seg.kind == 'text':
+                pending.append(seg.text)
+                continue
+            parts.append(''.join(pending))
+            pending = []
+            # An EMPTY brace pair is a format placeholder (design 137), not an
+            # expression to parse: `panic("out of {}", what)` fills it from the
+            # argument list. Sub-parsing "" used to be the error "Invalid
+            # expression in string interpolation".
+            if seg.text.strip() == "":
+                expressions.append(FormatPlaceholder(
+                    line=seg.line, column=seg.column))
+                continue
+            expressions.append(self._parse_expression_from_string(
+                seg.text, seg.line, seg.column))
 
-                # Source position of this `{` so the sub-parsed expression's
-                # diagnostics point at the real call site (design 99). Lines
-                # are exact; columns approximate under escape sequences (each
-                # source escape like `\n` is one raw char), which is fine —
-                # the line is what diagnostics need.
-                prefix = raw_value[:i]
-                newlines = prefix.count('\n')
-                if newlines:
-                    brace_line = line + newlines
-                    brace_column = i - prefix.rfind('\n')
-                else:
-                    brace_line = line
-                    brace_column = column + 1 + i  # +1 for the opening quote
-
-                # Extract expression text between { and }
-                i += 1  # skip {
-                brace_depth = 1
-                expr_chars = []
-                while i < len(raw_value) and brace_depth > 0:
-                    ch = raw_value[i]
-                    if ch == '{':
-                        brace_depth += 1
-                    elif ch == '}':
-                        brace_depth -= 1
-                    if brace_depth > 0:
-                        expr_chars.append(ch)
-                    i += 1
-
-                # An EMPTY brace pair is a format placeholder (design 137), not
-                # an expression to parse: `panic("out of {}", what)` fills it
-                # from the argument list. Sub-parsing "" used to be the error
-                # "Invalid expression in string interpolation".
-                expr_str = ''.join(expr_chars)
-                if expr_str.strip() == "":
-                    expressions.append(FormatPlaceholder(
-                        line=brace_line, column=brace_column))
-                    continue
-
-                # Parse the expression using a sub-lexer and sub-parser
-                expr = self._parse_expression_from_string(expr_str, brace_line, brace_column)
-                expressions.append(expr)
-            else:
-                current_part.append(raw_value[i])
-                i += 1
-
-        # Final string part (after last expression or entire string if no expressions)
-        parts.append(''.join(current_part))
+        # Final string part (after the last interpolation)
+        parts.append(''.join(pending))
 
         return StringInterpolation(parts=parts, expressions=expressions, line=line, column=column)
 

@@ -1,0 +1,60 @@
+// SL-238 / design 268: in a PLAIN string an escaped brace is an ordinary brace
+// byte in the value, and a real U+0001 beside one is CONTENT.
+//
+// The old lexer encoded `\{` as the two bytes 0x01 + `{` inside the flat token
+// value and the parser stripped that pair back out — but `"\u{1}\u{7b}"` is
+// those same two bytes written as content, so the strip silently deleted the
+// U+0001 and the two-byte string came out as the one-byte `{`. The first three
+// lines below are the issue's reproducer, which printed `1`, `1`, `123`.
+// EXPECT: success
+// EXPECT-OUTPUT: 1
+// EXPECT-OUTPUT: 2
+// EXPECT-OUTPUT: 1
+// EXPECT-OUTPUT: open 1 123
+// EXPECT-OUTPUT: close 1 125
+// EXPECT-OUTPUT: unicode-close 2 1 125
+// EXPECT-OUTPUT: control-then-escaped-open 2 1 123
+// EXPECT-OUTPUT: control-then-escaped-close 2 1 125
+// EXPECT-OUTPUT: both-braces 5 97 123 98 125 99
+// EXPECT-OUTPUT: bare-close 1 125
+// EXPECT-OUTPUT: control-then-letter 2 1 120
+// EXPECT-OUTPUT: control-alone 1 1
+
+func main() {
+    // The issue's reproducer, verbatim.
+    let escaped = "\{"
+    let literal = "\u{1}\u{7b}"
+    print(escaped.len())
+    print(literal.len())
+    print(literal.byte_at(0) as Int)
+
+    // An escaped brace on its own, either way round.
+    print("open {escaped.len()} {escaped.byte_at(0) as Int}")
+    let closed = "\}"
+    print("close {closed.len()} {closed.byte_at(0) as Int}")
+
+    // The closing-brace twin of the reproducer: 0x01 + `}` as content.
+    let uclose = "\u{1}\u{7d}"
+    print("unicode-close {uclose.len()} {uclose.byte_at(0) as Int} {uclose.byte_at(1) as Int}")
+
+    // A real U+0001 immediately before an ESCAPED brace — the collision the old
+    // encoding could not tell apart, now two plain content bytes.
+    let mopen = "\u{1}\{"
+    print("control-then-escaped-open {mopen.len()} {mopen.byte_at(0) as Int} {mopen.byte_at(1) as Int}")
+    let mclose = "\u{1}\}"
+    print("control-then-escaped-close {mclose.len()} {mclose.byte_at(0) as Int} {mclose.byte_at(1) as Int}")
+
+    // Escaped braces around ordinary text stay in place, in order: `a{b}c`.
+    let both = "a\{b\}c"
+    print("both-braces {both.len()} {both.byte_at(0) as Int} {both.byte_at(1) as Int} {both.byte_at(2) as Int} {both.byte_at(3) as Int} {both.byte_at(4) as Int}")
+
+    // An unescaped `}` with no interpolation open is ordinary text.
+    let bare = "}"
+    print("bare-close {bare.len()} {bare.byte_at(0) as Int}")
+
+    // A U+0001 that no brace follows was never at risk, and still is not.
+    let plain = "\u{1}x"
+    print("control-then-letter {plain.len()} {plain.byte_at(0) as Int} {plain.byte_at(1) as Int}")
+    let alone = "\u{1}"
+    print("control-alone {alone.len()} {alone.byte_at(0) as Int}")
+}

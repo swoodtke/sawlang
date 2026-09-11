@@ -1,0 +1,20 @@
+// Design 268 sharpened design 99's position contract: an interpolation's
+// column is the column of its own `{` in the SOURCE, so escapes ahead of it no
+// longer shift the report. The lexer records the brace's real position now,
+// where the parser used to count characters of the DECODED value — one
+// character per escape — and document its columns as approximate.
+//
+// `\t` and `\\` each cost two source columns and one decoded character, and the
+// decoded `\n` used to send the old arithmetic down its multi-line branch and
+// report the error a line too far down.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot interpolate value of type `Blob`
+// The `{` sits at column 26 and the expression at 27; the old arithmetic said
+// 18:4 — a line down and 23 columns left.
+// EXPECT-ERROR-CONTAINS: interp_error_position_after_escape.saw:19:27
+struct Blob { n: Int }
+
+func main() {
+    let b = Blob(n: 1)
+    print("a\tb\\c\{d\ne {b}")
+}

@@ -6,6 +6,11 @@ one record per token:
 
     KIND<TAB>line:col<TAB>escaped-text[<TAB>suffix]
 
+An INTERP_STRING record (design 268) carries the literal's raw source spelling
+as its escaped text and then ONE FIELD PER TYPED SEGMENT:
+
+    INTERP_STRING<TAB>line:col<TAB>raw<TAB>T:text<TAB>E:line:col:raw-expr...
+
 and, if the lexer rejects the file, a single record
 
     ERROR<TAB>line:col<TAB>message
@@ -68,16 +73,38 @@ def escape_text(value: str) -> bytes:
     return bytes(out)
 
 
+def format_segment(seg) -> bytes:
+    """One canonical segment field (design 268) for an INTERP_STRING record:
+
+        T:<escaped text>              a literal run (decoded content)
+        E:<line>:<col>:<escaped text> an interpolation (RAW text, `{` position)
+
+    The escaper never emits a tab or newline, so the fields stay splittable.
+    `format_segment` in lib.saw emits the identical shape.
+    """
+    if seg.kind == "text":
+        return b"T:" + escape_text(seg.text)
+    return (("E:%d:%d:" % (seg.line, seg.column)).encode("ascii")
+            + escape_text(seg.text))
+
+
 def format_token(tok) -> bytes:
     # The 4th column is the fixed-width integer suffix (e.g. `u8` for `255u8`),
     # present only for a suffixed integer literal; every other token stops at the
     # escaped text. The Saw port's `format_token` emits the identical shape (the
     # DF-116a miscompile that had stopped the suffix unit is fixed — design 119
     # Part D).
+    #
+    # An INTERP_STRING (design 268) instead continues with ONE FIELD PER TYPED
+    # SEGMENT, in source order, after the escaped text (which for that token is
+    # the literal's raw source spelling). No token carries both a suffix and
+    # segments, so the tail is unambiguous.
     head = ("%s\t%d:%d\t" % (tok.type.name, tok.line, tok.column)).encode("ascii")
     rec = head + escape_text(tok.value)
     if getattr(tok, "suffix", None) is not None:
         rec += ("\t%s" % tok.suffix).encode("ascii")
+    for seg in (getattr(tok, "segments", None) or ()):
+        rec += b"\t" + format_segment(seg)
     return rec
 
 

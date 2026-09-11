@@ -13,7 +13,7 @@ The Python lexer's **observable output** is the correctness reference;
 ```
 selfhost/lexer/
   Saw.toml          # Blade package manifest (name = "sawlex")
-  src/lib.saw       # token model (TokenKind enum + Token) + `lex`/`lex_all` + dump format
+  src/lib.saw       # token model (TokenKind + Token + StringSegment) + `lex` + dump format
   src/main.saw      # the `sawlex` CLI
   tests/*.saw       # blade unit tests, one per token family
 ```
@@ -47,6 +47,27 @@ KIND<TAB>line:col<TAB>escaped-text[<TAB>suffix]
   literal: one of `i8`/`i16`/`i32`/`i64`/`u8`/`u16`/`u32`/`u64`. `255u8` dumps as
   `INT<TAB>1:1<TAB>255<TAB>u8`; every other token stops at the escaped text.
 
+### An `INTERP_STRING` record carries its segments
+
+An interpolated string's `escaped-text` is the literal's **raw source spelling**
+between the quotes (undecoded), and the record then continues with **one field
+per typed segment** (design 268), in source order:
+
+```
+INTERP_STRING<TAB>line:col<TAB>raw<TAB>T:text<TAB>E:line:col:raw-expr...
+```
+
+* `T:` — a literal run, **decoded** (so an escaped brace is a plain `{`/`}`).
+* `E:line:col:` — an interpolation, carrying the **raw** text between its braces
+  and the exact 1-based source position of its opening `{`.
+
+An empty `T:` run is never emitted, so two adjacent interpolations produce two
+consecutive `E:` fields. No token carries both a suffix and segments, so the
+tail is unambiguous. The segments are what a parser consumes: nothing is encoded
+into the token's bytes, which is what design 268 replaced (an escaped brace used
+to be the two bytes `0x01` + brace — indistinguishable from that same pair
+written as content, which silently lost it; SL-238).
+
 On a lex error the CLI emits a single record and exits nonzero:
 
 ```
@@ -75,8 +96,10 @@ DOC<TAB>line:col<TAB>kind<TAB>escaped-text
   space stripped, escaped by the same byte-level scheme as a token's text.
 
 Doc comments are **trivia**: `lex` skips them exactly as it skips `//` comments,
-so the token dump above is unaffected. `lex_all` returns the tokens and the doc
-records together. Only a comment that starts its line is a doc comment; `////`
+so the token dump above is unaffected. `lex` returns one `LexResult` carrying
+the tokens, the doc records and the string-segment arena together — there is no
+tokens-only entry point, because a token's `seg_start`/`seg_count` index into
+that arena. Only a comment that starts its line is a doc comment; `////`
 (four or more slashes) and a `///` trailing code on the same line are ordinary
 comments.
 

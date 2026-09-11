@@ -139,6 +139,36 @@ class TokenType(Enum):
     EOF = auto()
 
 
+@dataclass(frozen=True)
+class StringSegment:
+    """One piece of an INTERP_STRING token's content — design 268's typed
+    segment, and THE definition of the segment record form for this lexer.
+
+    An interpolated literal is an ordered list of these, produced by
+    `Lexer.read_string` (the only producer) and consumed by
+    `Parser._parse_interpolated_string` and `tools/dump_tokens.py`'s
+    `format_token` (the only consumers). Two kinds:
+
+    - `kind='text'`: `text` is the DECODED literal content of one run between
+      interpolations. Escapes are already applied, so an escaped brace is an
+      ordinary `{`/`}` character here. `line`/`column` are unused (0).
+    - `kind='expr'`: `text` is the RAW source text between an interpolation's
+      braces (never escape-decoded — the sub-parser lexes it), and
+      `line`/`column` are the EXACT source position of its opening `{`.
+      Blank `text` is a design-137 format placeholder.
+
+    Design 268 replaced the old protocol, where an escaped brace was encoded
+    in-band as the two bytes `0x01` + brace and the parser re-scanned the flat
+    value to re-find the interpolations. That encoding was ambiguous with real
+    content (`"\\u{1}\\u{7b}"` lexes to those same two bytes), which silently
+    deleted the U+0001 (SL-238). No content byte carries metadata now.
+    """
+    kind: str
+    text: str
+    line: int = 0
+    column: int = 0
+
+
 @dataclass
 class Token:
     type: TokenType
@@ -148,6 +178,10 @@ class Token:
     # Integer-literal suffix (design 53): one of i8/i16/i32/i64/u8/u16/u32/u64
     # when the literal was written `255u8` / `0xFF_u8`; otherwise None.
     suffix: Optional[str] = None
+    # INTERP_STRING only (design 268): the literal's typed segments, in source
+    # order — the parse input for an interpolated string. None on every other
+    # token, including a plain STRING (whose `value` is the decoded content).
+    segments: Optional[List[StringSegment]] = None
 
 
 @dataclass
@@ -341,14 +375,28 @@ class Lexer:
         return chr(cp)
 
     def read_string(self) -> tuple:
-        """Read a string literal, detecting interpolation markers.
+        """Read a string literal, segmenting it at its interpolations.
 
-        Returns: (string_value, has_interpolation)
-        - For plain strings: ("hello", False)
-        - For interpolated: ("hello {name}!", True) - braces preserved
+        Returns `(value, segments)` — design 268, the ONE place a string
+        literal's content is decoded:
+
+        - A PLAIN string: `(decoded_value, None)`. Every escape is applied, so
+          an escaped brace is an ordinary `{`/`}` character in the value. A
+          plain string can only contain a brace via an escape, so nothing ever
+          needs to tell the two apart — which is why the marker byte this used
+          to insert (`0x01` + brace) is gone (SL-238).
+        - An INTERPOLATED string: `(raw_spelling, [StringSegment, ...])`. The
+          segments are the parse input (see `StringSegment`); `value` is the
+          literal's RAW source text between the quotes, undecoded, kept for
+          diagnostics and for the canonical token dump. Adjacent runs are
+          merged and an EMPTY `text` segment is never emitted — the Saw port
+          (`selfhost/lexer`, `read_string`) follows the same two rules so the
+          dumps stay byte-identical (`tools/lexdiff.py`).
         """
         self.advance()  # consume opening quote
+        content_start = self.pos     # first character after the opening quote
         result = []
+        segments = []
         has_interpolation = False
         # Position of the FIRST interpolation `{` opened in this literal (None =
         # none yet). An unbalanced interpolation reports HERE, not at EOF (DF-116d):
@@ -378,36 +426,47 @@ class Lexer:
                 elif ch == '\\':
                     result.append('\\')
                 elif ch == '{':
-                    result.append('\x01{')  # Escaped brace - use marker to distinguish from interpolation
+                    result.append('{')      # `\{` is just a brace: segments,
                 elif ch == '}':
-                    result.append('\x01}')  # Escaped brace - use marker to distinguish from interpolation
+                    result.append('}')      # not markers, carry the structure
                 elif ch == 'u':
                     result.append(self._read_unicode_escape())
                 else:
                     self.error(f"unknown escape `\\{ch}` in a string literal "
                                f"(supported: \\\\ \\\" \\n \\t \\r \\0 \\u{{...}})")
             elif self.peek() == '{':
-                # Interpolation detected - preserve braces for parser
+                # An unescaped `{` opens an interpolation: close the pending
+                # text run and emit an `expr` segment carrying the RAW text
+                # between the braces plus the brace's exact position.
                 has_interpolation = True
                 open_line, open_col = self.line, self.column
                 if interp_open is None:
                     interp_open = (open_line, open_col)
-                result.append(self.advance())  # Keep {
-                # Read until matching }, tracking nested braces
+                if result:
+                    segments.append(StringSegment('text', ''.join(result)))
+                    result = []
+                self.advance()  # consume the opening `{`
+                # Read until the matching `}`, tracking nested braces. The
+                # outer braces are structure, so only the interior is kept.
                 brace_depth = 1
+                expr_chars = []
                 while self.peek() and brace_depth > 0:
                     ch = self.peek()
                     if ch == '{':
                         brace_depth += 1
                     elif ch == '}':
                         brace_depth -= 1
-                    result.append(self.advance())
+                    if brace_depth > 0:
+                        expr_chars.append(ch)
+                    self.advance()
                 if brace_depth > 0:
                     # This interpolation ran to EOF without a closing `}`.
                     raise SyntaxError(
                         "Lexer error at %d:%d: unterminated interpolation in "
                         "string literal, opened at this `{` (write `\\{` for a "
                         "literal brace)" % (open_line, open_col))
+                segments.append(StringSegment(
+                    'expr', ''.join(expr_chars), open_line, open_col))
             else:
                 result.append(self.advance())
 
@@ -423,8 +482,13 @@ class Lexer:
                     "literal, opened at this `{` (write `\\{` for a literal "
                     "brace)" % (il, ic))
             self.error("Unterminated string")
+        content_end = self.pos       # the closing quote's position
         self.advance()  # consume closing quote
-        return (''.join(result), has_interpolation)
+        if not has_interpolation:
+            return (''.join(result), None)
+        if result:
+            segments.append(StringSegment('text', ''.join(result)))
+        return (self.source[content_start:content_end], segments)
 
     # Without design 47, `Int`/`UInt` are 64-bit, so an integer literal must be
     # representable in 64 bits — as a signed OR unsigned value (literals are
@@ -617,9 +681,13 @@ class Lexer:
                 # agrees).
                 start_line = self.line
                 start_col = self.column
-                value, has_interpolation = self.read_string()
-                token_type = TokenType.INTERP_STRING if has_interpolation else TokenType.STRING
-                self.tokens.append(Token(token_type, value, start_line, start_col))
+                # Design 268: `segments` is None for a plain string and the
+                # literal's typed segment list for an interpolated one.
+                value, segments = self.read_string()
+                token_type = (TokenType.INTERP_STRING if segments is not None
+                              else TokenType.STRING)
+                self.tokens.append(Token(token_type, value, start_line,
+                                         start_col, segments=segments))
             elif ch.isdigit():
                 # Design 161: one-token lookback. Digits right after a
                 # member-access `.` are a tuple index, not the start of a float.

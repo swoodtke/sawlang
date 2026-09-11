@@ -1,9 +1,9 @@
 // String escapes: \n \t \r \0 \\ \" \{ and \u{...} (incl. non-ASCII).
 import src.lib.*
 
-func toks(s: String) -> Vector<Token> {
+func lexed(s: String) -> LexResult {
     match lex(s) {
-        case Ok(t) -> move t,
+        case Ok(r) -> move r,
         case Err(e) -> panic("unexpected lex error at {e.line}:{e.col}: {e.message}")
     }
 }
@@ -11,8 +11,12 @@ func toks(s: String) -> Vector<Token> {
 // The canonical dump line for the FIRST token of `s` (String by value, so no
 // reference-to-temporary is needed).
 func dump0(s: String) -> String {
-    let ts = toks(s)
-    if let t = ts.get(0) { format_token(&t) } else { panic("no tokens") }
+    let r = lexed(s)
+    if let t = r.tokens.get(0) {
+        format_token(&t, &r.segments)
+    } else {
+        panic("no tokens")
+    }
 }
 
 // Wrap `inner` (the raw bytes between the quotes) into a source string literal.
@@ -60,8 +64,10 @@ func main() {
     try! exp.append("😀")
     assert(dump0(u2.build()).equals(exp.build()), "backslash-u{1F600} -> emoji bytes")
 
-    // \{ escaped brace: value carries the 0x01 sentinel + '{', and it stays a
-    // plain STRING (NOT an interpolation).  Expected uses \{ for a literal brace.
+    // \{ escaped brace: the value is fully DECODED, so the brace is an ordinary
+    // byte and nothing is encoded beside it (design 268 deleted the 0x01
+    // sentinel that used to sit here — SL-238); it stays a plain STRING (NOT an
+    // interpolation). Expected uses \{ for a literal brace.
     var e1 = StringBuilder()
     try! e1.append(Byte(34))      // "
     try! e1.append(Byte(97))      // a
@@ -69,7 +75,22 @@ func main() {
     try! e1.append(Byte(123))     // {
     try! e1.append(Byte(98))      // b
     try! e1.append(Byte(34))      // "
-    assert(dump0(e1.build()).equals("STRING\t1:1\ta\\x01\{b"), "escaped-brace STRING")
+    assert(dump0(e1.build()).equals("STRING\t1:1\ta\{b"), "escaped-brace STRING")
+
+    // A real U+0001 before an escaped brace is CONTENT, not a marker: the two
+    // bytes the old protocol used are exactly what `\u{1}\{` produces, and the
+    // decode used to delete the U+0001 (SL-238). Both bytes survive now.
+    var e2 = StringBuilder()
+    try! e2.append(Byte(34))      // "
+    try! e2.append(Byte(92))      // backslash
+    try! e2.append(Byte(117))     // u
+    try! e2.append(Byte(123))     // {
+    try! e2.append("1")
+    try! e2.append(Byte(125))     // }
+    try! e2.append(Byte(92))      // backslash
+    try! e2.append(Byte(123))     // {
+    try! e2.append(Byte(34))      // "
+    assert(dump0(e2.build()).equals("STRING\t1:1\t\\x01\{"), "U+0001 before a brace")
 
     print("escapes: ok")
 }

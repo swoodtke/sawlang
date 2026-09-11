@@ -90,14 +90,19 @@ argument count/slot, no String record fields and Drop only on String slots.
 
 ## Frontend and validation details
 
-TokenKind.StringLit contains decoded bytes, with the lexer's 0x01 escape marker
-before escaped braces. This collides with actual U+0001 bytes followed by braces.
-Preserve raw source in Compiler and decode the validated original literal at its
-token line/column, using the lexer's UTF-8 continuation/column rules to locate it.
-Restore raw escapes directly, including Unicode scalars and escaped braces;
-never strip marker bytes from the ambiguous decoded token payload. InterpString
-remains a located rejection. No production compiler changes are authorized by
-this prototype milestone; the independently reproduced Python defect is filed.
+TokenKind.StringLit contains decoded bytes. It used to carry the lexer's 0x01
+escape marker before an escaped brace, which collided with actual U+0001 bytes
+followed by braces — the defect this milestone reproduced and filed, fixed since
+by design 268 (SL-238): the marker protocol is gone from both lexers and a plain
+StringLit's value is now unambiguous decoded content.
+
+The frontend nevertheless keeps its own path: it preserves raw source in Compiler
+and decodes the validated original literal at its token line/column, using the
+lexer's UTF-8 continuation/column rules to locate it, restoring raw escapes
+directly including Unicode scalars and escaped braces. That is now a choice
+rather than a workaround, and it is deliberately left as it stands — this
+milestone's contract is unchanged and no behaviour was migrated with the API.
+InterpString remains a located rejection.
 
 Named String intrinsic receivers use their own content snapshot before argument
 evaluation; their methods are read-only. Retain snapshots through nested argument

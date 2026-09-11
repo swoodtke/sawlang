@@ -1,0 +1,62 @@
+// Design 268: an INTERPOLATED string carries typed segments, so an escaped
+// brace is literal text and only an unescaped `{` opens an interpolation — with
+// no marker byte in between for real content to collide with (SL-238).
+//
+// Every row here mixes the two things the old in-band encoding confused: an
+// escaped brace (which used to become 0x01 + brace in the token value) and a
+// genuine U+0001 (which produces those same bytes as content). Rows that would
+// print a control byte report lengths and byte values instead.
+// EXPECT: success
+// EXPECT-OUTPUT: {7}
+// EXPECT-OUTPUT: 7{7
+// EXPECT-OUTPUT: {7}{7}
+// EXPECT-OUTPUT: 77
+// EXPECT-OUTPUT: control-then-interp 2 1 55
+// EXPECT-OUTPUT: control-then-escaped-brace 3 1 123 55
+// EXPECT-OUTPUT: control-then-bare-close 3 1 125 55
+// EXPECT-OUTPUT: control-inside-expression v=1
+// EXPECT-OUTPUT: placeholder-in-braces {7}
+// EXPECT-OUTPUT: two-lines 3 97 10 55
+
+func main() {
+    let n = 7
+
+    // Escaped braces on both sides of a real interpolation.
+    print("\{{n}\}")
+
+    // An escaped brace BETWEEN two interpolations.
+    print("{n}\{{n}")
+
+    // …and one wrapping each of two interpolations.
+    print("\{{n}\}\{{n}\}")
+
+    // Adjacent interpolations with no text between them.
+    print("{n}{n}")
+
+    // A real U+0001 directly before an interpolation.
+    let ci = "\u{1}{n}"
+    print("control-then-interp {ci.len()} {ci.byte_at(0) as Int} {ci.byte_at(1) as Int}")
+
+    // A real U+0001 directly before an ESCAPED brace, in a string that also
+    // interpolates — the SL-238 collision inside an INTERP_STRING token.
+    let ce = "\u{1}\{{n}"
+    print("control-then-escaped-brace {ce.len()} {ce.byte_at(0) as Int} {ce.byte_at(1) as Int} {ce.byte_at(2) as Int}")
+
+    // A real U+0001 before an unescaped `}`, which is ordinary text here.
+    let cb = "\u{1}}{n}"
+    print("control-then-bare-close {cb.len()} {cb.byte_at(0) as Int} {cb.byte_at(1) as Int} {cb.byte_at(2) as Int}")
+
+    // A U+0001 inside the interpolation's RAW text: the segment carries the
+    // source characters through to the sub-parser undecoded, so the escape is
+    // decoded by the sub-lex and the `1` below is that string's length.
+    print("control-inside-expression v={"\u{1}".len()}")
+
+    // A design-137 format placeholder between escaped braces.
+    print("placeholder-in-braces \{{}\}", n)
+
+    // A multi-line interpolated string: the newline is literal content and the
+    // interpolation on the second line still lands in the right place.
+    let two = "a
+{n}"
+    print("two-lines {two.len()} {two.byte_at(0) as Int} {two.byte_at(1) as Int} {two.byte_at(2) as Int}")
+}

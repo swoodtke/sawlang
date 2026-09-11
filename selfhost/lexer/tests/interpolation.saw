@@ -1,17 +1,28 @@
 // String interpolation delimiters: a bare `{...}` makes an INTERP_STRING whose
-// value keeps the braces raw (the parser handles the inner expression later).
+// value is the RAW source spelling between the quotes and whose parse input is
+// its TYPED SEGMENTS (design 268), dumped as one `T:`/`E:` field each.
 import src.lib.*
 
-func toks(s: String) -> Vector<Token> {
+func lexed(s: String) -> LexResult {
     match lex(s) {
-        case Ok(t) -> move t,
+        case Ok(r) -> move r,
         case Err(e) -> panic("unexpected lex error at {e.line}:{e.col}: {e.message}")
     }
 }
 
 func dump0(s: String) -> String {
-    let ts = toks(s)
-    if let t = ts.get(0) { format_token(&t) } else { panic("no tokens") }
+    let r = lexed(s)
+    if let t = r.tokens.get(0) {
+        format_token(&t, &r.segments)
+    } else {
+        panic("no tokens")
+    }
+}
+
+// The segment count of the FIRST token of `s`.
+func segs0(s: String) -> Int {
+    let r = lexed(s)
+    if let t = r.tokens.get(0) { t.seg_count } else { panic("no tokens") }
 }
 
 // A source string literal `"<parts...>"` with a bare `{name}` interior.
@@ -40,27 +51,39 @@ func nested_src() -> String {
     sb.build()
 }
 
-func main() {
-    // Braces are preserved raw and the kind is INTERP_STRING.
-    // build the full expected text: "hi {name}"
-    var full = StringBuilder()
-    try! full.append("INTERP_STRING\t1:1\thi ")
-    try! full.append(Byte(123))
-    try! full.append("name")
-    try! full.append(Byte(125))
-    assert(dump0(interp_src()).equals(full.build()), "interpolation keeps braces")
+// A source literal `"{x}{y}"` — two adjacent interpolations, no literal text.
+func adjacent_src() -> String {
+    var sb = StringBuilder()
+    try! sb.append(Byte(34))      // "
+    try! sb.append(Byte(123))     // {
+    try! sb.append("x")
+    try! sb.append(Byte(125))     // }
+    try! sb.append(Byte(123))     // {
+    try! sb.append("y")
+    try! sb.append(Byte(125))     // }
+    try! sb.append(Byte(34))      // "
+    sb.build()
+}
 
-    // Nested braces are balanced and preserved.
-    var nexp = StringBuilder()
-    try! nexp.append("INTERP_STRING\t1:1\t")
-    try! nexp.append(Byte(123))
-    try! nexp.append("a ")
-    try! nexp.append(Byte(123))
-    try! nexp.append("b")
-    try! nexp.append(Byte(125))
-    try! nexp.append(" c")
-    try! nexp.append(Byte(125))
-    assert(dump0(nested_src()).equals(nexp.build()), "nested braces balanced")
+func main() {
+    // The value is the raw spelling; the segments are the text run and the
+    // interpolation, the latter positioned at its own `{` (column 5 here).
+    assert(dump0(interp_src()).equals(
+        "INTERP_STRING\t1:1\thi \{name\}\tT:hi \tE:1:5:name"),
+        "interpolation segments")
+
+    // Nested braces are balanced, and the interior is kept RAW — the expression
+    // segment is the whole `a {b} c`, with no text segment around it.
+    assert(dump0(nested_src()).equals(
+        "INTERP_STRING\t1:1\t\{a \{b\} c\}\tE:1:2:a \{b\} c"),
+        "nested braces balanced")
+
+    // Two adjacent interpolations: two `E:` segments and NO empty text segment
+    // between them (both lexers agree never to emit one).
+    assert(dump0(adjacent_src()).equals(
+        "INTERP_STRING\t1:1\t\{x\}\{y\}\tE:1:2:x\tE:1:5:y"),
+        "adjacent interpolations")
+    assert(segs0(adjacent_src()) == 2, "two segments, no empty text run")
 
     print("interpolation: ok")
 }

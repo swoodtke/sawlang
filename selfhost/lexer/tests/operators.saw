@@ -1,24 +1,28 @@
 // Operators, compound assignments, wrapping ops, punctuation, $-params, @.
 import src.lib.*
 
-func toks(s: String) -> Vector<Token> {
+func lexed(s: String) -> LexResult {
     match lex(s) {
-        case Ok(t) -> move t,
+        case Ok(r) -> move r,
         case Err(e) -> panic("unexpected lex error at {e.line}:{e.col}: {e.message}")
     }
 }
 
-func kind(ts: &Vector<Token>, i: Int) -> TokenKind {
-    if let t = ts.get(i) { t.kind } else { panic("no token at index {i}") }
+func kind(r: &LexResult, i: Int) -> TokenKind {
+    if let t = r.tokens.get(i) { t.kind } else { panic("no token at index {i}") }
 }
 
-func at(ts: &Vector<Token>, i: Int) -> String {
-    if let t = ts.get(i) { format_token(&t) } else { panic("no token at index {i}") }
+func at(r: &LexResult, i: Int) -> String {
+    if let t = r.tokens.get(i) {
+        format_token(&t, &r.segments)
+    } else {
+        panic("no token at index {i}")
+    }
 }
 
 func main() {
     // Multi-char operators and their single-char fallbacks.
-    let a = toks("+= -> && &+ &- &* &= <<= >>= <= >= == != ?? ?. |= ^= %=")
+    let a = lexed("+= -> && &+ &- &* &= <<= >>= <= >= == != ?? ?. |= ^= %=")
     assert(kind(&a, 0) == TokenKind.PlusAssign, "+=")
     assert(kind(&a, 1) == TokenKind.Arrow, "->")
     assert(kind(&a, 2) == TokenKind.And, "&&")
@@ -39,12 +43,12 @@ func main() {
     assert(kind(&a, 17) == TokenKind.PercentAssign, "%=")
 
     // Bare `<<` stays two `<` tokens (nested generics), NOT a shift.
-    let b = toks("<<")
+    let b = lexed("<<")
     assert(kind(&b, 0) == TokenKind.Lt, "bare << is Lt")
     assert(kind(&b, 1) == TokenKind.Lt, "bare << is Lt Lt")
 
     // Single-char operators / punctuation (no braces here — see `braces` below).
-    let c = toks("& | ^ ~ ! ? < > ( ) [ ] ; , : . @")
+    let c = lexed("& | ^ ~ ! ? < > ( ) [ ] ; , : . @")
     assert(kind(&c, 0) == TokenKind.Ampersand, "&")
     assert(kind(&c, 1) == TokenKind.Pipe, "|")
     assert(kind(&c, 2) == TokenKind.Caret, "^")
@@ -61,7 +65,7 @@ func main() {
     var bs = StringBuilder()
     try! bs.append(Byte(123))     // {
     try! bs.append(Byte(125))     // }
-    let br = toks(bs.build())
+    let br = lexed(bs.build())
     assert(kind(&br, 0) == TokenKind.LBrace, "lbrace")
     assert(kind(&br, 1) == TokenKind.RBrace, "rbrace")
     var lb_exp = StringBuilder()
@@ -70,12 +74,12 @@ func main() {
     assert(at(&br, 0).equals(lb_exp.build()), "LBRACE value is a bare brace")
 
     // Shorthand closure parameters.
-    let d = toks("$0 + $12")
+    let d = lexed("$0 + $12")
     assert(at(&d, 0).equals("DOLLAR_PARAM\t1:1\t$0"), "$0")
     assert(at(&d, 2).equals("DOLLAR_PARAM\t1:6\t$12"), "$12")
 
     // Trailing EOF token.
-    let e = toks("x")
+    let e = lexed("x")
     assert(kind(&e, 1) == TokenKind.Eof, "EOF terminator")
 
     print("operators: ok")

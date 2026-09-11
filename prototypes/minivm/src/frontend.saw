@@ -3,8 +3,13 @@ import src.model.*
 
 func Some<T>(value: T) -> T? { move value }
 
+// A copy of a token is that token, so it carries the string-segment run the
+// lexer gave it (design 268's `seg_start`/`seg_count`) rather than dropping it.
+// Both are 0 on every kind this frontend accepts — it rejects InterpString, the
+// only kind that names segments — but a clone is not the place to decide that.
 func clone_token(t: &Token) -> Token {
-    Token(kind: t.kind, value: t.value, line: t.line, col: t.col, suffix: t.suffix)
+    Token(kind: t.kind, value: t.value, line: t.line, col: t.col, suffix: t.suffix,
+          seg_start: t.seg_start, seg_count: t.seg_count)
 }
 
 struct Signature {
@@ -2932,7 +2937,8 @@ extension Compiler {
             else { return problem("Result match patterns must be Ok, Err, or `_`", pattern.line, pattern.col) }
             if variant == 1 && covered_ok { return problem("duplicate Result match arm", pattern.line, pattern.col) }
             if variant == 0 && covered_err { return problem("duplicate Result match arm", pattern.line, pattern.col) }
-            var binding = Token(kind: TokenKind.Ident, value: "_", line: pattern.line, col: pattern.col, suffix: None)
+            var binding = Token(kind: TokenKind.Ident, value: "_", line: pattern.line, col: pattern.col, suffix: None,
+                                seg_start: 0, seg_count: 0)
             var payload = ValueType.Void
             var offset = 0
             if variant >= 0 {
@@ -3206,7 +3212,8 @@ extension Compiler {
             else { return problem("Result match patterns must be Ok, Err, or `_`", pattern.line, pattern.col) }
             if variant == 1 && covered_ok { return problem("duplicate Result match arm", pattern.line, pattern.col) }
             if variant == 0 && covered_err { return problem("duplicate Result match arm", pattern.line, pattern.col) }
-            var binding = Token(kind: TokenKind.Ident, value: "_", line: pattern.line, col: pattern.col, suffix: None)
+            var binding = Token(kind: TokenKind.Ident, value: "_", line: pattern.line, col: pattern.col, suffix: None,
+                                seg_start: 0, seg_count: 0)
             var payload = ValueType.Void
             var offset = 0
             if variant >= 0 {
@@ -3451,7 +3458,8 @@ extension Compiler {
         while i < self.signatures[index].params.len() {
             let slot = try self.new_value(self.signatures[index].params[i])
             let fake = Token(kind: TokenKind.Ident, value: self.signatures[index].param_names[i],
-                             line: self.signatures[index].line, col: self.signatures[index].col, suffix: None)
+                             line: self.signatures[index].line, col: self.signatures[index].col, suffix: None,
+                             seg_start: 0, seg_count: 0)
             try self.declare(fake, self.signatures[index].params[i], slot, false)
             i += 1
         }
@@ -3519,8 +3527,28 @@ extension Compiler {
 }
 
 public func compile_source(source: String) -> Result<Program, ProtoError> {
-    let tokens = match lex(source) {
-        case Ok(ts) -> move ts,
+    // Design 268: `lex` answers one `LexResult` — the token stream, the
+    // doc-comment trivia and the string-segment arena — so the token vector is
+    // reached through a field instead of being the whole result. A field cannot
+    // be moved out of an owned struct (no partial moves), and this frontend
+    // wants only the tokens, so they are copied out; `Token` is on the Copy
+    // tier, so each element retains rather than duplicating its text. The doc
+    // records and the segment arena drop with `lexed` at the end of this call.
+    var tokens = Vector<Token>()
+    match lex(source) {
+        case Ok(r) -> {
+            // The token stream is cloned out element by element rather than with
+            // `r.tokens.copy()`: a `Vector<T>.copy()` whose element is an
+            // automatic-Copy-tier STRUCT duplicates it bitwise and never retains
+            // its `String` fields (SL-265), which leaves every token's text
+            // dangling once `r` drops. `clone_token` reads the fields, so each
+            // `String` is retained the way every other clone in this file is.
+            var i = 0
+            while i < r.tokens.len() {
+                try! tokens.push(clone_token(&r.tokens[i]))
+                i = i + 1
+            }
+        },
         case Err(e) -> { return problem(e.message, e.line, e.col) }
     }
     var compiler = Compiler(source: source, tokens: move tokens, records: Vector<RecordIR>(), enums: Vector<EnumIR>(),
