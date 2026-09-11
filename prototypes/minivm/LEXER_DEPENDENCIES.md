@@ -15,9 +15,10 @@ borrowing scalar fields of direct records. M7 adds whole-record references,
 nested field forwarding and basic shared/mutable methods, tested with a
 scalar-only `Lexer.advance`-shaped record (250 total cases). Strings, collections,
 Optional/Result payloads, intrinsic generic types and module integration remain
-outstanding. Next is a bounded owned-String slice: literals, byte length/access,
-equality and substring, with explicit copy/drop rules before owning records and
-collections are enabled.
+outstanding. M8 adds owned String literals/locals/parameters/results/references,
+byte length/access, equality and substring with explicit copy/drop rules (277
+total cases). Next is String-valued records and String-pattern match, before
+Optional/Result payloads and collections are enabled.
 The dependency groups below are an inventory, not the implementation commit order;
 the numbered milestone designs define each isolated slice.
 

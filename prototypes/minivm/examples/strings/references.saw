@@ -1,0 +1,15 @@
+func read(value: &String) -> String { value }
+func replace(value: &var String, next: String) { value = next }
+func forward(value: &var String) {
+    print(read(&value))
+    replace(&var value, "after")
+}
+
+func main() {
+    var value = "before"
+    let snapshot = read(&value)
+    forward(&var value)
+    print(snapshot)
+    print(value)
+    print(read(&value))
+}

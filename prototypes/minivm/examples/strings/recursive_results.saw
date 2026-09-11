@@ -1,0 +1,10 @@
+func trim(value: String, count: Int) -> String {
+    if count == 0 { return value }
+    return trim(value.substring(1, value.len()), count - 1)
+}
+
+func main() {
+    let result = trim("abcdef", 2)
+    print(result)
+    print(result.len())
+}

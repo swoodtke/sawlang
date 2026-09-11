@@ -1,0 +1,20 @@
+func main() {
+    let empty = ""
+    let word = "hello"
+    let unicode = "é🙂"
+    print(empty.len())
+    print(empty.is_empty())
+    print(word.len())
+    print(word.is_empty())
+    print(word.byte_at(0))
+    print(word.byte_at(4))
+    print(word.byte_at(index: 1))
+    print(unicode.byte_at(1))
+    print(word.substring(0, 0))
+    print(word.substring(5, 5))
+    print(word.substring(start: 0, end: 5))
+    print(word == "hello")
+    print(word != "world")
+    print("a\0b" == "a\0b")
+    print("a\0b" != "a")
+}

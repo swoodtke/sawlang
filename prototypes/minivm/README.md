@@ -22,7 +22,7 @@ clang .build/minivm/factorial.ll -o .build/minivm/factorial
 .build/minivm/factorial
 ```
 
-The LLVM path targets a 64-bit Unix C ABI (`printf`, `puts`, `exit`); validation
+The LLVM path targets a 64-bit Unix C ABI (stdio, allocation and byte-copy routines); validation
 uses Apple clang on arm64 macOS. Clang is an external validation/compilation step,
 not a dependency of the interpreter or text emitter.
 
@@ -66,7 +66,7 @@ shift counts. See [M1_NUMBERS.md](M1_NUMBERS.md) for the precise numeric contrac
 Newlines separate statements. Omit the result annotation for Void functions;
 `main()` must take no arguments and return Void. Value-returning functions need
 a value on every continuing path, supplied by an explicit return or final expression.
-There are no imports, strings, collections, generics, or concurrency in the
+There are no imports, collections, generics, or concurrency in the
 accepted subset.
 Semicolons remain unsupported. Boolean `&&`/`||` short-circuit, mutable integers
 and fields support `+=`/`-=`/`*=`/`/=`/`%=`, and module `static` integer/Bool
@@ -86,6 +86,14 @@ named locals, reference parameters or nested fields. Optional call labels must
 match parameter names in order. Temporary receivers, overloads, static methods
 and trait extensions remain unsupported. See [M7_RECORD_RECEIVERS.md](M7_RECORD_RECEIVERS.md).
 
+Owned String values support literals, copies, locals, parameters/results,
+references, equality, printing, and `len`, `is_empty`, `byte_at`, `substring`,
+and `equals`. Byte offsets and embedded NUL are preserved. Intrinsic String
+methods also accept temporary receivers. String fields/statics, interpolation
+and concatenation remain unsupported. Both engines retain/release owning slots
+and check for live allocations after successful execution; see
+[M8_OWNED_STRINGS.md](M8_OWNED_STRINGS.md).
+
 The VM defaults to a shared budget of 1,000,000 instructions and a maximum call
 depth of 128. Override the budget with `run FILE --budget N`. These limits apply
 only to VM execution; native code uses the host call stack and has no budget.
@@ -98,16 +106,17 @@ python prototypes/minivm/test_minivm.py --binary .build/minivm/minivm
 
 The harness compares VM execution and clang-compiled IR with explicit expected
 outputs and statuses, checks rejected programs, and exercises VM limits. It
-uses temporary files and 30-second subprocess timeouts. The first seven milestones
-pass all 250 cases, including native execution at both `-O0` and `-O2`.
+uses temporary files and 30-second subprocess timeouts. The first eight milestones
+pass all 277 cases, including native execution at both `-O0` and `-O2`.
 
 Independent representation checks live in `tests/numeric_contract.saw`,
 `tests/record_contract.saw`, `tests/enum_contract.saw`,
-`tests/reference_contract.saw`, and `tests/receiver_contract.saw`; build and run them
+`tests/reference_contract.saw`, `tests/receiver_contract.saw`, and
+`tests/string_contract.saw`; build and run them
 with the Python compiler.
 Use `--section numbers`, `--section records`, `--section control`, or
 `--section enums`, `--section values`, `--section references`, or
-`--section receivers` for an isolated
+`--section receivers` or `--section strings` for an isolated
 integration gate.
 
 See [DESIGN.md](DESIGN.md) and [M1_NUMBERS.md](M1_NUMBERS.md) for the instruction

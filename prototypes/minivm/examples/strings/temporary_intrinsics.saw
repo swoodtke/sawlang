@@ -1,0 +1,10 @@
+func make() -> String { "hello" }
+
+func main() {
+    print(make().substring(1, 4).len())
+    print("".is_empty())
+    print("hello".substring(start: 1, end: 4))
+    print("é".len())
+    print("é".substring(0, 1).len())
+    print("é".substring(0, 1).byte_at(0))
+}

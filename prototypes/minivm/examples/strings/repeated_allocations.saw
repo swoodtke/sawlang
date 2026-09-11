@@ -1,0 +1,16 @@
+func make(value: String) -> String { value.substring(0, value.len()) }
+
+func main() {
+    var i = 0
+    var keep = "start"
+    while i < 500 {
+        let temporary = make("temporary")
+        if temporary.equals(other: "temporary") {
+            keep = "loop".substring(0, 4)
+        }
+        i += 1
+    }
+    keep = "final"
+    print(keep)
+    print(i)
+}

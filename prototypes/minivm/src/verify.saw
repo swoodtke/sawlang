@@ -111,7 +111,23 @@ func check_instruction(p: &Program, f: &FuncIR, i: &Instruction) -> Result<Void,
         case Copy -> {
             if reference_type(dst) {
                 if not reference_transfer(&p.references, a, dst) { return invalid(&i) }
-            } else if not scalar_type(dst) || a != dst { return invalid(&i) }
+            } else if (not scalar_type(dst) && not string_type(dst)) || a != dst { return invalid(&i) }
+        },
+        case StringConst -> {
+            if not string_type(dst) || i.immediate < 0 || i.immediate >= p.strings.len() { return invalid(&i) }
+        },
+        case StringLen -> {
+            if not string_type(a) || dst != ValueType.I64 { return invalid(&i) }
+        },
+        case StringByteAt -> {
+            if not string_type(a) || b != ValueType.I64 || dst != ValueType.Byte { return invalid(&i) }
+        },
+        case StringSlice -> {
+            if not string_type(a) || b != ValueType.I64 || not string_type(dst) || i.args.len() != 1 { return invalid(&i) }
+            if slot_type(&f, i.args[0]) != ValueType.I64 { return invalid(&i) }
+        },
+        case Drop -> {
+            if not string_type(a) { return invalid(&i) }
         },
         case Addr -> {
             if not reference_type(dst) { return invalid(&i) }
@@ -167,9 +183,9 @@ func check_instruction(p: &Program, f: &FuncIR, i: &Instruction) -> Result<Void,
             if dst != ValueType.Bool || a != ValueType.Bool { return invalid(&i) }
         },
         case Eq -> {
-            if dst != ValueType.Bool || not scalar_type(a) || a != b { return invalid(&i) }
+            if dst != ValueType.Bool || (not scalar_type(a) && not string_type(a)) || a != b { return invalid(&i) }
         },
-        case Ne -> { if dst != ValueType.Bool || not scalar_type(a) || a != b { return invalid(&i) } },
+        case Ne -> { if dst != ValueType.Bool || (not scalar_type(a) && not string_type(a)) || a != b { return invalid(&i) } },
         case Lt -> {
             if dst != ValueType.Bool || not arithmetic_type(a) || b != a { return invalid(&i) }
         },
@@ -225,7 +241,7 @@ func check_function(p: &Program, f: &FuncIR) -> Result<Void, ProtoError> {
     }
     var n = 0
     while n < f.slots.len() {
-        if not scalar_type(f.slots[n]) && not reference_type(f.slots[n]) { return problem("internal prototype error: non-scalar slot", 0, 0) }
+        if not scalar_type(f.slots[n]) && not reference_type(f.slots[n]) && not string_type(f.slots[n]) { return problem("internal prototype error: non-scalar slot", 0, 0) }
         if n < params.len() && f.slots[n] != params[n] {
             return problem("internal prototype error: parameter slot mismatch", 0, 0)
         }

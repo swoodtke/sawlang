@@ -1,4 +1,5 @@
 import src.model.*
+import src.string_runtime.*
 
 func put(out: &var StringBuilder, text: String) {
     try! out.append(text)
@@ -45,6 +46,10 @@ func emit_value_type(out: &var StringBuilder, records: &Vector<RecordIR>,
         put(&var out, "i64")
         return
     }
+    if string_type(t) {
+        put(&var out, "ptr")
+        return
+    }
     let layout = try value_layout(&records, t)
     emit_aggregate_type(&var out, layout.len())
     return
@@ -87,6 +92,47 @@ func store_ref_temp(out: &var StringBuilder, instruction_index: Int,
     temp_name(&var out, instruction_index, suffix)
     put(&var out, ", ptr ")
     slot_name(&var out, slot)
+    put(&var out, "\n")
+}
+
+func assign_string_temp(out: &var StringBuilder, instruction_index: Int,
+                        suffix: String, slot: Int, retain: Bool) {
+    if retain {
+        put(&var out, "  call void @minivm_string_retain(ptr ")
+        temp_name(&var out, instruction_index, suffix)
+        put(&var out, ")\n")
+    }
+    put(&var out, "  ")
+    load_ref_slot(&var out, instruction_index, "old{slot}", slot)
+    put(&var out, "  call void @minivm_string_release(ptr ")
+    temp_name(&var out, instruction_index, "old{slot}")
+    put(&var out, ")\n")
+    store_ref_temp(&var out, instruction_index, suffix, slot)
+}
+
+func put_hex_byte(out: &var StringBuilder, byte: Int) {
+    let digits = "0123456789ABCDEF"
+    put(&var out, "\\")
+    put(&var out, digits.substring(byte / 16, byte / 16 + 1))
+    put(&var out, digits.substring(byte % 16, byte % 16 + 1))
+}
+
+func emit_string_constants(out: &var StringBuilder, strings: &Vector<String>) {
+    var index = 0
+    while index < strings.len() {
+        put(&var out, "@.str")
+        put_int(&var out, index)
+        put(&var out, " = private unnamed_addr constant [")
+        put_int(&var out, strings[index].len())
+        put(&var out, " x i8] c\"")
+        var byte = 0
+        while byte < strings[index].len() {
+            put_hex_byte(&var out, strings[index].byte_at(byte) as Int)
+            byte += 1
+        }
+        put(&var out, "\"\n")
+        index += 1
+    }
     put(&var out, "\n")
 }
 
@@ -372,11 +418,24 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
             put(&var out, "\n")
             next_block(&var out, instruction_index)
         },
+        case StringConst -> {
+            put(&var out, "  ")
+            temp_name(&var out, instruction_index, "new")
+            put(&var out, " = call ptr @minivm_string_new(ptr @.str")
+            put_int(&var out, inst.immediate)
+            put(&var out, ", i64 ")
+            put_int(&var out, program.strings[inst.immediate].len())
+            put(&var out, ")\n")
+            assign_string_temp(&var out, instruction_index, "new", inst.dst, false)
+            next_block(&var out, instruction_index)
+        },
         case Copy -> {
             put(&var out, "  ")
-            if reference_type(function.slots[inst.a]) {
+            if reference_type(function.slots[inst.a]) || string_type(function.slots[inst.a]) {
                 load_ref_slot(&var out, instruction_index, "v", inst.a)
-                store_ref_temp(&var out, instruction_index, "v", inst.dst)
+                if string_type(function.slots[inst.a]) {
+                    assign_string_temp(&var out, instruction_index, "v", inst.dst, true)
+                } else { store_ref_temp(&var out, instruction_index, "v", inst.dst) }
             } else {
                 load_slot(&var out, instruction_index, "v", inst.a)
                 store_temp(&var out, instruction_index, "v", inst.dst)
@@ -396,6 +455,17 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
             load_ref_slot(&var out, instruction_index, "ref", inst.a)
             let target = try reference_target(&program.references, function.slots[inst.a])
             let layout = try value_layout(&program.records, target)
+            if string_type(target) {
+                put(&var out, "  ")
+                temp_name(&var out, instruction_index, "v0")
+                put(&var out, " = load ptr, ptr ")
+                temp_name(&var out, instruction_index, "ref")
+                put(&var out, "\n")
+                assign_string_temp(&var out, instruction_index, "v0", inst.dst, true)
+                next_block(&var out, instruction_index)
+                put(&var out, "\n")
+                return
+            }
             var word = 0
             while word < layout.len() {
                 if word > 0 {
@@ -427,6 +497,26 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
             load_ref_slot(&var out, instruction_index, "ref", inst.a)
             let target = try reference_target(&program.references, function.slots[inst.a])
             let layout = try value_layout(&program.records, target)
+            if string_type(target) {
+                put(&var out, "  ")
+                load_ref_slot(&var out, instruction_index, "v0", inst.b)
+                put(&var out, "  call void @minivm_string_retain(ptr ")
+                temp_name(&var out, instruction_index, "v0")
+                put(&var out, ")\n  ")
+                temp_name(&var out, instruction_index, "old")
+                put(&var out, " = load ptr, ptr ")
+                temp_name(&var out, instruction_index, "ref")
+                put(&var out, "\n  call void @minivm_string_release(ptr ")
+                temp_name(&var out, instruction_index, "old")
+                put(&var out, ")\n  store ptr ")
+                temp_name(&var out, instruction_index, "v0")
+                put(&var out, ", ptr ")
+                temp_name(&var out, instruction_index, "ref")
+                put(&var out, "\n")
+                next_block(&var out, instruction_index)
+                put(&var out, "\n")
+                return
+            }
             var word = 0
             while word < layout.len() {
                 put(&var out, "  ")
@@ -532,8 +622,52 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
             store_temp(&var out, instruction_index, "v", inst.dst)
             next_block(&var out, instruction_index)
         },
-        case Eq -> emit_compare(&var out, instruction_index, &inst, "eq"),
-        case Ne -> emit_compare(&var out, instruction_index, &inst, "ne"),
+        case Eq -> {
+            if string_type(function.slots[inst.a]) {
+                put(&var out, "  ")
+                load_ref_slot(&var out, instruction_index, "a", inst.a)
+                put(&var out, "  ")
+                load_ref_slot(&var out, instruction_index, "b", inst.b)
+                put(&var out, "  ")
+                temp_name(&var out, instruction_index, "c")
+                put(&var out, " = call i1 @minivm_string_eq(ptr ")
+                temp_name(&var out, instruction_index, "a")
+                put(&var out, ", ptr ")
+                temp_name(&var out, instruction_index, "b")
+                put(&var out, ")\n  ")
+                temp_name(&var out, instruction_index, "v")
+                put(&var out, " = zext i1 ")
+                temp_name(&var out, instruction_index, "c")
+                put(&var out, " to i64\n")
+                store_temp(&var out, instruction_index, "v", inst.dst)
+                next_block(&var out, instruction_index)
+            } else { emit_compare(&var out, instruction_index, &inst, "eq") }
+        },
+        case Ne -> {
+            if string_type(function.slots[inst.a]) {
+                put(&var out, "  ")
+                load_ref_slot(&var out, instruction_index, "a", inst.a)
+                put(&var out, "  ")
+                load_ref_slot(&var out, instruction_index, "b", inst.b)
+                put(&var out, "  ")
+                temp_name(&var out, instruction_index, "same")
+                put(&var out, " = call i1 @minivm_string_eq(ptr ")
+                temp_name(&var out, instruction_index, "a")
+                put(&var out, ", ptr ")
+                temp_name(&var out, instruction_index, "b")
+                put(&var out, ")\n  ")
+                temp_name(&var out, instruction_index, "c")
+                put(&var out, " = xor i1 ")
+                temp_name(&var out, instruction_index, "same")
+                put(&var out, ", true\n  ")
+                temp_name(&var out, instruction_index, "v")
+                put(&var out, " = zext i1 ")
+                temp_name(&var out, instruction_index, "c")
+                put(&var out, " to i64\n")
+                store_temp(&var out, instruction_index, "v", inst.dst)
+                next_block(&var out, instruction_index)
+            } else { emit_compare(&var out, instruction_index, &inst, "ne") }
+        },
         case Lt -> emit_compare(&var out, instruction_index, &inst, if integer_signed(function.slots[inst.a]) { "slt" } else { "ult" }),
         case Le -> emit_compare(&var out, instruction_index, &inst, if integer_signed(function.slots[inst.a]) { "sle" } else { "ule" }),
         case Gt -> emit_compare(&var out, instruction_index, &inst, if integer_signed(function.slots[inst.a]) { "sgt" } else { "ugt" }),
@@ -564,7 +698,7 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
             var argument_index = 0
             while argument_index < inst.args.len() {
                 put(&var out, "  ")
-                if reference_type(function.slots[inst.args[argument_index]]) {
+                if reference_type(function.slots[inst.args[argument_index]]) || string_type(function.slots[inst.args[argument_index]]) {
                     load_ref_slot(&var out, instruction_index, "arg{argument_index}", inst.args[argument_index])
                 } else {
                     load_slot(&var out, instruction_index, "arg{argument_index}", inst.args[argument_index])
@@ -584,13 +718,15 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
             argument_index = 0
             while argument_index < inst.args.len() {
                 if argument_index > 0 { put(&var out, ", ") }
-                if reference_type(function.slots[inst.args[argument_index]]) { put(&var out, "ptr ") }
+                if reference_type(function.slots[inst.args[argument_index]]) || string_type(function.slots[inst.args[argument_index]]) { put(&var out, "ptr ") }
                 else { put(&var out, "i64 ") }
                 temp_name(&var out, instruction_index, "arg{argument_index}")
                 argument_index = argument_index + 1
             }
             put(&var out, ")\n")
-            if scalar_type(callee.result) {
+            if string_type(callee.result) {
+                assign_string_temp(&var out, instruction_index, "call", inst.dst, false)
+            } else if scalar_type(callee.result) {
                 store_temp(&var out, instruction_index, "call", inst.dst)
             } else if callee.result != ValueType.Void {
                 var result_index = 0
@@ -610,11 +746,73 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
             }
             next_block(&var out, instruction_index)
         },
-        case Print -> {
-            if not printable_type(function.slots[inst.a]) { return problem("internal prototype error: non-printable value", inst.line, inst.col) }
+        case StringLen -> {
             put(&var out, "  ")
-            load_slot(&var out, instruction_index, "a", inst.a)
-            if function.slots[inst.a] == ValueType.Bool {
+            load_ref_slot(&var out, instruction_index, "a", inst.a)
+            put(&var out, "  ")
+            temp_name(&var out, instruction_index, "v")
+            put(&var out, " = call i64 @minivm_string_len(ptr ")
+            temp_name(&var out, instruction_index, "a")
+            put(&var out, ")\n")
+            store_temp(&var out, instruction_index, "v", inst.dst)
+            next_block(&var out, instruction_index)
+        },
+        case StringByteAt -> {
+            put(&var out, "  ")
+            load_ref_slot(&var out, instruction_index, "a", inst.a)
+            put(&var out, "  ")
+            load_slot(&var out, instruction_index, "b", inst.b)
+            put(&var out, "  ")
+            temp_name(&var out, instruction_index, "v")
+            put(&var out, " = call i64 @minivm_string_byte_at(ptr ")
+            temp_name(&var out, instruction_index, "a")
+            put(&var out, ", i64 ")
+            temp_name(&var out, instruction_index, "b")
+            put(&var out, ")\n")
+            store_temp(&var out, instruction_index, "v", inst.dst)
+            next_block(&var out, instruction_index)
+        },
+        case StringSlice -> {
+            put(&var out, "  ")
+            load_ref_slot(&var out, instruction_index, "a", inst.a)
+            put(&var out, "  ")
+            load_slot(&var out, instruction_index, "b", inst.b)
+            put(&var out, "  ")
+            load_slot(&var out, instruction_index, "end", inst.args[0])
+            put(&var out, "  ")
+            temp_name(&var out, instruction_index, "new")
+            put(&var out, " = call ptr @minivm_string_slice(ptr ")
+            temp_name(&var out, instruction_index, "a")
+            put(&var out, ", i64 ")
+            temp_name(&var out, instruction_index, "b")
+            put(&var out, ", i64 ")
+            temp_name(&var out, instruction_index, "end")
+            put(&var out, ")\n")
+            assign_string_temp(&var out, instruction_index, "new", inst.dst, false)
+            next_block(&var out, instruction_index)
+        },
+        case Drop -> {
+            put(&var out, "  ")
+            load_ref_slot(&var out, instruction_index, "value", inst.a)
+            put(&var out, "  call void @minivm_string_release(ptr ")
+            temp_name(&var out, instruction_index, "value")
+            put(&var out, ")\n  store ptr null, ptr ")
+            slot_name(&var out, inst.a)
+            put(&var out, "\n")
+            next_block(&var out, instruction_index)
+        },
+        case Print -> {
+            put(&var out, "  ")
+            if string_type(function.slots[inst.a]) {
+                load_ref_slot(&var out, instruction_index, "a", inst.a)
+                put(&var out, "  call void @minivm_string_print(ptr ")
+                temp_name(&var out, instruction_index, "a")
+                put(&var out, ")\n")
+            } else {
+                load_slot(&var out, instruction_index, "a", inst.a)
+            }
+            if string_type(function.slots[inst.a]) {}
+            else if function.slots[inst.a] == ValueType.Bool {
                 put(&var out, "  ")
                 temp_name(&var out, instruction_index, "c")
                 put(&var out, " = icmp ne i64 ")
@@ -638,8 +836,32 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
             next_block(&var out, instruction_index)
         },
         case Return -> {
+            if string_type(function.result) {
+                put(&var out, "  ")
+                load_ref_slot(&var out, instruction_index, "ret", inst.a)
+                put(&var out, "  call void @minivm_string_retain(ptr ")
+                temp_name(&var out, instruction_index, "ret")
+                put(&var out, ")\n")
+            }
+            var cleanup = 0
+            while cleanup < function.slots.len() {
+                if string_type(function.slots[cleanup]) {
+                    put(&var out, "  ")
+                    load_ref_slot(&var out, instruction_index, "cleanup{cleanup}", cleanup)
+                    put(&var out, "  call void @minivm_string_release(ptr ")
+                    temp_name(&var out, instruction_index, "cleanup{cleanup}")
+                    put(&var out, ")\n  store ptr null, ptr ")
+                    slot_name(&var out, cleanup)
+                    put(&var out, "\n")
+                }
+                cleanup += 1
+            }
             if inst.a < 0 {
                 put(&var out, "  ret void\n")
+            } else if string_type(function.result) {
+                put(&var out, "  ret ptr ")
+                temp_name(&var out, instruction_index, "ret")
+                put(&var out, "\n")
             } else if scalar_type(function.result) {
                 put(&var out, "  ")
                 load_slot(&var out, instruction_index, "ret", inst.a)
@@ -689,7 +911,7 @@ func emit_function(out: &var StringBuilder, program: &Program,
     var argument_index = 0
     while parameter_index < function.params.len() {
         let parameter_type = function.params[parameter_index]
-        if reference_type(parameter_type) {
+        if reference_type(parameter_type) || string_type(parameter_type) {
             if argument_index > 0 { put(&var out, ", ") }
             put(&var out, "ptr %arg")
             put_int(&var out, argument_index)
@@ -715,7 +937,7 @@ func emit_function(out: &var StringBuilder, program: &Program,
     while slot_index < function.slots.len() {
         put(&var out, "  ")
         slot_name(&var out, slot_index)
-        if reference_type(function.slots[slot_index]) {
+        if reference_type(function.slots[slot_index]) || string_type(function.slots[slot_index]) {
             put(&var out, " = alloca ptr\n")
         } else {
             put(&var out, " = getelementptr [")
@@ -726,6 +948,15 @@ func emit_function(out: &var StringBuilder, program: &Program,
         }
         slot_index = slot_index + 1
     }
+    slot_index = 0
+    while slot_index < function.slots.len() {
+        if string_type(function.slots[slot_index]) {
+            put(&var out, "  store ptr null, ptr ")
+            slot_name(&var out, slot_index)
+            put(&var out, "\n")
+        }
+        slot_index += 1
+    }
     var parameter_words = 0
     var source_parameter = 0
     while source_parameter < function.params.len() {
@@ -735,7 +966,12 @@ func emit_function(out: &var StringBuilder, program: &Program,
     }
     argument_index = 0
     while argument_index < parameter_words {
-        put(&var out, if reference_type(function.slots[argument_index]) { "  store ptr %arg" } else { "  store i64 %arg" })
+        if string_type(function.slots[argument_index]) {
+            put(&var out, "  call void @minivm_string_retain(ptr %arg")
+            put_int(&var out, argument_index)
+            put(&var out, ")\n")
+        }
+        put(&var out, if reference_type(function.slots[argument_index]) || string_type(function.slots[argument_index]) { "  store ptr %arg" } else { "  store i64 %arg" })
         put_int(&var out, argument_index)
         put(&var out, ", ptr ")
         slot_name(&var out, argument_index)
@@ -769,6 +1005,7 @@ public func emit_llvm(program: &Program) -> Result<String, ProtoError> {
     put(&var out, "@.divzero = private unnamed_addr constant [32 x i8] c\"runtime error: division by zero\\00\"\n\n")
     put(&var out, "@.cast = private unnamed_addr constant [41 x i8] c\"runtime error: integer cast out of range\\00\"\n")
     put(&var out, "@.shift = private unnamed_addr constant [34 x i8] c\"runtime error: shift out of range\\00\"\n\n")
+    emit_string_constants(&var out, &program.strings)
     put(&var out, "declare i32 @printf(ptr, ...)\ndeclare i32 @puts(ptr)\ndeclare void @exit(i32)\n")
     put(&var out, "declare \{i64, i1\} @llvm.sadd.with.overflow.i64(i64, i64)\n")
     put(&var out, "declare \{i64, i1\} @llvm.ssub.with.overflow.i64(i64, i64)\n")
@@ -776,6 +1013,7 @@ public func emit_llvm(program: &Program) -> Result<String, ProtoError> {
     put(&var out, "declare \{i64, i1\} @llvm.uadd.with.overflow.i64(i64, i64)\n")
     put(&var out, "declare \{i64, i1\} @llvm.usub.with.overflow.i64(i64, i64)\n")
     put(&var out, "declare \{i64, i1\} @llvm.umul.with.overflow.i64(i64, i64)\n\n")
+    emit_string_runtime(&var out)
     put(&var out, "define internal void @minivm_overflow() \{\nentry:\n  call i32 @puts(ptr @.overflow)\n  call void @exit(i32 1)\n  unreachable\n\}\n\n")
     put(&var out, "define internal void @minivm_divzero() \{\nentry:\n  call i32 @puts(ptr @.divzero)\n  call void @exit(i32 1)\n  unreachable\n\}\n\n")
     put(&var out, "define internal void @minivm_cast() \{\nentry:\n  call i32 @puts(ptr @.cast)\n  call void @exit(i32 1)\n  unreachable\n\}\n\n")
@@ -788,6 +1026,6 @@ public func emit_llvm(program: &Program) -> Result<String, ProtoError> {
     }
     put(&var out, "define i32 @main() \{\nentry:\n  call void @f")
     put_int(&var out, program.main_index)
-    put(&var out, "()\n  ret i32 0\n\}\n")
+    put(&var out, "()\n  call void @minivm_string_check_live()\n  ret i32 0\n\}\n")
     out.build()
 }

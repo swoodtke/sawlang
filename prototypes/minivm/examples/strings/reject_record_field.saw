@@ -1,0 +1,2 @@
+struct Bad { text: String }
+func main() {}

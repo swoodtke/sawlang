@@ -1,0 +1,8 @@
+func main() {
+    print("")
+    print("ASCII")
+    print("café🙂")
+    print("a\0b")
+    print("\{left\} \\ right")
+    print("\u{1}x")
+}

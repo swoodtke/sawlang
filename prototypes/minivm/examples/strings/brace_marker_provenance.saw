@@ -1,0 +1,17 @@
+func main() {
+    let escaped_left = "\{"
+    let literal_left = "\u{1}\u{7b}"
+    print(escaped_left.len())
+    print(escaped_left.byte_at(0))
+    print(literal_left.len())
+    print(literal_left.byte_at(0))
+    print(literal_left.byte_at(1))
+
+    let escaped_right = "\}"
+    let literal_right = "\u{1}\u{7d}"
+    print(escaped_right.len())
+    print(escaped_right.byte_at(0))
+    print(literal_right.len())
+    print(literal_right.byte_at(0))
+    print(literal_right.byte_at(1))
+}

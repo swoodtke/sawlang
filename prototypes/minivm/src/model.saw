@@ -1,7 +1,7 @@
 public enum ValueType {
     case I8, case I16, case I32, case I64,
     case U8, case U16, case U32, case U64, case Byte,
-    case Bool, case Void, case Record(index: Int), case Enum(index: Int), case Ref(index: Int)
+    case Bool, case Void, case String, case Record(index: Int), case Enum(index: Int), case Ref(index: Int)
 }
 @synthesize
 extension ValueType: Equatable {}
@@ -12,6 +12,7 @@ public enum Op {
     case Jump, case Branch, case Call, case Print, case Return,
     case Cast, case Truncate, case WrapAdd, case WrapSub, case WrapMul,
     case Addr, case LoadRef, case StoreRef, case RefField,
+    case StringConst, case StringLen, case StringByteAt, case StringSlice, case Drop,
     case BitAnd, case BitOr, case BitXor, case BitNot, case Shl, case Shr
 }
 @synthesize
@@ -116,6 +117,7 @@ public struct EnumIR {
 extension EnumIR: ExplicitCopy {}
 
 public struct Program {
+    public strings: Vector<String>
     public references: Vector<ReferenceIR>
     public enums: Vector<EnumIR>
     public records: Vector<RecordIR>
@@ -166,13 +168,15 @@ public func problem(message: String, line: Int, col: Int) -> ProtoError {
 }
 
 public func printable_type(t: ValueType) -> Bool {
-    integer_type(t) || t == ValueType.Bool
+    integer_type(t) || t == ValueType.Bool || string_type(t)
 }
+
+public func string_type(t: ValueType) -> Bool { t == ValueType.String }
 
 public func scalar_type(t: ValueType) -> Bool {
     match t {
         case Enum(_) -> true,
-        case _ -> printable_type(t)
+        case _ -> integer_type(t) || t == ValueType.Bool
     }
 }
 
@@ -212,10 +216,10 @@ public func reference_transfer(refs: &Vector<ReferenceIR>, source: ValueType, ta
 public func validate_references(refs: &Vector<ReferenceIR>) -> Result<Void, ProtoError> {
     var n = 0
     while n < refs.len() {
-        if not scalar_type(refs[n].target) {
+        if not scalar_type(refs[n].target) && not string_type(refs[n].target) {
             match refs[n].target {
                 case Record(_) -> {},
-                case _ -> { return problem("reference target must be a scalar or record type", 0, 0) }
+                case _ -> { return problem("reference target must be a data type", 0, 0) }
             }
         }
         n += 1
@@ -280,13 +284,14 @@ func append_layout(records: &Vector<RecordIR>, t: ValueType,
             return
         },
         case Ref(_) -> { return problem("reference record fields are not supported", 0, 0) },
+        case String -> { return problem("String record fields are not supported", 0, 0) },
         case _ -> { return problem("Void is not a record field type", 0, 0) }
     }
 }
 
 public func value_layout(records: &Vector<RecordIR>, t: ValueType) -> Result<Vector<ValueType>, ProtoError> {
     var words = Vector<ValueType>()
-    if reference_type(t) {
+    if reference_type(t) || string_type(t) {
         try! words.push(t)
         return move words
     }

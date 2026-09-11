@@ -42,6 +42,11 @@ struct Borrow {
     mutable: Bool
 }
 
+struct StringSlot {
+    slot: Int
+    depth: Int
+}
+
 struct StaticBinding {
     name: String
     ty: ValueType
@@ -81,7 +86,7 @@ func type_name(t: ValueType) -> String {
     match t {
         case I8 -> "Int8", case I16 -> "Int16", case I32 -> "Int32", case I64 -> "Int",
         case U8 -> "UInt8", case U16 -> "UInt16", case U32 -> "UInt32", case U64 -> "UInt",
-        case Byte -> "Byte", case Bool -> "Bool", case Void -> "Void",
+        case Byte -> "Byte", case Bool -> "Bool", case String -> "String", case Void -> "Void",
         case Record(_) -> "record", case Enum(_) -> "enum", case Ref(_) -> "reference"
     }
 }
@@ -115,19 +120,23 @@ func literal_magnitude(value: String) -> UInt? {
 }
 
 struct Compiler {
+    source: String
     tokens: Vector<Token>
     records: Vector<RecordIR>
     enums: Vector<EnumIR>
     references: Vector<ReferenceIR>
+    strings: Vector<String>
     statics: Vector<StaticBinding>
     signatures: Vector<Signature>
     pos: Int
     depth: Int
+    scope_depth: Int
     expr_depth: Int
     paren_depth: Int
     bindings: Vector<Binding>
     active_borrows: Vector<Borrow>
     pending_writes: Vector<Int>
+    string_slots: Vector<StringSlot>
     slots: Vector<ValueType>
     code: Vector<Instruction>
     current_result: ValueType
@@ -186,11 +195,13 @@ extension Compiler {
             if reference_type(target) { return problem("references to references are not supported", amp.line, amp.col) }
             var supported = scalar_type(target)
             match target { case Record(_) -> { supported = true }, case _ -> {} }
+            if target == ValueType.String { supported = true }
             if not supported { return problem("only data references are supported", amp.line, amp.col) }
             return self.intern_reference(target, mutable)
         }
         let t = try self.expect(TokenKind.Ident, "expected type")
         if t.value == "Bool" { return ValueType.Bool }
+        if t.value == "String" { return ValueType.String }
         if let ty = named_integer_type(t.value) { return ty }
         let ri = self.record_index(t.value)
         if ri >= 0 { return ValueType.Record(ri) }
@@ -209,6 +220,16 @@ extension Compiler {
         }
         try! self.references.push(ReferenceIR(target: target, mutable: mutable))
         ValueType.Ref(self.references.len() - 1)
+    }
+
+    func intern_string(&var self, value: String) -> Int {
+        var i = 0
+        while i < self.strings.len() {
+            if self.strings[i] == value { return i }
+            i += 1
+        }
+        try! self.strings.push(value)
+        self.strings.len() - 1
     }
 
     func record_index(&self, name: String) -> Int {
@@ -253,7 +274,7 @@ extension Compiler {
     }
 
     func reserved_type_name(&self, name: String) -> Bool {
-        if name == "Bool" || name == "Void" { return true }
+        if name == "Bool" || name == "String" || name == "Void" { return true }
         if let _ = named_integer_type(name) { return true }
         false
     }
@@ -556,6 +577,7 @@ extension Compiler {
         if si < 0 { return problem("unknown static declaration `{name.value}`", name.line, name.col) }
         let _ = try self.expect(TokenKind.Colon, "expected `:` after static name")
         let target = try self.parse_type()
+        if target == ValueType.String { return problem("String statics are not supported", name.line, name.col) }
         if target == ValueType.Byte || not printable_type(target) {
             return problem("static type must be an integer or Bool", name.line, name.col)
         }
@@ -631,6 +653,7 @@ extension Compiler {
             let _ = try self.expect(TokenKind.Colon, "expected `:` after record field")
             let ty = try self.parse_type()
             if ty == ValueType.Void { return problem("record field cannot have Void type", field.line, field.col) }
+            if ty == ValueType.String { return problem("String record fields are not supported", field.line, field.col) }
             if reference_type(ty) { return problem("reference record fields are not supported", field.line, field.col) }
             try! names.push(field.value)
             try! types.push(ty)
@@ -680,6 +703,7 @@ extension Compiler {
     func new_slot(&var self, ty: ValueType) -> Int {
         let n = self.slots.len()
         try! self.slots.push(ty)
+        if ty == ValueType.String { try! self.string_slots.push(StringSlot(slot: n, depth: self.scope_depth)) }
         n
     }
 
@@ -688,7 +712,7 @@ extension Compiler {
         let start = self.slots.len()
         var i = 0
         while i < layout.len() {
-            try! self.slots.push(layout[i])
+            let _ = self.new_slot(layout[i])
             i += 1
         }
         start
@@ -785,6 +809,32 @@ extension Compiler {
 
     func restore_pending_writes(&var self, count: Int) {
         while self.pending_writes.len() > count { let _ = self.pending_writes.pop() }
+    }
+
+    func cleanup_scope(&var self, preserve: Int, t: &Token) {
+        var i = 0
+        while i < self.string_slots.len() {
+            if self.string_slots[i].depth == self.scope_depth {
+                if self.string_slots[i].slot == preserve {
+                    self.string_slots[i].depth -= 1
+                } else {
+                    let at = self.emit_at(Op.Drop, t.line, t.col)
+                    self.code[at].a = self.string_slots[i].slot
+                }
+            }
+            i += 1
+        }
+    }
+
+    func cleanup_function(&var self, preserve: Int, t: &Token) {
+        var i = 0
+        while i < self.string_slots.len() {
+            if self.string_slots[i].slot != preserve {
+                let at = self.emit_at(Op.Drop, t.line, t.col)
+                self.code[at].a = self.string_slots[i].slot
+            }
+            i += 1
+        }
     }
 
     func read_place(&var self, place: Place, t: &Token) -> Result<ExprValue, ProtoError> {
@@ -895,10 +945,83 @@ extension Compiler {
         problem("cannot implicitly convert {self.display_type(v.ty)} to {self.display_type(target)}", t.line, t.col)
     }
 
+    func source_offset(&self, line: Int, col: Int) -> Int {
+        var at = 0
+        var current_line = 1
+        var current_col = 1
+        while at < self.source.len() {
+            if current_line == line && current_col == col { return at }
+            let b = self.source.byte_at(at) as Int
+            at += 1
+            if b == 10 {
+                current_line += 1
+                current_col = 1
+            } else if b < 128 || b > 191 { current_col += 1 }
+        }
+        -1
+    }
+
+    func literal_hex_value(&self, b: Int) -> Int {
+        if b >= 48 && b <= 57 { return b - 48 }
+        if b >= 97 && b <= 102 { return b - 97 + 10 }
+        b - 65 + 10
+    }
+
+    func decode_string_literal(&self, t: &Token) -> Result<String, ProtoError> {
+        var at = self.source_offset(t.line, t.col)
+        if at < 0 || (self.source.byte_at(at) as Int) != 34 {
+            return problem("cannot locate string literal source", t.line, t.col)
+        }
+        at += 1
+        var out = StringBuilder()
+        while at < self.source.len() {
+            let b = self.source.byte_at(at) as Int
+            at += 1
+            if b == 34 { return out.build() }
+            if b != 92 {
+                try! out.append(Byte(UInt8.from(truncating: b)))
+                continue
+            }
+            let escaped = self.source.byte_at(at) as Int
+            at += 1
+            if escaped == 110 { try! out.append(Byte(UInt8.from(truncating: 10))) }
+            else if escaped == 116 { try! out.append(Byte(UInt8.from(truncating: 9))) }
+            else if escaped == 114 { try! out.append(Byte(UInt8.from(truncating: 13))) }
+            else if escaped == 48 { try! out.append(Byte(UInt8.from(truncating: 0))) }
+            else if escaped == 34 || escaped == 92 || escaped == 123 || escaped == 125 {
+                try! out.append(Byte(UInt8.from(truncating: escaped)))
+            } else if escaped == 117 {
+                at += 1
+                var scalar = 0
+                while (self.source.byte_at(at) as Int) != 125 {
+                    scalar = scalar * 16 + self.literal_hex_value(self.source.byte_at(at) as Int)
+                    at += 1
+                }
+                at += 1
+                try! out.append(try! Scalar(value: scalar))
+            }
+        }
+        problem("unterminated string literal", t.line, t.col)
+    }
+
     func parse_atom(&var self) -> Result<ExprValue, ProtoError> {
         if self.depth > 128 { return self.fail("expression nesting limit exceeded") }
         if self.at(TokenKind.If) { return self.parse_if_value(ValueType.Void, false) }
         if self.at(TokenKind.Match) { return self.parse_match_value(ValueType.Void, false) }
+        if self.at(TokenKind.InterpString) {
+            let t = self.take()
+            return problem("string interpolation is not supported", t.line, t.col)
+        }
+        if self.at(TokenKind.StringLit) {
+            let t = self.take()
+            let value = try self.decode_string_literal(&t)
+            let pool_index = self.intern_string(value)
+            let dst = self.new_slot(ValueType.String)
+            let at = self.emit_at(Op.StringConst, t.line, t.col)
+            self.code[at].dst = dst
+            self.code[at].immediate = pool_index
+            return expr_value(ValueType.String, dst, false)
+        }
         if self.at(TokenKind.IntLit) {
             let t = self.take()
             guard let magnitude = literal_magnitude(t.value) else { return problem("invalid integer literal", t.line, t.col) }
@@ -946,6 +1069,10 @@ extension Compiler {
                 if self.at(TokenKind.Dot) {
                     let dot = self.take()
                     let method = try self.expect(TokenKind.Ident, "expected method name after `.`")
+                    if place.ty == ValueType.String {
+                        let receiver = try self.read_place(place, &candidate)
+                        return self.parse_string_intrinsic(receiver, method)
+                    }
                     let owner = match place.ty { case Record(index) -> index, case _ -> -1 }
                     if owner < 0 { return problem("method receiver must be a record place", dot.line, dot.col) }
                     let mi = self.method_index(owner, method.value)
@@ -1085,6 +1212,11 @@ extension Compiler {
             let dot = self.take()
             self.expr_space()
             let field = try self.expect(TokenKind.Ident, "expected record field after `.`")
+            if value.ty == ValueType.String {
+                value = try self.parse_string_intrinsic(value, field)
+                self.expr_space()
+                continue
+            }
             if self.at(TokenKind.LParen) {
                 return problem("method calls require a named place receiver", dot.line, dot.col)
             }
@@ -1100,6 +1232,97 @@ extension Compiler {
             self.expr_space()
         }
         value
+    }
+
+    func parse_string_argument(&var self, intrinsic: &Token, parameter: String,
+                               expected: ValueType) -> Result<ExprValue, ProtoError> {
+        if self.at(TokenKind.Ident) && self.pos + 1 < self.tokens.len() && self.tokens[self.pos + 1].kind == TokenKind.Colon {
+            let label = self.take()
+            let _ = self.take()
+            if label.value != parameter {
+                return problem("argument label `{label.value}` does not match parameter `{parameter}`", label.line, label.col)
+            }
+            self.expr_space()
+        }
+        var value = try self.parse_expr()
+        if value.always_returns { return problem("all-returning control flow cannot be used as an operand", intrinsic.line, intrinsic.col) }
+        if value.ty != expected && not value.literal {
+            return problem("String.{intrinsic.value} argument must be {type_name(expected)}", intrinsic.line, intrinsic.col)
+        }
+        value = try self.transfer(value, expected, &intrinsic)
+        self.snapshot(value, &intrinsic)
+    }
+
+    func parse_string_intrinsic(&var self, receiver: ExprValue,
+                                name: Token) -> Result<ExprValue, ProtoError> {
+        let _ = try self.expect(TokenKind.LParen, "expected `(` after String intrinsic")
+        self.depth += 1
+        self.paren_depth += 1
+        self.skip_newlines()
+        if name.value == "len" || name.value == "is_empty" {
+            if not self.at(TokenKind.RParen) { return problem("wrong number of arguments to String.{name.value}", name.line, name.col) }
+            let _ = self.take()
+            self.paren_depth -= 1
+            self.depth -= 1
+            let length = self.new_slot(ValueType.I64)
+            let at = self.emit_at(Op.StringLen, name.line, name.col)
+            self.code[at].dst = length
+            self.code[at].a = receiver.slot
+            if name.value == "len" { return expr_value(ValueType.I64, length, false) }
+            let zero = self.new_slot(ValueType.I64)
+            let constant = self.emit_at(Op.Const, name.line, name.col)
+            self.code[constant].dst = zero
+            self.code[constant].immediate = 0
+            let result = self.new_slot(ValueType.Bool)
+            let equal = self.emit_at(Op.Eq, name.line, name.col)
+            self.code[equal].dst = result
+            self.code[equal].a = length
+            self.code[equal].b = zero
+            return expr_value(ValueType.Bool, result, false)
+        }
+        if name.value == "byte_at" {
+            let index = try self.parse_string_argument(&name, "index", ValueType.I64)
+            self.skip_newlines()
+            if self.at(TokenKind.Comma) { return problem("wrong number of arguments to String.byte_at", name.line, name.col) }
+            let _ = try self.expect(TokenKind.RParen, "wrong number of arguments to String.byte_at")
+            self.paren_depth -= 1
+            self.depth -= 1
+            let dst = self.new_slot(ValueType.Byte)
+            let at = self.emit_at(Op.StringByteAt, name.line, name.col)
+            self.code[at].dst = dst
+            self.code[at].a = receiver.slot
+            self.code[at].b = index.slot
+            return expr_value(ValueType.Byte, dst, false)
+        }
+        if name.value == "substring" {
+            let start = try self.parse_string_argument(&name, "start", ValueType.I64)
+            self.skip_newlines()
+            let _ = try self.expect(TokenKind.Comma, "wrong number of arguments to String.substring")
+            self.skip_newlines()
+            let end = try self.parse_string_argument(&name, "end", ValueType.I64)
+            self.skip_newlines()
+            if self.at(TokenKind.Comma) { return problem("wrong number of arguments to String.substring", name.line, name.col) }
+            let _ = try self.expect(TokenKind.RParen, "wrong number of arguments to String.substring")
+            self.paren_depth -= 1
+            self.depth -= 1
+            let dst = self.new_slot(ValueType.String)
+            let at = self.emit_at(Op.StringSlice, name.line, name.col)
+            self.code[at].dst = dst
+            self.code[at].a = receiver.slot
+            self.code[at].b = start.slot
+            try! self.code[at].args.push(end.slot)
+            return expr_value(ValueType.String, dst, false)
+        }
+        if name.value == "equals" {
+            let other = try self.parse_string_argument(&name, "other", ValueType.String)
+            self.skip_newlines()
+            if self.at(TokenKind.Comma) { return problem("wrong number of arguments to String.equals", name.line, name.col) }
+            let _ = try self.expect(TokenKind.RParen, "wrong number of arguments to String.equals")
+            self.paren_depth -= 1
+            self.depth -= 1
+            return self.binary(receiver, other, Op.Eq, ValueType.Bool, &name)
+        }
+        problem("unknown String intrinsic `{name.value}`", name.line, name.col)
     }
 
     func parse_record_constructor(&var self, name: Token, ri: Int) -> Result<ExprValue, ProtoError> {
@@ -1643,7 +1866,7 @@ extension Compiler {
             let common = try self.common_type(&left, &right, &t)
             if left.ty != common { left = try self.adopt_literal(left, common, &t) }
             if right.ty != common { right = try self.adopt_literal(right, common, &t) }
-            if not scalar_type(left.ty) || left.ty != right.ty { return problem("equality operands must have the same scalar type", t.line, t.col) }
+            if (not scalar_type(left.ty) && left.ty != ValueType.String) || left.ty != right.ty { return problem("equality operands must have the same comparable type", t.line, t.col) }
             left = try self.binary(left, right, if t.kind == TokenKind.Eq { Op.Eq } else { Op.Ne }, ValueType.Bool, &t)
         }
         left
@@ -1896,6 +2119,7 @@ extension Compiler {
     func parse_value_block(&var self, expected: ValueType, has_expected: Bool) -> Result<BlockValue, ProtoError> {
         if self.depth >= 128 { return self.fail("block nesting limit exceeded") }
         self.depth += 1
+        self.scope_depth += 1
         let saved_parens = self.paren_depth
         self.paren_depth = 0
         self.skip_newlines()
@@ -1915,9 +2139,13 @@ extension Compiler {
             let had_newline = self.at(TokenKind.Newline)
             if had_newline { self.skip_newlines() }
             if self.at(TokenKind.RBrace) {
+                let close = self.token()
+                let preserve = if not returns && not value.always_returns && value.ty == ValueType.String { value.slot } else { -1 }
+                self.cleanup_scope(preserve, &close)
                 let _ = self.take()
                 self.leave_scope()
                 self.depth -= 1
+                self.scope_depth -= 1
                 self.paren_depth = saved_parens
                 if returns || value.always_returns {
                     return BlockValue(has_value: false, value: returning_value(), always_returns: true)
@@ -1930,9 +2158,11 @@ extension Compiler {
             }
             if not had_newline { return problem("expected newline after statement", start.line, start.col) }
         }
-        let _ = try self.expect(TokenKind.RBrace, "expected closing brace")
+        let close = try self.expect(TokenKind.RBrace, "expected closing brace")
+        self.cleanup_scope(-1, &close)
         self.leave_scope()
         self.depth -= 1
+        self.scope_depth -= 1
         self.paren_depth = saved_parens
         BlockValue(has_value: false, value: returning_value(), always_returns: returns)
     }
@@ -2174,6 +2404,7 @@ extension Compiler {
     func parse_block(&var self) -> Result<Bool, ProtoError> {
         if self.depth >= 128 { return self.fail("block nesting limit exceeded") }
         self.depth += 1
+        self.scope_depth += 1
         self.skip_newlines()
         var returns = false
         while not self.at(TokenKind.RBrace) && not self.at(TokenKind.Eof) {
@@ -2181,9 +2412,11 @@ extension Compiler {
             if not returns && r { returns = true }
             try self.terminator()
         }
-        let _ = try self.expect(TokenKind.RBrace, "expected closing brace")
+        let close = try self.expect(TokenKind.RBrace, "expected closing brace")
+        self.cleanup_scope(-1, &close)
         self.leave_scope()
         self.depth -= 1
+        self.scope_depth -= 1
         returns
     }
 
@@ -2316,6 +2549,7 @@ extension Compiler {
                 if value.always_returns { return true }
                 src = value.slot
             } else if self.current_result != ValueType.Void { return problem("non-Void return requires a value", t.line, t.col) }
+            self.cleanup_function(src, &t)
             let at = self.emit_at(Op.Return, t.line, t.col)
             self.code[at].a = src
             return true
@@ -2386,7 +2620,7 @@ extension Compiler {
             self.paren_depth -= 1
             self.depth -= 1
             if value.ty == ValueType.Void { return problem("cannot print Void", t.line, t.col) }
-            if not printable_type(value.ty) {
+            if not printable_type(value.ty) && value.ty != ValueType.String {
                 match value.ty {
                     case Enum(_) -> { return problem("cannot print an enum value", t.line, t.col) },
                     case _ -> { return problem("cannot print a record value", t.line, t.col) }
@@ -2441,11 +2675,13 @@ extension Compiler {
     func compile_function(&var self, index: Int) -> Result<FuncIR, ProtoError> {
         self.pos = self.signatures[index].body_start
         self.depth = 0
+        self.scope_depth = 0
         self.expr_depth = 0
         self.paren_depth = 0
         self.bindings = Vector<Binding>()
         self.active_borrows = Vector<Borrow>()
         self.pending_writes = Vector<Int>()
+        self.string_slots = Vector<StringSlot>()
         self.slots = Vector<ValueType>()
         self.code = Vector<Instruction>()
         self.current_result = self.signatures[index].result
@@ -2464,6 +2700,8 @@ extension Compiler {
                 let tail = try self.parse_expected_expr(self.current_result)
                 if tail.always_returns { returns = true }
                 else {
+                    let return_token = self.token()
+                    self.cleanup_function(tail.slot, &return_token)
                     let r = self.emit_at(Op.Return, self.signatures[index].line, self.signatures[index].col)
                     self.code[r].a = tail.slot
                     returns = true
@@ -2481,19 +2719,29 @@ extension Compiler {
                            self.signatures[index].line, self.signatures[index].col)
         }
         if self.current_result == ValueType.Void {
+            let return_token = self.token()
+            self.cleanup_function(-1, &return_token)
             let _ = self.emit_at(Op.Return, self.signatures[index].line, self.signatures[index].col)
         } else {
             // Return-path checking above proves this padding unreachable. It gives
             // end-of-block jumps a real target and leaves every emitted block terminated.
             let slot = try self.new_value(self.current_result)
-            let layout = try value_layout(&self.records, self.current_result)
-            var word = 0
-            while word < layout.len() {
+            if self.current_result == ValueType.String {
+                let c = self.emit_at(Op.StringConst, self.signatures[index].line, self.signatures[index].col)
+                self.code[c].dst = slot
+                self.code[c].immediate = self.intern_string("")
+            } else {
+                let layout = try value_layout(&self.records, self.current_result)
+                var word = 0
+                while word < layout.len() {
                 let c = self.emit_at(Op.Const, self.signatures[index].line, self.signatures[index].col)
                 self.code[c].dst = slot + word
                 self.code[c].immediate = 0
                 word += 1
+                }
             }
+            let return_token = self.token()
+            self.cleanup_function(slot, &return_token)
             let r = self.emit_at(Op.Return, self.signatures[index].line, self.signatures[index].col)
             self.code[r].a = slot
         }
@@ -2511,10 +2759,12 @@ public func compile_source(source: String) -> Result<Program, ProtoError> {
         case Ok(ts) -> move ts,
         case Err(e) -> { return problem(e.message, e.line, e.col) }
     }
-    var compiler = Compiler(tokens: move tokens, records: Vector<RecordIR>(), enums: Vector<EnumIR>(), references: Vector<ReferenceIR>(), statics: Vector<StaticBinding>(),
-                            signatures: Vector<Signature>(), pos: 0, depth: 0,
+    var compiler = Compiler(source: source, tokens: move tokens, records: Vector<RecordIR>(), enums: Vector<EnumIR>(),
+                            references: Vector<ReferenceIR>(), strings: Vector<String>(), statics: Vector<StaticBinding>(),
+                            signatures: Vector<Signature>(), pos: 0, depth: 0, scope_depth: 0,
                             expr_depth: 0, paren_depth: 0,
                             bindings: Vector<Binding>(), active_borrows: Vector<Borrow>(), pending_writes: Vector<Int>(),
+                            string_slots: Vector<StringSlot>(),
                             slots: Vector<ValueType>(),
                             code: Vector<Instruction>(), current_result: ValueType.Void)
     try compiler.collect_record_names()
@@ -2531,5 +2781,6 @@ public func compile_source(source: String) -> Result<Program, ProtoError> {
         i += 1
     }
     Program(enums: compiler.enums.copy(), records: compiler.records.copy(), references: compiler.references.copy(),
+            strings: compiler.strings.copy(),
             functions: move functions, main_index: main_index)
 }

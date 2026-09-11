@@ -1,0 +1,10 @@
+func replace(value: &var String) -> String {
+    value = "after"
+    return "before"
+}
+
+func main() {
+    var value = "before"
+    print(value.equals(replace(&var value)))
+    print(value)
+}

@@ -1,0 +1,17 @@
+func main() {
+    var index = 0
+    var last = "initial"
+    while index < 200 {
+        let selected = if index % 2 == 0 {
+            let temporary = "even"
+            temporary
+        } else {
+            let temporary = "odd"
+            temporary
+        }
+        last = selected
+        index += 1
+    }
+    print(last)
+    print(index)
+}

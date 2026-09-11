@@ -1,0 +1,107 @@
+import src.model.*
+import src.verify.*
+import src.vm.*
+
+func valid(p: &Program) -> Bool {
+    try verify(&p) catch { return false }
+    true
+}
+
+func op(code: &var Vector<Instruction>, kind: Op, dst: Int, a: Int, b: Int, immediate: Int) {
+    var i = instruction(kind)
+    i.dst = dst
+    i.a = a
+    i.b = b
+    i.immediate = immediate
+    try! code.push(move i)
+}
+
+func base_program() -> Program {
+    let strings: Vector<String> = ["abc", ""]
+    var refs = Vector<ReferenceIR>()
+    try! refs.push(ReferenceIR(target: ValueType.String, mutable: true))
+    try! refs.push(ReferenceIR(target: ValueType.String, mutable: false))
+    let slots: Vector<ValueType> = [ValueType.String, ValueType.String,
+        ValueType.I64, ValueType.I64, ValueType.Byte, ValueType.Bool,
+        ValueType.Ref(0), ValueType.Ref(1), ValueType.String, ValueType.String]
+    var code = Vector<Instruction>()
+    op(&var code, Op.StringConst, 0, -1, -1, 0)
+    op(&var code, Op.Copy, 1, 0, -1, 0)
+    op(&var code, Op.Const, 2, -1, -1, 1)
+    op(&var code, Op.StringLen, 3, 0, -1, 0)
+    op(&var code, Op.StringSlice, 1, 0, 2, 0)
+    try! code[4].args.push(3)
+    op(&var code, Op.StringByteAt, 4, 1, 2, 0)
+    op(&var code, Op.Eq, 5, 0, 1, 0)
+    op(&var code, Op.Addr, 6, 0, -1, 0)
+    op(&var code, Op.Copy, 7, 6, -1, 0)
+    op(&var code, Op.LoadRef, 8, 7, -1, 0)
+    op(&var code, Op.StoreRef, -1, 6, 1, 0)
+    op(&var code, Op.Call, 9, -1, -1, 0)
+    code[11].target = 1
+    try! code[11].args.push(0)
+    op(&var code, Op.Drop, -1, 9, -1, 0)
+    op(&var code, Op.Drop, -1, 9, -1, 0)
+    op(&var code, Op.Return, -1, -1, -1, 0)
+    let params: Vector<ValueType> = [ValueType.String]
+    let echo_slots: Vector<ValueType> = [ValueType.String]
+    var echo_code = Vector<Instruction>()
+    op(&var echo_code, Op.Return, -1, 0, -1, 0)
+    var funcs = Vector<FuncIR>()
+    try! funcs.push(FuncIR(name: "main", params: Vector<ValueType>(), result: ValueType.Void,
+        slots: move slots, code: move code))
+    try! funcs.push(FuncIR(name: "echo", params: move params, result: ValueType.String,
+        slots: move echo_slots, code: move echo_code))
+    Program(strings: move strings, references: move refs, enums: Vector<EnumIR>(),
+        records: Vector<RecordIR>(), functions: move funcs, main_index: 0)
+}
+
+func rejected(p: &Program, index: Int, kind: Op, dst: Int, a: Int, b: Int, immediate: Int) -> Bool {
+    var changed = p.copy()
+    var i = instruction(kind)
+    i.dst = dst
+    i.a = a
+    i.b = b
+    i.immediate = immediate
+    changed.functions[0].code.set(index, move i)
+    not valid(&changed)
+}
+
+func main() {
+    let p = base_program()
+    assert(valid(&p), "String literals, copies, slices, references and calls")
+    try! execute(&p, 1000)
+    assert(not scalar_type(ValueType.String), "owning String is not scalar data")
+    assert(printable_type(ValueType.String), "String is printable")
+    assert((try! value_layout(&p.records, ValueType.String)).len() == 1, "String logical word")
+    assert(rejected(&p, 0, Op.StringConst, 0, -1, -1, -1), "negative pool index")
+    assert(rejected(&p, 0, Op.StringConst, 0, -1, -1, 2), "high pool index")
+    assert(rejected(&p, 0, Op.StringConst, 2, -1, -1, 0), "StringConst destination")
+    assert(rejected(&p, 0, Op.Const, 0, -1, -1, 0), "Const cannot forge String")
+    assert(rejected(&p, 3, Op.StringLen, 4, 0, -1, 0), "len result Int")
+    assert(rejected(&p, 3, Op.StringLen, 3, 2, -1, 0), "len source String")
+    assert(rejected(&p, 5, Op.StringByteAt, 4, 1, 0, 0), "byte index Int")
+    assert(rejected(&p, 5, Op.StringByteAt, 2, 1, 2, 0), "byte result Byte")
+    assert(rejected(&p, 4, Op.StringSlice, 1, 0, 2, 0), "slice end argument required")
+    var bad_end = p.copy()
+    bad_end.functions[0].code[4].args.set(0, 5)
+    assert(not valid(&bad_end), "slice end must be Int")
+    var high_end = p.copy()
+    high_end.functions[0].code[4].args.set(0, 99)
+    assert(not valid(&high_end), "slice end slot must exist")
+    var many_end = p.copy()
+    try! many_end.functions[0].code[4].args.push(3)
+    assert(not valid(&many_end), "slice exactly one end argument")
+    assert(rejected(&p, 12, Op.Drop, -1, 2, -1, 0), "Drop requires owning String")
+    assert(rejected(&p, 6, Op.Eq, 5, 0, 2, 0), "String equality requires same type")
+    assert(rejected(&p, 1, Op.Cast, 2, 0, -1, 0), "String cannot expose handle")
+    assert(rejected(&p, 1, Op.Copy, 0, 2, -1, 0), "Copy cannot forge String")
+    assert(rejected(&p, 10, Op.StoreRef, -1, 7, 1, 0), "String reference must be mutable")
+    var field = p.copy()
+    let names: Vector<String> = ["text"]
+    let types: Vector<ValueType> = [ValueType.String]
+    try! field.records.push(RecordIR(name: "Owning", field_names: move names,
+        field_types: move types, line: 1, col: 1))
+    assert(not valid(&field), "String record ownership deferred")
+    print("string contract passed")
+}

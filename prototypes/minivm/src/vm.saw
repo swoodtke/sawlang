@@ -3,8 +3,56 @@ import src.model.*
 static MAX_CALL_DEPTH: Int = 128
 struct CallResult { values: Vector<Int> }
 extension CallResult: NoCopy {}
+struct StringEntry { value: String, refs: Int }
 func runtime_error(message: String) -> ProtoError { problem(message, 0, 0) }
 func overflow_error() -> ProtoError { runtime_error("runtime error: integer overflow") }
+
+func string_entry(heap: &Vector<StringEntry>, handle: Int) -> Result<Int, ProtoError> {
+    if handle <= 0 { return runtime_error("runtime error: invalid string handle") }
+    let index = handle - 1
+    if index >= heap.len() || heap[index].refs <= 0 {
+        return runtime_error("runtime error: invalid string handle")
+    }
+    index
+}
+
+func string_retain(heap: &var Vector<StringEntry>, handle: Int) -> Result<Void, ProtoError> {
+    if handle == 0 { return }
+    let index = try string_entry(&heap, handle)
+    if heap[index].refs == Int.max { return runtime_error("runtime error: string allocation failed") }
+    heap[index].refs += 1
+    return
+}
+
+func string_release(heap: &var Vector<StringEntry>, handle: Int) -> Result<Void, ProtoError> {
+    if handle == 0 { return }
+    let index = try string_entry(&heap, handle)
+    heap[index].refs -= 1
+    if heap[index].refs == 0 { heap[index].value = "" }
+    return
+}
+
+func string_allocate(heap: &var Vector<StringEntry>, value: String) -> Result<Int, ProtoError> {
+    var index = 0
+    while index < heap.len() {
+        if heap[index].refs == 0 {
+            heap[index].value = value
+            heap[index].refs = 1
+            return index + 1
+        }
+        index += 1
+    }
+    try! heap.push(StringEntry(value: value, refs: 1))
+    heap.len()
+}
+
+func string_assign(cells: &var Vector<Int>, dst: Int, source: Int,
+                   heap: &var Vector<StringEntry>, retain: Bool) -> Result<Void, ProtoError> {
+    if retain { try string_retain(&var heap, source) }
+    try string_release(&var heap, cells[dst])
+    cells[dst] = source
+    return
+}
 
 func checked_binary(a: Int, b: Int, t: ValueType, op: Op) -> Result<Int, ProtoError> {
     if integer_signed(t) {
@@ -91,7 +139,7 @@ func valid_reference(cells: &Vector<Int>, address: Int, width: Int) -> Bool {
 }
 
 func run_function(program: &Program, function_index: Int, arguments: &Vector<Int>,
-                  cells: &var Vector<Int>, remaining: &var Int,
+                  cells: &var Vector<Int>, heap: &var Vector<StringEntry>, remaining: &var Int,
                   depth: Int) -> Result<CallResult, ProtoError> {
     if depth > MAX_CALL_DEPTH { return runtime_error("runtime error: call depth exceeded") }
     let function = program.functions[function_index].copy()
@@ -103,7 +151,8 @@ func run_function(program: &Program, function_index: Int, arguments: &Vector<Int
     }
     var ai = 0
     while ai < arguments.len() {
-        cells[base + ai] = arguments[ai]
+        if string_type(function.slots[ai]) { try string_assign(&var cells, base + ai, arguments[ai], &var heap, true) }
+        else { cells[base + ai] = arguments[ai] }
         ai = ai + 1
     }
     var pc = 0
@@ -114,7 +163,14 @@ func run_function(program: &Program, function_index: Int, arguments: &Vector<Int
         let t = if inst.dst >= 0 { function.slots[inst.dst] } else { ValueType.Void }
         match inst.op {
             case Const -> { cells[base + inst.dst] = inst.immediate },
-            case Copy -> { cells[base + inst.dst] = cells[base + inst.a] },
+            case StringConst -> {
+                let handle = try string_allocate(&var heap, program.strings[inst.immediate])
+                try string_assign(&var cells, base + inst.dst, handle, &var heap, false)
+            },
+            case Copy -> {
+                if string_type(t) { try string_assign(&var cells, base + inst.dst, cells[base + inst.a], &var heap, true) }
+                else { cells[base + inst.dst] = cells[base + inst.a] }
+            },
             case Addr -> { cells[base + inst.dst] = base + inst.a },
             case LoadRef -> {
                 let address = cells[base + inst.a]
@@ -129,7 +185,9 @@ func run_function(program: &Program, function_index: Int, arguments: &Vector<Int
                 }
                 word = 0
                 while word < values.len() {
-                    cells[base + inst.dst + word] = values[word]
+                    if string_type(layout[word]) {
+                        try string_assign(&var cells, base + inst.dst + word, values[word], &var heap, true)
+                    } else { cells[base + inst.dst + word] = values[word] }
                     word += 1
                 }
             },
@@ -146,7 +204,9 @@ func run_function(program: &Program, function_index: Int, arguments: &Vector<Int
                 }
                 word = 0
                 while word < values.len() {
-                    cells[address + word] = values[word]
+                    if string_type(layout[word]) {
+                        try string_assign(&var cells, address + word, values[word], &var heap, true)
+                    } else { cells[address + word] = values[word] }
                     word += 1
                 }
             },
@@ -188,8 +248,20 @@ func run_function(program: &Program, function_index: Int, arguments: &Vector<Int
             case Shl -> { cells[base + inst.dst] = try shift(cells[base + inst.a], cells[base + inst.b], function.slots[inst.b], t, true) },
             case Shr -> { cells[base + inst.dst] = try shift(cells[base + inst.a], cells[base + inst.b], function.slots[inst.b], t, false) },
             case Not -> { cells[base + inst.dst] = if cells[base + inst.a] == 0 { 1 } else { 0 } },
-            case Eq -> { cells[base + inst.dst] = if cells[base + inst.a] == cells[base + inst.b] { 1 } else { 0 } },
-            case Ne -> { cells[base + inst.dst] = if cells[base + inst.a] != cells[base + inst.b] { 1 } else { 0 } },
+            case Eq -> {
+                if string_type(function.slots[inst.a]) {
+                    let left = try string_entry(&heap, cells[base + inst.a])
+                    let right = try string_entry(&heap, cells[base + inst.b])
+                    cells[base + inst.dst] = if heap[left].value == heap[right].value { 1 } else { 0 }
+                } else { cells[base + inst.dst] = if cells[base + inst.a] == cells[base + inst.b] { 1 } else { 0 } }
+            },
+            case Ne -> {
+                if string_type(function.slots[inst.a]) {
+                    let left = try string_entry(&heap, cells[base + inst.a])
+                    let right = try string_entry(&heap, cells[base + inst.b])
+                    cells[base + inst.dst] = if heap[left].value != heap[right].value { 1 } else { 0 }
+                } else { cells[base + inst.dst] = if cells[base + inst.a] != cells[base + inst.b] { 1 } else { 0 } }
+            },
             case Lt -> { cells[base + inst.dst] = compare(cells[base + inst.a], cells[base + inst.b], function.slots[inst.a], inst.op) },
             case Le -> { cells[base + inst.dst] = compare(cells[base + inst.a], cells[base + inst.b], function.slots[inst.a], inst.op) },
             case Gt -> { cells[base + inst.dst] = compare(cells[base + inst.a], cells[base + inst.b], function.slots[inst.a], inst.op) },
@@ -211,26 +283,62 @@ func run_function(program: &Program, function_index: Int, arguments: &Vector<Int
                     try! args.push(cells[base + inst.args[i]])
                     i = i + 1
                 }
-                let result = try run_function(&program, inst.target, &args, &var cells, &var remaining, depth + 1)
+                let result = try run_function(&program, inst.target, &args, &var cells, &var heap, &var remaining, depth + 1)
                 var result_index = 0
                 while result_index < result.values.len() {
-                    cells[base + inst.dst + result_index] = result.values[result_index]
+                    if string_type(function.slots[inst.dst + result_index]) {
+                        try string_assign(&var cells, base + inst.dst + result_index, result.values[result_index], &var heap, false)
+                    } else { cells[base + inst.dst + result_index] = result.values[result_index] }
                     result_index = result_index + 1
                 }
             },
             case Print -> {
-                if not printable_type(function.slots[inst.a]) { return problem("internal prototype error: non-printable value", inst.line, inst.col) }
                 let pt = function.slots[inst.a]
-                if pt == ValueType.Bool { if cells[base + inst.a] == 0 { print("false") } else { print("true") } }
+                if string_type(pt) {
+                    let index = try string_entry(&heap, cells[base + inst.a])
+                    print(heap[index].value)
+                }
+                else if pt == ValueType.Bool { if cells[base + inst.a] == 0 { print("false") } else { print("true") } }
                 else if integer_signed(pt) { print(cells[base + inst.a]) } else { print(UInt.from(truncating: cells[base + inst.a])) }
+            },
+            case StringLen -> {
+                let index = try string_entry(&heap, cells[base + inst.a])
+                cells[base + inst.dst] = heap[index].value.len()
+            },
+            case StringByteAt -> {
+                let index = try string_entry(&heap, cells[base + inst.a])
+                let offset = cells[base + inst.b]
+                if offset < 0 || offset >= heap[index].value.len() { return runtime_error("runtime error: string index out of range") }
+                cells[base + inst.dst] = heap[index].value.byte_at(offset) as Int
+            },
+            case StringSlice -> {
+                let index = try string_entry(&heap, cells[base + inst.a])
+                let start = cells[base + inst.b]
+                let end = cells[base + inst.args[0]]
+                if start < 0 || start > end || end > heap[index].value.len() { return runtime_error("runtime error: string range out of bounds") }
+                let handle = try string_allocate(&var heap, heap[index].value.substring(start, end))
+                try string_assign(&var cells, base + inst.dst, handle, &var heap, false)
+            },
+            case Drop -> {
+                try string_release(&var heap, cells[base + inst.a])
+                cells[base + inst.a] = 0
             },
             case Return -> {
                 var values = Vector<Int>()
                 let layout = try value_layout(&program.records, function.result)
                 var result_index = 0
                 while result_index < layout.len() {
+                    if string_type(layout[result_index]) { try string_retain(&var heap, cells[base + inst.a + result_index]) }
                     try! values.push(cells[base + inst.a + result_index])
                     result_index = result_index + 1
+                }
+                var slot = 0
+                while slot < function.slots.len() {
+                    if string_type(function.slots[slot]) {
+                        try string_release(&var heap, cells[base + slot])
+                        cells[base + slot] = 0
+                    }
+                    slot += 1
                 }
                 while cells.len() > base { let _ = cells.pop() }
                 return CallResult(values: move values)
@@ -245,6 +353,12 @@ public func execute(program: &Program, budget: Int) -> Result<Void, ProtoError> 
     var remaining = budget
     let arguments = Vector<Int>()
     var cells = Vector<Int>()
-    let _ = try run_function(&program, program.main_index, &arguments, &var cells, &var remaining, 1)
+    var heap = Vector<StringEntry>()
+    let _ = try run_function(&program, program.main_index, &arguments, &var cells, &var heap, &var remaining, 1)
+    var index = 0
+    while index < heap.len() {
+        if heap[index].refs != 0 { return runtime_error("runtime error: live string allocation") }
+        index += 1
+    }
     return
 }

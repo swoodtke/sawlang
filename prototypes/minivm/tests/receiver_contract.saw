@@ -57,7 +57,7 @@ func base_program() -> Program {
     var funcs = Vector<FuncIR>()
     try! funcs.push(FuncIR(name: "main", params: Vector<ValueType>(), result: ValueType.Void,
         slots: move slots, code: move code))
-    Program(references: move refs, enums: Vector<EnumIR>(), records: move records,
+    Program(strings: Vector<String>(), references: move refs, enums: Vector<EnumIR>(), records: move records,
         functions: move funcs, main_index: 0)
 }
 

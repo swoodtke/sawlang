@@ -1,0 +1,17 @@
+func select(flag: Bool, stop: Bool) -> String {
+    let selected = if flag {
+        let temporary = "kept"
+        if stop { return "early" }
+        temporary
+    } else {
+        let temporary = "other"
+        temporary
+    }
+    selected
+}
+
+func main() {
+    print(select(true, false))
+    print(select(true, true))
+    print(select(false, false))
+}

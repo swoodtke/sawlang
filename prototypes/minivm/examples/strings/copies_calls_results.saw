@@ -1,0 +1,17 @@
+func identity(value: String) -> String { value }
+func choose(flag: Bool, left: String, right: String) -> String {
+    if flag { return left }
+    return right
+}
+
+func main() {
+    var first = "alpha"
+    let copy = first
+    print(first)
+    print(copy)
+    first = "beta"
+    first = first
+    print(first)
+    print(identity(first))
+    print(choose(false, "left", "right"))
+}

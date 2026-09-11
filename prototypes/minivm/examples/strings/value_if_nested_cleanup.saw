@@ -1,0 +1,19 @@
+func choose(flag: Bool) -> String {
+    let selected = if flag {
+        let temporary = "then"
+        if temporary.len() == 4 {
+            temporary
+        } else {
+            "bad"
+        }
+    } else {
+        let temporary = "else"
+        temporary
+    }
+    selected
+}
+
+func main() {
+    print(choose(true))
+    print(choose(false))
+}

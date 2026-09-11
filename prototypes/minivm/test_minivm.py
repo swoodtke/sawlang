@@ -35,6 +35,25 @@ class RejectCase:
 
 
 RUN_CASES = (
+    RunCase("strings/literals_escapes", "\nASCII\ncafé🙂\na\x00b\n{left} \\ right\n\x01x\n", section="strings"),
+    RunCase("strings/intrinsics", "0\ntrue\n5\nfalse\n104\n111\n101\n169\n\n\nhello\ntrue\ntrue\ntrue\ntrue\n", section="strings"),
+    RunCase("strings/brace_marker_provenance", "1\n123\n2\n1\n123\n1\n125\n2\n1\n125\n", section="strings"),
+    RunCase("strings/copies_calls_results", "alpha\nalpha\nbeta\nbeta\nright\n", section="strings"),
+    RunCase("strings/references", "before\nbefore\nafter\nafter\n", section="strings"),
+    RunCase("strings/receiver_snapshot_order", "true\nafter\n", section="strings"),
+    RunCase("strings/temporary_intrinsics", "3\ntrue\nell\n2\n1\n195\n", section="strings"),
+    RunCase("strings/repeated_allocations", "final\n500\n", section="strings"),
+    RunCase("strings/recursive_results", "cdef\n4\n", section="strings"),
+    RunCase("strings/value_if_nested_cleanup", "then\nelse\n", section="strings"),
+    RunCase("strings/value_if_early_return_cleanup", "kept\nearly\nother\n", section="strings"),
+    RunCase("strings/value_if_loop_cleanup", "odd\n200\n", section="strings"),
+    RunCase("strings/index_negative", "runtime error: string index out of range\n", 1, "strings"),
+    RunCase("strings/index_at_end", "runtime error: string index out of range\n", 1, "strings"),
+    RunCase("strings/index_huge", "runtime error: string index out of range\n", 1, "strings"),
+    RunCase("strings/range_negative", "runtime error: string range out of bounds\n", 1, "strings"),
+    RunCase("strings/range_reversed", "runtime error: string range out of bounds\n", 1, "strings"),
+    RunCase("strings/range_past_end", "runtime error: string range out of bounds\n", 1, "strings"),
+    RunCase("strings/range_huge", "runtime error: string range out of bounds\n", 1, "strings"),
     RunCase("receivers/whole_record_reference", "1\n2\n3\n4\n9\n8\n", section="receivers"),
     RunCase("receivers/nested_forwarding", "7\n13\n18\n", section="receivers"),
     RunCase("receivers/mixed_abi", "5\n6\n9\n10\n", section="receivers"),
@@ -168,6 +187,15 @@ RUN_CASES = (
 )
 
 REJECT_CASES = (
+    RejectCase("strings/reject_interpolation", "string interpolation is not supported", "strings"),
+    RejectCase("strings/reject_arithmetic", "arithmetic requires integer operands", "strings"),
+    RejectCase("strings/reject_cast", "`as` requires integer source and target types", "strings"),
+    RejectCase("strings/reject_record_field", "String record fields are not supported", "strings"),
+    RejectCase("strings/reject_static", "String statics are not supported", "strings"),
+    RejectCase("strings/reject_unknown_intrinsic", "unknown String intrinsic", "strings"),
+    RejectCase("strings/reject_intrinsic_label", "argument label", "strings"),
+    RejectCase("strings/reject_intrinsic_arity", "wrong number of arguments to String.substring", "strings"),
+    RejectCase("strings/reject_intrinsic_type", "String.byte_at", "strings"),
     RejectCase("receivers/reject_write_shared_record", "cannot assign through a shared reference", "receivers"),
     RejectCase("receivers/reject_immutable_record_borrow", "cannot mutably borrow an immutable place", "receivers"),
     RejectCase("receivers/reject_immutable_receiver", "cannot call a mutating method on an immutable receiver", "receivers"),
@@ -214,7 +242,7 @@ REJECT_CASES = (
     RejectCase("control/reject_static_typed_narrowing", "convert", "control"),
     RejectCase("control/reject_static_function_collision", "conflicts", "control"),
     RejectCase("records/reject_builtin_name", "reserved", "records"),
-    RejectCase("records/reject_record_equality", "scalar", "records"),
+    RejectCase("records/reject_record_equality", "comparable type", "records"),
     RejectCase("records/reject_record_print", "print", "records"),
     RejectCase("records/reject_empty_record", "field", "records"),
     RejectCase("numbers/reject_byte_literal", "Byte", "numbers"),
@@ -227,7 +255,6 @@ REJECT_CASES = (
     RejectCase("reject_duplicate", "duplicate declaration"),
     RejectCase("reject_missing_return", "may reach its end without returning"),
     RejectCase("reject_semicolon", "semicolons are not supported"),
-    RejectCase("reject_string", "expected expression"),
     RejectCase("reject_bool_arithmetic", "arithmetic requires integer operands"),
     RejectCase("reject_import", "only function, record, enum, static, and extension declarations are supported"),
     RejectCase("reject_scope_leak", "unknown name"),
@@ -370,7 +397,7 @@ def main() -> int:
     parser.add_argument("--binary", type=Path, default=Path(".build/minivm/minivm"))
     parser.add_argument("--clang", default="clang")
     parser.add_argument(
-        "--section", choices=("all", "core", "numbers", "records", "control", "enums", "values", "references", "receivers"), default="all",
+        "--section", choices=("all", "core", "numbers", "records", "control", "enums", "values", "references", "receivers", "strings"), default="all",
         help="run all cases or one isolated test section",
     )
     args = parser.parse_args()
@@ -399,7 +426,7 @@ def main() -> int:
                 failures.extend(test_rejection(binary, case))
             except subprocess.TimeoutExpired:
                 failures.append(f"{case.name}: timed out after {TIMEOUT}s")
-        limit_cases = () if args.section in ("numbers", "records", "control", "enums", "values", "references", "receivers") else (
+        limit_cases = () if args.section in ("numbers", "records", "control", "enums", "values", "references", "receivers", "strings") else (
             ("budget", 20, "runtime error: instruction budget exceeded"),
             ("depth", 10_000, "runtime error: call depth exceeded"),
         )

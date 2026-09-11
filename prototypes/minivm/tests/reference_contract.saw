@@ -55,7 +55,7 @@ func base_program() -> Program {
         slots: move slots, code: move code))
     try! funcs.push(FuncIR(name: "read", params: move read_params, result: ValueType.I64,
         slots: move read_slots, code: move read_code))
-    Program(references: move refs, enums: move enums, records: Vector<RecordIR>(),
+    Program(strings: Vector<String>(), references: move refs, enums: move enums, records: Vector<RecordIR>(),
         functions: move funcs, main_index: 0)
 }
 
