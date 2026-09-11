@@ -1,0 +1,47 @@
+// SL-222 (review r3): a statement that BURIES an early exit inside its own
+// expression, beside a `move` of a frame local, is refused rather than
+// miscompiled.
+//
+// The container arms relinquish the move's drop-flag claim at the top of each
+// block they own, which is sound because a container's blocks always run AFTER
+// its head. A leaf statement's blocks are OPERANDS, and one can sit to the LEFT
+// of the move — `sink(if a { 1 } else { 0 } + consume(move r))` — where clearing
+// first would retire a claim the move has not yet transferred, and the move
+// would then read an emptied slot. With no ordering this position can state, the
+// refusal is the honest answer: the alternative measured as a silent double free
+// (the callee destroys the value, then frame teardown destroys it again, exit 0).
+//
+// Nothing that used to compile stops compiling — this exact shape was refused
+// before SL-222's tail demotion made it reachable, by the nested-tail-move
+// diagnostic. The workaround the message names is the one the author would
+// write anyway.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: whose expression also `return`s, `break`s or `continue`s
+// EXPECT-ERROR-CONTAINS: bind the moving call to its own `let` first
+
+import std.task.{yield_now}
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop") }
+}
+
+func note(r: &Res) -> Int { r.name.len() }
+
+func consume_bool(r: Res) -> Bool { true }
+
+func sink_int(n: Int) { }
+
+func run(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "item")
+        if note(&r) + i < 0 { return -1 }
+        sink_int(if consume_bool(move r) { return 1 } else { 0 })
+    }
+    0
+}
+
+func main() {
+    print(__saw_drive(run([1, 2])))
+}

@@ -1,0 +1,141 @@
+// SL-223: a call may pass `&`/`&var <frame local>` in the same argument list as
+// a SUSPENDING argument.
+//
+// `_anf_is_pure` (design 147 unit C's evaluation-order filter) counted every
+// `&var` borrow as a side effect, so `set_one(&var d, slow())` lifted the
+// BORROW itself into a `let __anfN = &var d` ahead of the suspension. Saw has
+// no such statement — a reference is parameter-only — and the frame field that
+// temp gets is design 218's `UnsafeRef<T>`, which the raw `&var` cannot be
+// stored into. The author saw ``cannot assign `&var Doc` to field of type
+// `UnsafeRef<Doc>` ``, a type they never wrote about a type they cannot name.
+//
+// A borrow does not EVALUATE its referent, it NAMES storage: the callee is what
+// reads or writes through it, and that happens after every argument either way.
+// So the borrow is exempt from the lift and only what is buried in the PLACE
+// can be observed.
+//
+// THE SIBLING SWEEP (obligation 4) is the point of the cell list: the mechanism
+// is one purity filter over one argument-position walk, so it reaches every
+// borrow shape an argument list can hold, not just the filed `&var` one.
+// `cell_order` is the row that would catch an over-broad fix — DF-133a's
+// ordering guarantee must survive, so a side-effecting sibling written BEFORE
+// the suspension still runs before it.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// slow
+// 8
+// slow
+// 8
+// slow
+// 817
+// slow
+// 8
+// noisy
+// slow
+// 9
+// slow
+// 8
+// slow
+// 8
+// slow
+// 8
+
+import std.task.{yield_now}
+
+struct Doc { n: Int }
+
+struct Holder { doc: Doc }
+
+func slow() -> Int {
+    print("slow")
+    yield_now()
+    7
+}
+
+func noisy() -> Int {
+    print("noisy")
+    1
+}
+
+func set_one(d: &var Doc, k: Int) { d.n = d.n + k }
+func read_one(d: &Doc, k: Int) -> Int { d.n + k }
+func set_two(a: &var Doc, b: &var Doc, k: Int) { a.n = a.n + k  b.n = b.n + k }
+func set_after(k: Int, d: &var Doc) { d.n = d.n + k }
+func set_mixed(a: &var Doc, k: Int, m: Int) { a.n = a.n + k + m }
+func depth(n: Int) -> Int { n }
+
+extension Doc {
+    func bump(&var self) -> Int {
+        set_one(&var self, slow())
+        self.n
+    }
+}
+
+// The filed shape: one `&var` local beside one suspending argument.
+func cell_var_local() -> Int {
+    var d = Doc(n: 1)
+    set_one(&var d, slow())
+    d.n
+}
+
+// A SHARED borrow — the filter refused `&var` by name, but the lift it caused
+// is unrepresentable for either sigil.
+func cell_shared() -> Int {
+    var d = Doc(n: 1)
+    read_one(&d, slow())
+}
+
+// TWO `&var` arguments beside the suspending one.
+func cell_two_refs() -> Int {
+    var a = Doc(n: 1)
+    var b = Doc(n: 10)
+    set_two(&var a, &var b, slow())
+    a.n * 100 + b.n
+}
+
+// The borrow AFTER the suspending argument — nothing to its left to reorder,
+// so this cell says the fix did not simply stop hoisting.
+func cell_ref_after() -> Int {
+    var d = Doc(n: 1)
+    set_after(slow(), &var d)
+    d.n
+}
+
+// DF-133a's guarantee, beside a borrow: `noisy` is written before the
+// suspension and must still run before it.
+func cell_order() -> Int {
+    var d = Doc(n: 1)
+    set_mixed(&var d, noisy(), slow())
+    d.n
+}
+
+// `&var self`, forwarded out of a method (design 106's re-borrow).
+func cell_var_self() -> Int {
+    var d = Doc(n: 1)
+    d.bump()
+}
+
+// A FIELD place rather than a whole binding.
+func cell_field() -> Int {
+    var h = Holder(doc: Doc(n: 1))
+    set_one(&var h.doc, slow())
+    h.doc.n
+}
+
+// The borrow one call deeper: the argument list holding it is itself an
+// argument, so the walk reaches it through a nested position.
+func cell_nested() -> Int {
+    var d = Doc(n: 1)
+    depth(read_one(&d, slow()))
+}
+
+func main() {
+    print(__saw_drive(cell_var_local()))   // 1 + 7   = 8
+    print(__saw_drive(cell_shared()))      // 1 + 7   = 8
+    print(__saw_drive(cell_two_refs()))    // 8 * 100 + 17
+    print(__saw_drive(cell_ref_after()))   // 1 + 7   = 8
+    print(__saw_drive(cell_order()))       // 1 + 1 + 7 = 9
+    print(__saw_drive(cell_var_self()))    // 1 + 7   = 8
+    print(__saw_drive(cell_field()))       // 1 + 7   = 8
+    print(__saw_drive(cell_nested()))      // 1 + 7   = 8
+}

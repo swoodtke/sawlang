@@ -1,0 +1,340 @@
+// SL-222 (review r3): a `move` in a statement's HEAD expression relinquishes
+// the frame's claim BEFORE any contained block can exit early — so the value is
+// destroyed exactly ONCE.
+//
+// The head — an inline `try`'s operand, an `if`'s condition, an `if let`'s
+// subject, a `match`'s scrutinee — is evaluated FIRST and unconditionally, so a
+// `move` in it has already handed the value to the callee before any block
+// runs. `_lower_inplace` used to emit the drop-flag clears AFTER the whole
+// statement, which every `return`/`break`/`continue` inside the blocks leaves
+// before: the callee destroyed the value, then frame teardown destroyed it
+// again. A silent double free — exit 0, no diagnostic. `_relinquish_before_exits`
+// now puts the clears at the top of each contained block as well; `__saw_forget`
+// stores a zero discriminant rather than releasing, so the trailing clear that
+// covers the no-block-entered paths is a harmless no-op when a block already ran.
+//
+// THE ORACLE IS AN EXACT DROP COUNT, which is the only thing that sees this:
+// every cell prints one `drop` per `Res` it constructs, and the buggy compiler
+// printed two. `Res` is NoCopy with a hand-written `deinit`, and it NAMES the
+// value it is dropping, so a lost or doubled destructor is identified rather
+// than just counted.
+//
+// REINITIALIZATION is the second half, and the reason the clears are HOISTED
+// rather than prepended to each block. A block that reassigns the moved local
+// establishes a NEW claim; a clear emitted after the whole statement then
+// erased the REPLACEMENT's, so the new value never deinited and a later read of
+// it force-unwrapped a None. "Clearing twice is a no-op" is true of the flag and
+// false of the claim. `_hoist_head_and_relinquish` binds the head to a temp and
+// gives the claim up between the head and the container, exactly once, at a
+// point where it is provably the live one — so a reinit inside any block is
+// simply a later, independent claim.
+//
+// Each cell consumes its local through the head and then leaves the loop body
+// early, so a `return`/`break` cell builds ONE `Res` (one drop) and a `continue`
+// cell builds one per iteration (two drops over two items).
+//
+// SL-222 made these spellings reachable: on the unpatched base every one of them
+// was REFUSED by the nested-tail-move diagnostic, so the patch turned a refusal
+// into a double free until this landed. The three container heads that were
+// ALREADY reachable and already double-dropping — `guard let`, `for`, `while` —
+// are SL-234, pinned separately.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// drop old
+// 1
+// drop old
+// 2
+// drop old
+// drop old
+// 3
+// drop old
+// 4
+// drop old
+// drop old
+// 5
+// drop old
+// 6
+// drop old
+// 7
+// drop old
+// drop new
+// 8
+// drop old
+// drop new
+// 9
+// drop old
+// drop new
+// 10
+// drop old
+// drop new
+// 11
+// drop old
+// 12
+// drop old
+// 13
+// drop old
+// new
+// drop new
+// 14
+// drop old
+// new
+// drop new
+// 15
+// drop old
+// drop new
+// 16
+
+import std.task.{yield_now}
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.name) }
+}
+
+struct Bad { why: String }
+extension Bad: Error {
+    func format(&self, into: &var StringBuilder) { try! into.append(self.why) }
+}
+
+func note(r: &Res) -> Int { r.name.len() }
+
+func consume(r: Res) -> Result<Void, Bad> { Bad(why: "fail") }
+func consume_bool(r: Res) -> Bool { true }
+func consume_int(r: Res) -> Int { 0 }
+func consume_some(r: Res) -> Int? { 1 }
+func consume_false(r: Res) -> Bool { false }
+
+enum Holder { case Full(g: Res), case Empty }
+extension Holder: NoCopy {}
+
+func replace(r: Res) -> Res? { Res(name: "new") }
+func wrap(r: Res) -> Holder { Holder.Full(g: Res(name: "new")) }
+func produce(r: Res) -> Result<Res, Bad> { Res(name: "new") }
+
+// --- inline `try` operand: the catch exits three different ways -------------
+func try_return(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "old")
+        if note(&r) + i < 0 { return -1 }
+        try consume(move r) catch { return 1 }
+    }
+    0
+}
+
+func try_break(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "old")
+        if note(&r) + i < 0 { return -1 }
+        try consume(move r) catch { break }
+    }
+    2
+}
+
+func try_continue(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "old")
+        if note(&r) + i < 0 { return -1 }
+        try consume(move r) catch { continue }
+    }
+    3
+}
+
+// --- `if` condition ---------------------------------------------------------
+func if_return(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "old")
+        if note(&r) + i < 0 { return -1 }
+        if consume_bool(move r) { return 4 }
+    }
+    0
+}
+
+func if_continue(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "old")
+        if note(&r) + i < 0 { return -1 }
+        if consume_bool(move r) { continue }
+    }
+    5
+}
+
+// --- `match` scrutinee ------------------------------------------------------
+func match_return(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "old")
+        if note(&r) + i < 0 { return -1 }
+        match consume_int(move r) {
+            case 0 -> { return 6 },
+            case _ -> { }
+        }
+    }
+    0
+}
+
+// --- `if let` subject -------------------------------------------------------
+func iflet_return(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "old")
+        if note(&r) + i < 0 { return -1 }
+        if let got = consume_some(move r) { return 7 }
+    }
+    0
+}
+
+// --- REINITIALIZATION: a block re-establishes the claim and falls through ----
+// The reviewer's r4 repro is `try_reinit`. Each of these built a value the
+// trailing clear then erased: `drop new` was missing entirely.
+func try_reinit(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "old")
+        if note(&r) + i < 0 { return -1 }
+        try consume(move r) catch { r = Res(name: "new") }
+    }
+    8
+}
+
+func if_reinit(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "old")
+        if note(&r) + i < 0 { return -1 }
+        if consume_bool(move r) { r = Res(name: "new") }
+    }
+    9
+}
+
+func match_reinit(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "old")
+        if note(&r) + i < 0 { return -1 }
+        match consume_int(move r) {
+            case 0 -> { r = Res(name: "new") },
+            case _ -> { }
+        }
+    }
+    10
+}
+
+// SUBSEQUENT USE: reading the replacement after the statement. Where the claim
+// was erased this compiled and panicked `force unwrap of None`.
+func iflet_reinit_then_use(items: Vector<Int>) -> Int {
+    yield_now()
+    var acc = 0
+    for i in items.iter() {
+        var r = Res(name: "old")
+        if note(&r) + i < 0 { return -1 }
+        // Reinit on BOTH paths, so the binding is live for the read below on
+        // every path the move checker considers.
+        if let got = consume_some(move r) {
+            r = Res(name: "new")
+        } else {
+            r = Res(name: "new")
+        }
+        acc = note(&r) + 8
+    }
+    acc
+}
+
+// --- NO BLOCK ENTERED: the path the trailing clear used to exist for ---------
+func no_else_not_taken(items: Vector<Int>) -> Int {
+    yield_now()
+    var acc = 0
+    for i in items.iter() {
+        var r = Res(name: "old")
+        if note(&r) + i < 0 { return -1 }
+        if consume_false(move r) { acc = 1 }
+        acc = acc + 12
+    }
+    acc
+}
+
+// A BARE match arm hosts no statement — with the clear hoisted ahead of the
+// match there is none for it to owe.
+func bare_arm(items: Vector<Int>) -> Int {
+    yield_now()
+    var acc = 0
+    for i in items.iter() {
+        var r = Res(name: "old")
+        if note(&r) + i < 0 { return -1 }
+        acc = match consume_int(move r) {
+            case 0 -> 13,
+            case _ -> 0
+        }
+    }
+    acc
+}
+
+// --- OWNERSHIP: the hoisted head still TRANSFERS into its container ---------
+// The hoist binds the head to a temp, and what the container is handed must
+// keep the ownership the original expression had. A bare name is a READ, judged
+// by design 131's payload policy; a `move` is a TRANSFER. The spelling is per
+// container and each of these is the oracle for one, against a SYNC TWIN of the
+// same body: an `if let` READS a payload out of its subject and needs the
+// transfer (a plain name was refused, telling the author to move a `__head0`
+// they cannot see), while a `match` CONSUMES an owned scrutinee already and
+// spelling a `move` there loses the arm bindings' drop flags and leaks the
+// payload. Both regressions are invisible to an `Int?` head — only an owning
+// payload with a named destructor can see them.
+func iflet_owning_payload(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "old")
+        if note(&r) + i < 0 { return -1 }
+        if let got = replace(move r) { print(got.name) }
+    }
+    14
+}
+
+func match_owning_payload(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "old")
+        if note(&r) + i < 0 { return -1 }
+        match wrap(move r) {
+            case Full(g) -> { print(g.name) },
+            case Empty -> { }
+        }
+    }
+    15
+}
+
+// An inline `try` whose value is an owning type, discarded as a statement: the
+// driven path destroys it exactly once. The SYNC twin of this body leaks it
+// instead — SL-240, which is the sync discard path and is not this batch's.
+func try_owning_value(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "old")
+        if note(&r) + i < 0 { return -1 }
+        try produce(move r) catch { Res(name: "fallback") }
+    }
+    16
+}
+
+func main() {
+    print(__saw_drive(try_return([1, 2])))     // drop, 1
+    print(__saw_drive(try_break([1, 2])))      // drop, 2
+    print(__saw_drive(try_continue([1, 2])))   // drop, drop, 3
+    print(__saw_drive(if_return([1, 2])))      // drop, 4
+    print(__saw_drive(if_continue([1, 2])))    // drop, drop, 5
+    print(__saw_drive(match_return([1, 2])))   // drop, 6
+    print(__saw_drive(iflet_return([1, 2])))   // drop, 7
+    print(__saw_drive(try_reinit([1])))              // drop old, drop new, 8
+    print(__saw_drive(if_reinit([1])))               // drop old, drop new, 9
+    print(__saw_drive(match_reinit([1])))            // drop old, drop new, 10
+    print(__saw_drive(iflet_reinit_then_use([1])))   // drop old, drop new, 11
+    print(__saw_drive(no_else_not_taken([1])))       // drop old, 12
+    print(__saw_drive(bare_arm([1])))                // drop old, 13
+    print(__saw_drive(iflet_owning_payload([1])))    // drop old, new, drop new, 14
+    print(__saw_drive(match_owning_payload([1])))    // drop old, new, drop new, 15
+    print(__saw_drive(try_owning_value([1])))        // drop old, drop new, 16
+}

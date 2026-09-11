@@ -1,0 +1,111 @@
+// XFAIL: SL-234 a `move` in a `guard let` / `for` / `while` HEAD is dropped
+// TWICE when a contained block exits early — the callee destroys the value, then
+// coroutine frame teardown destroys it again. Silent: exit 0, no diagnostic.
+//
+// The sibling of `coro_head_move_relinquishes_before_early_exit.saw`, which pins
+// the four heads SL-222 fixed. Same mechanism: `_lower_inplace` emits a
+// statement's head-expression move-forgets AFTER the whole statement, which
+// every `return`/`break`/`continue` inside its blocks leaves before. The fix is
+// one call to `_FrameBuilder._relinquish_before_exits(forgets, blocks)` per arm,
+// which already exists in the tree — the `GuardLetStatement`, `ForLoop` and
+// `WhileExpr` arms are the three that still need it.
+//
+// PRE-EXISTING in every syntactic position: measured on unpatched origin/main,
+// where all three double-drop both as a block's tail and with a trailing
+// statement after them, so SL-222 neither caused nor cured them. Left unfixed
+// deliberately, per the reviewer's scoping rule for pre-existing findings.
+//
+// The oracle is the exact drop count — each cell must print ONE `drop` per `Res`
+// it builds, and today prints two.
+//
+// Remove the marker in the landing that fixes SL-234.
+// The last two cells are the same mechanism at a LEAF statement rather than a
+// container: a `let` initializer and an assignment RHS whose value `if` moves in
+// its condition and `return`s from an arm. Both also double-drop on unpatched
+// origin/main, so they belong to SL-234 too and flip with it.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// drop
+// 1
+// drop
+// 2
+// drop
+// 3
+// drop
+// 4
+// drop
+// 5
+
+import std.task.{yield_now}
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop") }
+}
+
+func note(r: &Res) -> Int { r.name.len() }
+
+func consume_none(r: Res) -> Int? { None }
+func consume_vec(r: Res) -> Vector<Int> { [1] }
+func consume_bool(r: Res) -> Bool { true }
+
+func guard_head(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "item")
+        if note(&r) + i < 0 { return -1 }
+        guard let got = consume_none(move r) else { return 1 }
+    }
+    0
+}
+
+func for_head(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "item")
+        if note(&r) + i < 0 { return -1 }
+        for j in consume_vec(move r).iter() { return 2 }
+    }
+    0
+}
+
+func while_head(items: Vector<Int>) -> Int {
+    yield_now()
+    for i in items.iter() {
+        var r = Res(name: "item")
+        if note(&r) + i < 0 { return -1 }
+        while consume_bool(move r) { return 3 }
+    }
+    0
+}
+
+func let_value_if(items: Vector<Int>) -> Int {
+    yield_now()
+    var acc = 0
+    for i in items.iter() {
+        var r = Res(name: "item")
+        if note(&r) + i < 0 { return -1 }
+        let v = if consume_bool(move r) { return 4 } else { 0 }
+        acc = acc + v
+    }
+    acc
+}
+
+func assign_value_if(items: Vector<Int>) -> Int {
+    yield_now()
+    var acc = 0
+    for i in items.iter() {
+        var r = Res(name: "item")
+        if note(&r) + i < 0 { return -1 }
+        acc = if consume_bool(move r) { return 5 } else { 0 }
+    }
+    acc
+}
+
+func main() {
+    print(__saw_drive(guard_head([1, 2])))      // drop, 1
+    print(__saw_drive(for_head([1, 2])))        // drop, 2
+    print(__saw_drive(while_head([1, 2])))      // drop, 3
+    print(__saw_drive(let_value_if([1, 2])))    // drop, 4
+    print(__saw_drive(assign_value_if([1, 2]))) // drop, 5
+}

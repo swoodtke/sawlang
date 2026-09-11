@@ -1,0 +1,59 @@
+// XFAIL: SL-226 a `&var` into an element of a frame-resident `[T; N]` local is a
+// silently lost write in a driven body — the callee mutates a copy, the element
+// reads back unchanged, exit 0, no diagnostic.
+//
+// Found by SL-223's sibling sweep (obligation 4) and INDEPENDENT of it: the
+// suspending call is hoisted into its own `let` here, so no ANF lift touches the
+// borrow, and the same program miscompiles on a compiler with none of the
+// SL-222/223/224 changes. What discriminates is the STORAGE, not the call
+// shape — `sync_control` writes the same element through the same helper and is
+// correct, and `field_control` shows a frame-resident struct FIELD is correct
+// too, so the defect is specific to the fixed-array element read in the
+// coroutine path (the suspicion is design 218's legacy `fixed-array` deferred
+// family reading the field as a VALUE where the borrow needs its storage).
+//
+// Remove the marker in the landing that fixes SL-226.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 7
+// 7
+// 8
+
+import std.task.{yield_now}
+
+struct Doc { n: Int }
+
+struct Holder { doc: Doc }
+
+func slow() -> Int {
+    yield_now()
+    7
+}
+
+func set_one(d: &var Doc, k: Int) { d.n = d.n + k }
+
+func driven() -> Int {
+    var arr: [Doc; 3] = [Doc(n: 0); 3]
+    let k = slow()
+    set_one(&var arr[1], k)
+    arr[1].n
+}
+
+func sync_control() -> Int {
+    var arr: [Doc; 3] = [Doc(n: 0); 3]
+    set_one(&var arr[1], 7)
+    arr[1].n
+}
+
+func field_control() -> Int {
+    var h = Holder(doc: Doc(n: 1))
+    let k = slow()
+    set_one(&var h.doc, k)
+    h.doc.n
+}
+
+func main() {
+    print(__saw_drive(driven()))         // wanted 7, observed 0
+    print(sync_control())                // 7 — the sync twin is correct
+    print(__saw_drive(field_control()))  // 8 — a frame-resident FIELD is correct
+}

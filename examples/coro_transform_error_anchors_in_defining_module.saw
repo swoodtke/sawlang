@@ -1,0 +1,32 @@
+// SL-224: a coroutine-transform rejection raised while lowering an IMPORTED
+// body anchors in the module that DEFINES that body, not in the entry module.
+//
+// Design 74 (A8) gave `CoroTransformError` a `source_file` so a rejection could
+// be anchored like a type error; 21 of the 48 raise sites never passed one, and
+// `sawc.py`'s surfacing site then rendered the span against the ENTRY module's
+// reporter. That is the nastiest kind of diagnostic bug: the LINE and COLUMN
+// are the defining module's while the FILE is the entry module's, so the reader
+// is shown a real-looking `file:line:col` carrying a snippet of unrelated code
+// — and the span MOVES whenever an unrelated file changes length. Construction
+// is the funnel now (see `CoroTransformError`), and `_FrameBuilder._error`
+// stamps `self.src_file` for every in-builder site, so the file cannot be
+// forgotten one site at a time.
+//
+// The oracle is the FILE, and the line/column deliberately do NOT discriminate:
+// before the fix this same program reported the SAME `14:5` against THIS file,
+// where line 14 is a comment line. Right span, wrong file, absurd snippet —
+// which is why only the path can tell the two compilers apart.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a suspension inside a `for` over a non-range iterable
+// EXPECT-ERROR-CONTAINS: sl224_anchor.saw:14:5
+
+import modules.sl224_anchor
+
+func run() -> Int {
+    let v = sl224_anchor.spin([1, 2])
+    v
+}
+
+func main() {
+    print(__saw_drive(run()))
+}

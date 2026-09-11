@@ -161,13 +161,56 @@ class CoroTransformError(Exception):
 
     design 74 (A8): carries `source_file` so the surfacing site can anchor the
     diagnostic at the user's `file:line:col` (with a source-context snippet)
-    instead of a bare message pointing nowhere."""
-    def __init__(self, message, line=0, column=0, source_file=None):
+    instead of a bare message pointing nowhere.
+
+    SL-224: CONSTRUCTION IS THE FUNNEL. "every rejection anchors in the module
+    that DEFINES the rejected code" quantifies over every `raise` in this file,
+    and 21 of the 48 used to pass no file at all — so `sawc.py`'s surfacing site
+    (`sawc.py:1950`) rendered the span against the ENTRY module's reporter and
+    printed a line out of the wrong file, moving whenever an unrelated file
+    changed length; four passed no line either and bypassed the reporter (and
+    with it the design-144 qualifier scrub) entirely. Spelling the file at each
+    site is what let 21 of them forget it, so the anchor is assembled HERE, once,
+    out of two inputs:
+
+      * `at` — the AST NODE the diagnostic points at. Its `line`/`column` are
+        the span, and its own `source_file` is the file when nothing better is
+        given, which is what makes a module-level site holding a `Function`
+        (`_analyze_nesting`'s `root_func`, `transform_program`'s `method_ast`)
+        right with nothing threaded to it.
+      * `source_file=` — OVERRIDES that, and is how a site anchoring at an
+        EXPRESSION (which carries no reliable file of its own) names the
+        defining module. `line=`/`column=` override `at` the same way, for the
+        two sites whose span is computed rather than read off a node.
+
+    ENTRY POINTS (obligation 1 — a funnel names its entries):
+      * `_FrameBuilder._error` — the door all 35 in-builder sites go through. It
+        passes `self.src_file` (the file the frame's own function came from), so
+        an in-builder site cannot omit the file; `at` defaults to `self.func`.
+      * `_forget_call` and `_arity_args` — module-level helpers reached from a
+        builder AND from module-level code, so each takes a `source_file`
+        parameter its callers thread.
+      * `_analyze_nesting`, `_reject_spawn_frame_refs`, `_check_spawn_frame_send`
+        and `transform_program` — module-level sites, each passing a `Function`
+        node as `at` or the `fb.src_file` of the frame it is judging.
+
+    Three `transform_program` sites carry NO anchor on purpose and say so at the
+    site: each fires because the declaration it would anchor on is the thing
+    that is missing."""
+    def __init__(self, message, at=None, *, source_file=None,
+                 line=None, column=None):
+        if at is not None and not hasattr(at, 'line'):
+            raise TypeError(
+                "CoroTransformError: `at` is the AST node the diagnostic "
+                f"anchors on, not a {type(at).__name__} — pass `line=`/"
+                "`column=` for a computed span")
         super().__init__(message)
         self.message = message
-        self.line = line
-        self.column = column
-        self.source_file = source_file
+        self.line = line if line is not None else (getattr(at, 'line', 0) or 0)
+        self.column = (column if column is not None
+                       else (getattr(at, 'column', 0) or 0))
+        self.source_file = (source_file if source_file is not None
+                            else getattr(at, 'source_file', None))
 
 
 # DF-187b's one definition of "the children of a node" now lives in
@@ -1538,18 +1581,25 @@ def _close_embed_marks(decls):
 # family is recorded, or a `__result` whose family is `result_defer_family`.
 # They all retire together with the last deferred family; nothing else keeps
 # them alive.
-def _forget_call(place, family):
+def _forget_call(place, family, source_file=None):
     """`__saw_forget(<place>)`, cited with the deferred family that owns it.
 
     ENTRY POINTS (obligation 1): `_FrameBuilder._forget_stmt` (every frame-field
     forget — now only the rewritten `move`, design 247 having retired the
     DF-210f scrutinee-temp clears in `_optbind_dispatch` and `_split_match` with
     the family that held them), and the three `__result` sites —
-    `_emit_nested_call`'s two arms and `_make_driver`'s move-out."""
+    `_emit_nested_call`'s two arms and `_make_driver`'s move-out.
+
+    `source_file` is SL-224's threading: this helper is reached from a builder
+    AND from module-level code, so the file its refusal anchors in is passed by
+    the caller rather than read off a `self` that is not always there. It is
+    optional because `tools/test_forget_purge.py` (the `forgetgate` lane) calls
+    this with two positional arguments to prove the citation check bites."""
     if family not in DEFERRED_FAMILIES:
         raise CoroTransformError(
             f"internal: uncited `__saw_forget` (family {family!r} is not one "
-            f"of design 218's deferred census families)")
+            f"of design 218's deferred census families)",
+            place, source_file=source_file)
     return ExpressionStatement(expression=FunctionCall(
         name="__saw_forget", arguments=[Argument(name=None, value=place)]))
 
@@ -1678,7 +1728,7 @@ def _analyze_nesting(root_name, root_func, nodes):
             f"suspending recursion is not allowed: the suspending-call cycle "
             f"`{chain}` has no compile-time frame size (design 44 embeds callee "
             f"frames by value). Break the cycle or drive the inner call "
-            f"separately.", root_func.line, root_func.column)
+            f"separately.", root_func)
 
 
 # --------------------------------------------------------------------------- #
@@ -2063,6 +2113,23 @@ class _FrameBuilder:
         # so non-IO code (every freestanding frame included) is byte-identical.
         self.arms_io = _body_arms_io(func.body)
 
+    def _error(self, message, at=None, line=None, column=None):
+        """THIS FRAME's rejection, anchored in the module that DEFINES it.
+
+        The builder-side door onto `CoroTransformError`'s construction funnel
+        (SL-224 — the rule and the rest of the entry points are written there).
+        Every `raise` inside `_FrameBuilder` comes through here, which is what
+        makes "the file is this frame's own" a property of the class rather than
+        a word 21 of 48 sites forgot to type: `self.src_file` is stamped for the
+        caller, so a site can only get the FILE wrong by not using this method.
+
+        `at` is the node to anchor on and defaults to `self.func` — the
+        declaration — for a rejection about the body as a whole. `line`/`column`
+        override it where the span is computed rather than read off a node."""
+        return CoroTransformError(
+            message, at if at is not None else self.func,
+            source_file=self.src_file, line=line, column=column)
+
     # ------------------------------------------------------------------ #
     # design 62 G2: if-let / guard-let condition hoisting
     # ------------------------------------------------------------------ #
@@ -2395,6 +2462,36 @@ class _FrameBuilder:
         ident.resolved_type = getattr(expr, 'resolved_type', None)
         return _substitute(expr, ident)
 
+    def _anf_lift_place_indices(self, place, out):
+        """Lift the observable parts of a BORROWED place into their own temps,
+        leaving the place's shape intact (SL-223).
+
+        A place is a chain of projections off a root — `x`, `x.f`, `x.0`,
+        `x[i]`, and nestings of those. Only an INDEX can hold a call, so only an
+        index can be observed relative to a suspension that would otherwise run
+        before it; everything else in the chain is a name. Lifting the index and
+        keeping `&var v[__anfN]` preserves both the evaluation order DF-133a
+        exists for and DF-296a's rule that the container is read as it stands
+        AFTER the index runs.
+
+        The chain is collected OUTSIDE-IN and lifted INSIDE-OUT, because that is
+        the order the subscripts of `v[i()][j()]` run in: `v[i()]` is what `j()`
+        then indexes, so `i()`'s temp has to be appended first.
+        """
+        indices = []
+        node = place
+        while isinstance(node, (ArrayIndex, MemberAccess, TupleIndex)):
+            if isinstance(node, ArrayIndex):
+                indices.append(node)
+                node = node.array_expr
+            elif isinstance(node, MemberAccess):
+                node = node.object
+            else:
+                node = node.tuple_expr
+        for ix in reversed(indices):
+            if not self._anf_is_pure(ix.index):
+                ix.index = self._anf_lift(ix.index, out)
+
     def _anf_is_pure(self, expr):
         """Conservative purity for the evaluation-order hoist (DF-133a).
 
@@ -2423,8 +2520,22 @@ class _FrameBuilder:
             if isinstance(n, (FunctionCall, MethodCall, TryExpr)):
                 impure[0] = True
                 return
-            if isinstance(n, ReferenceExpr) and n.mutable:
-                impure[0] = True
+            if isinstance(n, ReferenceExpr):
+                # SL-223: a `&`/`&var` does not EVALUATE its referent, it NAMES
+                # the storage — the callee is what reads or writes through it,
+                # and that happens after every argument either way. So the
+                # borrow itself is exempt and only what is buried in the PLACE
+                # (an index expression holding a call) can be observed.
+                #
+                # `&var` used to be categorically impure here, which made
+                # `f(&var out, slow())` lift the borrow into a `let __anfN =
+                # &var out` — a statement Saw has no spelling for (a reference
+                # is parameter-only), whose `ref`-encoded frame field is an
+                # `UnsafeRef<T>` the raw `&var` cannot be stored into. That was
+                # SL-223's `cannot assign `&var Doc` to field of type
+                # `UnsafeRef<Doc>``: a coarse purity filter reaching a shape the
+                # frame cannot hold, not a rule about the language.
+                scan_val(n.expr)
                 return
             if isinstance(n, ClosureExpr):
                 return
@@ -2493,6 +2604,13 @@ class _FrameBuilder:
             if (i < last_lift and isinstance(child, ASTNode)
                     and not self._spans_suspension(child)
                     and not self._anf_is_pure(child)):
+                if isinstance(child, ReferenceExpr):
+                    # SL-223: the BORROW stays where the author wrote it — it
+                    # is not expressible as a temp (see `_anf_is_pure`). What is
+                    # observable is a call buried in the place it names, so lift
+                    # exactly that and leave the `&`/`&var` in the argument.
+                    self._anf_lift_place_indices(child.expr, out)
+                    return child
                 # A side-effecting sibling written BEFORE the suspension: give it
                 # its own temp so it runs first. `_anf_lift` stamps the temp with
                 # this subexpression's own line/column, so a transfer checkpoint
@@ -3118,10 +3236,9 @@ class _FrameBuilder:
                 then_branch=then_blk, else_branch=else_blk,
                 line=cond.line, column=cond.column))
         # Unreachable: `_is_value_conditional` gates the callers.
-        raise CoroTransformError(
+        raise self._error(
             f"coroutine transform: unsupported value-position conditional in "
-            f"`{self.name}`", getattr(cond, 'line', 0), getattr(cond, 'column', 0),
-            source_file=self.src_file)
+            f"`{self.name}`", cond)
 
     # ------------------------------------------------------------------ #
     # design 224: the CONTAINER HEAD slots
@@ -3651,11 +3768,11 @@ class _FrameBuilder:
                 kind = "while let" if node.while_let else "if let"
             else:
                 kind = "guard let"
-            raise CoroTransformError(
+            raise self._error(
                 f"coroutine transform: a tuple-pattern `{kind}` whose body spans a "
                 f"suspension in `{self.name}` is not supported; bind a single name "
                 f"and destructure inside the body",
-                node.line, node.column, source_file=self.src_file)
+                node)
         old = node.name
         new = f"__ob{self._optbind_ctr}"
         self._optbind_ctr += 1
@@ -3710,11 +3827,11 @@ class _FrameBuilder:
                 n.variable = new
             if isinstance(n, ASTNode):
                 if rebinds(n):
-                    raise CoroTransformError(
+                    raise self._error(
                         f"coroutine transform: re-binding `{old}` inside a "
                         f"suspension-spanning `if let`/`guard let` body in "
                         f"`{self.name}` is not supported; rename the inner binding",
-                        getattr(n, 'line', 0) or 0, 0, source_file=self.src_file)
+                        n, column=0)
                 # DF-187b: `_child_nodes` reaches a `StructInit`'s field values,
                 # which the hand-rolled descent this replaced walked straight
                 # past — so a struct literal naming the binding kept the OLD
@@ -3757,14 +3874,13 @@ class _FrameBuilder:
         from ast_nodes import find_attribute
         if find_attribute(stmt, 'align') is None:
             return
-        raise CoroTransformError(
+        raise self._error(
             f"`@align` is not supported on `{stmt.name}`: it lives in this "
             f"function's coroutine frame, not on the stack, and a frame field "
             f"cannot carry an alignment yet — move the aligned buffer into a "
             f"`sync` helper that does not suspend, or hold it in an `@align`ed "
             f"`static`",
-            stmt.line, stmt.column,
-            getattr(self.func, 'source_file', None))
+            stmt)
 
     def _collect_frame_locals(self):
         """Conservative-by-scope liveness (design 52 Part 0): every local whose
@@ -3798,9 +3914,10 @@ class _FrameBuilder:
 
         def add(name, t, line=0, column=0):
             if t is None:
-                raise CoroTransformError(
+                raise self._error(
                     f"coroutine transform: local `{name}` in driven "
-                    f"`{self.name}` has no resolved type", line, column)
+                    f"`{self.name}` has no resolved type",
+                    line=line, column=column)
             if name not in seen:
                 seen.add(name)
                 locals_.append((name, t))
@@ -3974,10 +4091,11 @@ class _FrameBuilder:
                 return
             if isinstance(pat, BindingPattern):
                 if t is None:
-                    raise CoroTransformError(
+                    raise self._error(
                         f"coroutine transform: destructured binding `{pat.name}` in "
                         f"driven `{self.name}` has no resolved type",
-                        getattr(pat, 'line', self.func.line), 0)
+                        line=getattr(pat, 'line', None) or self.func.line,
+                        column=0)
                 out.append((pat.name, t))
                 return
             if isinstance(pat, TuplePattern):
@@ -3986,9 +4104,9 @@ class _FrameBuilder:
                 for i, sub in enumerate(pat.elements):
                     walk(sub, elems[i] if (elems is not None and i < len(elems)) else None)
                 return
-            raise CoroTransformError(
+            raise self._error(
                 f"coroutine transform: unsupported destructuring pattern in driven "
-                f"`{self.name}` across a suspension", self.func.line, 0)
+                f"`{self.name}` across a suspension", column=0)
 
         walk(pattern, src_type)
         return out
@@ -4163,14 +4281,14 @@ class _FrameBuilder:
         types = e.error_types or []
         if len(types) > 1:
             names = ", ".join(f"`{t}`" for t in types)
-            raise CoroTransformError(
+            raise self._error(
                 f"coroutine transform: a `try {{ }} catch {{ }}` block that spans "
                 f"a suspension in `{self.name}` may raise only ONE error type, "
                 f"and this one raises {len(types)} ({names}); the catch would "
                 f"bind a union the split lowering cannot build. Split it into one "
                 f"`try`/`catch` per error type, or handle each call with an inline "
                 f"`try <call> catch {{ ... }}`.",
-                e.line, e.column, source_file=self.src_file)
+                e)
 
     def _has_loop_ctrl(self, node):
         """design 96 (DF6): True if `node` contains a `break`/`continue` that
@@ -4826,10 +4944,10 @@ class _FrameBuilder:
             # the transform, but a generic call NESTED inside another driven body
             # is not (it would need its instantiation embedded as a sub-frame).
             # A5-rest: hoist it to a top-level driven root, or make it non-generic.
-            raise CoroTransformError(
+            raise self._error(
                 f"coroutine transform: a nested suspending call to a generic "
                 f"function `{fc.name}` inside `{self.name}` is not yet supported "
-                f"(design 70 A5-rest)", fc.line, fc.column)
+                f"(design 70 A5-rest)", fc)
         return {'callee': fc.name, 'args': list(fc.arguments),
                 'plan': getattr(fc, 'arg_plan', None), 'target': target,
                 'ret': is_ret, 'line': getattr(fc, 'line', 0) or 0}
@@ -4876,11 +4994,10 @@ class _FrameBuilder:
         if mfree is not None and mfree in self._suspends:
             if getattr(mc, 'type_args', None):
                 # Mirror `_classify_call`'s generic-nested refusal (design 70).
-                raise CoroTransformError(
+                raise self._error(
                     f"coroutine transform: a nested suspending call to a generic "
                     f"function `{mfree}` inside `{self.name}` is not yet supported "
-                    f"(design 70 A5-rest)", mc.line, mc.column,
-                    source_file=self.src_file)
+                    f"(design 70 A5-rest)", mc)
             return {'callee': mfree, 'args': list(mc.arguments),
                     'plan': getattr(mc, 'arg_plan', None),
                     'target': target, 'ret': is_ret,
@@ -4938,9 +5055,9 @@ class _FrameBuilder:
             return None
         elem_type = getattr(mc, 'resolved_type', None)
         if elem_type is None:
-            raise CoroTransformError(
+            raise self._error(
                 f"coroutine transform: `receive()` in `{self.name}` has no "
-                f"resolved element type", mc.line, mc.column)
+                f"resolved element type", mc)
         return {'receiver': mc.object, 'target': target, 'elem_type': elem_type,
                 'ret': is_ret}
 
@@ -5034,9 +5151,7 @@ class _FrameBuilder:
     def _reject_suspending_method_call(self, stmt):
         mc, tgt = self._suspending_method_call(stmt)
         if mc is not None:
-            raise CoroTransformError(
-                self._unembeddable_method_message(mc, tgt),
-                mc.line, mc.column, source_file=self.src_file)
+            raise self._error(self._unembeddable_method_message(mc, tgt), mc)
 
     def _unembeddable_method_message(self, mc, tgt):
         """THE message for a suspending method call this frame cannot embed.
@@ -5071,13 +5186,12 @@ class _FrameBuilder:
         call and names its kind; the raise below is the honest floor for a head
         that spans by some measure that scan does not recognise."""
         self._reject_buried_suspend_call(head)
-        raise CoroTransformError(
+        raise self._error(
             f"coroutine transform: the head of this control-flow construct in "
             f"`{self.name}` contains a suspension the state split cannot "
             f"express; bind it to its own `let` before the construct and use "
             f"the binding",
-            getattr(head, 'line', 0) or 0, getattr(head, 'column', 0) or 0,
-            source_file=self.src_file)
+            head)
 
     def _reject_drive_site(self):
         """A `__saw_drive` / `__saw_drive_steps` site in a body that ITSELF
@@ -5113,14 +5227,13 @@ class _FrameBuilder:
                 spelling = f"{inner.name}(...)"
             else:
                 spelling = "the root"
-            raise CoroTransformError(
+            raise self._error(
                 f"coroutine transform: `{fc.name}` may not appear in "
                 f"`{self.display_name}`, which itself suspends. This body "
                 f"already runs inside an executor, so `{spelling}` needs no "
                 f"drive site — call it directly and the suspending call embeds "
                 f"here (design 120).",
-                getattr(fc, 'line', 0) or 0, getattr(fc, 'column', 0) or 0,
-                source_file=self.src_file)
+                fc)
 
     def _reject_erased_reference_param(self, p):
         """A `&any Trait` parameter of a suspending function — refused HERE, at
@@ -5141,16 +5254,15 @@ class _FrameBuilder:
                 or pt.inner_type.kind != TypeKind.EXISTENTIAL):
             return
         tn = pt.inner_type.existential_trait or "Trait"
-        raise CoroTransformError(
+        raise self._error(
             f"coroutine transform: `{p.name}: &any {tn}` cannot be a parameter "
             f"of the suspending function `{self.display_name}`. A reference "
             f"that spans a suspension is held in the frame as a handle to its "
             f"referent (design 88), and an erased referent has no size for the "
             f"frame to name. Take an owned `Box<any {tn}>` instead, or make the "
             f"parameter a concrete type / a generic `<T: {tn}>`.",
-            getattr(p, 'line', 0) or getattr(self.func, 'line', 0) or 0,
-            getattr(p, 'column', 0) or 0,
-            source_file=self.src_file)
+            line=getattr(p, 'line', 0) or getattr(self.func, 'line', 0) or 0,
+            column=getattr(p, 'column', 0) or 0)
 
     def _suspend_in_closure_message(self, what):
         """THE message for a suspension inside a CLOSURE LITERAL's body.
@@ -5236,40 +5348,39 @@ class _FrameBuilder:
             kind, g = entry[0], entry[1]
             if kind == "method":
                 if entry[2]:
-                    raise CoroTransformError(
+                    raise self._error(
                         self._suspend_in_closure_message(
                             f"`{_suspending_method_target(g, self._tc).owner or '?'}"
                             f".{g.method_name}(...)`"),
-                        g.line, g.column, source_file=self.src_file)
+                        g)
                 tgt = _suspending_method_target(g, self._tc)
                 if tgt.kind == 'unsupported':
                     # design 223: the frame could not be NAMED, which is a
                     # different refusal from "this position cannot host one" —
                     # say which, or the author restructures a branch that was
                     # never the problem.
-                    raise CoroTransformError(
-                        self._unembeddable_method_message(g, tgt),
-                        g.line, g.column, source_file=self.src_file)
+                    raise self._error(
+                        self._unembeddable_method_message(g, tgt), g)
                 sname = tgt.owner or "?"
-                raise CoroTransformError(
+                raise self._error(
                     f"coroutine transform: a buried suspending method call "
                     f"`{sname}.{g.method_name}(...)` inside driven `{self.name}` "
                     f"appears in a control-flow branch the state split cannot express "
                     f"(an `if let`/`guard let` body). Restructure to a plain "
                     f"`if`/`else` or `match`, or drive the method directly.",
-                    g.line, g.column, source_file=self.src_file)
+                    g)
             if kind == "blk":
-                raise CoroTransformError(
+                raise self._error(
                     f"coroutine transform: the blocking-extern call `{g.name}(...)` "
                     f"inside `{self.name}` appears in a nested/expression position "
                     f"the offload desugar cannot occupy; bind it to its own statement "
                     f"first (`let r = {g.name}(...)`), then use `r`",
-                    g.line, g.column, source_file=self.src_file)
-            raise CoroTransformError(
+                    g)
+            raise self._error(
                 f"coroutine transform: suspending call to `{g.name}` in `{self.name}` "
                 f"appears in a nested/expression position; only a top-level "
                 f"`let x = {g.name}(...)` or `{g.name}(...)` statement is supported",
-                g.line, g.column, source_file=self.src_file)
+                g)
 
     # ------------------------------------------------------------------ #
     # Phase 2: the resume state machine, built by a CFG walk (design 52 Part 0).
@@ -5298,6 +5409,9 @@ class _FrameBuilder:
         self._cap_lets = None
         # design 77 item 10: fresh-temp counter for destructuring lowering.
         self._destr_ctr = 0
+        # SL-222 review r4: fresh-temp counter for the container-HEAD hoist
+        # (`_hoist_head_and_relinquish`).
+        self._head_ctr = 0
         # design 196 unit 4: fresh-name counter for a materialized closure
         # capture, so two closures in one block never declare one name twice.
         self._cap_ctr = 0
@@ -6016,22 +6130,22 @@ class _FrameBuilder:
             return
         if isinstance(s, BreakStatement):
             if s.value is not None:
-                raise CoroTransformError(
+                raise self._error(
                     f"coroutine transform: `break` with a value out of a "
                     f"suspension-spanning loop in `{self.name}` is not supported",
-                    s.line, s.column)
+                    s)
             if loop_ctx is None:
-                raise CoroTransformError(
+                raise self._error(
                     f"coroutine transform: `break` outside a loop in `{self.name}`",
-                    s.line, s.column)
+                    s)
             self._emit(self._scope_release_to_loop())     # E-BRK
             self._goto(loop_ctx[1])
             return
         if isinstance(s, ContinueStatement):
             if loop_ctx is None:
-                raise CoroTransformError(
+                raise self._error(
                     f"coroutine transform: `continue` outside a loop in "
-                    f"`{self.name}`", s.line, s.column)
+                    f"`{self.name}`", s)
             self._emit(self._scope_release_to_loop())     # E-CNT
             self._goto(loop_ctx[0])
             return
@@ -6092,10 +6206,10 @@ class _FrameBuilder:
         forgets = []
         cap_lets, cond = self._rewrite_hosting(e.condition, forgets)
         if forgets:
-            raise CoroTransformError(
+            raise self._error(
                 f"coroutine transform: `move` in the condition of a "
                 f"suspension-spanning `if` in `{self.name}` is not supported",
-                e.line, e.column)
+                e)
         self._emit(cap_lets)
         then_b = self._new_block()
         else_b = self._new_block() if e.else_branch is not None else None
@@ -6251,10 +6365,10 @@ class _FrameBuilder:
             forgets = []
             cap_lets, cond = self._rewrite_hosting(e.condition, forgets)
             if forgets:
-                raise CoroTransformError(
+                raise self._error(
                     f"coroutine transform: `move` in the condition of a "
                     f"suspension-spanning `while` in `{self.name}` is not "
-                    f"supported", e.line, e.column)
+                    f"supported", e)
             self._emit(cap_lets)
             self._branch(cond, body_b, exit_b)
             self.cur = body_b
@@ -6301,10 +6415,10 @@ class _FrameBuilder:
         single-iteration `3..=3` ran none at all — silently, since the sync
         twin of the same loop was right."""
         if not isinstance(s.iterable, RangeExpr):
-            raise CoroTransformError(
+            raise self._error(
                 f"coroutine transform: a suspension inside a `for` over a "
                 f"non-range iterable in `{self.name}` is not supported; "
-                f"use a `while` loop", s.line, s.column)
+                f"use a `while` loop", s)
         var = s.variable
         inclusive = bool(s.iterable.is_inclusive)
         end_name = f"__end_{var}"
@@ -6347,10 +6461,10 @@ class _FrameBuilder:
         forgets = []
         cap_lets, scrut = self._rewrite_hosting(e.matched_expr, forgets)
         if forgets:
-            raise CoroTransformError(
+            raise self._error(
                 f"coroutine transform: `move` of the scrutinee of a "
                 f"suspension-spanning `match` in `{self.name}` is not supported",
-                e.line, e.column)
+                e)
         self._emit(cap_lets)
         merge = self._new_block()
         arm_entries = []
@@ -6590,10 +6704,10 @@ class _FrameBuilder:
         is refused rather than guessed."""
         ret = self.ret
         if ret is None or not ret.is_result():
-            raise CoroTransformError(
+            raise self._error(
                 f"coroutine transform: a propagating `try` in `{self.name}`, "
                 f"whose body suspends, needs `{self.name}` to return a `Result`",
-                line, col, source_file=self.src_file)
+                line=line, column=col)
         fn_err = ret.unwrap_result_err()
         errs = self._propagating_try_errors(s)
         read = Identifier(name=raw, line=line, column=col)
@@ -6609,12 +6723,12 @@ class _FrameBuilder:
                 allocator=SawType(TypeKind.STRUCT, struct_name="GlobalAllocator"),
                 line=line, column=col)
         names = ", ".join(f"`{e}`" for e in errs) or "none"
-        raise CoroTransformError(
+        raise self._error(
             f"coroutine transform: a statement in `{self.name}` propagates "
             f"{len(errs)} different error types with `try` ({names}) across a "
             f"suspension, and the frame carries ONE error out; give each `try` "
             f"its own statement, or handle them with `try <call> catch {{ ... }}`.",
-            line, col, source_file=self.src_file)
+            line=line, column=col)
 
     def _emit_try_propagate(self, s):
         """Lower one statement whose propagating `try` leaves the COROUTINE.
@@ -6890,7 +7004,7 @@ class _FrameBuilder:
                 if _enc_cleanup(callee_fb.result_enc):
                     done_body.append(_forget_call(
                         MemberAccess(object=_self_field(sub), member="__result"),
-                        callee_fb.result_defer_family))
+                        callee_fb.result_defer_family, self.src_file))
             # design 124: this is a `return g(...)` tail — the coroutine ends here,
             # so it is a Done exit like any other and owes the same eager release.
             done_body.append(self._release_call())
@@ -6907,7 +7021,7 @@ class _FrameBuilder:
                     # Census R5, the non-tail arm — same pairing, same survivors.
                     done_body.append(_forget_call(
                         MemberAccess(object=_self_field(sub), member="__result"),
-                        callee_fb.result_defer_family))
+                        callee_fb.result_defer_family, self.src_file))
             elif (target is None and not callee_fb.is_void
                   and _enc_owns(callee_fb.result_enc)):
                 # design 124: a DISCARDED nested result (`let _ = g()` / a bare
@@ -6979,15 +7093,14 @@ class _FrameBuilder:
         """
         fb = self._fbs.get(info['callee'])
         if fb is None:
-            raise CoroTransformError(
+            raise self._error(
                 f"internal compiler error: the coroutine transform classified "
                 f"this call as embeddable into `{self.name}` under the frame "
                 f"key `{info['callee']}`, but no such frame was built. The "
                 f"call-site classifier (`_suspending_method_target`) and the "
                 f"closure walk that builds frames must agree on every key; "
                 f"this is a compiler bug, not a problem with this code.",
-                info.get('line', 0) or self._cur_line, 0,
-                source_file=self.src_file)
+                line=info.get('line', 0) or self._cur_line, column=0)
         return fb
 
     def _build_sub_frame(self, info, fbs):
@@ -7145,16 +7258,87 @@ class _FrameBuilder:
         unrepresentable, so the emission refuses rather than emitting one."""
         family = self.defer_families.get(name)
         if family is None:
-            raise CoroTransformError(
+            raise self._error(
                 f"internal: `__saw_forget` on `{name}`, which is not held back "
                 f"by any deferred census family (design 218 stage 4). A "
-                f"migrated field gives its claim up in `take()`.",
-                getattr(self.func, 'line', 0), getattr(self.func, 'column', 0),
-                getattr(self.func, 'source_file', None))
-        return _forget_call(_self_field(name), family)
+                f"migrated field gives its claim up in `take()`.")
+        return _forget_call(_self_field(name), family, self.src_file)
 
     def _forgets(self, names):
         return [self._forget_stmt(n) for n in names]
+
+    def _hoist_head_and_relinquish(self, head, forgets, at, consuming=False):
+        """Bind a container's HEAD to a temp and relinquish the move's frame
+        claim right there — between the head's evaluation and the container.
+
+        Returns `(statements, replacement)`: the statements to emit AHEAD of the
+        container, and what to put in the head's place. With nothing to forget
+        it returns `([], head)`, so the ordinary path is untouched.
+
+        THE ORDERING RULE (SL-222 reviews r3 + r4). A container's head — an
+        `if`'s condition, a `match`'s scrutinee, an `if let`'s subject, an inline
+        `try`'s operand — is evaluated FIRST and unconditionally, so a `move` in
+        it (`if consume(move r) { … }`) has already handed the value to the
+        callee before any block runs. The frame's claim must be relinquished
+        EXACTLY ONCE, at a point where it is provably the live one: after the
+        head, before block dispatch. Hoisting makes that a matter of statement
+        order rather than of reasoning about paths —
+
+            let __headN = <head>      # the move happens here
+            __saw_forget(self.r)      # the claim is given up here
+            if __headN { … }          # only now can any block run
+
+        — and there is no trailing clear at all for these arms.
+
+        TWO EARLIER SHAPES WERE WRONG, and both are why this one is written as a
+        hoist. Clearing only AFTER the whole statement (r3's finding) misses
+        every `return`/`break`/`continue` inside a block: the frame then drops a
+        value the callee destroyed. Clearing at each block's TOP *and* after the
+        statement (r4's finding) fixes the exits but breaks REINITIALIZATION:
+        `try consume(move r) catch { r = Res(…) }` gives up the old claim at the
+        catch's top, the catch establishes a NEW one, and the trailing clear
+        then erases the replacement's — the new value never deinits, and a later
+        read of it force-unwraps a None. "Clearing twice is a no-op" is true of
+        the FLAG and false of the CLAIM, because a block can re-establish it.
+
+        The clear cannot move BEFORE the head instead: the head is what performs
+        the move, and clearing first would give up a claim on a path that never
+        consumes.
+
+        `consuming` PICKS THE REPLACEMENT'S SPELLING, and it is per-container
+        because what a container does with a NAMED head differs (r5). A bare
+        `Identifier` is a READ, judged by design 131's payload policy; a
+        `MoveExpr` is a TRANSFER.
+
+          * `if let` READS A PAYLOAD out of its subject, so the policy bites: a
+            named subject at a NoCopy payload is refused — and the refusal named
+            `__head0`, a local the author cannot see, telling them to write
+            `move __head0!`. It needs the transfer (`consuming=True`).
+          * `match` CONSUMES an owned scrutinee by construction, so the plain
+            name already transfers; spelling a `move` there instead loses the
+            arm bindings' drop flags (DF-215f's `take()` shape is what gives
+            them real ones) and the payload leaks — measured against the sync
+            twin, which is the oracle for all of this.
+          * an inline `try`'s operand and an `if`'s condition are read, not
+            consumed, so the plain name is what they already had.
+
+        Both spellings are verified per head against a SYNC TWIN of the same
+        body — the twin never goes near the hoist, so any divergence in the
+        destruction sequence is the hoist's."""
+        if not forgets:
+            return [], head
+        tmp = f"__head{self._head_ctr}"
+        self._head_ctr += 1
+        line = getattr(at, 'line', 0) or 0
+        col = getattr(at, 'column', 0) or 0
+        binding = LetStatement(name=tmp, type_annotation=None, value=head,
+                               mutable=False, line=line, column=col)
+        if consuming:
+            ref = MoveExpr(variable=tmp, line=line, column=col)
+        else:
+            ref = Identifier(name=tmp, line=line, column=col)
+        ref.resolved_type = getattr(head, 'resolved_type', None)
+        return [binding] + self._forgets(forgets), ref
 
     def _rewrite_expr(self, node, forgets):
         """Frame-aware expression rewrite: `Identifier(frame local)` ->
@@ -7214,8 +7398,28 @@ class _FrameBuilder:
         # expression position instead — a `let`'s value, an assignment's RHS, a
         # call argument. A CLOSURE returned just above, so a closure's body —
         # where `return` returns from the CLOSURE — never reaches this.
+        if isinstance(node, (ForLoop, WhileExpr)):
+            # SL-222: a LOOP's body value is DISCARDED. A `for` yields nothing
+            # at all, and a `while`'s value comes out of a `break <value>`,
+            # never out of its body's tail — so the tail `parse_block` promoted
+            # into `final_expr` is a statement in both, whatever the generic
+            # Block arm below would assume. Said HERE because a statement-position
+            # `for` reaches its body through this recursion (`_lower_inplace`
+            # has no `for` arm of its own and falls through to the rewrite),
+            # which is the path the SL-222 loop body actually took. The head is
+            # rewritten first, in evaluation order.
+            if isinstance(node, ForLoop):
+                node.iterable = self._rewrite_expr(node.iterable, forgets)
+            elif node.condition is not None:
+                node.condition = self._rewrite_expr(node.condition, forgets)
+            self._lower_block_in_place(node.body)
+            return node
         if isinstance(node, Block):
-            self._lower_block_in_place(node)
+            # `value_used=True`: reaching a block through the EXPRESSION
+            # recursion means the construct is being rewritten as a value, so
+            # somebody reads what the block evaluates to (SL-222). The loop
+            # bodies above are the exception and are intercepted ahead of this.
+            self._lower_block_in_place(node, value_used=True)
             return node
         if self.has_recv and isinstance(node, SelfExpr):
             # Census R4. The method's `self` -> the receiver LENT through the
@@ -7442,12 +7646,11 @@ class _FrameBuilder:
         if not names and not wants_recv:
             return
         if self._cap_lets is None:
-            raise CoroTransformError(
+            raise self._error(
                 f"coroutine transform: a closure capturing a frame-resident local "
                 f"in this position of driven `{self.name}` is not supported; bind "
                 f"the closure to a `let` in straight-line body code",
-                getattr(cexpr, 'line', self.func.line),
-                getattr(cexpr, 'column', 0))
+                cexpr)
         line = getattr(cexpr, 'line', 0)
         col = getattr(cexpr, 'column', 0)
         if wants_recv:
@@ -7608,10 +7811,9 @@ class _FrameBuilder:
         # suspension-spanning construct before it gets here), so a suspension in
         # this subtree would be a compiler bug — guard defensively.
         if _is_suspend_stmt(s):
-            raise CoroTransformError(
+            raise self._error(
                 f"coroutine transform: internal error — suspension reached "
-                f"in-place lowering in `{self.name}`",
-                getattr(s, 'line', self.func.line), getattr(s, 'column', 0))
+                f"in-place lowering in `{self.name}`", s)
         if isinstance(s, ReturnStatement):
             forgets = []
             cap_lets = []
@@ -7702,27 +7904,81 @@ class _FrameBuilder:
             # `self.__hoistN.take()` hands the optional over, so the BINDING owns
             # the payload and codegen releases it at the end of the branch that
             # introduced it — the sync twin's own rule (DF-218x's branch scope).
-            cap_lets, ctrl.optional_expr = self._rewrite_hosting(
+            cap_lets, subject = self._rewrite_hosting(
                 ctrl.optional_expr, forgets)
+            # SL-222 r3/r4: see `_hoist_head_and_relinquish`.
+            # `consuming`: an `if let` reads a PAYLOAD out of its subject, and
+            # a named subject is judged by the copy policy — see the helper.
+            pre, ctrl.optional_expr = self._hoist_head_and_relinquish(
+                subject, forgets, s, consuming=True)
             self._lower_block_in_place(ctrl.then_branch)
             if ctrl.else_branch is not None:
                 self._lower_block_in_place(ctrl.else_branch)
-            return cap_lets + [s] + self._forgets(forgets)
+            return cap_lets + pre + [s]
         if isinstance(s, GuardLetStatement):
             forgets = []
             cap_lets, s.optional_expr = self._rewrite_hosting(
                 s.optional_expr, forgets)
             self._lower_block_in_place(s.else_branch)
             return cap_lets + [s] + self._forgets(forgets)
+        if isinstance(ctrl, ForLoop):
+            # SL-222 review r1: `_lower_inplace` owns EVERY container in
+            # `ast_walk.CONTAINER_KINDS`, so that a statement-position construct
+            # never has to reach its blocks through `_rewrite_expr` — which is
+            # where a block is read as a VALUE. A `for` had no arm here and fell
+            # to the fallback, so its body travelled the expression walker; that
+            # is fine for the body itself (`_rewrite_expr` intercepts a loop and
+            # says "discarded"), and saying it here keeps the statement path
+            # complete rather than relying on the backstop.
+            forgets = []
+            cap_lets, ctrl.iterable = self._rewrite_hosting(
+                ctrl.iterable, forgets)
+            self._lower_block_in_place(ctrl.body)
+            return cap_lets + [s] + self._forgets(forgets)
+        if isinstance(ctrl, TryCatchExpr):
+            # A NON-spanning `try { } catch { }` in STATEMENT position: both
+            # blocks are statement lists whose value is discarded. Without this
+            # arm it fell to the fallback and its blocks reached
+            # `_rewrite_expr`'s generic `Block` arm, which reclassifies them as
+            # value-carrying — the same mechanism as the void-`if` tail r1
+            # found, one container over. A SPANNING one is CFG-split long before
+            # here (`_splits_try_catch`), and `_lower_block` demotes there.
+            forgets = []
+            self._lower_block_in_place(ctrl.try_block)
+            self._lower_block_in_place(ctrl.catch_block)
+            return [s] + self._forgets(forgets)
+        if isinstance(ctrl, TryExpr) and ctrl.catch_block is not None:
+            # The INLINE catch — `try <expr> catch { … }` — which is a `TryExpr`
+            # and NOT the block form above. `ast_walk.CONTAINER_KINDS` lists the
+            # two separately, and this arm is what stops the inline one falling
+            # to the fallback: in STATEMENT position its catch is a statement
+            # list whose value nothing reads, and reaching it through the
+            # expression walker stamped it value-carrying.
+            #
+            # Value flow is retained by NOT being here: `let x = try f() catch
+            # { … }` never reaches `_lower_inplace` at all — it is a
+            # `LetStatement`, whose value goes through `_rewrite_hosting`, so
+            # the catch block arrives at `_rewrite_expr`'s `Block` arm and is
+            # judged value-carrying, which is exactly right for it.
+            forgets = []
+            cap_lets, operand = self._rewrite_hosting(ctrl.expr, forgets)
+            # SL-222 r3/r4: see `_hoist_head_and_relinquish`.
+            pre, ctrl.expr = self._hoist_head_and_relinquish(
+                operand, forgets, s)
+            self._lower_block_in_place(ctrl.catch_block)
+            return cap_lets + pre + [s]
         if isinstance(ctrl, (IfExpr, WhileExpr, MatchExpr)):
             e = ctrl
             if isinstance(e, IfExpr):
                 forgets = []
-                cap_lets, e.condition = self._rewrite_hosting(e.condition, forgets)
+                cap_lets, cond = self._rewrite_hosting(e.condition, forgets)
+                # SL-222 r3/r4: see `_hoist_head_and_relinquish`.
+                pre, e.condition = self._hoist_head_and_relinquish(
+                    cond, forgets, s)
                 self._lower_block_in_place(e.then_branch)
                 if e.else_branch is not None:
                     self._lower_block_in_place(e.else_branch)
-                return cap_lets + [s] + self._forgets(forgets)
+                return cap_lets + pre + [s]
             if isinstance(e, WhileExpr):
                 forgets = []
                 cap_lets = []
@@ -7745,8 +8001,11 @@ class _FrameBuilder:
                 # real drop flags, and a `move` out of one clears its flag. No
                 # release edge is owed here, and emitting one would be the
                 # second owner all over again.
-                cap_lets, e.matched_expr = self._rewrite_hosting(
+                cap_lets, scrutinee = self._rewrite_hosting(
                     e.matched_expr, forgets)
+                # SL-222 r3/r4: see `_hoist_head_and_relinquish`.
+                pre, e.matched_expr = self._hoist_head_and_relinquish(
+                    scrutinee, forgets, s)
                 for arm in e.arms:
                     if isinstance(arm.body, Block):
                         self._lower_block_in_place(arm.body)
@@ -7757,17 +8016,72 @@ class _FrameBuilder:
                         # moves there are unsupported (falls out only in tests
                         # that use block arms).
                         if aforgets:
-                            raise CoroTransformError(
+                            raise self._error(
                                 f"coroutine transform: `move` of a frame local in "
                                 f"a bare match-arm expression of driven "
-                                f"`{self.name}` is not supported; use a block arm",
-                                self.func.line, self.func.column)
-                return cap_lets + [s] + self._forgets(forgets)
+                                f"`{self.name}` is not supported; use a block arm")
+                # The hoist above already relinquished, ahead of every arm — so a
+                # BARE arm needs nothing here either, which is what makes it
+                # sound: it hosts no statement, and with the trailing clear gone
+                # there is none to owe.
+                return cap_lets + pre + [s]
 
+        # THE ENUMERATION GATE (SL-222 review r2). Everything above is one arm
+        # per CONTAINER — a construct that owns a `Block` a statement can be
+        # written inside — and each arm hands its blocks the DISCARDED context
+        # that is true of them in statement position. The fallback below reaches
+        # its blocks through `_rewrite_hosting` instead, where a `Block` is read
+        # as a VALUE, so a container arriving here is silently mis-judged: a
+        # `move` in one of its blocks' tails draws the value-used refusal for a
+        # value nobody asked for.
+        #
+        # That is not a hypothetical. It happened THREE TIMES on this issue —
+        # `ForLoop`, then `TryCatchExpr`, then `TryExpr` — because "every
+        # container has an arm" was re-asserted from memory each round instead
+        # of checked. So it is checked here, against `control_blocks`, which IS
+        # the enumeration (`ast_walk.CONTAINER_KINDS`): a container this dispatch
+        # forgot cannot reach the fallback quietly, and a container kind added to
+        # `ast_walk` later trips this the first time one is lowered rather than
+        # mis-refusing somebody's program. The check costs one call on the
+        # statement kinds that own no block, which answer with an empty list.
+        if control_blocks(s):
+            raise self._error(
+                f"internal compiler error: the in-place lowering in "
+                f"`{self.name}` has no arm for `{type(ctrl).__name__}`, which "
+                f"owns {len(control_blocks(s))} block(s). Every "
+                f"`ast_walk.CONTAINER_KINDS` member needs one, so that its "
+                f"blocks are lowered with the discarded context statement "
+                f"position gives them; falling through to the expression "
+                f"rewrite would judge them value-carrying. This is a compiler "
+                f"bug, not a problem with this code.", s)
         # Fallback: a plain expression statement (`foo()`), a break/continue with
         # a value, etc. — rewrite in place, hosting any drop-flag clears after.
         forgets = []
         cap_lets, ns = self._rewrite_hosting(s, forgets)
+        if forgets and (_contains_return(ns) or self._has_loop_ctrl(ns)):
+            # SL-222 review r3. The clears below run after the whole statement,
+            # and this statement BURIES an early exit inside its own expression
+            # — a value `if`/`match` arm that `return`s, `break`s or
+            # `continue`s. The exit leaves before the clears, so the frame's
+            # teardown would drop a value the callee already destroyed.
+            #
+            # The container arms above fix this by HOISTING their head to a
+            # temp and relinquishing between it and the container
+            # (`_hoist_head_and_relinquish`), which is sound there because a
+            # container's head is one expression evaluated before all of its
+            # blocks. Here there is no such head: the blocks are operands of an
+            # arbitrary expression, and one can sit to the LEFT
+            # of the `move` (`sink(if a { 1 } else { 0 } + consume(move r))`),
+            # where clearing first would retire a claim the move has not yet
+            # transferred and the move would then read an emptied slot. With no
+            # ordering this position can state, the honest answer is the
+            # refusal — which is also what this shape got before SL-222 made it
+            # reachable, so nothing that used to compile stops compiling.
+            raise self._error(
+                f"coroutine transform: `move` of a frame local in a statement "
+                f"of driven `{self.name}` whose expression also `return`s, "
+                f"`break`s or `continue`s is not supported; bind the moving "
+                f"call to its own `let` first, then use the binding", s)
         return cap_lets + [ns] + self._forgets(forgets)
 
     def _store_result(self, value):
@@ -7826,7 +8140,7 @@ class _FrameBuilder:
         return OptionalWrap(value=value, target_type=_opt(self.ret),
                             line=value.line, column=value.column)
 
-    def _lower_block_in_place(self, block):
+    def _lower_block_in_place(self, block, value_used=False):
         """Lower a NON-spanning block in place — and as its own SCOPE.
 
         The scope half is DF-218s's: once a block that returns owes its owning
@@ -7846,11 +8160,19 @@ class _FrameBuilder:
         list would run BEFORE the expression that reads the binding. Such a
         block keeps today's timing (the release falls to `release()` at Done,
         one position late, never a leak) — and its `return` paths are ordered
-        anyway, since E-RET walks this scope off the same stack."""
+        anyway, since E-RET walks this scope off the same stack.
+
+        `value_used` says whether anything CARRIES this block's tail value away
+        (SL-222). It is False for every caller in `_lower_inplace` — an `if`,
+        `while`, `for`, `match` arm, `if let`/`guard let` branch reached as a
+        STATEMENT discards its blocks' values — and True at the ONE caller that
+        reaches a block through an EXPRESSION, `_rewrite_expr`'s DF-187c arm.
+        Only that one has a value for the parser's `final_expr` promotion to be
+        about."""
         names = self._block_scope_names(block)
         self._push_scope(names)
         try:
-            self._lower_block_body_in_place(block)
+            self._lower_block_body_in_place(block, value_used)
             if (names and block.final_expr is None
                     and not _stmts_terminate(block.statements)):
                 block.statements = (block.statements
@@ -7858,19 +8180,77 @@ class _FrameBuilder:
         finally:
             self._pop_scope()
 
-    def _lower_block_body_in_place(self, block):
+    def _lower_block_body_in_place(self, block, value_used=False):
+        """Lower a block's statements, then its trailing expression.
+
+        SL-222: THE TAIL OF A BLOCK NOBODY READS IS A STATEMENT. `parse_block`
+        promotes a block's last `ExpressionStatement` into `final_expr`
+        unconditionally — a discarded void call at the end of a loop body
+        included — and a `final_expr` cannot host the drop-flag clears a `move`
+        in it owes, because the tail runs AFTER every statement and a clear
+        appended to the list would run before it. That is a real constraint for
+        a block whose value goes somewhere and no constraint at all for one
+        whose value goes nowhere, so a valueless tail is DEMOTED back to the
+        statement it was written as and the forgets follow it. `_norm_block`'s
+        DF-158b branch already did exactly this for a void FUNCTION-BODY tail,
+        and `_lower_block`'s CFG-split twin lowers a nested tail as an
+        `ExpressionStatement` outright; this is the third consumer agreeing with
+        them. Demoting also hands the block its E-FALL back (see
+        `_lower_block_in_place`), so its scope closes where the sync twin closes
+        it rather than at frame teardown.
+
+        THE DEMOTION RUNS BEFORE THE LOWERING, and that ordering is the whole
+        rule (SL-222 review r1). Demoting AFTERWARDS fixed only the case where
+        the tail is a plain call: a tail that is itself a CONTROL-FLOW construct
+        was handed to `_rewrite_hosting` as an EXPRESSION first, and the branch
+        `Block`s inside it then arrived at `_rewrite_expr`'s generic `Block` arm,
+        which is the one position that means "somebody reads this" — so a `move`
+        in a void `if`'s tail raised the value-used refusal even though neither
+        the `if` nor the loop around it consumes anything. Demoting first puts
+        the whole construct on the STATEMENT path, where `_lower_inplace` owns
+        every container and hands each of its blocks the discarded context that
+        is true of them. Nothing valueless reaches the expression walker at all,
+        which is why this is a property of the class rather than a case list.
+
+        The refusal SURVIVES for a tail whose value is used: the forgets would
+        have to run between the tail's evaluation and the block's value, and no
+        position expresses that — writing the `let` the message names is the
+        author's way to make one.
+
+        WHICH SHAPES REACH IT, stated as the audit found them rather than as an
+        absolute (r1 claimed "none", r2 found one — the claim is only ever worth
+        the sweep behind it). Almost every value-carrying tail is turned into an
+        ASSIGNMENT before it arrives here, and an assignment hosts forgets fine:
+        `_cond_to_branch`/`_attach_sink_block` do that for a value `if`, a value
+        `match`, `??` and the BLOCK form `try { } catch { }`, and `_done` does
+        it for the function body's own tail. Those are pinned as PASSING rows in
+        `examples/coro_discarded_tail_move_in_nested_block.saw` and its
+        `..._in_nested_control_flow.saw` sibling.
+
+        THE ONE SHAPE THAT DOES REACH IT is a value-carrying INLINE catch
+        (`let x = try f() catch { take(move r) }`): `TryExpr` is not in
+        `_is_value_conditional`, so no sink lowering runs and its catch tail
+        stays a genuine value tail. That is SL-231, pinned as an XFAIL, and it
+        is PRE-EXISTING — it refuses identically with none of SL-222's changes
+        applied."""
+        if block.final_expr is not None and not value_used:
+            block.statements = block.statements + [
+                ExpressionStatement(expression=block.final_expr)]
+            block.final_expr = None
         block.statements = self._lower_stmt_list(block.statements)
-        if block.final_expr is not None:
-            fforgets = []
-            cap_lets, block.final_expr = self._rewrite_hosting(
-                block.final_expr, fforgets)
-            block.statements = block.statements + cap_lets
-            if fforgets:
-                raise CoroTransformError(
-                    f"coroutine transform: `move` of a frame local in a nested "
-                    f"tail-expression of driven `{self.name}` is not supported; "
-                    f"move it in a `return` statement instead",
-                    self.func.line, self.func.column)
+        if block.final_expr is None:
+            return
+        fforgets = []
+        cap_lets, tail = self._rewrite_hosting(block.final_expr, fforgets)
+        block.statements = block.statements + cap_lets
+        if not fforgets:
+            block.final_expr = tail
+            return
+        raise self._error(
+            f"coroutine transform: `move` of a frame local in a nested "
+            f"tail-expression of driven `{self.name}` whose value is used "
+            f"is not supported; bind it first (`let r = <expr>`) and make "
+            f"`r` the tail")
 
     def _done_seq(self, value, forgets):
         """End the coroutine at an explicit `return value`: store the result, run
@@ -8461,7 +8841,8 @@ def _arity_args(call_args, arg_plan, params, callee, line, column, tc,
             # a short list on again.
             raise CoroTransformError(
                 f"coroutine transform: no argument and no default for parameter "
-                f"`{pname}` of `{callee}`", line, column, source_file=src_file)
+                f"`{pname}` of `{callee}`",
+                source_file=src_file, line=line, column=column)
         if _default_expr_suspends(dflt, tc):
             raise CoroTransformError(
                 f"coroutine transform: the default value of parameter `{pname}` "
@@ -8469,7 +8850,8 @@ def _arity_args(call_args, arg_plan, params, callee, line, column, tc,
                 f"materialized at a call that omits it — the expression would "
                 f"need a coroutine frame of its own at every such call. Pass "
                 f"the argument explicitly, or give the parameter a "
-                f"non-suspending default", line, column, source_file=src_file)
+                f"non-suspending default",
+                source_file=src_file, line=line, column=column)
         # The callee's own declaration keeps its node: the copy travels into
         # ANOTHER body and both are re-typechecked after the transform.
         clone = _copy.deepcopy(dflt)
@@ -8497,7 +8879,7 @@ def _arity_args(call_args, arg_plan, params, callee, line, column, tc,
             raise CoroTransformError(
                 f"coroutine transform: the argument binding plan for `{callee}` "
                 f"covers {len(arg_plan)} parameter(s), but its frame has "
-                f"{len(params)}", line, column, source_file=src_file)
+                f"{len(params)}", source_file=src_file, line=line, column=column)
         out = []
         for p_i, a_i in enumerate(arg_plan):
             if a_i is not None and a_i < len(call_args):
@@ -8511,20 +8893,26 @@ def _arity_args(call_args, arg_plan, params, callee, line, column, tc,
     return out
 
 
-def _arity_arguments(call, params, callee, tc):
+def _arity_arguments(call, params, callee, tc, src_file=None):
     """`_arity_args` at a ROOT SITE, as an `Argument` list ready to hand to the
     synthesized wrapper — full arity, positional (the plan already resolved the
     labels, and it never reorders, so the names have nothing left to say).
 
     `params` None means the callee's parameter list is not in hand; the site's
     own arguments pass through unchanged, which is exactly what the site did
-    before defaults were materialized anywhere."""
+    before defaults were materialized anywhere.
+
+    `src_file` is the file the SITE was written in, threaded down from the
+    declaration the rewrite walk entered on. `_arity_args` rejects a suspending
+    or missing default, and this was the half of its entry points that passed no
+    file at all (SL-224's census), so a spawn or drive site inside an imported
+    body reported its refusal against the entry module."""
     args = list(getattr(call, 'arguments', None) or [])
     if params is None:
         return args
     filled = _arity_args(args, getattr(call, 'arg_plan', None), params, callee,
                          getattr(call, 'line', 0) or 0,
-                         getattr(call, 'column', 0) or 0, tc)
+                         getattr(call, 'column', 0) or 0, tc, src_file)
     return [Argument(name=None, value=v) for (v, _from_source) in filled]
 
 
@@ -8645,7 +9033,8 @@ def _read_frame_result(fb: _FrameBuilder, stmts):
         if _enc_cleanup(fb.result_enc):
             slot = MemberAccess(object=Identifier(name="__f"), member="__result")
             slot.frame_place_read = True
-            stmts.append(_forget_call(slot, fb.result_defer_family))
+            stmts.append(_forget_call(slot, fb.result_defer_family,
+                                      fb.src_file))
     return MoveExpr(variable="__res")
 
 
@@ -8941,7 +9330,7 @@ def _reject_spawn_frame_refs(fb: _FrameBuilder, fbs):
                 f"is a reference held across a suspension. A spawned task's frame "
                 f"outlives its spawner, so a held reference could dangle — "
                 f"references are confined to their own task (D6).",
-                fb.func.line, fb.func.column, source_file=fb.src_file)
+                fb.func, source_file=fb.src_file)
 
 
 def _check_spawn_frame_send(fb: _FrameBuilder, fbs, typechecker):
@@ -8975,9 +9364,9 @@ def _check_spawn_frame_send(fb: _FrameBuilder, fbs, typechecker):
                     f"`{p.type}` is not `Send`, so the task frame cannot cross to a "
                     f"worker thread. Share thread-safe state via `Arc` (and `Mutex` "
                     f"for mutation) or a `Channel` instead of moving it in." + note,
-                    getattr(p, 'line', 0) or fbx.func.line,
-                    getattr(p, 'column', 0) or fbx.func.column,
-                    source_file=fbx.src_file)
+                    fbx.func, source_file=fbx.src_file,
+                    line=getattr(p, 'line', 0) or fbx.func.line,
+                    column=getattr(p, 'column', 0) or fbx.func.column)
         for (lname, lt) in fbx.frame_locals:
             note = ns.send_check(lt, "task frame local")
             if note is not None:
@@ -8986,7 +9375,7 @@ def _check_spawn_frame_send(fb: _FrameBuilder, fbs, typechecker):
                     f"`TaskGroup(threads: ...)`: local `{lname}` of type `{lt}` is "
                     f"held across a suspension but is not `Send`, so the task frame "
                     f"cannot cross to a worker thread." + note,
-                    fbx.func.line, fbx.func.column, source_file=fbx.src_file)
+                    fbx.func, source_file=fbx.src_file)
         for c in fbx.calls:
             callee = fbs.get(c['callee'])
             if callee is not None:
@@ -9002,7 +9391,7 @@ def _check_spawn_frame_send(fb: _FrameBuilder, fbs, typechecker):
             f"`TaskGroup(threads: ...)`: its result type `{fb.ret}` is not `Send`, so "
             f"the value cannot travel back from the worker thread to `join()`."
             + ret_note,
-            fb.func.line, fb.func.column, source_file=fb.src_file)
+            fb.func, source_file=fb.src_file)
 
 
 def _void_cell_fields():
@@ -9371,7 +9760,7 @@ def _labeled_call_rule(node):
     return node
 
 
-def _spawn_site_rule(node, params_of, tc):
+def _spawn_site_rule(node, params_of, tc, src_file=None):
     """Rewrite a cooperative spawn site to its synthesized helper call. Both
     forms were stamped with `spawn_root` by the typechecker:
 
@@ -9398,7 +9787,8 @@ def _spawn_site_rule(node, params_of, tc):
         call = FunctionCall(
             name=f"__bgspawn_{node.spawn_root}",
             arguments=[_ref_arg_to_ptr(a) for a in _arity_arguments(
-                inner, params_of(node.spawn_root), node.spawn_root, tc)],
+                inner, params_of(node.spawn_root), node.spawn_root, tc,
+                src_file)],
             line=node.line, column=node.column)
         call.resolved_type = getattr(node, 'resolved_type', None)
         return call
@@ -9413,7 +9803,7 @@ def _spawn_site_rule(node, params_of, tc):
             name=f"__spawn_{root}",
             arguments=([Argument(name=None, value=group_ptr)]
                        + [_ref_arg_to_ptr(a) for a in _arity_arguments(
-                           inner, params_of(root), root, tc)]),
+                           inner, params_of(root), root, tc, src_file)]),
             line=node.line, column=node.column)
         # Carry the handle type so a suspending spawner can type the frame-resident
         # `let h = ...` binding (conservative-by-scope liveness reads it).
@@ -9422,13 +9812,15 @@ def _spawn_site_rule(node, params_of, tc):
     return node
 
 
-def _rewrite_spawn_sites(node, params_of, tc):
+def _rewrite_spawn_sites(node, params_of, tc, src_file=None):
     """Rewrite every `group.spawn(f(args))` under `node` (see `_spawn_site_rule`).
 
     `params_of(root_name)` answers the spawned function's parameter list (or
     None when it is not in hand), which is what lets the rule fill an omitted
-    default at the site."""
-    return _rewrite_nodes(node, lambda n: _spawn_site_rule(n, params_of, tc))
+    default at the site. `src_file` is the file the body being walked was
+    written in, so a refusal raised while filling one anchors there (SL-224)."""
+    return _rewrite_nodes(node,
+                          lambda n: _spawn_site_rule(n, params_of, tc, src_file))
 
 
 # --------------------------------------------------------------------------- #
@@ -9449,7 +9841,7 @@ def _ref_arg_to_ptr(arg):
     return arg
 
 
-def _rewrite_drive_sites(node, roots, params_of, tc):
+def _rewrite_drive_sites(node, roots, params_of, tc, src_file=None):
     """Rewrite `__saw_drive(f(args))` -> `__saw_drive_f(args)` and
     `__saw_drive_steps(f(args))` -> `__saw_drive_steps_f(args)` in place, everywhere.
 
@@ -9457,7 +9849,8 @@ def _rewrite_drive_sites(node, roots, params_of, tc):
     when it is not in hand). The driver takes one parameter per formal and
     carries no defaults, so each of the three arms below fills the arguments to
     full arity (`_arity_arguments`) — the drive half of `_arity_args`'s entry
-    points."""
+    points. `src_file` is the file the walked body was written in, so a refusal
+    raised while filling one anchors there (SL-224)."""
     if isinstance(node, FunctionCall) and node.name in ("__saw_drive", "__saw_drive_steps"):
         inner = node.arguments[0].value  # validated in the typechecker
         prefix = "__saw_drive_steps_" if node.name == "__saw_drive_steps" else "__saw_drive_"
@@ -9475,7 +9868,7 @@ def _rewrite_drive_sites(node, roots, params_of, tc):
                     getattr(inner, 'resolved_symbol', None))
                 node.name = prefix + key
                 node.arguments = [_ref_arg_to_ptr(a) for a in _arity_arguments(
-                    inner, params_of(key), inner.method_name, tc)]
+                    inner, params_of(key), inner.method_name, tc, src_file)]
                 return node
             recv_type = getattr(inner.object, 'resolved_type', None)
             struct_name = getattr(recv_type, 'struct_name', None)
@@ -9497,11 +9890,11 @@ def _rewrite_drive_sites(node, roots, params_of, tc):
             node.arguments = ([Argument(name=None, value=recv_ptr)]
                               + [_ref_arg_to_ptr(a) for a in _arity_arguments(
                                   inner, params_of(key), inner.method_name,
-                                  tc)])
+                                  tc, src_file)])
             return node
         node.name = prefix + inner.name
         node.arguments = [_ref_arg_to_ptr(a) for a in _arity_arguments(
-            inner, params_of(inner.name), inner.name, tc)]
+            inner, params_of(inner.name), inner.name, tc, src_file)]
         return node
     if isinstance(node, ASTNode):
         # A drive site is rewritten IN PLACE (the `FunctionCall` keeps its
@@ -9509,7 +9902,7 @@ def _rewrite_drive_sites(node, roots, params_of, tc):
         # back — which is what lets this share `_child_nodes` with the read-only
         # walks and pick up their tuple reach (DF-187b).
         for c in _child_nodes(node):
-            _rewrite_drive_sites(c, roots, params_of, tc)
+            _rewrite_drive_sites(c, roots, params_of, tc, src_file)
     return node
 
 
@@ -10219,11 +10612,15 @@ def transform_program(program, typechecker, imported_ast=None):
     if spawn_roots:
         for f in program.functions:
             f.body = _rewrite_spawn_sites(f.body, _spawn_root_params,
-                                          typechecker)
+                                          typechecker,
+                                          getattr(f, 'source_file', None))
         for ext in program.extensions:
             for m in ext.methods:
                 m.body = _rewrite_spawn_sites(m.body, _spawn_root_params,
-                                              typechecker)
+                                              typechecker,
+                                              getattr(m, 'source_file', None)
+                                              or getattr(ext, 'source_file',
+                                                         None))
 
     # design 74 (A5-rest, shape 1): the set of (struct, method) whose body suspends
     # — used to detect a BURIED suspending method call in a driven body and reject
@@ -10487,7 +10884,9 @@ def transform_program(program, typechecker, imported_ast=None):
         clone.body = _rewrite_yield_intrinsic_calls(clone.body)
         if spawn_roots:
             clone.body = _rewrite_spawn_sites(clone.body, _spawn_root_params,
-                                              typechecker)
+                                              typechecker,
+                                              getattr(clone, 'source_file',
+                                                      None))
         funcs_by_name[name] = clone
         program.functions.append(clone)
         return clone
@@ -10548,6 +10947,12 @@ def transform_program(program, typechecker, imported_ast=None):
                 # frame and is embedded, exactly as an imported method already is.
                 func = _splice_imported_free_fn(key)
             if func is None:
+                # NO ANCHOR, on purpose (SL-224): the declaration this would
+                # point at is the thing that is missing — `funcs_by_name` has
+                # no entry for `key` and the splice found no imported body, so
+                # there is no node to read a file or a line off. `sawc.py`
+                # renders it as a bare message, which is the honest shape for a
+                # wiring failure that names no user construct.
                 raise CoroTransformError(
                     f"coroutine transform: suspending function `{key}` not found in "
                     f"the entry module (driving supports entry-module free functions "
@@ -10845,6 +11250,8 @@ def transform_program(program, typechecker, imported_ast=None):
         if gsm_entry is not None:
             recv_saw_type, method_ast = gsm_entry
             if method_ast is None:
+                # NO ANCHOR, on purpose (SL-224): `method_ast` IS the node the
+                # diagnostic would anchor on, and its absence is the error.
                 raise CoroTransformError(
                     f"coroutine transform: driven generic-struct method "
                     f"`{struct_name}.{method_name}` was not monomorphized")
@@ -10873,6 +11280,8 @@ def transform_program(program, typechecker, imported_ast=None):
         method_ast, ext = _find_method(program, struct_name, method_name,
                                        method_symbol)
         if method_ast is None:
+            # NO ANCHOR, on purpose (SL-224): the method declaration this would
+            # anchor on is exactly what `_find_method` failed to find.
             raise CoroTransformError(
                 f"coroutine transform: driven method `{struct_name}.{method_name}` "
                 f"not found in the entry module")
@@ -10885,8 +11294,7 @@ def transform_program(program, typechecker, imported_ast=None):
                 f"coroutine transform: driving a suspending method on a generic "
                 f"struct (`{struct_name}.{method_name}`) is not yet supported "
                 f"(design 74 A5-rest); monomorphize the receiver at the drive site",
-                method_ast.line, method_ast.column,
-                source_file=getattr(method_ast, 'source_file', None))
+                method_ast)
         if _method_is_conformance_required(ext, method_ast,
                                            _required_by_conformance):
             # design 223 unit 2: the DRIVE-ROOT face of the same rule. The frame
@@ -10917,10 +11325,13 @@ def transform_program(program, typechecker, imported_ast=None):
         return None if fb is None else fb.params
 
     for f in program.functions:
-        _rewrite_drive_sites(f.body, roots, _driven_params, typechecker)
+        _rewrite_drive_sites(f.body, roots, _driven_params, typechecker,
+                             getattr(f, 'source_file', None))
     for ext in program.extensions:
         for m in ext.methods:
-            _rewrite_drive_sites(m.body, roots, _driven_params, typechecker)
+            _rewrite_drive_sites(m.body, roots, _driven_params, typechecker,
+                                 getattr(m, 'source_file', None)
+                                 or getattr(ext, 'source_file', None))
 
 
     # Strip driven methods from their extensions (replaced by frame + resume) —

@@ -1,0 +1,19 @@
+// SL-224: the DEFINING module of a coroutine-transform rejection. The entry
+// module drives `spin` across the module boundary, so the frame is built for
+// THIS file's function and the refusal below belongs to THIS file — which is
+// the whole point of the test that imports it.
+//
+// `for` over a non-range iterable with a suspension inside is one of the 21
+// raise sites that passed no `source_file` at all, so it rendered against the
+// ENTRY module's reporter: right message, wrong file, and a snippet of whatever
+// the entry file happened to have on that line.
+import std.task.{yield_now}
+
+public func spin(v: Vector<Int>) -> Int {
+    var total = 0
+    for x in v.iter() {
+        yield_now()
+        total = total + x
+    }
+    total
+}

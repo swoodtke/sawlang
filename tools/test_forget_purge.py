@@ -35,7 +35,12 @@ So the criterion this gate enforces is the adapted one:
      argument, not a comment: `_forget_call(place, family)` refuses a family
      that is not one of `DEFERRED_FAMILIES`, and `_forget_stmt` refuses a field
      that no family holds back (a migrated field's forget would be the DF-217h
-     mispairing, so emitting one is a compiler bug and raises).
+     mispairing, so emitting one is a compiler bug and raises). SL-224 added an
+     optional THIRD positional, the file that refusal anchors in — the funnel is
+     reached from a builder and from module-level code, so the file is threaded
+     rather than read off a `self` that is not always there. The citation is
+     still argument two, and that is the thing this rule checks; the arity is
+     pinned so a family cannot slide into another slot.
   3. The family set is the documented one. Adding a name here is a design
      decision — a new deferral — and it needs this file in the diff.
 
@@ -216,11 +221,12 @@ def main():
                 and node.func.id == FUNNEL):
             continue
         calls += 1
-        if len(node.args) != 2 or node.keywords:
+        if len(node.args) not in (2, 3) or node.keywords:
             failures.append(
                 ("sawc/coro_transform.py", node.lineno,
-                 f"`{FUNNEL}` takes (place, family) positionally; this call "
-                 f"passes {len(node.args)} positional argument(s)"))
+                 f"`{FUNNEL}` takes (place, family[, source_file]) "
+                 f"positionally; this call passes {len(node.args)} positional "
+                 "argument(s)"))
             continue
         if not _citation_ok(node.args[1]):
             failures.append(
