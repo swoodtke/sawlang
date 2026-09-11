@@ -1,11 +1,18 @@
 // A `return`/tail whose value the compiler auto-wrapped into an `Optional` or
 // a `Result` is still a transfer, and is still judged.
 //
-// XFAIL: DF-305a — the checkpoint runs AFTER the auto-wrap, so it judges the
-// synthesized `OptionalWrap`/`ResultOkWrap` node instead of the author's
-// expression. A wrap node is not an aliasing expression, so the transfer passes
-// silently. This is DF-299a's shape at a third site: a checkpoint that RUNS and
-// cannot see through the node, not one that is never called (DF-304a, closed).
+// DF-305a (SL-79), closed by design 269 (SL-211). The checkpoint used to run
+// AFTER the auto-wrap, so it judged the synthesized
+// `OptionalWrap`/`ResultOkWrap` node instead of the author's expression; a wrap
+// node was not an aliasing expression, so the transfer passed silently. This is
+// DF-299a's shape at a third site: a checkpoint that RUNS and cannot see
+// through the node, not one that is never called (DF-304a, closed).
+//
+// The fix PEELS a wrap at the checkpoint — one place, so every entry point gets
+// it — rather than reordering the three sites that wrap. The full position
+// matrix, the four wrap kinds and the ruling this carries (the OWNED source
+// `func f(r: Res) -> Res? { r }` is refused too, one rule for both spellings)
+// are conformance row V88.
 //
 // At an OWNED source the wrap really does transfer — codegen clears the
 // source's drop flag — so the hole is invisible there. At an ALIASING source,

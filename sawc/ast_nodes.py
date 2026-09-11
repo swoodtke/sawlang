@@ -885,14 +885,23 @@ class Expression(ASTNode):
     #                           literals/collection literals that need it
     #   needs_copy           -- the move checker decided this operand is copied
     #   closure_lend         -- a closure operand is lent, not transferred
-    #   payload_needs_copy   -- design 131: this node EXTRACTS an optional's
-    #                           payload out of storage the source keeps (`o!`,
-    #                           the `??` left operand, an `if let` binding), and
-    #                           the place rule says the extraction retains. The
-    #                           retain happens AT the extraction, not at the
-    #                           enclosing transfer site, so that a `let`
-    #                           initializer -- which never reaches the
-    #                           transfer-site copy path -- is covered too.
+    #   payload_needs_copy   -- design 131: this node EXTRACTS a payload out of
+    #                           storage the source keeps -- an optional's (`o!`,
+    #                           the `??` left operand, an `if let` binding) or,
+    #                           since design 269, a `Result`'s Ok payload (`try
+    #                           r` over a binding or field) -- and the place
+    #                           rule says the extraction retains. The retain
+    #                           happens AT the extraction, not at the enclosing
+    #                           transfer site, so that a `let` initializer --
+    #                           which never reaches the transfer-site copy path
+    #                           -- is covered too.
+    #                           THAT IS ALSO WHAT MAKES IT PATH-SPECIFIC, which
+    #                           is why a `try` uses it rather than `needs_copy`:
+    #                           an inline `catch` produces its own value on the
+    #                           Err path, and an obligation recorded at the
+    #                           enclosing transfer would be paid on THAT path
+    #                           too, copying the handler's value a second time
+    #                           (SL-211 review r1).
     #   frame_place_read     -- design 131: the coroutine transform synthesized
     #                           this place out of a frame field. Its ownership
     #                           was settled on the pre-transform AST, so the

@@ -5911,9 +5911,110 @@ value, or use the move-out its owner publishes (`take()` on an `Optional` field,
 
 A tail landing in a `-> T?` or `-> Result<T, E>` slot is judged before the
 auto-wrap, so the `move` goes on the value you wrote rather than on a
-construction the compiler inserted. A tail that is itself a value `if` or
-`match` is judged per arm, by the previous section's rule. Reading a `Copy`
-value in a tail retains it, once.
+construction the compiler inserted — see the next section, which is that rule at
+all four return targets. A tail that is itself a value `if` or `match` is judged
+per arm, by the previous section's rule. Reading a `Copy` value in a tail
+retains it, once.
+
+#### An auto-wrapped `return` is judged before the wrap
+
+**Status: implemented (design 269).**
+
+Returning a `T` from a `-> T?` or `-> Result<T, E>` body wraps the value for
+you. The wrap is not a new value — it re-types the one you wrote — so the
+ownership question is asked about your expression, at your expression's type,
+before the wrap goes on. All four return targets take it: a function body's
+tail, a method body's tail, an explicit `return`, and a closure body's tail.
+
+```saw-error
+// error-contains: cannot return NoCopy type `Res` without `move` in function `first`
+struct Res { w: Int }
+extension Res: NoCopy {}
+struct Holder { inner: Res }
+extension Holder: NoCopy {}
+
+func first(h: &Holder) -> Res? { h.inner }
+// error: cannot return NoCopy type `Res` without `move` in function `first`
+```
+
+`h.inner` names storage the caller owns, so handing it out through the wrap
+would give one value two owners. The refusal is the one the unwrapped spelling
+has always given — which is the point of the rule: `-> Res` and `-> Res?`
+differ by a `?`, and they do not differ about whether a move is written.
+
+```saw-fragment
+func plain(r: Res) -> Res  { move r }
+func opt(r: Res)   -> Res? { move r }     // the same word, one `?` later
+```
+
+That holds for an OWNED source too. `func opt(r: Res) -> Res? { r }` used to
+compile and move implicitly; it is refused now, and `move r` is the spelling.
+A tail that is already a fresh temporary (`func opt(n: Int) -> Res? { Res(w: n) }`)
+is untouched, which is the overwhelming majority of wrapped returns.
+
+#### Reading `self` out of a borrowed receiver is a transfer
+
+**Status: implemented (design 269).**
+
+A `&self` or `&var self` receiver borrows storage the CALLER owns. Handing
+`self` on by value therefore mints a second owner of one value, and takes the
+same checkpoint every other read does — at a return, a by-value argument, a
+`let`, a struct field, or a tuple element alike.
+
+```saw-error
+// error-contains: cannot copy value of type `Res` which implements NoCopy
+struct Res { w: Int }
+extension Res: NoCopy {}
+
+func sink(r: Res) -> Int { r.w }
+
+extension Res {
+    func hand_on(&self) -> Int { sink(self) }
+    // error: cannot copy value of type `Res` which implements NoCopy
+}
+```
+
+The way out is not a `move`: a borrowed receiver has nothing to move, because
+the value is not this frame's. An author who means to DUPLICATE gives the type a
+duplicable policy and spells `self.copy()`; one who means to CONSUME declares the
+method [`consumes`](#consuming-receivers), and the caller writes the `move`.
+Reading a `Copy` receiver retains it, once, exactly as before.
+
+#### A `try` forwards its subject's storage
+
+**Status: implemented (design 269).**
+
+`try r` extracts the Ok payload out of `r`. When `r` is a binding or a field,
+that storage still has an owner, so the extraction is a transfer and takes the
+checkpoint — in all four spellings (`try`, `try!`, `try?`, and
+`try … catch { }`, whose catch arm is judged separately as a branch arm).
+
+```saw-error
+// error-contains: cannot copy value of type `Res` which implements NoCopy
+struct Res { w: Int }
+extension Res: NoCopy {}
+enum Bad { case Nope }
+extension Bad: NoCopy {}
+
+func made(n: Int) -> Result<Res, Bad> { Res(w: n) }
+
+func use_it() -> Result<Int, Bad> {
+    let r = made(1)
+    let a = try r
+    // error: cannot copy value of type `Res` which implements NoCopy
+    // hint: the subject still owns the payload — spell it `try move r`
+    a.w
+}
+```
+
+The `move` goes on the SUBJECT, because that is what owns the payload:
+`try move r` transfers the whole `Result` in and releases the payload exactly
+once. On a FIELD subject there is no such spelling — `move h.r` would be a
+partial move — so restructure, as anywhere else a field must give something up.
+
+A `try` over a CALL RESULT is not affected: `try made(1)` unwraps a fresh
+temporary the reader already owns, and stays legal. That is the same line that
+separates a forwarding cast from a building one.
 
 #### Plain transfers take the same rule
 

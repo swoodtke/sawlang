@@ -1,0 +1,119 @@
+// The three forwarding positions design 269 routes through the transfer
+// checkpoint behave identically in a SYNC body and a DRIVEN one — one value,
+// one `drop`, in both.
+//
+// The driven twin is not ceremony. The coroutine transform rewrites the AST and
+// the whole program is then RE-CHECKED, so every one of these boundaries is
+// judged twice over two different trees: a frame-resident local becomes a
+// `Slot.value()` lend, a wrapped tail becomes a `Poll`-returning state machine,
+// and the checkpoint's marks are ASSIGNED rather than accumulated (design 218
+// stage 1) precisely so the second answer is the one that stands. A fix that
+// only worked on the pre-transform tree would pass every sync test and leak or
+// double-free under a `spawn`.
+//
+// The positions, each in both bodies:
+//   * a `try` over a binding that SPANS a suspension (SL-219's shape, with the
+//     frame read in the middle);
+//   * a tail auto-wrapped into an `Optional` (SL-79's shape);
+//   * a tail auto-wrapped into a `Result`.
+//
+// SIX values, SIX `drop` lines, and the two halves AGREE POSITION BY POSITION:
+// each driven row sits in the same place relative to its own print as the sync
+// row ten numbers below it (`drop 1` then `sync-try 1`, `drop 11` then
+// `driven-try 11`; `sync-opt 2` then `drop 2`, `driven-opt 12` then
+// `drop 12`). That correspondence is the assertion — the transform changes
+// WHERE the value lives, not when it dies. The two values still held at
+// `main`'s end come apart in reverse declaration order, `g13` before `g3`.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: drop 1
+// EXPECT-OUTPUT: sync-try 1
+// EXPECT-OUTPUT: sync-opt 2
+// EXPECT-OUTPUT: drop 2
+// EXPECT-OUTPUT: sync-res 3
+// EXPECT-OUTPUT: drop 11
+// EXPECT-OUTPUT: driven-try 11
+// EXPECT-OUTPUT: driven-opt 12
+// EXPECT-OUTPUT: drop 12
+// EXPECT-OUTPUT: driven-res 13
+// EXPECT-OUTPUT: end
+// EXPECT-OUTPUT: drop 13
+// EXPECT-OUTPUT: drop 3
+
+import std.task.*
+
+struct Res { w: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.w) }
+}
+
+enum Bad { case Nope }
+extension Bad: NoCopy {}
+
+func made(n: Int) -> Result<Res, Bad> { Res(w: n) }
+
+// ---- the SYNC half ----------------------------------------------------
+
+func sync_try(n: Int) -> Int {
+    let r = made(n)
+    let got = try! move r
+    got.w
+}
+
+func sync_opt(n: Int) -> Res? {
+    let r = Res(w: n)
+    move r
+}
+
+func sync_res(n: Int) -> Result<Res, Bad> {
+    let r = Res(w: n)
+    move r
+}
+
+// ---- the DRIVEN half, one suspension apiece ---------------------------
+
+func driven_try(n: Int) -> Int {
+    var r = made(n)
+    yield_now()
+    let got = try! move r
+    got.w
+}
+
+func driven_opt(n: Int) -> Res? {
+    let r = Res(w: n)
+    yield_now()
+    move r
+}
+
+func driven_res(n: Int) -> Result<Res, Bad> {
+    let r = Res(w: n)
+    yield_now()
+    move r
+}
+
+func main() {
+    print("sync-try {}", sync_try(1))
+
+    var s2 = sync_opt(2)
+    if let g = move s2 { print("sync-opt {}", g.w) }
+
+    var s3 = sync_res(3)
+    let g3 = try! move s3
+    print("sync-res {}", g3.w)
+
+    var group = TaskGroup()
+
+    let h1 = group.spawn(driven_try(11))
+    print("driven-try {}", h1.join())
+
+    let h2 = group.spawn(driven_opt(12))
+    var d2 = h2.join()
+    if let g = move d2 { print("driven-opt {}", g.w) }
+
+    let h3 = group.spawn(driven_res(13))
+    var d3 = h3.join()
+    let g13 = try! move d3
+    print("driven-res {}", g13.w)
+
+    print("end")
+}

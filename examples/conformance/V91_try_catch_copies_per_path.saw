@@ -1,0 +1,195 @@
+// Conformance row V91 — a `try`'s copy obligation is PER PATH: the Ok
+// projection's retain never reaches the catch handler's own value
+//
+// Design 269, SL-211 review r1 (P1). Design 269 made a `try` over an aliasing
+// subject take the transfer checkpoint (SL-219), and the checkpoint first
+// recorded the resulting duplication as a node-level `needs_copy` — ONE
+// obligation on the MERGED result of a two-path node. The enclosing transfer
+// then copied whatever came out of the phi, so on the Err path the catch
+// handler's value was copied HERE as well as by its own `_generate_block`
+// transfer: two retains against one release, an owning `Copy` value leaked.
+//
+// The obligation now rides `payload_needs_copy` and the retain is emitted AT
+// THE EXTRACTION, inside the Ok block — design 131's discipline, the same one
+// `ForceUnwrap` uses. A path that never extracts cannot pay for it, by
+// construction rather than by a second rule.
+//
+// THE MATRIX, all eight cells: {Ok, Err} x {aliasing subject, fresh subject} x
+// {aliasing catch result, fresh catch result}. The oracle is the copy hook
+// itself — a hand-written `copy()` inside a `Copy` conformance runs at exactly
+// the transfer sites no source construct names (design 219), so printing from
+// it counts implicit duplications directly rather than inferring them from a
+// refcount.
+//
+// TWO CELLS ARE THE REGRESSION. Err + aliasing subject + aliasing catch result
+// printed TWO copies and now prints one; Err + aliasing subject + FRESH catch
+// result printed one and now prints none. Both are the same stamp reaching a
+// path that never extracted a payload.
+//
+// THE DRIVEN SECTION IS NOT CEREMONY — it is where the defect was WIDER. In a
+// suspending body the subject is a frame-resident place whose read carries its
+// own retain, so the node-level stamp was a second copy on the OK path too:
+// the driven twin printed `copy` twice on BOTH outcomes where the sync matrix
+// shows the Ok path clean. A fix validated only against the sync rows would
+// have looked complete and left half the driven ones leaking. Its error type is
+// deliberately Copy-tier: a `Result` with a NoCopy payload held across a
+// suspension is refused by design 146's place rule before this question arises.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: -- ok/alias/alias
+// EXPECT-OUTPUT: copy 1
+// EXPECT-OUTPUT: = 1
+// EXPECT-OUTPUT: -- ok/alias/fresh
+// EXPECT-OUTPUT: copy 2
+// EXPECT-OUTPUT: = 2
+// EXPECT-OUTPUT: -- ok/fresh/alias
+// EXPECT-OUTPUT: = 3
+// EXPECT-OUTPUT: -- ok/fresh/fresh
+// EXPECT-OUTPUT: = 4
+// EXPECT-OUTPUT: -- err/alias/alias
+// EXPECT-OUTPUT: copy 95
+// EXPECT-OUTPUT: = 95
+// EXPECT-OUTPUT: -- err/alias/fresh
+// EXPECT-OUTPUT: = 96
+// EXPECT-OUTPUT: -- err/fresh/alias
+// EXPECT-OUTPUT: copy 97
+// EXPECT-OUTPUT: = 97
+// EXPECT-OUTPUT: -- err/fresh/fresh
+// EXPECT-OUTPUT: = 98
+// EXPECT-OUTPUT: -- driven err/alias/alias
+// EXPECT-OUTPUT: copy 5
+// EXPECT-OUTPUT: = 5
+// EXPECT-OUTPUT: -- driven ok/alias/alias
+// EXPECT-OUTPUT: copy 6
+// EXPECT-OUTPUT: = 6
+// EXPECT-OUTPUT: end
+
+import std.task.*
+
+struct Counted { n: Int }
+extension Counted: Copy {
+    func copy(&self) -> Counted { print("copy {}", self.n)  Counted(n: self.n) }
+}
+
+enum Bad { case Nope }
+extension Bad: NoCopy {}
+
+func made(n: Int) -> Result<Counted, Bad> { Counted(n: n) }
+func fails() -> Result<Counted, Bad> { Bad.Nope }
+
+// ---- Ok outcome: the value comes out of the SUBJECT ---------------------
+
+// The subject aliases, so the extraction retains — exactly once, and the catch
+// handler is never evaluated.
+func ok_alias_alias(n: Int) -> Int {
+    let r = made(n)
+    let fallback = Counted(n: 90 + n)
+    let got = try r catch { fallback }
+    got.n
+}
+
+func ok_alias_fresh(n: Int) -> Int {
+    let r = made(n)
+    let got = try r catch { Counted(n: 90 + n) }
+    got.n
+}
+
+// A FRESH subject is a temporary the reader already owns: nothing to retain.
+func ok_fresh_alias(n: Int) -> Int {
+    let fallback = Counted(n: 90 + n)
+    let got = try made(n) catch { fallback }
+    got.n
+}
+
+func ok_fresh_fresh(n: Int) -> Int {
+    let got = try made(n) catch { Counted(n: 90 + n) }
+    got.n
+}
+
+// ---- Err outcome: the value is the CATCH HANDLER's ----------------------
+
+// THE REGRESSION CELL. The catch binding's own arm transfer retains it once;
+// the subject's Ok-path obligation must not reach this path at all.
+func err_alias_alias(n: Int) -> Int {
+    let r = fails()
+    let fallback = Counted(n: n)
+    let got = try r catch { fallback }
+    got.n
+}
+
+// THE SECOND REGRESSION CELL. A FRESH catch result owes nothing, so an
+// aliasing subject must produce NO copy on this path.
+func err_alias_fresh(n: Int) -> Int {
+    let r = fails()
+    let got = try r catch { Counted(n: n) }
+    got.n
+}
+
+func err_fresh_alias(n: Int) -> Int {
+    let fallback = Counted(n: n)
+    let got = try fails() catch { fallback }
+    got.n
+}
+
+func err_fresh_fresh(n: Int) -> Int {
+    let got = try fails() catch { Counted(n: n) }
+    got.n
+}
+
+// ---- the DRIVEN twins ---------------------------------------------------
+//
+// `Soft` carries no `NoCopy` declaration, so `Result<Counted, Soft>` is
+// Copy-tier and can live in a coroutine frame across the suspension. (With
+// `Bad` the whole Result is move-only and design 146's place rule refuses the
+// frame read first — a different rule, working correctly, and not this row's
+// subject.)
+enum Soft { case Nope }
+
+func softly(n: Int) -> Result<Counted, Soft> { Counted(n: n) }
+func soft_fails() -> Result<Counted, Soft> { Soft.Nope }
+
+func driven_err(n: Int) -> Int {
+    let r = soft_fails()
+    let fallback = Counted(n: n)
+    yield_now()
+    let got = try r catch { fallback }
+    got.n
+}
+
+func driven_ok(n: Int) -> Int {
+    let r = softly(n)
+    let fallback = Counted(n: 90 + n)
+    yield_now()
+    let got = try r catch { fallback }
+    got.n
+}
+
+func main() {
+    print("-- ok/alias/alias")
+    print("= {}", ok_alias_alias(1))
+    print("-- ok/alias/fresh")
+    print("= {}", ok_alias_fresh(2))
+    print("-- ok/fresh/alias")
+    print("= {}", ok_fresh_alias(3))
+    print("-- ok/fresh/fresh")
+    print("= {}", ok_fresh_fresh(4))
+
+    print("-- err/alias/alias")
+    print("= {}", err_alias_alias(95))
+    print("-- err/alias/fresh")
+    print("= {}", err_alias_fresh(96))
+    print("-- err/fresh/alias")
+    print("= {}", err_fresh_alias(97))
+    print("-- err/fresh/fresh")
+    print("= {}", err_fresh_fresh(98))
+
+    var group = TaskGroup()
+    print("-- driven err/alias/alias")
+    let h1 = group.spawn(driven_err(5))
+    print("= {}", h1.join())
+    print("-- driven ok/alias/alias")
+    let h2 = group.spawn(driven_ok(6))
+    print("= {}", h2.join())
+
+    print("end")
+}

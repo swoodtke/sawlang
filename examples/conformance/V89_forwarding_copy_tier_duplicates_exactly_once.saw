@@ -1,0 +1,103 @@
+// Conformance row V89 — the Copy tier through the three forwarding positions
+// duplicates EXACTLY ONCE
+//
+// Design 269 (SL-211), and V80/V84's lesson at the three sites this unit
+// touches. The Copy tier is the one a second opinion can paper over: codegen's
+// `_transfer_needs_copy` carries `SelfExpr` in an isinstance list OF ITS OWN
+// and re-derives the retain for an inner-block tail, so before the fix a
+// `self` read looked correct here while the owning tiers double freed. That
+// asymmetry is SL-209's thesis, and it is also the risk this unit carries: the
+// front half now stamps `needs_copy` at these positions, and a SECOND
+// duplication beside the derived one is what a mistake would look like.
+//
+// THE ORACLE IS THE COPY HOOK ITSELF. A hand-written `copy()` inside a `Copy`
+// conformance is called at exactly the transfer sites no source construct
+// names (design 219), so printing from it counts implicit duplications
+// directly — one line per duplication, in order. `try r` is the row that was
+// MISSING a retain before the fix rather than at risk of a second one: an
+// unretained second owner is a refcount underflow, which is why the fence is
+// tier-blind (V62/V65).
+//
+// EXPECT: success
+// EXPECT-OUTPUT: copy 1
+// EXPECT-OUTPUT: self-return 1
+// EXPECT-OUTPUT: copy 2
+// EXPECT-OUTPUT: self-binding 2
+// EXPECT-OUTPUT: copy 3
+// EXPECT-OUTPUT: try-binding 3
+// EXPECT-OUTPUT: copy 4
+// EXPECT-OUTPUT: try-field 4
+// EXPECT-OUTPUT: copy 5
+// EXPECT-OUTPUT: wrap-optional 5
+// EXPECT-OUTPUT: copy 6
+// EXPECT-OUTPUT: wrap-result 6
+// EXPECT-OUTPUT: trivial 7
+// EXPECT-OUTPUT: end
+
+struct Counted { n: Int }
+extension Counted: Copy {
+    func copy(&self) -> Counted { print("copy {}", self.n)  Counted(n: self.n) }
+}
+
+enum Bad { case Nope }
+extension Bad: NoCopy {}
+
+struct Holder { c: Counted, r: Result<Counted, Bad> }
+extension Holder: NoCopy {}
+
+extension Counted {
+    // S1 at the Copy tier — the receiver read, returned.
+    func self_return(&self) -> Counted { self }
+    // S3 at the Copy tier — the receiver read into a local the body owns.
+    func self_binding(&self) -> Int { let b = self  b.n }
+}
+
+func made(n: Int) -> Result<Counted, Bad> { Counted(n: n) }
+
+// T1 at the Copy tier — a `try` over a BINDING the function keeps.
+func try_binding(n: Int) -> Int {
+    let r = made(n)
+    let got = try! r
+    got.n
+}
+
+// T5 at the Copy tier — a `try` over a FIELD.
+func try_field(h: &Holder) -> Int {
+    let got = try! h.r
+    got.n
+}
+
+// W1 at the Copy tier — a tail auto-wrapped into an `Optional`.
+func wrap_optional(h: &Holder) -> Counted? { h.c }
+
+// W2 at the Copy tier — a tail auto-wrapped into a `Result`.
+func wrap_result(h: &Holder) -> Result<Counted, Bad> { h.c }
+
+// N4 — the trivial tier beside them: no hook exists, so nothing is stamped and
+// the ABI's bitwise copy is the whole cost.
+func trivial_self(n: Int) -> Int { n }
+
+func main() {
+    let a = Counted(n: 1)
+    print("self-return {}", a.self_return().n)
+
+    let b = Counted(n: 2)
+    print("self-binding {}", b.self_binding())
+
+    print("try-binding {}", try_binding(3))
+
+    let h4 = Holder(c: Counted(n: 0), r: Counted(n: 4))
+    print("try-field {}", try_field(&h4))
+
+    let h5 = Holder(c: Counted(n: 5), r: Counted(n: 0))
+    var o = wrap_optional(&h5)
+    if let g = move o { print("wrap-optional {}", g.n) }
+
+    let h6 = Holder(c: Counted(n: 6), r: Counted(n: 0))
+    var w = wrap_result(&h6)
+    let got = try! move w
+    print("wrap-result {}", got.n)
+
+    print("trivial {}", trivial_self(7))
+    print("end")
+}

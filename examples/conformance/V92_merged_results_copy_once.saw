@@ -1,0 +1,148 @@
+// Conformance row V92 — no OTHER merged multi-path result carries a shared
+// copy obligation
+//
+// Design 269, SL-211 review r1, obligation-4 sweep. The P1 that earned V91 was
+// a copy obligation stamped on a node whose value arrives on more than one
+// path, so the enclosing transfer paid it whichever path ran. That is a
+// MECHANISM, not a `try` quirk: every construct below merges two or more paths
+// into one value, and each was probed with the same oracle to see whether it
+// shares the defect.
+//
+// It does not — and the reason is structural rather than lucky. A value branch
+// returns `delegated` from the checkpoint and is never itself stamped
+// (DF-299b): its arms are judged individually, each stamping its OWN node, so
+// the obligation is per path by construction. `try` was the one node that fell
+// THROUGH that recursion to the producer path, because it is the only one with
+// a second result source of a different kind (its Ok projection), which is
+// exactly why it was the only one that broke.
+//
+// Recorded as a standing row rather than as a paragraph in the brief, so a
+// future change that starts stamping a branch node fails here instead of
+// leaking an owning `Copy` value at a user's call site.
+//
+// The oracle is the copy hook — a hand-written `copy()` inside a `Copy`
+// conformance runs at exactly the transfer sites no source construct names
+// (design 219), so printing from it counts implicit duplications directly.
+// EVERY face below duplicates exactly once, and the two that duplicate nothing
+// say so by printing no `copy` line at all.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: -- value if
+// EXPECT-OUTPUT: copy 1
+// EXPECT-OUTPUT: = 1
+// EXPECT-OUTPUT: -- value match
+// EXPECT-OUTPUT: copy 2
+// EXPECT-OUTPUT: = 2
+// EXPECT-OUTPUT: -- try-block, try path
+// EXPECT-OUTPUT: copy 3
+// EXPECT-OUTPUT: = 3
+// EXPECT-OUTPUT: -- try-block, catch path
+// EXPECT-OUTPUT: copy 4
+// EXPECT-OUTPUT: = 4
+// EXPECT-OUTPUT: -- try? ok
+// EXPECT-OUTPUT: copy 5
+// EXPECT-OUTPUT: = 5
+// EXPECT-OUTPUT: -- try? err
+// EXPECT-OUTPUT: = absent
+// EXPECT-OUTPUT: -- ?? present
+// EXPECT-OUTPUT: copy 7
+// EXPECT-OUTPUT: = 7
+// EXPECT-OUTPUT: -- ?? absent
+// EXPECT-OUTPUT: copy 8
+// EXPECT-OUTPUT: = 8
+// EXPECT-OUTPUT: end
+
+struct Counted { n: Int }
+extension Counted: Copy {
+    func copy(&self) -> Counted { print("copy {}", self.n)  Counted(n: self.n) }
+}
+
+enum Bad { case Nope }
+extension Bad: NoCopy {}
+
+enum Two { case A, case B }
+
+func made(n: Int) -> Result<Counted, Bad> { Counted(n: n) }
+func fails() -> Result<Counted, Bad> { Bad.Nope }
+
+// A value `if`: two arms, both aliasing bindings, one merged home.
+func value_if(n: Int) -> Int {
+    let taken = Counted(n: n)
+    let other = Counted(n: 90 + n)
+    let got = if true { taken } else { other }
+    got.n
+}
+
+// A value `match`, same shape through a different construct.
+func value_match(n: Int) -> Int {
+    let taken = Counted(n: n)
+    let other = Counted(n: 90 + n)
+    let tag = Two.A
+    let got = match tag { case A -> taken, case B -> other }
+    got.n
+}
+
+// The `try { } catch { }` BLOCK form, succeeding: the try body's tail is the
+// value.
+func try_block_ok(n: Int) -> Int {
+    let fallback = Counted(n: 90 + n)
+    let got = try { let g = try made(n)  g } catch { fallback }
+    got.n
+}
+
+// …and failing, so the CATCH block's tail is the value. This is the block
+// form's counterpart of V91's leaking cell.
+func try_block_catch(n: Int) -> Int {
+    let fallback = Counted(n: n)
+    let got = try { let g = try fails()  g } catch { fallback }
+    got.n
+}
+
+// `try?` merges an extracted payload with `None`, so it is a two-path node too.
+func try_optional_ok(n: Int) -> Int {
+    let r = made(n)
+    let got = try? r
+    got!.n
+}
+
+func try_optional_err() -> Bool {
+    let r = fails()
+    let got = try? r
+    got.is_none()
+}
+
+// `??` merges a payload read with a default operand — two paths, two separate
+// rules (design 131's payload read and checkpoint entry point 18).
+func coalesce_present(n: Int) -> Int {
+    let present: Counted? = Counted(n: n)
+    let fallback = Counted(n: 90 + n)
+    let got = present ?? fallback
+    got.n
+}
+
+func coalesce_absent(n: Int) -> Int {
+    let absent: Counted? = None
+    let fallback = Counted(n: n)
+    let got = absent ?? fallback
+    got.n
+}
+
+func main() {
+    print("-- value if")
+    print("= {}", value_if(1))
+    print("-- value match")
+    print("= {}", value_match(2))
+    print("-- try-block, try path")
+    print("= {}", try_block_ok(3))
+    print("-- try-block, catch path")
+    print("= {}", try_block_catch(4))
+    print("-- try? ok")
+    print("= {}", try_optional_ok(5))
+    print("-- try? err")
+    if try_optional_err() { print("= absent") } else { print("= present") }
+    print("-- ?? present")
+    print("= {}", coalesce_present(7))
+    print("-- ?? absent")
+    print("= {}", coalesce_absent(8))
+    print("end")
+}

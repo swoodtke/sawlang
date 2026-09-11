@@ -41,7 +41,13 @@ extension Box2 {
         var i = 0
         while i < self.items.len() {
             if let e = self.items.get(i) {
-                if e.name.equals(want) { return e }
+                // `move e` because the RETURN is a transfer too, and this pin
+                // is about the READ on the line above. It was a bare `e` until
+                // SL-211 made the auto-wrapped return take the checkpoint
+                // (SL-79): that refusal fires in the TYPE CHECK, ahead of the
+                // place lowering, so the fixture reported its own unrelated
+                // mistake instead of the place rule it exists to pin.
+                if e.name.equals(want) { return move e }
             }
             i = i + 1
         }

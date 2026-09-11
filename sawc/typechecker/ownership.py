@@ -67,9 +67,11 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 from ast_nodes import (
-    ArrayIndex, CastExpr, Expression, ForceUnwrap, Identifier, MemberAccess,
+    ArrayIndex, Expression, ForceUnwrap, Identifier, MemberAccess,
     MoveExpr, ReferenceExpr, SawType, SelfExpr, TupleIndex,
 )
+
+from . import producers
 
 
 # ---------------------------------------------------------------------------
@@ -327,13 +329,27 @@ class OwnershipLedgerMixin:
                     SOURCE_PROJECTION if path else SOURCE_BINDING,
                     self._transfer_root_id(node), path,
                     self._transfer_display(node.variable, path))
-            if isinstance(node, ForceUnwrap):
-                parts.append('!')
-                node = node.expr
+            kind = producers.producer_kind(node)
+            if kind == producers.PROJECTS:
+                # `o!`, a forwarding `r as Res`, `try r`. Each names a PART of
+                # the operand's storage, so the ROOT is under it. `!` leaves a
+                # marker in the path (it is a distinguishable projection of an
+                # optional); a forwarding cast and a `try` leave none — a cast
+                # projects nothing and a `try`'s payload has no field name.
+                if isinstance(node, ForceUnwrap):
+                    parts.append('!')
+                node = producers.projected_operand(node)
+                if node is None:
+                    break
                 continue
-            if (isinstance(node, CastExpr)
-                    and getattr(node, 'forwards_operand', False)):
-                node = node.expr
+            if kind == producers.REWRAPS:
+                # An auto-wrap RE-TYPES its operand, so the operand's root is
+                # the source — which is what makes the ledger name `h.inner`
+                # rather than `<temporary>` for `func f(h: &Holder) -> Res? {
+                # h.inner }` (SL-79).
+                node = producers.rewrapped_operand(node)
+                if node is None:
+                    break
                 continue
             if isinstance(node, MemberAccess):
                 if getattr(node, 'enum_variant_literal', False):

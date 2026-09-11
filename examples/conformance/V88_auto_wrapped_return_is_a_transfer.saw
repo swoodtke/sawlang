@@ -1,0 +1,99 @@
+// Conformance row V88 — a `return`/tail the compiler AUTO-WRAPPED into an
+// `Optional` or a `Result` is judged BEFORE the wrap, where the author's
+// expression is
+//
+// SL-79 (DF-305a), closed by design 269. The three wrap sites —
+// `_check_return_statement`, `_check_function`'s tail and `_check_method`'s —
+// all wrapped and THEN called the checkpoint, by a deliberate comment saying a
+// wrapped value is a fresh temporary. So the checkpoint RAN and judged the
+// synthesized node instead of the value inside it, which is DF-299a's shape at
+// a third site: not a missing call (DF-304a) but a call that cannot see
+// through.
+//
+// FOUR WRAP KINDS reach here and every one of them was blind: `OptionalWrap`,
+// `ResultOkWrap`, `ResultErrWrap` and the erased `ErasedErrWrap`. The last is
+// the one nobody had measured — SL-79 predicted it from the ladder and design
+// 269 probed it: a field source through the erased Err side double frees at
+// exit 0 exactly as the other three do.
+//
+// The rows below are the ALIASING sources, where the cost is a double free:
+// the frame does not own the storage it hands on, so clearing a drop flag
+// cannot help it. The OWNED source (`func f(r: Res) -> Res? { r }`) is row W6
+// and is refused too — that is design 269's ruling, and V90 carries the
+// controls that say the fence stayed narrow.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot return NoCopy type `Res` without `move` in function `tail_optional`
+// EXPECT-ERROR-CONTAINS: cannot return NoCopy type `Res` without `move` in function `tail_result`
+// EXPECT-ERROR-CONTAINS: cannot return NoCopy type `Res` without `move` in function `return_optional`
+// EXPECT-ERROR-CONTAINS: cannot return NoCopy type `Res` without `move` in method `tail_method`
+// EXPECT-ERROR-CONTAINS: cannot return NoCopy type `Res` without `move` in closure
+// EXPECT-ERROR-CONTAINS: cannot return NoCopy type `Boom` without `move` in function `tail_erased`
+// EXPECT-ERROR-CONTAINS: cannot return NoCopy type `Res` without `move` in function `owned_optional`
+
+struct Res { w: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.w) }
+}
+
+struct Holder { inner: Res }
+extension Holder: NoCopy {}
+
+enum Bad { case Nope }
+extension Bad: NoCopy {}
+
+struct Boom { code: Int }
+extension Boom: Printable {
+    func format(&self, into: &var StringBuilder) { try! into.append("boom") }
+}
+extension Boom: Error {}
+extension Boom: NoCopy {}
+
+struct Held { e: Boom }
+extension Held: NoCopy {}
+
+// W1 — a named function's TAIL through an `OptionalWrap`, aliasing source.
+func tail_optional(h: &Holder) -> Res? { h.inner }
+
+// W2 — the same tail through a `ResultOkWrap`.
+func tail_result(h: &Holder) -> Result<Res, Bad> { h.inner }
+
+// W3 — the explicit `return` spelling, which routes through
+// `_check_return_statement` rather than the tail checker.
+func return_optional(h: &Holder) -> Res? { return h.inner }
+
+extension Holder {
+    // W3' — a METHOD's tail, whose own wrap site is `_check_method`.
+    func tail_method(&self) -> Res? { self.inner }
+}
+
+// W5 — the ERASED Err side. `ErasedErrWrap` is the fourth wrap and the one the
+// filing predicted rather than measured.
+func tail_erased(h: &Held) -> Result<Int, Box<any Error>> { h.e }
+
+// W6 — the OWNED source. Sound before this unit (the wrap really did transfer)
+// and refused now, which is the ruling: one rule for the wrapped and unwrapped
+// spellings of one transfer. `func plain(r: Res) -> Res { r }` one `?` away has
+// always demanded the `move`.
+func owned_optional(r: Res) -> Res? { r }
+
+func run_opt(body: () sync -> Res?) -> Int {
+    let got = body()
+    if let g = move got { g.w } else { 0 }
+}
+
+func main() {
+    let h = Holder(inner: Res(w: 1))
+    print("{}", tail_method_probe(h: &h))
+    var o = Res(w: 2)
+    // W4 — a CLOSURE's `return` through a wrap. DF-304a judges a closure's
+    // TAIL before its wraps; the `return` spelling reaches
+    // `_check_return_statement`, which wrapped first — the asymmetry inside one
+    // closure that made this residue visible.
+    print("closure {}", run_opt({ [&var o] in return o }))
+}
+
+func tail_method_probe(h: &Holder) -> Int {
+    var got = h.tail_method()
+    if let g = move got { g.w } else { 0 }
+}

@@ -1,15 +1,21 @@
 // Conformance row V87 — a `try` FORWARDS its subject's storage, so a `try` over
 // a binding or a field takes the transfer checkpoint the bare read takes
 //
-// XFAIL: SL-219 — the sibling of V86 (SL-218) and the same mechanism read the
-// other way. `_is_aliasing_expr` sees through nodes that FORWARD a read only
-// where somebody added the transparency by hand (`ForceUnwrap`, design 131; a
-// forwarding `CastExpr`, DF-299a). `TryExpr` is in `_VALUE_BRANCH_TYPES`, but
-// `_value_branch_arm_results` deliberately hands back the CATCH handler alone —
-// its comment says the `try`'s own value "comes out of the subject expression,
-// which is that expression's question" — and nothing ever asks that question.
-// So the Ok payload is extracted out of storage the subject still owns, at
+// SL-219, closed by design 269 (SL-211) — the sibling of V86 (SL-218) and the
+// same mechanism read the other way. `_is_aliasing_expr` used to see through a
+// node that FORWARDS a read only where somebody added the transparency by hand
+// (`ForceUnwrap`, design 131; a forwarding `CastExpr`, DF-299a). `TryExpr` had
+// none: `_value_branch_arm_results` handed back the CATCH handler alone, its
+// comment saying the `try`'s own value "comes out of the subject expression,
+// which is that expression's question" — and nothing ever asked that question.
+// So the Ok payload was extracted out of storage the subject still owns, at
 // every tier, with no check.
+//
+// A `try` is now the ONE node in two producer buckets, deliberately: it
+// PROJECTS its Ok value out of its subject and BRANCHES into its catch handler,
+// two result sources with two rules. The refusal names the consuming spelling
+// on the SUBJECT (`try move r`), since the value refused is the payload but the
+// storage that owns it is the subject.
 //
 // The count is what names it: ONE value, THREE `drop` lines. The binding's own
 // drop, plus one per extraction. Exit 0.

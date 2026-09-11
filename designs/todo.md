@@ -38,12 +38,12 @@ is scheduled and in what order is the whole of what they say.
 ## [BACKLOG] — filed, not scheduled
 
 
-- SL-218 / SL-219 / SL-220 — the three ownership boundaries design 267's
-  producer census found UNCHECKED (entry below, filed Sep 9 by SL-210). Two are
-  one mechanism (`_is_aliasing_expr`'s node-type set) and pinned XFAIL as
-  conformance rows V86/V87; the third is a leak with no pin yet. Sequenced with
-  SL-211 (unit B) — the fixes are language-rule changes, which is why unit A
-  filed and did not fix them
+- SL-220 — the one of design 267's three unchecked boundaries that is NOT the
+  producer question (entry below, filed Sep 9 by SL-210). SL-218 and SL-219
+  CLOSED Sep 11 by design 269 (SL-211); SL-220 re-probed there and left OPEN
+  with unit D (SL-213) — its producer answer was never wrong, so no
+  classification change can reach it. Still needs the leak oracle its filing
+  names as its own first task
 - DF-308a — a struct construction takes NO positional argument, through a user `init` as through the memberwise literal, so a one-value wrapper is built as `Scalar(value: 34)` and never `Scalar(34)` (entry below, filed Sep 7 by design 245 v1). NOT A DEFECT — the spec rules it deliberate — but it is what makes §4's scalar-literal question cost one label more than design 245 §6 assumed, and the brief's own premise sentence is wrong and wants correcting
 - CONFORMANCE GAP (flagged Sep 5 by design 266 U0's obligation-3 check): the design-70 both-ways refusal — `run<Slow>` suspends so a `sync` caller refuses, `run<Fast>` stays sync — has NO `examples/conformance/` row, though its covering test exists (`examples/errors/sync_generic_instantiation_suspends.saw`, now also 266's acceptance test). The fix is an INDEX.md row naming that test (design 191's "existing test" form); rides the next brief that touches the effect surface, or a docs batch
 - DF-307b — `sizeof<Struct>()` folds in a `static_assert` and refuses at the five earlier const positions, because a struct's ABI layout is built during code generation and the front end declines rather than computing a second opinion (entry below, filed Sep 5 by DF-307a as its own documented boundary; NOT a defect). Costs the wire-struct idiom one restated length; nobody has asked for it. The fix shape is all-or-nothing — a partial one reintroduces the by-position divergence DF-307a removed
@@ -132,7 +132,6 @@ is scheduled and in what order is the whole of what they say.
 - DF-286c — the materialization funnel does not reproduce what codegen's `type_param_context` path did, at four named positions (entry below, same filing; ONE mechanism, four faces — const-generic VALUES, associated-type annotations, the conditional-conformance bounds filter, and a `-> T?` tail's auto-wrap). Its matrix is stage 3c-2's test plan. **CLOSED Sep 2 by stage 3c-2a/3c-2c(1): face 1 both halves, face 2, face 3 (reframed into B1) and face 4 all fixed and pinned; face 4 turned out to be a CONCRETE-path defect the generic path had been hiding — see DF-289d for its residue**
 - DF-294b — a `type` ALIAS binds through the SELECTIVE import form ONLY: the glob leaves it unbound and the qualified spelling mints a name-only type + a not-callable head (entry below, filed Sep 3 from sos-relayed SL-20; workaround `import m.{Alias}`)
 - DF-299d — a QUALIFIED generic `init` drops its explicit type argument: `mutex.Mutex<Int>(value: 5)` is ``argument `value` expects `T` but got `Int` `` while the selective-import spelling compiles (entry below, filed Sep 4 as an incidental of DF-299c's census; PRE-EXISTING at HEAD). The CONSTRUCTOR position of design 150's "a qualifier works everywhere a name appears", which design 256 landed for methods and statics
-- DF-305a — SOUNDNESS: a `return`/tail whose value the compiler AUTO-WRAPPED into an `Optional`/`Result` is not judged — the checkpoint runs after the wrap and a wrap node is not an aliasing expression, so an ALIASING source double frees at exit 0 (entry below, filed Sep 5 by DF-304a's sweep; PRE-EXISTING, NOT fixed there — DF-299a's shape at a third site, a checkpoint that RUNS and cannot see the node). Reaches the closure's `return` and the NAMED function's tail alike; pinned by `examples/wrapped_return_takes_the_transfer_checkpoint.saw`. A fix has a RULING attached — making the checkpoint transparent through the wrap also refuses `func opt(r: Res) -> Res? { r }`, which is sound today
 - DF-302b — a generic extension's `init` RELEASES a parameter it moved into the built value, so the value is torn down TWICE (entry below, filed Sep 4 by design 207's agent; PRE-EXISTING at HEAD, reproduced with fully explicit type arguments and no inference). Pinned by `examples/generic_init_moved_parameter_is_released_once.saw`. A DF-217m/DF-251b sibling — the same init-cleanup analysis, one case further on
 
 
@@ -141,6 +140,17 @@ is scheduled and in what order is the whole of what they say.
 ## 267's producer census found (filed Sep 9 by SL-210, unit A of the SL-209
 ## epic; all three PRE-EXISTING and none fixed there — unit A is
 ## behaviour-preserving and every fix changes which programs compile)
+
+STATUS: SL-218 and SL-219 CLOSED Sep 11 by design 269 (SL-211, unit B) —
+`designs/269-forwarding-taxonomy.md`. Both were table rows once the producer
+question became a total classification with an enumeration gate
+(`sawc/typechecker/producers.py` + `tools/test_producer_taxonomy.py`); V86 and
+V87 lost their XFAIL markers in that landing, and V88-V90 joined them. SL-220
+is OPEN and moves to unit D (SL-213): design 269 re-probed it on the fixed tree
+and it is unchanged, because its PRODUCER answer was never wrong — the subject
+really is a fresh temporary and the ledger records `take`/`adopt-temporary`
+correctly. What is missing is on the cleanup side, so no change to the
+classification can reach it. The filing's own hypothesis, confirmed by probe.
 
 Brief: `designs/267-ownership-boundary-inventory.md` (§ "The boundaries that
 reach NO funnel"). Evidence, repro programs and the tier spread live in the
@@ -607,6 +617,20 @@ extern signature, `E.from(raw:)`-style statics on an aliased backing).
 ## DF-305a — SOUNDNESS: a `return`/tail the compiler AUTO-WRAPPED into an
 ## `Optional`/`Result` is not judged, so an aliasing source double frees (filed
 ## Sep 5 by DF-304a's sweep; PRE-EXISTING, NOT fixed there)
+
+STATUS: CLOSED Sep 11 (SL-79) by design 269 — `designs/269-forwarding-taxonomy.md`,
+SL-211, unit B of the SL-209 epic. THE RULING BELOW WAS DECIDED: the wrap is
+TRANSPARENT, so `func opt(r: Res) -> Res? { r }` is refused too and the wrapped
+and unwrapped spellings of one transfer take one rule. The deciding evidence was
+that the alternative does not close the bug — an implicit-move reading leaves
+every ALIASING source double-freeing and would need the aliasing test anyway —
+and that the migration is ONE LINE across std, blade, libs, devtools and the
+whole 2477-test corpus (`sawc/std/json.saw`, `return v` -> `return move v`). The
+fix PEELS a wrap at the checkpoint rather than reordering the three wrap sites,
+so every present and future entry point gets it; all FOUR wrap kinds are covered
+including `ErasedErrWrap`, which this entry predicted and design 269 measured
+double-freeing. `examples/wrapped_return_takes_the_transfer_checkpoint.saw` lost
+its XFAIL marker in that landing; the position matrix is conformance row V88.
 
 ```saw
 func run_opt(body: () sync -> Res?) -> Int {    // Res is NoCopy, printing deinit

@@ -1,13 +1,16 @@
 // Conformance row V86 — reading `self` out of a BORROWED receiver and handing
 // it to a new owner is a TRANSFER, and takes the transfer checkpoint
 //
-// XFAIL: SL-218 — `_is_aliasing_expr` is a node-type test over four classes
-// (Identifier, MemberAccess, ArrayIndex, TupleIndex) plus two hand-added
-// transparencies, and `SelfExpr` is on none of the lists. So a receiver read is
-// judged a FRESH TEMPORARY at every tier arm: NoCopy and ExplicitCopy skip
-// their refusal and the Copy tier skips its `needs_copy` stamp. Same mechanism
-// as DF-216a (the synthesized call constructions that skipped the checkpoint)
-// and DF-299a (`CastExpr`), which is why it is filed as a class.
+// SL-218, closed by design 269 (SL-211). `_is_aliasing_expr` was a node-type
+// test over four classes plus two hand-added transparencies, and `SelfExpr` was
+// on none of the lists — so a receiver read was judged a FRESH TEMPORARY at
+// every tier arm: NoCopy and ExplicitCopy skipped their refusal and the Copy
+// tier skipped its `needs_copy` stamp. Same mechanism as DF-216a (the
+// synthesized call constructions that skipped the checkpoint) and DF-299a
+// (`CastExpr`), which is why it was filed as a class and fixed as one: the
+// classification is now TOTAL over every value-position node
+// (`typechecker/producers.py`), gated by `tools/test_producer_taxonomy.py`, and
+// `SelfExpr` is one row of it.
 //
 // A `&self` receiver names storage the CALLER owns — that is what a shared
 // borrow IS — so handing it on by value mints a second owner of one value.

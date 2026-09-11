@@ -50,14 +50,28 @@ TYPES_PY = os.path.join(REPO, "sawc", "typechecker", "types.py")
 CHECKPOINT = "_check_value_transfer"
 
 
+#: The checkpoint's LOCAL recorder (design 269). Every arm returns through it
+#: so that none can forget the sub-decisions a node with a second result source
+#: has already filed — a `try`'s catch handler, judged ahead of the `try`'s own
+#: Ok projection. It is an accepted `return` target only because this gate also
+#: proves it routes to `_decide_transfer` and to nothing else.
+LOCAL_RECORDER = "decide"
+
+
 def check_every_exit_records():
     """Every `return` in the checkpoint returns a recorded decision.
 
     A bare `return`, or a `return` of anything that is not a
-    `_decide_transfer(...)` call or a recursive `_check_value_transfer(...)`,
-    is a boundary the ledger will not carry — which is the exact defect this
-    unit removes, reintroduced. Reading the AST rather than trusting a comment
-    is what makes the rule survive the next edit.
+    `_decide_transfer(...)` call, the local `decide(...)` recorder, or a
+    recursive `_check_value_transfer(...)`, is a boundary the ledger will not
+    carry — which is the exact defect design 267 removed, reintroduced. Reading
+    the AST rather than trusting a comment is what makes the rule survive the
+    next edit.
+
+    The local recorder is checked too, and on the same terms: it must exist,
+    must live inside the checkpoint, and must itself return a
+    `_decide_transfer(...)` call. Otherwise accepting it here would be a hole
+    the size of the property.
     """
     with open(TYPES_PY) as f:
         tree = ast.parse(f.read())
@@ -70,9 +84,38 @@ def check_every_exit_records():
         return [f"{CHECKPOINT} not found in sawc/typechecker/types.py"]
 
     problems = []
+
+    # The local recorder must be one, before any arm is allowed to use it.
+    recorder = None
+    for node in target.body:
+        if isinstance(node, ast.FunctionDef) and node.name == LOCAL_RECORDER:
+            recorder = node
+            break
+    if recorder is None:
+        problems.append(
+            f"types.py:{target.lineno}: {CHECKPOINT} has no local "
+            f"`{LOCAL_RECORDER}` helper, but the arms return through one")
+    else:
+        writes = [n for n in ast.walk(recorder) if isinstance(n, ast.Return)]
+        if not writes:
+            problems.append(
+                f"types.py:{recorder.lineno}: `{LOCAL_RECORDER}` records "
+                f"nothing")
+        for w in writes:
+            fn = getattr(w.value, 'func', None)
+            name = (getattr(fn, 'attr', None) or getattr(fn, 'id', None)) \
+                if fn is not None else None
+            if name != '_decide_transfer':
+                problems.append(
+                    f"types.py:{w.lineno}: `{LOCAL_RECORDER}` returns "
+                    f"`{name}(...)`; it is accepted as an exit only because it "
+                    f"files through `_decide_transfer`")
+
     for node in ast.walk(target):
         if not isinstance(node, ast.Return):
             continue
+        if recorder is not None and node in ast.walk(recorder):
+            continue                      # already judged, above
         value = node.value
         if value is None:
             problems.append(
@@ -85,10 +128,11 @@ def check_every_exit_records():
                 f"`{ast.unparse(value)[:48]}`, which is not a recorded decision")
             continue
         name = getattr(value.func, 'attr', None) or getattr(value.func, 'id', None)
-        if name not in ('_decide_transfer', CHECKPOINT):
+        if name not in ('_decide_transfer', LOCAL_RECORDER, CHECKPOINT):
             problems.append(
                 f"types.py:{node.lineno}: {CHECKPOINT} returns `{name}(...)`; "
-                f"only `_decide_transfer` records a decision")
+                f"only `_decide_transfer` and the local `{LOCAL_RECORDER}` "
+                f"record a decision")
     # A function that can fall off its end has an unrecorded exit too.
     last = target.body[-1]
     if not isinstance(last, ast.Return):

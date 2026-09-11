@@ -104,7 +104,7 @@ class ResultsMixin:
 
         # OK block - extract value
         self.builder.position_at_end(ok_bb)
-        return self._extract_result_ok_value(result_val, result_enum_name)
+        return self._try_ok_payload(expr, result_val, result_enum_name)
 
     def _emit_try_force_panic(self, result_val, expr: TryExpr,
                               result_enum_name: str):
@@ -257,6 +257,9 @@ class ResultsMixin:
                                        line, column)
 
         self.builder.position_at_end(ok_bb)
+        # NOT `_try_ok_payload`: a SYNTHESIZED call has no `try` node, so there
+        # is no subject to alias and no obligation to honor. The value is a
+        # fresh temporary the collection literal already owns.
         return self._extract_result_ok_value(result_val, result_enum_name)
 
     def _generate_try_optional(self, result_val, is_ok, expr: TryExpr, result_enum_name: str):
@@ -270,7 +273,7 @@ class ResultsMixin:
 
         # OK block - wrap in Some
         self.builder.position_at_end(ok_bb)
-        ok_value = self._extract_result_ok_value(result_val, result_enum_name)
+        ok_value = self._try_ok_payload(expr, result_val, result_enum_name)
         some_result = self._wrap_in_optional(ok_value)
         self.builder.branch(merge_bb)
         ok_end_bb = self.builder.block
@@ -398,7 +401,7 @@ class ResultsMixin:
 
         # OK block - continue with unwrapped value
         self.builder.position_at_end(ok_bb)
-        return self._extract_result_ok_value(result_val, result_enum_name)
+        return self._try_ok_payload(expr, result_val, result_enum_name)
 
     def _generate_try_with_inline_catch(self, result_val, is_ok, expr: TryExpr, result_enum_name: str):
         """Generate code for try expr catch { ... }."""
@@ -411,7 +414,7 @@ class ResultsMixin:
 
         # OK block
         self.builder.position_at_end(ok_bb)
-        ok_value = self._extract_result_ok_value(result_val, result_enum_name)
+        ok_value = self._try_ok_payload(expr, result_val, result_enum_name)
         self.builder.branch(merge_bb)
         ok_end_bb = self.builder.block
 
@@ -572,6 +575,56 @@ class ResultsMixin:
         if not params:
             return True
         return all(isinstance(self._get_llvm_type(t), ir.VoidType) for _, t in params)
+
+    def _try_ok_payload(self, expr: TryExpr, result_val, result_enum_name: str):
+        """Extract a `try`'s Ok payload, honoring its retain — ON THE OK PATH.
+
+        THE FUNNEL for a `try`'s Ok value (SL-211 review r1). Its four entry
+        points are the four variants, and each calls it from inside its own
+        `ok_bb`, which is what makes the retain path-specific:
+
+          1. `_generate_try_force`      — `try!`, Err panics.
+          2. `_generate_try_optional`   — `try?`, Err yields `None`.
+          3. `_generate_try_propagate`  — `try`, Err returns early.
+          4. `_generate_try_with_inline_catch` — `try … catch { }`, whose Err
+             path runs the HANDLER and produces the handler's own value.
+
+        Entry point 4 is why this exists. Design 269 made a `try` over an
+        aliasing subject take the transfer checkpoint, and the checkpoint used
+        to record the resulting duplication as a node-level `needs_copy` — one
+        obligation on the MERGED result. The enclosing transfer then copied
+        whatever came out of the phi, so the catch handler's value was copied
+        HERE as well as by its own `_generate_block` transfer: two retains, one
+        release, an owning `Copy` value leaked on the Err path.
+
+        Reading `payload_needs_copy` instead, at the extraction, is design
+        131's discipline — the same one `ForceUnwrap` uses, and for the same
+        reason: the retain belongs where the payload comes OUT of the
+        container, not where the expression's result lands, so a path that
+        never extracts can never pay for it.
+        """
+        payload = self._extract_result_ok_value(result_val, result_enum_name)
+        if payload is None or not getattr(expr, 'payload_needs_copy', False):
+            return payload
+        payload_type = self._try_ok_saw_type(expr)
+        if payload_type is None:
+            return payload
+        return self._generate_copy(payload, payload_type)
+
+    def _try_ok_saw_type(self, expr: TryExpr):
+        """The Saw type of the Ok payload a `try` yields.
+
+        Taken from the SUBJECT's `Result<T, E>` rather than from the `try`'s
+        own `resolved_type`, because `try?` types itself `T?` while what is
+        extracted here is the bare `T`.
+        """
+        subject_type = self._expr_type(getattr(expr, 'expr', None))
+        if subject_type is None or not subject_type.is_result():
+            return None
+        ok_type = subject_type.unwrap_result_ok()
+        if ok_type is not None and self.type_param_context:
+            ok_type = ok_type.substitute(self.type_param_context)
+        return ok_type
 
     def _extract_result_ok_value(self, result_val, result_enum_name: str):
         """Extract the Ok value from a Result."""

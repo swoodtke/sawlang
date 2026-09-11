@@ -314,10 +314,51 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   one value; at a source the closure only BORROWS it was two `deinit`s per
   value, exit 0. Two faces have no `move` spelling and want restructuring
   instead — a borrowed binding is DF-290a's refusal (the move-out belongs to
-  the owner) and a field is the no-partial-moves error. ONE shape stays
-  UNCHECKED today: the same transfer written as a `return` through an auto-wrap
-  (`{ [&var o] in return o }` at `-> Res?`) — DF-305a, which the named
-  function's wrapped tail shares.
+  the owner) and a field is the no-partial-moves error.
+- **AND SO ARE AN AUTO-WRAPPED RETURN, A `self` READ, AND A `try` SUBJECT
+  (design 269, closed Sep 11).** Three more positions join the checkpoint, and
+  they were the last members of one mechanism — the producer test was a
+  hand-maintained node-type list, and each of these was a node nobody had added
+  to it, so the read became a "fresh temporary" at EVERY tier at once (NoCopy
+  and ExplicitCopy skipped their refusal, `Copy` skipped its retain).
+  ```saw-error
+  // error-contains: cannot return NoCopy type `Res` without `move` in function
+  struct Res { w: Int }
+  extension Res: NoCopy {}
+  struct Holder { inner: Res }
+  extension Holder: NoCopy {}
+
+  func first(h: &Holder) -> Res? { h.inner }   // the AUTO-WRAP: judged BEFORE
+  // error: cannot return NoCopy type `Res` without `move` in function `first`
+  ```
+  ```saw-fragment
+  func hand_on(&self) -> Int { sink(self) }    // the RECEIVER: same refusal
+  let a = try r                                // the `try` SUBJECT: same again
+  ```
+  ```saw-fragment
+  func opt(r: Res) -> Res? { move r }          // an OWNED source needs it too
+  let a = try move r                           // the `move` goes on the SUBJECT
+  ```
+  Points to hold onto. The auto-wrap reaches ALL FOUR return targets (a
+  function tail, a method tail, a `return`, a closure tail) and all four wrap
+  kinds, the erased `Box<any Error>` Err side included — and it refuses an
+  OWNED source too (`func opt(r: Res) -> Res? { r }`), which is the ruling: one
+  `?` must not change whether a `move` is written. A `self` read has NO `move`
+  spelling (a borrowed receiver is the caller's) — declare the method
+  `consumes`, or give the type a duplicable policy and spell `self.copy()`. A
+  `try` names the SUBJECT in its fixit because that is what owns the payload,
+  and a FIELD subject wants restructuring (`move h.r` is the partial-move
+  error). UNTOUCHED: `try f()` over a call result, a wrap around a fresh
+  temporary, a generic body's `-> T?` forwarding (it defers per PATH, so
+  `func hand<T>(x: T) -> T? { x }` stays callable at a move-only type), and the
+  `Copy` tier, which retains exactly once as it always did. Treat all of it as
+  caught now and SUSPECT in older builds, where every refused shape above
+  compiled: the `self` faces were two `deinit`s per value at exit 0 (a SIGABRT
+  at `ExplicitCopy`), the `try` faces were THREE, and the wrapped returns two.
+  ONE neighbouring shape is still open — a payload extracted from a fresh
+  temporary INLINE (`(try! f()).x`, `f()!.x`) LEAKS, the opposite error at the
+  same boundary (SL-220); bind the container first and the extraction is
+  correct.
 - **A CONVERSION IS WRITTEN EVERYWHERE — there is no position exemption
   (design 205).** A PLAIN transfer takes the same rule the arm takes: a
   lossless widening is free, a narrowing or a same-width sign change is

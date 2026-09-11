@@ -27,6 +27,7 @@ from namespace import (
     SymbolKind, StructSymbol, EnumSymbol, FunctionSymbol, TraitSymbol, TypeAliasSymbol
 )
 from . import ownership
+from . import producers
 
 
 class TypeUtilsMixin:
@@ -3430,56 +3431,43 @@ class TypeUtilsMixin:
                 self.namespace.declares_copy_tier(type_name) or
                 self.namespace.type_conforms_to(type_name, "ExplicitCopy"))
 
-    # Expression kinds that read a value out of *existing* owned storage,
-    # as opposed to producing a freshly constructed temporary. Transferring
-    # one of these leaves a live second owner behind, so these are exactly the
-    # sites where NoCopy move-discipline must be enforced and Copy
-    # `copy()` must be inserted. A struct/enum init, call result, or literal is
-    # a fresh temporary and is *not* aliasing.
-    _ALIASING_EXPR_TYPES = (Identifier, MemberAccess, ArrayIndex, TupleIndex)
-
     def _is_aliasing_expr(self, expr: Expression) -> bool:
-        """True if `expr` reads a value out of existing owned storage.
+        """True if `expr` names a value out of storage an existing owner keeps.
 
-        design 131: a force-unwrap is transparent here. `o!` is a PROJECTION of
-        `o` — it names the payload sitting inside storage `o` still owns, exactly
-        as `s.field` names storage `s` owns. So `o!` aliases iff `o` does: a
-        payload read out of a local/field/element is a place, while `f()!` (the
-        payload of a fresh temporary the caller already owns) is not.
+        THE PRODUCER QUESTION, and every tier arm of `_check_value_transfer` is
+        gated on it — so a wrong answer here silently converts an aliasing read
+        into a fresh temporary at EVERY tier at once: NoCopy and ExplicitCopy
+        skip their refusal (a double free) and the `Copy` tier skips its
+        `needs_copy` stamp (an unretained second owner, a refcount underflow).
+        That is why the fence is tier-blind.
+
+        The classification itself lives in `typechecker/producers.py` (design
+        269) and is TOTAL over the `Expression` subclasses, gated by
+        `tools/test_producer_taxonomy.py`. This used to be a hand-maintained
+        node-type list, and every member anyone forgot became a soundness bug —
+        design 131's `ForceUnwrap`, DF-299a's forwarding `CastExpr`, design
+        139's `enum_variant_literal` exclusion, then SL-218 (`SelfExpr`),
+        SL-219 (`TryExpr`) and SL-79 (the four auto-wraps).
+
+        Two of the six producer kinds answer True or delegate:
+
+        * PROJECTS — `o!`, a forwarding `r as Res`, `try r`. Each names a PART
+          of the operand's storage, so it aliases exactly as the operand does:
+          a payload read out of a local/field/element is a place, while `f()!`
+          and `try f()` (a fresh temporary the caller already owns) are not.
+        * REWRAPS — the `Optional`/`Result` auto-wraps. Transparent for the
+          same reason, though `_check_value_transfer` peels these ahead of
+          asking, so the recursion here serves the OTHER callers
+          (`_check_payload_read`, the consuming-receiver funnel, the
+          borrowed-scrutinee rule).
         """
-        if isinstance(expr, ForceUnwrap):
-            return self._is_aliasing_expr(expr.expr)
-        # DF-299a: a FORWARDING cast is transparent here, for the reason `!` is.
-        # `r as Res` does not build a value — it hands back the storage `r`
-        # names — so it aliases exactly as its operand does: `v as Vector<Int>`
-        # over a local is a place, while `make() as Res` (a fresh temporary the
-        # reader already owns) is not.
-        #
-        # `forwards_operand` is stamped by `_check_cast_expr` on the three arms
-        # that hand the operand back (the distinct-alias partial projection, the
-        # String/Float/Bool identity, the struct identity); the arms that build
-        # a NEW value — an integer conversion, a raw enum tag, an address
-        # reinterpretation — are unstamped and answer False, which is what keeps
-        # this from taxing the unsafe-tier pointer idioms.
-        #
-        # This is the whole of DF-299a. The checkpoint always RAN over the cast;
-        # what it could not do was recognize the node as a read out of existing
-        # storage, so every tier fell through the `_is_aliasing_expr` guard:
-        # NoCopy and ExplicitCopy skipped their refusal (a silent double free)
-        # and the Copy tier skipped its `needs_copy` stamp (an unretained second
-        # owner — a refcount underflow, which is why the fence is TIER-BLIND
-        # exactly as DF-288a's is).
-        if isinstance(expr, CastExpr) and getattr(expr, 'forwards_operand', False):
-            return self._is_aliasing_expr(expr.expr)
-        # design 139: `Slot.Empty` is a payload-free enum variant LITERAL. It
-        # wears the same node type as `config.slot`, but it constructs a fresh
-        # value out of nothing rather than naming storage somebody else owns, so
-        # it is no more aliasing than `Slot.Occupied(r: R(id: 7))` beside it.
-        # Only the typechecker can tell the two spellings apart, which is why
-        # this rides an annotation instead of a node type.
-        if getattr(expr, 'enum_variant_literal', False):
-            return False
-        return isinstance(expr, self._ALIASING_EXPR_TYPES)
+        kind = producers.producer_kind(expr)
+        if kind in (producers.PROJECTS, producers.REWRAPS):
+            operand = (producers.projected_operand(expr)
+                       if kind == producers.PROJECTS
+                       else producers.rewrapped_operand(expr))
+            return operand is not None and self._is_aliasing_expr(operand)
+        return kind == producers.READS
 
     # ------------------------------------------------------------------
     # design 131 — the policy-driven place rule for optional payload reads.
@@ -4344,9 +4332,13 @@ class TypeUtilsMixin:
             for arm in expr.arms:
                 blocks.append(arm.body)
         elif isinstance(expr, TryExpr):
-            # Only the CATCH handler: the `try`'s own value comes out of the
-            # subject expression, which is that expression's question (a call
-            # result is already the reader's), not an arm of this branch.
+            # Only the CATCH handler. A `try` is the one node in TWO producer
+            # buckets (design 269): its catch handler is a branch ARM and its Ok
+            # value PROJECTS out of the subject's storage, so the two are judged
+            # by two different rules. This returns the arm; the checkpoint asks
+            # the producer question about the subject, which is what SL-219 was
+            # — the comment that used to sit here said the subject "is that
+            # expression's question", and nothing ever asked it.
             if expr.catch_block is None:
                 return None
             blocks = [expr.catch_block]
@@ -4475,18 +4467,68 @@ class TypeUtilsMixin:
         is what makes the rule position-blind: every site in the entry-point
         list above gets it at once, and a nested branch is just an arm result
         that is itself a branch.
+
+        THE PRODUCER QUESTION IS A TOTAL CLASSIFICATION (design 269, SL-211).
+        Which of the six kinds a node is comes from `typechecker/producers.py`,
+        not from a list maintained here, and three of the kinds are answered by
+        this function rather than by `_is_aliasing_expr`:
+
+        * REWRAPS — an `Optional`/`Result` auto-wrap is PEELED before anything
+          else, so the transfer judged is the author's expression at the
+          author's type. The wrap sites (`_check_return_statement`,
+          `_check_function`'s tail, `_check_method`'s) all wrap BEFORE they
+          checkpoint, by a deliberate comment that said a wrapped value is a
+          fresh temporary — which is exactly SL-79 (DF-305a): the checkpoint
+          RAN and judged the synthesized node, so an aliasing source double
+          freed at exit 0. Peeling here rather than at the three sites is what
+          makes the rule position-blind, and it subsumes the arm-wrap peel
+          `_value_branch_arm_results` has done since DF-289d.
+        * BRANCHES — the DF-299b recursion, below.
+        * PROJECTS/READS — handed to the tier arms through `_is_aliasing_expr`.
         """
+        extra_delegates: Tuple = ()
+
+        def decide(**kw):
+            """File this occurrence's decision. THE local writer.
+
+            Every exit of this function goes through here so that no arm can
+            forget `extra_delegates` — the sub-decisions a node with a SECOND
+            result source has already filed. Today that is a `try`'s catch
+            handler, judged ahead of the `try`'s own Ok projection;
+            `tools/test_transfer_decisions.py` is what keeps the routing true.
+            """
+            kw['delegates'] = tuple(kw.get('delegates', ())) + extra_delegates
+            return self._decide_transfer(expr, target_type, context,
+                                         line, column, **kw)
+
         if expr is None:
             # A boundary with no source expression: a valueless `return`, an
             # arm that diverged, an initializer an earlier error left unbuilt.
             # No value, so no transfer — recorded all the same, so the boundary
             # is never mistaken for one nothing reached.
-            return self._decide_transfer(
-                expr, target_type, context, line, column,
+            return decide(
                 action=ownership.ACTION_NONE,
                 cleanup=ownership.CLEANUP_NONE,
-                reason="the boundary has no source expression",
+                reason="the boundary has no source expression")
+
+        # SL-79 (DF-305a) — THE AUTO-WRAP PEEL, ahead of everything including
+        # the branch recursion, because a wrap node is never itself a transfer:
+        # it re-types the value inside it, and the value inside it is what
+        # acquires a new owner. A wrap may sit AROUND a branch (a `return` whose
+        # value is a value `if` wraps the whole thing) as well as inside its
+        # arms, so peeling first is what lets the two rules compose.
+        if producers.producer_kind(expr) == producers.REWRAPS:
+            inner = producers.rewrapped_operand(expr)
+            decision = self._check_value_transfer(
+                inner, None, context,
+                getattr(inner, 'line', line), getattr(inner, 'column', column),
                 is_return=is_return)
+            return decide(
+                action=ownership.ACTION_DELEGATED,
+                cleanup=ownership.CLEANUP_NONE,
+                delegates=(decision.key,) if decision is not None else (),
+                reason="an auto-wrap RE-TYPES the value inside it (SL-79); the "
+                       "transfer is the operand's, judged where it is written")
 
         # DF-299b — the value-branch recursion, ahead of every other arm because
         # a branch node is never itself a transfer: judging it as one asks the
@@ -4501,14 +4543,20 @@ class TypeUtilsMixin:
                     is_return=is_return)
                 if decision is not None:
                     delegates.append(decision.key)
-            return self._decide_transfer(
-                expr, target_type, context, line, column,
-                action=ownership.ACTION_DELEGATED,
-                cleanup=ownership.CLEANUP_NONE,
-                delegates=tuple(delegates),
-                reason="a value branch is one transfer PER ARM (DF-299b); the "
-                       "arms' own decisions are in `delegates`",
-                is_return=is_return)
+            if not isinstance(expr, TryExpr):
+                return decide(
+                    action=ownership.ACTION_DELEGATED,
+                    cleanup=ownership.CLEANUP_NONE,
+                    delegates=tuple(delegates),
+                    reason="a value branch is one transfer PER ARM (DF-299b); "
+                           "the arms' own decisions are in `delegates`")
+            # SL-219 — a `try` has TWO result sources. The CATCH handler is a
+            # branch arm and was judged just above; the OK value PROJECTS out of
+            # the subject's storage and is nobody's arm, so it falls through to
+            # the producer path, where `_is_aliasing_expr` is now transparent
+            # through to the subject. The arm's decision rides along in
+            # `extra_delegates` so the `try`'s own record still names it.
+            extra_delegates = tuple(delegates)
 
         # design 24 item 3 (the `sync` boundary): a `sync` function type accepts
         # only a `sync` value. A closure LITERAL is exempt — it is effect-checked
@@ -4569,8 +4617,7 @@ class TypeUtilsMixin:
         # `move x` transfers ownership; a move is never a copy/NoCopy violation.
         # Moved-from recording happens in `_check_move_expr` (design 15).
         if isinstance(expr, MoveExpr):
-            return self._decide_transfer(
-                expr, target_type, context, line, column,
+            return decide(
                 action=ownership.ACTION_MOVE,
                 cleanup=ownership.CLEANUP_RETIRE_SOURCE,
                 source_type=getattr(expr, 'resolved_type', None),
@@ -4581,8 +4628,7 @@ class TypeUtilsMixin:
         # `&x` / `&var x` bind to a by-reference parameter; the callee mutates
         # the caller's value in place -- no transfer, no copy.
         if isinstance(expr, ReferenceExpr):
-            return self._decide_transfer(
-                expr, target_type, context, line, column,
+            return decide(
                 action=ownership.ACTION_BORROW,
                 cleanup=ownership.CLEANUP_NONE,
                 source_type=getattr(expr, 'resolved_type', None),
@@ -4591,8 +4637,7 @@ class TypeUtilsMixin:
 
         src_type = getattr(expr, 'resolved_type', None) or target_type
         if src_type is None:
-            return self._decide_transfer(
-                expr, target_type, context, line, column,
+            return decide(
                 action=ownership.ACTION_NONE,
                 cleanup=ownership.CLEANUP_NONE,
                 reason="no type is known for the source, so there is no "
@@ -4614,8 +4659,7 @@ class TypeUtilsMixin:
                 and not getattr(target_type, 'func_is_escaping', False)):
             if isinstance(expr, (Identifier, MemberAccess, ArrayIndex, TupleIndex)):
                 expr.closure_lend = True
-            return self._decide_transfer(
-                expr, target_type, context, line, column,
+            return decide(
                 action=ownership.ACTION_BORROW,
                 cleanup=ownership.CLEANUP_NONE,
                 source_type=src_type,
@@ -4632,8 +4676,7 @@ class TypeUtilsMixin:
         if isinstance(expr, ForceUnwrap):
             self._check_payload_read(expr.expr, src_type, expr, context,
                                      line, column)
-            return self._decide_transfer(
-                expr, target_type, context, line, column,
+            return decide(
                 action=ownership.ACTION_DELEGATED,
                 cleanup=ownership.CLEANUP_NONE,
                 source_type=src_type,
@@ -4651,8 +4694,7 @@ class TypeUtilsMixin:
         # guard since design 131; the un-projected path needs it for the same
         # reason, and needed it the moment `Result<T, E>` gained a tier.
         if getattr(expr, 'frame_place_read', False):
-            return self._decide_transfer(
-                expr, target_type, context, line, column,
+            return decide(
                 action=ownership.ACTION_DEFERRED,
                 cleanup=ownership.CLEANUP_NONE,
                 source_type=src_type,
@@ -4670,8 +4712,7 @@ class TypeUtilsMixin:
         # transfer. `_transfer_is_substituted_param` is the whole question; its
         # docstring carries the triage and says why it is this narrow.
         if self._transfer_is_substituted_param(expr):
-            return self._decide_transfer(
-                expr, target_type, context, line, column,
+            return decide(
                 action=ownership.ACTION_DEFERRED,
                 cleanup=ownership.CLEANUP_NONE,
                 source_type=src_type,
@@ -4689,8 +4730,7 @@ class TypeUtilsMixin:
         # field write and a binding inside the same instance are re-judged
         # unchanged. See `_mono_return_is_substituted`.
         if is_return and self._mono_return_is_substituted():
-            return self._decide_transfer(
-                expr, target_type, context, line, column,
+            return decide(
                 action=ownership.ACTION_DEFERRED,
                 cleanup=ownership.CLEANUP_NONE,
                 source_type=src_type,
@@ -4715,8 +4755,7 @@ class TypeUtilsMixin:
                 hint="this is a compiler bug — a copy policy is required at the "
                      "conformance, so no such type should exist"
             )
-            return self._decide_transfer(
-                expr, target_type, context, line, column,
+            return decide(
                 action=ownership.ACTION_REFUSED,
                 cleanup=ownership.CLEANUP_NONE,
                 source_type=src_type,
@@ -4738,6 +4777,33 @@ class TypeUtilsMixin:
         # always gated on.
         aliasing = self._is_aliasing_expr(expr)
 
+        # SL-211 REVIEW r1 (P1) — A MULTI-PATH NODE'S COPY OBLIGATION IS
+        # PATH-SPECIFIC, and is recorded where the path that owes it can see it.
+        #
+        # A `try` produces its value on up to TWO paths: the Ok path PROJECTS
+        # the payload out of the subject's storage (the obligation this
+        # checkpoint is judging), and an inline `catch` produces the handler's
+        # own value on the Err path — a transfer already judged as a branch ARM
+        # above, and already copied by its own `_generate_block`. Stamping the
+        # node-level `needs_copy` would put ONE obligation on the MERGED result,
+        # so the enclosing transfer copied whichever value came out: correct on
+        # the Ok path and a SECOND copy on the Err path, leaking an owning
+        # `Copy` value (the reviewer's `try r catch { fallback }` read
+        # `strong_count()` 3 where 2 is right).
+        #
+        # `payload_needs_copy` is design 131's annotation and carries exactly
+        # the discipline needed: the retain happens AT THE EXTRACTION rather
+        # than at the enclosing transfer site, which for a `try` means inside
+        # the Ok block — so the Err path cannot reach it, by construction rather
+        # than by a second rule. This is the same reason a `ForceUnwrap` uses it.
+        #
+        # ASSIGNED, NEVER ACCUMULATED (design 218 stage 1): the front half runs
+        # more than once over one AST, so a pass that decides "no retain" must
+        # SAY so, or an earlier pass's answer stands. Hence the unconditional
+        # assignment here rather than a stamp in the `implicit` arm alone.
+        if isinstance(expr, TryExpr):
+            expr.payload_needs_copy = bool(aliasing and tier == 'implicit')
+
         # A DIVERGING SOURCE ACQUIRES NOTHING (SL-210 review). `let x: Int =
         # panic("stop")` has a `Never`-typed initializer: control never reaches
         # the binding, so there is no value, no temporary and no obligation to
@@ -4755,8 +4821,7 @@ class TypeUtilsMixin:
         # `while { }` — which carries a flag rather than a stamped type — is
         # answered here on the same terms as a `-> Never` call.
         if expr_diverges(expr) or src_type.kind == TypeKind.NEVER:
-            return self._decide_transfer(
-                expr, target_type, context, line, column,
+            return decide(
                 action=ownership.ACTION_NONE,
                 cleanup=ownership.CLEANUP_NONE,
                 tier=tier, source_type=src_type,
@@ -4768,8 +4833,7 @@ class TypeUtilsMixin:
             # A FRESH OWNED TEMPORARY, at every tier: a call result, a
             # construction, a literal. Ownership transfers whole and nothing
             # is duplicated, which is why no tier arm below refuses one.
-            return self._decide_transfer(
-                expr, target_type, context, line, column,
+            return decide(
                 action=ownership.ACTION_TAKE,
                 cleanup=ownership.CLEANUP_ADOPT_TEMPORARY,
                 tier=tier, source_type=src_type,
@@ -4791,8 +4855,7 @@ class TypeUtilsMixin:
                     line, column,
                     hint=self._transfer_refusal_hint(src_type, expr, 'nocopy')
                 )
-            return self._decide_transfer(
-                expr, target_type, context, line, column,
+            return decide(
                 action=ownership.ACTION_REFUSED,
                 cleanup=ownership.CLEANUP_NONE,
                 tier=tier, source_type=src_type,
@@ -4810,8 +4873,7 @@ class TypeUtilsMixin:
                 line, column,
                 hint=self._transfer_refusal_hint(src_type, expr, 'explicit')
             )
-            return self._decide_transfer(
-                expr, target_type, context, line, column,
+            return decide(
                 action=ownership.ACTION_REFUSED,
                 cleanup=ownership.CLEANUP_NONE,
                 tier=tier, source_type=src_type,
@@ -4820,14 +4882,20 @@ class TypeUtilsMixin:
                 is_return=is_return)
 
         if tier == 'implicit':
-            expr.needs_copy = True
-            return self._decide_transfer(
-                expr, target_type, context, line, column,
+            if not isinstance(expr, TryExpr):
+                # A `try` recorded its obligation as `payload_needs_copy`
+                # above, on the Ok path alone — see the note beside the
+                # aliasing question. Stamping the node here as well would
+                # restore the double copy that annotation exists to remove.
+                expr.needs_copy = True
+            return decide(
                 action=ownership.ACTION_COPY,
                 cleanup=ownership.CLEANUP_RETAIN_SOURCE,
                 tier=tier, source_type=src_type,
                 reason="the silent Copy tier: codegen duplicates through the "
-                       "type's own copy operation and the source stays live",
+                       "type's own copy operation and the source stays live"
+                       + (" — on the Ok path only, at the extraction"
+                          if isinstance(expr, TryExpr) else ""),
                 is_return=is_return)
 
         if tier == 'abstract':
@@ -4839,8 +4907,7 @@ class TypeUtilsMixin:
             # site discharges against its concrete argument.
             self._tier_req_transfer(expr, src_type, line, column,
                                     is_return=is_return)
-            return self._decide_transfer(
-                expr, target_type, context, line, column,
+            return decide(
                 action=ownership.ACTION_DEFERRED,
                 cleanup=ownership.CLEANUP_NONE,
                 tier=tier, source_type=src_type,
@@ -4858,8 +4925,7 @@ class TypeUtilsMixin:
         # carries an explicit decision INCLUDING the trivial copies: a silent
         # fall-through is exactly the "checked, nothing owed" that used to be
         # indistinguishable from "never checked".
-        return self._decide_transfer(
-            expr, target_type, context, line, column,
+        return decide(
             action=ownership.ACTION_COPY,
             cleanup=ownership.CLEANUP_NONE,
             tier=tier, source_type=src_type,
@@ -4877,7 +4943,51 @@ class TypeUtilsMixin:
         `move` cannot go (no partial moves). Naming only `move` and `.copy()`
         would send an author with a `File?` field down a path that does not
         exist.
+
+        A `try` gets its own for the same reason (SL-219). The value refused is
+        the Ok PAYLOAD, but the storage that still owns it is the SUBJECT, so a
+        bare "use `move`" names nothing an author can act on: the spelling is
+        `try move r`, with the `move` on the subject. Probed — it compiles and
+        releases the payload exactly once. A FIELD subject gets the other half
+        of that sentence instead, because `move h.r` is the no-partial-moves
+        refusal and naming it would be sending the author at a wall.
+
+        A `self` RECEIVER gets its own too (SL-218), and it is the one where
+        `move` is never the answer: a `&self` / `&var self` receiver borrows
+        storage the CALLER owns, so there is nothing here to move. An author who
+        means to DUPLICATE declares a duplicable tier and spells `.copy()`; one
+        who means to CONSUME declares the method `consumes` (design 260). That
+        is DF-290a's shape at the receiver.
         """
+        # SL-218: a receiver has nothing to move — the value is the caller's.
+        if isinstance(expr, SelfExpr):
+            if tier == 'explicit':
+                return ("a `self` receiver borrows storage the CALLER owns, so "
+                        "there is nothing here to move — spell `self.copy()` to "
+                        "duplicate it, or declare the method `consumes` to end "
+                        "the caller's value (design 260)")
+            return ("a `self` receiver borrows storage the CALLER owns, so "
+                    "there is nothing here to move — declare the method "
+                    "`consumes` to end the caller's value (design 260), or give "
+                    "the type a duplicable policy and spell `self.copy()`")
+        # SL-219: the subject is what the `move` goes on.
+        if isinstance(expr, TryExpr) and self._is_aliasing_expr(expr):
+            keyword = {'optional': 'try?', 'force': 'try!'}.get(
+                getattr(expr, 'variant', 'propagate'), 'try')
+            subject = self._render_place(expr.expr)
+            if not isinstance(expr.expr, Identifier):
+                # A field or element subject: `move h.r` is the design-35
+                # partial-move refusal, so the move-out belongs to the owner.
+                return (f"`{subject}` still owns the payload, and a field "
+                        f"cannot be moved out of — bind the owner by value and "
+                        f"`{keyword} move` the whole binding, or hold the "
+                        f"result in an `Optional` field and `take()` it")
+            if tier == 'explicit':
+                return (f"the subject still owns the payload — spell it "
+                        f"`{keyword} move {subject}`, or `.copy()` the payload "
+                        f"out of the extracted value")
+            return (f"the subject still owns the payload — spell it "
+                    f"`{keyword} move {subject}` to transfer it")
         # design 219 unit A2(b): a value read out of a POINTER place. The place
         # tracks no occupancy, so this is a TRANSFER — nothing is duplicated and
         # nothing is left behind — and `move` is the spelling that declares it.

@@ -1313,7 +1313,7 @@ extension JsonValue {
         var dec = try JsonDecoder.open(text: text, max_depth: max_depth, max_size: max_size)
         let v = try JsonValue._read(dec: &var dec)
         try dec.finish()
-        return v
+        return move v
     }
 
     // Reads exactly one JSON value at `dec`'s current position, driving
