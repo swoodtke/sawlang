@@ -1,0 +1,5 @@
+enum State { case Off, case On }
+extension State {
+    func read(&self) -> Int { 1 }
+}
+func main() {}

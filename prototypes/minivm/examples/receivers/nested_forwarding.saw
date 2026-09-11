@@ -1,0 +1,18 @@
+struct Inner { count: Int, flag: Bool }
+struct Outer { inner: Inner, other: Int }
+
+func read_inner(value: &Inner) -> Int { value.count }
+func bump(value: &var Int) { value += 5 }
+func forward(value: &var Outer) {
+    print(read_inner(&value.inner))
+    bump(&var value.inner.count)
+    value.inner.count += 1
+}
+
+func main() {
+    var value = Outer(inner: Inner(count: 7, flag: true), other: 20)
+    forward(&var value)
+    print(value.inner.count)
+    bump(&var value.inner.count)
+    print(value.inner.count)
+}

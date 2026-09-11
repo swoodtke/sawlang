@@ -1,0 +1,18 @@
+struct Pair { left: Int, right: Int }
+
+func value_ref(value: Pair, source: &Pair, delta: Int) -> Pair {
+    Pair(left: value.left + source.left, right: value.right + delta)
+}
+func ref_value(source: &Pair, value: Pair, delta: Int) -> Pair {
+    Pair(left: source.right + delta, right: value.right + source.left)
+}
+
+func main() {
+    let source = Pair(left: 4, right: 7)
+    let first = value_ref(value: Pair(left: 1, right: 2), source: &source, delta: 4)
+    print(first.left)
+    print(first.right)
+    let second = ref_value(source: &source, value: Pair(left: 8, right: 6), delta: 2)
+    print(second.left)
+    print(second.right)
+}

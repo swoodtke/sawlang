@@ -1,0 +1,8 @@
+struct Counter { value: Int }
+extension Counter {
+    func bump(&var self) { self.value += 1 }
+}
+func main() {
+    let counter = Counter(value: 1)
+    counter.bump()
+}

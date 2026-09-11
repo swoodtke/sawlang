@@ -66,20 +66,25 @@ shift counts. See [M1_NUMBERS.md](M1_NUMBERS.md) for the precise numeric contrac
 Newlines separate statements. Omit the result annotation for Void functions;
 `main()` must take no arguments and return Void. Value-returning functions need
 a value on every continuing path, supplied by an explicit return or final expression.
-There are no imports, strings, collections,
-generics, methods, or concurrency in the accepted subset.
+There are no imports, strings, collections, generics, or concurrency in the
+accepted subset.
 Semicolons remain unsupported. Boolean `&&`/`||` short-circuit, mutable integers
 and fields support `+=`/`-=`/`*=`/`/=`/`%=`, and module `static` integer/Bool
 constants accept literal and numeric-limit initializers. See
 [M3_SCALAR_CONTROL.md](M3_SCALAR_CONTROL.md) for this frontend slice.
 The prototype still accepts broader lexical shadowing than Saw's design-100 rule.
 
-Scalar `&T` / `&var T` function parameters support explicit call-site borrowing,
-forwarding, reads and caller-visible mutation. A scalar field of a direct record
-can be borrowed. Overlapping mutable arguments and borrowing an assignment's
+Scalar and record `&T` / `&var T` function parameters support explicit call-site
+borrowing, forwarding, snapshots and caller-visible mutation. Nested fields can
+be borrowed through record references. Overlapping mutable arguments and borrowing an assignment's
 destination inside its RHS are rejected. Different fields of one record are
-conservatively treated as overlapping. Whole-record references and reference
-storage/results remain unsupported; see [M6_SCALAR_REFERENCES.md](M6_SCALAR_REFERENCES.md).
+conservatively treated as overlapping. Reference storage/results remain
+unsupported; see [M6_SCALAR_REFERENCES.md](M6_SCALAR_REFERENCES.md).
+
+Record extensions support instance methods with `&self` / `&var self`, called on
+named locals, reference parameters or nested fields. Optional call labels must
+match parameter names in order. Temporary receivers, overloads, static methods
+and trait extensions remain unsupported. See [M7_RECORD_RECEIVERS.md](M7_RECORD_RECEIVERS.md).
 
 The VM defaults to a shared budget of 1,000,000 instructions and a maximum call
 depth of 128. Override the budget with `run FILE --budget N`. These limits apply
@@ -93,15 +98,16 @@ python prototypes/minivm/test_minivm.py --binary .build/minivm/minivm
 
 The harness compares VM execution and clang-compiled IR with explicit expected
 outputs and statuses, checks rejected programs, and exercises VM limits. It
-uses temporary files and 30-second subprocess timeouts. The first six milestones
-pass all 227 cases, including native execution at both `-O0` and `-O2`.
+uses temporary files and 30-second subprocess timeouts. The first seven milestones
+pass all 250 cases, including native execution at both `-O0` and `-O2`.
 
 Independent representation checks live in `tests/numeric_contract.saw`,
-`tests/record_contract.saw`, `tests/enum_contract.saw`, and
-`tests/reference_contract.saw`; build and run them
+`tests/record_contract.saw`, `tests/enum_contract.saw`,
+`tests/reference_contract.saw`, and `tests/receiver_contract.saw`; build and run them
 with the Python compiler.
 Use `--section numbers`, `--section records`, `--section control`, or
-`--section enums`, `--section values`, or `--section references` for an isolated
+`--section enums`, `--section values`, `--section references`, or
+`--section receivers` for an isolated
 integration gate.
 
 See [DESIGN.md](DESIGN.md) and [M1_NUMBERS.md](M1_NUMBERS.md) for the instruction

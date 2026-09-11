@@ -1,0 +1,18 @@
+struct Inner { x: Int, y: Int }
+struct Outer { inner: Inner, tag: Int }
+
+func snapshot(value: &Outer) -> Outer { value }
+func replace(value: &var Outer, next: Outer) { value = next }
+
+func main() {
+    var value = Outer(inner: Inner(x: 1, y: 2), tag: 3)
+    let copy = snapshot(&value)
+    value.inner.x = 4
+    print(copy.inner.x)
+    print(copy.inner.y)
+    print(copy.tag)
+    print(value.inner.x)
+    replace(&var value, Outer(inner: Inner(x: 9, y: 8), tag: 7))
+    print(value.inner.x)
+    print(value.inner.y)
+}

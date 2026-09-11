@@ -127,7 +127,7 @@ func main() {
     assert(not valid(&void_ref), "no Void reference")
     var record_ref = p.copy()
     record_ref.references[0].target = ValueType.Record(0)
-    assert(not valid(&record_ref), "no whole-record reference")
+    assert(not valid(&record_ref), "record reference target index must exist")
     var enum_ref = p.copy()
     enum_ref.references[3].target = ValueType.Enum(99)
     assert(not valid(&enum_ref), "validate enum index in reference target")

@@ -1,3 +1,3 @@
 struct Pair { left: Int, right: Int }
-func bad(value: &Pair) {}
+func bad(value: &Pair) { value.left = 3 }
 func main() {}

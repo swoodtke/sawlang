@@ -1,0 +1,20 @@
+struct Cursor { position: Int }
+struct State { cursor: Cursor, limit: Int }
+
+extension Cursor {
+    func position(&self) -> Int { self.position }
+    func advance(&var self, amount: Int) { self.position += amount }
+}
+extension State {
+    func step(&var self, amount: Int) {
+        self.cursor.advance(amount: amount)
+    }
+    func current(&self) -> Int { self.cursor.position() }
+}
+
+func main() {
+    var state = State(cursor: Cursor(position: 3), limit: 20)
+    print(state.current())
+    state.step(amount: 4)
+    print(state.cursor.position())
+}

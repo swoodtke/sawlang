@@ -1,0 +1,8 @@
+struct Counter { value: Int }
+extension Counter {
+    func add(&var self, amount: Int) { self.value += amount }
+}
+func main() {
+    var counter = Counter(value: 1)
+    counter.add(true)
+}

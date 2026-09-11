@@ -1,0 +1,24 @@
+struct First { value: Int }
+struct Second { value: Int }
+
+extension First {
+    func adjust(&var self, amount: Int) { self.value += amount }
+}
+extension Second {
+    func adjust(&var self, amount: Int) { self.value -= amount }
+}
+extension First {
+    func scaled(&self, factor: Int) -> Int { self.value * factor }
+}
+
+func adjust(value: Int) -> Int { value + 1 }
+
+func main() {
+    var first = First(value: 10)
+    var second = Second(value: 25)
+    first.adjust(amount: 3)
+    second.adjust(3)
+    print(first.value)
+    print(second.value)
+    print(adjust(first.scaled(factor: 1) + 4))
+}

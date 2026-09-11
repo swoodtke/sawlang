@@ -1,0 +1,6 @@
+struct Pair { left: Int, right: Int }
+func replace(value: &var Pair) { value.left = 3 }
+func main() {
+    let value = Pair(left: 1, right: 2)
+    replace(&var value)
+}

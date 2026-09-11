@@ -394,24 +394,84 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
         case LoadRef -> {
             put(&var out, "  ")
             load_ref_slot(&var out, instruction_index, "ref", inst.a)
-            put(&var out, "  ")
-            temp_name(&var out, instruction_index, "v")
-            put(&var out, " = load i64, ptr ")
-            temp_name(&var out, instruction_index, "ref")
-            put(&var out, "\n")
-            store_temp(&var out, instruction_index, "v", inst.dst)
+            let target = try reference_target(&program.references, function.slots[inst.a])
+            let layout = try value_layout(&program.records, target)
+            var word = 0
+            while word < layout.len() {
+                if word > 0 {
+                    put(&var out, "  ")
+                    temp_name(&var out, instruction_index, "ptr{word}")
+                    put(&var out, " = getelementptr i64, ptr ")
+                    temp_name(&var out, instruction_index, "ref")
+                    put(&var out, ", i64 ")
+                    put_int(&var out, word)
+                    put(&var out, "\n")
+                }
+                put(&var out, "  ")
+                temp_name(&var out, instruction_index, "v{word}")
+                put(&var out, " = load i64, ptr ")
+                if word == 0 { temp_name(&var out, instruction_index, "ref") }
+                else { temp_name(&var out, instruction_index, "ptr{word}") }
+                put(&var out, "\n")
+                word += 1
+            }
+            word = 0
+            while word < layout.len() {
+                store_temp(&var out, instruction_index, "v{word}", inst.dst + word)
+                word += 1
+            }
             next_block(&var out, instruction_index)
         },
         case StoreRef -> {
             put(&var out, "  ")
             load_ref_slot(&var out, instruction_index, "ref", inst.a)
+            let target = try reference_target(&program.references, function.slots[inst.a])
+            let layout = try value_layout(&program.records, target)
+            var word = 0
+            while word < layout.len() {
+                put(&var out, "  ")
+                load_slot(&var out, instruction_index, "v{word}", inst.b + word)
+                word += 1
+            }
+            word = 0
+            while word < layout.len() {
+                if word > 0 {
+                    put(&var out, "  ")
+                    temp_name(&var out, instruction_index, "ptr{word}")
+                    put(&var out, " = getelementptr i64, ptr ")
+                    temp_name(&var out, instruction_index, "ref")
+                    put(&var out, ", i64 ")
+                    put_int(&var out, word)
+                    put(&var out, "\n")
+                }
+                put(&var out, "  store i64 ")
+                temp_name(&var out, instruction_index, "v{word}")
+                put(&var out, ", ptr ")
+                if word == 0 { temp_name(&var out, instruction_index, "ref") }
+                else { temp_name(&var out, instruction_index, "ptr{word}") }
+                put(&var out, "\n")
+                word += 1
+            }
+            next_block(&var out, instruction_index)
+        },
+        case RefField -> {
             put(&var out, "  ")
-            load_slot(&var out, instruction_index, "v", inst.b)
-            put(&var out, "  store i64 ")
-            temp_name(&var out, instruction_index, "v")
-            put(&var out, ", ptr ")
-            temp_name(&var out, instruction_index, "ref")
-            put(&var out, "\n")
+            load_ref_slot(&var out, instruction_index, "ref", inst.a)
+            let parent = try reference_target(&program.references, function.slots[inst.a])
+            match parent {
+                case Record(index) -> {
+                    let offset = try record_field_offset(&program.records, index, inst.immediate)
+                    put(&var out, "  ")
+                    temp_name(&var out, instruction_index, "field")
+                    put(&var out, " = getelementptr i64, ptr ")
+                    temp_name(&var out, instruction_index, "ref")
+                    put(&var out, ", i64 ")
+                    put_int(&var out, offset)
+                    put(&var out, "\n")
+                    store_ref_temp(&var out, instruction_index, "field", inst.dst)
+                },
+                case _ -> {}
+            }
             next_block(&var out, instruction_index)
         },
         case Add -> emit_binary(&var out, instruction_index, &inst, "add", true, function.slots[inst.dst]),
@@ -648,11 +708,22 @@ func emit_function(out: &var StringBuilder, program: &Program,
         parameter_index = parameter_index + 1
     }
     put(&var out, ") \{\nentry:\n")
+    put(&var out, "  %slots = alloca [")
+    put_int(&var out, function.slots.len())
+    put(&var out, " x i64]\n")
     var slot_index = 0
     while slot_index < function.slots.len() {
         put(&var out, "  ")
         slot_name(&var out, slot_index)
-        put(&var out, if reference_type(function.slots[slot_index]) { " = alloca ptr\n" } else { " = alloca i64\n" })
+        if reference_type(function.slots[slot_index]) {
+            put(&var out, " = alloca ptr\n")
+        } else {
+            put(&var out, " = getelementptr [")
+            put_int(&var out, function.slots.len())
+            put(&var out, " x i64], ptr %slots, i64 0, i64 ")
+            put_int(&var out, slot_index)
+            put(&var out, "\n")
+        }
         slot_index = slot_index + 1
     }
     var parameter_words = 0

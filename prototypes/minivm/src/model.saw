@@ -11,7 +11,7 @@ public enum Op {
     case Neg, case Not, case Eq, case Ne, case Lt, case Le, case Gt, case Ge,
     case Jump, case Branch, case Call, case Print, case Return,
     case Cast, case Truncate, case WrapAdd, case WrapSub, case WrapMul,
-    case Addr, case LoadRef, case StoreRef,
+    case Addr, case LoadRef, case StoreRef, case RefField,
     case BitAnd, case BitOr, case BitXor, case BitNot, case Shl, case Shr
 }
 @synthesize
@@ -212,7 +212,12 @@ public func reference_transfer(refs: &Vector<ReferenceIR>, source: ValueType, ta
 public func validate_references(refs: &Vector<ReferenceIR>) -> Result<Void, ProtoError> {
     var n = 0
     while n < refs.len() {
-        if not scalar_type(refs[n].target) { return problem("reference target must be a scalar type", 0, 0) }
+        if not scalar_type(refs[n].target) {
+            match refs[n].target {
+                case Record(_) -> {},
+                case _ -> { return problem("reference target must be a scalar or record type", 0, 0) }
+            }
+        }
         n += 1
     }
     return

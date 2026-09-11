@@ -1,0 +1,5 @@
+struct Counter { value: Int }
+extension Counter {
+    func bad(&self) -> &Counter { self }
+}
+func main() {}

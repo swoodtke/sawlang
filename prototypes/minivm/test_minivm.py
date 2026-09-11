@@ -35,6 +35,14 @@ class RejectCase:
 
 
 RUN_CASES = (
+    RunCase("receivers/whole_record_reference", "1\n2\n3\n4\n9\n8\n", section="receivers"),
+    RunCase("receivers/nested_forwarding", "7\n13\n18\n", section="receivers"),
+    RunCase("receivers/mixed_abi", "5\n6\n9\n10\n", section="receivers"),
+    RunCase("receivers/recursive_growth", "41\n42\n", section="receivers"),
+    RunCase("receivers/methods_basic", "5\n11\n11\n", section="receivers"),
+    RunCase("receivers/methods_lookup_labels", "13\n22\n18\n", section="receivers"),
+    RunCase("receivers/nested_method_forward", "3\n7\n", section="receivers"),
+    RunCase("receivers/lexer_advance", "1\n2\n2\n3\n2\n2\n", section="receivers"),
     RunCase("references/read_mutate_compound", "41\n42\n51\n25\n5\n", section="references"),
     RunCase("references/scalar_kinds", "18446744073709551615\n255\ntrue\ntrue\n", section="references"),
     RunCase("references/direct_record_fields", "8\n21\n", section="references"),
@@ -160,6 +168,22 @@ RUN_CASES = (
 )
 
 REJECT_CASES = (
+    RejectCase("receivers/reject_write_shared_record", "cannot assign through a shared reference", "receivers"),
+    RejectCase("receivers/reject_immutable_record_borrow", "cannot mutably borrow an immutable place", "receivers"),
+    RejectCase("receivers/reject_immutable_receiver", "cannot call a mutating method on an immutable receiver", "receivers"),
+    RejectCase("receivers/reject_receiver_argument_overlap", "overlapping arguments cannot include a mutable borrow", "receivers"),
+    RejectCase("receivers/reject_pending_write_receiver", "cannot borrow an assignment destination while evaluating its right-hand side", "receivers"),
+    RejectCase("receivers/reject_wrong_label", "argument label", "receivers"),
+    RejectCase("receivers/reject_method_arity", "arguments", "receivers"),
+    RejectCase("receivers/reject_method_type", "cannot implicitly convert", "receivers"),
+    RejectCase("receivers/reject_temporary_receiver", "method calls require a named place receiver", "receivers"),
+    RejectCase("receivers/reject_unknown_extension", "extension target must be a known record", "receivers"),
+    RejectCase("receivers/reject_enum_extension", "extension target must be a known record", "receivers"),
+    RejectCase("receivers/reject_trait_extension", "traits are not supported", "receivers"),
+    RejectCase("receivers/reject_static_method", "static methods are not supported", "receivers"),
+    RejectCase("receivers/reject_value_receiver", "methods require an explicit `&self` or `&var self` receiver", "receivers"),
+    RejectCase("receivers/reject_duplicate_method", "duplicate method", "receivers"),
+    RejectCase("receivers/reject_method_reference_result", "reference results are not supported", "receivers"),
     RejectCase("references/reject_alias_mutable_shared", "overlapping arguments cannot include a mutable borrow", "references"),
     RejectCase("references/reject_alias_two_fields", "overlapping arguments cannot include a mutable borrow", "references"),
     RejectCase("references/reject_later_read", "cannot read a place while it is mutably borrowed", "references"),
@@ -175,7 +199,6 @@ REJECT_CASES = (
     RejectCase("references/reject_reference_field", "reference record fields are not supported", "references"),
     RejectCase("references/reject_reference_result", "reference results are not supported", "references"),
     RejectCase("references/reject_reference_static", "static type must be an integer or Bool", "references"),
-    RejectCase("references/reject_whole_record", "only scalar references are supported", "references"),
     RejectCase("references/reject_nested_reference", "references to references are not supported", "references"),
     RejectCase("references/reject_outer_borrow_preserved", "cannot read a place while it is mutably borrowed", "references"),
     RejectCase("references/reject_spaced_nested_reference", "references to references are not supported", "references"),
@@ -206,7 +229,7 @@ REJECT_CASES = (
     RejectCase("reject_semicolon", "semicolons are not supported"),
     RejectCase("reject_string", "expected expression"),
     RejectCase("reject_bool_arithmetic", "arithmetic requires integer operands"),
-    RejectCase("reject_import", "only function, record, enum, and static declarations are supported"),
+    RejectCase("reject_import", "only function, record, enum, static, and extension declarations are supported"),
     RejectCase("reject_scope_leak", "unknown name"),
     RejectCase("reject_unary_depth", "expression nesting limit exceeded"),
     RejectCase("reject_reserved_print", "reserved"),
@@ -347,7 +370,7 @@ def main() -> int:
     parser.add_argument("--binary", type=Path, default=Path(".build/minivm/minivm"))
     parser.add_argument("--clang", default="clang")
     parser.add_argument(
-        "--section", choices=("all", "core", "numbers", "records", "control", "enums", "values", "references"), default="all",
+        "--section", choices=("all", "core", "numbers", "records", "control", "enums", "values", "references", "receivers"), default="all",
         help="run all cases or one isolated test section",
     )
     args = parser.parse_args()
@@ -376,7 +399,7 @@ def main() -> int:
                 failures.extend(test_rejection(binary, case))
             except subprocess.TimeoutExpired:
                 failures.append(f"{case.name}: timed out after {TIMEOUT}s")
-        limit_cases = () if args.section in ("numbers", "records", "control", "enums", "values", "references") else (
+        limit_cases = () if args.section in ("numbers", "records", "control", "enums", "values", "references", "receivers") else (
             ("budget", 20, "runtime error: instruction budget exceeded"),
             ("depth", 10_000, "runtime error: call depth exceeded"),
         )

@@ -114,19 +114,35 @@ func check_instruction(p: &Program, f: &FuncIR, i: &Instruction) -> Result<Void,
             } else if not scalar_type(dst) || a != dst { return invalid(&i) }
         },
         case Addr -> {
-            if not reference_type(dst) || not scalar_type(a) { return invalid(&i) }
+            if not reference_type(dst) { return invalid(&i) }
             let target = try reference_target(&p.references, dst)
-            if target != a { return invalid(&i) }
+            let layout = try value_layout(&p.records, target)
+            if not range_matches(&f, i.a, &layout) { return invalid(&i) }
         },
         case LoadRef -> {
-            if not reference_type(a) || not scalar_type(dst) { return invalid(&i) }
+            if not reference_type(a) { return invalid(&i) }
             let target = try reference_target(&p.references, a)
-            if target != dst { return invalid(&i) }
+            let layout = try value_layout(&p.records, target)
+            if not range_matches(&f, i.dst, &layout) { return invalid(&i) }
         },
         case StoreRef -> {
-            if not reference_mutable(&p.references, a) || not scalar_type(b) { return invalid(&i) }
+            if not reference_mutable(&p.references, a) { return invalid(&i) }
             let target = try reference_target(&p.references, a)
-            if target != b { return invalid(&i) }
+            let layout = try value_layout(&p.records, target)
+            if not range_matches(&f, i.b, &layout) { return invalid(&i) }
+        },
+        case RefField -> {
+            if not reference_type(a) || not reference_type(dst) { return invalid(&i) }
+            if reference_mutable(&p.references, dst) && not reference_mutable(&p.references, a) { return invalid(&i) }
+            let parent = try reference_target(&p.references, a)
+            let target = try reference_target(&p.references, dst)
+            match parent {
+                case Record(index) -> {
+                    if i.immediate < 0 || i.immediate >= p.records[index].field_types.len() { return invalid(&i) }
+                    if target != p.records[index].field_types[i.immediate] { return invalid(&i) }
+                },
+                case _ -> { return invalid(&i) }
+            }
         },
         case Add -> { try check_binary(&i, dst, a, b) },
         case Sub -> { try check_binary(&i, dst, a, b) },

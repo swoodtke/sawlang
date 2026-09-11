@@ -1,0 +1,115 @@
+import src.model.*
+import src.verify.*
+import src.vm.*
+
+func valid(p: &Program) -> Bool {
+    try verify(&p) catch { return false }
+    true
+}
+
+func op(code: &var Vector<Instruction>, kind: Op, dst: Int, a: Int, b: Int, immediate: Int) {
+    var i = instruction(kind)
+    i.dst = dst
+    i.a = a
+    i.b = b
+    i.immediate = immediate
+    try! code.push(move i)
+}
+
+func base_program() -> Program {
+    var records = Vector<RecordIR>()
+    let pair_names: Vector<String> = ["number", "flag"]
+    let pair_types: Vector<ValueType> = [ValueType.I64, ValueType.Bool]
+    try! records.push(RecordIR(name: "Pair", field_names: move pair_names,
+        field_types: move pair_types, line: 1, col: 1))
+    let outer_names: Vector<String> = ["prefix", "pair"]
+    let outer_types: Vector<ValueType> = [ValueType.I64, ValueType.Record(0)]
+    try! records.push(RecordIR(name: "Outer", field_names: move outer_names,
+        field_types: move outer_types, line: 1, col: 1))
+    var refs = Vector<ReferenceIR>()
+    try! refs.push(ReferenceIR(target: ValueType.Record(1), mutable: true))
+    try! refs.push(ReferenceIR(target: ValueType.Record(1), mutable: false))
+    try! refs.push(ReferenceIR(target: ValueType.Record(0), mutable: true))
+    try! refs.push(ReferenceIR(target: ValueType.Record(0), mutable: false))
+    try! refs.push(ReferenceIR(target: ValueType.Bool, mutable: true))
+    try! refs.push(ReferenceIR(target: ValueType.Bool, mutable: false))
+    try! refs.push(ReferenceIR(target: ValueType.I64, mutable: true))
+    let slots: Vector<ValueType> = [ValueType.I64, ValueType.I64, ValueType.Bool,
+        ValueType.Ref(0), ValueType.Ref(1), ValueType.Ref(2), ValueType.Ref(3),
+        ValueType.Ref(4), ValueType.Ref(5), ValueType.I64, ValueType.Bool,
+        ValueType.I64, ValueType.I64, ValueType.Bool, ValueType.Ref(6)]
+    var code = Vector<Instruction>()
+    op(&var code, Op.Const, 0, -1, -1, 7)
+    op(&var code, Op.Const, 1, -1, -1, 42)
+    op(&var code, Op.Const, 2, -1, -1, 1)
+    op(&var code, Op.Addr, 3, 0, -1, 0)
+    op(&var code, Op.Copy, 4, 3, -1, 0)
+    op(&var code, Op.RefField, 5, 3, -1, 1)
+    op(&var code, Op.Copy, 6, 5, -1, 0)
+    op(&var code, Op.RefField, 7, 5, -1, 1)
+    op(&var code, Op.Copy, 8, 7, -1, 0)
+    op(&var code, Op.LoadRef, 9, 6, -1, 0)
+    op(&var code, Op.StoreRef, -1, 5, 9, 0)
+    op(&var code, Op.LoadRef, 11, 4, -1, 0)
+    op(&var code, Op.StoreRef, -1, 3, 11, 0)
+    op(&var code, Op.RefField, 14, 3, -1, 0)
+    op(&var code, Op.Return, -1, -1, -1, 0)
+    var funcs = Vector<FuncIR>()
+    try! funcs.push(FuncIR(name: "main", params: Vector<ValueType>(), result: ValueType.Void,
+        slots: move slots, code: move code))
+    Program(references: move refs, enums: Vector<EnumIR>(), records: move records,
+        functions: move funcs, main_index: 0)
+}
+
+func rejected(p: &Program, index: Int, kind: Op, dst: Int, a: Int, b: Int, immediate: Int) -> Bool {
+    var changed = p.copy()
+    var i = instruction(kind)
+    i.dst = dst
+    i.a = a
+    i.b = b
+    i.immediate = immediate
+    changed.functions[0].code.set(index, move i)
+    not valid(&changed)
+}
+
+func invalid_address(p: &Program, handle: Int) -> Bool {
+    // Deliberately bypass verification to test the VM's whole-range bounds guard.
+    var changed = p.copy()
+    changed.functions[0].code[3].op = Op.Const
+    changed.functions[0].code[3].immediate = handle
+    try execute(&changed, 1000) catch { return error.message == "runtime error: invalid reference" }
+    false
+}
+
+func main() {
+    let p = base_program()
+    assert(valid(&p), "nested projection, whole record access and qualification")
+    try! execute(&p, 1000)
+    assert((try! value_layout(&p.records, ValueType.Record(1))).len() == 3, "flattened outer layout")
+    assert((try! record_field_offset(&p.records, 1, 1)) == 1, "nested record field offset")
+    assert(rejected(&p, 5, Op.RefField, 5, 3, -1, -1), "negative field index")
+    assert(rejected(&p, 5, Op.RefField, 5, 3, -1, 2), "high field index")
+    assert(rejected(&p, 5, Op.RefField, 7, 3, -1, 1), "field target must match")
+    assert(rejected(&p, 5, Op.RefField, 5, 4, -1, 1), "cannot strengthen field mutability")
+    assert(rejected(&p, 5, Op.RefField, 5, 0, -1, 1), "parent must be reference")
+    assert(rejected(&p, 5, Op.RefField, 5, 7, -1, 1), "parent target must be record")
+    assert(rejected(&p, 5, Op.RefField, 0, 3, -1, 1), "field result must be reference")
+    var weaken = p.copy()
+    weaken.functions[0].code[5].dst = 6
+    // Verify alone: later code retains structurally valid but uninitialized slots.
+    assert(valid(&weaken), "mutable record can project a shared field")
+    assert(rejected(&p, 3, Op.Addr, 3, 1, -1, 0), "Addr full target layout required")
+    assert(rejected(&p, 3, Op.Addr, 3, 13, -1, 0), "Addr truncated range")
+    assert(rejected(&p, 9, Op.LoadRef, 13, 6, -1, 0), "LoadRef truncated range")
+    assert(rejected(&p, 9, Op.LoadRef, 0, 6, -1, 0), "LoadRef exact field types")
+    assert(rejected(&p, 10, Op.StoreRef, -1, 6, 9, 0), "shared aggregate StoreRef")
+    assert(rejected(&p, 10, Op.StoreRef, -1, 5, 14, 0), "StoreRef truncated range")
+    assert(rejected(&p, 10, Op.StoreRef, -1, 5, 0, 0), "StoreRef exact field types")
+    var bad_record = p.copy()
+    bad_record.references[0].target = ValueType.Record(99)
+    assert(not valid(&bad_record), "reference record index is checked")
+    assert(invalid_address(&p, -1), "negative aggregate handle")
+    assert(invalid_address(&p, 14), "valid start with truncated referent")
+    assert(invalid_address(&p, Int.max), "overflowing aggregate handle")
+    print("receiver contract passed")
+}

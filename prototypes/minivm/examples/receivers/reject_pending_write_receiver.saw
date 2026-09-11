@@ -1,0 +1,8 @@
+struct Counter { value: Int }
+extension Counter {
+    func copy(&self) -> Counter { self }
+}
+func main() {
+    var counter = Counter(value: 1)
+    counter = counter.copy()
+}

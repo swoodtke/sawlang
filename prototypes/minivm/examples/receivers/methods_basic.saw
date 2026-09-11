@@ -1,0 +1,19 @@
+struct Counter { value: Int }
+
+extension Counter {
+    func read(&self) -> Int { self.value }
+    func twice(&var self, amount: Int) {
+        self.add(amount)
+        self.add(amount: amount)
+    }
+    func add(&var self, amount: Int) { self.value += amount }
+}
+
+func main() {
+    var counter = Counter(value: 5)
+    print(counter.read())
+    counter.twice(amount: 3)
+    print(counter.read())
+    counter.add(0)
+    print(counter.value)
+}

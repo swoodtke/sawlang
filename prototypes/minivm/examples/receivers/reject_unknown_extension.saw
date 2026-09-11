@@ -1,0 +1,4 @@
+extension Missing {
+    func read(&self) -> Int { 1 }
+}
+func main() {}

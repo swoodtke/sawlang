@@ -9,6 +9,7 @@ func clone_token(t: &Token) -> Token {
 
 struct Signature {
     name: String
+    owner: Int
     param_names: Vector<String>
     params: Vector<ValueType>
     result: ValueType
@@ -33,6 +34,7 @@ struct Place {
     mutable: Bool
     indirect: Bool
     root: Int
+    ref_ty: ValueType
 }
 
 struct Borrow {
@@ -182,7 +184,9 @@ extension Compiler {
             }
             let target = try self.parse_type()
             if reference_type(target) { return problem("references to references are not supported", amp.line, amp.col) }
-            if not scalar_type(target) { return problem("only scalar references are supported", amp.line, amp.col) }
+            var supported = scalar_type(target)
+            match target { case Record(_) -> { supported = true }, case _ -> {} }
+            if not supported { return problem("only data references are supported", amp.line, amp.col) }
             return self.intern_reference(target, mutable)
         }
         let t = try self.expect(TokenKind.Ident, "expected type")
@@ -284,8 +288,13 @@ extension Compiler {
                 while not self.at(TokenKind.Newline) && not self.at(TokenKind.Eof) { let _ = self.take() }
                 self.skip_newlines()
                 continue
+            } else if self.at(TokenKind.Extension) {
+                let _ = self.take()
+                let _ = try self.expect(TokenKind.Ident, "expected extension target")
+            } else if self.at(TokenKind.Trait) {
+                return self.fail("traits are not supported")
             } else if not self.at(TokenKind.Func) {
-                return self.fail("only function, record, enum, and static declarations are supported at module scope")
+                return self.fail("only function, record, enum, static, and extension declarations are supported at module scope")
             }
             while not self.at(TokenKind.LBrace) && not self.at(TokenKind.Eof) { let _ = self.take() }
             if self.at(TokenKind.Eof) { return self.fail("expected declaration body") }
@@ -305,10 +314,99 @@ extension Compiler {
     func signature_index(&self, name: String) -> Int {
         var i = 0
         while i < self.signatures.len() {
-            if self.signatures[i].name == name { return i }
+            if self.signatures[i].owner < 0 && self.signatures[i].name == name { return i }
             i += 1
         }
         -1
+    }
+
+    func method_index(&self, owner: Int, name: String) -> Int {
+        var i = 0
+        while i < self.signatures.len() {
+            if self.signatures[i].owner == owner && self.signatures[i].name == name { return i }
+            i += 1
+        }
+        -1
+    }
+
+    func scan_extension(&var self) -> Result<Void, ProtoError> {
+        let extension_token = self.take()
+        let target = try self.expect(TokenKind.Ident, "expected extension target")
+        let owner = self.record_index(target.value)
+        if owner < 0 { return problem("extension target must be a known record", target.line, target.col) }
+        if self.at(TokenKind.Colon) { return self.fail("traits are not supported") }
+        if not self.at(TokenKind.LBrace) {
+            return problem("generic extensions are not supported", extension_token.line, extension_token.col)
+        }
+        let _ = self.take()
+        self.skip_newlines()
+        while not self.at(TokenKind.RBrace) && not self.at(TokenKind.Eof) {
+            if self.at(TokenKind.Public) { let _ = self.take() }
+            if self.at(TokenKind.Static) { return self.fail("static methods are not supported") }
+            let ft = try self.expect(TokenKind.Func, "extension bodies may contain only instance methods")
+            let method = try self.expect(TokenKind.Ident, "expected method name")
+            if self.method_index(owner, method.value) >= 0 {
+                return problem("duplicate method `{method.value}`", method.line, method.col)
+            }
+            let _ = try self.expect(TokenKind.LParen, "expected `(` after method name")
+            self.skip_newlines()
+            let amp = try self.expect(TokenKind.Ampersand, "methods require an explicit `&self` or `&var self` receiver")
+            var receiver_mutable = false
+            if self.at(TokenKind.Var) {
+                let _ = self.take()
+                receiver_mutable = true
+            }
+            let receiver = try self.expect(TokenKind.SelfKw, "methods require an explicit `&self` or `&var self` receiver")
+            var pnames = Vector<String>()
+            var ptypes = Vector<ValueType>()
+            try! pnames.push(receiver.value)
+            try! ptypes.push(self.intern_reference(ValueType.Record(owner), receiver_mutable))
+            self.skip_newlines()
+            if self.at(TokenKind.Comma) {
+                let _ = self.take()
+                self.skip_newlines()
+                var more = true
+                while more {
+                    let pn = try self.expect(TokenKind.Ident, "expected parameter name")
+                    var j = 1
+                    while j < pnames.len() {
+                        if pnames[j] == pn.value { return problem("duplicate parameter `{pn.value}`", pn.line, pn.col) }
+                        j += 1
+                    }
+                    let _ = try self.expect(TokenKind.Colon, "expected `:` after parameter name")
+                    let pt = try self.parse_type()
+                    try! pnames.push(pn.value)
+                    try! ptypes.push(pt)
+                    self.skip_newlines()
+                    if self.at(TokenKind.Comma) {
+                        let _ = self.take()
+                        self.skip_newlines()
+                    } else { more = false }
+                }
+            }
+            let _ = try self.expect(TokenKind.RParen, "expected `)` after parameters")
+            var result = ValueType.Void
+            if self.at(TokenKind.Arrow) {
+                let _ = self.take()
+                result = try self.parse_type()
+                if reference_type(result) { return problem("reference results are not supported", method.line, method.col) }
+            }
+            let _ = try self.expect(TokenKind.LBrace, "expected method body")
+            let start = self.pos
+            var braces = 1
+            while braces > 0 && not self.at(TokenKind.Eof) {
+                if self.at(TokenKind.LBrace) { braces += 1 }
+                if self.at(TokenKind.RBrace) { braces -= 1 }
+                let _ = self.take()
+            }
+            if braces != 0 { return problem("unterminated method body", ft.line, ft.col) }
+            try! self.signatures.push(Signature(name: method.value, owner: owner,
+                param_names: move pnames, params: move ptypes, result: result,
+                body_start: start, body_end: self.pos - 1, line: method.line, col: method.col))
+            self.skip_newlines()
+        }
+        let _ = try self.expect(TokenKind.RBrace, "expected closing brace for extension")
+        return
     }
 
     func scan_signatures(&var self) -> Result<Void, ProtoError> {
@@ -331,7 +429,12 @@ extension Compiler {
                 self.skip_newlines()
                 continue
             }
-            let ft = try self.expect(TokenKind.Func, "only function, record, enum, and static declarations are supported at module scope")
+            if self.at(TokenKind.Extension) {
+                try self.scan_extension()
+                self.skip_newlines()
+                continue
+            }
+            let ft = try self.expect(TokenKind.Func, "only function, record, enum, static, and extension declarations are supported at module scope")
             let name = try self.expect(TokenKind.Ident, "expected function name")
             if name.value == "print" {
                 return problem("`print` is reserved by the prototype", name.line, name.col)
@@ -393,7 +496,7 @@ extension Compiler {
             }
             if braces != 0 { return problem("unterminated function body", ft.line, ft.col) }
             let finish = self.pos - 1
-            try! self.signatures.push(Signature(name: name.value, param_names: move pnames,
+            try! self.signatures.push(Signature(name: name.value, owner: -1, param_names: move pnames,
                 params: move ptypes, result: result, body_start: start, body_end: finish,
                 line: name.line, col: name.col))
             self.skip_newlines()
@@ -402,7 +505,7 @@ extension Compiler {
         var main_i = -1
         var i = 0
         while i < self.signatures.len() {
-            if self.signatures[i].name == "main" {
+            if self.signatures[i].owner < 0 && self.signatures[i].name == "main" {
                 mains += 1
                 main_i = i
                 if self.signatures[i].params.len() != 0 || self.signatures[i].result != ValueType.Void {
@@ -687,7 +790,7 @@ extension Compiler {
     func read_place(&var self, place: Place, t: &Token) -> Result<ExprValue, ProtoError> {
         try self.check_read(place.root, &t)
         if place.indirect {
-            let dst = self.new_slot(place.ty)
+            let dst = try self.new_value(place.ty)
             let at = self.emit_at(Op.LoadRef, t.line, t.col)
             self.code[at].dst = dst
             self.code[at].a = place.slot
@@ -835,6 +938,23 @@ extension Compiler {
             self.depth -= 1
             return value
         }
+        if self.at(TokenKind.Ident) || self.at(TokenKind.SelfKw) {
+            let candidate = self.token()
+            if self.binding_index(candidate.value) >= 0 {
+                let parsed = try self.parse_place()
+                let place = parsed.1
+                if self.at(TokenKind.Dot) {
+                    let dot = self.take()
+                    let method = try self.expect(TokenKind.Ident, "expected method name after `.`")
+                    let owner = match place.ty { case Record(index) -> index, case _ -> -1 }
+                    if owner < 0 { return problem("method receiver must be a record place", dot.line, dot.col) }
+                    let mi = self.method_index(owner, method.value)
+                    if mi < 0 { return problem("record `{self.records[owner].name}` has no method `{method.value}`", method.line, method.col) }
+                    return self.parse_method_call(place, method, mi)
+                }
+                return self.read_place(place, &candidate)
+            }
+        }
         if self.at(TokenKind.Ident) {
             let name = self.take()
             let ei = self.enum_index(name.value)
@@ -860,8 +980,10 @@ extension Compiler {
             let bi = self.binding_index(name.value)
             if bi >= 0 {
                 var place = Place(ty: self.bindings[bi].ty, slot: self.bindings[bi].slot,
-                                  mutable: self.bindings[bi].mutable, indirect: false, root: bi)
+                                  mutable: self.bindings[bi].mutable, indirect: false, root: bi,
+                                  ref_ty: ValueType.Void)
                 if reference_type(place.ty) {
+                    place.ref_ty = place.ty
                     place.mutable = reference_mutable(&self.references, place.ty)
                     place.ty = try reference_target(&self.references, place.ty)
                     place.indirect = true
@@ -900,7 +1022,7 @@ extension Compiler {
     }
 
     func assignment_ahead(&self) -> Bool {
-        if not self.at(TokenKind.Ident) { return false }
+        if not self.at(TokenKind.Ident) && not self.at(TokenKind.SelfKw) { return false }
         var i = self.pos + 1
         while i + 1 < self.tokens.len() && self.tokens[i].kind == TokenKind.Dot && self.tokens[i + 1].kind == TokenKind.Ident { i += 2 }
         if i >= self.tokens.len() { return false }
@@ -909,29 +1031,46 @@ extension Compiler {
     }
 
     func parse_place(&var self) -> Result<(Token, Place), ProtoError> {
-        let name = try self.expect(TokenKind.Ident, "expected assignment target")
+        if not self.at(TokenKind.Ident) && not self.at(TokenKind.SelfKw) {
+            return self.fail("expected named place")
+        }
+        let name = self.take()
         let bi = self.binding_index(name.value)
         if bi < 0 {
             if self.static_index(name.value) >= 0 { return problem("cannot assign to immutable static `{name.value}`", name.line, name.col) }
             return problem("unknown local `{name.value}`", name.line, name.col)
         }
         var place = Place(ty: self.bindings[bi].ty, slot: self.bindings[bi].slot,
-                          mutable: self.bindings[bi].mutable, indirect: false, root: bi)
+                          mutable: self.bindings[bi].mutable, indirect: false, root: bi,
+                          ref_ty: ValueType.Void)
         if reference_type(place.ty) {
+            place.ref_ty = place.ty
             place.mutable = reference_mutable(&self.references, place.ty)
             place.ty = try reference_target(&self.references, place.ty)
             place.indirect = true
         }
         while self.at(TokenKind.Dot) {
+            if self.pos + 2 < self.tokens.len() && self.tokens[self.pos + 1].kind == TokenKind.Ident && self.tokens[self.pos + 2].kind == TokenKind.LParen { break }
             let _ = self.take()
             let field = try self.expect(TokenKind.Ident, "expected record field after `.`")
-            if place.indirect { return problem("reference parameters cannot be used as records", field.line, field.col) }
             match place.ty {
                 case Record(ri) -> {
                     let fi = self.field_index(ri, field.value)
                     if fi < 0 { return problem("record `{self.records[ri].name}` has no field `{field.value}`", field.line, field.col) }
-                    place.slot += try record_field_offset(&self.records, ri, fi)
-                    place.ty = self.records[ri].field_types[fi]
+                    let field_type = self.records[ri].field_types[fi]
+                    if place.indirect {
+                        let projected_ref = self.intern_reference(field_type, place.mutable)
+                        let dst = self.new_slot(projected_ref)
+                        let at = self.emit_at(Op.RefField, field.line, field.col)
+                        self.code[at].dst = dst
+                        self.code[at].a = place.slot
+                        self.code[at].immediate = fi
+                        place.slot = dst
+                        place.ref_ty = projected_ref
+                    } else {
+                        place.slot += try record_field_offset(&self.records, ri, fi)
+                    }
+                    place.ty = field_type
                 },
                 case _ -> { return problem("field assignment requires a record", field.line, field.col) }
             }
@@ -946,6 +1085,9 @@ extension Compiler {
             let dot = self.take()
             self.expr_space()
             let field = try self.expect(TokenKind.Ident, "expected record field after `.`")
+            if self.at(TokenKind.LParen) {
+                return problem("method calls require a named place receiver", dot.line, dot.col)
+            }
             match value.ty {
                 case Record(ri) -> {
                     let fi = self.field_index(ri, field.value)
@@ -1087,6 +1229,14 @@ extension Compiler {
                 if ai >= self.signatures[fi].params.len() {
                     return problem("too many arguments to `{name.value}`", name.line, name.col)
                 }
+                if self.at(TokenKind.Ident) && self.pos + 1 < self.tokens.len() && self.tokens[self.pos + 1].kind == TokenKind.Colon {
+                    let label = self.take()
+                    let _ = self.take()
+                    if label.value != self.signatures[fi].param_names[ai] {
+                        return problem("argument label `{label.value}` does not match parameter `{self.signatures[fi].param_names[ai]}`", label.line, label.col)
+                    }
+                    self.expr_space()
+                }
                 let formal = self.signatures[fi].params[ai]
                 if reference_type(formal) {
                     let amp = try self.expect(TokenKind.Ampersand, "reference argument requires explicit `&`")
@@ -1111,7 +1261,7 @@ extension Compiler {
                     try self.register_borrow(&place, explicit_mutable, &amp)
                     let dst = self.new_slot(formal)
                     if place.indirect {
-                        let source = self.bindings[place.root].ty
+                        let source = place.ref_ty
                         if not reference_transfer(&self.references, source, formal) {
                             return problem("reference argument mutability does not match parameter", amp.line, amp.col)
                         }
@@ -1153,6 +1303,115 @@ extension Compiler {
         if ai != self.signatures[fi].params.len() {
             return problem("wrong number of arguments to `{name.value}`", name.line, name.col)
         }
+        let rt = self.signatures[fi].result
+        let dst = if rt == ValueType.Void { -1 } else { try self.new_value(rt) }
+        let at = self.emit_at(Op.Call, name.line, name.col)
+        self.code[at].target = fi
+        self.code[at].dst = dst
+        self.code[at].args = move args
+        self.restore_borrows(saved_borrows)
+        expr_value(rt, dst, true)
+    }
+
+    func parse_method_call(&var self, receiver: Place, name: Token,
+                           fi: Int) -> Result<ExprValue, ProtoError> {
+        let saved_borrows = self.active_borrows.len()
+        let formal_receiver = self.signatures[fi].params[0]
+        let receiver_mutable = reference_mutable(&self.references, formal_receiver)
+        if receiver_mutable && not receiver.mutable {
+            return problem("cannot call a mutating method on an immutable receiver", name.line, name.col)
+        }
+        try self.register_borrow(&receiver, receiver_mutable, &name)
+        var args = Vector<Int>()
+        let receiver_slot = self.new_slot(formal_receiver)
+        if receiver.indirect {
+            if not reference_transfer(&self.references, receiver.ref_ty, formal_receiver) {
+                return problem("receiver reference mutability does not match method", name.line, name.col)
+            }
+            let copy = self.emit_at(Op.Copy, name.line, name.col)
+            self.code[copy].dst = receiver_slot
+            self.code[copy].a = receiver.slot
+        } else {
+            let addr = self.emit_at(Op.Addr, name.line, name.col)
+            self.code[addr].dst = receiver_slot
+            self.code[addr].a = receiver.slot
+        }
+        try! args.push(receiver_slot)
+        let _ = try self.expect(TokenKind.LParen, "expected `(` after method name")
+        self.depth += 1
+        self.paren_depth += 1
+        self.skip_newlines()
+        var ai = 1
+        if not self.at(TokenKind.RParen) {
+            var more = true
+            while more {
+                if ai >= self.signatures[fi].params.len() {
+                    return problem("too many arguments to method `{name.value}`", name.line, name.col)
+                }
+                if self.at(TokenKind.Ident) && self.pos + 1 < self.tokens.len() && self.tokens[self.pos + 1].kind == TokenKind.Colon {
+                    let label = self.take()
+                    let _ = self.take()
+                    if label.value != self.signatures[fi].param_names[ai] {
+                        return problem("argument label `{label.value}` does not match parameter `{self.signatures[fi].param_names[ai]}`", label.line, label.col)
+                    }
+                    self.expr_space()
+                }
+                let formal = self.signatures[fi].params[ai]
+                if reference_type(formal) {
+                    let amp = try self.expect(TokenKind.Ampersand, "reference argument requires explicit `&`")
+                    var explicit_mutable = false
+                    if self.at(TokenKind.Var) {
+                        let _ = self.take()
+                        explicit_mutable = true
+                    }
+                    let parsed = try self.parse_place()
+                    let place = parsed.1
+                    let formal_mutable = reference_mutable(&self.references, formal)
+                    let target = try reference_target(&self.references, formal)
+                    if formal_mutable && not explicit_mutable { return problem("mutable reference argument requires `&var`", amp.line, amp.col) }
+                    if place.ty != target { return problem("reference argument type does not match parameter", amp.line, amp.col) }
+                    if explicit_mutable && not place.mutable { return problem("cannot mutably borrow an immutable place", amp.line, amp.col) }
+                    try self.register_borrow(&place, explicit_mutable, &amp)
+                    let dst = self.new_slot(formal)
+                    if place.indirect {
+                        if not reference_transfer(&self.references, place.ref_ty, formal) { return problem("reference argument mutability does not match parameter", amp.line, amp.col) }
+                        let copy = self.emit_at(Op.Copy, amp.line, amp.col)
+                        self.code[copy].dst = dst
+                        self.code[copy].a = place.slot
+                    } else {
+                        let addr = self.emit_at(Op.Addr, amp.line, amp.col)
+                        self.code[addr].dst = dst
+                        self.code[addr].a = place.slot
+                    }
+                    try! args.push(dst)
+                } else {
+                    if self.at(TokenKind.Ampersand) {
+                        let address = self.token()
+                        return problem("value parameter does not accept an address argument", address.line, address.col)
+                    }
+                    var value = try self.parse_expected_expr(formal)
+                    if value.always_returns { return problem("all-returning control flow cannot be used as an operand", name.line, name.col) }
+                    value = try self.snapshot(value, &name)
+                    let layout = try value_layout(&self.records, value.ty)
+                    var word = 0
+                    while word < layout.len() {
+                        try! args.push(value.slot + word)
+                        word += 1
+                    }
+                }
+                ai += 1
+                self.skip_newlines()
+                if self.at(TokenKind.Comma) {
+                    let _ = self.take()
+                    self.skip_newlines()
+                }
+                else { more = false }
+            }
+        }
+        let _ = try self.expect(TokenKind.RParen, "expected `)` after method arguments")
+        self.paren_depth -= 1
+        self.depth -= 1
+        if ai != self.signatures[fi].params.len() { return problem("wrong number of arguments to method `{name.value}`", name.line, name.col) }
         let rt = self.signatures[fi].result
         let dst = if rt == ValueType.Void { -1 } else { try self.new_value(rt) }
         let at = self.emit_at(Op.Call, name.line, name.col)
@@ -2240,7 +2499,9 @@ extension Compiler {
         }
         let slots = self.slots.copy()
         let code = self.code.copy()
-        FuncIR(name: self.signatures[index].name, params: self.signatures[index].params.copy(),
+        let ir_name = if self.signatures[index].owner < 0 { self.signatures[index].name }
+                      else { "{self.records[self.signatures[index].owner].name}.{self.signatures[index].name}" }
+        FuncIR(name: ir_name, params: self.signatures[index].params.copy(),
                result: self.current_result, slots: move slots, code: move code)
     }
 }
@@ -2264,7 +2525,7 @@ public func compile_source(source: String) -> Result<Program, ProtoError> {
     var main_index = -1
     var i = 0
     while i < compiler.signatures.len() {
-        if compiler.signatures[i].name == "main" { main_index = i }
+        if compiler.signatures[i].owner < 0 && compiler.signatures[i].name == "main" { main_index = i }
         let f = try compiler.compile_function(i)
         try! functions.push(move f)
         i += 1

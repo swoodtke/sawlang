@@ -86,6 +86,10 @@ func compare(a: Int, b: Int, t: ValueType, op: Op) -> Int {
     if yes { 1 } else { 0 }
 }
 
+func valid_reference(cells: &Vector<Int>, address: Int, width: Int) -> Bool {
+    address >= 0 && address <= cells.len() && width <= cells.len() - address
+}
+
 func run_function(program: &Program, function_index: Int, arguments: &Vector<Int>,
                   cells: &var Vector<Int>, remaining: &var Int,
                   depth: Int) -> Result<CallResult, ProtoError> {
@@ -114,13 +118,50 @@ func run_function(program: &Program, function_index: Int, arguments: &Vector<Int
             case Addr -> { cells[base + inst.dst] = base + inst.a },
             case LoadRef -> {
                 let address = cells[base + inst.a]
-                if address < 0 || address >= cells.len() { return runtime_error("runtime error: invalid reference") }
-                cells[base + inst.dst] = cells[address]
+                let target = try reference_target(&program.references, function.slots[inst.a])
+                let layout = try value_layout(&program.records, target)
+                if not valid_reference(&cells, address, layout.len()) { return runtime_error("runtime error: invalid reference") }
+                var values = Vector<Int>()
+                var word = 0
+                while word < layout.len() {
+                    try! values.push(cells[address + word])
+                    word += 1
+                }
+                word = 0
+                while word < values.len() {
+                    cells[base + inst.dst + word] = values[word]
+                    word += 1
+                }
             },
             case StoreRef -> {
                 let address = cells[base + inst.a]
-                if address < 0 || address >= cells.len() { return runtime_error("runtime error: invalid reference") }
-                cells[address] = cells[base + inst.b]
+                let target = try reference_target(&program.references, function.slots[inst.a])
+                let layout = try value_layout(&program.records, target)
+                if not valid_reference(&cells, address, layout.len()) { return runtime_error("runtime error: invalid reference") }
+                var values = Vector<Int>()
+                var word = 0
+                while word < layout.len() {
+                    try! values.push(cells[base + inst.b + word])
+                    word += 1
+                }
+                word = 0
+                while word < values.len() {
+                    cells[address + word] = values[word]
+                    word += 1
+                }
+            },
+            case RefField -> {
+                let address = cells[base + inst.a]
+                let parent = try reference_target(&program.references, function.slots[inst.a])
+                let layout = try value_layout(&program.records, parent)
+                if not valid_reference(&cells, address, layout.len()) { return runtime_error("runtime error: invalid reference") }
+                match parent {
+                    case Record(index) -> {
+                        let offset = try record_field_offset(&program.records, index, inst.immediate)
+                        cells[base + inst.dst] = address + offset
+                    },
+                    case _ -> { return runtime_error("runtime error: invalid reference") }
+                }
             },
             case Add -> { cells[base + inst.dst] = try checked_binary(cells[base + inst.a], cells[base + inst.b], t, inst.op) },
             case Sub -> { cells[base + inst.dst] = try checked_binary(cells[base + inst.a], cells[base + inst.b], t, inst.op) },

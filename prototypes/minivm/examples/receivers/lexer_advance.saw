@@ -1,0 +1,26 @@
+struct Lexer { position: Int, line: Int, column: Int }
+
+extension Lexer {
+    func advance(&var self, byte: Byte) {
+        self.position += 1
+        if byte == Byte(10u8) {
+            self.line += 1
+            self.column = 1
+        } else {
+            self.column += 1
+        }
+    }
+}
+
+func main() {
+    var lexer = Lexer(position: 0, line: 1, column: 1)
+    lexer.advance(byte: Byte(65u8))
+    print(lexer.position)
+    print(lexer.column)
+    lexer.advance(byte: Byte(10u8))
+    print(lexer.line)
+    lexer.advance(byte: Byte(66u8))
+    print(lexer.position)
+    print(lexer.line)
+    print(lexer.column)
+}

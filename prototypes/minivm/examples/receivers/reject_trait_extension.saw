@@ -1,0 +1,5 @@
+struct Counter { value: Int }
+extension Counter: Display {
+    func read(&self) -> Int { self.value }
+}
+func main() {}
