@@ -1,0 +1,18 @@
+func subject(present: Bool) -> String? {
+    print("subject")
+    if present { return "yes" }
+    return None
+}
+
+func choose(present: Bool) -> String {
+    if let value = subject(present) {
+        value
+    } else {
+        "fallback"
+    }
+}
+
+func main() {
+    print(choose(true))
+    print(choose(false))
+}

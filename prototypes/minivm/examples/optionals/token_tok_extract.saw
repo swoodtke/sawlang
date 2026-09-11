@@ -1,0 +1,36 @@
+enum TokenKind { case Ident }
+
+public struct Token {
+    public kind: TokenKind
+    public value: String
+    public line: Int
+    public col: Int
+    public suffix: String?
+}
+
+struct Lexer {
+    src: String
+    slen: Int
+    pos: Int
+    line: Int
+    col: Int
+}
+
+extension Lexer {
+    func tok(&self, kind: TokenKind, value: String) -> Token {
+        Token(kind: kind, value: value, line: self.line, col: self.col, suffix: None)
+    }
+}
+
+func main() {
+    let lexer = Lexer(src: "word", slen: 4, pos: 0, line: 4, col: 9)
+    let token = lexer.tok(TokenKind.Ident, "word")
+    print(token.value)
+    print(token.line)
+    print(token.col)
+    if let suffix = token.suffix {
+        print(suffix)
+    } else {
+        print("none")
+    }
+}

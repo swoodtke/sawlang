@@ -19,7 +19,9 @@ outstanding. M8 adds owned String literals/locals/parameters/results/references,
 byte length/access, equality and substring with explicit copy/drop rules (277
 total cases). M9 adds String-valued records and String-pattern match (288 cases),
 including unchanged keyword/suffix classification and the actual String-backed
-Lexer.advance. Next are Optional/Result payloads and collections. The lexer has
+Lexer.advance. M10 adds Optional payloads, contextual None/wrapping and value
+conditional binding, including the unchanged Token/tok extraction (307 cases).
+Next are Result control flow, checked unsigned parsing and collections. The lexer has
 no imports, so its first whole-file test can combine the unchanged library with
 a small wrapper without implementing general module loading.
 The dependency groups below are an inventory, not the implementation commit order;

@@ -57,7 +57,7 @@ func base_program() -> Program {
     var funcs = Vector<FuncIR>()
     try! funcs.push(FuncIR(name: "main", params: Vector<ValueType>(), result: ValueType.Void,
         slots: move slots, code: move code))
-    Program(strings: Vector<String>(), references: move refs, enums: Vector<EnumIR>(), records: move records,
+    Program(strings: Vector<String>(), references: move refs, enums: Vector<EnumIR>(), records: move records, sums: Vector<SumIR>(),
         functions: move funcs, main_index: 0)
 }
 
@@ -85,8 +85,8 @@ func main() {
     let p = base_program()
     assert(valid(&p), "nested projection, whole record access and qualification")
     try! execute(&p, 1000)
-    assert((try! value_layout(&p.records, ValueType.Record(1))).len() == 3, "flattened outer layout")
-    assert((try! record_field_offset(&p.records, 1, 1)) == 1, "nested record field offset")
+    assert((try! value_layout(&p.records, &p.sums, ValueType.Record(1))).len() == 3, "flattened outer layout")
+    assert((try! record_field_offset(&p.records, &p.sums, 1, 1)) == 1, "nested record field offset")
     assert(rejected(&p, 5, Op.RefField, 5, 3, -1, -1), "negative field index")
     assert(rejected(&p, 5, Op.RefField, 5, 3, -1, 2), "high field index")
     assert(rejected(&p, 5, Op.RefField, 7, 3, -1, 1), "field target must match")

@@ -69,6 +69,7 @@ func base_program() -> Program {
     try! funcs.push(FuncIR(name: "echo", params: move params, result: ValueType.Record(0),
         slots: move echo_slots, code: move echo_code))
     Program(strings: move strings, references: move refs, enums: Vector<EnumIR>(),
+            sums: Vector<SumIR>(),
         records: move records, functions: move funcs, main_index: 0)
 }
 
@@ -80,7 +81,7 @@ func main() {
         print(try! llvm.emit_llvm(&p))
         return
     }
-    let layout = try! value_layout(&p.records, ValueType.Record(0))
+    let layout = try! value_layout(&p.records, &p.sums, ValueType.Record(0))
     assert(layout.len() == 2 && layout[0] == ValueType.String && layout[1] == ValueType.String,
         "owning record layout preserves String leaves")
     var bad_range = p.copy()

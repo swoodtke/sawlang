@@ -1,0 +1,21 @@
+func early(flag: Bool) -> String {
+    let value: String? = "owned"
+    if let text = value {
+        if flag { return "early" }
+        return text
+    }
+    return "none"
+}
+
+func main() {
+    print(early(true))
+    var index = 0
+    var last = "start"
+    while index < 200 {
+        let value: String? = if index % 2 == 0 { "even" } else { "odd" }
+        if let text = value { last = text }
+        index += 1
+    }
+    print(last)
+    print(index - 1)
+}

@@ -175,7 +175,7 @@ func run_function(program: &Program, function_index: Int, arguments: &Vector<Int
             case LoadRef -> {
                 let address = cells[base + inst.a]
                 let target = try reference_target(&program.references, function.slots[inst.a])
-                let layout = try value_layout(&program.records, target)
+                let layout = try value_layout(&program.records, &program.sums, target)
                 if not valid_reference(&cells, address, layout.len()) { return runtime_error("runtime error: invalid reference") }
                 var values = Vector<Int>()
                 var word = 0
@@ -199,7 +199,7 @@ func run_function(program: &Program, function_index: Int, arguments: &Vector<Int
             case StoreRef -> {
                 let address = cells[base + inst.a]
                 let target = try reference_target(&program.references, function.slots[inst.a])
-                let layout = try value_layout(&program.records, target)
+                let layout = try value_layout(&program.records, &program.sums, target)
                 if not valid_reference(&cells, address, layout.len()) { return runtime_error("runtime error: invalid reference") }
                 var values = Vector<Int>()
                 var word = 0
@@ -223,11 +223,11 @@ func run_function(program: &Program, function_index: Int, arguments: &Vector<Int
             case RefField -> {
                 let address = cells[base + inst.a]
                 let parent = try reference_target(&program.references, function.slots[inst.a])
-                let layout = try value_layout(&program.records, parent)
+                let layout = try value_layout(&program.records, &program.sums, parent)
                 if not valid_reference(&cells, address, layout.len()) { return runtime_error("runtime error: invalid reference") }
                 match parent {
                     case Record(index) -> {
-                        let offset = try record_field_offset(&program.records, index, inst.immediate)
+                        let offset = try record_field_offset(&program.records, &program.sums, index, inst.immediate)
                         cells[base + inst.dst] = address + offset
                     },
                     case _ -> { return runtime_error("runtime error: invalid reference") }
@@ -335,7 +335,7 @@ func run_function(program: &Program, function_index: Int, arguments: &Vector<Int
             },
             case Return -> {
                 var values = Vector<Int>()
-                let layout = try value_layout(&program.records, function.result)
+                let layout = try value_layout(&program.records, &program.sums, function.result)
                 var result_index = 0
                 while result_index < layout.len() {
                     if string_type(layout[result_index]) { try string_retain(&var heap, cells[base + inst.a + result_index]) }

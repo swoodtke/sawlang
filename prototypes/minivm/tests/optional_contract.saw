@@ -1,0 +1,114 @@
+import src.model.*
+import src.verify.*
+import src.vm.*
+import src.llvm
+import std.env.{Env}
+
+func valid(p: &Program) -> Bool {
+    try verify(&p) catch { return false }
+    true
+}
+
+func op(code: &var Vector<Instruction>, kind: Op, dst: Int, a: Int, immediate: Int) {
+    var i = instruction(kind)
+    i.dst = dst
+    i.a = a
+    i.immediate = immediate
+    try! code.push(move i)
+}
+
+func base_program() -> Program {
+    var sums = Vector<SumIR>()
+    try! sums.push(SumIR(kind: SumKind.Optional, payload: ValueType.String, error: ValueType.Void))
+    try! sums.push(SumIR(kind: SumKind.Optional, payload: ValueType.Optional(0), error: ValueType.Void))
+    try! sums.push(SumIR(kind: SumKind.Result, payload: ValueType.Void, error: ValueType.String))
+    let names: Vector<String> = ["nested", "number"]
+    let fields: Vector<ValueType> = [ValueType.Optional(1), ValueType.I64]
+    var records = Vector<RecordIR>()
+    try! records.push(RecordIR(name: "Container", field_names: move names,
+        field_types: move fields, line: 1, col: 1))
+    var references = Vector<ReferenceIR>()
+    try! references.push(ReferenceIR(target: ValueType.Optional(0), mutable: true))
+    let slots: Vector<ValueType> = [ValueType.Bool, ValueType.String, ValueType.Bool, ValueType.String]
+    var code = Vector<Instruction>()
+    op(&var code, Op.Const, 0, -1, 0)
+    // Inactive owning words are real nulls, so clearing a freshly initialized None is safe.
+    op(&var code, Op.Drop, -1, 1, 0)
+    op(&var code, Op.StringConst, 1, -1, 0)
+    op(&var code, Op.Const, 0, -1, 1)
+    var call = instruction(Op.Call)
+    call.dst = 2
+    call.target = 1
+    try! call.args.push(0)
+    try! call.args.push(1)
+    try! code.push(move call)
+    op(&var code, Op.Print, -1, 3, 0)
+    op(&var code, Op.Drop, -1, 1, 0)
+    op(&var code, Op.Drop, -1, 3, 0)
+    op(&var code, Op.Return, -1, -1, 0)
+    var functions = Vector<FuncIR>()
+    try! functions.push(FuncIR(name: "main", params: Vector<ValueType>(), result: ValueType.Void,
+        slots: move slots, code: move code))
+    let echo_params: Vector<ValueType> = [ValueType.Optional(0)]
+    let echo_slots: Vector<ValueType> = [ValueType.Bool, ValueType.String]
+    var echo_code = Vector<Instruction>()
+    op(&var echo_code, Op.Return, -1, 0, 0)
+    try! functions.push(FuncIR(name: "echo", params: move echo_params, result: ValueType.Optional(0),
+        slots: move echo_slots, code: move echo_code))
+    let strings: Vector<String> = ["some"]
+    Program(strings: move strings, references: move references, enums: Vector<EnumIR>(),
+        records: move records, sums: move sums, functions: move functions, main_index: 0)
+}
+
+func main() {
+    let p = base_program()
+    assert(valid(&p), "valid nested optional, Result<Void, String>, record, and reference")
+    let optional = try! value_layout(&p.records, &p.sums, ValueType.Optional(0))
+    assert(optional.len() == 2 && optional[0] == ValueType.Bool && optional[1] == ValueType.String,
+        "optional tag and payload layout")
+    let nested = try! value_layout(&p.records, &p.sums, ValueType.Optional(1))
+    assert(nested.len() == 3 && nested[0] == ValueType.Bool && nested[1] == ValueType.Bool && nested[2] == ValueType.String,
+        "nested optional layout")
+    let result = try! value_layout(&p.records, &p.sums, ValueType.Result(2))
+    assert(result.len() == 2 && result[0] == ValueType.Bool && result[1] == ValueType.String,
+        "Void success contributes no Result payload words")
+    let record = try! value_layout(&p.records, &p.sums, ValueType.Record(0))
+    assert(record.len() == 4 && record[3] == ValueType.I64, "optional record field layout")
+
+    var bad_index = p.copy()
+    bad_index.references[0].target = ValueType.Optional(99)
+    assert(not valid(&bad_index), "invalid sum index")
+    var bad_kind = p.copy()
+    bad_kind.references[0].target = ValueType.Optional(2)
+    assert(not valid(&bad_kind), "descriptor kind mismatch")
+    var bad_unused_type = p.copy()
+    bad_unused_type.sums[0].payload = ValueType.Enum(99)
+    assert(not valid(&bad_unused_type), "unused sum descriptor types are checked")
+    var bad_optional_void = p.copy()
+    bad_optional_void.sums[0].payload = ValueType.Void
+    assert(not valid(&bad_optional_void), "Optional Void payload")
+    var bad_optional_ref = p.copy()
+    bad_optional_ref.sums[0].payload = ValueType.Ref(0)
+    assert(not valid(&bad_optional_ref), "Optional reference payload")
+    var bad_optional_error = p.copy()
+    bad_optional_error.sums[0].error = ValueType.I64
+    assert(not valid(&bad_optional_error), "Optional descriptor error is Void")
+    var bad_result_error = p.copy()
+    bad_result_error.sums[2].error = ValueType.Void
+    assert(not valid(&bad_result_error), "Result error cannot be Void")
+    var bad_sum_cycle = p.copy()
+    bad_sum_cycle.sums[0].payload = ValueType.Optional(0)
+    assert(not valid(&bad_sum_cycle), "direct sum cycle")
+    var bad_cross_cycle = p.copy()
+    bad_cross_cycle.sums[0].payload = ValueType.Record(0)
+    bad_cross_cycle.records[0].field_types.set(0, ValueType.Optional(0))
+    assert(not valid(&bad_cross_cycle), "record and sum cycle")
+
+    let args = try! Env.args()
+    if args.len() == 2 && args[1] == "emit-llvm" {
+        print(try! llvm.emit_llvm(&p))
+        return
+    }
+    try! execute(&p, 100)
+    print("optional contract passed")
+}

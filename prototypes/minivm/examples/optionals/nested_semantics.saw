@@ -1,0 +1,41 @@
+func main() {
+    let absent: Int?? = (None)
+    if let inner = absent {
+        print("wrong")
+    } else {
+        print("outer-none")
+    }
+
+    let inner_none: Int? = None
+    let wrapped: Int?? = inner_none
+    if let inner = wrapped {
+        if let value = inner {
+            print(value)
+        } else {
+            print("inner-none")
+        }
+    }
+
+    let present: Int?? = 9
+    if let inner = present {
+        if let value = inner { print(value) }
+    }
+
+    let branch: Int?? = if false {
+        None
+    } else {
+        if true { inner_none } else { None }
+    }
+    if let inner = branch {
+        if let value = inner {
+            print(value)
+        } else {
+            print("branch-inner-none")
+        }
+    }
+
+    let parenthesized: Int? = (7)
+    if let value = parenthesized { print(value) }
+    let maximum: UInt? = (18_446_744_073_709_551_615)
+    if let value = maximum { print(value) }
+}

@@ -55,7 +55,7 @@ func base_program() -> Program {
         slots: move slots, code: move code))
     try! funcs.push(FuncIR(name: "read", params: move read_params, result: ValueType.I64,
         slots: move read_slots, code: move read_code))
-    Program(strings: Vector<String>(), references: move refs, enums: move enums, records: Vector<RecordIR>(),
+    Program(strings: Vector<String>(), references: move refs, enums: move enums, records: Vector<RecordIR>(), sums: Vector<SumIR>(),
         functions: move funcs, main_index: 0)
 }
 
@@ -89,7 +89,7 @@ func main() {
     assert(not scalar_type(ValueType.Ref(0)), "reference is not scalar data")
     assert(not printable_type(ValueType.Ref(0)), "reference is not printable")
     assert(not integer_type(ValueType.Ref(0)), "reference is not an integer")
-    assert((try! value_layout(&p.records, ValueType.Ref(0))).len() == 1, "reference word layout")
+    assert((try! value_layout(&p.records, &p.sums, ValueType.Ref(0))).len() == 1, "reference word layout")
     assert(reference_transfer(&p.references, ValueType.Ref(0), ValueType.Ref(1)), "weaken mutability")
     assert(not reference_transfer(&p.references, ValueType.Ref(1), ValueType.Ref(0)), "cannot strengthen")
     assert(not reference_transfer(&p.references, ValueType.Ref(0), ValueType.Ref(2)), "same referent required")

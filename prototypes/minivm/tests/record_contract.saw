@@ -12,7 +12,8 @@ func pair_record() -> RecordIR {
 }
 
 func layout_fails(records: &Vector<RecordIR>, ty: ValueType) -> Bool {
-    let _ = try value_layout(&records, ty) catch { return true }
+    let sums = Vector<SumIR>()
+    let _ = try value_layout(&records, &sums, ty) catch { return true }
     false
 }
 
@@ -46,7 +47,7 @@ func call_program(records: &Vector<RecordIR>) -> Program {
         slots: slots.copy(), code: move main_code))
     try! functions.push(FuncIR(name: "identity", params: move params, result: ValueType.Record(0),
         slots: move slots, code: move callee_code))
-    Program(strings: Vector<String>(), references: Vector<ReferenceIR>(), enums: Vector<EnumIR>(), records: records.copy(), functions: move functions, main_index: 0)
+    Program(strings: Vector<String>(), references: Vector<ReferenceIR>(), enums: Vector<EnumIR>(), records: records.copy(), sums: Vector<SumIR>(), functions: move functions, main_index: 0)
 }
 
 func main() {
@@ -61,12 +62,13 @@ func main() {
     try! types.push(ValueType.Record(0))
     try! types.push(ValueType.I16)
     try! records.push(RecordIR(name: "Outer", field_names: move names, field_types: move types, line: 2, col: 1))
-    try! validate_records(&records)
-    let layout = try! value_layout(&records, ValueType.Record(1))
+    let sums = Vector<SumIR>()
+    try! validate_records(&records, &sums)
+    let layout = try! value_layout(&records, &sums, ValueType.Record(1))
     assert(layout.len() == 4, "nested width")
     assert(layout[0] == ValueType.Bool && layout[1] == ValueType.U8 && layout[2] == ValueType.I64 && layout[3] == ValueType.I16, "nested types")
-    assert((try! record_field_offset(&records, 1, 1)) == 1, "nested offset")
-    assert((try! record_field_offset(&records, 1, 2)) == 3, "following field offset")
+    assert((try! record_field_offset(&records, &sums, 1, 1)) == 1, "nested offset")
+    assert((try! record_field_offset(&records, &sums, 1, 2)) == 3, "following field offset")
     assert(layout_fails(&records, ValueType.Record(-1)), "negative record index")
     assert(layout_fails(&records, ValueType.Record(2)), "large record index")
     var cyclic = records.copy()
@@ -89,7 +91,7 @@ func main() {
     }
     var wide_records = Vector<RecordIR>()
     try! wide_records.push(move wide)
-    assert((try! value_layout(&wide_records, ValueType.Record(0))).len() == 256, "exact width limit")
+    assert((try! value_layout(&wide_records, &sums, ValueType.Record(0))).len() == 256, "exact width limit")
     try! wide_records[0].field_names.push("extra")
     try! wide_records[0].field_types.push(ValueType.I64)
     assert(layout_fails(&wide_records, ValueType.Record(0)), "over width limit")

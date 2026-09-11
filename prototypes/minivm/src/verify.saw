@@ -20,6 +20,14 @@ func check_type(p: &Program, t: ValueType) -> Result<Void, ProtoError> {
         case Ref(index) -> {
             if index < 0 || index >= p.references.len() { return problem("internal prototype error: invalid reference type index", 0, 0) }
         },
+        case Optional(index) -> {
+            if index < 0 || index >= p.sums.len() { return problem("internal prototype error: invalid optional type index", 0, 0) }
+            if p.sums[index].kind != SumKind.Optional { return problem("internal prototype error: optional type has mismatched descriptor kind", 0, 0) }
+        },
+        case Result(index) -> {
+            if index < 0 || index >= p.sums.len() { return problem("internal prototype error: invalid result type index", 0, 0) }
+            if p.sums[index].kind != SumKind.Result { return problem("internal prototype error: result type has mismatched descriptor kind", 0, 0) }
+        },
         case _ -> {}
     }
     return
@@ -29,6 +37,12 @@ func check_declared_types(p: &Program) -> Result<Void, ProtoError> {
     var n = 0
     while n < p.references.len() {
         try check_type(&p, p.references[n].target)
+        n += 1
+    }
+    n = 0
+    while n < p.sums.len() {
+        try check_type(&p, p.sums[n].payload)
+        try check_type(&p, p.sums[n].error)
         n += 1
     }
     n = 0
@@ -71,7 +85,7 @@ func parameter_layout(p: &Program, f: &FuncIR) -> Result<Vector<ValueType>, Prot
     var n = 0
     while n < f.params.len() {
         if f.params[n] == ValueType.Void { return problem("internal prototype error: Void parameter", 0, 0) }
-        let layout = try value_layout(&p.records, f.params[n])
+        let layout = try value_layout(&p.records, &p.sums, f.params[n])
         var word = 0
         while word < layout.len() {
             try! words.push(layout[word])
@@ -132,19 +146,19 @@ func check_instruction(p: &Program, f: &FuncIR, i: &Instruction) -> Result<Void,
         case Addr -> {
             if not reference_type(dst) { return invalid(&i) }
             let target = try reference_target(&p.references, dst)
-            let layout = try value_layout(&p.records, target)
+            let layout = try value_layout(&p.records, &p.sums, target)
             if not range_matches(&f, i.a, &layout) { return invalid(&i) }
         },
         case LoadRef -> {
             if not reference_type(a) { return invalid(&i) }
             let target = try reference_target(&p.references, a)
-            let layout = try value_layout(&p.records, target)
+            let layout = try value_layout(&p.records, &p.sums, target)
             if not range_matches(&f, i.dst, &layout) { return invalid(&i) }
         },
         case StoreRef -> {
             if not reference_mutable(&p.references, a) { return invalid(&i) }
             let target = try reference_target(&p.references, a)
-            let layout = try value_layout(&p.records, target)
+            let layout = try value_layout(&p.records, &p.sums, target)
             if not range_matches(&f, i.b, &layout) { return invalid(&i) }
         },
         case RefField -> {
@@ -204,7 +218,7 @@ func check_instruction(p: &Program, f: &FuncIR, i: &Instruction) -> Result<Void,
             if callee.result == ValueType.Void {
                 if i.dst != -1 { return invalid(&i) }
             } else {
-                let result = try value_layout(&p.records, callee.result)
+                let result = try value_layout(&p.records, &p.sums, callee.result)
                 if not range_matches(&f, i.dst, &result) { return invalid(&i) }
             }
             var n = 0
@@ -220,7 +234,7 @@ func check_instruction(p: &Program, f: &FuncIR, i: &Instruction) -> Result<Void,
             if f.result == ValueType.Void {
                 if i.a != -1 { return invalid(&i) }
             } else {
-                let result = try value_layout(&p.records, f.result)
+                let result = try value_layout(&p.records, &p.sums, f.result)
                 if not range_matches(&f, i.a, &result) { return invalid(&i) }
             }
         }
@@ -235,7 +249,7 @@ func check_binary(i: &Instruction, dst: ValueType, a: ValueType, b: ValueType) -
 
 func check_function(p: &Program, f: &FuncIR) -> Result<Void, ProtoError> {
     let params = try parameter_layout(&p, &f)
-    let _ = try value_layout(&p.records, f.result)
+    let _ = try value_layout(&p.records, &p.sums, f.result)
     if f.code.len() == 0 || f.slots.len() < params.len() {
         return problem("internal prototype error: invalid function", 0, 0)
     }
@@ -275,7 +289,8 @@ public func verify(program: &Program) -> Result<Void, ProtoError> {
     try validate_enums(&program.enums)
     try validate_references(&program.references)
     try check_declared_types(&program)
-    try validate_records(&program.records)
+    try validate_sums(&program.records, &program.sums)
+    try validate_records(&program.records, &program.sums)
     if program.main_index < 0 || program.main_index >= program.functions.len() {
         return problem("internal prototype error: missing main", 0, 0)
     }

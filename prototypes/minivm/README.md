@@ -99,6 +99,12 @@ aggregate calls/returns. String matches support literal patterns and a required
 final wildcard, comparing decoded bytes and snapshotting the subject before
 arm execution. See [M9_OWNING_RECORDS_MATCH.md](M9_OWNING_RECORDS_MATCH.md).
 
+Optional values support postfix `T?` and nested `T??`, contextual `None` and
+implicit payload wrapping, including String-owning record fields. Statement
+and value `if let` / `if var` evaluate once and bind copied payloads in the then
+scope. Coalescing, chaining and force unwrap remain unsupported. See
+[M10_OPTIONALS.md](M10_OPTIONALS.md).
+
 The VM defaults to a shared budget of 1,000,000 instructions and a maximum call
 depth of 128. Override the budget with `run FILE --budget N`. These limits apply
 only to VM execution; native code uses the host call stack and has no budget.
@@ -111,17 +117,19 @@ python prototypes/minivm/test_minivm.py --binary .build/minivm/minivm
 
 The harness compares VM execution and clang-compiled IR with explicit expected
 outputs and statuses, checks rejected programs, and exercises VM limits. It
-uses temporary files and 30-second subprocess timeouts. The first nine milestones
-cover 288 cases, including native execution at both `-O0` and `-O2`.
+uses temporary files and 30-second subprocess timeouts. The first ten milestones
+cover 307 cases, including native execution at both `-O0` and `-O2`.
 
 Independent representation checks live in `tests/numeric_contract.saw`,
 `tests/record_contract.saw`, `tests/enum_contract.saw`,
 `tests/reference_contract.saw`, `tests/receiver_contract.saw`, and
-`tests/string_contract.saw` and `tests/owning_record_contract.saw`; build and run them
+`tests/string_contract.saw`, `tests/owning_record_contract.saw`, and
+`tests/optional_contract.saw`; build and run them
 with the Python compiler.
 Use `--section numbers`, `--section records`, `--section control`, or
 `--section enums`, `--section values`, `--section references`, or
-`--section receivers`, `--section strings` or `--section owning_records` for an isolated
+`--section receivers`, `--section strings`, `--section owning_records` or
+`--section optionals` for an isolated
 integration gate.
 
 See [DESIGN.md](DESIGN.md) and [M1_NUMBERS.md](M1_NUMBERS.md) for the instruction

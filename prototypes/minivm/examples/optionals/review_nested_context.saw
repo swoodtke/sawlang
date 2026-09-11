@@ -1,0 +1,23 @@
+struct OptionalHolder { value: String? }
+func choose(flag: Bool) -> String? {
+    if flag { (None) } else { ("chosen") }
+}
+func set(box: &var OptionalHolder, value: String?) { box.value = value }
+func echo(value: String??) -> String?? { value }
+func main() {
+    var box = OptionalHolder(value: (None))
+    set(&var box, choose(false))
+    if let held = box.value {
+        set(&var box, None)
+        print(held)
+    }
+    let inner: String? = None
+    let outer: String?? = echo(inner)
+    if let nested = outer {
+        if let text = nested { print(text) } else { print("some-none") }
+    } else { print("wrong-outer-none") }
+    let result: String? = if let item = choose(false) {
+        if item == "chosen" { None } else { item }
+    } else { "fallback" }
+    if let text = result { print(text) } else { print("nested-none") }
+}

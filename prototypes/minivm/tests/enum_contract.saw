@@ -67,7 +67,7 @@ func base_program() -> Program {
     try! functions.push(FuncIR(name: "identity", params: move identity_params,
         result: ValueType.Enum(0), slots: move identity_slots,
         code: move identity_code))
-    Program(strings: Vector<String>(), references: Vector<ReferenceIR>(), enums: move enums, records: move records,
+    Program(strings: Vector<String>(), references: Vector<ReferenceIR>(), enums: move enums, records: move records, sums: Vector<SumIR>(),
             functions: move functions, main_index: 0)
 }
 
@@ -77,7 +77,7 @@ func main() {
     assert(scalar_type(ValueType.Enum(0)), "enum is scalar")
     assert(not integer_type(ValueType.Enum(0)), "enum is not integer")
     assert(not printable_type(ValueType.Enum(0)), "enum is not printable")
-    let record_layout = try! value_layout(&program.records, ValueType.Record(0))
+    let record_layout = try! value_layout(&program.records, &program.sums, ValueType.Record(0))
     assert(record_layout.len() == 2 && record_layout[0] == ValueType.Enum(0) &&
            record_layout[1] == ValueType.I32, "record preserves enum field type")
 

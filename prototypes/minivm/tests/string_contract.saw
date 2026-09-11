@@ -52,7 +52,7 @@ func base_program() -> Program {
         slots: move slots, code: move code))
     try! funcs.push(FuncIR(name: "echo", params: move params, result: ValueType.String,
         slots: move echo_slots, code: move echo_code))
-    Program(strings: move strings, references: move refs, enums: Vector<EnumIR>(),
+    Program(strings: move strings, references: move refs, enums: Vector<EnumIR>(), sums: Vector<SumIR>(),
         records: Vector<RecordIR>(), functions: move funcs, main_index: 0)
 }
 
@@ -73,7 +73,7 @@ func main() {
     try! execute(&p, 1000)
     assert(not scalar_type(ValueType.String), "owning String is not scalar data")
     assert(printable_type(ValueType.String), "String is printable")
-    assert((try! value_layout(&p.records, ValueType.String)).len() == 1, "String logical word")
+    assert((try! value_layout(&p.records, &p.sums, ValueType.String)).len() == 1, "String logical word")
     assert(rejected(&p, 0, Op.StringConst, 0, -1, -1, -1), "negative pool index")
     assert(rejected(&p, 0, Op.StringConst, 0, -1, -1, 2), "high pool index")
     assert(rejected(&p, 0, Op.StringConst, 2, -1, -1, 0), "StringConst destination")

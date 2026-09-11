@@ -1,0 +1,9 @@
+func main() {
+    let value: Int? = 1
+    let result = if let inner = value {
+        print(inner)
+    } else {
+        0
+    }
+    print(result)
+}

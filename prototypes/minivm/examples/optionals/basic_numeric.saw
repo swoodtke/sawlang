@@ -1,0 +1,12 @@
+func main() {
+    var number: Int? = 7
+    if let value = number { print(value) }
+    number = None
+    if let value = number {
+        print(value)
+    } else {
+        print("none")
+    }
+    let byte: UInt8? = 255
+    if let value = byte { print(value) }
+}

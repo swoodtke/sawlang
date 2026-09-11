@@ -1,7 +1,8 @@
 public enum ValueType {
     case I8, case I16, case I32, case I64,
     case U8, case U16, case U32, case U64, case Byte,
-    case Bool, case Void, case String, case Record(index: Int), case Enum(index: Int), case Ref(index: Int)
+    case Bool, case Void, case String, case Record(index: Int), case Enum(index: Int), case Ref(index: Int),
+    case Optional(index: Int), case Result(index: Int)
 }
 @synthesize
 extension ValueType: Equatable {}
@@ -116,11 +117,24 @@ public struct EnumIR {
 @synthesize
 extension EnumIR: ExplicitCopy {}
 
+public enum SumKind { case Optional, case Result }
+@synthesize
+extension SumKind: Equatable {}
+
+public struct SumIR {
+    public kind: SumKind
+    public payload: ValueType
+    public error: ValueType
+}
+@synthesize
+extension SumIR: ExplicitCopy {}
+
 public struct Program {
     public strings: Vector<String>
     public references: Vector<ReferenceIR>
     public enums: Vector<EnumIR>
     public records: Vector<RecordIR>
+    public sums: Vector<SumIR>
     public functions: Vector<FuncIR>
     public main_index: Int
 }
@@ -187,6 +201,47 @@ public func reference_type(t: ValueType) -> Bool {
     }
 }
 
+public func optional_type(t: ValueType) -> Bool {
+    match t { case Optional(_) -> true, case _ -> false }
+}
+
+public func result_type(t: ValueType) -> Bool {
+    match t { case Result(_) -> true, case _ -> false }
+}
+
+public func optional_payload(sums: &Vector<SumIR>, t: ValueType) -> Result<ValueType, ProtoError> {
+    match t {
+        case Optional(index) -> {
+            if index < 0 || index >= sums.len() { return problem("invalid optional type index", 0, 0) }
+            if sums[index].kind != SumKind.Optional { return problem("optional type has mismatched descriptor kind", 0, 0) }
+            return sums[index].payload
+        },
+        case _ -> { return problem("expected optional type", 0, 0) }
+    }
+}
+
+public func result_payload(sums: &Vector<SumIR>, t: ValueType) -> Result<ValueType, ProtoError> {
+    match t {
+        case Result(index) -> {
+            if index < 0 || index >= sums.len() { return problem("invalid result type index", 0, 0) }
+            if sums[index].kind != SumKind.Result { return problem("result type has mismatched descriptor kind", 0, 0) }
+            return sums[index].payload
+        },
+        case _ -> { return problem("expected result type", 0, 0) }
+    }
+}
+
+public func result_error(sums: &Vector<SumIR>, t: ValueType) -> Result<ValueType, ProtoError> {
+    match t {
+        case Result(index) -> {
+            if index < 0 || index >= sums.len() { return problem("invalid result type index", 0, 0) }
+            if sums[index].kind != SumKind.Result { return problem("result type has mismatched descriptor kind", 0, 0) }
+            return sums[index].error
+        },
+        case _ -> { return problem("expected result type", 0, 0) }
+    }
+}
+
 public func reference_target(refs: &Vector<ReferenceIR>, t: ValueType) -> Result<ValueType, ProtoError> {
     match t {
         case Ref(index) -> {
@@ -219,6 +274,8 @@ public func validate_references(refs: &Vector<ReferenceIR>) -> Result<Void, Prot
         if not scalar_type(refs[n].target) && not string_type(refs[n].target) {
             match refs[n].target {
                 case Record(_) -> {},
+                case Optional(_) -> {},
+                case Result(_) -> {},
                 case _ -> { return problem("reference target must be a data type", 0, 0) }
             }
         }
@@ -251,8 +308,9 @@ public func validate_enums(enums: &Vector<EnumIR>) -> Result<Void, ProtoError> {
     return
 }
 
-func append_layout(records: &Vector<RecordIR>, t: ValueType,
-                   path: &var Vector<Int>, words: &var Vector<ValueType>) -> Result<Void, ProtoError> {
+func append_layout(records: &Vector<RecordIR>, sums: &Vector<SumIR>, t: ValueType,
+                   record_path: &var Vector<Int>, sum_path: &var Vector<Int>, depth: Int,
+                   words: &var Vector<ValueType>) -> Result<Void, ProtoError> {
     if scalar_type(t) || string_type(t) {
         if words.len() >= 256 { return problem("record layout exceeds 256 words", 0, 0) }
         try! words.push(t)
@@ -266,21 +324,58 @@ func append_layout(records: &Vector<RecordIR>, t: ValueType,
                 return problem("record must have matching nonempty fields", record.line, record.col)
             }
             var n = 0
-            while n < path.len() {
-                if path[n] == index { return problem("recursive by-value record", record.line, record.col) }
+            while n < record_path.len() {
+                if record_path[n] == index { return problem("recursive by-value record", record.line, record.col) }
                 n += 1
             }
-            if path.len() >= 128 { return problem("record nesting exceeds 128 levels", record.line, record.col) }
-            try! path.push(index)
+            if depth >= 128 { return problem("record nesting exceeds 128 levels", record.line, record.col) }
+            try! record_path.push(index)
             n = 0
             while n < record.field_types.len() {
-                try append_layout(&records, record.field_types[n], &var path, &var words) catch {
+                try append_layout(&records, &sums, record.field_types[n], &var record_path, &var sum_path, depth + 1, &var words) catch {
                     if error.line == 0 { return problem(error.message, record.line, record.col) }
                     return error
                 }
                 n += 1
             }
-            let _ = path.pop()
+            let _ = record_path.pop()
+            return
+        },
+        case Optional(index) -> {
+            let payload = try optional_payload(&sums, t)
+            if payload == ValueType.Void || reference_type(payload) { return problem("optional payload must be a data type", 0, 0) }
+            if sums[index].error != ValueType.Void { return problem("optional descriptor error must be Void", 0, 0) }
+            var n = 0
+            while n < sum_path.len() {
+                if sum_path[n] == index { return problem("recursive aggregate type", 0, 0) }
+                n += 1
+            }
+            if depth >= 128 { return problem("aggregate nesting exceeds 128 levels", 0, 0) }
+            try! sum_path.push(index)
+            try append_layout(&records, &sums, ValueType.Bool, &var record_path, &var sum_path, depth + 1, &var words)
+            try append_layout(&records, &sums, payload, &var record_path, &var sum_path, depth + 1, &var words)
+            let _ = sum_path.pop()
+            return
+        },
+        case Result(index) -> {
+            let payload = try result_payload(&sums, t)
+            let error_type = try result_error(&sums, t)
+            if reference_type(payload) || error_type == ValueType.Void || reference_type(error_type) {
+                return problem("result alternatives must be data types", 0, 0)
+            }
+            var n = 0
+            while n < sum_path.len() {
+                if sum_path[n] == index { return problem("recursive aggregate type", 0, 0) }
+                n += 1
+            }
+            if depth >= 128 { return problem("aggregate nesting exceeds 128 levels", 0, 0) }
+            try! sum_path.push(index)
+            try append_layout(&records, &sums, ValueType.Bool, &var record_path, &var sum_path, depth + 1, &var words)
+            if payload != ValueType.Void {
+                try append_layout(&records, &sums, payload, &var record_path, &var sum_path, depth + 1, &var words)
+            }
+            try append_layout(&records, &sums, error_type, &var record_path, &var sum_path, depth + 1, &var words)
+            let _ = sum_path.pop()
             return
         },
         case Ref(_) -> { return problem("reference record fields are not supported", 0, 0) },
@@ -288,20 +383,21 @@ func append_layout(records: &Vector<RecordIR>, t: ValueType,
     }
 }
 
-public func value_layout(records: &Vector<RecordIR>, t: ValueType) -> Result<Vector<ValueType>, ProtoError> {
+public func value_layout(records: &Vector<RecordIR>, sums: &Vector<SumIR>, t: ValueType) -> Result<Vector<ValueType>, ProtoError> {
     var words = Vector<ValueType>()
     if reference_type(t) || string_type(t) {
         try! words.push(t)
         return move words
     }
     if t != ValueType.Void {
-        var path = Vector<Int>()
-        try append_layout(&records, t, &var path, &var words)
+        var record_path = Vector<Int>()
+        var sum_path = Vector<Int>()
+        try append_layout(&records, &sums, t, &var record_path, &var sum_path, 0, &var words)
     }
     move words
 }
 
-public func validate_records(records: &Vector<RecordIR>) -> Result<Void, ProtoError> {
+public func validate_records(records: &Vector<RecordIR>, sums: &Vector<SumIR>) -> Result<Void, ProtoError> {
     var n = 0
     while n < records.len() {
         let record = records[n].copy()
@@ -321,15 +417,25 @@ public func validate_records(records: &Vector<RecordIR>) -> Result<Void, ProtoEr
             }
             field += 1
         }
-        let _ = try value_layout(&records, ValueType.Record(n))
+        let _ = try value_layout(&records, &sums, ValueType.Record(n))
         n += 1
     }
     return
 }
 
-public func record_field_offset(records: &Vector<RecordIR>, record_index: Int,
+public func validate_sums(records: &Vector<RecordIR>, sums: &Vector<SumIR>) -> Result<Void, ProtoError> {
+    var n = 0
+    while n < sums.len() {
+        let t = if sums[n].kind == SumKind.Optional { ValueType.Optional(n) } else { ValueType.Result(n) }
+        let _ = try value_layout(&records, &sums, t)
+        n += 1
+    }
+    return
+}
+
+public func record_field_offset(records: &Vector<RecordIR>, sums: &Vector<SumIR>, record_index: Int,
                                 field_index: Int) -> Result<Int, ProtoError> {
-    let _ = try value_layout(&records, ValueType.Record(record_index))
+    let _ = try value_layout(&records, &sums, ValueType.Record(record_index))
     let record = records[record_index].copy()
     if field_index < 0 || field_index >= record.field_types.len() {
         return problem("invalid record field index", record.line, record.col)
@@ -337,7 +443,7 @@ public func record_field_offset(records: &Vector<RecordIR>, record_index: Int,
     var offset = 0
     var n = 0
     while n < field_index {
-        let field = try value_layout(&records, record.field_types[n])
+        let field = try value_layout(&records, &sums, record.field_types[n])
         offset += field.len()
         n += 1
     }

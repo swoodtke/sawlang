@@ -1,0 +1,24 @@
+struct Holder { value: String? }
+
+func replace(value: &var String?, next: String?) { value = next }
+func show(value: &String?) {
+    if let text = value { print(text) }
+}
+
+extension Holder {
+    func set(&var self, next: String?) { self.value = next }
+    func show(&self) { show(&self.value) }
+}
+
+func main() {
+    var holder = Holder(value: "start")
+    holder.show()
+    replace(&var holder.value, "next")
+    holder.show()
+    holder.set(next: None)
+    if let text = holder.value {
+        print(text)
+    } else {
+        print("none")
+    }
+}

@@ -1,0 +1,15 @@
+func main() {
+    var source: String? = "old"
+    if let source = source {
+        print(source)
+    }
+    if let snapshot = source {
+        source = "new"
+        if let current = source { print(current) }
+        print("changed")
+        print(snapshot)
+    }
+    if var copy = source {
+        copy = "local"
+    }
+}

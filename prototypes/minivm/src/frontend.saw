@@ -63,6 +63,7 @@ struct ExprValue {
     literal_value: UInt
     literal_negative: Bool
     always_returns: Bool
+    none_literal: Bool
 }
 
 struct BlockValue {
@@ -73,7 +74,7 @@ struct BlockValue {
 
 func expr_value(ty: ValueType, slot: Int, call: Bool) -> ExprValue {
     ExprValue(ty: ty, slot: slot, call: call, literal: false,
-              literal_value: 0, literal_negative: false, always_returns: false)
+              literal_value: 0, literal_negative: false, always_returns: false, none_literal: false)
 }
 
 func returning_value() -> ExprValue {
@@ -87,7 +88,8 @@ func type_name(t: ValueType) -> String {
         case I8 -> "Int8", case I16 -> "Int16", case I32 -> "Int32", case I64 -> "Int",
         case U8 -> "UInt8", case U16 -> "UInt16", case U32 -> "UInt32", case U64 -> "UInt",
         case Byte -> "Byte", case Bool -> "Bool", case String -> "String", case Void -> "Void",
-        case Record(_) -> "record", case Enum(_) -> "enum", case Ref(_) -> "reference"
+        case Record(_) -> "record", case Enum(_) -> "enum", case Ref(_) -> "reference",
+        case Optional(_) -> "Optional", case Result(_) -> "Result"
     }
 }
 
@@ -125,6 +127,7 @@ struct Compiler {
     records: Vector<RecordIR>
     enums: Vector<EnumIR>
     references: Vector<ReferenceIR>
+    sums: Vector<SumIR>
     strings: Vector<String>
     statics: Vector<StaticBinding>
     signatures: Vector<Signature>
@@ -196,18 +199,52 @@ extension Compiler {
             var supported = scalar_type(target)
             match target { case Record(_) -> { supported = true }, case _ -> {} }
             if target == ValueType.String { supported = true }
+            match target { case Optional(_) -> { supported = true }, case _ -> {} }
             if not supported { return problem("only data references are supported", amp.line, amp.col) }
             return self.intern_reference(target, mutable)
         }
         let t = try self.expect(TokenKind.Ident, "expected type")
-        if t.value == "Bool" { return ValueType.Bool }
-        if t.value == "String" { return ValueType.String }
-        if let ty = named_integer_type(t.value) { return ty }
-        let ri = self.record_index(t.value)
-        if ri >= 0 { return ValueType.Record(ri) }
-        let ei = self.enum_index(t.value)
-        if ei >= 0 { return ValueType.Enum(ei) }
-        problem("unsupported type `{t.value}`", t.line, t.col)
+        var ty = ValueType.Void
+        if t.value == "Void" { ty = ValueType.Void }
+        else if t.value == "Bool" { ty = ValueType.Bool }
+        else if t.value == "String" { ty = ValueType.String }
+        else if let integer = named_integer_type(t.value) { ty = integer }
+        else {
+            let ri = self.record_index(t.value)
+            if ri >= 0 { ty = ValueType.Record(ri) }
+            else {
+                let ei = self.enum_index(t.value)
+                if ei >= 0 { ty = ValueType.Enum(ei) }
+                else { return problem("unsupported type `{t.value}`", t.line, t.col) }
+            }
+        }
+        var nesting = 0
+        while self.at(TokenKind.Question) || self.at(TokenKind.DoubleQuestion) {
+            let suffix = self.take()
+            let count = if suffix.kind == TokenKind.DoubleQuestion { 2 } else { 1 }
+            var n = 0
+            while n < count {
+                if nesting >= 128 { return problem("Optional nesting limit exceeded", suffix.line, suffix.col) }
+                if ty == ValueType.Void { return problem("Optional<Void> is not supported", suffix.line, suffix.col) }
+                if reference_type(ty) { return problem("Optional reference payloads are not supported", suffix.line, suffix.col) }
+                ty = self.intern_optional(ty)
+                nesting += 1
+                n += 1
+            }
+        }
+        ty
+    }
+
+    func intern_optional(&var self, payload: ValueType) -> ValueType {
+        var i = 0
+        while i < self.sums.len() {
+            if self.sums[i].kind == SumKind.Optional && self.sums[i].payload == payload {
+                return ValueType.Optional(i)
+            }
+            i += 1
+        }
+        try! self.sums.push(SumIR(kind: SumKind.Optional, payload: payload, error: ValueType.Void))
+        ValueType.Optional(self.sums.len() - 1)
     }
 
     func intern_reference(&var self, target: ValueType, mutable: Bool) -> ValueType {
@@ -269,6 +306,13 @@ extension Compiler {
                 if index >= 0 && index < self.enums.len() { return self.enums[index].name }
                 "enum"
             },
+            case Optional(index) -> {
+                if index >= 0 && index < self.sums.len() {
+                    return "{self.display_type(self.sums[index].payload)}?"
+                }
+                "Optional"
+            },
+            case Result(_) -> "Result",
             case _ -> type_name(ty)
         }
     }
@@ -396,6 +440,7 @@ extension Compiler {
                     }
                     let _ = try self.expect(TokenKind.Colon, "expected `:` after parameter name")
                     let pt = try self.parse_type()
+                    if pt == ValueType.Void { return problem("parameter cannot have Void type", pn.line, pn.col) }
                     try! pnames.push(pn.value)
                     try! ptypes.push(pt)
                     self.skip_newlines()
@@ -491,6 +536,7 @@ extension Compiler {
                     let _ = try self.expect(TokenKind.Colon, "expected `:` after parameter name")
                     self.skip_newlines()
                     let pt = try self.parse_type()
+                    if pt == ValueType.Void { return problem("parameter cannot have Void type", pn.line, pn.col) }
                     try! pnames.push(pn.value)
                     try! ptypes.push(pt)
                     self.skip_newlines()
@@ -558,7 +604,7 @@ extension Compiler {
         bits = integer_normalize(bits, source)
         if bare {
             let probe = ExprValue(ty: source, slot: -1, call: false, literal: true,
-                                  literal_value: magnitude, literal_negative: negative, always_returns: false)
+                                  literal_value: magnitude, literal_negative: negative, always_returns: false, none_literal: false)
             if not self.literal_fits_target(&probe, target) {
                 return problem("integer literal does not fit {type_name(target)}", t.line, t.col)
             }
@@ -707,7 +753,7 @@ extension Compiler {
     }
 
     func new_value(&var self, ty: ValueType) -> Result<Int, ProtoError> {
-        let layout = try value_layout(&self.records, ty)
+        let layout = try value_layout(&self.records, &self.sums, ty)
         let start = self.slots.len()
         var i = 0
         while i < layout.len() {
@@ -720,7 +766,7 @@ extension Compiler {
     func emit_copy_value(&var self, dst: Int, src: Int, ty: ValueType,
                          t: &Token) -> Result<Void, ProtoError> {
         if dst == src { return }
-        let layout = try value_layout(&self.records, ty)
+        let layout = try value_layout(&self.records, &self.sums, ty)
         if layout.len() > 1 {
             let temporary = try self.new_value(ty)
             var word = 0
@@ -941,15 +987,55 @@ extension Compiler {
             }
         }
         ExprValue(ty: target, slot: v.slot, call: false, literal: true,
-                  literal_value: v.literal_value, literal_negative: v.literal_negative, always_returns: false)
+                  literal_value: v.literal_value, literal_negative: v.literal_negative, always_returns: false, none_literal: false)
+    }
+
+    func initialize_optional_none(&var self, target: ValueType, t: &Token) -> Result<ExprValue, ProtoError> {
+        let dst = try self.new_value(target)
+        let layout = try value_layout(&self.records, &self.sums, target)
+        var i = 0
+        while i < layout.len() {
+            if layout[i] == ValueType.String {
+                let drop = self.emit_at(Op.Drop, t.line, t.col)
+                self.code[drop].a = dst + i
+            } else {
+                let zero = self.emit_at(Op.Const, t.line, t.col)
+                self.code[zero].dst = dst + i
+                self.code[zero].immediate = 0
+            }
+            i += 1
+        }
+        expr_value(target, dst, false)
+    }
+
+    func wrap_optional(&var self, v: ExprValue, target: ValueType,
+                       t: &Token) -> Result<ExprValue, ProtoError> {
+        let payload = try optional_payload(&self.sums, target)
+        let converted = try self.transfer(v, payload, &t)
+        let result = try self.initialize_optional_none(target, &t)
+        let some = self.emit_at(Op.Const, t.line, t.col)
+        self.code[some].dst = result.slot
+        self.code[some].immediate = 1
+        try self.emit_copy_value(result.slot + 1, converted.slot, payload, &t)
+        result
     }
 
     func transfer(&var self, v: ExprValue, target: ValueType, t: &Token) -> Result<ExprValue, ProtoError> {
+        if v.none_literal {
+            match target {
+                case Optional(_) -> { return self.initialize_optional_none(target, &t) },
+                case _ -> { return problem("None requires an expected Optional type", t.line, t.col) }
+            }
+        }
         if v.ty == target {
             if v.literal && not self.literal_fits_target(&v, target) {
                 return problem("integer literal does not fit {type_name(target)}", t.line, t.col)
             }
             return v
+        }
+        match target {
+            case Optional(_) -> { return self.wrap_optional(v, target, &t) },
+            case _ -> {}
         }
         if v.literal && integer_type(target) { return self.adopt_literal(v, target, &t) }
         if integer_widens(v.ty, target) {
@@ -1025,6 +1111,12 @@ extension Compiler {
         if self.depth > 128 { return self.fail("expression nesting limit exceeded") }
         if self.at(TokenKind.If) { return self.parse_if_value(ValueType.Void, false) }
         if self.at(TokenKind.Match) { return self.parse_match_value(ValueType.Void, false) }
+        if self.at(TokenKind.NoneKw) {
+            let _ = self.take()
+            var value = expr_value(ValueType.Void, -1, false)
+            value.none_literal = true
+            return value
+        }
         if self.at(TokenKind.InterpString) {
             let t = self.take()
             return problem("string interpolation is not supported", t.line, t.col)
@@ -1056,7 +1148,7 @@ extension Compiler {
             self.code[at].dst = dst
             self.code[at].immediate = integer_normalize(Int.from(truncating: magnitude), ty)
             return ExprValue(ty: ty, slot: dst, call: false, literal: bare,
-                             literal_value: magnitude, literal_negative: false, always_returns: false)
+                             literal_value: magnitude, literal_negative: false, always_returns: false, none_literal: false)
         }
         if self.at(TokenKind.True_) || self.at(TokenKind.False_) {
             let t = self.take()
@@ -1212,7 +1304,7 @@ extension Compiler {
                         place.slot = dst
                         place.ref_ty = projected_ref
                     } else {
-                        place.slot += try record_field_offset(&self.records, ri, fi)
+                        place.slot += try record_field_offset(&self.records, &self.sums, ri, fi)
                     }
                     place.ty = field_type
                 },
@@ -1241,7 +1333,7 @@ extension Compiler {
                 case Record(ri) -> {
                     let fi = self.field_index(ri, field.value)
                     if fi < 0 { return problem("record `{self.records[ri].name}` has no field `{field.value}`", field.line, field.col) }
-                    let offset = try record_field_offset(&self.records, ri, fi)
+                    let offset = try record_field_offset(&self.records, &self.sums, ri, fi)
                     value = expr_value(self.records[ri].field_types[fi], value.slot + offset, false)
                 },
                 case _ -> { return problem("field access requires a record value", dot.line, dot.col) }
@@ -1392,7 +1484,7 @@ extension Compiler {
                 j += 1
             }
             if found < 0 { return problem("missing field `{self.records[ri].field_names[fi]}` in constructor", name.line, name.col) }
-            let offset = try record_field_offset(&self.records, ri, fi)
+            let offset = try record_field_offset(&self.records, &self.sums, ri, fi)
             try self.emit_copy_value(dst + offset, values[found].slot,
                                      self.records[ri].field_types[fi], &name)
             fi += 1
@@ -1522,7 +1614,7 @@ extension Compiler {
                     var value = try self.parse_expected_expr(formal)
                     if value.always_returns { return problem("all-returning control flow cannot be used as an operand", name.line, name.col) }
                     value = try self.snapshot(value, &name)
-                    let layout = try value_layout(&self.records, value.ty)
+                    let layout = try value_layout(&self.records, &self.sums, value.ty)
                     var word = 0
                     while word < layout.len() {
                         try! args.push(value.slot + word)
@@ -1632,7 +1724,7 @@ extension Compiler {
                     var value = try self.parse_expected_expr(formal)
                     if value.always_returns { return problem("all-returning control flow cannot be used as an operand", name.line, name.col) }
                     value = try self.snapshot(value, &name)
-                    let layout = try value_layout(&self.records, value.ty)
+                    let layout = try value_layout(&self.records, &self.sums, value.ty)
                     var word = 0
                     while word < layout.len() {
                         try! args.push(value.slot + word)
@@ -1701,7 +1793,7 @@ extension Compiler {
                 self.code[at].dst = dst
                 self.code[at].immediate = bits
                 let value = ExprValue(ty: ty, slot: dst, call: false, literal: bare,
-                                      literal_value: magnitude, literal_negative: true, always_returns: false)
+                                      literal_value: magnitude, literal_negative: true, always_returns: false, none_literal: false)
                 return value
             }
             let v = try self.parse_unary()
@@ -1992,6 +2084,9 @@ extension Compiler {
             self.code[branch].target = self.code.len()
             left = expr_value(ValueType.Bool, dst, false)
         }
+        if self.at(TokenKind.DoubleQuestion) { return self.fail("optional coalescing `??` is not supported") }
+        if self.at(TokenKind.QuestionDot) { return self.fail("optional chaining `?.` is not supported") }
+        if self.at(TokenKind.Exclaim) { return self.fail("optional force unwrap `!` is not supported") }
         left
     }
 
@@ -2161,7 +2256,7 @@ extension Compiler {
                 var preserve_end = -1
                 if not returns && not value.always_returns {
                     preserve_start = value.slot
-                    preserve_end = value.slot + (try value_layout(&self.records, value.ty)).len()
+                    preserve_end = value.slot + (try value_layout(&self.records, &self.sums, value.ty)).len()
                 }
                 self.cleanup_scope(preserve_start, preserve_end, &close)
                 let _ = self.take()
@@ -2192,6 +2287,7 @@ extension Compiler {
     func merge_control_type(&self, a: &ExprValue, b: &ExprValue,
                             expected: ValueType, has_expected: Bool, t: &Token) -> Result<ValueType, ProtoError> {
         if has_expected { return expected }
+        if a.none_literal || b.none_literal { return problem("None requires an expected Optional type", t.line, t.col) }
         if a.ty == b.ty { return a.ty }
         if a.literal && integer_type(b.ty) { return b.ty }
         if b.literal && integer_type(a.ty) { return a.ty }
@@ -2210,6 +2306,20 @@ extension Compiler {
         return
     }
 
+    func stage_optional_binding(&var self, name: Token, mutable: Bool,
+                                subject: &ExprValue, payload: ValueType) -> Result<Void, ProtoError> {
+        if name.value == "_" { return }
+        // The following block owns this payload snapshot. Stage its lexical depth
+        // before the block parser enters so String leaves are dropped at that edge.
+        self.scope_depth += 1
+        let dst = try self.new_value(payload)
+        try self.emit_copy_value(dst, subject.slot + 1, payload, &name)
+        self.scope_depth -= 1
+        try! self.bindings.push(Binding(name: name.value, ty: payload, slot: dst,
+                                        mutable: mutable, depth: self.depth + 1))
+        return
+    }
+
     func parse_if_value(&var self, expected: ValueType, has_expected: Bool) -> Result<ExprValue, ProtoError> {
         if self.expr_depth >= 128 { return self.fail("expression nesting limit exceeded") }
         self.expr_depth += 1
@@ -2220,6 +2330,9 @@ extension Compiler {
 
     func parse_if_value_inner(&var self, expected: ValueType, has_expected: Bool) -> Result<ExprValue, ProtoError> {
         let it = self.take()
+        if self.at(TokenKind.Let) || self.at(TokenKind.Var) {
+            return self.parse_if_binding_value(it, expected, has_expected)
+        }
         let condition = try self.parse_expr()
         try self.require_type(condition.ty, ValueType.Bool, &it)
         let _ = try self.expect(TokenKind.LBrace, "expected block after if condition")
@@ -2273,6 +2386,104 @@ extension Compiler {
             j += 1
         }
         expr_value(target, dst, false)
+    }
+
+    func parse_if_binding_value(&var self, it: Token, expected: ValueType,
+                                has_expected: Bool) -> Result<ExprValue, ProtoError> {
+        let kw = self.take()
+        let name = try self.expect(TokenKind.Ident, "expected binding name after `if let` or `if var`")
+        let _ = try self.expect(TokenKind.Assign, "if binding requires `=`")
+        var subject = try self.parse_expr()
+        if subject.none_literal { return problem("None requires an expected Optional type", it.line, it.col) }
+        match subject.ty {
+            case Optional(_) -> {},
+            case _ -> { return problem("if binding requires an Optional value", it.line, it.col) }
+        }
+        subject = try self.snapshot(subject, &it)
+        let payload = try optional_payload(&self.sums, subject.ty)
+        let _ = try self.expect(TokenKind.LBrace, "expected block after if binding")
+        let branch = self.emit_at(Op.Branch, it.line, it.col)
+        self.code[branch].a = subject.slot
+        let skip_then = self.emit_at(Op.Jump, it.line, it.col)
+        self.code[branch].target = self.code.len()
+        try self.stage_optional_binding(name, kw.kind == TokenKind.Var, &subject, payload)
+        let then_value = try self.parse_value_block(expected, has_expected)
+        var then_exit = -1
+        if not then_value.always_returns { then_exit = self.emit_at(Op.Jump, it.line, it.col) }
+        self.code[skip_then].target = self.code.len()
+        self.skip_newlines()
+        if not self.at(TokenKind.Else) { return problem("value if let requires an else", it.line, it.col) }
+        let _ = self.take()
+        var else_value = BlockValue(has_value: false, value: returning_value(), always_returns: false)
+        if self.at(TokenKind.If) {
+            let nested = try self.parse_if_value(expected, has_expected)
+            else_value = BlockValue(has_value: not nested.always_returns, value: nested,
+                                    always_returns: nested.always_returns)
+        } else {
+            let _ = try self.expect(TokenKind.LBrace, "expected block after else")
+            else_value = try self.parse_value_block(expected, has_expected)
+        }
+        var else_exit = -1
+        if not else_value.always_returns { else_exit = self.emit_at(Op.Jump, it.line, it.col) }
+        if not then_value.always_returns && not then_value.has_value { return problem("continuing value branch requires a tail expression", it.line, it.col) }
+        if not else_value.always_returns && not else_value.has_value { return problem("continuing value branch requires a tail expression", it.line, it.col) }
+        if then_value.always_returns && else_value.always_returns { return returning_value() }
+        var target = ValueType.Void
+        if then_value.always_returns { target = if has_expected { expected } else { else_value.value.ty } }
+        else if else_value.always_returns { target = if has_expected { expected } else { then_value.value.ty } }
+        else { target = try self.merge_control_type(&then_value.value, &else_value.value, expected, has_expected, &it) }
+        let dst = try self.new_value(target)
+        var joins = Vector<Int>()
+        if then_exit >= 0 { try self.append_value_exit(then_exit, then_value.value, target, dst, &it, &var joins) }
+        if else_exit >= 0 { try self.append_value_exit(else_exit, else_value.value, target, dst, &it, &var joins) }
+        let continuation = self.code.len()
+        var j = 0
+        while j < joins.len() {
+            self.code[joins[j]].target = continuation
+            j += 1
+        }
+        expr_value(target, dst, false)
+    }
+
+    func parse_if_binding_statement(&var self) -> Result<Bool, ProtoError> {
+        let it = self.take()
+        let kw = self.take()
+        let name = try self.expect(TokenKind.Ident, "expected binding name after `if let` or `if var`")
+        let _ = try self.expect(TokenKind.Assign, "if binding requires `=`")
+        var subject = try self.parse_expr()
+        if subject.none_literal { return problem("None requires an expected Optional type", it.line, it.col) }
+        match subject.ty {
+            case Optional(_) -> {},
+            case _ -> { return problem("if binding requires an Optional value", it.line, it.col) }
+        }
+        subject = try self.snapshot(subject, &it)
+        let payload = try optional_payload(&self.sums, subject.ty)
+        let _ = try self.expect(TokenKind.LBrace, "expected block after if binding")
+        let branch = self.emit_at(Op.Branch, it.line, it.col)
+        self.code[branch].a = subject.slot
+        let skip_then = self.emit_at(Op.Jump, it.line, it.col)
+        self.code[branch].target = self.code.len()
+        try self.stage_optional_binding(name, kw.kind == TokenKind.Var, &subject, payload)
+        let then_returns = try self.parse_block()
+        let skip_else = self.emit_at(Op.Jump, it.line, it.col)
+        self.code[skip_then].target = self.code.len()
+        var else_returns = false
+        let before_else = self.pos
+        self.skip_newlines()
+        if self.at(TokenKind.Else) {
+            let _ = self.take()
+            if self.at(TokenKind.If) {
+                if self.depth >= 128 { return self.fail("block nesting limit exceeded") }
+                self.depth += 1
+                else_returns = try self.parse_statement()
+                self.depth -= 1
+            } else {
+                let _ = try self.expect(TokenKind.LBrace, "expected block after else")
+                else_returns = try self.parse_block()
+            }
+        } else { self.pos = before_else }
+        self.code[skip_else].target = self.code.len()
+        then_returns && else_returns
     }
 
     func parse_match_value(&var self, expected: ValueType, has_expected: Bool) -> Result<ExprValue, ProtoError> {
@@ -2601,11 +2812,13 @@ extension Compiler {
                 annotated = Some(try self.parse_type())
             }
             if let local_type = annotated {
+                if local_type == ValueType.Void { return problem("local cannot have Void type", name.line, name.col) }
                 if reference_type(local_type) { return problem("reference locals are not supported", name.line, name.col) }
             }
             let _ = try self.expect(TokenKind.Assign, "local declarations require an initializer")
             var value = if let ty = annotated { try self.parse_expected_expr(ty) } else { try self.parse_expr() }
             if value.always_returns { return problem("all-returning control flow cannot be used as an operand", name.line, name.col) }
+            if value.none_literal { return problem("None requires an expected Optional type", name.line, name.col) }
             if value.ty == ValueType.Void { return problem("cannot initialize a local with Void", name.line, name.col) }
             if reference_type(value.ty) { return problem("reference locals are not supported", name.line, name.col) }
             if let _ = annotated {} else { value = try self.transfer(value, value.ty, &name) }
@@ -2622,13 +2835,20 @@ extension Compiler {
                 if value.always_returns { return true }
                 src = value.slot
             } else if self.current_result != ValueType.Void { return problem("non-Void return requires a value", t.line, t.col) }
-            let preserve_end = if src < 0 { -1 } else { src + (try value_layout(&self.records, self.current_result)).len() }
+            let preserve_end = if src < 0 { -1 } else { src + (try value_layout(&self.records, &self.sums, self.current_result)).len() }
             self.cleanup_function(src, preserve_end, &t)
             let at = self.emit_at(Op.Return, t.line, t.col)
             self.code[at].a = src
             return true
         }
         if self.at(TokenKind.If) {
+            var binding_if = false
+            if self.pos + 1 < self.tokens.len() {
+                binding_if = self.tokens[self.pos + 1].kind == TokenKind.Let || self.tokens[self.pos + 1].kind == TokenKind.Var
+            }
+            if binding_if {
+                return self.parse_if_binding_statement()
+            }
             let t = self.take()
             let cond = try self.parse_expr()
             try self.require_type(cond.ty, ValueType.Bool, &t)
@@ -2775,7 +2995,7 @@ extension Compiler {
                 if tail.always_returns { returns = true }
                 else {
                     let return_token = self.token()
-                    let preserve_end = tail.slot + (try value_layout(&self.records, self.current_result)).len()
+                    let preserve_end = tail.slot + (try value_layout(&self.records, &self.sums, self.current_result)).len()
                     self.cleanup_function(tail.slot, preserve_end, &return_token)
                     let r = self.emit_at(Op.Return, self.signatures[index].line, self.signatures[index].col)
                     self.code[r].a = tail.slot
@@ -2801,7 +3021,7 @@ extension Compiler {
             // Return-path checking above proves this padding unreachable. It gives
             // end-of-block jumps a real target and leaves every emitted block terminated.
             let slot = try self.new_value(self.current_result)
-            let layout = try value_layout(&self.records, self.current_result)
+            let layout = try value_layout(&self.records, &self.sums, self.current_result)
             var word = 0
             while word < layout.len() {
                 if layout[word] == ValueType.String {
@@ -2816,7 +3036,7 @@ extension Compiler {
                 word += 1
             }
             let return_token = self.token()
-            let preserve_end = slot + (try value_layout(&self.records, self.current_result)).len()
+            let preserve_end = slot + (try value_layout(&self.records, &self.sums, self.current_result)).len()
             self.cleanup_function(slot, preserve_end, &return_token)
             let r = self.emit_at(Op.Return, self.signatures[index].line, self.signatures[index].col)
             self.code[r].a = slot
@@ -2836,7 +3056,7 @@ public func compile_source(source: String) -> Result<Program, ProtoError> {
         case Err(e) -> { return problem(e.message, e.line, e.col) }
     }
     var compiler = Compiler(source: source, tokens: move tokens, records: Vector<RecordIR>(), enums: Vector<EnumIR>(),
-                            references: Vector<ReferenceIR>(), strings: Vector<String>(), statics: Vector<StaticBinding>(),
+                            references: Vector<ReferenceIR>(), sums: Vector<SumIR>(), strings: Vector<String>(), statics: Vector<StaticBinding>(),
                             signatures: Vector<Signature>(), pos: 0, depth: 0, scope_depth: 0,
                             expr_depth: 0, paren_depth: 0,
                             bindings: Vector<Binding>(), active_borrows: Vector<Borrow>(), pending_writes: Vector<Int>(),
@@ -2845,7 +3065,8 @@ public func compile_source(source: String) -> Result<Program, ProtoError> {
                             code: Vector<Instruction>(), current_result: ValueType.Void)
     try compiler.collect_record_names()
     try compiler.scan_signatures()
-    try validate_records(&compiler.records)
+    try validate_records(&compiler.records, &compiler.sums)
+    try validate_sums(&compiler.records, &compiler.sums)
     try validate_enums(&compiler.enums)
     var functions = Vector<FuncIR>()
     var main_index = -1
@@ -2856,7 +3077,7 @@ public func compile_source(source: String) -> Result<Program, ProtoError> {
         try! functions.push(move f)
         i += 1
     }
-    Program(enums: compiler.enums.copy(), records: compiler.records.copy(), references: compiler.references.copy(),
+    Program(enums: compiler.enums.copy(), records: compiler.records.copy(), references: compiler.references.copy(), sums: compiler.sums.copy(),
             strings: compiler.strings.copy(),
             functions: move functions, main_index: main_index)
 }

@@ -1,0 +1,4 @@
+func main() {
+    let value: String? = "x"
+    print(value?.len())
+}

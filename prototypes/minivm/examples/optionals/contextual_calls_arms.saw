@@ -1,0 +1,31 @@
+enum Choice { case A, case B }
+
+func pass(value: UInt8?) -> UInt8? { value }
+func choose(flag: Bool) -> UInt8? {
+    if flag { 255 } else { None }
+}
+func matched(choice: Choice) -> String? {
+    match choice {
+        case A -> { "a" },
+        case B -> { None }
+    }
+}
+
+func main() {
+    if let value = pass(choose(true)) { print(value) }
+    if let value = choose(false) {
+        print(value)
+    } else {
+        print("none")
+    }
+    if let value = matched(Choice.A) { print(value) }
+
+    let absent: String? = None
+    let present: String? = "chain"
+    if let _ = absent {
+        print("wrong")
+    } else if let text = present {
+        print(text)
+    }
+    if let _ = present { print("ignored") }
+}

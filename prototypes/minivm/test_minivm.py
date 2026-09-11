@@ -35,6 +35,16 @@ class RejectCase:
 
 
 RUN_CASES = (
+    RunCase("optionals/review_nested_context", "chosen\nsome-none\nnested-none\n", section="optionals"),
+    RunCase("optionals/basic_numeric", "7\nnone\n255\n", section="optionals"),
+    RunCase("optionals/nested_semantics", "outer-none\ninner-none\n9\nbranch-inner-none\n7\n18446744073709551615\n", section="optionals"),
+    RunCase("optionals/contextual_calls_arms", "255\nnone\na\nchain\nignored\n", section="optionals"),
+    RunCase("optionals/string_record_payload", "alpha\nalpha\nnone\n", section="optionals"),
+    RunCase("optionals/references_methods", "start\nnext\nnone\n", section="optionals"),
+    RunCase("optionals/binding_snapshot_shadow", "old\nnew\nchanged\nold\n", section="optionals"),
+    RunCase("optionals/value_binding_subject_once", "subject\nyes\nsubject\nfallback\n", section="optionals"),
+    RunCase("optionals/early_return_loop_cleanup", "early\nodd\n199\n", section="optionals"),
+    RunCase("optionals/token_tok_extract", "word\n4\n9\nnone\n", section="optionals"),
     RunCase("owning_records/copy_replace_nested", "alpha\ninner\nbeta\nchanged\n", section="owning_records"),
     RunCase("owning_records/references_methods_abi", "left\nright\nnext\nfield\n9\n", section="owning_records"),
     RunCase("owning_records/value_control_cleanup", "then\n1\nred\n2\nearly\n3\n", section="owning_records"),
@@ -195,6 +205,15 @@ RUN_CASES = (
 )
 
 REJECT_CASES = (
+    RejectCase("optionals/reject_uncontextualized_none", "None requires an expected Optional type", "optionals"),
+    RejectCase("optionals/reject_if_let_non_optional", "if binding requires an Optional value", "optionals"),
+    RejectCase("optionals/reject_binding_scope", "unknown name", "optionals"),
+    RejectCase("optionals/reject_coalescing", "optional coalescing `??` is not supported", "optionals"),
+    RejectCase("optionals/reject_chaining", "optional chaining `?.` is not supported", "optionals"),
+    RejectCase("optionals/reject_force_unwrap", "optional force unwrap `!` is not supported", "optionals"),
+    RejectCase("optionals/reject_optional_void", "Optional<Void> is not supported", "optionals"),
+    RejectCase("optionals/reject_value_binding_missing_tail", "continuing value branch requires a tail expression", "optionals"),
+    RejectCase("optionals/reject_numeric_range", "integer literal does not fit UInt8", "optionals"),
     RejectCase("owning_records/reject_string_match_duplicate", "duplicate String match pattern", "owning_records"),
     RejectCase("owning_records/reject_string_match_non_string", "String match patterns must be String literals or `_`", "owning_records"),
     RejectCase("owning_records/reject_string_match_interpolation", "string interpolation is not supported in match patterns", "owning_records"),
@@ -408,7 +427,7 @@ def main() -> int:
     parser.add_argument("--binary", type=Path, default=Path(".build/minivm/minivm"))
     parser.add_argument("--clang", default="clang")
     parser.add_argument(
-        "--section", choices=("all", "core", "numbers", "records", "control", "enums", "values", "references", "receivers", "strings", "owning_records"), default="all",
+        "--section", choices=("all", "core", "numbers", "records", "control", "enums", "values", "references", "receivers", "strings", "owning_records", "optionals"), default="all",
         help="run all cases or one isolated test section",
     )
     args = parser.parse_args()
@@ -437,7 +456,7 @@ def main() -> int:
                 failures.extend(test_rejection(binary, case))
             except subprocess.TimeoutExpired:
                 failures.append(f"{case.name}: timed out after {TIMEOUT}s")
-        limit_cases = () if args.section in ("numbers", "records", "control", "enums", "values", "references", "receivers", "strings", "owning_records") else (
+        limit_cases = () if args.section in ("numbers", "records", "control", "enums", "values", "references", "receivers", "strings", "owning_records", "optionals") else (
             ("budget", 20, "runtime error: instruction budget exceeded"),
             ("depth", 10_000, "runtime error: call depth exceeded"),
         )

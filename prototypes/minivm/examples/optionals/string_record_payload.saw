@@ -1,0 +1,20 @@
+struct Text { value: String }
+struct Item { text: Text, number: Int }
+
+func copy(value: Item?) -> Item? { value }
+
+func main() {
+    var item: Item? = Item(text: Text(value: "alpha"), number: 1)
+    let snapshot = copy(item)
+    item = Item(text: Text(value: "beta"), number: 2)
+    if let value = snapshot {
+        print(value.text.value)
+        print(value.text.value)
+    }
+    item = None
+    if let value = item {
+        print(value.text.value)
+    } else {
+        print("none")
+    }
+}
