@@ -1,0 +1,20 @@
+struct Pair {
+    left: Int16
+    right: Int16
+}
+
+struct Outer {
+    tag: UInt8
+    inner: Pair
+}
+
+func main() {
+    var value = Outer(tag: 4, inner: Pair(left: 5, right: 6))
+    value.inner.right = 9
+    print(value.tag)
+    print(value.inner.left)
+    print(value.inner.right)
+    value.inner = Pair(right: 12, left: 11)
+    print(value.inner.left)
+    print(value.inner.right)
+}

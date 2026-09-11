@@ -1,0 +1,15 @@
+struct Pair {
+    first: Int
+    second: Int
+}
+
+func mark(x: Int) -> Int {
+    print(x)
+    return x
+}
+
+func main() {
+    let pair = Pair(second: mark(2), first: mark(1))
+    print(pair.first)
+    print(pair.second)
+}

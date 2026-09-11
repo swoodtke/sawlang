@@ -1,0 +1,18 @@
+struct Pair {
+    small: Int8
+    large: UInt64
+}
+
+func relay(prefix: Int16, pair: Pair, suffix: UInt8) -> Pair {
+    print(prefix)
+    print(pair.small)
+    print(pair.large)
+    print(suffix)
+    return pair
+}
+
+func main() {
+    let result = relay(300, Pair(large: UInt64.max, small: -7), 250)
+    print(result.small)
+    print(result.large)
+}

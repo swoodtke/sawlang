@@ -45,7 +45,10 @@ func main() {
 Single-file programs support signed and unsigned 8/16/32/64-bit integers,
 `Int`/`UInt` (64-bit), `Byte`, `Bool`, functions, positional calls,
 recursion, `let`/`var`, assignment, lexical scopes, statement `if`/`else` and
-`while`, explicit returns, and scalar printing. Arithmetic is checked; signed
+`while`, explicit returns, and scalar printing. Named structs can contain scalars or nested structs, with
+field access, mutable fields, value copying, and function parameters/results.
+Record layouts are limited to 256 words and 128 nesting levels; see
+[M2_RECORDS.md](M2_RECORDS.md). Arithmetic is checked; signed
 division truncates toward zero. Overflow and division by zero print an error
 and exit with status 1. Boolean conditions require `Bool`.
 
@@ -72,11 +75,12 @@ python prototypes/minivm/test_minivm.py --binary .build/minivm/minivm
 
 The harness compares VM execution and clang-compiled IR with explicit expected
 outputs and statuses, checks rejected programs, and exercises VM limits. It
-uses temporary files and 30-second subprocess timeouts. The numeric milestone passes
-all 91 cases, including native execution at both `-O0` and `-O2`.
+uses temporary files and 30-second subprocess timeouts. The numeric and record milestones pass
+all 115 cases, including native execution at both `-O0` and `-O2`.
 
-The independent representation checks live in `tests/numeric_contract.saw`;
-build and run them with the Python compiler.
+Independent representation checks live in `tests/numeric_contract.saw` and
+`tests/record_contract.saw`; build and run them with the Python compiler.
+Use `--section numbers` or `--section records` for an isolated integration gate.
 
 See [DESIGN.md](DESIGN.md) and [M1_NUMBERS.md](M1_NUMBERS.md) for the instruction
 schema and semantics. [LEXER_DEPENDENCIES.md](LEXER_DEPENDENCIES.md) tracks the

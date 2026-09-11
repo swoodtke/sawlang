@@ -1,0 +1,16 @@
+struct Outer {
+    inner: Inner
+    count: UInt16
+}
+
+struct Inner {
+    signed: Int8
+    wide: UInt64
+}
+
+func main() {
+    let value = Outer(count: 65535, inner: Inner(wide: 255 as UInt64, signed: -128))
+    print(value.inner.signed)
+    print(value.inner.wide)
+    print(value.count)
+}

@@ -27,6 +27,12 @@ struct Binding {
     depth: Int
 }
 
+struct Place {
+    ty: ValueType
+    slot: Int
+    mutable: Bool
+}
+
 struct ExprValue {
     ty: ValueType
     slot: Int
@@ -45,7 +51,8 @@ func type_name(t: ValueType) -> String {
     match t {
         case I8 -> "Int8", case I16 -> "Int16", case I32 -> "Int32", case I64 -> "Int",
         case U8 -> "UInt8", case U16 -> "UInt16", case U32 -> "UInt32", case U64 -> "UInt",
-        case Byte -> "Byte", case Bool -> "Bool", case Void -> "Void"
+        case Byte -> "Byte", case Bool -> "Bool", case Void -> "Void",
+        case Record(_) -> "record"
     }
 }
 
@@ -79,6 +86,7 @@ func literal_magnitude(value: String) -> UInt? {
 
 struct Compiler {
     tokens: Vector<Token>
+    records: Vector<RecordIR>
     signatures: Vector<Signature>
     pos: Int
     depth: Int
@@ -131,7 +139,64 @@ extension Compiler {
         let t = try self.expect(TokenKind.Ident, "expected type")
         if t.value == "Bool" { return ValueType.Bool }
         if let ty = named_integer_type(t.value) { return ty }
+        let ri = self.record_index(t.value)
+        if ri >= 0 { return ValueType.Record(ri) }
         problem("unsupported type `{t.value}`", t.line, t.col)
+    }
+
+    func record_index(&self, name: String) -> Int {
+        var i = 0
+        while i < self.records.len() {
+            if self.records[i].name == name { return i }
+            i += 1
+        }
+        -1
+    }
+
+    func display_type(&self, ty: ValueType) -> String {
+        match ty {
+            case Record(index) -> {
+                if index >= 0 && index < self.records.len() { return self.records[index].name }
+                "record"
+            },
+            case _ -> type_name(ty)
+        }
+    }
+
+    func reserved_type_name(&self, name: String) -> Bool {
+        if name == "Bool" || name == "Void" { return true }
+        if let _ = named_integer_type(name) { return true }
+        false
+    }
+
+    func collect_record_names(&var self) -> Result<Void, ProtoError> {
+        self.pos = 0
+        self.skip_newlines()
+        while not self.at(TokenKind.Eof) {
+            if self.at(TokenKind.Public) { let _ = self.take() }
+            if self.at(TokenKind.Struct) {
+                let _ = self.take()
+                let name = try self.expect(TokenKind.Ident, "expected record name")
+                if self.reserved_type_name(name.value) || name.value == "print" { return problem("record name `{name.value}` is reserved", name.line, name.col) }
+                if self.record_index(name.value) >= 0 { return problem("duplicate record `{name.value}`", name.line, name.col) }
+                try! self.records.push(RecordIR(name: name.value, field_names: Vector<String>(),
+                                                field_types: Vector<ValueType>(), line: name.line, col: name.col))
+            } else if not self.at(TokenKind.Func) {
+                return self.fail("only function and record declarations are supported at module scope")
+            }
+            while not self.at(TokenKind.LBrace) && not self.at(TokenKind.Eof) { let _ = self.take() }
+            if self.at(TokenKind.Eof) { return self.fail("expected declaration body") }
+            let _ = self.take()
+            var braces = 1
+            while braces > 0 && not self.at(TokenKind.Eof) {
+                if self.at(TokenKind.LBrace) { braces += 1 }
+                if self.at(TokenKind.RBrace) { braces -= 1 }
+                let _ = self.take()
+            }
+            if braces != 0 { return self.fail("unterminated declaration body") }
+            self.skip_newlines()
+        }
+        return
     }
 
     func signature_index(&self, name: String) -> Int {
@@ -147,13 +212,22 @@ extension Compiler {
         self.pos = 0
         self.skip_newlines()
         while not self.at(TokenKind.Eof) {
-            let ft = try self.expect(TokenKind.Func, "only function declarations are supported at module scope")
+            if self.at(TokenKind.Public) { let _ = self.take() }
+            if self.at(TokenKind.Struct) {
+                try self.scan_record()
+                self.skip_newlines()
+                continue
+            }
+            let ft = try self.expect(TokenKind.Func, "only function and record declarations are supported at module scope")
             let name = try self.expect(TokenKind.Ident, "expected function name")
             if name.value == "print" {
                 return problem("`print` is reserved by the prototype", name.line, name.col)
             }
             if self.signature_index(name.value) >= 0 {
                 return problem("duplicate function `{name.value}`", name.line, name.col)
+            }
+            if self.record_index(name.value) >= 0 {
+                return problem("function `{name.value}` conflicts with a record name", name.line, name.col)
             }
             let _ = try self.expect(TokenKind.LParen, "expected `(` after function name")
             var pnames = Vector<String>()
@@ -225,10 +299,77 @@ extension Compiler {
         return
     }
 
+    func scan_record(&var self) -> Result<Void, ProtoError> {
+        let _ = self.take()
+        let name = try self.expect(TokenKind.Ident, "expected record name")
+        let ri = self.record_index(name.value)
+        if ri < 0 { return problem("unknown record declaration `{name.value}`", name.line, name.col) }
+        let _ = try self.expect(TokenKind.LBrace, "expected record body")
+        self.skip_newlines()
+        var names = Vector<String>()
+        var types = Vector<ValueType>()
+        while not self.at(TokenKind.RBrace) && not self.at(TokenKind.Eof) {
+            if self.at(TokenKind.Public) { let _ = self.take() }
+            let field = try self.expect(TokenKind.Ident, "expected record field name")
+            var i = 0
+            while i < names.len() {
+                if names[i] == field.value { return problem("duplicate record field `{field.value}`", field.line, field.col) }
+                i += 1
+            }
+            let _ = try self.expect(TokenKind.Colon, "expected `:` after record field")
+            let ty = try self.parse_type()
+            if ty == ValueType.Void { return problem("record field cannot have Void type", field.line, field.col) }
+            try! names.push(field.value)
+            try! types.push(ty)
+            if self.at(TokenKind.Comma) {
+                let _ = self.take()
+                self.skip_newlines()
+            } else if self.at(TokenKind.Newline) { self.skip_newlines() }
+            else if not self.at(TokenKind.RBrace) { return self.fail("expected comma or newline after record field") }
+        }
+        let _ = try self.expect(TokenKind.RBrace, "expected closing brace for record")
+        if names.len() == 0 { return problem("record must have at least one field", name.line, name.col) }
+        self.records[ri].field_names = move names
+        self.records[ri].field_types = move types
+        return
+    }
+
     func new_slot(&var self, ty: ValueType) -> Int {
         let n = self.slots.len()
         try! self.slots.push(ty)
         n
+    }
+
+    func new_value(&var self, ty: ValueType) -> Result<Int, ProtoError> {
+        let layout = try value_layout(&self.records, ty)
+        let start = self.slots.len()
+        var i = 0
+        while i < layout.len() {
+            try! self.slots.push(layout[i])
+            i += 1
+        }
+        start
+    }
+
+    func emit_copy_value(&var self, dst: Int, src: Int, ty: ValueType,
+                         t: &Token) -> Result<Void, ProtoError> {
+        if dst == src { return }
+        let layout = try value_layout(&self.records, ty)
+        var i = 0
+        while i < layout.len() {
+            let at = self.emit_at(Op.Copy, t.line, t.col)
+            self.code[at].dst = dst + i
+            self.code[at].a = src + i
+            i += 1
+        }
+        return
+    }
+
+    func snapshot(&var self, value: ExprValue, t: &Token) -> Result<ExprValue, ProtoError> {
+        if value.ty == ValueType.Void { return value }
+        let dst = try self.new_value(value.ty)
+        try self.emit_copy_value(dst, value.slot, value.ty, &t)
+        expr_value(value.ty, dst, value.call)
     }
 
     func emit(&var self, ins: Instruction) -> Int {
@@ -327,7 +468,7 @@ extension Compiler {
             }
             return v
         }
-        if v.literal { return self.adopt_literal(v, target, &t) }
+        if v.literal && integer_type(target) { return self.adopt_literal(v, target, &t) }
         if integer_widens(v.ty, target) {
             let dst = self.new_slot(target)
             let at = self.emit_at(Op.Cast, t.line, t.col)
@@ -335,10 +476,10 @@ extension Compiler {
             self.code[at].a = v.slot
             return expr_value(target, dst, false)
         }
-        problem("cannot implicitly convert {type_name(v.ty)} to {type_name(target)}", t.line, t.col)
+        problem("cannot implicitly convert {self.display_type(v.ty)} to {self.display_type(target)}", t.line, t.col)
     }
 
-    func parse_primary(&var self) -> Result<ExprValue, ProtoError> {
+    func parse_atom(&var self) -> Result<ExprValue, ProtoError> {
         if self.depth > 128 { return self.fail("expression nesting limit exceeded") }
         if self.at(TokenKind.IntLit) {
             let t = self.take()
@@ -381,6 +522,8 @@ extension Compiler {
         }
         if self.at(TokenKind.Ident) {
             let name = self.take()
+            let ri = self.record_index(name.value)
+            if ri >= 0 && self.at(TokenKind.LParen) { return self.parse_record_constructor(name, ri) }
             if let ty = named_integer_type(name.value) {
                 if self.at(TokenKind.Dot) { return self.parse_integer_member(name, ty) }
                 if self.at(TokenKind.LParen) && ty == ValueType.Byte { return self.parse_byte(name) }
@@ -388,9 +531,127 @@ extension Compiler {
             if self.at(TokenKind.LParen) { return self.parse_call(name) }
             let bi = self.binding_index(name.value)
             if bi < 0 { return problem("unknown name `{name.value}`", name.line, name.col) }
-            return expr_value(self.bindings[bi].ty, self.bindings[bi].slot, false)
+            let value = expr_value(self.bindings[bi].ty, self.bindings[bi].slot, false)
+            return self.snapshot(value, &name)
         }
         self.fail("expected expression; this syntax is unsupported")
+    }
+
+    func field_index(&self, record: Int, name: String) -> Int {
+        var i = 0
+        while i < self.records[record].field_names.len() {
+            if self.records[record].field_names[i] == name { return i }
+            i += 1
+        }
+        -1
+    }
+
+    func assignment_ahead(&self) -> Bool {
+        if not self.at(TokenKind.Ident) { return false }
+        var i = self.pos + 1
+        while i + 1 < self.tokens.len() && self.tokens[i].kind == TokenKind.Dot && self.tokens[i + 1].kind == TokenKind.Ident { i += 2 }
+        i < self.tokens.len() && self.tokens[i].kind == TokenKind.Assign
+    }
+
+    func parse_place(&var self) -> Result<(Token, Place), ProtoError> {
+        let name = try self.expect(TokenKind.Ident, "expected assignment target")
+        let bi = self.binding_index(name.value)
+        if bi < 0 { return problem("unknown local `{name.value}`", name.line, name.col) }
+        var place = Place(ty: self.bindings[bi].ty, slot: self.bindings[bi].slot,
+                          mutable: self.bindings[bi].mutable)
+        while self.at(TokenKind.Dot) {
+            let _ = self.take()
+            let field = try self.expect(TokenKind.Ident, "expected record field after `.`")
+            match place.ty {
+                case Record(ri) -> {
+                    let fi = self.field_index(ri, field.value)
+                    if fi < 0 { return problem("record `{self.records[ri].name}` has no field `{field.value}`", field.line, field.col) }
+                    place.slot += try record_field_offset(&self.records, ri, fi)
+                    place.ty = self.records[ri].field_types[fi]
+                },
+                case _ -> { return problem("field assignment requires a record", field.line, field.col) }
+            }
+        }
+        (name, place)
+    }
+
+    func parse_primary(&var self) -> Result<ExprValue, ProtoError> {
+        var value = try self.parse_atom()
+        self.expr_space()
+        while self.at(TokenKind.Dot) {
+            let dot = self.take()
+            self.expr_space()
+            let field = try self.expect(TokenKind.Ident, "expected record field after `.`")
+            match value.ty {
+                case Record(ri) -> {
+                    let fi = self.field_index(ri, field.value)
+                    if fi < 0 { return problem("record `{self.records[ri].name}` has no field `{field.value}`", field.line, field.col) }
+                    let offset = try record_field_offset(&self.records, ri, fi)
+                    value = expr_value(self.records[ri].field_types[fi], value.slot + offset, false)
+                },
+                case _ -> { return problem("field access requires a record value", dot.line, dot.col) }
+            }
+            self.expr_space()
+        }
+        value
+    }
+
+    func parse_record_constructor(&var self, name: Token, ri: Int) -> Result<ExprValue, ProtoError> {
+        let _ = self.take()
+        self.depth += 1
+        self.paren_depth += 1
+        self.skip_newlines()
+        var fields = Vector<Int>()
+        var values = Vector<ExprValue>()
+        if not self.at(TokenKind.RParen) {
+            var more = true
+            while more {
+                let label = try self.expect(TokenKind.Ident, "expected record field label")
+                let fi = self.field_index(ri, label.value)
+                if fi < 0 { return problem("unknown field `{label.value}` for record `{name.value}`", label.line, label.col) }
+                var j = 0
+                while j < fields.len() {
+                    if fields[j] == fi { return problem("duplicate constructor field `{label.value}`", label.line, label.col) }
+                    j += 1
+                }
+                let _ = try self.expect(TokenKind.Colon, "expected `:` after record field label")
+                self.expr_space()
+                var value = try self.parse_expr()
+                value = try self.transfer(value, self.records[ri].field_types[fi], &label)
+                value = try self.snapshot(value, &label)
+                try! fields.push(fi)
+                try! values.push(move value)
+                self.skip_newlines()
+                if self.at(TokenKind.Comma) {
+                    let _ = self.take()
+                    self.skip_newlines()
+                    if self.at(TokenKind.RParen) { more = false }
+                } else { more = false }
+            }
+        }
+        let _ = try self.expect(TokenKind.RParen, "expected `)` after record constructor")
+        self.paren_depth -= 1
+        self.depth -= 1
+        if fields.len() != self.records[ri].field_names.len() {
+            return problem("missing field in constructor for record `{name.value}`", name.line, name.col)
+        }
+        let ty = ValueType.Record(ri)
+        let dst = try self.new_value(ty)
+        var fi = 0
+        while fi < self.records[ri].field_names.len() {
+            var found = -1
+            var j = 0
+            while j < fields.len() {
+                if fields[j] == fi { found = j }
+                j += 1
+            }
+            if found < 0 { return problem("missing field `{self.records[ri].field_names[fi]}` in constructor", name.line, name.col) }
+            let offset = try record_field_offset(&self.records, ri, fi)
+            try self.emit_copy_value(dst + offset, values[found].slot,
+                                     self.records[ri].field_types[fi], &name)
+            fi += 1
+        }
+        expr_value(ty, dst, false)
     }
 
     func parse_byte(&var self, name: Token) -> Result<ExprValue, ProtoError> {
@@ -463,7 +724,13 @@ extension Compiler {
                     return problem("too many arguments to `{name.value}`", name.line, name.col)
                 }
                 value = try self.transfer(value, self.signatures[fi].params[ai], &name)
-                try! args.push(value.slot)
+                value = try self.snapshot(value, &name)
+                let layout = try value_layout(&self.records, value.ty)
+                var word = 0
+                while word < layout.len() {
+                    try! args.push(value.slot + word)
+                    word += 1
+                }
                 ai += 1
                 self.skip_newlines()
                 if self.at(TokenKind.Comma) {
@@ -479,7 +746,7 @@ extension Compiler {
             return problem("wrong number of arguments to `{name.value}`", name.line, name.col)
         }
         let rt = self.signatures[fi].result
-        let dst = if rt == ValueType.Void { -1 } else { self.new_slot(rt) }
+        let dst = if rt == ValueType.Void { -1 } else { try self.new_value(rt) }
         let at = self.emit_at(Op.Call, name.line, name.col)
         self.code[at].target = fi
         self.code[at].dst = dst
@@ -705,7 +972,7 @@ extension Compiler {
             let common = try self.common_type(&left, &right, &t)
             if left.ty != common { left = try self.adopt_literal(left, common, &t) }
             if right.ty != common { right = try self.adopt_literal(right, common, &t) }
-            if left.ty == ValueType.Void || left.ty != right.ty { return problem("equality operands must have the same scalar type", t.line, t.col) }
+            if not scalar_type(left.ty) || left.ty != right.ty { return problem("equality operands must have the same scalar type", t.line, t.col) }
             left = try self.binary(left, right, if t.kind == TokenKind.Eq { Op.Eq } else { Op.Ne }, ValueType.Bool, &t)
         }
         left
@@ -796,10 +1063,8 @@ extension Compiler {
             if value.ty == ValueType.Void { return problem("cannot initialize a local with Void", name.line, name.col) }
             if let ty = annotated { value = try self.transfer(value, ty, &name) }
             else { value = try self.transfer(value, value.ty, &name) }
-            let dst = self.new_slot(value.ty)
-            let at = self.emit_at(Op.Copy, name.line, name.col)
-            self.code[at].dst = dst
-            self.code[at].a = value.slot
+            let dst = try self.new_value(value.ty)
+            try self.emit_copy_value(dst, value.slot, value.ty, &name)
             try self.declare(name, value.ty, dst, kw.kind == TokenKind.Var)
             return false
         }
@@ -873,21 +1138,21 @@ extension Compiler {
             self.paren_depth -= 1
             self.depth -= 1
             if value.ty == ValueType.Void { return problem("cannot print Void", t.line, t.col) }
+            if not scalar_type(value.ty) { return problem("cannot print a record value", t.line, t.col) }
             let at = self.emit_at(Op.Print, t.line, t.col)
             self.code[at].a = value.slot
             return false
         }
-        if self.at(TokenKind.Ident) && self.pos + 1 < self.tokens.len() && self.tokens[self.pos + 1].kind == TokenKind.Assign {
-            let name = self.take()
+        if self.assignment_ahead() {
+            let parsed = try self.parse_place()
+            let name = parsed.0
+            let place = parsed.1
             let _ = self.take()
-            let bi = self.binding_index(name.value)
-            if bi < 0 { return problem("unknown local `{name.value}`", name.line, name.col) }
-            if not self.bindings[bi].mutable { return problem("cannot assign to immutable local `{name.value}`", name.line, name.col) }
+            if not place.mutable { return problem("cannot assign to immutable local `{name.value}`", name.line, name.col) }
             var value = try self.parse_expr()
-            value = try self.transfer(value, self.bindings[bi].ty, &name)
-            let at = self.emit_at(Op.Copy, name.line, name.col)
-            self.code[at].dst = self.bindings[bi].slot
-            self.code[at].a = value.slot
+            value = try self.transfer(value, place.ty, &name)
+            value = try self.snapshot(value, &name)
+            try self.emit_copy_value(place.slot, value.slot, place.ty, &name)
             return false
         }
         let start = self.token()
@@ -909,7 +1174,7 @@ extension Compiler {
         self.current_result = self.signatures[index].result
         var i = 0
         while i < self.signatures[index].params.len() {
-            let slot = self.new_slot(self.signatures[index].params[i])
+            let slot = try self.new_value(self.signatures[index].params[i])
             let fake = Token(kind: TokenKind.Ident, value: self.signatures[index].param_names[i],
                              line: self.signatures[index].line, col: self.signatures[index].col, suffix: None)
             try self.declare(fake, self.signatures[index].params[i], slot, false)
@@ -932,10 +1197,15 @@ extension Compiler {
         } else {
             // Return-path checking above proves this padding unreachable. It gives
             // end-of-block jumps a real target and leaves every emitted block terminated.
-            let slot = self.new_slot(self.current_result)
-            let c = self.emit_at(Op.Const, self.signatures[index].line, self.signatures[index].col)
-            self.code[c].dst = slot
-            self.code[c].immediate = 0
+            let slot = try self.new_value(self.current_result)
+            let layout = try value_layout(&self.records, self.current_result)
+            var word = 0
+            while word < layout.len() {
+                let c = self.emit_at(Op.Const, self.signatures[index].line, self.signatures[index].col)
+                self.code[c].dst = slot + word
+                self.code[c].immediate = 0
+                word += 1
+            }
             let r = self.emit_at(Op.Return, self.signatures[index].line, self.signatures[index].col)
             self.code[r].a = slot
         }
@@ -951,11 +1221,13 @@ public func compile_source(source: String) -> Result<Program, ProtoError> {
         case Ok(ts) -> move ts,
         case Err(e) -> { return problem(e.message, e.line, e.col) }
     }
-    var compiler = Compiler(tokens: move tokens, signatures: Vector<Signature>(), pos: 0, depth: 0,
+    var compiler = Compiler(tokens: move tokens, records: Vector<RecordIR>(), signatures: Vector<Signature>(), pos: 0, depth: 0,
                             expr_depth: 0, paren_depth: 0,
                             bindings: Vector<Binding>(), slots: Vector<ValueType>(),
                             code: Vector<Instruction>(), current_result: ValueType.Void)
+    try compiler.collect_record_names()
     try compiler.scan_signatures()
+    try validate_records(&compiler.records)
     var functions = Vector<FuncIR>()
     var main_index = -1
     var i = 0
@@ -965,5 +1237,5 @@ public func compile_source(source: String) -> Result<Program, ProtoError> {
         try! functions.push(move f)
         i += 1
     }
-    Program(functions: move functions, main_index: main_index)
+    Program(records: compiler.records.copy(), functions: move functions, main_index: main_index)
 }

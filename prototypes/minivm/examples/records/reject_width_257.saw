@@ -1,0 +1,11 @@
+struct R0 { value: Int }
+struct R1 { a: R0, b: R0 }
+struct R2 { a: R1, b: R1 }
+struct R3 { a: R2, b: R2 }
+struct R4 { a: R3, b: R3 }
+struct R5 { a: R4, b: R4 }
+struct R6 { a: R5, b: R5 }
+struct R7 { a: R6, b: R6 }
+struct R8 { a: R7, b: R7 }
+struct TooWide { tree: R8, extra: Int }
+func main() {}

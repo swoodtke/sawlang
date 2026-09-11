@@ -24,6 +24,32 @@ func block_name(out: &var StringBuilder, instruction_index: Int) {
     put_int(&var out, instruction_index)
 }
 
+func emit_aggregate_type(out: &var StringBuilder, word_count: Int) {
+    put(&var out, "\{ ")
+    var word_index = 0
+    while word_index < word_count {
+        if word_index > 0 { put(&var out, ", ") }
+        put(&var out, "i64")
+        word_index = word_index + 1
+    }
+    put(&var out, " \}")
+}
+
+func emit_value_type(out: &var StringBuilder, records: &Vector<RecordIR>,
+                     t: ValueType) -> Result<Void, ProtoError> {
+    if t == ValueType.Void {
+        put(&var out, "void")
+        return
+    }
+    if scalar_type(t) {
+        put(&var out, "i64")
+        return
+    }
+    let layout = try value_layout(&records, t)
+    emit_aggregate_type(&var out, layout.len())
+    return
+}
+
 func next_block(out: &var StringBuilder, instruction_index: Int) {
     put(&var out, "  br label %i")
     put_int(&var out, instruction_index + 1)
@@ -317,7 +343,7 @@ func emit_division(out: &var StringBuilder, instruction_index: Int,
 
 func emit_instruction(out: &var StringBuilder, program: &Program,
                       function: &FuncIR, instruction_index: Int,
-                      inst: &Instruction) {
+                      inst: &Instruction) -> Result<Void, ProtoError> {
     block_name(&var out, instruction_index)
     put(&var out, ":\n")
     match inst.op {
@@ -420,6 +446,8 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
             put(&var out, "\n")
         },
         case Call -> {
+            let callee = program.functions[inst.target].copy()
+            let result_layout = try value_layout(&program.records, callee.result)
             var argument_index = 0
             while argument_index < inst.args.len() {
                 put(&var out, "  ")
@@ -432,7 +460,7 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
                 put(&var out, " = ")
             }
             put(&var out, "call ")
-                        put(&var out, if program.functions[inst.target].result == ValueType.Void { "void" } else { "i64" })
+            try emit_value_type(&var out, &program.records, callee.result)
             put(&var out, " @f")
             put_int(&var out, inst.target)
             put(&var out, "(")
@@ -444,7 +472,24 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
                 argument_index = argument_index + 1
             }
             put(&var out, ")\n")
-            if inst.dst >= 0 { store_temp(&var out, instruction_index, "call", inst.dst) }
+            if scalar_type(callee.result) {
+                store_temp(&var out, instruction_index, "call", inst.dst)
+            } else if callee.result != ValueType.Void {
+                var result_index = 0
+                while result_index < result_layout.len() {
+                    put(&var out, "  ")
+                    temp_name(&var out, instruction_index, "result{result_index}")
+                    put(&var out, " = extractvalue ")
+                    emit_aggregate_type(&var out, result_layout.len())
+                    put(&var out, " ")
+                    temp_name(&var out, instruction_index, "call")
+                    put(&var out, ", ")
+                    put_int(&var out, result_index)
+                    put(&var out, "\n")
+                    store_temp(&var out, instruction_index, "result{result_index}", inst.dst + result_index)
+                    result_index = result_index + 1
+                }
+            }
             next_block(&var out, instruction_index)
         },
         case Print -> {
@@ -476,30 +521,63 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
         case Return -> {
             if inst.a < 0 {
                 put(&var out, "  ret void\n")
-            } else {
+            } else if scalar_type(function.result) {
                 put(&var out, "  ")
                 load_slot(&var out, instruction_index, "ret", inst.a)
                 put(&var out, "  ret i64 ")
                 temp_name(&var out, instruction_index, "ret")
                 put(&var out, "\n")
+            } else {
+                let result_layout = try value_layout(&program.records, function.result)
+                var result_index = 0
+                while result_index < result_layout.len() {
+                    put(&var out, "  ")
+                    load_slot(&var out, instruction_index, "retword{result_index}", inst.a + result_index)
+                    put(&var out, "  ")
+                    temp_name(&var out, instruction_index, "retagg{result_index}")
+                    put(&var out, " = insertvalue ")
+                    emit_aggregate_type(&var out, result_layout.len())
+                    put(&var out, " ")
+                    if result_index == 0 { put(&var out, "undef") }
+                    else { temp_name(&var out, instruction_index, "retagg{result_index - 1}") }
+                    put(&var out, ", i64 ")
+                    temp_name(&var out, instruction_index, "retword{result_index}")
+                    put(&var out, ", ")
+                    put_int(&var out, result_index)
+                    put(&var out, "\n")
+                    result_index = result_index + 1
+                }
+                put(&var out, "  ret ")
+                emit_aggregate_type(&var out, result_layout.len())
+                put(&var out, " ")
+                temp_name(&var out, instruction_index, "retagg{result_layout.len() - 1}")
+                put(&var out, "\n")
             }
         }
     }
     put(&var out, "\n")
+    return
 }
 
 func emit_function(out: &var StringBuilder, program: &Program,
-                   function_index: Int, function: &FuncIR) {
+                   function_index: Int, function: &FuncIR) -> Result<Void, ProtoError> {
     put(&var out, "define ")
-    put(&var out, if function.result == ValueType.Void { "void" } else { "i64" })
+    try emit_value_type(&var out, &program.records, function.result)
     put(&var out, " @f")
     put_int(&var out, function_index)
     put(&var out, "(")
     var parameter_index = 0
+    var argument_index = 0
     while parameter_index < function.params.len() {
-        if parameter_index > 0 { put(&var out, ", ") }
-        put(&var out, "i64 %arg")
-        put_int(&var out, parameter_index)
+        let parameter_layout = try value_layout(&program.records, function.params[parameter_index])
+        var parameter_word = 0
+        while parameter_word < parameter_layout.len() {
+            if argument_index > 0 { put(&var out, ", ") }
+            put(&var out, "i64 %arg")
+            put_int(&var out, argument_index)
+            argument_index = argument_index + 1
+            parameter_word = parameter_word + 1
+        }
         parameter_index = parameter_index + 1
     }
     put(&var out, ") \{\nentry:\n")
@@ -510,20 +588,27 @@ func emit_function(out: &var StringBuilder, program: &Program,
         put(&var out, " = alloca i64\n")
         slot_index = slot_index + 1
     }
-    parameter_index = 0
-    while parameter_index < function.params.len() {
+    var parameter_words = 0
+    var source_parameter = 0
+    while source_parameter < function.params.len() {
+        let parameter_layout = try value_layout(&program.records, function.params[source_parameter])
+        parameter_words = parameter_words + parameter_layout.len()
+        source_parameter = source_parameter + 1
+    }
+    argument_index = 0
+    while argument_index < parameter_words {
         put(&var out, "  store i64 %arg")
-        put_int(&var out, parameter_index)
+        put_int(&var out, argument_index)
         put(&var out, ", ptr ")
-        slot_name(&var out, parameter_index)
+        slot_name(&var out, argument_index)
         put(&var out, "\n")
-        parameter_index = parameter_index + 1
+        argument_index = argument_index + 1
     }
     put(&var out, "  br label %i0\n\n")
     var instruction_index = 0
     while instruction_index < function.code.len() {
-        emit_instruction(&var out, &program, &function, instruction_index,
-                         &function.code[instruction_index])
+        try emit_instruction(&var out, &program, &function, instruction_index,
+                             &function.code[instruction_index])
         instruction_index = instruction_index + 1
     }
     // Keep the text structurally valid even when verification permits an
@@ -532,6 +617,7 @@ func emit_function(out: &var StringBuilder, program: &Program,
     block_name(&var out, function.code.len())
     put(&var out, ":\n  unreachable\n")
     put(&var out, "\}\n\n")
+    return
 }
 
 public func emit_llvm(program: &Program) -> Result<String, ProtoError> {
@@ -558,8 +644,8 @@ public func emit_llvm(program: &Program) -> Result<String, ProtoError> {
     put(&var out, "define internal void @minivm_shift() \{\nentry:\n  call i32 @puts(ptr @.shift)\n  call void @exit(i32 1)\n  unreachable\n\}\n\n")
     var function_index = 0
     while function_index < program.functions.len() {
-        emit_function(&var out, &program, function_index,
-                      &program.functions[function_index])
+        try emit_function(&var out, &program, function_index,
+                          &program.functions[function_index])
         function_index = function_index + 1
     }
     put(&var out, "define i32 @main() \{\nentry:\n  call void @f")

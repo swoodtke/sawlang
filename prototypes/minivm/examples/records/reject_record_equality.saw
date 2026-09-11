@@ -1,0 +1,5 @@
+struct Pair { x: Int }
+func main() {
+    let p = Pair(x: 1)
+    print(p == p)
+}

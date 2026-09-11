@@ -1,7 +1,7 @@
 public enum ValueType {
     case I8, case I16, case I32, case I64,
     case U8, case U16, case U32, case U64, case Byte,
-    case Bool, case Void
+    case Bool, case Void, case Record(index: Int)
 }
 @synthesize
 extension ValueType: Equatable {}
@@ -106,9 +106,20 @@ public struct FuncIR {
 }
 
 public struct Program {
+    public records: Vector<RecordIR>
     public functions: Vector<FuncIR>
     public main_index: Int
 }
+
+public struct RecordIR {
+    public name: String
+    public field_names: Vector<String>
+    public field_types: Vector<ValueType>
+    public line: Int
+    public col: Int
+}
+@synthesize
+extension RecordIR: ExplicitCopy {}
 
 @synthesize
 extension Instruction: ExplicitCopy {}
@@ -135,4 +146,96 @@ public func instruction(op: Op) -> Instruction {
 
 public func problem(message: String, line: Int, col: Int) -> ProtoError {
     ProtoError(message: message, line: line, col: col)
+}
+
+public func scalar_type(t: ValueType) -> Bool {
+    integer_type(t) || t == ValueType.Bool
+}
+
+func append_layout(records: &Vector<RecordIR>, t: ValueType,
+                   path: &var Vector<Int>, words: &var Vector<ValueType>) -> Result<Void, ProtoError> {
+    if scalar_type(t) {
+        if words.len() >= 256 { return problem("record layout exceeds 256 words", 0, 0) }
+        try! words.push(t)
+        return
+    }
+    match t {
+        case Record(index) -> {
+            if index < 0 || index >= records.len() { return problem("invalid record type index", 0, 0) }
+            let record = records[index].copy()
+            if record.field_types.len() == 0 || record.field_names.len() != record.field_types.len() {
+                return problem("record must have matching nonempty fields", record.line, record.col)
+            }
+            var n = 0
+            while n < path.len() {
+                if path[n] == index { return problem("recursive by-value record", record.line, record.col) }
+                n += 1
+            }
+            if path.len() >= 128 { return problem("record nesting exceeds 128 levels", record.line, record.col) }
+            try! path.push(index)
+            n = 0
+            while n < record.field_types.len() {
+                try append_layout(&records, record.field_types[n], &var path, &var words) catch {
+                    if error.line == 0 { return problem(error.message, record.line, record.col) }
+                    return error
+                }
+                n += 1
+            }
+            let _ = path.pop()
+            return
+        },
+        case _ -> { return problem("Void is not a record field type", 0, 0) }
+    }
+}
+
+public func value_layout(records: &Vector<RecordIR>, t: ValueType) -> Result<Vector<ValueType>, ProtoError> {
+    var words = Vector<ValueType>()
+    if t != ValueType.Void {
+        var path = Vector<Int>()
+        try append_layout(&records, t, &var path, &var words)
+    }
+    move words
+}
+
+public func validate_records(records: &Vector<RecordIR>) -> Result<Void, ProtoError> {
+    var n = 0
+    while n < records.len() {
+        let record = records[n].copy()
+        var previous = 0
+        while previous < n {
+            if records[previous].name == record.name { return problem("duplicate record", record.line, record.col) }
+            previous += 1
+        }
+        var field = 0
+        while field < record.field_names.len() {
+            previous = 0
+            while previous < field {
+                if record.field_names[previous] == record.field_names[field] {
+                    return problem("duplicate record field", record.line, record.col)
+                }
+                previous += 1
+            }
+            field += 1
+        }
+        let _ = try value_layout(&records, ValueType.Record(n))
+        n += 1
+    }
+    return
+}
+
+public func record_field_offset(records: &Vector<RecordIR>, record_index: Int,
+                                field_index: Int) -> Result<Int, ProtoError> {
+    let _ = try value_layout(&records, ValueType.Record(record_index))
+    let record = records[record_index].copy()
+    if field_index < 0 || field_index >= record.field_types.len() {
+        return problem("invalid record field index", record.line, record.col)
+    }
+    var offset = 0
+    var n = 0
+    while n < field_index {
+        let field = try value_layout(&records, record.field_types[n])
+        offset += field.len()
+        n += 1
+    }
+    offset
 }

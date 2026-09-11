@@ -1,0 +1,12 @@
+struct Box {
+    value: UInt64
+}
+
+func make() -> Box {
+    return Box(value: UInt64.max)
+}
+
+func main() {
+    let box = make()
+    print(box.value)
+}

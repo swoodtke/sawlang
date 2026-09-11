@@ -1,0 +1,2 @@
+struct Pair { first: Int, second: Int }
+func main() { let pair = Pair(first: 1, second: 2, first: 3) }

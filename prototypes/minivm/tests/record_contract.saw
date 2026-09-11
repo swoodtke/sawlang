@@ -1,0 +1,126 @@
+import src.model.*
+import src.verify.*
+
+func pair_record() -> RecordIR {
+    var names = Vector<String>()
+    try! names.push("byte")
+    try! names.push("count")
+    var types = Vector<ValueType>()
+    try! types.push(ValueType.U8)
+    try! types.push(ValueType.I64)
+    RecordIR(name: "Pair", field_names: move names, field_types: move types, line: 1, col: 1)
+}
+
+func layout_fails(records: &Vector<RecordIR>, ty: ValueType) -> Bool {
+    let _ = try value_layout(&records, ty) catch { return true }
+    false
+}
+
+func valid(program: &Program) -> Bool {
+    try verify(&program) catch { return false }
+    true
+}
+
+func call_program(records: &Vector<RecordIR>) -> Program {
+    var slots = Vector<ValueType>()
+    try! slots.push(ValueType.U8)
+    try! slots.push(ValueType.I64)
+    var args = Vector<Int>()
+    try! args.push(0)
+    try! args.push(1)
+    var call = instruction(Op.Call)
+    call.target = 1
+    call.dst = 0
+    call.args = move args
+    var main_code = Vector<Instruction>()
+    try! main_code.push(move call)
+    try! main_code.push(instruction(Op.Return))
+    var params = Vector<ValueType>()
+    try! params.push(ValueType.Record(0))
+    var ret = instruction(Op.Return)
+    ret.a = 0
+    var callee_code = Vector<Instruction>()
+    try! callee_code.push(move ret)
+    var functions = Vector<FuncIR>()
+    try! functions.push(FuncIR(name: "main", params: Vector<ValueType>(), result: ValueType.Void,
+        slots: slots.copy(), code: move main_code))
+    try! functions.push(FuncIR(name: "identity", params: move params, result: ValueType.Record(0),
+        slots: move slots, code: move callee_code))
+    Program(records: records.copy(), functions: move functions, main_index: 0)
+}
+
+func main() {
+    var records = Vector<RecordIR>()
+    try! records.push(pair_record())
+    var names = Vector<String>()
+    try! names.push("flag")
+    try! names.push("pair")
+    try! names.push("tail")
+    var types = Vector<ValueType>()
+    try! types.push(ValueType.Bool)
+    try! types.push(ValueType.Record(0))
+    try! types.push(ValueType.I16)
+    try! records.push(RecordIR(name: "Outer", field_names: move names, field_types: move types, line: 2, col: 1))
+    try! validate_records(&records)
+    let layout = try! value_layout(&records, ValueType.Record(1))
+    assert(layout.len() == 4, "nested width")
+    assert(layout[0] == ValueType.Bool && layout[1] == ValueType.U8 && layout[2] == ValueType.I64 && layout[3] == ValueType.I16, "nested types")
+    assert((try! record_field_offset(&records, 1, 1)) == 1, "nested offset")
+    assert((try! record_field_offset(&records, 1, 2)) == 3, "following field offset")
+    assert(layout_fails(&records, ValueType.Record(-1)), "negative record index")
+    assert(layout_fails(&records, ValueType.Record(2)), "large record index")
+    var cyclic = records.copy()
+    cyclic[0].field_types.set(1, ValueType.Record(1))
+    assert(layout_fails(&cyclic, ValueType.Record(0)), "indirect cycle")
+    var direct_cycle = records.copy()
+    direct_cycle[0].field_types.set(0, ValueType.Record(0))
+    assert(layout_fails(&direct_cycle, ValueType.Record(0)), "direct cycle")
+    var nested_bad_index = records.copy()
+    nested_bad_index[0].field_types.set(0, ValueType.Record(99))
+    assert(layout_fails(&nested_bad_index, ValueType.Record(1)), "nested invalid index")
+    var wide = pair_record()
+    wide.field_names = Vector<String>()
+    wide.field_types = Vector<ValueType>()
+    var width = 0
+    while width < 256 {
+        try! wide.field_names.push("f{width}")
+        try! wide.field_types.push(ValueType.I64)
+        width += 1
+    }
+    var wide_records = Vector<RecordIR>()
+    try! wide_records.push(move wide)
+    assert((try! value_layout(&wide_records, ValueType.Record(0))).len() == 256, "exact width limit")
+    try! wide_records[0].field_names.push("extra")
+    try! wide_records[0].field_types.push(ValueType.I64)
+    assert(layout_fails(&wide_records, ValueType.Record(0)), "over width limit")
+    var void_field = records.copy()
+    void_field[0].field_types.set(0, ValueType.Void)
+    assert(layout_fails(&void_field, ValueType.Record(0)), "Void field")
+    var mismatched = records.copy()
+    let _ = mismatched[0].field_names.pop()
+    assert(layout_fails(&mismatched, ValueType.Record(0)), "field metadata mismatch")
+    assert(not integer_type(ValueType.Record(0)), "record not integer")
+    assert(not scalar_type(ValueType.Record(0)), "record not scalar")
+
+    let program = call_program(&records)
+    assert(valid(&program), "valid flattened call and return")
+    var truncated_call = program.copy()
+    truncated_call.functions[0].code[0].dst = 1
+    assert(not valid(&truncated_call), "truncated call result range")
+    var truncated_return = program.copy()
+    truncated_return.functions[1].code[0].a = 1
+    assert(not valid(&truncated_return), "truncated return range")
+    var wrong_argument = program.copy()
+    wrong_argument.functions[0].code[0].args.set(1, 0)
+    assert(not valid(&wrong_argument), "flattened argument type")
+    var missing_argument = program.copy()
+    let _ = missing_argument.functions[0].code[0].args.pop()
+    assert(not valid(&missing_argument), "flattened argument count")
+    var wrong_parameter = program.copy()
+    wrong_parameter.functions[1].slots.set(1, ValueType.U64)
+    assert(not valid(&wrong_parameter), "flattened parameter type")
+    var record_slot = program.copy()
+    record_slot.functions[0].slots.set(0, ValueType.Record(0))
+    assert(not valid(&record_slot), "slots must be scalar")
+    print("record contract passed")
+}

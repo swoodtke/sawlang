@@ -1,0 +1,2 @@
+struct Box { value: Int }
+func main() { let box = Box(value: true) }

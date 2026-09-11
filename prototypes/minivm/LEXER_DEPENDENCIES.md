@@ -4,10 +4,11 @@ Scope: the source to admit is `selfhost/lexer/src/lib.saw` (1,215 lines at the
 `5af086c4` baseline). This inventory is intentionally narrower than general Saw
 support. A feature is included only when that file uses it, or when it is an
 unavoidable implementation dependency of one of the public std operations it
-calls. The existing mini-VM accepts only scalar `Int32`/`Bool` programs; its
-README explicitly excludes strings, collections, references, generics, and
-methods. The items below are therefore outstanding unless a milestone says they
-are already exercised by the current 43-case baseline.
+calls. This inventory was taken at the 43-case Int32/Bool baseline. M1 now supplies
+the numeric foundation (91 total cases); M2 is adding scalar value records.
+Strings, collections, references, generics and methods remain outstanding.
+The dependency groups below are an inventory, not the implementation commit order;
+the numbered milestone designs define each isolated slice.
 
 ## Exact source surface used by the lexer
 
@@ -158,12 +159,12 @@ compile their full implementations.
 ## Dependency order and isolated gates
 
 Each gate should add a tiny source fixture and assert both VM behavior and a
-precise rejection. Keep the existing 43 tests green at every gate.
+precise rejection. Keep all earlier milestone tests green at every gate.
 
 1. **Wide scalar foundation.** Add source `Int`, unsigned fixed-width values,
    `Byte`, the listed operators/casts, `from(truncating:)`, and `.max`. Test
    `Int` values beyond `Int32`, byte 255 round-trip, the three maxima widened to
-   `UInt`, signed `-1`, short-circuit suppression of a trapping RHS, and reject
+   `UInt`, signed `-1`, short-circuit suppression of a trapping RHS (a subsequent frontend slice), and reject
    unsupported casts/overflow.
 2. **Strings and static constants.** Add module `static Int` constants, owned
    strings, literals, equality, `len`, `byte_at`, `substring`, `is_empty`, and

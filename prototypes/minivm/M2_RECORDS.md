@@ -1,6 +1,6 @@
 # M2: value records over scalar fields
 
-Status: design, to implement after M1 passes. This is the struct subsection of
+Status: implemented after numeric milestone ecc8d515; validation in README.md. This is the struct subsection of
 the lexer dependency checklist. Strings, owning containers, methods, and references
 will build on this layout in later isolated milestones.
 
@@ -19,7 +19,8 @@ printing, references, custom initializers, or user-defined copy policies yet.
 
 The first slice requires at least one field and caps a flattened value at 256
 words with a located diagnostic. Recursive by-value records are rejected, including
-indirect cycles; forward type references are allowed. Numeric casts and literal
+indirect cycles; forward type references are allowed. Nesting is limited to 128
+records to bound compiler recursion. Numeric casts and literal
 adoption apply at scalar field initialization/assignment exactly as at local
 transfers. Built-in type names, duplicate records, duplicate fields, missing or
 extra constructor labels, and wrong field types get explicit diagnostics.
@@ -32,10 +33,10 @@ or provisional garbage collector, and matches scalar record value semantics.
 Later String/Vector handles can occupy scalar words with separate ownership rules;
 their retention/destruction is not silently supplied by this scalar-only milestone.
 
-Planned model additions:
+Shared model contract:
 
 * `ValueType.Record(index: Int)` identifies a nominal declaration in Program.
-* `RecordIR` carries name, ordered field names and ValueTypes.
+* `RecordIR` carries name, ordered `field_names` and `field_types`, and line/col.
 * `Program.records` stores the declarations. Numeric helpers return false/zero
   for Record. All actual FuncIR.slots remain flattened scalar types.
 * FuncIR.params/result retain source types. Parameter storage is the concatenation
@@ -65,6 +66,13 @@ indexing or summing widths. Calls validate flattened argument types and complete
 destination ranges; Returns validate complete source ranges. VM call arguments
 and return words are snapshots, not borrowed slices into another frame. Even a
 one-field record uses an LLVM aggregate return type consistently at both ends.
+
+Public helpers are `scalar_type(t)`,
+`value_layout(records: &Vector<RecordIR>, t: ValueType) -> Result<Vector<ValueType>, ProtoError>`,
+`validate_records(records: &Vector<RecordIR>) -> Result<Void, ProtoError>`, and
+`record_field_offset(records: &Vector<RecordIR>, record_index: Int, field_index: Int) -> Result<Int, ProtoError>`.
+Void has an empty result layout but is prohibited in fields and parameters.
+Record constructors use Saw's `Pair(first: 1, second: 2)` syntax.
 
 ## Tests and division of work
 

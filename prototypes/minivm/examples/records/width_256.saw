@@ -1,0 +1,30 @@
+struct R0 { value: Int }
+struct R1 { a: R0, b: R0 }
+struct R2 { a: R1, b: R1 }
+struct R3 { a: R2, b: R2 }
+struct R4 { a: R3, b: R3 }
+struct R5 { a: R4, b: R4 }
+struct R6 { a: R5, b: R5 }
+struct R7 { a: R6, b: R6 }
+struct R8 { a: R7, b: R7 }
+
+func identity(value: R8) -> R8 { return value }
+
+func main() {
+    let r0 = R0(value: 17)
+    let r1 = R1(a: r0, b: r0)
+    let r2 = R2(a: r1, b: r1)
+    let r3 = R3(a: r2, b: r2)
+    let r4 = R4(a: r3, b: r3)
+    let r5 = R5(a: r4, b: r4)
+    let r6 = R6(a: r5, b: r5)
+    let r7 = R7(a: r6, b: r6)
+    var r8 = R8(a: r7, b: r7)
+    r8.b.b.b.b.b.b.b.b.value = 255
+    let snapshot = identity(r8)
+    r8.a.a.a.a.a.a.a.a.value = 0
+    print(r8.a.a.a.a.a.a.a.a.value)
+    print(r8.b.b.b.b.b.b.b.b.value)
+    print(snapshot.a.a.a.a.a.a.a.a.value)
+    print(snapshot.b.b.b.b.b.b.b.b.value)
+}

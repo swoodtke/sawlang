@@ -1,0 +1,10 @@
+public struct Pair {
+    first: Int32
+    second: Bool
+}
+
+public func main() {
+    let pair = Pair(second: true, first: 7)
+    print(pair.first)
+    print(pair.second)
+}

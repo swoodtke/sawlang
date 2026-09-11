@@ -1,0 +1,2 @@
+struct Pair { x: Int }
+func main() { print(Pair(x: 1)) }

@@ -1,0 +1,4 @@
+struct First { second: Second }
+struct Second { third: Third }
+struct Third { first: First }
+func main() {}

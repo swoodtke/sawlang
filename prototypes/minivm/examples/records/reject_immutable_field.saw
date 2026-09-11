@@ -1,0 +1,7 @@
+struct Inner { value: Int }
+struct Outer { inner: Inner }
+
+func main() {
+    let outer = Outer(inner: Inner(value: 1))
+    outer.inner.value = 2
+}

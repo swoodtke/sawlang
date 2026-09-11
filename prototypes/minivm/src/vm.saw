@@ -1,7 +1,8 @@
 import src.model.*
 
 static MAX_CALL_DEPTH: Int = 128
-struct CallResult { value: Int, has_value: Bool }
+struct CallResult { values: Vector<Int> }
+extension CallResult: NoCopy {}
 func runtime_error(message: String) -> ProtoError { problem(message, 0, 0) }
 func overflow_error() -> ProtoError { runtime_error("runtime error: integer overflow") }
 
@@ -157,7 +158,11 @@ func run_function(program: &Program, function_index: Int, arguments: &Vector<Int
                     i = i + 1
                 }
                 let result = try run_function(&program, inst.target, &args, &var remaining, depth + 1)
-                if inst.dst >= 0 { slots[inst.dst] = result.value }
+                var result_index = 0
+                while result_index < result.values.len() {
+                    slots[inst.dst + result_index] = result.values[result_index]
+                    result_index = result_index + 1
+                }
             },
             case Print -> {
                 let pt = function.slots[inst.a]
@@ -165,8 +170,14 @@ func run_function(program: &Program, function_index: Int, arguments: &Vector<Int
                 else if integer_signed(pt) { print(slots[inst.a]) } else { print(UInt.from(truncating: slots[inst.a])) }
             },
             case Return -> {
-                if inst.a < 0 { return CallResult(value: 0, has_value: false) }
-                return CallResult(value: slots[inst.a], has_value: true)
+                var values = Vector<Int>()
+                let layout = try value_layout(&program.records, function.result)
+                var result_index = 0
+                while result_index < layout.len() {
+                    try! values.push(slots[inst.a + result_index])
+                    result_index = result_index + 1
+                }
+                return CallResult(values: move values)
             }
         }
         pc = pc + 1

@@ -1,0 +1,3 @@
+struct Box { first: Int }
+struct Box { second: Int }
+func main() {}

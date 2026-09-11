@@ -99,13 +99,25 @@ RUN_CASES = (
     RunCase("numbers/cast_unsigned_signed", "runtime error: integer cast out of range\n", 1, "numbers"),
     RunCase("numbers/shift_negative", "runtime error: shift out of range\n", 1, "numbers"),
     RunCase("numbers/shift_width", "runtime error: shift out of range\n", 1, "numbers"),
+    RunCase("records/basic_reordered", "7\ntrue\n", section="records"),
+    RunCase("records/evaluation_order", "2\n1\n1\n2\n", section="records"),
+    RunCase("records/copy_and_assignment", "1\n9\n8\n2\n1\n2\n", section="records"),
+    RunCase("records/nested_mutation", "4\n5\n9\n11\n12\n", section="records"),
+    RunCase("records/call_return_mixed", "300\n-7\n18446744073709551615\n250\n-7\n18446744073709551615\n", section="records"),
+    RunCase("records/one_word_result", "18446744073709551615\n", section="records"),
+    RunCase("records/forward_and_numeric", "-128\n255\n65535\n", section="records"),
+    RunCase("records/width_256", "0\n255\n17\n255\n", section="records"),
 )
 
 REJECT_CASES = (
+    RejectCase("records/reject_builtin_name", "reserved", "records"),
+    RejectCase("records/reject_record_equality", "scalar", "records"),
+    RejectCase("records/reject_record_print", "print", "records"),
+    RejectCase("records/reject_empty_record", "field", "records"),
     RejectCase("numbers/reject_byte_literal", "Byte", "numbers"),
     RejectCase("numbers/reject_uncontextual_u64", "integer literal", "numbers"),
     RejectCase("numbers/reject_spaced_shift", "expression", "numbers"),
-    RejectCase("reject_type", "integer literal does not fit Bool"),
+    RejectCase("reject_type", "cannot implicitly convert Int to Bool"),
     RejectCase("reject_mutability", "cannot assign to immutable local"),
     RejectCase("reject_arity", "wrong number of arguments"),
     RejectCase("reject_unknown", "unknown name"),
@@ -114,11 +126,11 @@ REJECT_CASES = (
     RejectCase("reject_semicolon", "semicolons are not supported"),
     RejectCase("reject_string", "expected expression"),
     RejectCase("reject_bool_arithmetic", "arithmetic requires integer operands"),
-    RejectCase("reject_import", "only function declarations are supported"),
+    RejectCase("reject_import", "only function and record declarations are supported"),
     RejectCase("reject_scope_leak", "unknown name"),
     RejectCase("reject_unary_depth", "expression nesting limit exceeded"),
     RejectCase("reject_reserved_print", "reserved"),
-    RejectCase("reject_truncated", "unterminated function body"),
+    RejectCase("reject_truncated", "unterminated declaration body"),
     RejectCase("reject_large_literal", "integer literal"),
     RejectCase("numbers/reject_typed_narrowing", "convert", "numbers"),
     RejectCase("numbers/reject_typed_narrowing_assignment", "convert", "numbers"),
@@ -127,6 +139,18 @@ REJECT_CASES = (
     RejectCase("numbers/reject_mixed_binary", "same type", "numbers"),
     RejectCase("numbers/reject_bool_cast", "requires integer source and target", "numbers"),
     RejectCase("numbers/reject_literal_range", "range", "numbers"),
+    RejectCase("records/reject_nominal", "convert", "records"),
+    RejectCase("records/reject_immutable_field", "immutable", "records"),
+    RejectCase("records/reject_parameter_field", "immutable", "records"),
+    RejectCase("records/reject_missing_label", "missing", "records"),
+    RejectCase("records/reject_duplicate_label", "duplicate", "records"),
+    RejectCase("records/reject_unknown_label", "unknown", "records"),
+    RejectCase("records/reject_wrong_field_type", "convert", "records"),
+    RejectCase("records/reject_direct_cycle", "recursive", "records"),
+    RejectCase("records/reject_indirect_cycle", "recursive", "records"),
+    RejectCase("records/reject_width_257", "256", "records"),
+    RejectCase("records/reject_duplicate_record", "duplicate record", "records"),
+    RejectCase("records/reject_duplicate_field", "duplicate record field", "records"),
 )
 
 
@@ -211,7 +235,7 @@ def main() -> int:
     parser.add_argument("--binary", type=Path, default=Path(".build/minivm/minivm"))
     parser.add_argument("--clang", default="clang")
     parser.add_argument(
-        "--section", choices=("all", "core", "numbers"), default="all",
+        "--section", choices=("all", "core", "numbers", "records"), default="all",
         help="run all cases or one isolated test section",
     )
     args = parser.parse_args()
@@ -240,7 +264,7 @@ def main() -> int:
                 failures.extend(test_rejection(binary, case))
             except subprocess.TimeoutExpired:
                 failures.append(f"{case.name}: timed out after {TIMEOUT}s")
-        limit_cases = () if args.section == "numbers" else (
+        limit_cases = () if args.section in ("numbers", "records") else (
             ("budget", 20, "runtime error: instruction budget exceeded"),
             ("depth", 10_000, "runtime error: call depth exceeded"),
         )

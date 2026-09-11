@@ -1,0 +1,8 @@
+struct First { value: Int }
+struct Second { value: Int }
+
+func main() {
+    let first = First(value: 1)
+    let second: Second = first
+    print(second.value)
+}

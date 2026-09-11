@@ -1,0 +1,9 @@
+struct Box { value: Int }
+
+func alter(box: Box) {
+    box.value = 2
+}
+
+func main() {
+    alter(Box(value: 1))
+}
