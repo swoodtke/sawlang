@@ -1,6 +1,6 @@
 # M3: scalar frontend support used by lexer helpers
 
-Status: design, after M2. This slice needs no new VM or LLVM opcodes. It admits
+Status: implemented after M2; 136-case integration gate passes. This slice needs no new VM or LLVM opcodes. It admits
 short-circuit Boolean expressions, compound arithmetic assignment, and immutable
 module scalar constants. Tail expressions and value-producing if/match remain
 separate subsequent frontend slices; do not silently broaden this contract.
@@ -25,7 +25,10 @@ separate subsequent frontend slices; do not silently broaden this contract.
   rules. No dynamic initialization, global mutable storage or record constants.
   Constants may be referenced from any function irrespective of declaration order.
   Reject duplicate module names and assignment to a constant. Local bindings may
-  shadow constants. Accept `public static` syntactically; modules remain later.
+  shadow constants; tests use visible refinement (`let C = C - 1`) as required
+  by Saw design 100. The prototype retains the baseline's broader shadowing
+  acceptance; enforcing design 100 is deferred to scope/ownership completion.
+  Accept `public static` syntactically; modules remain later.
 
 ## Lowering and ownership
 

@@ -1,0 +1,3 @@
+static collision: Int = 1
+func collision() {}
+func main() {}

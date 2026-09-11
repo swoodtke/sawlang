@@ -1,0 +1,2 @@
+static X: Int = -9223372036854775809
+func main() {}

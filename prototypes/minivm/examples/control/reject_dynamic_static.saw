@@ -1,0 +1,2 @@
+static LIMIT: Int = 1 + 2
+func main() { print(LIMIT) }

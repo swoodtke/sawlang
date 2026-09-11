@@ -5,7 +5,8 @@ Scope: the source to admit is `selfhost/lexer/src/lib.saw` (1,215 lines at the
 support. A feature is included only when that file uses it, or when it is an
 unavoidable implementation dependency of one of the public std operations it
 calls. This inventory was taken at the 43-case Int32/Bool baseline. M1 now supplies
-the numeric foundation (91 total cases); M2 is adding scalar value records.
+the numeric foundation; M2 supplies scalar value records, and M3 adds module
+constants, compound assignment and short-circuit Booleans (136 total cases).
 Strings, collections, references, generics and methods remain outstanding.
 The dependency groups below are an inventory, not the implementation commit order;
 the numbered milestone designs define each isolated slice.

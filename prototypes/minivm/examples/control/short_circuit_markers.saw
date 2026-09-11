@@ -1,0 +1,13 @@
+func mark(label: Int, value: Bool) -> Bool {
+    print(label)
+    return value
+}
+
+func main() {
+    print(false && mark(1, true))
+    print(true || mark(2, false))
+    print(true && mark(3, true))
+    print(false || mark(4, false))
+    print(mark(5, false) && mark(6, true))
+    print(mark(7, true) || mark(8, false))
+}

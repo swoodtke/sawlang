@@ -18,6 +18,9 @@ must fail consistently. This does not claim the prototype can compile itself.
 The original Int32-only contract below records the baseline.
 [M1_NUMBERS.md](M1_NUMBERS.md) supersedes its numeric types, operations, default
 literal type, and signed-minimum remainder behavior.
+[M2_RECORDS.md](M2_RECORDS.md) adds value records and flattened call/result layouts.
+[M3_SCALAR_CONTROL.md](M3_SCALAR_CONTROL.md) adds short-circuit operators, compound
+assignments and module constants.
 
 ## Source contract
 

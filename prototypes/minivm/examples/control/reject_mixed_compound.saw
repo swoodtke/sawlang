@@ -1,0 +1,5 @@
+func main() {
+    var small: Int8 = 1
+    let wide: Int16 = 2
+    small += wide
+}

@@ -1,0 +1,5 @@
+func main() {
+    var value: Int8 = Int8.max
+    value += 1
+    print(value)
+}

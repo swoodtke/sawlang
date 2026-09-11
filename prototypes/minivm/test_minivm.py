@@ -35,6 +35,9 @@ class RejectCase:
 
 
 RUN_CASES = (
+    RunCase("control/static_literals", "-128\n32767\n255\n18446744073709551615\n", section="control"),
+    RunCase("control/logical_loops", "0\n1\n2\n3\n9\n4\n", section="control"),
+    RunCase("control/compound_rem_overflow", "runtime error: integer overflow\n", 1, "control"),
     RunCase("numbers/unary_cast_order", "-127\n18446744073709551615\n-1\n", section="numbers"),
     RunCase("numbers/unary_cast_range", "runtime error: integer cast out of range\n", 1, "numbers"),
     RunCase("numbers/unary_cast_widen", "128\n", section="numbers"),
@@ -107,9 +110,21 @@ RUN_CASES = (
     RunCase("records/one_word_result", "18446744073709551615\n", section="records"),
     RunCase("records/forward_and_numeric", "-128\n255\n65535\n", section="records"),
     RunCase("records/width_256", "0\n255\n17\n255\n", section="records"),
+    RunCase("control/truth_tables", "false\nfalse\nfalse\ntrue\nfalse\ntrue\ntrue\ntrue\n", section="control"),
+    RunCase("control/precedence", "true\nfalse\nfalse\ntrue\ntrue\ntrue\n", section="control"),
+    RunCase("control/short_circuit_markers", "false\ntrue\n3\ntrue\n4\nfalse\n5\nfalse\n7\ntrue\n", section="control"),
+    RunCase("control/short_circuit_traps", "false\ntrue\nfalse\ntrue\n", section="control"),
+    RunCase("control/compound_locals", "120\n115\n230\n76\n6\n", section="control"),
+    RunCase("control/compound_nested_fields", "60\n55\n165\n41\n5\n99\n", section="control"),
+    RunCase("control/statics", "4294967295\n18446744073709551615\ntrue\n-9223372036854775808\n-32768\n18446744073709551614\n", section="control"),
+    RunCase("control/compound_overflow", "runtime error: integer overflow\n", 1, "control"),
+    RunCase("control/compound_div_zero", "runtime error: division by zero\n", 1, "control"),
 )
 
 REJECT_CASES = (
+    RejectCase("control/reject_static_negative_range", "integer literal", "control"),
+    RejectCase("control/reject_static_typed_narrowing", "convert", "control"),
+    RejectCase("control/reject_static_function_collision", "conflicts", "control"),
     RejectCase("records/reject_builtin_name", "reserved", "records"),
     RejectCase("records/reject_record_equality", "scalar", "records"),
     RejectCase("records/reject_record_print", "print", "records"),
@@ -126,7 +141,7 @@ REJECT_CASES = (
     RejectCase("reject_semicolon", "semicolons are not supported"),
     RejectCase("reject_string", "expected expression"),
     RejectCase("reject_bool_arithmetic", "arithmetic requires integer operands"),
-    RejectCase("reject_import", "only function and record declarations are supported"),
+    RejectCase("reject_import", "only function, record, and static declarations are supported"),
     RejectCase("reject_scope_leak", "unknown name"),
     RejectCase("reject_unary_depth", "expression nesting limit exceeded"),
     RejectCase("reject_reserved_print", "reserved"),
@@ -149,8 +164,14 @@ REJECT_CASES = (
     RejectCase("records/reject_direct_cycle", "recursive", "records"),
     RejectCase("records/reject_indirect_cycle", "recursive", "records"),
     RejectCase("records/reject_width_257", "256", "records"),
-    RejectCase("records/reject_duplicate_record", "duplicate record", "records"),
+    RejectCase("records/reject_duplicate_record", "duplicate module name", "records"),
     RejectCase("records/reject_duplicate_field", "duplicate record field", "records"),
+    RejectCase("control/reject_skipped_rhs_type", "logical operator requires Bool operands", "control"),
+    RejectCase("control/reject_immutable_compound", "cannot assign to immutable local", "control"),
+    RejectCase("control/reject_mixed_compound", "compound assignment operands must have the same type", "control"),
+    RejectCase("control/reject_duplicate_static", "duplicate module name", "control"),
+    RejectCase("control/reject_assigned_static", "cannot assign to immutable static", "control"),
+    RejectCase("control/reject_dynamic_static", "unsupported static initializer", "control"),
 )
 
 
@@ -235,7 +256,7 @@ def main() -> int:
     parser.add_argument("--binary", type=Path, default=Path(".build/minivm/minivm"))
     parser.add_argument("--clang", default="clang")
     parser.add_argument(
-        "--section", choices=("all", "core", "numbers", "records"), default="all",
+        "--section", choices=("all", "core", "numbers", "records", "control"), default="all",
         help="run all cases or one isolated test section",
     )
     args = parser.parse_args()
@@ -264,7 +285,7 @@ def main() -> int:
                 failures.extend(test_rejection(binary, case))
             except subprocess.TimeoutExpired:
                 failures.append(f"{case.name}: timed out after {TIMEOUT}s")
-        limit_cases = () if args.section in ("numbers", "records") else (
+        limit_cases = () if args.section in ("numbers", "records", "control") else (
             ("budget", 20, "runtime error: instruction budget exceeded"),
             ("depth", 10_000, "runtime error: call depth exceeded"),
         )

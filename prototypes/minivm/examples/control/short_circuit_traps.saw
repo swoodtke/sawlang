@@ -1,0 +1,6 @@
+func main() {
+    print(false && (1 / 0 == 0))
+    print(true || (1 / 0 == 0))
+    print(false && (Int8.max + 1 == 0))
+    print(true || (Int8.max + 1 == 0))
+}

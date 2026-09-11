@@ -1,0 +1,17 @@
+struct Inner { value: UInt16 }
+struct Outer { inner: Inner, untouched: Int }
+
+func main() {
+    var item = Outer(untouched: 99, inner: Inner(value: 50))
+    item.inner.value += 10
+    print(item.inner.value)
+    item.inner.value -= 5
+    print(item.inner.value)
+    item.inner.value *= 3
+    print(item.inner.value)
+    item.inner.value /= 4
+    print(item.inner.value)
+    item.inner.value %= 9
+    print(item.inner.value)
+    print(item.untouched)
+}

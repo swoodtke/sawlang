@@ -33,6 +33,14 @@ struct Place {
     mutable: Bool
 }
 
+struct StaticBinding {
+    name: String
+    ty: ValueType
+    value: Int
+    line: Int
+    col: Int
+}
+
 struct ExprValue {
     ty: ValueType
     slot: Int
@@ -87,6 +95,7 @@ func literal_magnitude(value: String) -> UInt? {
 struct Compiler {
     tokens: Vector<Token>
     records: Vector<RecordIR>
+    statics: Vector<StaticBinding>
     signatures: Vector<Signature>
     pos: Int
     depth: Int
@@ -153,6 +162,15 @@ extension Compiler {
         -1
     }
 
+    func static_index(&self, name: String) -> Int {
+        var i = 0
+        while i < self.statics.len() {
+            if self.statics[i].name == name { return i }
+            i += 1
+        }
+        -1
+    }
+
     func display_type(&self, ty: ValueType) -> String {
         match ty {
             case Record(index) -> {
@@ -178,11 +196,23 @@ extension Compiler {
                 let _ = self.take()
                 let name = try self.expect(TokenKind.Ident, "expected record name")
                 if self.reserved_type_name(name.value) || name.value == "print" { return problem("record name `{name.value}` is reserved", name.line, name.col) }
-                if self.record_index(name.value) >= 0 { return problem("duplicate record `{name.value}`", name.line, name.col) }
+                if self.record_index(name.value) >= 0 || self.static_index(name.value) >= 0 { return problem("duplicate module name `{name.value}`", name.line, name.col) }
                 try! self.records.push(RecordIR(name: name.value, field_names: Vector<String>(),
                                                 field_types: Vector<ValueType>(), line: name.line, col: name.col))
+            } else if self.at(TokenKind.Static) {
+                let _ = self.take()
+                let name = try self.expect(TokenKind.Ident, "expected static name")
+                if name.value == "print" || self.reserved_type_name(name.value) { return problem("static name `{name.value}` is reserved", name.line, name.col) }
+                if self.record_index(name.value) >= 0 || self.static_index(name.value) >= 0 {
+                    return problem("duplicate module name `{name.value}`", name.line, name.col)
+                }
+                try! self.statics.push(StaticBinding(name: name.value, ty: ValueType.Void,
+                                                     value: 0, line: name.line, col: name.col))
+                while not self.at(TokenKind.Newline) && not self.at(TokenKind.Eof) { let _ = self.take() }
+                self.skip_newlines()
+                continue
             } else if not self.at(TokenKind.Func) {
-                return self.fail("only function and record declarations are supported at module scope")
+                return self.fail("only function, record, and static declarations are supported at module scope")
             }
             while not self.at(TokenKind.LBrace) && not self.at(TokenKind.Eof) { let _ = self.take() }
             if self.at(TokenKind.Eof) { return self.fail("expected declaration body") }
@@ -218,7 +248,12 @@ extension Compiler {
                 self.skip_newlines()
                 continue
             }
-            let ft = try self.expect(TokenKind.Func, "only function and record declarations are supported at module scope")
+            if self.at(TokenKind.Static) {
+                try self.scan_static()
+                self.skip_newlines()
+                continue
+            }
+            let ft = try self.expect(TokenKind.Func, "only function, record, and static declarations are supported at module scope")
             let name = try self.expect(TokenKind.Ident, "expected function name")
             if name.value == "print" {
                 return problem("`print` is reserved by the prototype", name.line, name.col)
@@ -228,6 +263,9 @@ extension Compiler {
             }
             if self.record_index(name.value) >= 0 {
                 return problem("function `{name.value}` conflicts with a record name", name.line, name.col)
+            }
+            if self.static_index(name.value) >= 0 {
+                return problem("function `{name.value}` conflicts with a static name", name.line, name.col)
             }
             let _ = try self.expect(TokenKind.LParen, "expected `(` after function name")
             var pnames = Vector<String>()
@@ -296,6 +334,95 @@ extension Compiler {
             let t = self.token()
             return problem("program must declare exactly one main function", t.line, t.col)
         }
+        return
+    }
+
+    func static_integer_value(&self, magnitude: UInt, negative: Bool, bare: Bool,
+                              source: ValueType, target: ValueType,
+                              t: &Token) -> Result<Int, ProtoError> {
+        if not integer_type(target) || target == ValueType.Byte {
+            return problem("static integer initializer requires an integer type", t.line, t.col)
+        }
+        if negative && not integer_signed(source) { return problem("cannot negate an unsigned integer", t.line, t.col) }
+        var bits = Int.from(truncating: magnitude)
+        if negative {
+            if magnitude == UInt.from(truncating: Int.max) + 1 { bits = Int.min }
+            else { bits = 0 - bits }
+        }
+        bits = integer_normalize(bits, source)
+        if bare {
+            let probe = ExprValue(ty: source, slot: -1, call: false, literal: true,
+                                  literal_value: magnitude, literal_negative: negative)
+            if not self.literal_fits_target(&probe, target) {
+                return problem("integer literal does not fit {type_name(target)}", t.line, t.col)
+            }
+            return integer_normalize(bits, target)
+        }
+        if source != target && not integer_widens(source, target) {
+            return problem("cannot implicitly convert {type_name(source)} to {type_name(target)}", t.line, t.col)
+        }
+        integer_normalize(bits, target)
+    }
+
+    func scan_static(&var self) -> Result<Void, ProtoError> {
+        let _ = self.take()
+        let name = try self.expect(TokenKind.Ident, "expected static name")
+        let si = self.static_index(name.value)
+        if si < 0 { return problem("unknown static declaration `{name.value}`", name.line, name.col) }
+        let _ = try self.expect(TokenKind.Colon, "expected `:` after static name")
+        let target = try self.parse_type()
+        if target == ValueType.Byte || not scalar_type(target) {
+            return problem("static type must be an integer or Bool", name.line, name.col)
+        }
+        let _ = try self.expect(TokenKind.Assign, "static declaration requires an initializer")
+        var value = 0
+        if self.at(TokenKind.True_) || self.at(TokenKind.False_) {
+            let lit = self.take()
+            if target != ValueType.Bool { return problem("Bool static initializer requires Bool type", lit.line, lit.col) }
+            value = if lit.kind == TokenKind.True_ { 1 } else { 0 }
+        } else {
+            var negative = false
+            var anchor = self.token()
+            if self.at(TokenKind.Minus) {
+                negative = true
+                anchor = self.take()
+            }
+            if self.at(TokenKind.IntLit) {
+                let lit = self.take()
+                guard let magnitude = literal_magnitude(lit.value) else { return problem("invalid integer literal", lit.line, lit.col) }
+                var source = ValueType.I64
+                var bare = true
+                if let suffix = lit.suffix {
+                    bare = false
+                    guard let st = suffix_type(suffix) else { return problem("unsupported integer suffix `{suffix}`", lit.line, lit.col) }
+                    source = st
+                }
+                if not bare {
+                    let limit = if negative && integer_signed(source) {
+                        UInt.from(truncating: integer_max(source)) + 1
+                    } else { UInt.from(truncating: integer_max(source)) }
+                    if magnitude > limit { return problem("integer literal does not fit {type_name(source)}", lit.line, lit.col) }
+                }
+                value = try self.static_integer_value(magnitude, negative, bare, source, target, &anchor)
+            } else if not negative && self.at(TokenKind.Ident) {
+                let type_token = self.take()
+                guard let source = named_integer_type(type_token.value) else { return problem("unsupported static initializer", type_token.line, type_token.col) }
+                if source == ValueType.Byte { return problem("unsupported static initializer", type_token.line, type_token.col) }
+                let _ = try self.expect(TokenKind.Dot, "unsupported static initializer")
+                let member = try self.expect(TokenKind.Ident, "unsupported static initializer")
+                if member.value != "min" && member.value != "max" { return problem("unsupported static initializer", member.line, member.col) }
+                let bits = if member.value == "min" { integer_min(source) } else { integer_max(source) }
+                if target != source && not integer_widens(source, target) {
+                    return problem("cannot implicitly convert {type_name(source)} to {type_name(target)}", type_token.line, type_token.col)
+                }
+                value = integer_normalize(bits, target)
+            } else { return problem("unsupported static initializer", anchor.line, anchor.col) }
+        }
+        if not self.at(TokenKind.Newline) && not self.at(TokenKind.Eof) {
+            return self.fail("unsupported static initializer expression")
+        }
+        self.statics[si].ty = target
+        self.statics[si].value = value
         return
     }
 
@@ -530,9 +657,19 @@ extension Compiler {
             }
             if self.at(TokenKind.LParen) { return self.parse_call(name) }
             let bi = self.binding_index(name.value)
-            if bi < 0 { return problem("unknown name `{name.value}`", name.line, name.col) }
-            let value = expr_value(self.bindings[bi].ty, self.bindings[bi].slot, false)
-            return self.snapshot(value, &name)
+            if bi >= 0 {
+                let value = expr_value(self.bindings[bi].ty, self.bindings[bi].slot, false)
+                return self.snapshot(value, &name)
+            }
+            let si = self.static_index(name.value)
+            if si >= 0 {
+                let dst = self.new_slot(self.statics[si].ty)
+                let at = self.emit_at(Op.Const, name.line, name.col)
+                self.code[at].dst = dst
+                self.code[at].immediate = self.statics[si].value
+                return expr_value(self.statics[si].ty, dst, false)
+            }
+            return problem("unknown name `{name.value}`", name.line, name.col)
         }
         self.fail("expected expression; this syntax is unsupported")
     }
@@ -550,13 +687,18 @@ extension Compiler {
         if not self.at(TokenKind.Ident) { return false }
         var i = self.pos + 1
         while i + 1 < self.tokens.len() && self.tokens[i].kind == TokenKind.Dot && self.tokens[i + 1].kind == TokenKind.Ident { i += 2 }
-        i < self.tokens.len() && self.tokens[i].kind == TokenKind.Assign
+        if i >= self.tokens.len() { return false }
+        let kind = self.tokens[i].kind
+        kind == TokenKind.Assign || kind == TokenKind.PlusAssign || kind == TokenKind.MinusAssign || kind == TokenKind.StarAssign || kind == TokenKind.SlashAssign || kind == TokenKind.PercentAssign
     }
 
     func parse_place(&var self) -> Result<(Token, Place), ProtoError> {
         let name = try self.expect(TokenKind.Ident, "expected assignment target")
         let bi = self.binding_index(name.value)
-        if bi < 0 { return problem("unknown local `{name.value}`", name.line, name.col) }
+        if bi < 0 {
+            if self.static_index(name.value) >= 0 { return problem("cannot assign to immutable static `{name.value}`", name.line, name.col) }
+            return problem("unknown local `{name.value}`", name.line, name.col)
+        }
         var place = Place(ty: self.bindings[bi].ty, slot: self.bindings[bi].slot,
                           mutable: self.bindings[bi].mutable)
         while self.at(TokenKind.Dot) {
@@ -1014,7 +1156,7 @@ extension Compiler {
         left
     }
 
-    func parse_expr(&var self) -> Result<ExprValue, ProtoError> {
+    func parse_bit_or(&var self) -> Result<ExprValue, ProtoError> {
         var left = try self.parse_bit_xor()
         self.expr_space()
         while self.at(TokenKind.Pipe) {
@@ -1028,6 +1170,58 @@ extension Compiler {
             if not arithmetic_type(left.ty) { return problem("bitwise operator requires integer operands", t.line, t.col) }
             let result = left.ty
             left = try self.binary(left, right, Op.BitOr, result, &t)
+        }
+        left
+    }
+
+    func parse_logical_and(&var self) -> Result<ExprValue, ProtoError> {
+        var left = try self.parse_bit_or()
+        self.expr_space()
+        while self.at(TokenKind.And) {
+            let t = self.take()
+            if left.ty != ValueType.Bool { return problem("logical operator requires Bool operands", t.line, t.col) }
+            let dst = self.new_slot(ValueType.Bool)
+            let initial = self.emit_at(Op.Const, t.line, t.col)
+            self.code[initial].dst = dst
+            self.code[initial].immediate = 0
+            let branch = self.emit_at(Op.Branch, t.line, t.col)
+            self.code[branch].a = left.slot
+            let skip = self.emit_at(Op.Jump, t.line, t.col)
+            self.code[branch].target = self.code.len()
+            self.expr_space()
+            let right = try self.parse_bit_or()
+            self.expr_space()
+            if right.ty != ValueType.Bool { return problem("logical operator requires Bool operands", t.line, t.col) }
+            let copy = self.emit_at(Op.Copy, t.line, t.col)
+            self.code[copy].dst = dst
+            self.code[copy].a = right.slot
+            self.code[skip].target = self.code.len()
+            left = expr_value(ValueType.Bool, dst, false)
+        }
+        left
+    }
+
+    func parse_expr(&var self) -> Result<ExprValue, ProtoError> {
+        var left = try self.parse_logical_and()
+        self.expr_space()
+        while self.at(TokenKind.Or) {
+            let t = self.take()
+            if left.ty != ValueType.Bool { return problem("logical operator requires Bool operands", t.line, t.col) }
+            let dst = self.new_slot(ValueType.Bool)
+            let initial = self.emit_at(Op.Const, t.line, t.col)
+            self.code[initial].dst = dst
+            self.code[initial].immediate = 1
+            let branch = self.emit_at(Op.Branch, t.line, t.col)
+            self.code[branch].a = left.slot
+            self.expr_space()
+            let right = try self.parse_logical_and()
+            self.expr_space()
+            if right.ty != ValueType.Bool { return problem("logical operator requires Bool operands", t.line, t.col) }
+            let copy = self.emit_at(Op.Copy, t.line, t.col)
+            self.code[copy].dst = dst
+            self.code[copy].a = right.slot
+            self.code[branch].target = self.code.len()
+            left = expr_value(ValueType.Bool, dst, false)
         }
         left
     }
@@ -1147,10 +1341,17 @@ extension Compiler {
             let parsed = try self.parse_place()
             let name = parsed.0
             let place = parsed.1
-            let _ = self.take()
+            let assign = self.take()
             if not place.mutable { return problem("cannot assign to immutable local `{name.value}`", name.line, name.col) }
             var value = try self.parse_expr()
-            value = try self.transfer(value, place.ty, &name)
+            if assign.kind != TokenKind.Assign {
+                if not arithmetic_type(place.ty) { return problem("compound assignment requires an arithmetic integer destination", assign.line, assign.col) }
+                if value.literal { value = try self.transfer(value, place.ty, &assign) }
+                else if value.ty != place.ty { return problem("compound assignment operands must have the same type", assign.line, assign.col) }
+                let op = if assign.kind == TokenKind.PlusAssign { Op.Add } else if assign.kind == TokenKind.MinusAssign { Op.Sub } else if assign.kind == TokenKind.StarAssign { Op.Mul } else if assign.kind == TokenKind.SlashAssign { Op.Div } else { Op.Rem }
+                let left = expr_value(place.ty, place.slot, false)
+                value = try self.binary(left, value, op, place.ty, &assign)
+            } else { value = try self.transfer(value, place.ty, &name) }
             value = try self.snapshot(value, &name)
             try self.emit_copy_value(place.slot, value.slot, place.ty, &name)
             return false
@@ -1221,7 +1422,8 @@ public func compile_source(source: String) -> Result<Program, ProtoError> {
         case Ok(ts) -> move ts,
         case Err(e) -> { return problem(e.message, e.line, e.col) }
     }
-    var compiler = Compiler(tokens: move tokens, records: Vector<RecordIR>(), signatures: Vector<Signature>(), pos: 0, depth: 0,
+    var compiler = Compiler(tokens: move tokens, records: Vector<RecordIR>(), statics: Vector<StaticBinding>(),
+                            signatures: Vector<Signature>(), pos: 0, depth: 0,
                             expr_depth: 0, paren_depth: 0,
                             bindings: Vector<Binding>(), slots: Vector<ValueType>(),
                             code: Vector<Instruction>(), current_result: ValueType.Void)

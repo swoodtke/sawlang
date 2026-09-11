@@ -1,0 +1,19 @@
+func read_forward() {
+    print(FORWARD)
+    print(BIG)
+    print(ENABLED)
+    print(LOW)
+}
+
+public static BIG: UInt64 = UInt64.max
+static ENABLED: Bool = true
+static LOW: Int = Int.min
+static FORWARD: UInt32 = UInt32.max
+static NEGATIVE: Int16 = -32768
+
+func main() {
+    read_forward()
+    print(NEGATIVE)
+    let BIG: UInt64 = BIG - 1
+    print(BIG)
+}

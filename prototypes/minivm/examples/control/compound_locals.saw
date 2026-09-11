@@ -1,0 +1,13 @@
+func main() {
+    var value: Int16 = 100
+    value += 20
+    print(value)
+    value -= 5
+    print(value)
+    value *= 2
+    print(value)
+    value /= 3
+    print(value)
+    value %= 7
+    print(value)
+}

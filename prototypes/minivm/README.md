@@ -45,7 +45,8 @@ func main() {
 Single-file programs support signed and unsigned 8/16/32/64-bit integers,
 `Int`/`UInt` (64-bit), `Byte`, `Bool`, functions, positional calls,
 recursion, `let`/`var`, assignment, lexical scopes, statement `if`/`else` and
-`while`, explicit returns, and scalar printing. Named structs can contain scalars or nested structs, with
+`while`, explicit returns, and scalar printing. Named structs can contain scalars
+or nested structs, with
 field access, mutable fields, value copying, and function parameters/results.
 Record layouts are limited to 256 words and 128 nesting levels; see
 [M2_RECORDS.md](M2_RECORDS.md). Arithmetic is checked; signed
@@ -61,7 +62,11 @@ Newlines separate statements. Omit the result annotation for Void functions;
 `main()` must take no arguments and return Void. Value-returning functions need
 explicit returns. There are no imports, strings, collections, references,
 generics, methods, implicit value tails, or concurrency in the accepted subset.
-Semicolons and logical `&&`/`||` are also outside this initial subset.
+Semicolons remain unsupported. Boolean `&&`/`||` short-circuit, mutable integers
+and fields support `+=`/`-=`/`*=`/`/=`/`%=`, and module `static` integer/Bool
+constants accept literal and numeric-limit initializers. See
+[M3_SCALAR_CONTROL.md](M3_SCALAR_CONTROL.md) for this frontend slice.
+The prototype still accepts broader lexical shadowing than Saw's design-100 rule.
 
 The VM defaults to a shared budget of 1,000,000 instructions and a maximum call
 depth of 128. Override the budget with `run FILE --budget N`. These limits apply
@@ -75,16 +80,18 @@ python prototypes/minivm/test_minivm.py --binary .build/minivm/minivm
 
 The harness compares VM execution and clang-compiled IR with explicit expected
 outputs and statuses, checks rejected programs, and exercises VM limits. It
-uses temporary files and 30-second subprocess timeouts. The numeric and record milestones pass
-all 115 cases, including native execution at both `-O0` and `-O2`.
+uses temporary files and 30-second subprocess timeouts. The first three milestones
+pass all 136 cases, including native execution at both `-O0` and `-O2`.
 
 Independent representation checks live in `tests/numeric_contract.saw` and
 `tests/record_contract.saw`; build and run them with the Python compiler.
-Use `--section numbers` or `--section records` for an isolated integration gate.
+Use `--section numbers`, `--section records`, or `--section control` for an isolated
+integration gate.
 
 See [DESIGN.md](DESIGN.md) and [M1_NUMBERS.md](M1_NUMBERS.md) for the instruction
 schema and semantics. [LEXER_DEPENDENCIES.md](LEXER_DEPENDENCIES.md) tracks the
-remaining dependencies needed to compile the existing lexer with this prototype. Source is
+remaining dependencies needed to compile the existing lexer with this prototype.
+[M4_ENUMS.md](M4_ENUMS.md) designs the next isolated slice. Source is
 split into `frontend.saw`, `model.saw`, `verify.saw`, `vm.saw`, `llvm.saw`, and
 `main.saw`. The verifier checks structural indices and types; initialization
 is established by the frontend, so this is not a loader for untrusted bytecode.

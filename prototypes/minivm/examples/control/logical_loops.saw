@@ -1,0 +1,15 @@
+func check(i: Int) -> Bool {
+    print(i)
+    return true
+}
+func increment() -> Int {
+    print(9)
+    return 1
+}
+func main() {
+    var i = 0
+    while i < 3 && check(i) { i += 1 }
+    print(i)
+    i += increment()
+    print(i)
+}

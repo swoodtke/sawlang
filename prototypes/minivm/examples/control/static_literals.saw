@@ -1,0 +1,10 @@
+static SMALL: Int8 = -128
+static WIDE: Int64 = 32767i16
+static OCTET: UInt8 = 255
+static FULL: UInt64 = 18446744073709551615
+func main() {
+    print(SMALL)
+    print(WIDE)
+    print(OCTET)
+    print(FULL)
+}

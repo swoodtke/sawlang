@@ -1,0 +1,2 @@
+static X: UInt8 = 1u16
+func main() {}

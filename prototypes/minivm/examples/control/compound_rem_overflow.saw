@@ -1,0 +1,5 @@
+func main() {
+    var x: Int8 = -128
+    x %= -1
+    print(x)
+}

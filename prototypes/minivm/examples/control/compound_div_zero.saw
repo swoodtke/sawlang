@@ -1,0 +1,5 @@
+func main() {
+    var value: UInt64 = UInt64.max
+    value /= 0
+    print(value)
+}
