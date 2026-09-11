@@ -1,0 +1,5 @@
+func read(value: &Int) -> Int { value }
+func main() {
+    let value: Int8 = 1
+    print(read(&value))
+}

@@ -1,0 +1,6 @@
+struct Pair { left: Int, right: Int }
+func clash(a: &var Int, b: &Int) {}
+func main() {
+    var pair = Pair(left: 1, right: 2)
+    clash(&var pair.left, &pair.right)
+}

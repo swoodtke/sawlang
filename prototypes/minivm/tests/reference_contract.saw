@@ -1,0 +1,146 @@
+import src.model.*
+import src.verify.*
+import src.vm.*
+
+func valid(p: &Program) -> Bool {
+    try verify(&p) catch { return false }
+    true
+}
+
+func op(code: &var Vector<Instruction>, kind: Op, dst: Int, a: Int, b: Int) {
+    var i = instruction(kind)
+    i.dst = dst
+    i.a = a
+    i.b = b
+    try! code.push(move i)
+}
+
+func base_program() -> Program {
+    var refs = Vector<ReferenceIR>()
+    try! refs.push(ReferenceIR(target: ValueType.I64, mutable: true))
+    try! refs.push(ReferenceIR(target: ValueType.I64, mutable: false))
+    try! refs.push(ReferenceIR(target: ValueType.Bool, mutable: true))
+    try! refs.push(ReferenceIR(target: ValueType.Enum(0), mutable: false))
+    var cases = Vector<String>()
+    try! cases.push("Only")
+    var enums = Vector<EnumIR>()
+    try! enums.push(EnumIR(name: "Tag", cases: move cases, line: 1, col: 1))
+    let slots: Vector<ValueType> = [ValueType.I64, ValueType.Ref(0), ValueType.Ref(1),
+        ValueType.I64, ValueType.Bool, ValueType.Ref(2), ValueType.Enum(0), ValueType.Ref(3)]
+    var code = Vector<Instruction>()
+    op(&var code, Op.Const, 0, -1, -1)
+    op(&var code, Op.Addr, 1, 0, -1)
+    op(&var code, Op.Copy, 2, 1, -1)
+    op(&var code, Op.LoadRef, 3, 2, -1)
+    op(&var code, Op.StoreRef, -1, 1, 3)
+    op(&var code, Op.Const, 4, -1, -1)
+    op(&var code, Op.Addr, 5, 4, -1)
+    op(&var code, Op.Const, 6, -1, -1)
+    op(&var code, Op.Addr, 7, 6, -1)
+    op(&var code, Op.LoadRef, 6, 7, -1)
+    var call = instruction(Op.Call)
+    call.target = 1
+    call.dst = 3
+    try! call.args.push(2)
+    try! code.push(move call)
+    try! code.push(instruction(Op.Return))
+
+    var read_code = Vector<Instruction>()
+    op(&var read_code, Op.LoadRef, 1, 0, -1)
+    op(&var read_code, Op.Return, -1, 1, -1)
+    let read_slots: Vector<ValueType> = [ValueType.Ref(1), ValueType.I64]
+    let read_params: Vector<ValueType> = [ValueType.Ref(1)]
+    var funcs = Vector<FuncIR>()
+    try! funcs.push(FuncIR(name: "main", params: Vector<ValueType>(), result: ValueType.Void,
+        slots: move slots, code: move code))
+    try! funcs.push(FuncIR(name: "read", params: move read_params, result: ValueType.I64,
+        slots: move read_slots, code: move read_code))
+    Program(references: move refs, enums: move enums, records: Vector<RecordIR>(),
+        functions: move funcs, main_index: 0)
+}
+
+func rejected_op(p: &Program, index: Int, kind: Op, dst: Int, a: Int, b: Int) -> Bool {
+    var changed = p.copy()
+    var i = instruction(kind)
+    i.dst = dst
+    i.a = a
+    i.b = b
+    changed.functions[0].code.set(index, move i)
+    not valid(&changed)
+}
+
+func invalid_runtime_reference(p: &Program, handle: Int) -> Bool {
+    // Bypass verify deliberately to exercise the VM's defensive bounds guard.
+    // Such a reference Const is rejected by the verifier tests below.
+    var changed = p.copy()
+    changed.functions[0].code[1].op = Op.Const
+    changed.functions[0].code[1].immediate = handle
+    try execute(&changed, 1000) catch {
+        return error.message == "runtime error: invalid reference"
+    }
+    false
+}
+
+func main() {
+    let p = base_program()
+    assert(valid(&p), "valid addresses, qualification, accesses, and call")
+    try! execute(&p, 1000)
+    assert(reference_type(ValueType.Ref(0)), "reference classification")
+    assert(not scalar_type(ValueType.Ref(0)), "reference is not scalar data")
+    assert(not printable_type(ValueType.Ref(0)), "reference is not printable")
+    assert(not integer_type(ValueType.Ref(0)), "reference is not an integer")
+    assert((try! value_layout(&p.records, ValueType.Ref(0))).len() == 1, "reference word layout")
+    assert(reference_transfer(&p.references, ValueType.Ref(0), ValueType.Ref(1)), "weaken mutability")
+    assert(not reference_transfer(&p.references, ValueType.Ref(1), ValueType.Ref(0)), "cannot strengthen")
+    assert(not reference_transfer(&p.references, ValueType.Ref(0), ValueType.Ref(2)), "same referent required")
+    assert(not reference_transfer(&p.references, ValueType.Ref(-1), ValueType.Ref(1)), "negative reference index")
+    assert(not reference_mutable(&p.references, ValueType.Ref(99)), "invalid reference is not writable")
+
+    assert(rejected_op(&p, 1, Op.Addr, 1, 4, -1), "Addr wrong referent")
+    assert(rejected_op(&p, 1, Op.Addr, 1, -1, -1), "Addr invalid source")
+    assert(rejected_op(&p, 1, Op.Addr, 0, 0, -1), "Addr requires reference destination")
+    assert(rejected_op(&p, 3, Op.LoadRef, 4, 2, -1), "LoadRef target mismatch")
+    assert(rejected_op(&p, 3, Op.LoadRef, 3, 0, -1), "LoadRef requires reference")
+    assert(rejected_op(&p, 4, Op.StoreRef, -1, 2, 3), "StoreRef shared reference")
+    assert(rejected_op(&p, 4, Op.StoreRef, -1, 1, 4), "StoreRef target mismatch")
+    assert(rejected_op(&p, 2, Op.Copy, 1, 2, -1), "Copy cannot strengthen")
+    assert(rejected_op(&p, 2, Op.Copy, 1, 0, -1), "Copy cannot invent reference")
+    assert(rejected_op(&p, 2, Op.Const, 1, -1, -1), "Const cannot invent reference")
+    assert(rejected_op(&p, 2, Op.Cast, 0, 1, -1), "Cast cannot expose address")
+    assert(rejected_op(&p, 2, Op.Eq, 4, 1, 1), "reference equality unsupported")
+    assert(rejected_op(&p, 2, Op.Print, -1, 1, -1), "cannot print address")
+
+    var negative = p.copy()
+    negative.functions[0].slots.set(1, ValueType.Ref(-1))
+    assert(not valid(&negative), "negative slot reference type")
+    var high = p.copy()
+    high.functions[1].params.set(0, ValueType.Ref(99))
+    assert(not valid(&high), "out-of-range parameter reference type")
+    var returned = p.copy()
+    returned.functions[1].result = ValueType.Ref(1)
+    assert(not valid(&returned), "no escaping reference results")
+    var nested = p.copy()
+    nested.references[0].target = ValueType.Ref(1)
+    assert(not valid(&nested), "no reference to reference")
+    var void_ref = p.copy()
+    void_ref.references[0].target = ValueType.Void
+    assert(not valid(&void_ref), "no Void reference")
+    var record_ref = p.copy()
+    record_ref.references[0].target = ValueType.Record(0)
+    assert(not valid(&record_ref), "no whole-record reference")
+    var enum_ref = p.copy()
+    enum_ref.references[3].target = ValueType.Enum(99)
+    assert(not valid(&enum_ref), "validate enum index in reference target")
+    var wrong_call = p.copy()
+    wrong_call.functions[0].code[10].args.set(0, 1)
+    assert(not valid(&wrong_call), "call requires explicit qualifying copy")
+    var record_field = p.copy()
+    let names: Vector<String> = ["ref"]
+    let types: Vector<ValueType> = [ValueType.Ref(0)]
+    try! record_field.records.push(RecordIR(name: "Stored", field_names: move names,
+        field_types: move types, line: 1, col: 1))
+    assert(not valid(&record_field), "no stored reference field")
+    assert(invalid_runtime_reference(&p, -1), "VM rejects negative handle")
+    assert(invalid_runtime_reference(&p, 999), "VM rejects out-of-range handle")
+    print("reference contract passed")
+}

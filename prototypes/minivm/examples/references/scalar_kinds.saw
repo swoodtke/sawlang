@@ -1,0 +1,18 @@
+enum State { case Off, case On }
+
+func show_u64(value: &UInt64) { print(value) }
+func show_byte(value: &Byte) { print(value) }
+func flip(value: &var Bool) { value = not value }
+func is_on(value: &State) -> Bool { value == State.On }
+
+func main() {
+    let wide: UInt64 = 18_446_744_073_709_551_615
+    let byte = Byte(255u8)
+    var flag = false
+    let state = State.On
+    show_u64(&wide)
+    show_byte(&byte)
+    flip(&var flag)
+    print(flag)
+    print(is_on(&state))
+}

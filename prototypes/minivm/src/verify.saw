@@ -17,6 +17,9 @@ func check_type(p: &Program, t: ValueType) -> Result<Void, ProtoError> {
         case Record(index) -> {
             if index < 0 || index >= p.records.len() { return problem("internal prototype error: invalid record type index", 0, 0) }
         },
+        case Ref(index) -> {
+            if index < 0 || index >= p.references.len() { return problem("internal prototype error: invalid reference type index", 0, 0) }
+        },
         case _ -> {}
     }
     return
@@ -24,6 +27,11 @@ func check_type(p: &Program, t: ValueType) -> Result<Void, ProtoError> {
 
 func check_declared_types(p: &Program) -> Result<Void, ProtoError> {
     var n = 0
+    while n < p.references.len() {
+        try check_type(&p, p.references[n].target)
+        n += 1
+    }
+    n = 0
     while n < p.records.len() {
         let record = p.records[n].copy()
         var e = 0
@@ -42,6 +50,7 @@ func check_declared_types(p: &Program) -> Result<Void, ProtoError> {
     while n < p.functions.len() {
         let f = p.functions[n].copy()
         try check_type(&p, f.result)
+        if reference_type(f.result) { return problem("reference function results are not supported", 0, 0) }
         var word = 0
         while word < f.params.len() {
             try check_type(&p, f.params[word])
@@ -100,7 +109,24 @@ func check_instruction(p: &Program, f: &FuncIR, i: &Instruction) -> Result<Void,
             }
         },
         case Copy -> {
-            if not scalar_type(dst) || a != dst { return invalid(&i) }
+            if reference_type(dst) {
+                if not reference_transfer(&p.references, a, dst) { return invalid(&i) }
+            } else if not scalar_type(dst) || a != dst { return invalid(&i) }
+        },
+        case Addr -> {
+            if not reference_type(dst) || not scalar_type(a) { return invalid(&i) }
+            let target = try reference_target(&p.references, dst)
+            if target != a { return invalid(&i) }
+        },
+        case LoadRef -> {
+            if not reference_type(a) || not scalar_type(dst) { return invalid(&i) }
+            let target = try reference_target(&p.references, a)
+            if target != dst { return invalid(&i) }
+        },
+        case StoreRef -> {
+            if not reference_mutable(&p.references, a) || not scalar_type(b) { return invalid(&i) }
+            let target = try reference_target(&p.references, a)
+            if target != b { return invalid(&i) }
         },
         case Add -> { try check_binary(&i, dst, a, b) },
         case Sub -> { try check_binary(&i, dst, a, b) },
@@ -183,7 +209,7 @@ func check_function(p: &Program, f: &FuncIR) -> Result<Void, ProtoError> {
     }
     var n = 0
     while n < f.slots.len() {
-        if not scalar_type(f.slots[n]) { return problem("internal prototype error: non-scalar slot", 0, 0) }
+        if not scalar_type(f.slots[n]) && not reference_type(f.slots[n]) { return problem("internal prototype error: non-scalar slot", 0, 0) }
         if n < params.len() && f.slots[n] != params[n] {
             return problem("internal prototype error: parameter slot mismatch", 0, 0)
         }
@@ -215,6 +241,7 @@ func check_function(p: &Program, f: &FuncIR) -> Result<Void, ProtoError> {
 
 public func verify(program: &Program) -> Result<Void, ProtoError> {
     try validate_enums(&program.enums)
+    try validate_references(&program.references)
     try check_declared_types(&program)
     try validate_records(&program.records)
     if program.main_index < 0 || program.main_index >= program.functions.len() {

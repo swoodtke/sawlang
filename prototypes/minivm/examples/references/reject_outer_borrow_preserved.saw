@@ -1,0 +1,8 @@
+func read(value: &Int) -> Int { value }
+func consume(held: &var Int, nested: Int, after: Int) {}
+
+func main() {
+    var held = 4
+    let other = 9
+    consume(&var held, read(&other), held)
+}

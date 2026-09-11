@@ -1,0 +1,13 @@
+func set_after(snapshot: Int, value: &var Int) {
+    print(snapshot)
+    value = 10
+}
+func bump(value: &var Int) { value += 1 }
+
+func main() {
+    var value = 4
+    set_after(value, &var value)
+    print(value)
+    bump(&var value)
+    print(value)
+}

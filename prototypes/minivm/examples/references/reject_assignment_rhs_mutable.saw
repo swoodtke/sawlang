@@ -1,0 +1,9 @@
+func replace(value: &var Int) -> Int {
+    value = 20
+    return 3
+}
+
+func main() {
+    var value = 1
+    value = replace(&var value)
+}

@@ -1,7 +1,7 @@
 public enum ValueType {
     case I8, case I16, case I32, case I64,
     case U8, case U16, case U32, case U64, case Byte,
-    case Bool, case Void, case Record(index: Int), case Enum(index: Int)
+    case Bool, case Void, case Record(index: Int), case Enum(index: Int), case Ref(index: Int)
 }
 @synthesize
 extension ValueType: Equatable {}
@@ -11,6 +11,7 @@ public enum Op {
     case Neg, case Not, case Eq, case Ne, case Lt, case Le, case Gt, case Ge,
     case Jump, case Branch, case Call, case Print, case Return,
     case Cast, case Truncate, case WrapAdd, case WrapSub, case WrapMul,
+    case Addr, case LoadRef, case StoreRef,
     case BitAnd, case BitOr, case BitXor, case BitNot, case Shl, case Shr
 }
 @synthesize
@@ -115,10 +116,16 @@ public struct EnumIR {
 extension EnumIR: ExplicitCopy {}
 
 public struct Program {
+    public references: Vector<ReferenceIR>
     public enums: Vector<EnumIR>
     public records: Vector<RecordIR>
     public functions: Vector<FuncIR>
     public main_index: Int
+}
+
+public struct ReferenceIR {
+    public target: ValueType
+    public mutable: Bool
 }
 
 public struct RecordIR {
@@ -167,6 +174,48 @@ public func scalar_type(t: ValueType) -> Bool {
         case Enum(_) -> true,
         case _ -> printable_type(t)
     }
+}
+
+public func reference_type(t: ValueType) -> Bool {
+    match t {
+        case Ref(_) -> true,
+        case _ -> false
+    }
+}
+
+public func reference_target(refs: &Vector<ReferenceIR>, t: ValueType) -> Result<ValueType, ProtoError> {
+    match t {
+        case Ref(index) -> {
+            if index < 0 || index >= refs.len() { return problem("invalid reference type index", 0, 0) }
+            return refs[index].target
+        },
+        case _ -> { return problem("expected reference type", 0, 0) }
+    }
+}
+
+public func reference_mutable(refs: &Vector<ReferenceIR>, t: ValueType) -> Bool {
+    match t {
+        case Ref(index) -> {
+            if index < 0 || index >= refs.len() { return false }
+            return refs[index].mutable
+        },
+        case _ -> false
+    }
+}
+
+public func reference_transfer(refs: &Vector<ReferenceIR>, source: ValueType, target: ValueType) -> Bool {
+    let source_target = try reference_target(&refs, source) catch { return false }
+    let target_target = try reference_target(&refs, target) catch { return false }
+    source_target == target_target && (not reference_mutable(&refs, target) || reference_mutable(&refs, source))
+}
+
+public func validate_references(refs: &Vector<ReferenceIR>) -> Result<Void, ProtoError> {
+    var n = 0
+    while n < refs.len() {
+        if not scalar_type(refs[n].target) { return problem("reference target must be a scalar type", 0, 0) }
+        n += 1
+    }
+    return
 }
 
 public func validate_enums(enums: &Vector<EnumIR>) -> Result<Void, ProtoError> {
@@ -225,12 +274,17 @@ func append_layout(records: &Vector<RecordIR>, t: ValueType,
             let _ = path.pop()
             return
         },
+        case Ref(_) -> { return problem("reference record fields are not supported", 0, 0) },
         case _ -> { return problem("Void is not a record field type", 0, 0) }
     }
 }
 
 public func value_layout(records: &Vector<RecordIR>, t: ValueType) -> Result<Vector<ValueType>, ProtoError> {
     var words = Vector<ValueType>()
+    if reference_type(t) {
+        try! words.push(t)
+        return move words
+    }
     if t != ValueType.Void {
         var path = Vector<Int>()
         try append_layout(&records, t, &var path, &var words)

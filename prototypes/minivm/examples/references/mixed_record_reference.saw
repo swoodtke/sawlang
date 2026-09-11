@@ -1,0 +1,22 @@
+struct Pair {
+    left: Int
+    right: Int
+}
+
+func record_then_ref(pair: Pair, amount: &Int) -> Pair {
+    Pair(left: pair.left + amount, right: pair.right)
+}
+
+func ref_then_record(amount: &Int, pair: Pair) -> Pair {
+    Pair(left: pair.left, right: pair.right + amount)
+}
+
+func main() {
+    let amount = 4
+    let first = record_then_ref(Pair(left: 1, right: 12), &amount)
+    print(first.left)
+    print(first.right)
+    let second = ref_then_record(&amount, Pair(left: 9, right: 12))
+    print(second.left)
+    print(second.right)
+}

@@ -1,0 +1,2 @@
+static bad: &Int = 1
+func main() {}

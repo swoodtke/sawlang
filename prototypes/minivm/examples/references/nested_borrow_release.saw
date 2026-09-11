@@ -1,0 +1,15 @@
+func bump(value: &var Int) -> Int {
+    value += 1
+    return value
+}
+
+func choose(held: &Int, nested: Int, after: Int) -> Int {
+    held + nested - after
+}
+
+func main() {
+    let held = 7
+    var other = 10
+    print(choose(&held, bump(&var other), other))
+    print(other)
+}

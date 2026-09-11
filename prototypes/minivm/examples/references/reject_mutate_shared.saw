@@ -1,0 +1,4 @@
+func bad(value: &Int) {
+    value += 1
+}
+func main() {}

@@ -1,0 +1,13 @@
+func replace(value: &var Int) -> Int {
+    value = 20
+    return 3
+}
+
+func combine(value: &var Int) {
+    value += replace(&var value)
+}
+
+func main() {
+    var value = 10
+    combine(&var value)
+}

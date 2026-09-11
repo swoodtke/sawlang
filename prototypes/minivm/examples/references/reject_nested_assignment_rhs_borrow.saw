@@ -1,0 +1,10 @@
+func read(value: &Int) -> Int { value }
+
+func main() {
+    var value = 1
+    value = if true {
+        read(&value)
+    } else {
+        0
+    }
+}

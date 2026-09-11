@@ -1,0 +1,3 @@
+struct Pair { left: Int, right: Int }
+func bad(value: &Pair) {}
+func main() {}

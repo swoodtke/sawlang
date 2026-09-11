@@ -1,0 +1,17 @@
+func descend(depth: Int, value: &var Int) {
+    var padding0 = depth
+    var padding1 = depth + 1
+    var padding2 = depth + 2
+    if depth == 0 {
+        value += padding0 + padding1 + padding2 + 34
+        return
+    }
+    descend(depth - 1, &var value)
+}
+
+func main() {
+    var value = 1
+    descend(40, &var value)
+    print(value)
+    print(value)
+}

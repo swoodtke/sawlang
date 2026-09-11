@@ -10,7 +10,11 @@ constants, compound assignment and short-circuit Booleans. M4 supplies payload-f
 enums and exhaustive statement match, including the actual TokenKind declaration
 in isolation. M5 adds implicit tails, value if/match and else-if chains, including
 the unchanged numeric `hex_value` helper (193 total cases).
-Strings, collections, references, generics and methods remain outstanding.
+M6 supplies direct-call scalar references, forwarding and mutation, including
+borrowing scalar fields of direct records. Whole-record references/receivers,
+strings, collections, generics and methods remain outstanding. The next bounded
+slice is whole-record references and basic instance methods, tested with a
+scalar-only `Lexer.advance`-shaped record before introducing owning strings.
 The dependency groups below are an inventory, not the implementation commit order;
 the numbered milestone designs define each isolated slice.
 

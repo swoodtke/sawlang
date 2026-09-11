@@ -1,0 +1,5 @@
+func take(value: Int) {}
+func main() {
+    let value = 1
+    take(&value)
+}

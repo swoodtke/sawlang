@@ -35,6 +35,16 @@ class RejectCase:
 
 
 RUN_CASES = (
+    RunCase("references/read_mutate_compound", "41\n42\n51\n25\n5\n", section="references"),
+    RunCase("references/scalar_kinds", "18446744073709551615\n255\ntrue\ntrue\n", section="references"),
+    RunCase("references/direct_record_fields", "8\n21\n", section="references"),
+    RunCase("references/shared_aliases", "18\n9\n", section="references"),
+    RunCase("references/forwarding_growth", "38\n38\n", section="references"),
+    RunCase("references/mutable_to_shared", "12\n13\n", section="references"),
+    RunCase("references/value_before_borrow", "4\n10\n11\n", section="references"),
+    RunCase("references/mixed_record_reference", "5\n12\n9\n16\n", section="references"),
+    RunCase("references/assignment_rhs_nonborrow", "3\n6\n4\n8\n", section="references"),
+    RunCase("references/nested_borrow_release", "7\n11\n", section="references"),
     RunCase("enums/nested_control", "true\n10\n11\n20\n", section="enums"),
     RunCase("control/static_literals", "-128\n32767\n255\n18446744073709551615\n", section="control"),
     RunCase("control/logical_loops", "0\n1\n2\n3\n9\n4\n", section="control"),
@@ -150,6 +160,30 @@ RUN_CASES = (
 )
 
 REJECT_CASES = (
+    RejectCase("references/reject_alias_mutable_shared", "overlapping arguments cannot include a mutable borrow", "references"),
+    RejectCase("references/reject_alias_two_fields", "overlapping arguments cannot include a mutable borrow", "references"),
+    RejectCase("references/reject_later_read", "cannot read a place while it is mutably borrowed", "references"),
+    RejectCase("references/reject_later_write", "cannot write a place while it is borrowed", "references"),
+    RejectCase("references/reject_missing_ampersand", "reference argument requires explicit `&`", "references"),
+    RejectCase("references/reject_missing_var", "mutable reference argument requires `&var`", "references"),
+    RejectCase("references/reject_value_address", "value parameter does not accept an address argument", "references"),
+    RejectCase("references/reject_wrong_referent", "reference argument type does not match parameter", "references"),
+    RejectCase("references/reject_immutable_borrow", "cannot mutably borrow an immutable place", "references"),
+    RejectCase("references/reject_shared_to_mutable", "cannot mutably borrow an immutable place", "references"),
+    RejectCase("references/reject_mutate_shared", "cannot assign through a shared reference", "references"),
+    RejectCase("references/reject_reference_local", "reference locals are not supported", "references"),
+    RejectCase("references/reject_reference_field", "reference record fields are not supported", "references"),
+    RejectCase("references/reject_reference_result", "reference results are not supported", "references"),
+    RejectCase("references/reject_reference_static", "static type must be an integer or Bool", "references"),
+    RejectCase("references/reject_whole_record", "only scalar references are supported", "references"),
+    RejectCase("references/reject_nested_reference", "references to references are not supported", "references"),
+    RejectCase("references/reject_outer_borrow_preserved", "cannot read a place while it is mutably borrowed", "references"),
+    RejectCase("references/reject_spaced_nested_reference", "references to references are not supported", "references"),
+    RejectCase("references/compound_lhs_snapshot", "cannot borrow an assignment destination while evaluating its right-hand side", "references"),
+    RejectCase("references/reject_assignment_rhs_shared", "cannot borrow an assignment destination while evaluating its right-hand side", "references"),
+    RejectCase("references/reject_assignment_rhs_mutable", "cannot borrow an assignment destination while evaluating its right-hand side", "references"),
+    RejectCase("references/reject_compound_rhs_borrow", "cannot borrow an assignment destination while evaluating its right-hand side", "references"),
+    RejectCase("references/reject_nested_assignment_rhs_borrow", "cannot borrow an assignment destination while evaluating its right-hand side", "references"),
     RejectCase("enums/reject_empty", "at least one case", "enums"),
     RejectCase("enums/reject_record_collision", "duplicate module name", "enums"),
     RejectCase("enums/reject_static_enum", "static type", "enums"),
@@ -313,7 +347,7 @@ def main() -> int:
     parser.add_argument("--binary", type=Path, default=Path(".build/minivm/minivm"))
     parser.add_argument("--clang", default="clang")
     parser.add_argument(
-        "--section", choices=("all", "core", "numbers", "records", "control", "enums", "values"), default="all",
+        "--section", choices=("all", "core", "numbers", "records", "control", "enums", "values", "references"), default="all",
         help="run all cases or one isolated test section",
     )
     args = parser.parse_args()
@@ -342,7 +376,7 @@ def main() -> int:
                 failures.extend(test_rejection(binary, case))
             except subprocess.TimeoutExpired:
                 failures.append(f"{case.name}: timed out after {TIMEOUT}s")
-        limit_cases = () if args.section in ("numbers", "records", "control", "enums", "values") else (
+        limit_cases = () if args.section in ("numbers", "records", "control", "enums", "values", "references") else (
             ("budget", 20, "runtime error: instruction budget exceeded"),
             ("depth", 10_000, "runtime error: call depth exceeded"),
         )

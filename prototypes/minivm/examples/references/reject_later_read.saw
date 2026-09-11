@@ -1,0 +1,5 @@
+func consume(a: &var Int, b: Int) {}
+func main() {
+    var value = 1
+    consume(&var value, value)
+}

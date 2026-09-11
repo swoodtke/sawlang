@@ -1,0 +1,5 @@
+func bump(value: &var Int) { value += 1 }
+func main() {
+    var value = 1
+    bump(&value)
+}

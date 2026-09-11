@@ -1,0 +1,17 @@
+func read(value: &Int) -> Int { value }
+func update(value: &var Int) {
+    value += 9
+    print(value)
+    value /= 2
+    print(value)
+    value %= 20
+    print(value)
+}
+
+func main() {
+    var number = 41
+    print(read(&number))
+    number += 1
+    print(number)
+    update(&var number)
+}

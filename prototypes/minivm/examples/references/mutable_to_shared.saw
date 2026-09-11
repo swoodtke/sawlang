@@ -1,0 +1,11 @@
+func inspect(value: &Int) { print(value) }
+func forward(value: &var Int) {
+    inspect(&value)
+    value += 1
+}
+
+func main() {
+    var value = 12
+    forward(&var value)
+    print(value)
+}

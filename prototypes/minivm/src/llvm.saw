@@ -64,9 +64,26 @@ func load_slot(out: &var StringBuilder, instruction_index: Int,
     put(&var out, "\n")
 }
 
+func load_ref_slot(out: &var StringBuilder, instruction_index: Int,
+                   suffix: String, slot: Int) {
+    temp_name(&var out, instruction_index, suffix)
+    put(&var out, " = load ptr, ptr ")
+    slot_name(&var out, slot)
+    put(&var out, "\n")
+}
+
 func store_temp(out: &var StringBuilder, instruction_index: Int,
                 suffix: String, slot: Int) {
     put(&var out, "  store i64 ")
+    temp_name(&var out, instruction_index, suffix)
+    put(&var out, ", ptr ")
+    slot_name(&var out, slot)
+    put(&var out, "\n")
+}
+
+func store_ref_temp(out: &var StringBuilder, instruction_index: Int,
+                    suffix: String, slot: Int) {
+    put(&var out, "  store ptr ")
     temp_name(&var out, instruction_index, suffix)
     put(&var out, ", ptr ")
     slot_name(&var out, slot)
@@ -357,8 +374,44 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
         },
         case Copy -> {
             put(&var out, "  ")
-            load_slot(&var out, instruction_index, "v", inst.a)
+            if reference_type(function.slots[inst.a]) {
+                load_ref_slot(&var out, instruction_index, "v", inst.a)
+                store_ref_temp(&var out, instruction_index, "v", inst.dst)
+            } else {
+                load_slot(&var out, instruction_index, "v", inst.a)
+                store_temp(&var out, instruction_index, "v", inst.dst)
+            }
+            next_block(&var out, instruction_index)
+        },
+        case Addr -> {
+            put(&var out, "  store ptr ")
+            slot_name(&var out, inst.a)
+            put(&var out, ", ptr ")
+            slot_name(&var out, inst.dst)
+            put(&var out, "\n")
+            next_block(&var out, instruction_index)
+        },
+        case LoadRef -> {
+            put(&var out, "  ")
+            load_ref_slot(&var out, instruction_index, "ref", inst.a)
+            put(&var out, "  ")
+            temp_name(&var out, instruction_index, "v")
+            put(&var out, " = load i64, ptr ")
+            temp_name(&var out, instruction_index, "ref")
+            put(&var out, "\n")
             store_temp(&var out, instruction_index, "v", inst.dst)
+            next_block(&var out, instruction_index)
+        },
+        case StoreRef -> {
+            put(&var out, "  ")
+            load_ref_slot(&var out, instruction_index, "ref", inst.a)
+            put(&var out, "  ")
+            load_slot(&var out, instruction_index, "v", inst.b)
+            put(&var out, "  store i64 ")
+            temp_name(&var out, instruction_index, "v")
+            put(&var out, ", ptr ")
+            temp_name(&var out, instruction_index, "ref")
+            put(&var out, "\n")
             next_block(&var out, instruction_index)
         },
         case Add -> emit_binary(&var out, instruction_index, &inst, "add", true, function.slots[inst.dst]),
@@ -451,7 +504,11 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
             var argument_index = 0
             while argument_index < inst.args.len() {
                 put(&var out, "  ")
-                load_slot(&var out, instruction_index, "arg{argument_index}", inst.args[argument_index])
+                if reference_type(function.slots[inst.args[argument_index]]) {
+                    load_ref_slot(&var out, instruction_index, "arg{argument_index}", inst.args[argument_index])
+                } else {
+                    load_slot(&var out, instruction_index, "arg{argument_index}", inst.args[argument_index])
+                }
                 argument_index = argument_index + 1
             }
             put(&var out, "  ")
@@ -467,7 +524,8 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
             argument_index = 0
             while argument_index < inst.args.len() {
                 if argument_index > 0 { put(&var out, ", ") }
-                put(&var out, "i64 ")
+                if reference_type(function.slots[inst.args[argument_index]]) { put(&var out, "ptr ") }
+                else { put(&var out, "i64 ") }
                 temp_name(&var out, instruction_index, "arg{argument_index}")
                 argument_index = argument_index + 1
             }
@@ -570,14 +628,22 @@ func emit_function(out: &var StringBuilder, program: &Program,
     var parameter_index = 0
     var argument_index = 0
     while parameter_index < function.params.len() {
-        let parameter_layout = try value_layout(&program.records, function.params[parameter_index])
-        var parameter_word = 0
-        while parameter_word < parameter_layout.len() {
+        let parameter_type = function.params[parameter_index]
+        if reference_type(parameter_type) {
             if argument_index > 0 { put(&var out, ", ") }
-            put(&var out, "i64 %arg")
+            put(&var out, "ptr %arg")
             put_int(&var out, argument_index)
             argument_index = argument_index + 1
-            parameter_word = parameter_word + 1
+        } else {
+            let parameter_layout = try value_layout(&program.records, parameter_type)
+            var parameter_word = 0
+            while parameter_word < parameter_layout.len() {
+                if argument_index > 0 { put(&var out, ", ") }
+                put(&var out, "i64 %arg")
+                put_int(&var out, argument_index)
+                argument_index = argument_index + 1
+                parameter_word = parameter_word + 1
+            }
         }
         parameter_index = parameter_index + 1
     }
@@ -586,7 +652,7 @@ func emit_function(out: &var StringBuilder, program: &Program,
     while slot_index < function.slots.len() {
         put(&var out, "  ")
         slot_name(&var out, slot_index)
-        put(&var out, " = alloca i64\n")
+        put(&var out, if reference_type(function.slots[slot_index]) { " = alloca ptr\n" } else { " = alloca i64\n" })
         slot_index = slot_index + 1
     }
     var parameter_words = 0
@@ -598,7 +664,7 @@ func emit_function(out: &var StringBuilder, program: &Program,
     }
     argument_index = 0
     while argument_index < parameter_words {
-        put(&var out, "  store i64 %arg")
+        put(&var out, if reference_type(function.slots[argument_index]) { "  store ptr %arg" } else { "  store i64 %arg" })
         put_int(&var out, argument_index)
         put(&var out, ", ptr ")
         slot_name(&var out, argument_index)

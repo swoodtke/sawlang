@@ -1,0 +1,10 @@
+func consume(a: &Int, b: Int) {}
+func main() {
+    var value = 1
+    consume(&value, if true {
+        value = 7
+        value
+    } else {
+        0
+    })
+}

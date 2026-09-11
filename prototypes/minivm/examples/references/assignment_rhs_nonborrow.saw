@@ -1,0 +1,15 @@
+func read(value: &Int) -> Int { value }
+
+func main() {
+    var value = 2
+    value = value + 1
+    print(value)
+    value += value
+    print(value)
+
+    let other = 4
+    value = read(&other)
+    print(value)
+    value += read(&other)
+    print(value)
+}

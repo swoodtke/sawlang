@@ -1,0 +1,5 @@
+func clash(a: &var Int, b: &Int) {}
+func main() {
+    var value = 1
+    clash(&var value, &value)
+}

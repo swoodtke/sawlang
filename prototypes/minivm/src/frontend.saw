@@ -31,6 +31,13 @@ struct Place {
     ty: ValueType
     slot: Int
     mutable: Bool
+    indirect: Bool
+    root: Int
+}
+
+struct Borrow {
+    root: Int
+    mutable: Bool
 }
 
 struct StaticBinding {
@@ -73,7 +80,7 @@ func type_name(t: ValueType) -> String {
         case I8 -> "Int8", case I16 -> "Int16", case I32 -> "Int32", case I64 -> "Int",
         case U8 -> "UInt8", case U16 -> "UInt16", case U32 -> "UInt32", case U64 -> "UInt",
         case Byte -> "Byte", case Bool -> "Bool", case Void -> "Void",
-        case Record(_) -> "record", case Enum(_) -> "enum"
+        case Record(_) -> "record", case Enum(_) -> "enum", case Ref(_) -> "reference"
     }
 }
 
@@ -109,6 +116,7 @@ struct Compiler {
     tokens: Vector<Token>
     records: Vector<RecordIR>
     enums: Vector<EnumIR>
+    references: Vector<ReferenceIR>
     statics: Vector<StaticBinding>
     signatures: Vector<Signature>
     pos: Int
@@ -116,6 +124,8 @@ struct Compiler {
     expr_depth: Int
     paren_depth: Int
     bindings: Vector<Binding>
+    active_borrows: Vector<Borrow>
+    pending_writes: Vector<Int>
     slots: Vector<ValueType>
     code: Vector<Instruction>
     current_result: ValueType
@@ -159,6 +169,22 @@ extension Compiler {
     }
 
     func parse_type(&var self) -> Result<ValueType, ProtoError> {
+        if self.at(TokenKind.Ampersand) {
+            let amp = self.take()
+            var mutable = false
+            if self.at(TokenKind.Var) {
+                let _ = self.take()
+                mutable = true
+            }
+            if self.at(TokenKind.Ampersand) {
+                let nested = self.token()
+                return problem("references to references are not supported", nested.line, nested.col)
+            }
+            let target = try self.parse_type()
+            if reference_type(target) { return problem("references to references are not supported", amp.line, amp.col) }
+            if not scalar_type(target) { return problem("only scalar references are supported", amp.line, amp.col) }
+            return self.intern_reference(target, mutable)
+        }
         let t = try self.expect(TokenKind.Ident, "expected type")
         if t.value == "Bool" { return ValueType.Bool }
         if let ty = named_integer_type(t.value) { return ty }
@@ -167,6 +193,18 @@ extension Compiler {
         let ei = self.enum_index(t.value)
         if ei >= 0 { return ValueType.Enum(ei) }
         problem("unsupported type `{t.value}`", t.line, t.col)
+    }
+
+    func intern_reference(&var self, target: ValueType, mutable: Bool) -> ValueType {
+        var i = 0
+        while i < self.references.len() {
+            if self.references[i].target == target && self.references[i].mutable == mutable {
+                return ValueType.Ref(i)
+            }
+            i += 1
+        }
+        try! self.references.push(ReferenceIR(target: target, mutable: mutable))
+        ValueType.Ref(self.references.len() - 1)
     }
 
     func record_index(&self, name: String) -> Int {
@@ -343,6 +381,7 @@ extension Compiler {
             if self.at(TokenKind.Arrow) {
                 let _ = self.take()
                 result = try self.parse_type()
+                if reference_type(result) { return problem("reference results are not supported", name.line, name.col) }
             }
             let _ = try self.expect(TokenKind.LBrace, "expected function body")
             let start = self.pos
@@ -489,6 +528,7 @@ extension Compiler {
             let _ = try self.expect(TokenKind.Colon, "expected `:` after record field")
             let ty = try self.parse_type()
             if ty == ValueType.Void { return problem("record field cannot have Void type", field.line, field.col) }
+            if reference_type(ty) { return problem("reference record fields are not supported", field.line, field.col) }
             try! names.push(field.value)
             try! types.push(ty)
             if self.at(TokenKind.Comma) {
@@ -592,6 +632,79 @@ extension Compiler {
             if self.bindings[i].name == name { return i }
         }
         -1
+    }
+
+    func check_read(&self, root: Int, t: &Token) -> Result<Void, ProtoError> {
+        var i = 0
+        while i < self.active_borrows.len() {
+            if self.active_borrows[i].root == root && self.active_borrows[i].mutable {
+                return problem("cannot read a place while it is mutably borrowed", t.line, t.col)
+            }
+            i += 1
+        }
+        return
+    }
+
+    func check_write(&self, root: Int, t: &Token) -> Result<Void, ProtoError> {
+        var i = 0
+        while i < self.active_borrows.len() {
+            if self.active_borrows[i].root == root {
+                return problem("cannot write a place while it is borrowed", t.line, t.col)
+            }
+            i += 1
+        }
+        return
+    }
+
+    func register_borrow(&var self, place: &Place, mutable: Bool,
+                         t: &Token) -> Result<Void, ProtoError> {
+        var pending = 0
+        while pending < self.pending_writes.len() {
+            if self.pending_writes[pending] == place.root {
+                return problem("cannot borrow an assignment destination while evaluating its right-hand side", t.line, t.col)
+            }
+            pending += 1
+        }
+        var i = 0
+        while i < self.active_borrows.len() {
+            if self.active_borrows[i].root == place.root && (mutable || self.active_borrows[i].mutable) {
+                return problem("overlapping arguments cannot include a mutable borrow", t.line, t.col)
+            }
+            i += 1
+        }
+        try! self.active_borrows.push(Borrow(root: place.root, mutable: mutable))
+        return
+    }
+
+    func restore_borrows(&var self, count: Int) {
+        while self.active_borrows.len() > count { let _ = self.active_borrows.pop() }
+    }
+
+    func restore_pending_writes(&var self, count: Int) {
+        while self.pending_writes.len() > count { let _ = self.pending_writes.pop() }
+    }
+
+    func read_place(&var self, place: Place, t: &Token) -> Result<ExprValue, ProtoError> {
+        try self.check_read(place.root, &t)
+        if place.indirect {
+            let dst = self.new_slot(place.ty)
+            let at = self.emit_at(Op.LoadRef, t.line, t.col)
+            self.code[at].dst = dst
+            self.code[at].a = place.slot
+            return expr_value(place.ty, dst, false)
+        }
+        self.snapshot(expr_value(place.ty, place.slot, false), &t)
+    }
+
+    func store_place(&var self, place: Place, value: ExprValue,
+                     t: &Token) -> Result<Void, ProtoError> {
+        if place.indirect {
+            let at = self.emit_at(Op.StoreRef, t.line, t.col)
+            self.code[at].a = place.slot
+            self.code[at].b = value.slot
+            return
+        }
+        self.emit_copy_value(place.slot, value.slot, place.ty, &t)
     }
 
     func declare(&var self, name: Token, ty: ValueType, slot: Int, mutable: Bool) -> Result<Void, ProtoError> {
@@ -746,8 +859,14 @@ extension Compiler {
             if self.at(TokenKind.LParen) { return self.parse_call(name) }
             let bi = self.binding_index(name.value)
             if bi >= 0 {
-                let value = expr_value(self.bindings[bi].ty, self.bindings[bi].slot, false)
-                return self.snapshot(value, &name)
+                var place = Place(ty: self.bindings[bi].ty, slot: self.bindings[bi].slot,
+                                  mutable: self.bindings[bi].mutable, indirect: false, root: bi)
+                if reference_type(place.ty) {
+                    place.mutable = reference_mutable(&self.references, place.ty)
+                    place.ty = try reference_target(&self.references, place.ty)
+                    place.indirect = true
+                }
+                return self.read_place(place, &name)
             }
             let si = self.static_index(name.value)
             if si >= 0 {
@@ -797,10 +916,16 @@ extension Compiler {
             return problem("unknown local `{name.value}`", name.line, name.col)
         }
         var place = Place(ty: self.bindings[bi].ty, slot: self.bindings[bi].slot,
-                          mutable: self.bindings[bi].mutable)
+                          mutable: self.bindings[bi].mutable, indirect: false, root: bi)
+        if reference_type(place.ty) {
+            place.mutable = reference_mutable(&self.references, place.ty)
+            place.ty = try reference_target(&self.references, place.ty)
+            place.indirect = true
+        }
         while self.at(TokenKind.Dot) {
             let _ = self.take()
             let field = try self.expect(TokenKind.Ident, "expected record field after `.`")
+            if place.indirect { return problem("reference parameters cannot be used as records", field.line, field.col) }
             match place.ty {
                 case Record(ri) -> {
                     let fi = self.field_index(ri, field.value)
@@ -952,6 +1077,7 @@ extension Compiler {
         let _ = self.take()
         var args = Vector<Int>()
         var ai = 0
+        let saved_borrows = self.active_borrows.len()
         self.depth += 1
         self.paren_depth += 1
         self.skip_newlines()
@@ -961,14 +1087,57 @@ extension Compiler {
                 if ai >= self.signatures[fi].params.len() {
                     return problem("too many arguments to `{name.value}`", name.line, name.col)
                 }
-                var value = try self.parse_expected_expr(self.signatures[fi].params[ai])
-                if value.always_returns { return problem("all-returning control flow cannot be used as an operand", name.line, name.col) }
-                value = try self.snapshot(value, &name)
-                let layout = try value_layout(&self.records, value.ty)
-                var word = 0
-                while word < layout.len() {
-                    try! args.push(value.slot + word)
-                    word += 1
+                let formal = self.signatures[fi].params[ai]
+                if reference_type(formal) {
+                    let amp = try self.expect(TokenKind.Ampersand, "reference argument requires explicit `&`")
+                    var explicit_mutable = false
+                    if self.at(TokenKind.Var) {
+                        let _ = self.take()
+                        explicit_mutable = true
+                    }
+                    let parsed = try self.parse_place()
+                    let place = parsed.1
+                    let formal_mutable = reference_mutable(&self.references, formal)
+                    let target = try reference_target(&self.references, formal)
+                    if formal_mutable && not explicit_mutable {
+                        return problem("mutable reference argument requires `&var`", amp.line, amp.col)
+                    }
+                    if place.ty != target {
+                        return problem("reference argument type does not match parameter", amp.line, amp.col)
+                    }
+                    if explicit_mutable && not place.mutable {
+                        return problem("cannot mutably borrow an immutable place", amp.line, amp.col)
+                    }
+                    try self.register_borrow(&place, explicit_mutable, &amp)
+                    let dst = self.new_slot(formal)
+                    if place.indirect {
+                        let source = self.bindings[place.root].ty
+                        if not reference_transfer(&self.references, source, formal) {
+                            return problem("reference argument mutability does not match parameter", amp.line, amp.col)
+                        }
+                        let copy = self.emit_at(Op.Copy, amp.line, amp.col)
+                        self.code[copy].dst = dst
+                        self.code[copy].a = place.slot
+                    } else {
+                        let addr = self.emit_at(Op.Addr, amp.line, amp.col)
+                        self.code[addr].dst = dst
+                        self.code[addr].a = place.slot
+                    }
+                    try! args.push(dst)
+                } else {
+                    if self.at(TokenKind.Ampersand) {
+                        let address = self.token()
+                        return problem("value parameter does not accept an address argument", address.line, address.col)
+                    }
+                    var value = try self.parse_expected_expr(formal)
+                    if value.always_returns { return problem("all-returning control flow cannot be used as an operand", name.line, name.col) }
+                    value = try self.snapshot(value, &name)
+                    let layout = try value_layout(&self.records, value.ty)
+                    var word = 0
+                    while word < layout.len() {
+                        try! args.push(value.slot + word)
+                        word += 1
+                    }
                 }
                 ai += 1
                 self.skip_newlines()
@@ -990,6 +1159,7 @@ extension Compiler {
         self.code[at].target = fi
         self.code[at].dst = dst
         self.code[at].args = move args
+        self.restore_borrows(saved_borrows)
         expr_value(rt, dst, true)
     }
 
@@ -1865,10 +2035,14 @@ extension Compiler {
                 let _ = self.take()
                 annotated = Some(try self.parse_type())
             }
+            if let local_type = annotated {
+                if reference_type(local_type) { return problem("reference locals are not supported", name.line, name.col) }
+            }
             let _ = try self.expect(TokenKind.Assign, "local declarations require an initializer")
             var value = if let ty = annotated { try self.parse_expected_expr(ty) } else { try self.parse_expr() }
             if value.always_returns { return problem("all-returning control flow cannot be used as an operand", name.line, name.col) }
             if value.ty == ValueType.Void { return problem("cannot initialize a local with Void", name.line, name.col) }
+            if reference_type(value.ty) { return problem("reference locals are not supported", name.line, name.col) }
             if let _ = annotated {} else { value = try self.transfer(value, value.ty, &name) }
             let dst = try self.new_value(value.ty)
             try self.emit_copy_value(dst, value.slot, value.ty, &name)
@@ -1968,19 +2142,33 @@ extension Compiler {
             let name = parsed.0
             let place = parsed.1
             let assign = self.take()
-            if not place.mutable { return problem("cannot assign to immutable local `{name.value}`", name.line, name.col) }
-            var value = if assign.kind == TokenKind.Assign { try self.parse_expected_expr(place.ty) } else { try self.parse_expr() }
-            if value.always_returns { return problem("all-returning control flow cannot be used as an operand", assign.line, assign.col) }
-            if assign.kind != TokenKind.Assign {
+            if not place.mutable {
+                if place.indirect { return problem("cannot assign through a shared reference", name.line, name.col) }
+                return problem("cannot assign to immutable local `{name.value}`", name.line, name.col)
+            }
+            try self.check_write(place.root, &name)
+            var value = returning_value()
+            if assign.kind == TokenKind.Assign {
+                let saved_writes = self.pending_writes.len()
+                try! self.pending_writes.push(place.root)
+                value = try self.parse_expected_expr(place.ty)
+                self.restore_pending_writes(saved_writes)
+            } else {
                 if not arithmetic_type(place.ty) { return problem("compound assignment requires an arithmetic integer destination", assign.line, assign.col) }
+                let left = try self.read_place(place, &name)
+                let saved_writes = self.pending_writes.len()
+                try! self.pending_writes.push(place.root)
+                value = try self.parse_expr()
+                self.restore_pending_writes(saved_writes)
+                if value.always_returns { return problem("all-returning control flow cannot be used as an operand", assign.line, assign.col) }
                 if value.literal { value = try self.transfer(value, place.ty, &assign) }
                 else if value.ty != place.ty { return problem("compound assignment operands must have the same type", assign.line, assign.col) }
                 let op = if assign.kind == TokenKind.PlusAssign { Op.Add } else if assign.kind == TokenKind.MinusAssign { Op.Sub } else if assign.kind == TokenKind.StarAssign { Op.Mul } else if assign.kind == TokenKind.SlashAssign { Op.Div } else { Op.Rem }
-                let left = expr_value(place.ty, place.slot, false)
                 value = try self.binary(left, value, op, place.ty, &assign)
             }
+            if value.always_returns { return problem("all-returning control flow cannot be used as an operand", assign.line, assign.col) }
             value = try self.snapshot(value, &name)
-            try self.emit_copy_value(place.slot, value.slot, place.ty, &name)
+            try self.store_place(place, value, &name)
             return false
         }
         let start = self.token()
@@ -1997,6 +2185,8 @@ extension Compiler {
         self.expr_depth = 0
         self.paren_depth = 0
         self.bindings = Vector<Binding>()
+        self.active_borrows = Vector<Borrow>()
+        self.pending_writes = Vector<Int>()
         self.slots = Vector<ValueType>()
         self.code = Vector<Instruction>()
         self.current_result = self.signatures[index].result
@@ -2060,10 +2250,11 @@ public func compile_source(source: String) -> Result<Program, ProtoError> {
         case Ok(ts) -> move ts,
         case Err(e) -> { return problem(e.message, e.line, e.col) }
     }
-    var compiler = Compiler(tokens: move tokens, records: Vector<RecordIR>(), enums: Vector<EnumIR>(), statics: Vector<StaticBinding>(),
+    var compiler = Compiler(tokens: move tokens, records: Vector<RecordIR>(), enums: Vector<EnumIR>(), references: Vector<ReferenceIR>(), statics: Vector<StaticBinding>(),
                             signatures: Vector<Signature>(), pos: 0, depth: 0,
                             expr_depth: 0, paren_depth: 0,
-                            bindings: Vector<Binding>(), slots: Vector<ValueType>(),
+                            bindings: Vector<Binding>(), active_borrows: Vector<Borrow>(), pending_writes: Vector<Int>(),
+                            slots: Vector<ValueType>(),
                             code: Vector<Instruction>(), current_result: ValueType.Void)
     try compiler.collect_record_names()
     try compiler.scan_signatures()
@@ -2078,5 +2269,6 @@ public func compile_source(source: String) -> Result<Program, ProtoError> {
         try! functions.push(move f)
         i += 1
     }
-    Program(enums: compiler.enums.copy(), records: compiler.records.copy(), functions: move functions, main_index: main_index)
+    Program(enums: compiler.enums.copy(), records: compiler.records.copy(), references: compiler.references.copy(),
+            functions: move functions, main_index: main_index)
 }

@@ -1,0 +1,11 @@
+struct Pair { left: Int, right: UInt8 }
+
+func bump(value: &var Int) { value += 3 }
+func widen(value: &UInt8) -> Int { value as Int }
+
+func main() {
+    var pair = Pair(left: 5, right: 21)
+    bump(&var pair.left)
+    print(pair.left)
+    print(widen(&pair.right))
+}

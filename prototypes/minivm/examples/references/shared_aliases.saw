@@ -1,0 +1,7 @@
+func sum(a: &Int, b: &Int) -> Int { a + b }
+
+func main() {
+    let value = 9
+    print(sum(&value, &value))
+    print(value)
+}

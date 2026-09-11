@@ -1,0 +1,6 @@
+func read(value: &Int) -> Int { value }
+
+func main() {
+    var value = 1
+    value += read(&value)
+}
