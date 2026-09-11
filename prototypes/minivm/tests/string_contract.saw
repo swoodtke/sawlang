@@ -102,6 +102,6 @@ func main() {
     let types: Vector<ValueType> = [ValueType.String]
     try! field.records.push(RecordIR(name: "Owning", field_names: move names,
         field_types: move types, line: 1, col: 1))
-    assert(not valid(&field), "String record ownership deferred")
+    assert(valid(&field), "String record leaves supported after M9")
     print("string contract passed")
 }

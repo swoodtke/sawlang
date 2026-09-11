@@ -1,0 +1,21 @@
+func classify(value: String) -> Int {
+    match value {
+        case "" -> { 1 },
+        case "plain" -> { 2 },
+        case "a\0b" -> { 3 },
+        case "é" -> { 4 },
+        case "\{left\}" -> { 5 },
+        case "\u{1}x" -> { 6 },
+        case _ -> { 7 }
+    }
+}
+
+func main() {
+    print(classify(""))
+    print(classify("plain"))
+    print(classify("a\0b"))
+    print(classify("é"))
+    print(classify("\{left\}"))
+    print(classify("\u{1}x"))
+    print(classify("other"))
+}

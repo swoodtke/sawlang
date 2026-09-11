@@ -46,7 +46,7 @@ Single-file programs support signed and unsigned 8/16/32/64-bit integers,
 `Int`/`UInt` (64-bit), `Byte`, `Bool`, functions, positional calls,
 recursion, `let`/`var`, assignment, lexical scopes, `if`/`else if`/`else` and
 `while`, explicit and implicit tail returns, and numeric/Bool printing. Named structs can contain scalars
-or nested structs, with
+Strings or nested structs, with
 field access, mutable fields, value copying, and function parameters/results.
 Payload-free enums support copying, equality, record fields and function
 parameters/results. Exhaustive enum `match` supports qualified or unqualified
@@ -89,10 +89,15 @@ and trait extensions remain unsupported. See [M7_RECORD_RECEIVERS.md](M7_RECORD_
 Owned String values support literals, copies, locals, parameters/results,
 references, equality, printing, and `len`, `is_empty`, `byte_at`, `substring`,
 and `equals`. Byte offsets and embedded NUL are preserved. Intrinsic String
-methods also accept temporary receivers. String fields/statics, interpolation
+methods also accept temporary receivers. String statics, interpolation
 and concatenation remain unsupported. Both engines retain/release owning slots
 and check for live allocations after successful execution; see
 [M8_OWNED_STRINGS.md](M8_OWNED_STRINGS.md).
+
+Nested records can own String fields, including through references, methods and
+aggregate calls/returns. String matches support literal patterns and a required
+final wildcard, comparing decoded bytes and snapshotting the subject before
+arm execution. See [M9_OWNING_RECORDS_MATCH.md](M9_OWNING_RECORDS_MATCH.md).
 
 The VM defaults to a shared budget of 1,000,000 instructions and a maximum call
 depth of 128. Override the budget with `run FILE --budget N`. These limits apply
@@ -106,24 +111,24 @@ python prototypes/minivm/test_minivm.py --binary .build/minivm/minivm
 
 The harness compares VM execution and clang-compiled IR with explicit expected
 outputs and statuses, checks rejected programs, and exercises VM limits. It
-uses temporary files and 30-second subprocess timeouts. The first eight milestones
-pass all 277 cases, including native execution at both `-O0` and `-O2`.
+uses temporary files and 30-second subprocess timeouts. The first nine milestones
+cover 288 cases, including native execution at both `-O0` and `-O2`.
 
 Independent representation checks live in `tests/numeric_contract.saw`,
 `tests/record_contract.saw`, `tests/enum_contract.saw`,
 `tests/reference_contract.saw`, `tests/receiver_contract.saw`, and
-`tests/string_contract.saw`; build and run them
+`tests/string_contract.saw` and `tests/owning_record_contract.saw`; build and run them
 with the Python compiler.
 Use `--section numbers`, `--section records`, `--section control`, or
 `--section enums`, `--section values`, `--section references`, or
-`--section receivers` or `--section strings` for an isolated
+`--section receivers`, `--section strings` or `--section owning_records` for an isolated
 integration gate.
 
 See [DESIGN.md](DESIGN.md) and [M1_NUMBERS.md](M1_NUMBERS.md) for the instruction
 schema and semantics. [LEXER_DEPENDENCIES.md](LEXER_DEPENDENCIES.md) tracks the
 remaining dependencies needed to compile the existing lexer with this prototype.
-The fixtures include the lexer's actual `TokenKind` declaration and `hex_value`
-helper. Source is
+The fixtures include the lexer's actual `TokenKind` declaration, `hex_value`,
+`keyword_kind`, `suffix_width`, and String-backed `Lexer.advance`. Source is
 split into `frontend.saw`, `model.saw`, `verify.saw`, `vm.saw`, `llvm.saw`, and
 `main.saw`. The verifier checks structural indices and types; initialization
 is established by the frontend, so this is not a loader for untrusted bytecode.

@@ -1,0 +1,11 @@
+func main() {
+    var value = "old"
+    match value {
+        case "old" -> {
+            value = "changed"
+            print("old")
+        },
+        case _ -> { print("wrong") }
+    }
+    print(value)
+}

@@ -17,8 +17,11 @@ scalar-only `Lexer.advance`-shaped record (250 total cases). Strings, collection
 Optional/Result payloads, intrinsic generic types and module integration remain
 outstanding. M8 adds owned String literals/locals/parameters/results/references,
 byte length/access, equality and substring with explicit copy/drop rules (277
-total cases). Next is String-valued records and String-pattern match, before
-Optional/Result payloads and collections are enabled.
+total cases). M9 adds String-valued records and String-pattern match (288 cases),
+including unchanged keyword/suffix classification and the actual String-backed
+Lexer.advance. Next are Optional/Result payloads and collections. The lexer has
+no imports, so its first whole-file test can combine the unchanged library with
+a small wrapper without implementing general module loading.
 The dependency groups below are an inventory, not the implementation commit order;
 the numbered milestone designs define each isolated slice.
 

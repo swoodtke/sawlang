@@ -35,6 +35,14 @@ class RejectCase:
 
 
 RUN_CASES = (
+    RunCase("owning_records/copy_replace_nested", "alpha\ninner\nbeta\nchanged\n", section="owning_records"),
+    RunCase("owning_records/references_methods_abi", "left\nright\nnext\nfield\n9\n", section="owning_records"),
+    RunCase("owning_records/value_control_cleanup", "then\n1\nred\n2\nearly\n3\n", section="owning_records"),
+    RunCase("owning_records/loop_cleanup", "odd\n199\n", section="owning_records"),
+    RunCase("owning_records/string_match", "1\n2\n3\n4\n5\n6\n7\n", section="owning_records"),
+    RunCase("owning_records/string_match_snapshot", "old\nchanged\n", section="owning_records"),
+    RunCase("owning_records/keyword_suffix_extract", "true\n" * 49, section="owning_records"),
+    RunCase("owning_records/lexer_advance_extract", "65\n1\n1\n2\n10\n2\n2\n1\n195\n3\n2\n2\n169\n4\n2\n2\n-1\n", section="owning_records"),
     RunCase("strings/literals_escapes", "\nASCII\ncafé🙂\na\x00b\n{left} \\ right\n\x01x\n", section="strings"),
     RunCase("strings/intrinsics", "0\ntrue\n5\nfalse\n104\n111\n101\n169\n\n\nhello\ntrue\ntrue\ntrue\ntrue\n", section="strings"),
     RunCase("strings/brace_marker_provenance", "1\n123\n2\n1\n123\n1\n125\n2\n1\n125\n", section="strings"),
@@ -187,10 +195,13 @@ RUN_CASES = (
 )
 
 REJECT_CASES = (
+    RejectCase("owning_records/reject_string_match_duplicate", "duplicate String match pattern", "owning_records"),
+    RejectCase("owning_records/reject_string_match_non_string", "String match patterns must be String literals or `_`", "owning_records"),
+    RejectCase("owning_records/reject_string_match_interpolation", "string interpolation is not supported in match patterns", "owning_records"),
+    RejectCase("owning_records/reject_string_match_no_wildcard", "String match requires a final wildcard", "owning_records"),
     RejectCase("strings/reject_interpolation", "string interpolation is not supported", "strings"),
     RejectCase("strings/reject_arithmetic", "arithmetic requires integer operands", "strings"),
     RejectCase("strings/reject_cast", "`as` requires integer source and target types", "strings"),
-    RejectCase("strings/reject_record_field", "String record fields are not supported", "strings"),
     RejectCase("strings/reject_static", "String statics are not supported", "strings"),
     RejectCase("strings/reject_unknown_intrinsic", "unknown String intrinsic", "strings"),
     RejectCase("strings/reject_intrinsic_label", "argument label", "strings"),
@@ -397,7 +408,7 @@ def main() -> int:
     parser.add_argument("--binary", type=Path, default=Path(".build/minivm/minivm"))
     parser.add_argument("--clang", default="clang")
     parser.add_argument(
-        "--section", choices=("all", "core", "numbers", "records", "control", "enums", "values", "references", "receivers", "strings"), default="all",
+        "--section", choices=("all", "core", "numbers", "records", "control", "enums", "values", "references", "receivers", "strings", "owning_records"), default="all",
         help="run all cases or one isolated test section",
     )
     args = parser.parse_args()
@@ -426,7 +437,7 @@ def main() -> int:
                 failures.extend(test_rejection(binary, case))
             except subprocess.TimeoutExpired:
                 failures.append(f"{case.name}: timed out after {TIMEOUT}s")
-        limit_cases = () if args.section in ("numbers", "records", "control", "enums", "values", "references", "receivers", "strings") else (
+        limit_cases = () if args.section in ("numbers", "records", "control", "enums", "values", "references", "receivers", "strings", "owning_records") else (
             ("budget", 20, "runtime error: instruction budget exceeded"),
             ("depth", 10_000, "runtime error: call depth exceeded"),
         )

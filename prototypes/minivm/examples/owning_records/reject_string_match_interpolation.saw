@@ -1,0 +1,7 @@
+func main() {
+    let value = "one"
+    match "one" {
+        case "{value}" -> { print(1) },
+        case _ -> { print(2) }
+    }
+}

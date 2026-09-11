@@ -1,0 +1,98 @@
+import src.model.*
+import src.verify.*
+import src.vm.*
+import src.llvm
+import std.env.{Env}
+
+func valid(p: &Program) -> Bool {
+    try verify(&p) catch { return false }
+    true
+}
+
+func op(code: &var Vector<Instruction>, kind: Op, dst: Int, a: Int, b: Int, immediate: Int) {
+    var i = instruction(kind)
+    i.dst = dst
+    i.a = a
+    i.b = b
+    i.immediate = immediate
+    try! code.push(move i)
+}
+
+func base_program() -> Program {
+    let strings: Vector<String> = ["A", "B", "C"]
+    let names: Vector<String> = ["left", "right"]
+    let fields: Vector<ValueType> = [ValueType.String, ValueType.String]
+    var records = Vector<RecordIR>()
+    try! records.push(RecordIR(name: "Pair", field_names: move names,
+        field_types: move fields, line: 1, col: 1))
+    var refs = Vector<ReferenceIR>()
+    try! refs.push(ReferenceIR(target: ValueType.Record(0), mutable: true))
+    try! refs.push(ReferenceIR(target: ValueType.String, mutable: true))
+    let slots: Vector<ValueType> = [ValueType.String, ValueType.String,
+        ValueType.String, ValueType.Ref(0), ValueType.Ref(0), ValueType.Ref(1)]
+    var code = Vector<Instruction>()
+    op(&var code, Op.StringConst, 0, -1, -1, 0)
+    op(&var code, Op.StringConst, 1, -1, -1, 1)
+    op(&var code, Op.StringConst, 2, -1, -1, 2)
+    op(&var code, Op.Addr, 3, 0, -1, 0)
+    op(&var code, Op.Addr, 4, 1, -1, 0)
+    // Destination [1,2] overwrites the last owner of source word 1.
+    // Both source claims must be retained before either destination is released.
+    op(&var code, Op.StoreRef, -1, 4, 0, 0)
+    op(&var code, Op.Print, -1, 0, -1, 0)
+    op(&var code, Op.Print, -1, 1, -1, 0)
+    op(&var code, Op.Print, -1, 2, -1, 0)
+    op(&var code, Op.StringConst, 0, -1, -1, 0)
+    op(&var code, Op.StringConst, 1, -1, -1, 1)
+    op(&var code, Op.StringConst, 2, -1, -1, 2)
+    op(&var code, Op.LoadRef, 1, 3, -1, 0)
+    op(&var code, Op.Print, -1, 0, -1, 0)
+    op(&var code, Op.Print, -1, 1, -1, 0)
+    op(&var code, Op.Print, -1, 2, -1, 0)
+    op(&var code, Op.Call, 0, -1, -1, 0)
+    code[16].target = 1
+    try! code[16].args.push(1)
+    try! code[16].args.push(2)
+    op(&var code, Op.Print, -1, 0, -1, 0)
+    op(&var code, Op.Print, -1, 1, -1, 0)
+    op(&var code, Op.Print, -1, 2, -1, 0)
+    op(&var code, Op.RefField, 5, 3, -1, 1)
+    op(&var code, Op.StoreRef, -1, 5, 0, 0)
+    op(&var code, Op.Return, -1, -1, -1, 0)
+    let params: Vector<ValueType> = [ValueType.Record(0)]
+    let echo_slots: Vector<ValueType> = [ValueType.String, ValueType.String]
+    var echo_code = Vector<Instruction>()
+    op(&var echo_code, Op.Return, -1, 0, -1, 0)
+    var funcs = Vector<FuncIR>()
+    try! funcs.push(FuncIR(name: "main", params: Vector<ValueType>(), result: ValueType.Void,
+        slots: move slots, code: move code))
+    try! funcs.push(FuncIR(name: "echo", params: move params, result: ValueType.Record(0),
+        slots: move echo_slots, code: move echo_code))
+    Program(strings: move strings, references: move refs, enums: Vector<EnumIR>(),
+        records: move records, functions: move funcs, main_index: 0)
+}
+
+func main() {
+    let p = base_program()
+    assert(valid(&p), "owning aggregate accesses and ABI")
+    let args = try! Env.args()
+    if args.len() == 2 && args[1] == "emit-llvm" {
+        print(try! llvm.emit_llvm(&p))
+        return
+    }
+    let layout = try! value_layout(&p.records, ValueType.Record(0))
+    assert(layout.len() == 2 && layout[0] == ValueType.String && layout[1] == ValueType.String,
+        "owning record layout preserves String leaves")
+    var bad_range = p.copy()
+    bad_range.functions[0].code[4].a = 2
+    assert(not valid(&bad_range), "record address cannot run through reference slot")
+    var bad_field = p.copy()
+    bad_field.functions[0].code[20].immediate = 2
+    assert(not valid(&bad_field), "String field index bounds")
+    var reference_field = p.copy()
+    reference_field.records[0].field_types.set(1, ValueType.Ref(1))
+    assert(not valid(&reference_field), "stored references remain forbidden")
+    // Expected execution output: A A B / A A B / A B B (one item per line).
+    try! execute(&p, 1000)
+    print("owning record contract passed")
+}

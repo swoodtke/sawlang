@@ -253,7 +253,7 @@ public func validate_enums(enums: &Vector<EnumIR>) -> Result<Void, ProtoError> {
 
 func append_layout(records: &Vector<RecordIR>, t: ValueType,
                    path: &var Vector<Int>, words: &var Vector<ValueType>) -> Result<Void, ProtoError> {
-    if scalar_type(t) {
+    if scalar_type(t) || string_type(t) {
         if words.len() >= 256 { return problem("record layout exceeds 256 words", 0, 0) }
         try! words.push(t)
         return
@@ -284,7 +284,6 @@ func append_layout(records: &Vector<RecordIR>, t: ValueType,
             return
         },
         case Ref(_) -> { return problem("reference record fields are not supported", 0, 0) },
-        case String -> { return problem("String record fields are not supported", 0, 0) },
         case _ -> { return problem("Void is not a record field type", 0, 0) }
     }
 }

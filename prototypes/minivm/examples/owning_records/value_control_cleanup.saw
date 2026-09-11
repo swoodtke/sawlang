@@ -1,0 +1,37 @@
+struct Item { text: String, number: Int }
+
+func choose(flag: Bool) -> Item {
+    let result = if flag {
+        let local = Item(text: "then", number: 1)
+        local
+    } else {
+        let local = Item(text: "else", number: 0)
+        local
+    }
+    result
+}
+
+func classify(word: String) -> Item {
+    match word {
+        case "red" -> { Item(text: "red", number: 2) },
+        case _ -> { Item(text: "other", number: 0) }
+    }
+}
+
+func early(flag: Bool) -> Item {
+    let sibling = Item(text: "sibling", number: 0)
+    if flag { return Item(text: "early", number: 3) }
+    sibling
+}
+
+func main() {
+    let first = choose(true)
+    print(first.text)
+    print(first.number)
+    let second = classify("red")
+    print(second.text)
+    print(second.number)
+    let third = early(true)
+    print(third.text)
+    print(third.number)
+}

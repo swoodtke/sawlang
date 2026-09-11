@@ -1,0 +1,17 @@
+struct Item { text: String, number: Int }
+
+func main() {
+    var index = 0
+    var last = Item(text: "start", number: -1)
+    while index < 200 {
+        let selected = if index % 2 == 0 {
+            Item(text: "even", number: index)
+        } else {
+            Item(text: "odd", number: index)
+        }
+        last = selected
+        index += 1
+    }
+    print(last.text)
+    print(last.number)
+}

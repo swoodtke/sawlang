@@ -1,0 +1,5 @@
+func main() {
+    match "one" {
+        case "one" -> { print(1) }
+    }
+}

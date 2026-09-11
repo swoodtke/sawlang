@@ -1,0 +1,30 @@
+struct Text { value: String, number: Int }
+
+func mixed(prefix: Int, source: &Text, replacement: Text) -> Text {
+    if prefix == 0 { return source }
+    replacement
+}
+func replace(value: &var Text, next: Text) { value = next }
+func read_text(value: &String) -> String { value }
+func set_text(value: &var String, next: String) { value = next }
+func forward_field(value: &var Text) {
+    print(read_text(&value.value))
+    set_text(&var value.value, "field")
+}
+
+extension Text {
+    func read(&self) -> String { self.value }
+    func update(&var self, next: String) { self.value = next }
+}
+
+func main() {
+    var value = Text(value: "left", number: 7)
+    let snapshot = mixed(0, &value, Text(value: "unused", number: 0))
+    value.update(next: "right")
+    print(snapshot.value)
+    print(value.read())
+    replace(&var value, Text(value: "next", number: 9))
+    forward_field(&var value)
+    print(value.read())
+    print(value.number)
+}

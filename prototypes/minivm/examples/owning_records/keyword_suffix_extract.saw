@@ -1,0 +1,208 @@
+public enum TokenKind {
+    case IntLit,
+    case FloatLit,
+    case StringLit,
+    case InterpString,
+    case BoolLit,
+    case Ident,
+    case Func,
+    case Let,
+    case Var,
+    case If,
+    case Else,
+    case Guard,
+    case Return,
+    case True_,
+    case False_,
+    case Struct,
+    case Extension,
+    case SelfKw,
+    case Init,
+    case NoneKw,
+    case Enum,
+    case Case,
+    case Match,
+    case While,
+    case Break,
+    case Continue,
+    case Trait,
+    case For,
+    case In,
+    case TypeKw,
+    case Extern,
+    case As,
+    case Try,
+    case Catch,
+    case Static,
+    case Module,
+    case Import,
+    case Public,
+    case Export,
+    case Package,
+    case Parent,
+    case Plus,
+    case Minus,
+    case Star,
+    case Slash,
+    case Percent,
+    case Eq,
+    case Neq,
+    case Lt,
+    case Gt,
+    case Lte,
+    case Gte,
+    case And,
+    case Or,
+    case Ampersand,
+    case Pipe,
+    case Caret,
+    case Tilde,
+    case WrapAdd,
+    case WrapSub,
+    case WrapMul,
+    case Not_,
+    case Move_,
+    case Unsafe_,
+    case Borrows,
+    case Lend,
+    case Assign,
+    case PlusAssign,
+    case MinusAssign,
+    case StarAssign,
+    case SlashAssign,
+    case PercentAssign,
+    case AmpAssign,
+    case PipeAssign,
+    case CaretAssign,
+    case ShlAssign,
+    case ShrAssign,
+    case Question,
+    case DoubleQuestion,
+    case Exclaim,
+    case QuestionDot,
+    case DotDot,
+    case DotDotEq,
+    case Ellipsis,
+    case LParen,
+    case RParen,
+    case LBrace,
+    case RBrace,
+    case LBracket,
+    case RBracket,
+    case Comma,
+    case Colon,
+    case Semicolon,
+    case Arrow,
+    case Dot,
+    case At,
+    case HashDirective,
+    case DollarParam,
+    case Newline,
+    case Eof
+}
+
+func keyword_kind(s: String) -> TokenKind {
+    match s {
+        case "func" -> TokenKind.Func,
+        case "let" -> TokenKind.Let,
+        case "var" -> TokenKind.Var,
+        case "if" -> TokenKind.If,
+        case "else" -> TokenKind.Else,
+        case "guard" -> TokenKind.Guard,
+        case "return" -> TokenKind.Return,
+        case "true" -> TokenKind.True_,
+        case "false" -> TokenKind.False_,
+        case "struct" -> TokenKind.Struct,
+        case "extension" -> TokenKind.Extension,
+        case "self" -> TokenKind.SelfKw,
+        case "init" -> TokenKind.Init,
+        case "None" -> TokenKind.NoneKw,
+        case "enum" -> TokenKind.Enum,
+        case "while" -> TokenKind.While,
+        case "break" -> TokenKind.Break,
+        case "continue" -> TokenKind.Continue,
+        case "case" -> TokenKind.Case,
+        case "match" -> TokenKind.Match,
+        case "trait" -> TokenKind.Trait,
+        case "for" -> TokenKind.For,
+        case "in" -> TokenKind.In,
+        case "extern" -> TokenKind.Extern,
+        case "not" -> TokenKind.Not_,
+        case "move" -> TokenKind.Move_,
+        case "unsafe" -> TokenKind.Unsafe_,
+        case "borrows" -> TokenKind.Borrows,
+        case "lend" -> TokenKind.Lend,
+        case "as" -> TokenKind.As,
+        case "try" -> TokenKind.Try,
+        case "catch" -> TokenKind.Catch,
+        case "static" -> TokenKind.Static,
+        case "public" -> TokenKind.Public,
+        case _ -> TokenKind.Ident
+    }
+}
+
+func suffix_width(s: String) -> Int {
+    match s {
+        case "i8" -> 8,
+        case "i16" -> 16,
+        case "i32" -> 32,
+        case "i64" -> 64,
+        case "u8" -> 8,
+        case "u16" -> 16,
+        case "u32" -> 32,
+        case "u64" -> 64,
+        case _ -> 0
+    }
+}
+
+func main() {
+    print(keyword_kind("func") == TokenKind.Func)
+    print(keyword_kind("let") == TokenKind.Let)
+    print(keyword_kind("var") == TokenKind.Var)
+    print(keyword_kind("if") == TokenKind.If)
+    print(keyword_kind("else") == TokenKind.Else)
+    print(keyword_kind("guard") == TokenKind.Guard)
+    print(keyword_kind("return") == TokenKind.Return)
+    print(keyword_kind("true") == TokenKind.True_)
+    print(keyword_kind("false") == TokenKind.False_)
+    print(keyword_kind("struct") == TokenKind.Struct)
+    print(keyword_kind("extension") == TokenKind.Extension)
+    print(keyword_kind("self") == TokenKind.SelfKw)
+    print(keyword_kind("init") == TokenKind.Init)
+    print(keyword_kind("None") == TokenKind.NoneKw)
+    print(keyword_kind("enum") == TokenKind.Enum)
+    print(keyword_kind("while") == TokenKind.While)
+    print(keyword_kind("break") == TokenKind.Break)
+    print(keyword_kind("continue") == TokenKind.Continue)
+    print(keyword_kind("case") == TokenKind.Case)
+    print(keyword_kind("match") == TokenKind.Match)
+    print(keyword_kind("trait") == TokenKind.Trait)
+    print(keyword_kind("for") == TokenKind.For)
+    print(keyword_kind("in") == TokenKind.In)
+    print(keyword_kind("extern") == TokenKind.Extern)
+    print(keyword_kind("not") == TokenKind.Not_)
+    print(keyword_kind("move") == TokenKind.Move_)
+    print(keyword_kind("unsafe") == TokenKind.Unsafe_)
+    print(keyword_kind("borrows") == TokenKind.Borrows)
+    print(keyword_kind("lend") == TokenKind.Lend)
+    print(keyword_kind("as") == TokenKind.As)
+    print(keyword_kind("try") == TokenKind.Try)
+    print(keyword_kind("catch") == TokenKind.Catch)
+    print(keyword_kind("static") == TokenKind.Static)
+    print(keyword_kind("public") == TokenKind.Public)
+    print(keyword_kind("module") == TokenKind.Ident)
+    print(keyword_kind("import") == TokenKind.Ident)
+    print(keyword_kind("export") == TokenKind.Ident)
+    print(keyword_kind("package") == TokenKind.Ident)
+    print(keyword_kind("parent") == TokenKind.Ident)
+    print(keyword_kind("type") == TokenKind.Ident)
+    print(suffix_width("i8") == 8)
+    print(suffix_width("i16") == 16)
+    print(suffix_width("i32") == 32)
+    print(suffix_width("i64") == 64)
+    print(suffix_width("u8") == 8)
+    print(suffix_width("u16") == 16)
+    print(suffix_width("u32") == 32)
+    print(suffix_width("u64") == 64)
+    print(suffix_width("bad") == 0)
+}

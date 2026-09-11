@@ -1,0 +1,53 @@
+static B_NL: Int = 10
+static B_CONT_LO: Int = 128
+static B_CONT_HI: Int = 191
+
+func ubyte(s: &String, i: Int) -> Int {
+    if i < 0 || i >= s.len() {
+        return -1
+    }
+    s.byte_at(i) as Int
+}
+
+struct Lexer {
+    src: String
+    slen: Int
+    pos: Int
+    line: Int
+    col: Int
+}
+
+extension Lexer {
+    func advance(&var self) -> Int {
+        let b = ubyte(&self.src, self.pos)
+        self.pos = self.pos + 1
+        if b == B_NL {
+            self.line = self.line + 1
+            self.col = 1
+        } else if b < B_CONT_LO || b > B_CONT_HI {
+            self.col = self.col + 1
+        }
+        b
+    }
+}
+
+func main() {
+    var lexer = Lexer(src: "A\né", slen: 4, pos: 0, line: 1, col: 1)
+    print(lexer.advance())
+    print(lexer.pos)
+    print(lexer.line)
+    print(lexer.col)
+    print(lexer.advance())
+    print(lexer.pos)
+    print(lexer.line)
+    print(lexer.col)
+    print(lexer.advance())
+    print(lexer.pos)
+    print(lexer.line)
+    print(lexer.col)
+    print(lexer.advance())
+    print(lexer.pos)
+    print(lexer.line)
+    print(lexer.col)
+    print(ubyte(&lexer.src, lexer.pos))
+}

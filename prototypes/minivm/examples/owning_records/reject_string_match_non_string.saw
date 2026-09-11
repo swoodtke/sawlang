@@ -1,0 +1,6 @@
+func main() {
+    match "one" {
+        case 1 -> { print(1) },
+        case _ -> { print(2) }
+    }
+}

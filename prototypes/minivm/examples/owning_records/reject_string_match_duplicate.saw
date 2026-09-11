@@ -1,0 +1,7 @@
+func main() {
+    match "\{" {
+        case "\{" -> { print(1) },
+        case "\u{7b}" -> { print(2) },
+        case _ -> { print(3) }
+    }
+}

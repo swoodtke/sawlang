@@ -25,12 +25,12 @@ func block_name(out: &var StringBuilder, instruction_index: Int) {
     put_int(&var out, instruction_index)
 }
 
-func emit_aggregate_type(out: &var StringBuilder, word_count: Int) {
+func emit_aggregate_type(out: &var StringBuilder, layout: &Vector<ValueType>) {
     put(&var out, "\{ ")
     var word_index = 0
-    while word_index < word_count {
+    while word_index < layout.len() {
         if word_index > 0 { put(&var out, ", ") }
-        put(&var out, "i64")
+        put(&var out, if string_type(layout[word_index]) { "ptr" } else { "i64" })
         word_index = word_index + 1
     }
     put(&var out, " \}")
@@ -51,7 +51,7 @@ func emit_value_type(out: &var StringBuilder, records: &Vector<RecordIR>,
         return
     }
     let layout = try value_layout(&records, t)
-    emit_aggregate_type(&var out, layout.len())
+    emit_aggregate_type(&var out, &layout)
     return
 }
 
@@ -455,17 +455,6 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
             load_ref_slot(&var out, instruction_index, "ref", inst.a)
             let target = try reference_target(&program.references, function.slots[inst.a])
             let layout = try value_layout(&program.records, target)
-            if string_type(target) {
-                put(&var out, "  ")
-                temp_name(&var out, instruction_index, "v0")
-                put(&var out, " = load ptr, ptr ")
-                temp_name(&var out, instruction_index, "ref")
-                put(&var out, "\n")
-                assign_string_temp(&var out, instruction_index, "v0", inst.dst, true)
-                next_block(&var out, instruction_index)
-                put(&var out, "\n")
-                return
-            }
             var word = 0
             while word < layout.len() {
                 if word > 0 {
@@ -479,7 +468,7 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
                 }
                 put(&var out, "  ")
                 temp_name(&var out, instruction_index, "v{word}")
-                put(&var out, " = load i64, ptr ")
+                put(&var out, if string_type(layout[word]) { " = load ptr, ptr " } else { " = load i64, ptr " })
                 if word == 0 { temp_name(&var out, instruction_index, "ref") }
                 else { temp_name(&var out, instruction_index, "ptr{word}") }
                 put(&var out, "\n")
@@ -487,7 +476,18 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
             }
             word = 0
             while word < layout.len() {
-                store_temp(&var out, instruction_index, "v{word}", inst.dst + word)
+                if string_type(layout[word]) {
+                    put(&var out, "  call void @minivm_string_retain(ptr ")
+                    temp_name(&var out, instruction_index, "v{word}")
+                    put(&var out, ")\n")
+                }
+                word += 1
+            }
+            word = 0
+            while word < layout.len() {
+                if string_type(layout[word]) {
+                    assign_string_temp(&var out, instruction_index, "v{word}", inst.dst + word, false)
+                } else { store_temp(&var out, instruction_index, "v{word}", inst.dst + word) }
                 word += 1
             }
             next_block(&var out, instruction_index)
@@ -497,30 +497,21 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
             load_ref_slot(&var out, instruction_index, "ref", inst.a)
             let target = try reference_target(&program.references, function.slots[inst.a])
             let layout = try value_layout(&program.records, target)
-            if string_type(target) {
-                put(&var out, "  ")
-                load_ref_slot(&var out, instruction_index, "v0", inst.b)
-                put(&var out, "  call void @minivm_string_retain(ptr ")
-                temp_name(&var out, instruction_index, "v0")
-                put(&var out, ")\n  ")
-                temp_name(&var out, instruction_index, "old")
-                put(&var out, " = load ptr, ptr ")
-                temp_name(&var out, instruction_index, "ref")
-                put(&var out, "\n  call void @minivm_string_release(ptr ")
-                temp_name(&var out, instruction_index, "old")
-                put(&var out, ")\n  store ptr ")
-                temp_name(&var out, instruction_index, "v0")
-                put(&var out, ", ptr ")
-                temp_name(&var out, instruction_index, "ref")
-                put(&var out, "\n")
-                next_block(&var out, instruction_index)
-                put(&var out, "\n")
-                return
-            }
             var word = 0
             while word < layout.len() {
                 put(&var out, "  ")
-                load_slot(&var out, instruction_index, "v{word}", inst.b + word)
+                if string_type(layout[word]) {
+                    load_ref_slot(&var out, instruction_index, "v{word}", inst.b + word)
+                } else { load_slot(&var out, instruction_index, "v{word}", inst.b + word) }
+                word += 1
+            }
+            word = 0
+            while word < layout.len() {
+                if string_type(layout[word]) {
+                    put(&var out, "  call void @minivm_string_retain(ptr ")
+                    temp_name(&var out, instruction_index, "v{word}")
+                    put(&var out, ")\n")
+                }
                 word += 1
             }
             word = 0
@@ -534,7 +525,16 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
                     put_int(&var out, word)
                     put(&var out, "\n")
                 }
-                put(&var out, "  store i64 ")
+                if string_type(layout[word]) {
+                    put(&var out, "  ")
+                    temp_name(&var out, instruction_index, "old{word}")
+                    put(&var out, " = load ptr, ptr ")
+                    if word == 0 { temp_name(&var out, instruction_index, "ref") }
+                    else { temp_name(&var out, instruction_index, "ptr{word}") }
+                    put(&var out, "\n  call void @minivm_string_release(ptr ")
+                    temp_name(&var out, instruction_index, "old{word}")
+                    put(&var out, ")\n  store ptr ")
+                } else { put(&var out, "  store i64 ") }
                 temp_name(&var out, instruction_index, "v{word}")
                 put(&var out, ", ptr ")
                 if word == 0 { temp_name(&var out, instruction_index, "ref") }
@@ -734,13 +734,17 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
                     put(&var out, "  ")
                     temp_name(&var out, instruction_index, "result{result_index}")
                     put(&var out, " = extractvalue ")
-                    emit_aggregate_type(&var out, result_layout.len())
+                    emit_aggregate_type(&var out, &result_layout)
                     put(&var out, " ")
                     temp_name(&var out, instruction_index, "call")
                     put(&var out, ", ")
                     put_int(&var out, result_index)
                     put(&var out, "\n")
-                    store_temp(&var out, instruction_index, "result{result_index}", inst.dst + result_index)
+                    if string_type(result_layout[result_index]) {
+                        assign_string_temp(&var out, instruction_index, "result{result_index}", inst.dst + result_index, false)
+                    } else {
+                        store_temp(&var out, instruction_index, "result{result_index}", inst.dst + result_index)
+                    }
                     result_index = result_index + 1
                 }
             }
@@ -842,6 +846,19 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
                 put(&var out, "  call void @minivm_string_retain(ptr ")
                 temp_name(&var out, instruction_index, "ret")
                 put(&var out, ")\n")
+            } else if function.result != ValueType.Void && not scalar_type(function.result) {
+                let result_layout = try value_layout(&program.records, function.result)
+                var result_index = 0
+                while result_index < result_layout.len() {
+                    put(&var out, "  ")
+                    if string_type(result_layout[result_index]) {
+                        load_ref_slot(&var out, instruction_index, "retword{result_index}", inst.a + result_index)
+                        put(&var out, "  call void @minivm_string_retain(ptr ")
+                        temp_name(&var out, instruction_index, "retword{result_index}")
+                        put(&var out, ")\n")
+                    } else { load_slot(&var out, instruction_index, "retword{result_index}", inst.a + result_index) }
+                    result_index += 1
+                }
             }
             var cleanup = 0
             while cleanup < function.slots.len() {
@@ -873,15 +890,13 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
                 var result_index = 0
                 while result_index < result_layout.len() {
                     put(&var out, "  ")
-                    load_slot(&var out, instruction_index, "retword{result_index}", inst.a + result_index)
-                    put(&var out, "  ")
                     temp_name(&var out, instruction_index, "retagg{result_index}")
                     put(&var out, " = insertvalue ")
-                    emit_aggregate_type(&var out, result_layout.len())
+                    emit_aggregate_type(&var out, &result_layout)
                     put(&var out, " ")
                     if result_index == 0 { put(&var out, "undef") }
                     else { temp_name(&var out, instruction_index, "retagg{result_index - 1}") }
-                    put(&var out, ", i64 ")
+                    put(&var out, if string_type(result_layout[result_index]) { ", ptr " } else { ", i64 " })
                     temp_name(&var out, instruction_index, "retword{result_index}")
                     put(&var out, ", ")
                     put_int(&var out, result_index)
@@ -889,7 +904,7 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
                     result_index = result_index + 1
                 }
                 put(&var out, "  ret ")
-                emit_aggregate_type(&var out, result_layout.len())
+                emit_aggregate_type(&var out, &result_layout)
                 put(&var out, " ")
                 temp_name(&var out, instruction_index, "retagg{result_layout.len() - 1}")
                 put(&var out, "\n")
@@ -921,7 +936,7 @@ func emit_function(out: &var StringBuilder, program: &Program,
             var parameter_word = 0
             while parameter_word < parameter_layout.len() {
                 if argument_index > 0 { put(&var out, ", ") }
-                put(&var out, "i64 %arg")
+                put(&var out, if string_type(parameter_layout[parameter_word]) { "ptr %arg" } else { "i64 %arg" })
                 put_int(&var out, argument_index)
                 argument_index = argument_index + 1
                 parameter_word = parameter_word + 1
@@ -937,7 +952,7 @@ func emit_function(out: &var StringBuilder, program: &Program,
     while slot_index < function.slots.len() {
         put(&var out, "  ")
         slot_name(&var out, slot_index)
-        if reference_type(function.slots[slot_index]) || string_type(function.slots[slot_index]) {
+        if reference_type(function.slots[slot_index]) {
             put(&var out, " = alloca ptr\n")
         } else {
             put(&var out, " = getelementptr [")

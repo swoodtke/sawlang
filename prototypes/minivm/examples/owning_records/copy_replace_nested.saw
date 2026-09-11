@@ -1,0 +1,13 @@
+struct Text { value: String, number: Int }
+struct Outer { inner: Text, label: String }
+
+func main() {
+    var original = Outer(inner: Text(value: "inner", number: 1), label: "alpha")
+    let copy = original
+    original.label = "beta"
+    original.inner.value = "changed"
+    print(copy.label)
+    print(copy.inner.value)
+    print(original.label)
+    print(original.inner.value)
+}

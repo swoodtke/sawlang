@@ -653,7 +653,6 @@ extension Compiler {
             let _ = try self.expect(TokenKind.Colon, "expected `:` after record field")
             let ty = try self.parse_type()
             if ty == ValueType.Void { return problem("record field cannot have Void type", field.line, field.col) }
-            if ty == ValueType.String { return problem("String record fields are not supported", field.line, field.col) }
             if reference_type(ty) { return problem("reference record fields are not supported", field.line, field.col) }
             try! names.push(field.value)
             try! types.push(ty)
@@ -722,6 +721,24 @@ extension Compiler {
                          t: &Token) -> Result<Void, ProtoError> {
         if dst == src { return }
         let layout = try value_layout(&self.records, ty)
+        if layout.len() > 1 {
+            let temporary = try self.new_value(ty)
+            var word = 0
+            while word < layout.len() {
+                let snapshot_copy = self.emit_at(Op.Copy, t.line, t.col)
+                self.code[snapshot_copy].dst = temporary + word
+                self.code[snapshot_copy].a = src + word
+                word += 1
+            }
+            word = 0
+            while word < layout.len() {
+                let destination_copy = self.emit_at(Op.Copy, t.line, t.col)
+                self.code[destination_copy].dst = dst + word
+                self.code[destination_copy].a = temporary + word
+                word += 1
+            }
+            return
+        }
         var i = 0
         while i < layout.len() {
             let at = self.emit_at(Op.Copy, t.line, t.col)
@@ -811,11 +828,11 @@ extension Compiler {
         while self.pending_writes.len() > count { let _ = self.pending_writes.pop() }
     }
 
-    func cleanup_scope(&var self, preserve: Int, t: &Token) {
+    func cleanup_scope(&var self, preserve_start: Int, preserve_end: Int, t: &Token) {
         var i = 0
         while i < self.string_slots.len() {
             if self.string_slots[i].depth == self.scope_depth {
-                if self.string_slots[i].slot == preserve {
+                if self.string_slots[i].slot >= preserve_start && self.string_slots[i].slot < preserve_end {
                     self.string_slots[i].depth -= 1
                 } else {
                     let at = self.emit_at(Op.Drop, t.line, t.col)
@@ -826,10 +843,10 @@ extension Compiler {
         }
     }
 
-    func cleanup_function(&var self, preserve: Int, t: &Token) {
+    func cleanup_function(&var self, preserve_start: Int, preserve_end: Int, t: &Token) {
         var i = 0
         while i < self.string_slots.len() {
-            if self.string_slots[i].slot != preserve {
+            if self.string_slots[i].slot < preserve_start || self.string_slots[i].slot >= preserve_end {
                 let at = self.emit_at(Op.Drop, t.line, t.col)
                 self.code[at].a = self.string_slots[i].slot
             }
@@ -2140,8 +2157,13 @@ extension Compiler {
             if had_newline { self.skip_newlines() }
             if self.at(TokenKind.RBrace) {
                 let close = self.token()
-                let preserve = if not returns && not value.always_returns && value.ty == ValueType.String { value.slot } else { -1 }
-                self.cleanup_scope(preserve, &close)
+                var preserve_start = -1
+                var preserve_end = -1
+                if not returns && not value.always_returns {
+                    preserve_start = value.slot
+                    preserve_end = value.slot + (try value_layout(&self.records, value.ty)).len()
+                }
+                self.cleanup_scope(preserve_start, preserve_end, &close)
                 let _ = self.take()
                 self.leave_scope()
                 self.depth -= 1
@@ -2159,7 +2181,7 @@ extension Compiler {
             if not had_newline { return problem("expected newline after statement", start.line, start.col) }
         }
         let close = try self.expect(TokenKind.RBrace, "expected closing brace")
-        self.cleanup_scope(-1, &close)
+        self.cleanup_scope(-1, -1, &close)
         self.leave_scope()
         self.depth -= 1
         self.scope_depth -= 1
@@ -2266,15 +2288,18 @@ extension Compiler {
         var subject = try self.parse_expr()
         subject = try self.snapshot(subject, &mt)
         var ei = -1
+        let string_match = subject.ty == ValueType.String
         match subject.ty {
             case Enum(index) -> { ei = index },
-            case _ -> { return problem("match subject must have enum type", mt.line, mt.col) }
+            case String -> {},
+            case _ -> { return problem("match subject must have enum or String type", mt.line, mt.col) }
         }
         let _ = try self.expect(TokenKind.LBrace, "expected `\{` after match subject")
         self.skip_newlines()
         var covered = Vector<Bool>()
+        var string_patterns = Vector<String>()
         var n = 0
-        while n < self.enums[ei].cases.len() {
+        while not string_match && n < self.enums[ei].cases.len() {
             try! covered.push(false)
             n += 1
         }
@@ -2287,9 +2312,27 @@ extension Compiler {
             if wildcard { return self.fail("match arm follows wildcard") }
             if pending_false >= 0 { self.code[pending_false].target = self.code.len() }
             let ct = try self.expect(TokenKind.Case, "expected `case` in match")
-            let pattern = try self.expect(TokenKind.Ident, "expected enum case pattern")
+            if string_match && self.at(TokenKind.InterpString) { return self.fail("string interpolation is not supported in match patterns") }
+            if string_match && not self.at(TokenKind.StringLit) && not self.at(TokenKind.Ident) {
+                return self.fail("String match patterns must be String literals or `_`")
+            }
+            let pattern = if string_match { self.take() } else { try self.expect(TokenKind.Ident, "expected enum case pattern") }
             var ordinal = -1
-            if pattern.value == "_" { wildcard = true }
+            var string_pattern = false
+            if pattern.kind == TokenKind.Ident && pattern.value == "_" { wildcard = true }
+            else if string_match {
+                if pattern.kind != TokenKind.StringLit { return problem("String match patterns must be String literals or `_`", pattern.line, pattern.col) }
+                let decoded = try self.decode_string_literal(&pattern)
+                var duplicate = false
+                var si = 0
+                while si < string_patterns.len() {
+                    if string_patterns[si] == decoded { duplicate = true }
+                    si += 1
+                }
+                if duplicate { return problem("duplicate String match pattern", pattern.line, pattern.col) }
+                try! string_patterns.push(decoded)
+                string_pattern = true
+            }
             else if self.at(TokenKind.Dot) {
                 let qualifier = self.enum_index(pattern.value)
                 if qualifier != ei { return problem("enum qualifier `{pattern.value}` does not match subject enum `{self.enums[ei].name}`", pattern.line, pattern.col) }
@@ -2301,13 +2344,15 @@ extension Compiler {
                 ordinal = self.enum_case_index(ei, pattern.value)
                 if ordinal < 0 { return problem("enum `{self.enums[ei].name}` has no case `{pattern.value}`", pattern.line, pattern.col) }
             }
-            if ordinal >= 0 {
-                if covered[ordinal] { return problem("duplicate match case `{self.enums[ei].cases[ordinal]}`", pattern.line, pattern.col) }
-                covered[ordinal] = true
+            if ordinal >= 0 || string_pattern {
+                if ordinal >= 0 {
+                    if covered[ordinal] { return problem("duplicate match case `{self.enums[ei].cases[ordinal]}`", pattern.line, pattern.col) }
+                    covered[ordinal] = true
+                }
                 let constant = self.new_slot(subject.ty)
-                let ci = self.emit_at(Op.Const, pattern.line, pattern.col)
+                let ci = self.emit_at(if string_pattern { Op.StringConst } else { Op.Const }, pattern.line, pattern.col)
                 self.code[ci].dst = constant
-                self.code[ci].immediate = ordinal
+                self.code[ci].immediate = if string_pattern { self.intern_string(string_patterns[string_patterns.len() - 1]) } else { ordinal }
                 let equal = self.new_slot(ValueType.Bool)
                 let eq = self.emit_at(Op.Eq, pattern.line, pattern.col)
                 self.code[eq].dst = equal
@@ -2346,7 +2391,7 @@ extension Compiler {
         let _ = try self.expect(TokenKind.RBrace, "expected closing brace for match")
         if arms == 0 { return problem("non-exhaustive match", mt.line, mt.col) }
         var exhaustive = wildcard
-        if not exhaustive {
+        if not string_match && not exhaustive {
             exhaustive = true
             n = 0
             while n < covered.len() {
@@ -2354,7 +2399,10 @@ extension Compiler {
                 n += 1
             }
         }
-        if not exhaustive { return problem("non-exhaustive match", mt.line, mt.col) }
+        if not exhaustive {
+            if string_match { return problem("String match requires a final wildcard", mt.line, mt.col) }
+            return problem("non-exhaustive match", mt.line, mt.col)
+        }
         if values.len() == 0 {
             if pending_false >= 0 { self.code[pending_false].target = self.code.len() }
             return returning_value()
@@ -2413,7 +2461,7 @@ extension Compiler {
             try self.terminator()
         }
         let close = try self.expect(TokenKind.RBrace, "expected closing brace")
-        self.cleanup_scope(-1, &close)
+        self.cleanup_scope(-1, -1, &close)
         self.leave_scope()
         self.depth -= 1
         self.scope_depth -= 1
@@ -2425,15 +2473,18 @@ extension Compiler {
         var subject = try self.parse_expr()
         subject = try self.snapshot(subject, &mt)
         var ei = -1
+        let string_match = subject.ty == ValueType.String
         match subject.ty {
             case Enum(index) -> { ei = index },
-            case _ -> { return problem("match subject must have enum type", mt.line, mt.col) }
+            case String -> {},
+            case _ -> { return problem("match subject must have enum or String type", mt.line, mt.col) }
         }
         let _ = try self.expect(TokenKind.LBrace, "expected `\{` after match subject")
         self.skip_newlines()
         var covered = Vector<Bool>()
+        var string_patterns = Vector<String>()
         var i = 0
-        while i < self.enums[ei].cases.len() {
+        while not string_match && i < self.enums[ei].cases.len() {
             try! covered.push(false)
             i += 1
         }
@@ -2446,10 +2497,27 @@ extension Compiler {
             if wildcard { return self.fail("match arm follows wildcard") }
             if pending_false >= 0 { self.code[pending_false].target = self.code.len() }
             let ct = try self.expect(TokenKind.Case, "expected `case` in match")
-            let pattern = try self.expect(TokenKind.Ident, "expected enum case pattern")
+            if string_match && self.at(TokenKind.InterpString) { return self.fail("string interpolation is not supported in match patterns") }
+            if string_match && not self.at(TokenKind.StringLit) && not self.at(TokenKind.Ident) {
+                return self.fail("String match patterns must be String literals or `_`")
+            }
+            let pattern = if string_match { self.take() } else { try self.expect(TokenKind.Ident, "expected enum case pattern") }
             var ordinal = -1
-            if pattern.value == "_" {
+            var string_pattern = false
+            if pattern.kind == TokenKind.Ident && pattern.value == "_" {
                 wildcard = true
+            } else if string_match {
+                if pattern.kind != TokenKind.StringLit { return problem("String match patterns must be String literals or `_`", pattern.line, pattern.col) }
+                let decoded = try self.decode_string_literal(&pattern)
+                var duplicate = false
+                var si = 0
+                while si < string_patterns.len() {
+                    if string_patterns[si] == decoded { duplicate = true }
+                    si += 1
+                }
+                if duplicate { return problem("duplicate String match pattern", pattern.line, pattern.col) }
+                try! string_patterns.push(decoded)
+                string_pattern = true
             } else if self.at(TokenKind.Dot) {
                 let qualifier = self.enum_index(pattern.value)
                 if qualifier != ei { return problem("enum qualifier `{pattern.value}` does not match subject enum `{self.enums[ei].name}`", pattern.line, pattern.col) }
@@ -2461,13 +2529,15 @@ extension Compiler {
                 ordinal = self.enum_case_index(ei, pattern.value)
                 if ordinal < 0 { return problem("enum `{self.enums[ei].name}` has no case `{pattern.value}`", pattern.line, pattern.col) }
             }
-            if ordinal >= 0 {
-                if covered[ordinal] { return problem("duplicate match case `{self.enums[ei].cases[ordinal]}`", pattern.line, pattern.col) }
-                covered[ordinal] = true
+            if ordinal >= 0 || string_pattern {
+                if ordinal >= 0 {
+                    if covered[ordinal] { return problem("duplicate match case `{self.enums[ei].cases[ordinal]}`", pattern.line, pattern.col) }
+                    covered[ordinal] = true
+                }
                 let constant = self.new_slot(subject.ty)
-                let ci = self.emit_at(Op.Const, pattern.line, pattern.col)
+                let ci = self.emit_at(if string_pattern { Op.StringConst } else { Op.Const }, pattern.line, pattern.col)
                 self.code[ci].dst = constant
-                self.code[ci].immediate = ordinal
+                self.code[ci].immediate = if string_pattern { self.intern_string(string_patterns[string_patterns.len() - 1]) } else { ordinal }
                 let equal = self.new_slot(ValueType.Bool)
                 let eq = self.emit_at(Op.Eq, pattern.line, pattern.col)
                 self.code[eq].dst = equal
@@ -2496,7 +2566,7 @@ extension Compiler {
         let _ = try self.expect(TokenKind.RBrace, "expected closing brace for match")
         if arm_count == 0 { return problem("non-exhaustive match", mt.line, mt.col) }
         var exhaustive = wildcard
-        if not exhaustive {
+        if not string_match && not exhaustive {
             exhaustive = true
             i = 0
             while i < covered.len() {
@@ -2504,7 +2574,10 @@ extension Compiler {
                 i += 1
             }
         }
-        if not exhaustive { return problem("non-exhaustive match", mt.line, mt.col) }
+        if not exhaustive {
+            if string_match { return problem("String match requires a final wildcard", mt.line, mt.col) }
+            return problem("non-exhaustive match", mt.line, mt.col)
+        }
         let continuation = self.code.len()
         if pending_false >= 0 { self.code[pending_false].target = continuation }
         i = 0
@@ -2549,7 +2622,8 @@ extension Compiler {
                 if value.always_returns { return true }
                 src = value.slot
             } else if self.current_result != ValueType.Void { return problem("non-Void return requires a value", t.line, t.col) }
-            self.cleanup_function(src, &t)
+            let preserve_end = if src < 0 { -1 } else { src + (try value_layout(&self.records, self.current_result)).len() }
+            self.cleanup_function(src, preserve_end, &t)
             let at = self.emit_at(Op.Return, t.line, t.col)
             self.code[at].a = src
             return true
@@ -2701,7 +2775,8 @@ extension Compiler {
                 if tail.always_returns { returns = true }
                 else {
                     let return_token = self.token()
-                    self.cleanup_function(tail.slot, &return_token)
+                    let preserve_end = tail.slot + (try value_layout(&self.records, self.current_result)).len()
+                    self.cleanup_function(tail.slot, preserve_end, &return_token)
                     let r = self.emit_at(Op.Return, self.signatures[index].line, self.signatures[index].col)
                     self.code[r].a = tail.slot
                     returns = true
@@ -2720,28 +2795,29 @@ extension Compiler {
         }
         if self.current_result == ValueType.Void {
             let return_token = self.token()
-            self.cleanup_function(-1, &return_token)
+            self.cleanup_function(-1, -1, &return_token)
             let _ = self.emit_at(Op.Return, self.signatures[index].line, self.signatures[index].col)
         } else {
             // Return-path checking above proves this padding unreachable. It gives
             // end-of-block jumps a real target and leaves every emitted block terminated.
             let slot = try self.new_value(self.current_result)
-            if self.current_result == ValueType.String {
-                let c = self.emit_at(Op.StringConst, self.signatures[index].line, self.signatures[index].col)
-                self.code[c].dst = slot
-                self.code[c].immediate = self.intern_string("")
-            } else {
-                let layout = try value_layout(&self.records, self.current_result)
-                var word = 0
-                while word < layout.len() {
+            let layout = try value_layout(&self.records, self.current_result)
+            var word = 0
+            while word < layout.len() {
+                if layout[word] == ValueType.String {
+                    let c = self.emit_at(Op.StringConst, self.signatures[index].line, self.signatures[index].col)
+                    self.code[c].dst = slot + word
+                    self.code[c].immediate = self.intern_string("")
+                } else {
                 let c = self.emit_at(Op.Const, self.signatures[index].line, self.signatures[index].col)
                 self.code[c].dst = slot + word
                 self.code[c].immediate = 0
-                word += 1
                 }
+                word += 1
             }
             let return_token = self.token()
-            self.cleanup_function(slot, &return_token)
+            let preserve_end = slot + (try value_layout(&self.records, self.current_result)).len()
+            self.cleanup_function(slot, preserve_end, &return_token)
             let r = self.emit_at(Op.Return, self.signatures[index].line, self.signatures[index].col)
             self.code[r].a = slot
         }

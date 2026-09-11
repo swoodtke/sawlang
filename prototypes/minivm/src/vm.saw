@@ -185,8 +185,13 @@ func run_function(program: &Program, function_index: Int, arguments: &Vector<Int
                 }
                 word = 0
                 while word < values.len() {
+                    if string_type(layout[word]) { try string_retain(&var heap, values[word]) }
+                    word += 1
+                }
+                word = 0
+                while word < values.len() {
                     if string_type(layout[word]) {
-                        try string_assign(&var cells, base + inst.dst + word, values[word], &var heap, true)
+                        try string_assign(&var cells, base + inst.dst + word, values[word], &var heap, false)
                     } else { cells[base + inst.dst + word] = values[word] }
                     word += 1
                 }
@@ -204,8 +209,13 @@ func run_function(program: &Program, function_index: Int, arguments: &Vector<Int
                 }
                 word = 0
                 while word < values.len() {
+                    if string_type(layout[word]) { try string_retain(&var heap, values[word]) }
+                    word += 1
+                }
+                word = 0
+                while word < values.len() {
                     if string_type(layout[word]) {
-                        try string_assign(&var cells, address + word, values[word], &var heap, true)
+                        try string_assign(&var cells, address + word, values[word], &var heap, false)
                     } else { cells[address + word] = values[word] }
                     word += 1
                 }
