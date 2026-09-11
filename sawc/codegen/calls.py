@@ -3227,12 +3227,34 @@ class CallsMixin:
     def _get_lvalue_pointer(self, expr):
         """Return a pointer to the storage backing an assignable lvalue.
 
+        THE ONE base-to-pointer dispatch in codegen. Every question of the form
+        "where does this place actually live" is answered here, so a BORROW and
+        a WRITE of one place can never disagree about where that place is.
+
         Resolves variables (loading once through a `&`/`&var` reference so the
-        pointer lands on the caller's value), `self`, struct fields, and
-        array/pointer elements, recursing so nested forms like `a[i].inner`
-        reach real storage instead of a throwaway copy. Non-lvalue expressions
-        fall back to a materialized temporary (no write-back), matching the
-        historical member-access fallback.
+        pointer lands on the caller's value), module statics in both spellings,
+        `self`, struct fields, array/pointer elements, tuple elements and a
+        force-unwrapped optional's payload, recursing so nested forms like
+        `a[i].inner` reach real storage instead of a throwaway copy. Non-lvalue
+        expressions fall back to a materialized temporary (no write-back),
+        matching the historical member-access fallback.
+
+        ENTRY POINTS (design obligation 1 — the funnel names its callers):
+
+        * `_generate_assignment` and the compound-assign path — `x = v`.
+        * `_get_element_pointer` (`a[i]`) — reached from the assignment path,
+          from a method receiver on an element, from a collection read, and
+          from `_generate_reference_expr`'s ArrayIndex arm.
+        * `_tuple_slot_pointer` / `_get_tuple_element_pointer` (`t.0`).
+        * `_get_member_pointer` (`a.b`), and through it every field write.
+        * `_generate_reference_expr` (`&x` / `&var x`) for the base forms it
+          does not answer itself.
+        * `_generate_optional_take` (`o.take()`) and the array builtins
+          (`a.swap(i, j)`).
+
+        SL-226 is what that list is for: the reference path used to keep a
+        SECOND, smaller dispatch of its own, and the three bases it had never
+        learned about each became a silently lost write.
         """
         if isinstance(expr, Identifier) and expr.name in self.variables:
             base_ptr = self.variables[expr.name]

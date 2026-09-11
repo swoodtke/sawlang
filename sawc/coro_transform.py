@@ -1715,20 +1715,61 @@ def _find_suspending_cycle(start_key, nodes):
     return dfs(start_key)
 
 
-def _analyze_nesting(root_name, root_func, nodes):
+def _analyze_nesting(start_key, anchor, nodes, is_built=None):
     """Suspending RECURSION is a compile error naming the cycle: the flat-frame
     model embeds callee frames by value (Part 0b), so a suspending-call cycle has
     no compile-time frame size. Non-recursive nested suspending calls are now
-    supported (embedded + driven); only a cycle is rejected."""
-    start = ("fn", root_name)
-    cyc = _find_suspending_cycle(start, nodes)
+    supported (embedded + driven); only a cycle is rejected.
+
+    THE CHECK EVERY ROOT OWES (SL-227). A root is where the closure walk starts
+    building frames, so a cycle reachable from one reaches `_build_sub_frame`,
+    which embeds a callee frame by value — and for a self-cycle that has no
+    fixed point. The check must therefore run on EVERY root-seeding path, not
+    just the one it was written for; the graph is already seeded from all of
+    them (`seed_names`), so what was missing was only the asking.
+
+    ENTRY POINTS (obligation 1 — the funnel names its callers), all in
+    `transform_program`, one per way a root is seeded:
+
+    * `__saw_drive(f(...))` — the free-function drive roots, the original
+      caller, pinned by `examples/errors/coro_suspending_recursion.saw`.
+    * `Task.spawn(f(...))` / `group.spawn(f(...))` — the spawn roots. Both
+      spelled `("fn", name)`: a spawn takes a direct call to a free function.
+    * a suspending `main`, which is a root with no spelling at all.
+    * `__saw_drive(obj.m(...))` — the method drive roots, keyed
+      `("method", node_id)`, which is why this takes a KEY rather than a name.
+
+    Two spellings reach no root and are refused before this: `group.spawn` of a
+    METHOD call is refused at the form ("expects a direct call to a free
+    function"), and a `Thread.spawn` body is `sync`, so a suspending callee in
+    one is refused with the no-executor diagnostic.
+
+    `anchor` is only for the diagnostic's position — the function or method AST
+    the cycle was entered through.
+
+    `is_built` KEEPS THE CHECK EXACTLY AS STRICT AS THE FRAME BUILDER, and is
+    not optional in spirit. The suspending-call GRAPH is wider than the set of
+    frames the transform actually builds: the closure walk follows an edge only
+    when it can name and build a frame for the target, so a suspending callee it
+    declines to reach — a cross-module free function the splice does not take,
+    say — is in `nodes` and not in `closure`. A cycle through such a node is
+    never embedded, so it has a frame size and is not an error. Blade's own
+    dependency resolver is that program: `visit` recurses and reaches
+    `Command.run`, and blade has always compiled because no `__Frame_visit` is
+    ever built. Without this gate SL-227's widening refused the package manager.
+    Asking "will every frame on this cycle be built" is the same question
+    `_build_sub_frame` would have answered by diverging."""
+    cyc = _find_suspending_cycle(start_key, nodes)
+    if cyc is not None and is_built is not None and not all(
+            is_built(k) for k in cyc):
+        return
     if cyc is not None:
         chain = " -> ".join(_node_display(k, nodes) for k in cyc)
         raise CoroTransformError(
             f"suspending recursion is not allowed: the suspending-call cycle "
             f"`{chain}` has no compile-time frame size (design 44 embeds callee "
             f"frames by value). Break the cycle or drive the inner call "
-            f"separately.", root_func)
+            f"separately.", anchor)
 
 
 # --------------------------------------------------------------------------- #
@@ -3398,11 +3439,49 @@ class _FrameBuilder:
         conditionless form (design 52), `_split_if` already carries `loop_ctx`
         into both branches, and `break` has been a state goto since design 96.
         """
-        cond = w.condition
-        line = getattr(cond, 'line', 0) or 0
-        col = getattr(cond, 'column', 0) or 0
         pre = []
-        ident = self._head_lift(cond, pre)
+        ident = self._head_lift(w.condition, pre)
+        self._head_into_while_body(w, pre, ident)
+        return s
+
+    def _head_into_while_body(self, w, pre, ident):
+        """THE ONE REWRITE that moves a `while`'s CONDITION inside its own loop,
+        so that `pre` — the statements that EVALUATE the condition — run once per
+        iteration instead of once per loop:
+
+            while {
+                <pre>                             # `let __headN = <cond>`, …
+                if __headN { <body> } else { break }
+            }
+
+        `pre` lands ahead of the gate, so it runs on EVERY entry to the loop
+        body — the first iteration, a fall-through backedge, and a `continue`
+        (which jumps to the loop top, which is now `pre`) alike — and before any
+        dispatch to the body. `break` out of the body still leaves the loop, and
+        the condition-false path takes the gate's own `break`.
+
+        ENTRY POINTS (obligation 1 — the funnel names its callers), both of them
+        the same shape for two different reasons a `while` head cannot be lifted
+        to a preceding statement:
+
+        * `_while_head_into_body` (design 224 / DF-245d) — the head SPANS a
+          suspension or carries a propagating `try`, so it must be a statement;
+          lifting it AHEAD of the loop would evaluate it once and run the loop on
+          that answer forever.
+        * `_lower_inplace`'s `WhileExpr` arm (SL-234, corrected by SL-226 review
+          r1) — the head contains a `move` of a frame local, so the frame's claim
+          must be relinquished between the head and the body. Same conclusion:
+          the relinquish belongs INSIDE the condition path, because the body may
+          REINITIALIZE the moved local before the backedge and the next
+          evaluation then moves the REPLACEMENT.
+
+        `w.condition` is left None, which is the conditionless form every
+        downstream pass already handles (design 52's `_split_while`, design 177's
+        `diverges`, which stays False because the gate's `break` is a break out
+        of THIS loop, and codegen's `while.cond` block, which a conditionless
+        loop simply branches through)."""
+        line = getattr(ident, 'line', 0) or 0
+        col = getattr(ident, 'column', 0) or 0
         gate = IfExpr(
             condition=ident, then_branch=w.body,
             else_branch=Block(
@@ -3411,10 +3490,9 @@ class _FrameBuilder:
             line=line, column=col)
         w.condition = None
         w.body = Block(
-            statements=pre + [ExpressionStatement(expression=gate,
-                                                  line=line, column=col)],
+            statements=list(pre) + [ExpressionStatement(expression=gate,
+                                                        line=line, column=col)],
             final_expr=None)
-        return s
 
     # ------------------------------------------------------------------ #
     # DF-151a: one frame field per BINDING, not per NAME
@@ -7271,9 +7349,24 @@ class _FrameBuilder:
         """Bind a container's HEAD to a temp and relinquish the move's frame
         claim right there — between the head's evaluation and the container.
 
-        Returns `(statements, replacement)`: the statements to emit AHEAD of the
-        container, and what to put in the head's place. With nothing to forget
-        it returns `([], head)`, so the ordinary path is untouched.
+        Returns `(statements, replacement)`: the statements that evaluate the
+        head and give up the claim, and what to put in the head's place. With
+        nothing to forget it returns `([], head)`, so the ordinary path is
+        untouched.
+
+        WHERE THE CALLER PUTS THOSE STATEMENTS IS PER CONTAINER, and it turns on
+        ONE question: how many times does this container evaluate its head?
+
+        * ONCE — `guard let`, `for`, `if`, `match`, an inline `try`: the caller
+          emits them AHEAD of the container, as a prelude, and the container then
+          reads the temp. A `guard let`'s subject is a statement's subject and a
+          `for`'s iterable seeds the iterator before the first pass, so "once,
+          before every block" is the truth about both and a prelude states it.
+        * PER ITERATION — a `while` CONDITION: the caller hands them to
+          `_head_into_while_body`, which moves them INSIDE the loop ahead of the
+          body dispatch. A prelude there would freeze iteration one's answer,
+          which is the regression SL-226 review r1 found and that helper's
+          docstring records.
 
         THE ORDERING RULE (SL-222 reviews r3 + r4). A container's head — an
         `if`'s condition, a `match`'s scrutinee, an `if let`'s subject, an inline
@@ -7288,7 +7381,9 @@ class _FrameBuilder:
             __saw_forget(self.r)      # the claim is given up here
             if __headN { … }          # only now can any block run
 
-        — and there is no trailing clear at all for these arms.
+        — and there is no trailing clear at all for these arms. The `while` arm
+        emits the same three lines; what differs is only that its third line is a
+        gate inside the loop rather than the container itself.
 
         TWO EARLIER SHAPES WERE WRONG, and both are why this one is written as a
         hoist. Clearing only AFTER the whole statement (r3's finding) misses
@@ -7339,6 +7434,56 @@ class _FrameBuilder:
             ref = Identifier(name=tmp, line=line, column=col)
         ref.resolved_type = getattr(head, 'resolved_type', None)
         return [binding] + self._forgets(forgets), ref
+
+    def _refuse_buried_early_exit(self, s, node, forgets, position):
+        """Refuse a `move` of a frame local in a LEAF statement whose expression
+        also `return`s, `break`s or `continue`s (SL-222 r3, widened by SL-234).
+
+        THE OTHER HALF of `_hoist_head_and_relinquish`, and the reason the two
+        live side by side: that helper places the relinquish where it is
+        provably the live claim, and this one is what happens when NO SUCH PLACE
+        EXISTS.
+
+        A CONTAINER has a head — one expression, evaluated before all of its
+        blocks — so "after the head, before block dispatch" names a real point
+        and the hoist writes it down. A LEAF statement has no head: its blocks
+        are OPERANDS of an arbitrary expression, and one can sit to the LEFT of
+        the move —
+
+            sink(if a { 1 } else { 0 } + consume(move r))
+
+        — where relinquishing first would retire a claim the move has not yet
+        transferred, and the move would then read an emptied slot. Deferring to
+        after the statement instead is what SL-234 measured as a silent double
+        free: the early exit leaves before the trailing clear, the callee has
+        already destroyed the value, and frame teardown destroys it again.
+
+        With no ordering this position can state, the refusal is the honest
+        answer. It costs nothing that used to work: the shape was refused by the
+        nested-tail-move diagnostic before SL-222's tail demotion made it
+        reachable, and the workaround it names is the one the author would write
+        anyway. The message names the AUTHOR'S position — a binding, an
+        assignment target, or the statement — never a synthesized `__headN`
+        temp, which is a name they cannot see.
+
+        ENTRY POINTS (obligation 1 — the funnel names its callers), all three in
+        `_lower_inplace`, which is where a non-spanning statement is lowered:
+
+        * the `LetStatement` arm — `let v = if consume(move r) { return 4 } …`
+        * the `AssignStatement` arm — `acc = if consume(move r) { return 5 } …`
+        * the fallback — a plain expression statement, `sink_int(...)` above.
+
+        A CONTAINER never reaches here: each has an arm that hoists instead, and
+        the enumeration gate below the arms is what keeps that true."""
+        if not forgets:
+            return
+        if not (_contains_return(node) or self._has_loop_ctrl(node)):
+            return
+        raise self._error(
+            f"coroutine transform: `move` of a frame local in {position} "
+            f"of driven `{self.name}` whose expression also `return`s, "
+            f"`break`s or `continue`s is not supported; bind the moving "
+            f"call to its own `let` first, then use the binding", s)
 
     def _rewrite_expr(self, node, forgets):
         """Frame-aware expression rewrite: `Identifier(frame local)` ->
@@ -7861,6 +8006,10 @@ class _FrameBuilder:
         if isinstance(s, LetStatement):
             forgets = []
             cap_lets, value = self._rewrite_hosting(s.value, forgets)
+            # SL-234: a leaf statement can state no ordering between its
+            # operands and the move — see `_refuse_buried_early_exit`.
+            self._refuse_buried_early_exit(
+                s, value, forgets, f"the initializer of `{s.name}`")
             if s.name in self.encmap:
                 new = self._store_field(s.name, value, s.line, s.column)
             else:
@@ -7878,6 +8027,14 @@ class _FrameBuilder:
             # The VALUE first: `out = out + "!"` reads the old binding, and the
             # target rewrite must not change what that read means.
             cap_lets, s.value = self._rewrite_hosting(s.value, forgets)
+            # SL-234: a leaf statement can state no ordering between its
+            # operands and the move — see `_refuse_buried_early_exit`. Asked
+            # with the target still in its AUTHOR'S spelling, so the message
+            # names `acc` rather than the `self.acc` the rewrite would give.
+            self._refuse_buried_early_exit(
+                s, s.value, forgets,
+                (f"the right-hand side of the assignment to `{s.target.name}`"
+                 if isinstance(s.target, Identifier) else "an assignment"))
             # A whole-binding target on a MIGRATED field is not a write at all
             # any more, it is a `put` — which is why the DF-196a shape (writing
             # THROUGH a `!`) has no spelling here to get wrong.
@@ -7917,10 +8074,19 @@ class _FrameBuilder:
             return cap_lets + pre + [s]
         if isinstance(s, GuardLetStatement):
             forgets = []
-            cap_lets, s.optional_expr = self._rewrite_hosting(
+            cap_lets, subject = self._rewrite_hosting(
                 s.optional_expr, forgets)
+            # SL-234: see `_hoist_head_and_relinquish`. A `guard let`'s subject
+            # is a head like any other — evaluated first and unconditionally —
+            # and its `else` block ALWAYS leaves (return/break/continue), so a
+            # trailing clear was unreachable on the one path that runs a block.
+            # `consuming`: a `guard let` READS A PAYLOAD out of its subject,
+            # exactly as `if let` does, so the replacement must transfer rather
+            # than be judged as a named read by design 131's policy.
+            pre, s.optional_expr = self._hoist_head_and_relinquish(
+                subject, forgets, s, consuming=True)
             self._lower_block_in_place(s.else_branch)
-            return cap_lets + [s] + self._forgets(forgets)
+            return cap_lets + pre + [s]
         if isinstance(ctrl, ForLoop):
             # SL-222 review r1: `_lower_inplace` owns EVERY container in
             # `ast_walk.CONTAINER_KINDS`, so that a statement-position construct
@@ -7931,10 +8097,16 @@ class _FrameBuilder:
             # says "discarded"), and saying it here keeps the statement path
             # complete rather than relying on the backstop.
             forgets = []
-            cap_lets, ctrl.iterable = self._rewrite_hosting(
+            cap_lets, iterable = self._rewrite_hosting(
                 ctrl.iterable, forgets)
+            # SL-234: see `_hoist_head_and_relinquish`. A `for`'s ITERABLE is a
+            # head — evaluated once, before the first iteration — so a `move` in
+            # it has already transferred by the time the body runs, and a body
+            # that `return`s/`break`s leaves before a trailing clear.
+            pre, ctrl.iterable = self._hoist_head_and_relinquish(
+                iterable, forgets, s)
             self._lower_block_in_place(ctrl.body)
-            return cap_lets + [s] + self._forgets(forgets)
+            return cap_lets + pre + [s]
         if isinstance(ctrl, TryCatchExpr):
             # A NON-spanning `try { } catch { }` in STATEMENT position: both
             # blocks are statement lists whose value is discarded. Without this
@@ -7981,14 +8153,40 @@ class _FrameBuilder:
                 return cap_lets + pre + [s]
             if isinstance(e, WhileExpr):
                 forgets = []
-                cap_lets = []
+                # The AUTHOR'S body, kept before the rewrite below re-parents it
+                # under the gate: it is the one block this arm lowers, and the
+                # statements the rewrite PREPENDS are already rewritten.
+                body = e.body
                 if e.condition is not None:
                     # A capture materialized here would run ONCE, ahead of the
                     # loop, while the condition runs every iteration — so a
                     # closure in a `while` condition keeps the clean refusal.
-                    e.condition = self._rewrite_expr(e.condition, forgets)
-                self._lower_block_in_place(e.body)
-                return cap_lets + [s] + self._forgets(forgets)
+                    cond = self._rewrite_expr(e.condition, forgets)
+                    # SL-234: see `_hoist_head_and_relinquish` for the ordering
+                    # rule, and `_head_into_while_body` for why `while` is the
+                    # ONE arm that does not emit the hoist as a PRELUDE.
+                    #
+                    # A `while` CONDITION is the one head that RE-EVALUATES, and
+                    # repeated evaluation of a MOVING condition is valid: the
+                    # body may reinitialize the local before the backedge, so the
+                    # next evaluation consumes the REPLACEMENT. `while
+                    # consume(move r) { r = Res(n: n) }` is a terminating program
+                    # that moves a different value every iteration.
+                    #
+                    # So the hoist's statements go INSIDE the loop, ahead of the
+                    # gate that dispatches to the body: the condition is
+                    # evaluated and the consumed claim cleared together, on every
+                    # iteration including the backedges a `continue` reaches.
+                    # (SL-226 review r1 measured the once-only prelude this arm
+                    # used to emit: the first true result was reused forever, and
+                    # the loop above ran until its own guard returned.)
+                    pre, ref = self._hoist_head_and_relinquish(
+                        cond, forgets, s)
+                    e.condition = ref
+                    if pre:
+                        self._head_into_while_body(e, pre, ref)
+                self._lower_block_in_place(body)
+                return [s]
             if isinstance(e, MatchExpr):
                 forgets = []
                 # THIS is the shape DF-215f lived in: a match whose SCRUTINEE
@@ -8058,30 +8256,10 @@ class _FrameBuilder:
         # a value, etc. — rewrite in place, hosting any drop-flag clears after.
         forgets = []
         cap_lets, ns = self._rewrite_hosting(s, forgets)
-        if forgets and (_contains_return(ns) or self._has_loop_ctrl(ns)):
-            # SL-222 review r3. The clears below run after the whole statement,
-            # and this statement BURIES an early exit inside its own expression
-            # — a value `if`/`match` arm that `return`s, `break`s or
-            # `continue`s. The exit leaves before the clears, so the frame's
-            # teardown would drop a value the callee already destroyed.
-            #
-            # The container arms above fix this by HOISTING their head to a
-            # temp and relinquishing between it and the container
-            # (`_hoist_head_and_relinquish`), which is sound there because a
-            # container's head is one expression evaluated before all of its
-            # blocks. Here there is no such head: the blocks are operands of an
-            # arbitrary expression, and one can sit to the LEFT
-            # of the `move` (`sink(if a { 1 } else { 0 } + consume(move r))`),
-            # where clearing first would retire a claim the move has not yet
-            # transferred and the move would then read an emptied slot. With no
-            # ordering this position can state, the honest answer is the
-            # refusal — which is also what this shape got before SL-222 made it
-            # reachable, so nothing that used to compile stops compiling.
-            raise self._error(
-                f"coroutine transform: `move` of a frame local in a statement "
-                f"of driven `{self.name}` whose expression also `return`s, "
-                f"`break`s or `continue`s is not supported; bind the moving "
-                f"call to its own `let` first, then use the binding", s)
+        # SL-222 r3, the shape this refusal was written for: a plain expression
+        # statement burying an early exit beside a `move`. The rule now serves
+        # the two LEAF arms above as well — see `_refuse_buried_early_exit`.
+        self._refuse_buried_early_exit(s, ns, forgets, "a statement")
         return cap_lets + [ns] + self._forgets(forgets)
 
     def _store_result(self, value):
@@ -11040,8 +11218,52 @@ def transform_program(program, typechecker, imported_ast=None):
                 elif isinstance(e.target, int) and e.target in methods_by_id:
                     work.append(("method", e.target))
 
-    for root_name in roots:
-        _analyze_nesting(root_name, funcs_by_name[root_name], nodes)
+    # SL-227: EVERY root-seeding path is asked, not just the `__saw_drive` one.
+    # A spawn root used to reach `_build_sub_frame` with its cycle intact and
+    # the compiler died of a `RecursionError` — a Python traceback where the
+    # drive spelling of the SAME cycle gave a clean diagnostic. The graph was
+    # already seeded from all of these (`seed_names` above); only the asking was
+    # missing. `_analyze_nesting`'s docstring is the enumeration.
+    _cycle_roots = []
+    _seen_cycle_roots = set()
+    for _name in list(roots) + list(spawn_roots) + (
+            ["main"] if main_suspends else []):
+        if _name in _seen_cycle_roots or _name not in funcs_by_name:
+            continue
+        _seen_cycle_roots.add(_name)
+        _cycle_roots.append((("fn", _name), funcs_by_name[_name]))
+    # A METHOD root is reached by its node id — `method_roots` is keyed by frame
+    # key, which `methods_by_key` maps across. The graph keys a method by the
+    # RAW id (a function is the `("fn", name)` tuple), which is what
+    # `_find_suspending_cycle` follows through `e.target`, so the id is the start
+    # key as it stands. Without this a self-recursive suspending method reached
+    # the frame-key mismatch in phase 2 as an internal compiler error
+    # (`no such frame was built`) instead of the cycle diagnostic.
+    _root_method_ids = set()
+    for _fkey in method_roots:
+        _mid = methods_by_key.get(_fkey)
+        if _mid is None:
+            continue
+        _entry = methods_by_id.get(_mid)
+        _manchor = _entry[1] if isinstance(_entry, tuple) else _entry
+        _root_method_ids.add(_mid)
+        _cycle_roots.append((_mid, _manchor))
+    # The gate that keeps the check as strict as the builder and no stricter —
+    # see `_analyze_nesting`. `closure` (free functions, by name) and
+    # `method_closure` (methods, by node id) ARE the frames about to be built.
+    _closure_names = set(closure)
+
+    def _frame_is_built(key):
+        if isinstance(key, tuple) and len(key) == 2 and key[0] == "fn":
+            return key[1] in _closure_names
+        # A method ROOT is a frame by definition — `method_roots` is what builds
+        # it, so it is not in `method_closure`, which holds the CALLEES the walk
+        # reached. Without that half a self-recursive driven method fell back to
+        # the phase-2 frame-key ICE this check exists to replace.
+        return key in method_closure or key in _root_method_ids
+
+    for _start, _anchor in _cycle_roots:
+        _analyze_nesting(_start, _anchor, nodes, is_built=_frame_is_built)
 
     # design 127 (RC-3): instrument every loop backedge in the bodies that are
     # about to become frames, BEFORE any layout is computed — the inserted

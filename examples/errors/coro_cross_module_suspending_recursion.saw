@@ -1,0 +1,33 @@
+// SL-227, the CROSS-MODULE row: a suspending recursive function reached through
+// an import gets the same cycle rejection as one in the entry module.
+//
+// The callee is SPLICED into the entry closure (design 210 / SL-208), so a frame
+// really is built for it and the cycle really would be embedded by value —
+// `RecursionError` before the fix, like every other row here.
+//
+// THE CONTRAST THAT MATTERS is a cross-module callee the splice DECLINES to
+// take: no frame is built for it, its cycle is never embedded, and it must keep
+// compiling. That is blade's own dependency resolver — `visit` recurses into a
+// dependency's dependencies and reaches the cooperative `Command.run`, so the
+// cycle is in the suspending-call graph and reachable from blade's suspending
+// `main`, while no `__Frame_visit` is ever built. SL-227's first attempt asked
+// the cycle question of the raw graph and refused to compile the package
+// manager; the `freestanding` lane caught it. The check now asks whether every
+// frame on the cycle will actually be BUILT, which is the same question
+// `_build_sub_frame` would have answered by diverging — so this file and a
+// building blade are the two sides of one rule, and the blade side is gated by
+// the `freestanding` and `bootstrap` lanes.
+// (`{TESTDIR}` is this file's own directory, so the module dir — which lives
+// beside the success tests — is reached with `..`.)
+// COMPILE-FLAGS: --module-path recursion227={TESTDIR}/../modules/recursion227
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: suspending recursion is not allowed
+// EXPECT-ERROR-CONTAINS: descend -> descend
+
+import std.task.{yield_now}
+import recursion227.{descend}
+
+func main() {
+    yield_now()
+    print("depth {descend(3)}")
+}

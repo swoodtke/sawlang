@@ -1,0 +1,93 @@
+// SL-226 (non-coroutine faces): `&`/`&var` into an array element addresses the
+// element's REAL storage for EVERY base form the container can take — not just
+// the four the reference path used to know.
+//
+// Codegen had two base-to-pointer dispatches. `_get_lvalue_pointer` — the write
+// path — answers every base; the reference path kept a private
+// `_get_array_element_pointer` that knew only Identifier / `self` /
+// MemberAccess / nested-ArrayIndex and MATERIALIZED A COPY for everything else.
+// So `arr[i] = v` and `f(&var arr[i])` disagreed about where `arr[i]` is, and
+// three bases fell in the hole. None of these involve a coroutine; the driven
+// face (a frame local, which the transform spells `self.arr!`, an optional base)
+// is pinned by `coro_ref_into_frame_resident_fixed_array.saw`.
+//
+// Every cell writes +7 into an element holding 1 and reads it back, so 8 is
+// "the write landed" and 1 is "the callee mutated a copy".
+// EXPECT: success
+// EXPECT-OUTPUT:
+// optional 8
+// tuple    8
+// var-ref  8
+// shared-ref 8
+// member   8
+// element  8
+// write    8
+
+struct Doc { n: Int }
+
+struct Bag { arr: [Doc; 3] }
+
+struct Cell { doc: Doc }
+
+func set_one(d: &var Doc, k: Int) { d.n = d.n + k }
+func read_one(d: &Doc) -> Int { d.n }
+
+// A FORCE-UNWRAP base — the optional's payload slot, not a copy of it. This is
+// the same base the coroutine transform produces for every frame-resident local,
+// which is why one missing arm reached so much code.
+func optional_base() -> Int {
+    var o: [Doc; 3]? = [Doc(n: 1); 3]
+    set_one(&var o![1], 7)
+    o![1].n
+}
+
+// A TUPLE-ELEMENT base: a tuple element is storage like a struct field
+// (DF-151j), so an array living in one lends its elements like any other.
+func tuple_base() -> Int {
+    var t: ([Doc; 3], Int) = ([Doc(n: 1); 3], 0)
+    set_one(&var t.0[1], 7)
+    t.0[1].n
+}
+
+// A REFERENCE-TYPED identifier base: the binding holds a pointer to the
+// caller's array, so it must be loaded once before the element GEP. Indexing it
+// as though the binding WERE the array reached LLVM as a type mismatch — an
+// internal compiler error, the one cell here that was never silent.
+func through_var_ref(a: &var [Doc; 3], k: Int) { set_one(&var a[1], k) }
+func through_shared_ref(a: &[Doc; 3]) -> Int { read_one(&a[1]) }
+
+// A MEMBER base and a nested-ELEMENT base: the two arms the private dispatch
+// did have, kept so the fix is pinned as a widening and not a swap.
+func member_base() -> Int {
+    var bag = Bag(arr: [Doc(n: 1); 3])
+    set_one(&var bag.arr[1], 7)
+    bag.arr[1].n
+}
+
+func element_base() -> Int {
+    var grid: [[Doc; 2]; 2] = [[Doc(n: 1); 2]; 2]
+    set_one(&var grid[1][0], 7)
+    grid[1][0].n
+}
+
+// The WRITE spelling of the optional cell, which always worked: it is the
+// behavior the borrow now agrees with.
+func write_spelling() -> Int {
+    var o: [Doc; 3]? = [Doc(n: 1); 3]
+    o![1].n = o![1].n + 7
+    o![1].n
+}
+
+func main() {
+    print("optional {optional_base()}")
+    print("tuple    {tuple_base()}")
+
+    var arr: [Doc; 3] = [Doc(n: 1); 3]
+    through_var_ref(&var arr, 7)
+    print("var-ref  {arr[1].n}")
+    print("shared-ref {through_shared_ref(&arr)}")
+
+    print("member   {member_base()}")
+    print("element  {element_base()}")
+    print("write    {write_spelling()}")
+}

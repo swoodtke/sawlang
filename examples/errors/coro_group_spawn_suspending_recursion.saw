@@ -1,0 +1,25 @@
+// SL-227, the `group.spawn` row of the root-seeding matrix: a spawn into an
+// explicit TaskGroup takes the same cycle rejection `Task.spawn` and
+// `__saw_drive` take.
+//
+// The two spawn spellings share one root set (`_spawn_roots`) and differ only in
+// where the group comes from, so this is the row that proves the check is on the
+// ROOT and not on the spelling. It crashed with a `RecursionError` before the
+// fix, like its `Task.spawn` sibling, so no XFAIL preceded it either.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: suspending recursion is not allowed
+// EXPECT-ERROR-CONTAINS: recurse -> recurse
+
+import std.task.{yield_now}
+
+func recurse(n: Int) -> Int {
+    yield_now()
+    if n <= 0 { return 0 }
+    return recurse(n - 1)
+}
+
+func main() {
+    var group = TaskGroup()
+    let h = group.spawn(recurse(3))
+    print("{h.join()}")
+}

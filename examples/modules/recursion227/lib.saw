@@ -1,0 +1,17 @@
+// SL-227: the dependency half of
+// `examples/errors/coro_cross_module_suspending_recursion.saw`.
+//
+// `descend` is SUSPENDING and RECURSIVE, and it lives in a module the entry
+// module imports selectively — so design 210 / SL-208 SPLICES it into the entry
+// closure and a frame IS built for it. That is what makes the cycle real here,
+// and it is the difference from a cross-module callee the splice declines, whose
+// cycle is never embedded and must keep compiling (blade's resolver).
+import std.task.{yield_now}
+
+public func descend(depth: Int) -> Int {
+    yield_now()
+    if depth <= 0 {
+        return 0
+    }
+    return 1 + descend(depth - 1)
+}

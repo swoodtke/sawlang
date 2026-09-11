@@ -1,0 +1,23 @@
+// SL-227, the SUSPENDING-`main` row: a suspending `main` is a root with no
+// spelling at all — nothing in the source says `drive` or `spawn` — and it owes
+// the same cycle check as the roots that are written down.
+//
+// It seeds the graph (`seed_names` appends "main"), so before the fix it carried
+// a cycle into frame building exactly as a spawn root did, and crashed the
+// compiler with a `RecursionError`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: suspending recursion is not allowed
+// EXPECT-ERROR-CONTAINS: recurse -> recurse
+
+import std.task.{yield_now}
+
+func recurse(n: Int) -> Int {
+    yield_now()
+    if n <= 0 { return 0 }
+    return recurse(n - 1)
+}
+
+func main() {
+    yield_now()
+    print("{recurse(3)}")
+}

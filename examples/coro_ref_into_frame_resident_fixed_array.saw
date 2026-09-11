@@ -1,23 +1,36 @@
-// XFAIL: SL-226 a `&var` into an element of a frame-resident `[T; N]` local is a
-// silently lost write in a driven body — the callee mutates a copy, the element
-// reads back unchanged, exit 0, no diagnostic.
+// SL-226: a `&`/`&var` into an element of a frame-resident `[T; N]` local
+// addresses the ELEMENT'S REAL SLOT, so a callee's write lands where the
+// element lives and reads back through the local.
 //
-// Found by SL-223's sibling sweep (obligation 4) and INDEPENDENT of it: the
-// suspending call is hoisted into its own `let` here, so no ANF lift touches the
-// borrow, and the same program miscompiles on a compiler with none of the
-// SL-222/223/224 changes. What discriminates is the STORAGE, not the call
-// shape — `sync_control` writes the same element through the same helper and is
-// correct, and `field_control` shows a frame-resident struct FIELD is correct
-// too, so the defect is specific to the fixed-array element read in the
-// coroutine path (the suspicion is design 218's legacy `fixed-array` deferred
-// family reading the field as a VALUE where the borrow needs its storage).
+// It used to mutate a COPY — the callee wrote a temporary that died at the end
+// of the statement and the element read back unchanged, exit 0, no diagnostic.
+// What discriminated was the STORAGE, not the call shape: the sync twin of
+// every cell below was correct, and so was a frame-resident struct FIELD
+// (`&var h.doc`), which is why the field control is kept as a row.
 //
-// Remove the marker in the landing that fixes SL-226.
+// MECHANISM (and why the fix is one line): codegen had TWO base-to-pointer
+// dispatches. `_get_lvalue_pointer` — the write path — knows every base form,
+// including a ForceUnwrap. The reference path kept a private
+// `_get_array_element_pointer` that knew only Identifier/`self`/MemberAccess/
+// nested-ArrayIndex and MATERIALIZED A COPY for anything else. The coroutine
+// transform rewrites a frame local `arr` into `self.arr!`, which is exactly the
+// ForceUnwrap base the private dispatch had never learned — so a BORROW and a
+// WRITE of one place disagreed about where that place is. The reference path
+// now routes through the same funnel; the non-coroutine faces of the same
+// defect are pinned by `ref_into_array_element_addresses_real_storage.saw`.
+//
+// THE ORACLE IS THE SYNC TWIN: every cell prints its sync result beside its
+// driven result, and the two must agree. A cell whose numbers differ is the bug
+// back.
 // EXPECT: success
 // EXPECT-OUTPUT:
-// 7
-// 7
-// 8
+// direct    8 8
+// forwarded 8 8
+// scalar    8 8
+// nested    8 8
+// receiver  8 8
+// shared    5 5
+// field     8 8
 
 import std.task.{yield_now}
 
@@ -25,27 +38,108 @@ struct Doc { n: Int }
 
 struct Holder { doc: Doc }
 
+extension Doc {
+    func bump(&var self, k: Int) { self.n = self.n + k }
+}
+
 func slow() -> Int {
     yield_now()
     7
 }
 
 func set_one(d: &var Doc, k: Int) { d.n = d.n + k }
+func read_one(d: &Doc) -> Int { d.n }
+func set_int(n: &var Int, k: Int) { n = n + k }
+func relay(d: &var Doc, k: Int) { set_one(&var d, k) }
 
-func driven() -> Int {
-    var arr: [Doc; 3] = [Doc(n: 0); 3]
+// A struct element, borrowed exclusively and written directly — the found bug.
+func sync_direct() -> Int {
+    var arr: [Doc; 3] = [Doc(n: 1); 3]
+    set_one(&var arr[1], 7)
+    arr[1].n
+}
+func driven_direct() -> Int {
+    var arr: [Doc; 3] = [Doc(n: 1); 3]
     let k = slow()
     set_one(&var arr[1], k)
     arr[1].n
 }
 
-func sync_control() -> Int {
-    var arr: [Doc; 3] = [Doc(n: 0); 3]
-    set_one(&var arr[1], 7)
+// The same borrow FORWARDED onward as a re-borrow (design 106).
+func sync_forwarded() -> Int {
+    var arr: [Doc; 3] = [Doc(n: 1); 3]
+    relay(&var arr[1], 7)
+    arr[1].n
+}
+func driven_forwarded() -> Int {
+    var arr: [Doc; 3] = [Doc(n: 1); 3]
+    let k = slow()
+    relay(&var arr[1], k)
     arr[1].n
 }
 
-func field_control() -> Int {
+// A SCALAR element, written through whole-referent replacement (design 110).
+func sync_scalar() -> Int {
+    var nums: [Int; 3] = [1; 3]
+    set_int(&var nums[1], 7)
+    nums[1]
+}
+func driven_scalar() -> Int {
+    var nums: [Int; 3] = [1; 3]
+    let k = slow()
+    set_int(&var nums[1], k)
+    nums[1]
+}
+
+// A NESTED array, where the outer element is itself the container.
+func sync_nested() -> Int {
+    var grid: [[Doc; 2]; 2] = [[Doc(n: 1); 2]; 2]
+    set_one(&var grid[1][0], 7)
+    grid[1][0].n
+}
+func driven_nested() -> Int {
+    var grid: [[Doc; 2]; 2] = [[Doc(n: 1); 2]; 2]
+    let k = slow()
+    set_one(&var grid[1][0], k)
+    grid[1][0].n
+}
+
+// A `&var self` METHOD RECEIVER on the element — the one borrowing spelling
+// that was already correct, because it went through the write path's funnel.
+func sync_receiver() -> Int {
+    var arr: [Doc; 3] = [Doc(n: 1); 3]
+    arr[1].bump(7)
+    arr[1].n
+}
+func driven_receiver() -> Int {
+    var arr: [Doc; 3] = [Doc(n: 1); 3]
+    let k = slow()
+    arr[1].bump(k)
+    arr[1].n
+}
+
+// A SHARED read borrow. It read the right bytes even when broken (a copy has
+// the same contents), so it pins that the fix did not disturb the read side.
+func sync_shared() -> Int {
+    var arr: [Doc; 3] = [Doc(n: 1); 3]
+    arr[1].n = 5
+    read_one(&arr[1])
+}
+func driven_shared() -> Int {
+    var arr: [Doc; 3] = [Doc(n: 1); 3]
+    let k = slow()
+    arr[1].n = k - 2
+    read_one(&arr[1])
+}
+
+// The frame-resident struct FIELD control: correct throughout, kept as the row
+// that showed the defect was about the fixed-array element specifically.
+func sync_field() -> Int {
+    var h = Holder(doc: Doc(n: 1))
+    set_one(&var h.doc, 7)
+    h.doc.n
+}
+func driven_field() -> Int {
     var h = Holder(doc: Doc(n: 1))
     let k = slow()
     set_one(&var h.doc, k)
@@ -53,7 +147,11 @@ func field_control() -> Int {
 }
 
 func main() {
-    print(__saw_drive(driven()))         // wanted 7, observed 0
-    print(sync_control())                // 7 — the sync twin is correct
-    print(__saw_drive(field_control()))  // 8 — a frame-resident FIELD is correct
+    print("direct    {sync_direct()} {__saw_drive(driven_direct())}")
+    print("forwarded {sync_forwarded()} {__saw_drive(driven_forwarded())}")
+    print("scalar    {sync_scalar()} {__saw_drive(driven_scalar())}")
+    print("nested    {sync_nested()} {__saw_drive(driven_nested())}")
+    print("receiver  {sync_receiver()} {__saw_drive(driven_receiver())}")
+    print("shared    {sync_shared()} {__saw_drive(driven_shared())}")
+    print("field     {sync_field()} {__saw_drive(driven_field())}")
 }

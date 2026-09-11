@@ -1,0 +1,256 @@
+// SL-234, corrected by the SL-226.p1 review (r1): a `move` of a frame local in
+// a `while` HEAD is relinquished ONCE PER EVALUATION, inside the loop's
+// condition path, so a body that REINITIALIZES the local keeps running and each
+// iteration consumes a DIFFERENT value.
+//
+// The sibling of `coro_head_move_with_early_exit_drops_once.saw`, which pins the
+// EXIT half (a contained block leaves before the claim would be cleared). This
+// file pins the half that only a loop has: repeated evaluation.
+//
+// WHY `while` IS THE ODD HEAD OUT. Every other container evaluates its head
+// exactly ONCE, so the relinquish is emitted as a PRELUDE ahead of the
+// container and the container then reads the temp:
+//
+//   * `guard let` — the subject of a STATEMENT, evaluated once before the
+//     `else` block can run. A `guard let` never loops, and its binding belongs
+//     to the enclosing scope, so there is no second evaluation to place.
+//   * `for` — the ITERABLE seeds the iterator before the first pass. A body that
+//     reinitializes the moved local does NOT re-run the iterable: the loop
+//     iterates the ONE sequence the head already produced. Once-only is the
+//     truth about a `for` head, not an approximation of it.
+//   * `if` / `match` / an inline `try` — one head, one dispatch, no backedge.
+//
+// A `while` CONDITION re-evaluates, and repeated evaluation of a MOVING
+// condition is VALID: the body may reinitialize the local before the backedge,
+// so the next evaluation consumes the REPLACEMENT. `while consume(move r) { r =
+// Res(n: n) }` is a terminating program that moves a distinct value every pass.
+// So the condition's evaluation AND the consumed-claim clear go INSIDE the loop,
+// ahead of the gate that dispatches to the body — reached on the first
+// iteration, on a fall-through backedge, and on a `continue` alike (cells 1-2),
+// and reached on the way OUT when the first evaluation is already false
+// (cell 4). Review r1 measured the once-only prelude the first cut emitted: the
+// first `true` was reused forever, and the terminating program above looped
+// until an added guard returned out of it.
+//
+// `while let` needs nothing of its own: its header is a conditionless loop whose
+// body IS the `if let … else { break }` the parser lowered it into, so the
+// subject's hoist lands inside the loop body by construction. Cell 3 measures
+// that rather than assuming it.
+//
+// WHY EVERY CELL NESTS ITS `while` INSIDE A COLLECTION `for` — load-bearing, not
+// decoration. Design 127 charges a loop backedge in a task body against the
+// frame's op budget, which makes a bare driven `while` SUSPENSION-SPANNING, and
+// a moving condition there is a separate standing refusal in `_split_while`
+// ("`move` in the condition of a suspension-spanning `while` … is not
+// supported"). A `for` over a collection is not instrumented, and neither is a
+// loop nested inside one — so this is the shape in which a NON-spanning moving
+// `while` exists in a driven body at all, which is the shape this file is about.
+// (It is the shape review r1's own reproducer used, and the shape the exit-half
+// sibling uses.)
+//
+// THE ORACLE IS THE SYNC TWIN: every cell runs the same body without a
+// suspension, and the two destruction sequences must be identical. Drops are
+// NUMBERED, so a frozen condition — which re-consumes iteration one's value —
+// is distinguishable from a correct walk down distinct values.
+// (The output is deliberately FLAT — `EXPECT-OUTPUT` strips each expected line,
+// so indented output cannot be matched by it.)
+// EXPECT: success
+// EXPECT-OUTPUT:
+// fallthrough sync
+// drop 0
+// drop 1
+// drop 2
+// -> 2
+// fallthrough driven
+// drop 0
+// drop 1
+// drop 2
+// -> 2
+// continue sync
+// drop 0
+// drop 1
+// drop 2
+// -> 2
+// continue driven
+// drop 0
+// drop 1
+// drop 2
+// -> 2
+// while-let sync
+// drop 0
+// drop 1
+// drop 2
+// -> 2
+// while-let driven
+// drop 0
+// drop 1
+// drop 2
+// -> 2
+// never-enters sync
+// drop 9
+// -> 0
+// never-enters driven
+// drop 9
+// -> 0
+
+import std.task.{yield_now}
+
+struct Res { n: Int }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.n) }
+}
+
+func note(r: &Res) -> Int { r.n }
+
+// True while the value it consumed is below 2 — so a body reinitializing with
+// 1, then 2, gets exactly two more passes and the third evaluation ends the loop.
+func consume_bool(r: Res) -> Bool { r.n < 2 }
+// The `while let` twin: `Some` on the same condition, `None` where the loop ends.
+func consume_opt(r: Res) -> Int? { if r.n < 2 { r.n } else { None } }
+// Never enters: the FIRST evaluation is false, so the only path taken is the
+// gate's own exit — the path SL-234's trailing clear used to miss entirely.
+func consume_never(r: Res) -> Bool { r.n < 0 }
+
+// ---- 1. the body REINITIALIZES and FALLS THROUGH to the backedge ----
+
+func fallthrough_sync(items: Vector<Int>) -> Int {
+    for item in items.iter() {
+        var r = Res(n: 0)
+        if note(&r) + item < 0 { return -1 }
+        var n = 0
+        while consume_bool(move r) {
+            n += 1
+            r = Res(n: n)
+        }
+        return n
+    }
+    0
+}
+func fallthrough_driven(items: Vector<Int>) -> Int {
+    yield_now()
+    for item in items.iter() {
+        var r = Res(n: 0)
+        if note(&r) + item < 0 { return -1 }
+        var n = 0
+        while consume_bool(move r) {
+            n += 1
+            r = Res(n: n)
+        }
+        return n
+    }
+    0
+}
+
+// ---- 2. the body REINITIALIZES and reaches the backedge via `continue` ----
+
+func reinit_continue_sync(items: Vector<Int>) -> Int {
+    for item in items.iter() {
+        var r = Res(n: 0)
+        if note(&r) + item < 0 { return -1 }
+        var n = 0
+        while consume_bool(move r) {
+            n += 1
+            r = Res(n: n)
+            continue
+        }
+        return n
+    }
+    0
+}
+func reinit_continue_driven(items: Vector<Int>) -> Int {
+    yield_now()
+    for item in items.iter() {
+        var r = Res(n: 0)
+        if note(&r) + item < 0 { return -1 }
+        var n = 0
+        while consume_bool(move r) {
+            n += 1
+            r = Res(n: n)
+            continue
+        }
+        return n
+    }
+    0
+}
+
+// ---- 3. a `while let` SUBJECT moves, and the body reinitializes ----
+
+func while_let_sync(items: Vector<Int>) -> Int {
+    for item in items.iter() {
+        var r = Res(n: 0)
+        if note(&r) + item < 0 { return -1 }
+        var n = 0
+        while let got = consume_opt(move r) {
+            n = got + 1
+            r = Res(n: n)
+        }
+        return n
+    }
+    0
+}
+func while_let_driven(items: Vector<Int>) -> Int {
+    yield_now()
+    for item in items.iter() {
+        var r = Res(n: 0)
+        if note(&r) + item < 0 { return -1 }
+        var n = 0
+        while let got = consume_opt(move r) {
+            n = got + 1
+            r = Res(n: n)
+        }
+        return n
+    }
+    0
+}
+
+// ---- 4. the condition is FALSE on its first evaluation: the body never runs ----
+
+func never_enters_sync(items: Vector<Int>) -> Int {
+    for item in items.iter() {
+        var r = Res(n: 9)
+        if note(&r) + item < 0 { return -1 }
+        var n = 0
+        while consume_never(move r) {
+            n += 1
+            r = Res(n: n)
+        }
+        return n
+    }
+    0
+}
+func never_enters_driven(items: Vector<Int>) -> Int {
+    yield_now()
+    for item in items.iter() {
+        var r = Res(n: 9)
+        if note(&r) + item < 0 { return -1 }
+        var n = 0
+        while consume_never(move r) {
+            n += 1
+            r = Res(n: n)
+        }
+        return n
+    }
+    0
+}
+
+func main() {
+    print("fallthrough sync")
+    print("-> {fallthrough_sync([1])}")
+    print("fallthrough driven")
+    print("-> {__saw_drive(fallthrough_driven([1]))}")
+
+    print("continue sync")
+    print("-> {reinit_continue_sync([1])}")
+    print("continue driven")
+    print("-> {__saw_drive(reinit_continue_driven([1]))}")
+
+    print("while-let sync")
+    print("-> {while_let_sync([1])}")
+    print("while-let driven")
+    print("-> {__saw_drive(while_let_driven([1]))}")
+
+    print("never-enters sync")
+    print("-> {never_enters_sync([1])}")
+    print("never-enters driven")
+    print("-> {__saw_drive(never_enters_driven([1]))}")
+}

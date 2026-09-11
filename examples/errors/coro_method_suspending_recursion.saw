@@ -1,0 +1,36 @@
+// SL-227, the METHOD-root row: a driven suspending METHOD that recurses gets the
+// cycle diagnostic, naming the method.
+//
+// This row failed DIFFERENTLY from the spawn rows and is why the check takes a
+// graph KEY rather than a function name: a method root is reached by node id
+// (a free function by its `("fn", name)` tuple), so asking about it means
+// mapping `method_roots`' frame key across `methods_by_key`. Unasked, the cycle
+// survived into phase 2 and surfaced as an INTERNAL COMPILER ERROR — "classified
+// this call as embeddable into `Walker_walk` ... but no such frame was built" —
+// which is the frame-key invariant reporting a consequence of the missing check
+// rather than the cause.
+//
+// The two method spellings that reach no root are refused before this and need
+// no row: `group.spawn(w.walk(3))` is refused at the form ("expects a direct
+// call to a free function"), and a `Thread.spawn` body is `sync`, so a
+// suspending callee there is refused with the no-executor diagnostic.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: suspending recursion is not allowed
+// EXPECT-ERROR-CONTAINS: Walker.walk -> Walker.walk
+
+import std.task.{yield_now}
+
+struct Walker { depth: Int }
+
+extension Walker {
+    func walk(&self, n: Int) -> Int {
+        yield_now()
+        if n <= 0 { return 0 }
+        return self.walk(n - 1)
+    }
+}
+
+func main() {
+    let w = Walker(depth: 0)
+    print("{__saw_drive(w.walk(3))}")
+}

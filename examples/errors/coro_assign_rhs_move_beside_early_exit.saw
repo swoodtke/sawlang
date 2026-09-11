@@ -1,0 +1,41 @@
+// SL-234: a `move` of a frame local in an ASSIGNMENT'S RIGHT-HAND SIDE whose
+// expression also exits early is refused rather than miscompiled.
+//
+// The assignment twin of `coro_let_init_move_beside_early_exit.saw`; the two are
+// the LEAF arms of one rule, refused through one funnel
+// (`_refuse_buried_early_exit`) alongside SL-222 r3's plain-statement shape in
+// `coro_buried_early_exit_beside_a_move.saw`. See the `let` file for why a leaf
+// position can state no ordering between its operands and the move.
+//
+// The message names the AUTHOR'S assignment target, `acc` — the frame rewrite
+// would otherwise have spelled it `self.acc`, a name they did not write.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: the right-hand side of the assignment to `acc`
+// EXPECT-ERROR-CONTAINS: whose expression also `return`s, `break`s or `continue`s
+// EXPECT-ERROR-CONTAINS: bind the moving call to its own `let` first
+
+import std.task.{yield_now}
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop") }
+}
+
+func note(r: &Res) -> Int { r.name.len() }
+
+func consume_bool(r: Res) -> Bool { true }
+
+func run(items: Vector<Int>) -> Int {
+    yield_now()
+    var acc = 0
+    for i in items.iter() {
+        var r = Res(name: "item")
+        if note(&r) + i < 0 { return -1 }
+        acc = if consume_bool(move r) { return 5 } else { 0 }
+    }
+    acc
+}
+
+func main() {
+    print(__saw_drive(run([1, 2])))
+}

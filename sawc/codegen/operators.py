@@ -1526,8 +1526,21 @@ class OperatorsMixin:
             # Reference to struct field - get GEP pointer
             return self._get_member_pointer(inner_expr)
         elif isinstance(inner_expr, ArrayIndex):
-            # Reference to array/pointer element - get a stable GEP pointer
-            return self._get_array_element_pointer(inner_expr)
+            # `&arr[i]` / `&var arr[i]` — the element's REAL slot, addressed
+            # through the same `_get_lvalue_pointer` funnel the write spelling
+            # `arr[i] = v` goes through (SL-226).
+            #
+            # This used to call a private `_get_array_element_pointer` that kept
+            # its OWN base dispatch — Identifier, `self`, MemberAccess, nested
+            # ArrayIndex — and materialized a COPY for every other base, so a
+            # BORROW and a WRITE of one place disagreed about where that place
+            # is. Three bases fell in the hole, each a silent lost write: a
+            # ForceUnwrap (`&var o![1]`, and with it EVERY `&var arr[i]` in a
+            # suspending body, since the transform rewrites a frame local into
+            # `self.arr!`), a TupleIndex (`&var t.0[1]`), and a reference-typed
+            # identifier (`&var a[i]` on a `&var [T; N]` param), which GEP'd at
+            # array granularity and reached LLVM as a type mismatch.
+            return self._get_element_pointer(inner_expr)
         elif isinstance(inner_expr, TupleIndex):
             # `&t.0` / `&var t.0` (DF-151j) — a tuple element is storage like a
             # struct field, so lend its slot. Without this the `else` below
@@ -1564,59 +1577,6 @@ class OperatorsMixin:
             temp = self._entry_alloca(value.type, name="ref_temp")
             self.builder.store(value, temp)
             return temp
-
-    def _get_array_element_pointer(self, expr: ArrayIndex):
-        """Return a stable pointer to an array or pointer element, for `&arr[i]`.
-
-        Mirrors the lvalue logic used by array-element assignment: obtain a
-        pointer to the container's storage, then GEP into it -- so the reference
-        aliases the real element rather than a materialized copy.
-        """
-        index_val = self._generate_expression(expr.index)
-        container_expr = expr.array_expr
-
-        # Obtain a pointer to the container's storage.
-        if isinstance(container_expr, Identifier):
-            if container_expr.name not in self.variables:
-                # A module STATIC's global IS its storage — the same answer
-                # `_get_lvalue_pointer` gives, and the reason `&ARR[i]` on one
-                # is a lend of the real element rather than "Undefined
-                # variable" (DF-232d's sweep).
-                gv = self._static_global(container_expr)
-                if gv is None:
-                    raise ValueError(f"Undefined variable: {container_expr.name}")
-                container_ptr = gv
-            else:
-                container_ptr = self.variables[container_expr.name]
-        elif isinstance(container_expr, SelfExpr):
-            container_ptr = self.variables["self"]
-        elif isinstance(container_expr, MemberAccess):
-            # `&mod.ARR[i]` — the qualified static's global, asked before the
-            # field GEP (DF-232d).
-            gv = self._static_global(container_expr)
-            container_ptr = (gv if gv is not None
-                             else self._get_member_pointer(container_expr))
-        elif isinstance(container_expr, ArrayIndex):
-            container_ptr = self._get_array_element_pointer(container_expr)
-        else:
-            # Fallback: materialize the container (won't propagate mutations).
-            container_val = self._generate_expression(container_expr)
-            container_ptr = self._entry_alloca(container_val.type, name="arr_tmp")
-            self.builder.store(container_val, container_ptr)
-
-        pointee = container_ptr.type.pointee
-        if isinstance(pointee, ir.ArrayType):
-            # Dynamic bounds check (design 63 T1b) on `&arr[i]`.
-            self._emit_array_bounds_check(index_val, pointee.count, expr.index)
-            zero = ir.Constant(ir.IntType(64), 0)
-            return self.builder.gep(container_ptr, [zero, index_val], name="elem_ptr")
-        elif isinstance(pointee, ir.PointerType):
-            # The variable holds a pointer value; load it, then offset.
-            base = self.builder.load(container_ptr, name="ptr_base")
-            return self.builder.gep(base, [index_val], name="ptr_elem")
-        else:
-            raise ValueError(
-                f"Cannot take reference to element of non-array type: {pointee}")
 
     def _int_cast_fits(self, value, to_llvm, to_signed: bool, from_signed: bool):
         """The `i1` "this value has a representation in `to_llvm`", or None when
