@@ -1,0 +1,8 @@
+func main() {
+    let x: Int = 127
+    print(-x as Int8)
+    let b: UInt8 = 0
+    print(~b as UInt64)
+    print(-1
+        as Int8)
+}

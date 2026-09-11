@@ -1,0 +1,10 @@
+func main() {
+    let a: Int8 = -1
+    let b: UInt8 = 255
+    let c: UInt32 = 2147483648
+    print(a as Int64)
+    print(b as UInt64)
+    print(b as Int16)
+    print(c as UInt64)
+    print((127 as Int8) as Int)
+}

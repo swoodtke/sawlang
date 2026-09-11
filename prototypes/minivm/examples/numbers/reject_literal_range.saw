@@ -1,0 +1,4 @@
+func main() {
+    let x: UInt8 = 256
+    print(x)
+}

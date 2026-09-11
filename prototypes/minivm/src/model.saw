@@ -1,14 +1,89 @@
-public enum ValueType { case I32, case Bool, case Void }
+public enum ValueType {
+    case I8, case I16, case I32, case I64,
+    case U8, case U16, case U32, case U64, case Byte,
+    case Bool, case Void
+}
 @synthesize
 extension ValueType: Equatable {}
 
 public enum Op {
     case Const, case Copy, case Add, case Sub, case Mul, case Div, case Rem,
     case Neg, case Not, case Eq, case Ne, case Lt, case Le, case Gt, case Ge,
-    case Jump, case Branch, case Call, case Print, case Return
+    case Jump, case Branch, case Call, case Print, case Return,
+    case Cast, case Truncate, case WrapAdd, case WrapSub, case WrapMul,
+    case BitAnd, case BitOr, case BitXor, case BitNot, case Shl, case Shr
 }
 @synthesize
 extension Op: Equatable {}
+
+public func integer_type(t: ValueType) -> Bool {
+    return integer_width(t) > 0
+}
+
+public func arithmetic_type(t: ValueType) -> Bool {
+    return integer_type(t) && t != ValueType.Byte
+}
+
+public func integer_signed(t: ValueType) -> Bool {
+    return t == ValueType.I8 || t == ValueType.I16 || t == ValueType.I32 || t == ValueType.I64
+}
+
+public func integer_width(t: ValueType) -> Int {
+    if t == ValueType.I8 || t == ValueType.U8 || t == ValueType.Byte { return 8 }
+    if t == ValueType.I16 || t == ValueType.U16 { return 16 }
+    if t == ValueType.I32 || t == ValueType.U32 { return 32 }
+    if t == ValueType.I64 || t == ValueType.U64 { return 64 }
+    return 0
+}
+
+public func integer_min(t: ValueType) -> Int {
+    if not integer_signed(t) { return 0 }
+    if t == ValueType.I64 { return Int.min }
+    return 0 - (1 << (integer_width(t) - 1))
+}
+
+public func integer_max(t: ValueType) -> Int {
+    if t == ValueType.I64 { return Int.max }
+    if t == ValueType.U64 { return -1 }
+    let width = integer_width(t)
+    if width == 0 { return 0 }
+    if integer_signed(t) { return (1 << (width - 1)) - 1 }
+    return (1 << width) - 1
+}
+
+public func integer_normalize(value: Int, t: ValueType) -> Int {
+    let width = integer_width(t)
+    if width == 64 || width == 0 { return value }
+    let mask = (1 << width) - 1
+    let low = value & mask
+    if integer_signed(t) && low >= (1 << (width - 1)) { return low - (1 << width) }
+    return low
+}
+
+public func integer_canonical(value: Int, t: ValueType) -> Bool {
+    return integer_type(t) && integer_normalize(value, t) == value
+}
+
+public func integer_fits(value: Int, source: ValueType, target: ValueType) -> Bool {
+    if not integer_type(source) || not integer_type(target) { return false }
+    if integer_signed(source) && value < 0 {
+        return integer_signed(target) && value >= integer_min(target)
+    }
+    let unsigned_value = UInt.from(truncating: value)
+    let maximum = UInt.from(truncating: integer_max(target))
+    return unsigned_value <= maximum
+}
+
+public func integer_widens(source: ValueType, target: ValueType) -> Bool {
+    if not integer_type(source) || not integer_type(target) { return false }
+    if source == target { return true }
+    if target == ValueType.Byte { return false }
+    if source == ValueType.Byte && target == ValueType.U8 { return true }
+    if integer_signed(source) == integer_signed(target) {
+        return integer_width(target) > integer_width(source)
+    }
+    return not integer_signed(source) && integer_signed(target) && integer_width(target) > integer_width(source)
+}
 
 public struct Instruction {
     public op: Op

@@ -1,0 +1,15 @@
+func main() {
+    let u: UInt8 = 240
+    let s: Int8 = -16
+    print(u & 204)
+    print(u | 3)
+    print(u ^ 170)
+    print(~u)
+    print(s >> 2)
+    print(u >> 2)
+    print((1 as UInt8) << 7)
+    print((255 as UInt8) << 4)
+    print(1 + 2 << 3)
+    print((1 as UInt8) | (2 as UInt8) ^ (3 as UInt8) & (1 as UInt8))
+    print((8 as UInt8) >> (1 as Int16))
+}

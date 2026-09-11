@@ -1,0 +1,12 @@
+func take8(x: Int8) { print(x) }
+func give16() -> UInt16 { return 65535 }
+func main() {
+    let declared: Int16 = 12
+    var assigned: UInt32 = 1
+    assigned = 4294967295
+    take8(-128)
+    print(give16())
+    print(declared + 3)
+    print(3 + declared)
+    print(assigned)
+}

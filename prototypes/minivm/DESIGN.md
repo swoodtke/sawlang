@@ -15,6 +15,10 @@ paths, with explicit expected outputs as a third oracle. Compile-time rejection
 fixtures must have a located error. Runtime overflow and division-by-zero fixtures
 must fail consistently. This does not claim the prototype can compile itself.
 
+The original Int32-only contract below records the baseline.
+[M1_NUMBERS.md](M1_NUMBERS.md) supersedes its numeric types, operations, default
+literal type, and signed-minimum remainder behavior.
+
 ## Source contract
 
 * One source file; reuse selfhost/lexer via --module-path sawlex=selfhost/lexer.

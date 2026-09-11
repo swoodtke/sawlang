@@ -1,0 +1,9 @@
+func echo(x: UInt64) -> UInt64 { return x }
+func above_signed(x: UInt64) -> Bool { return x > 9223372036854775807 }
+func main() {
+    let high: UInt64 = 18446744073709551615
+    print(high)
+    print(echo(high))
+    print(above_signed(high))
+    print(high == UInt64.max)
+}

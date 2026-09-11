@@ -1,0 +1,5 @@
+func narrow() -> Int8 {
+    let wide: Int64 = 12
+    return wide
+}
+func main() { print(narrow()) }

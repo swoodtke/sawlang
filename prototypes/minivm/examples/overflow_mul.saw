@@ -1,1 +1,4 @@
-func main() { print(50000 * 50000) }
+func main() {
+    let x: Int32 = 50000
+    print(x * 50000)
+}

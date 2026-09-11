@@ -1,0 +1,4 @@
+func main() {
+    let x: Int = 128
+    print(-x as Int8)
+}

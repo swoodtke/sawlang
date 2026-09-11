@@ -1,0 +1,29 @@
+import src.model.*
+
+// Representation tests are independent of source parsing and both engines.
+func main() {
+    assert(integer_width(ValueType.U64) == 64, "numeric contract")
+    assert(integer_width(ValueType.Byte) == 8, "numeric contract")
+    assert(integer_min(ValueType.I8) == -128, "numeric contract")
+    assert(integer_max(ValueType.U32) == 4_294_967_295, "numeric contract")
+    assert(integer_max(ValueType.U64) == -1, "numeric contract")
+    assert(integer_normalize(255, ValueType.I8) == -1, "numeric contract")
+    assert(integer_normalize(-1, ValueType.U8) == 255, "numeric contract")
+    assert(integer_normalize(65_535, ValueType.I16) == -1, "numeric contract")
+    assert(integer_normalize(-1, ValueType.U32) == 4_294_967_295, "numeric contract")
+    assert(integer_canonical(-1, ValueType.U64), "numeric contract")
+    assert(not integer_canonical(-1, ValueType.U32), "numeric contract")
+    assert(integer_fits(-1, ValueType.U64, ValueType.U64), "numeric contract")
+    assert(not integer_fits(-1, ValueType.U64, ValueType.I64), "numeric contract")
+    assert(not integer_fits(-1, ValueType.I64, ValueType.U64), "numeric contract")
+    assert(integer_fits(255, ValueType.U64, ValueType.U8), "numeric contract")
+    assert(not integer_fits(256, ValueType.U64, ValueType.U8), "numeric contract")
+    assert(integer_fits(-128, ValueType.I64, ValueType.I8), "numeric contract")
+    assert(not integer_fits(-129, ValueType.I64, ValueType.I8), "numeric contract")
+    assert(integer_widens(ValueType.U32, ValueType.I64), "numeric contract")
+    assert(not integer_widens(ValueType.U64, ValueType.I64), "numeric contract")
+    assert(not integer_widens(ValueType.I32, ValueType.U64), "numeric contract")
+    assert(integer_widens(ValueType.Byte, ValueType.U8), "numeric contract")
+    assert(not integer_widens(ValueType.U8, ValueType.Byte), "numeric contract")
+    print("numeric contract passed")
+}

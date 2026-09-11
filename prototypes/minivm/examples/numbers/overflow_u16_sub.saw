@@ -1,0 +1,1 @@
+func main() { print((0 as UInt16) - 1) }

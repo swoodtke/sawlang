@@ -1,0 +1,12 @@
+func main() {
+    let i8max: Int8 = Int8.max
+    let i8min: Int8 = Int8.min
+    let u8max: UInt8 = UInt8.max
+    print(i8max &+ 1)
+    print(i8min &- 1)
+    print(i8max &* 2)
+    print(u8max &+ 1)
+    print((0 as UInt8) &- 1)
+    print((128 as UInt8) &* 2)
+    print(UInt64.max &+ 1)
+}

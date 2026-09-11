@@ -1,0 +1,1 @@
+func main() { print(UInt.max * 2u64) }

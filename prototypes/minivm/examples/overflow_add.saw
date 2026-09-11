@@ -1,1 +1,4 @@
-func main() { print(2147483647 + 1) }
+func main() {
+    let x: Int32 = 2147483647
+    print(x + 1)
+}

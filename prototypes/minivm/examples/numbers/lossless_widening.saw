@@ -1,0 +1,13 @@
+func take64(x: Int64) { print(x) }
+func widen_return(x: UInt8) -> UInt64 { return x }
+func main() {
+    let small: Int8 = -12
+    let wide: Int64 = small
+    var assigned: Int32 = 0
+    assigned = small
+    take64(small)
+    print(wide)
+    print(assigned)
+    let byte: UInt8 = 255
+    print(widen_return(byte))
+}

@@ -1,0 +1,1 @@
+func main() { print((64 as Int8) * 2) }

@@ -1,0 +1,34 @@
+func main() {
+    let i8: Int8 = -128
+    let i16: Int16 = 32767
+    let i32: Int32 = -2147483648
+    let i64: Int64 = 9223372036854775807
+    let int: Int = -9223372036854775808
+    let u8: UInt8 = 255
+    let u16: UInt16 = 65535
+    let u32: UInt32 = 4294967295
+    let u64: UInt64 = 18446744073709551615
+    let uint: UInt = 9223372036854775808
+    print(i8)
+    print(i16)
+    print(i32)
+    print(i64)
+    print(int)
+    print(u8)
+    print(u16)
+    print(u32)
+    print(u64)
+    print(uint)
+    print(0xffu8)
+    print(0xffffu16)
+    print(0xffffffffu32)
+    print(0xffffffffffffffffu64)
+    print(0b101010u8)
+    print(0o777u16)
+    print(127i8)
+    print(32767i16)
+    print(2147483647i32)
+    print(9223372036854775807i64)
+    print(-128i8)
+    print(2147483647 + 1)
+}

@@ -1,0 +1,11 @@
+func u64(x: UInt64) -> UInt64 { return x }
+func maximum() -> UInt64 { return 18446744073709551615 }
+func main() {
+    print(1 + 2i8)
+    print(3 - 2u8)
+    print(1 < 2u8)
+    print(-1 as Int8)
+    print(u64(18446744073709551615))
+    print(maximum())
+    print(18446744073709551615 == UInt64.max)
+}

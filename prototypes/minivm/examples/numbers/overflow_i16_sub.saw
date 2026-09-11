@@ -1,0 +1,1 @@
+func main() { print(Int16.min - 1) }

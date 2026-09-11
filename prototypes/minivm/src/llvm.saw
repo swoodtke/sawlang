@@ -47,22 +47,59 @@ func store_temp(out: &var StringBuilder, instruction_index: Int,
     put(&var out, "\n")
 }
 
+func emit_normalized_result(out: &var StringBuilder, instruction_index: Int,
+                            dst: Int, suffix: String, t: ValueType) {
+    let width = integer_width(t)
+    if width == 64 {
+        store_temp(&var out, instruction_index, suffix, dst)
+    } else {
+        put(&var out, "  ")
+        temp_name(&var out, instruction_index, "nl")
+        put(&var out, " = shl i64 ")
+        temp_name(&var out, instruction_index, suffix)
+        put(&var out, ", ")
+        put_int(&var out, 64 - width)
+        put(&var out, "\n  ")
+        temp_name(&var out, instruction_index, "norm")
+        put(&var out, if integer_signed(t) { " = ashr i64 " } else { " = lshr i64 " })
+        temp_name(&var out, instruction_index, "nl")
+        put(&var out, ", ")
+        put_int(&var out, 64 - width)
+        put(&var out, "\n")
+        store_temp(&var out, instruction_index, "norm", dst)
+    }
+    next_block(&var out, instruction_index)
+}
+
 func emit_checked_result(out: &var StringBuilder, instruction_index: Int,
-                         dst: Int, value_suffix: String) {
+                         dst: Int, value_suffix: String, t: ValueType,
+                         intrinsic_bad: Bool) {
     put(&var out, "  ")
     temp_name(&var out, instruction_index, "lo")
-    put(&var out, " = icmp slt i64 ")
+    put(&var out, if integer_signed(t) { " = icmp slt i64 " } else { " = icmp ult i64 " })
     temp_name(&var out, instruction_index, value_suffix)
-    put(&var out, ", -2147483648\n  ")
+    put(&var out, ", ")
+    put_int(&var out, integer_min(t))
+    put(&var out, "\n  ")
     temp_name(&var out, instruction_index, "hi")
-    put(&var out, " = icmp sgt i64 ")
+    put(&var out, if integer_signed(t) { " = icmp sgt i64 " } else { " = icmp ugt i64 " })
     temp_name(&var out, instruction_index, value_suffix)
-    put(&var out, ", 2147483647\n  ")
-    temp_name(&var out, instruction_index, "bad")
+    put(&var out, ", ")
+    put_int(&var out, integer_max(t))
+    put(&var out, "\n  ")
+    temp_name(&var out, instruction_index, if intrinsic_bad { "rangebad" } else { "bad" })
     put(&var out, " = or i1 ")
     temp_name(&var out, instruction_index, "lo")
     put(&var out, ", ")
     temp_name(&var out, instruction_index, "hi")
+    if intrinsic_bad {
+        put(&var out, "\n  ")
+        temp_name(&var out, instruction_index, "bad")
+        put(&var out, " = or i1 ")
+        temp_name(&var out, instruction_index, "rangebad")
+        put(&var out, ", ")
+        temp_name(&var out, instruction_index, "ov")
+    }
     put(&var out, "\n  br i1 ")
     temp_name(&var out, instruction_index, "bad")
     put(&var out, ", label %i")
@@ -79,25 +116,40 @@ func emit_checked_result(out: &var StringBuilder, instruction_index: Int,
 }
 
 func emit_binary(out: &var StringBuilder, instruction_index: Int,
-                 inst: &Instruction, llvm_op: String, checked: Bool) {
+                 inst: &Instruction, llvm_op: String, checked: Bool, t: ValueType) {
     put(&var out, "  ")
     load_slot(&var out, instruction_index, "a", inst.a)
     put(&var out, "  ")
     load_slot(&var out, instruction_index, "b", inst.b)
     put(&var out, "  ")
-    temp_name(&var out, instruction_index, "v")
+    temp_name(&var out, instruction_index, if checked { "pair" } else { "v" })
     put(&var out, " = ")
-    put(&var out, llvm_op)
-    put(&var out, " i64 ")
+    if checked {
+        put(&var out, "call \{i64, i1\} @llvm.")
+        put(&var out, if integer_signed(t) { "s" } else { "u" })
+        put(&var out, llvm_op)
+        put(&var out, ".with.overflow.i64(i64 ")
+    } else {
+        put(&var out, llvm_op)
+        put(&var out, " i64 ")
+    }
     temp_name(&var out, instruction_index, "a")
     put(&var out, ", ")
+    if checked { put(&var out, "i64 ") }
     temp_name(&var out, instruction_index, "b")
-    put(&var out, "\n")
+    put(&var out, if checked { ")\n  " } else { "\n" })
     if checked {
-        emit_checked_result(&var out, instruction_index, inst.dst, "v")
+        temp_name(&var out, instruction_index, "v")
+        put(&var out, " = extractvalue \{i64, i1\} ")
+        temp_name(&var out, instruction_index, "pair")
+        put(&var out, ", 0\n  ")
+        temp_name(&var out, instruction_index, "ov")
+        put(&var out, " = extractvalue \{i64, i1\} ")
+        temp_name(&var out, instruction_index, "pair")
+        put(&var out, ", 1\n")
+        emit_checked_result(&var out, instruction_index, inst.dst, "v", t, true)
     } else {
-        store_temp(&var out, instruction_index, "v", inst.dst)
-        next_block(&var out, instruction_index)
+        emit_normalized_result(&var out, instruction_index, inst.dst, "v", t)
     }
 }
 
@@ -124,8 +176,83 @@ func emit_compare(out: &var StringBuilder, instruction_index: Int,
     next_block(&var out, instruction_index)
 }
 
+func emit_cast(out: &var StringBuilder, instruction_index: Int,
+               inst: &Instruction, source: ValueType, target: ValueType,
+               checked: Bool) {
+    put(&var out, "  ")
+    load_slot(&var out, instruction_index, "a", inst.a)
+    if checked {
+        put(&var out, "  ")
+        temp_name(&var out, instruction_index, "lo")
+        if integer_signed(source) {
+            put(&var out, " = icmp slt i64 ")
+            temp_name(&var out, instruction_index, "a")
+            put(&var out, ", ")
+            put_int(&var out, integer_min(target))
+        } else { put(&var out, " = icmp ne i64 0, 0") }
+        put(&var out, "\n  ")
+        temp_name(&var out, instruction_index, "hi")
+        put(&var out, if integer_signed(source) && integer_signed(target) { " = icmp sgt i64 " } else { " = icmp ugt i64 " })
+        temp_name(&var out, instruction_index, "a")
+        put(&var out, ", ")
+        put_int(&var out, integer_max(target))
+        put(&var out, "\n  ")
+        temp_name(&var out, instruction_index, "bad")
+        put(&var out, " = or i1 ")
+        temp_name(&var out, instruction_index, "lo")
+        put(&var out, ", ")
+        temp_name(&var out, instruction_index, "hi")
+        put(&var out, "\n  br i1 ")
+        temp_name(&var out, instruction_index, "bad")
+        put(&var out, ", label %i")
+        put_int(&var out, instruction_index)
+        put(&var out, ".cast, label %i")
+        put_int(&var out, instruction_index)
+        put(&var out, ".castok\n\ni")
+        put_int(&var out, instruction_index)
+        put(&var out, ".cast:\n  call void @minivm_cast()\n  unreachable\n\ni")
+        put_int(&var out, instruction_index)
+        put(&var out, ".castok:\n")
+    }
+    emit_normalized_result(&var out, instruction_index, inst.dst, "a", target)
+}
+
+func emit_shift(out: &var StringBuilder, instruction_index: Int,
+                inst: &Instruction, t: ValueType, left: Bool) {
+    put(&var out, "  ")
+    load_slot(&var out, instruction_index, "a", inst.a)
+    put(&var out, "  ")
+    load_slot(&var out, instruction_index, "b", inst.b)
+    put(&var out, "  ")
+    temp_name(&var out, instruction_index, "bad")
+    put(&var out, " = icmp uge i64 ")
+    temp_name(&var out, instruction_index, "b")
+    put(&var out, ", ")
+    put_int(&var out, integer_width(t))
+    put(&var out, "\n  br i1 ")
+    temp_name(&var out, instruction_index, "bad")
+    put(&var out, ", label %i")
+    put_int(&var out, instruction_index)
+    put(&var out, ".shift, label %i")
+    put_int(&var out, instruction_index)
+    put(&var out, ".shiftok\n\ni")
+    put_int(&var out, instruction_index)
+    put(&var out, ".shift:\n  call void @minivm_shift()\n  unreachable\n\ni")
+    put_int(&var out, instruction_index)
+    put(&var out, ".shiftok:\n  ")
+    temp_name(&var out, instruction_index, "v")
+    if left { put(&var out, " = shl i64 ") }
+    else if integer_signed(t) { put(&var out, " = ashr i64 ") }
+    else { put(&var out, " = lshr i64 ") }
+    temp_name(&var out, instruction_index, "a")
+    put(&var out, ", ")
+    temp_name(&var out, instruction_index, "b")
+    put(&var out, "\n")
+    emit_normalized_result(&var out, instruction_index, inst.dst, "v", t)
+}
+
 func emit_division(out: &var StringBuilder, instruction_index: Int,
-                   inst: &Instruction, remainder: Bool) {
+                   inst: &Instruction, remainder: Bool, t: ValueType) {
     put(&var out, "  ")
     load_slot(&var out, instruction_index, "a", inst.a)
     put(&var out, "  ")
@@ -134,29 +261,58 @@ func emit_division(out: &var StringBuilder, instruction_index: Int,
     temp_name(&var out, instruction_index, "zero")
     put(&var out, " = icmp eq i64 ")
     temp_name(&var out, instruction_index, "b")
-    put(&var out, ", 0\n  br i1 ")
+    put(&var out, ", 0\n")
+    if integer_signed(t) {
+        put(&var out, "  ")
+        temp_name(&var out, instruction_index, "min")
+        put(&var out, " = icmp eq i64 ")
+        temp_name(&var out, instruction_index, "a")
+        put(&var out, ", ")
+        put_int(&var out, integer_min(t))
+        put(&var out, "\n  ")
+        temp_name(&var out, instruction_index, "negone")
+        put(&var out, " = icmp eq i64 ")
+        temp_name(&var out, instruction_index, "b")
+        put(&var out, ", -1\n  ")
+        temp_name(&var out, instruction_index, "minneg")
+        put(&var out, " = and i1 ")
+        temp_name(&var out, instruction_index, "min")
+        put(&var out, ", ")
+        temp_name(&var out, instruction_index, "negone")
+        put(&var out, "\n")
+    }
+    put(&var out, "  br i1 ")
     temp_name(&var out, instruction_index, "zero")
     put(&var out, ", label %i")
     put_int(&var out, instruction_index)
     put(&var out, ".divzero, label %i")
     put_int(&var out, instruction_index)
-    put(&var out, ".divide\n\ni")
+    put(&var out, if integer_signed(t) { ".divcheck\n\ni" } else { ".divide\n\ni" })
     put_int(&var out, instruction_index)
     put(&var out, ".divzero:\n  call void @minivm_divzero()\n  unreachable\n\ni")
     put_int(&var out, instruction_index)
+    if integer_signed(t) {
+        put(&var out, ".divcheck:\n  br i1 ")
+        temp_name(&var out, instruction_index, "minneg")
+        put(&var out, ", label %i")
+        put_int(&var out, instruction_index)
+        put(&var out, ".divoverflow, label %i")
+        put_int(&var out, instruction_index)
+        put(&var out, ".divide\n\ni")
+        put_int(&var out, instruction_index)
+        put(&var out, ".divoverflow:\n  call void @minivm_overflow()\n  unreachable\n\ni")
+        put_int(&var out, instruction_index)
+    }
     put(&var out, ".divide:\n  ")
     temp_name(&var out, instruction_index, "v")
-    put(&var out, if remainder { " = srem i64 " } else { " = sdiv i64 " })
+    if integer_signed(t) { put(&var out, if remainder { " = srem i64 " } else { " = sdiv i64 " }) }
+    else { put(&var out, if remainder { " = urem i64 " } else { " = udiv i64 " }) }
     temp_name(&var out, instruction_index, "a")
     put(&var out, ", ")
     temp_name(&var out, instruction_index, "b")
     put(&var out, "\n")
-    if remainder {
-        store_temp(&var out, instruction_index, "v", inst.dst)
-        next_block(&var out, instruction_index)
-    } else {
-        emit_checked_result(&var out, instruction_index, inst.dst, "v")
-    }
+    store_temp(&var out, instruction_index, "v", inst.dst)
+    next_block(&var out, instruction_index)
 }
 
 func emit_instruction(out: &var StringBuilder, program: &Program,
@@ -179,21 +335,49 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
             store_temp(&var out, instruction_index, "v", inst.dst)
             next_block(&var out, instruction_index)
         },
-        case Add -> emit_binary(&var out, instruction_index, &inst, "add", true),
-        case Sub -> emit_binary(&var out, instruction_index, &inst, "sub", true),
-        case Mul -> emit_binary(&var out, instruction_index, &inst, "mul", true),
-        case Div -> emit_division(&var out, instruction_index, &inst, false),
-        case Rem -> emit_division(&var out, instruction_index, &inst, true),
+        case Add -> emit_binary(&var out, instruction_index, &inst, "add", true, function.slots[inst.dst]),
+        case Sub -> emit_binary(&var out, instruction_index, &inst, "sub", true, function.slots[inst.dst]),
+        case Mul -> emit_binary(&var out, instruction_index, &inst, "mul", true, function.slots[inst.dst]),
+        case Div -> emit_division(&var out, instruction_index, &inst, false, function.slots[inst.dst]),
+        case Rem -> emit_division(&var out, instruction_index, &inst, true, function.slots[inst.dst]),
         case Neg -> {
             put(&var out, "  ")
             load_slot(&var out, instruction_index, "a", inst.a)
             put(&var out, "  ")
-            temp_name(&var out, instruction_index, "v")
-            put(&var out, " = sub i64 0, ")
+            temp_name(&var out, instruction_index, "pair")
+            put(&var out, " = call \{i64, i1\} @llvm.ssub.with.overflow.i64(i64 0, i64 ")
             temp_name(&var out, instruction_index, "a")
-            put(&var out, "\n")
-            emit_checked_result(&var out, instruction_index, inst.dst, "v")
+            put(&var out, ")\n  ")
+            temp_name(&var out, instruction_index, "v")
+            put(&var out, " = extractvalue \{i64, i1\} ")
+            temp_name(&var out, instruction_index, "pair")
+            put(&var out, ", 0\n  ")
+            temp_name(&var out, instruction_index, "ov")
+            put(&var out, " = extractvalue \{i64, i1\} ")
+            temp_name(&var out, instruction_index, "pair")
+            put(&var out, ", 1\n")
+            emit_checked_result(&var out, instruction_index, inst.dst, "v", function.slots[inst.dst], true)
         },
+        case WrapAdd -> emit_binary(&var out, instruction_index, &inst, "add", false, function.slots[inst.dst]),
+        case WrapSub -> emit_binary(&var out, instruction_index, &inst, "sub", false, function.slots[inst.dst]),
+        case WrapMul -> emit_binary(&var out, instruction_index, &inst, "mul", false, function.slots[inst.dst]),
+        case BitAnd -> emit_binary(&var out, instruction_index, &inst, "and", false, function.slots[inst.dst]),
+        case BitOr -> emit_binary(&var out, instruction_index, &inst, "or", false, function.slots[inst.dst]),
+        case BitXor -> emit_binary(&var out, instruction_index, &inst, "xor", false, function.slots[inst.dst]),
+        case BitNot -> {
+            put(&var out, "  ")
+            load_slot(&var out, instruction_index, "a", inst.a)
+            put(&var out, "  ")
+            temp_name(&var out, instruction_index, "v")
+            put(&var out, " = xor i64 ")
+            temp_name(&var out, instruction_index, "a")
+            put(&var out, ", -1\n")
+            emit_normalized_result(&var out, instruction_index, inst.dst, "v", function.slots[inst.dst])
+        },
+        case Cast -> emit_cast(&var out, instruction_index, &inst, function.slots[inst.a], function.slots[inst.dst], true),
+        case Truncate -> emit_cast(&var out, instruction_index, &inst, function.slots[inst.a], function.slots[inst.dst], false),
+        case Shl -> emit_shift(&var out, instruction_index, &inst, function.slots[inst.dst], true),
+        case Shr -> emit_shift(&var out, instruction_index, &inst, function.slots[inst.dst], false),
         case Not -> {
             put(&var out, "  ")
             load_slot(&var out, instruction_index, "a", inst.a)
@@ -211,10 +395,10 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
         },
         case Eq -> emit_compare(&var out, instruction_index, &inst, "eq"),
         case Ne -> emit_compare(&var out, instruction_index, &inst, "ne"),
-        case Lt -> emit_compare(&var out, instruction_index, &inst, "slt"),
-        case Le -> emit_compare(&var out, instruction_index, &inst, "sle"),
-        case Gt -> emit_compare(&var out, instruction_index, &inst, "sgt"),
-        case Ge -> emit_compare(&var out, instruction_index, &inst, "sge"),
+        case Lt -> emit_compare(&var out, instruction_index, &inst, if integer_signed(function.slots[inst.a]) { "slt" } else { "ult" }),
+        case Le -> emit_compare(&var out, instruction_index, &inst, if integer_signed(function.slots[inst.a]) { "sle" } else { "ule" }),
+        case Gt -> emit_compare(&var out, instruction_index, &inst, if integer_signed(function.slots[inst.a]) { "sgt" } else { "ugt" }),
+        case Ge -> emit_compare(&var out, instruction_index, &inst, if integer_signed(function.slots[inst.a]) { "sge" } else { "uge" }),
         case Jump -> {
             put(&var out, "  br label %i")
             put_int(&var out, inst.target)
@@ -278,8 +462,12 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
                 put(&var out, ", ptr @.true, ptr @.false\n  call i32 @puts(ptr ")
                 temp_name(&var out, instruction_index, "str")
                 put(&var out, ")\n")
-            } else {
+            } else if integer_signed(function.slots[inst.a]) {
                 put(&var out, "  call i32 (ptr, ...) @printf(ptr @.fmt_i64, i64 ")
+                temp_name(&var out, instruction_index, "a")
+                put(&var out, ")\n")
+            } else {
+                put(&var out, "  call i32 (ptr, ...) @printf(ptr @.fmt_u64, i64 ")
                 temp_name(&var out, instruction_index, "a")
                 put(&var out, ")\n")
             }
@@ -350,13 +538,24 @@ public func emit_llvm(program: &Program) -> Result<String, ProtoError> {
     var out = StringBuilder()
     put(&var out, "; minivm textual LLVM IR\n")
     put(&var out, "@.fmt_i64 = private unnamed_addr constant [5 x i8] c\"%ld\\0A\\00\"\n")
+    put(&var out, "@.fmt_u64 = private unnamed_addr constant [5 x i8] c\"%lu\\0A\\00\"\n")
     put(&var out, "@.true = private unnamed_addr constant [5 x i8] c\"true\\00\"\n")
     put(&var out, "@.false = private unnamed_addr constant [6 x i8] c\"false\\00\"\n")
     put(&var out, "@.overflow = private unnamed_addr constant [32 x i8] c\"runtime error: integer overflow\\00\"\n")
     put(&var out, "@.divzero = private unnamed_addr constant [32 x i8] c\"runtime error: division by zero\\00\"\n\n")
-    put(&var out, "declare i32 @printf(ptr, ...)\ndeclare i32 @puts(ptr)\ndeclare void @exit(i32)\n\n")
+    put(&var out, "@.cast = private unnamed_addr constant [41 x i8] c\"runtime error: integer cast out of range\\00\"\n")
+    put(&var out, "@.shift = private unnamed_addr constant [34 x i8] c\"runtime error: shift out of range\\00\"\n\n")
+    put(&var out, "declare i32 @printf(ptr, ...)\ndeclare i32 @puts(ptr)\ndeclare void @exit(i32)\n")
+    put(&var out, "declare \{i64, i1\} @llvm.sadd.with.overflow.i64(i64, i64)\n")
+    put(&var out, "declare \{i64, i1\} @llvm.ssub.with.overflow.i64(i64, i64)\n")
+    put(&var out, "declare \{i64, i1\} @llvm.smul.with.overflow.i64(i64, i64)\n")
+    put(&var out, "declare \{i64, i1\} @llvm.uadd.with.overflow.i64(i64, i64)\n")
+    put(&var out, "declare \{i64, i1\} @llvm.usub.with.overflow.i64(i64, i64)\n")
+    put(&var out, "declare \{i64, i1\} @llvm.umul.with.overflow.i64(i64, i64)\n\n")
     put(&var out, "define internal void @minivm_overflow() \{\nentry:\n  call i32 @puts(ptr @.overflow)\n  call void @exit(i32 1)\n  unreachable\n\}\n\n")
     put(&var out, "define internal void @minivm_divzero() \{\nentry:\n  call i32 @puts(ptr @.divzero)\n  call void @exit(i32 1)\n  unreachable\n\}\n\n")
+    put(&var out, "define internal void @minivm_cast() \{\nentry:\n  call i32 @puts(ptr @.cast)\n  call void @exit(i32 1)\n  unreachable\n\}\n\n")
+    put(&var out, "define internal void @minivm_shift() \{\nentry:\n  call i32 @puts(ptr @.shift)\n  call void @exit(i32 1)\n  unreachable\n\}\n\n")
     var function_index = 0
     while function_index < program.functions.len() {
         emit_function(&var out, &program, function_index,

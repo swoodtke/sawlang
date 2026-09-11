@@ -1,0 +1,6 @@
+func main() {
+    let wide: Int64 = 12
+    var narrow: Int8 = 1
+    narrow = wide
+    print(narrow)
+}

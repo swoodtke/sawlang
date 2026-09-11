@@ -1,0 +1,1 @@
+func main() { print(0u64 - 1u64) }

@@ -1,0 +1,9 @@
+func echo(x: Byte) -> Byte { return x }
+func main() {
+    let b: Byte = Byte(255)
+    print(b)
+    print(echo(b))
+    print(b == Byte(UInt8.max))
+    print(b as UInt8)
+    print(b as UInt64)
+}

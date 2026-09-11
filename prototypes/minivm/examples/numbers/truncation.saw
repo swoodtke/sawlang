@@ -1,0 +1,10 @@
+func main() {
+    print(UInt8.from(truncating: -1))
+    print(Int8.from(truncating: 255))
+    print(UInt16.from(truncating: 65537))
+    print(Int16.from(truncating: 65535))
+    print(UInt32.from(truncating: 18446744073709551615u64))
+    print(Int32.from(truncating: 4294967295u64))
+    print(UInt64.from(truncating: -1))
+    print(Int64.from(truncating: 18446744073709551615u64))
+}

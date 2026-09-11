@@ -1,0 +1,5 @@
+func main() {
+    let a: Int8 = 1
+    let b: Int16 = 2
+    print(a + b)
+}

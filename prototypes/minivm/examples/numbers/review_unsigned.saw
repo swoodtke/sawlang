@@ -1,0 +1,10 @@
+func main() {
+    print(UInt64.max / 3u64)
+    print(UInt64.max % 2u64)
+    print(UInt.max >> 63)
+    print(~0u64)
+    print(255u8 << 1)
+    print(-127i8 - 1)
+    print(Int.min * 1)
+    print(Int.min / 1)
+}

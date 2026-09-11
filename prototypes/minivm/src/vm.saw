@@ -1,89 +1,144 @@
 import src.model.*
 
-static I32_MIN: Int = -2_147_483_648
-static I32_MAX: Int = 2_147_483_647
 static MAX_CALL_DEPTH: Int = 128
+struct CallResult { value: Int, has_value: Bool }
+func runtime_error(message: String) -> ProtoError { problem(message, 0, 0) }
+func overflow_error() -> ProtoError { runtime_error("runtime error: integer overflow") }
 
-struct CallResult {
-    value: Int
-    has_value: Bool
-}
-
-func runtime_error(message: String) -> ProtoError {
-    problem(message, 0, 0)
-}
-
-func checked_i32(value: Int) -> Result<Int, ProtoError> {
-    if value < I32_MIN || value > I32_MAX {
-        return runtime_error("runtime error: integer overflow")
+func checked_binary(a: Int, b: Int, t: ValueType, op: Op) -> Result<Int, ProtoError> {
+    if integer_signed(t) {
+        let lo = integer_min(t)
+        let hi = integer_max(t)
+        if op == Op.Add {
+            if (b > 0 && a > hi - b) || (b < 0 && a < lo - b) { return overflow_error() }
+            return a + b
+        }
+        if op == Op.Sub {
+            if (b < 0 && a > hi + b) || (b > 0 && a < lo + b) { return overflow_error() }
+            return a - b
+        }
+        if a == 0 || b == 0 { return 0 }
+        if a > 0 {
+            if b > 0 { if a > hi / b { return overflow_error() } }
+            else { if b < lo / a { return overflow_error() } }
+        } else {
+            if b > 0 { if a < lo / b { return overflow_error() } }
+            else { if a < hi / b { return overflow_error() } }
+        }
+        return a * b
     }
-    value
+    let ua = UInt.from(truncating: a)
+    let ub = UInt.from(truncating: b)
+    let hi = UInt.from(truncating: integer_max(t))
+    var result: UInt = 0
+    if op == Op.Add {
+        if ub > hi || ua > hi - ub { return overflow_error() }
+        result = ua + ub
+    } else if op == Op.Sub {
+        if ua < ub { return overflow_error() }
+        result = ua - ub
+    } else {
+        if ua != 0 && ub > hi / ua { return overflow_error() }
+        result = ua * ub
+    }
+    Int.from(truncating: result)
 }
 
-func run_function(program: &Program, function_index: Int, arguments: &Vector<Int>,
-                  remaining: &var Int, depth: Int) -> Result<CallResult, ProtoError> {
-    if depth > MAX_CALL_DEPTH {
-        return runtime_error("runtime error: call depth exceeded")
-    }
+func wrapping_binary(a: Int, b: Int, t: ValueType, op: Op) -> Int {
+    let ua = UInt.from(truncating: a)
+    let ub = UInt.from(truncating: b)
+    var result = ua
+    if op == Op.WrapAdd { result = ua &+ ub }
+    else if op == Op.WrapSub { result = ua &- ub }
+    else { result = ua &* ub }
+    integer_normalize(Int.from(truncating: result), t)
+}
 
+func divide(a: Int, b: Int, t: ValueType, remainder: Bool) -> Result<Int, ProtoError> {
+    if b == 0 { return runtime_error("runtime error: division by zero") }
+    if integer_signed(t) {
+        if a == integer_min(t) && b == -1 { return overflow_error() }
+        return if remainder { a % b } else { a / b }
+    }
+    let ua = UInt.from(truncating: a)
+    let ub = UInt.from(truncating: b)
+    Int.from(truncating: if remainder { ua % ub } else { ua / ub })
+}
+
+func shift(a: Int, c: Int, ct: ValueType, t: ValueType, left: Bool) -> Result<Int, ProtoError> {
+    if (integer_signed(ct) && c < 0) || UInt.from(truncating: c) >= UInt.from(truncating: integer_width(t)) { return runtime_error("runtime error: shift out of range") }
+    let n = Int.from(truncating: UInt.from(truncating: c))
+    if left { return integer_normalize(Int.from(truncating: UInt.from(truncating: a) << n), t) }
+    if integer_signed(t) { return integer_normalize(a >> n, t) }
+    integer_normalize(Int.from(truncating: UInt.from(truncating: a) >> n), t)
+}
+
+func compare(a: Int, b: Int, t: ValueType, op: Op) -> Int {
+    var yes = false
+    if integer_signed(t) {
+        if op == Op.Lt { yes = a < b } else if op == Op.Le { yes = a <= b } else if op == Op.Gt { yes = a > b } else { yes = a >= b }
+    } else {
+        let ua = UInt.from(truncating: a)
+        let ub = UInt.from(truncating: b)
+        if op == Op.Lt { yes = ua < ub } else if op == Op.Le { yes = ua <= ub } else if op == Op.Gt { yes = ua > ub } else { yes = ua >= ub }
+    }
+    if yes { 1 } else { 0 }
+}
+
+func run_function(program: &Program, function_index: Int, arguments: &Vector<Int>, remaining: &var Int, depth: Int) -> Result<CallResult, ProtoError> {
+    if depth > MAX_CALL_DEPTH { return runtime_error("runtime error: call depth exceeded") }
     let function = program.functions[function_index].copy()
     var slots = Vector<Int>()
-    var slot_index = 0
-    while slot_index < function.slots.len() {
+    var si = 0
+    while si < function.slots.len() {
         try! slots.push(0)
-        slot_index = slot_index + 1
+        si = si + 1
     }
-    var argument_index = 0
-    while argument_index < arguments.len() {
-        slots[argument_index] = arguments[argument_index]
-        argument_index = argument_index + 1
+    var ai = 0
+    while ai < arguments.len() {
+        slots[ai] = arguments[ai]
+        ai = ai + 1
     }
-
     var pc = 0
     while pc < function.code.len() {
-        if remaining <= 0 {
-            return runtime_error("runtime error: instruction budget exceeded")
-        }
+        if remaining <= 0 { return runtime_error("runtime error: instruction budget exceeded") }
         remaining = remaining - 1
-
         let inst = function.code[pc].copy()
+        let t = if inst.dst >= 0 { function.slots[inst.dst] } else { ValueType.Void }
         match inst.op {
             case Const -> { slots[inst.dst] = inst.immediate },
             case Copy -> { slots[inst.dst] = slots[inst.a] },
-            case Add -> { slots[inst.dst] = try checked_i32(slots[inst.a] + slots[inst.b]) },
-            case Sub -> { slots[inst.dst] = try checked_i32(slots[inst.a] - slots[inst.b]) },
-            case Mul -> { slots[inst.dst] = try checked_i32(slots[inst.a] * slots[inst.b]) },
-            case Div -> {
-                let lhs = slots[inst.a]
-                let rhs = slots[inst.b]
-                if rhs == 0 {
-                    return runtime_error("runtime error: division by zero")
-                }
-                if lhs == I32_MIN && rhs == -1 {
-                    return runtime_error("runtime error: integer overflow")
-                }
-                slots[inst.dst] = lhs / rhs
+            case Add -> { slots[inst.dst] = try checked_binary(slots[inst.a], slots[inst.b], t, inst.op) },
+            case Sub -> { slots[inst.dst] = try checked_binary(slots[inst.a], slots[inst.b], t, inst.op) },
+            case Mul -> { slots[inst.dst] = try checked_binary(slots[inst.a], slots[inst.b], t, inst.op) },
+            case WrapAdd -> { slots[inst.dst] = wrapping_binary(slots[inst.a], slots[inst.b], t, inst.op) },
+            case WrapSub -> { slots[inst.dst] = wrapping_binary(slots[inst.a], slots[inst.b], t, inst.op) },
+            case WrapMul -> { slots[inst.dst] = wrapping_binary(slots[inst.a], slots[inst.b], t, inst.op) },
+            case Div -> { slots[inst.dst] = try divide(slots[inst.a], slots[inst.b], t, false) },
+            case Rem -> { slots[inst.dst] = try divide(slots[inst.a], slots[inst.b], t, true) },
+            case Neg -> {
+                let a = slots[inst.a]
+                if a == integer_min(t) { return overflow_error() }
+                slots[inst.dst] = 0 - a
             },
-            case Rem -> {
-                let lhs = slots[inst.a]
-                let rhs = slots[inst.b]
-                if rhs == 0 {
-                    return runtime_error("runtime error: division by zero")
-                }
-                if lhs == I32_MIN && rhs == -1 {
-                    slots[inst.dst] = 0
-                } else {
-                    slots[inst.dst] = lhs % rhs
-                }
+            case Cast -> {
+                if not integer_fits(slots[inst.a], function.slots[inst.a], t) { return runtime_error("runtime error: integer cast out of range") }
+                slots[inst.dst] = integer_normalize(slots[inst.a], t)
             },
-            case Neg -> { slots[inst.dst] = try checked_i32(0 - slots[inst.a]) },
+            case Truncate -> { slots[inst.dst] = integer_normalize(slots[inst.a], t) },
+            case BitAnd -> { slots[inst.dst] = integer_normalize(slots[inst.a] & slots[inst.b], t) },
+            case BitOr -> { slots[inst.dst] = integer_normalize(slots[inst.a] | slots[inst.b], t) },
+            case BitXor -> { slots[inst.dst] = integer_normalize(slots[inst.a] ^ slots[inst.b], t) },
+            case BitNot -> { slots[inst.dst] = integer_normalize(~slots[inst.a], t) },
+            case Shl -> { slots[inst.dst] = try shift(slots[inst.a], slots[inst.b], function.slots[inst.b], t, true) },
+            case Shr -> { slots[inst.dst] = try shift(slots[inst.a], slots[inst.b], function.slots[inst.b], t, false) },
             case Not -> { slots[inst.dst] = if slots[inst.a] == 0 { 1 } else { 0 } },
             case Eq -> { slots[inst.dst] = if slots[inst.a] == slots[inst.b] { 1 } else { 0 } },
             case Ne -> { slots[inst.dst] = if slots[inst.a] != slots[inst.b] { 1 } else { 0 } },
-            case Lt -> { slots[inst.dst] = if slots[inst.a] < slots[inst.b] { 1 } else { 0 } },
-            case Le -> { slots[inst.dst] = if slots[inst.a] <= slots[inst.b] { 1 } else { 0 } },
-            case Gt -> { slots[inst.dst] = if slots[inst.a] > slots[inst.b] { 1 } else { 0 } },
-            case Ge -> { slots[inst.dst] = if slots[inst.a] >= slots[inst.b] { 1 } else { 0 } },
+            case Lt -> { slots[inst.dst] = compare(slots[inst.a], slots[inst.b], function.slots[inst.a], inst.op) },
+            case Le -> { slots[inst.dst] = compare(slots[inst.a], slots[inst.b], function.slots[inst.a], inst.op) },
+            case Gt -> { slots[inst.dst] = compare(slots[inst.a], slots[inst.b], function.slots[inst.a], inst.op) },
+            case Ge -> { slots[inst.dst] = compare(slots[inst.a], slots[inst.b], function.slots[inst.a], inst.op) },
             case Jump -> {
                 pc = inst.target
                 continue
@@ -95,29 +150,22 @@ func run_function(program: &Program, function_index: Int, arguments: &Vector<Int
                 }
             },
             case Call -> {
-                var call_arguments = Vector<Int>()
+                var args = Vector<Int>()
                 var i = 0
                 while i < inst.args.len() {
-                    try! call_arguments.push(slots[inst.args[i]])
+                    try! args.push(slots[inst.args[i]])
                     i = i + 1
                 }
-                let result = try run_function(&program, inst.target, &call_arguments,
-                                              &var remaining, depth + 1)
-                if inst.dst >= 0 {
-                    slots[inst.dst] = result.value
-                }
+                let result = try run_function(&program, inst.target, &args, &var remaining, depth + 1)
+                if inst.dst >= 0 { slots[inst.dst] = result.value }
             },
             case Print -> {
-                if function.slots[inst.a] == ValueType.Bool {
-                    if slots[inst.a] == 0 { print("false") } else { print("true") }
-                } else {
-                    print(slots[inst.a])
-                }
+                let pt = function.slots[inst.a]
+                if pt == ValueType.Bool { if slots[inst.a] == 0 { print("false") } else { print("true") } }
+                else if integer_signed(pt) { print(slots[inst.a]) } else { print(UInt.from(truncating: slots[inst.a])) }
             },
             case Return -> {
-                if inst.a < 0 {
-                    return CallResult(value: 0, has_value: false)
-                }
+                if inst.a < 0 { return CallResult(value: 0, has_value: false) }
                 return CallResult(value: slots[inst.a], has_value: true)
             }
         }

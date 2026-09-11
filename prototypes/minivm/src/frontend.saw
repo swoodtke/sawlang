@@ -31,6 +31,50 @@ struct ExprValue {
     ty: ValueType
     slot: Int
     call: Bool
+    literal: Bool
+    literal_value: UInt
+    literal_negative: Bool
+}
+
+func expr_value(ty: ValueType, slot: Int, call: Bool) -> ExprValue {
+    ExprValue(ty: ty, slot: slot, call: call, literal: false,
+              literal_value: 0, literal_negative: false)
+}
+
+func type_name(t: ValueType) -> String {
+    match t {
+        case I8 -> "Int8", case I16 -> "Int16", case I32 -> "Int32", case I64 -> "Int",
+        case U8 -> "UInt8", case U16 -> "UInt16", case U32 -> "UInt32", case U64 -> "UInt",
+        case Byte -> "Byte", case Bool -> "Bool", case Void -> "Void"
+    }
+}
+
+func named_integer_type(name: String) -> ValueType? {
+    match name {
+        case "Int8" -> Some(ValueType.I8), case "Int16" -> Some(ValueType.I16),
+        case "Int32" -> Some(ValueType.I32), case "Int64" -> Some(ValueType.I64),
+        case "Int" -> Some(ValueType.I64), case "UInt8" -> Some(ValueType.U8),
+        case "UInt16" -> Some(ValueType.U16), case "UInt32" -> Some(ValueType.U32),
+        case "UInt64" -> Some(ValueType.U64), case "UInt" -> Some(ValueType.U64),
+        case "Byte" -> Some(ValueType.Byte), case _ -> None
+    }
+}
+
+func suffix_type(s: String) -> ValueType? {
+    match s {
+        case "i8" -> Some(ValueType.I8), case "i16" -> Some(ValueType.I16),
+        case "i32" -> Some(ValueType.I32), case "i64" -> Some(ValueType.I64),
+        case "u8" -> Some(ValueType.U8), case "u16" -> Some(ValueType.U16),
+        case "u32" -> Some(ValueType.U32), case "u64" -> Some(ValueType.U64),
+        case _ -> None
+    }
+}
+
+func literal_magnitude(value: String) -> UInt? {
+    if value.starts_with("0x") { return value.substring(2, value.len()).to_uint(16) }
+    if value.starts_with("0b") { return value.substring(2, value.len()).to_uint(2) }
+    if value.starts_with("0o") { return value.substring(2, value.len()).to_uint(8) }
+    value.to_uint()
 }
 
 struct Compiler {
@@ -75,10 +119,18 @@ extension Compiler {
         if self.paren_depth > 0 { self.skip_newlines() }
     }
 
+    func literal_followed_by_cast(&self) -> Bool {
+        var i = self.pos + 1
+        if self.paren_depth > 0 {
+            while i < self.tokens.len() && self.tokens[i].kind == TokenKind.Newline { i += 1 }
+        }
+        i < self.tokens.len() && self.tokens[i].kind == TokenKind.As
+    }
+
     func parse_type(&var self) -> Result<ValueType, ProtoError> {
         let t = try self.expect(TokenKind.Ident, "expected type")
-        if t.value == "Int32" { return ValueType.I32 }
         if t.value == "Bool" { return ValueType.Bool }
+        if let ty = named_integer_type(t.value) { return ty }
         problem("unsupported type `{t.value}`", t.line, t.col)
     }
 
@@ -236,23 +288,76 @@ extension Compiler {
         return
     }
 
+    func literal_fits_target(&self, v: &ExprValue, target: ValueType) -> Bool {
+        if not v.literal || not integer_type(target) || target == ValueType.Byte { return false }
+        if v.literal_negative {
+            if not integer_signed(target) { return false }
+            return v.literal_value <= UInt.from(truncating: integer_max(target)) + 1
+        }
+        v.literal_value <= UInt.from(truncating: integer_max(target))
+    }
+
+    func adopt_literal(&var self, v: ExprValue, target: ValueType, t: &Token) -> Result<ExprValue, ProtoError> {
+        if not self.literal_fits_target(&v, target) {
+            return problem("integer literal does not fit {type_name(target)}", t.line, t.col)
+        }
+        var bits = Int.from(truncating: v.literal_value)
+        if v.literal_negative {
+            if v.literal_value == UInt.from(truncating: Int.max) + 1 { bits = Int.min }
+            else { bits = 0 - bits }
+        }
+        bits = integer_normalize(bits, target)
+        self.slots[v.slot] = target
+        var i = self.code.len()
+        while i > 0 {
+            i -= 1
+            if self.code[i].op == Op.Const && self.code[i].dst == v.slot {
+                self.code[i].immediate = bits
+                break
+            }
+        }
+        ExprValue(ty: target, slot: v.slot, call: false, literal: true,
+                  literal_value: v.literal_value, literal_negative: v.literal_negative)
+    }
+
+    func transfer(&var self, v: ExprValue, target: ValueType, t: &Token) -> Result<ExprValue, ProtoError> {
+        if v.ty == target {
+            if v.literal && not self.literal_fits_target(&v, target) {
+                return problem("integer literal does not fit {type_name(target)}", t.line, t.col)
+            }
+            return v
+        }
+        if v.literal { return self.adopt_literal(v, target, &t) }
+        if integer_widens(v.ty, target) {
+            let dst = self.new_slot(target)
+            let at = self.emit_at(Op.Cast, t.line, t.col)
+            self.code[at].dst = dst
+            self.code[at].a = v.slot
+            return expr_value(target, dst, false)
+        }
+        problem("cannot implicitly convert {type_name(v.ty)} to {type_name(target)}", t.line, t.col)
+    }
+
     func parse_primary(&var self) -> Result<ExprValue, ProtoError> {
         if self.depth > 128 { return self.fail("expression nesting limit exceeded") }
         if self.at(TokenKind.IntLit) {
             let t = self.take()
-            if t.value.starts_with("0x") || t.value.starts_with("0b") || t.value.starts_with("0o") {
-                return problem("only decimal integer literals are supported", t.line, t.col)
-            }
+            guard let magnitude = literal_magnitude(t.value) else { return problem("invalid integer literal", t.line, t.col) }
+            var ty = ValueType.I64
+            var bare = true
             if let suffix = t.suffix {
-                if suffix != "i32" { return problem("unsupported integer suffix `{suffix}`", t.line, t.col) }
+                bare = false
+                guard let st = suffix_type(suffix) else { return problem("unsupported integer suffix `{suffix}`", t.line, t.col) }
+                ty = st
             }
-            guard let value = t.value.to_int() else { return problem("invalid integer literal", t.line, t.col) }
-            if value > 2_147_483_647 { return problem("integer literal does not fit Int32", t.line, t.col) }
-            let dst = self.new_slot(ValueType.I32)
+            let maximum = UInt.from(truncating: integer_max(ty))
+            if not bare && integer_signed(ty) && magnitude > maximum { return problem("integer literal does not fit {type_name(ty)}", t.line, t.col) }
+            let dst = self.new_slot(ty)
             let at = self.emit_at(Op.Const, t.line, t.col)
             self.code[at].dst = dst
-            self.code[at].immediate = value
-            return ExprValue(ty: ValueType.I32, slot: dst, call: false)
+            self.code[at].immediate = integer_normalize(Int.from(truncating: magnitude), ty)
+            return ExprValue(ty: ty, slot: dst, call: false, literal: bare,
+                             literal_value: magnitude, literal_negative: false)
         }
         if self.at(TokenKind.True_) || self.at(TokenKind.False_) {
             let t = self.take()
@@ -260,7 +365,7 @@ extension Compiler {
             let at = self.emit_at(Op.Const, t.line, t.col)
             self.code[at].dst = dst
             self.code[at].immediate = if t.kind == TokenKind.True_ { 1 } else { 0 }
-            return ExprValue(ty: ValueType.Bool, slot: dst, call: false)
+            return expr_value(ValueType.Bool, dst, false)
         }
         if self.at(TokenKind.LParen) {
             let _ = self.take()
@@ -276,12 +381,69 @@ extension Compiler {
         }
         if self.at(TokenKind.Ident) {
             let name = self.take()
+            if let ty = named_integer_type(name.value) {
+                if self.at(TokenKind.Dot) { return self.parse_integer_member(name, ty) }
+                if self.at(TokenKind.LParen) && ty == ValueType.Byte { return self.parse_byte(name) }
+            }
             if self.at(TokenKind.LParen) { return self.parse_call(name) }
             let bi = self.binding_index(name.value)
             if bi < 0 { return problem("unknown name `{name.value}`", name.line, name.col) }
-            return ExprValue(ty: self.bindings[bi].ty, slot: self.bindings[bi].slot, call: false)
+            return expr_value(self.bindings[bi].ty, self.bindings[bi].slot, false)
         }
         self.fail("expected expression; this syntax is unsupported")
+    }
+
+    func parse_byte(&var self, name: Token) -> Result<ExprValue, ProtoError> {
+        let _ = self.take()
+        self.depth += 1
+        self.paren_depth += 1
+        self.skip_newlines()
+        var value = try self.parse_expr()
+        value = try self.transfer(value, ValueType.U8, &name)
+        self.skip_newlines()
+        let _ = try self.expect(TokenKind.RParen, "expected `)` after Byte value")
+        self.paren_depth -= 1
+        self.depth -= 1
+        let dst = self.new_slot(ValueType.Byte)
+        let at = self.emit_at(Op.Cast, name.line, name.col)
+        self.code[at].dst = dst
+        self.code[at].a = value.slot
+        expr_value(ValueType.Byte, dst, false)
+    }
+
+    func parse_integer_member(&var self, name: Token, ty: ValueType) -> Result<ExprValue, ProtoError> {
+        let _ = self.take()
+        let member = try self.expect(TokenKind.Ident, "expected numeric member")
+        if member.value == "min" || member.value == "max" {
+            if ty == ValueType.Byte { return problem("Byte has no numeric limit members", member.line, member.col) }
+            if self.at(TokenKind.LParen) { return problem("integer limits are constants", member.line, member.col) }
+            let dst = self.new_slot(ty)
+            let at = self.emit_at(Op.Const, member.line, member.col)
+            self.code[at].dst = dst
+            self.code[at].immediate = if member.value == "min" { integer_min(ty) } else { integer_max(ty) }
+            return expr_value(ty, dst, false)
+        }
+        if member.value != "from" { return problem("unsupported numeric member `{member.value}`", member.line, member.col) }
+        let _ = try self.expect(TokenKind.LParen, "expected `(` after from")
+        self.depth += 1
+        self.paren_depth += 1
+        self.skip_newlines()
+        let label = try self.expect(TokenKind.Ident, "only `from(truncating:)` is supported")
+        if label.value != "truncating" { return problem("only `from(truncating:)` is supported", label.line, label.col) }
+        let _ = try self.expect(TokenKind.Colon, "expected `:` after truncating")
+        self.skip_newlines()
+        var value = try self.parse_expr()
+        value = try self.transfer(value, value.ty, &name)
+        if not integer_type(value.ty) || ty == ValueType.Byte { return problem("truncating conversion requires integer types", name.line, name.col) }
+        self.skip_newlines()
+        let _ = try self.expect(TokenKind.RParen, "expected `)` after conversion")
+        self.paren_depth -= 1
+        self.depth -= 1
+        let dst = self.new_slot(ty)
+        let at = self.emit_at(Op.Truncate, name.line, name.col)
+        self.code[at].dst = dst
+        self.code[at].a = value.slot
+        expr_value(ty, dst, false)
     }
 
     func parse_call(&var self, name: Token) -> Result<ExprValue, ProtoError> {
@@ -296,11 +458,11 @@ extension Compiler {
         if not self.at(TokenKind.RParen) {
             var more = true
             while more {
-                let value = try self.parse_expr()
+                var value = try self.parse_expr()
                 if ai >= self.signatures[fi].params.len() {
                     return problem("too many arguments to `{name.value}`", name.line, name.col)
                 }
-                try self.require_type(value.ty, self.signatures[fi].params[ai], &name)
+                value = try self.transfer(value, self.signatures[fi].params[ai], &name)
                 try! args.push(value.slot)
                 ai += 1
                 self.skip_newlines()
@@ -322,7 +484,7 @@ extension Compiler {
         self.code[at].target = fi
         self.code[at].dst = dst
         self.code[at].args = move args
-        ExprValue(ty: rt, slot: dst, call: true)
+        expr_value(rt, dst, true)
     }
 
     func parse_unary_inner(&var self) -> Result<ExprValue, ProtoError> {
@@ -330,44 +492,90 @@ extension Compiler {
         if self.at(TokenKind.Exclaim) || self.at(TokenKind.Not_) {
             let t = self.take()
             self.expr_space()
-            let v = try self.parse_unary()
+            var v = try self.parse_unary()
+            v = try self.transfer(v, v.ty, &t)
             try self.require_type(v.ty, ValueType.Bool, &t)
             let dst = self.new_slot(ValueType.Bool)
             let at = self.emit_at(Op.Not, t.line, t.col)
             self.code[at].dst = dst
             self.code[at].a = v.slot
-            return ExprValue(ty: ValueType.Bool, slot: dst, call: false)
+            return expr_value(ValueType.Bool, dst, false)
         }
         if self.at(TokenKind.Minus) {
             let t = self.take()
             self.expr_space()
-            if self.at(TokenKind.IntLit) {
-                let lit = self.token()
-                if not lit.value.starts_with("0x") && not lit.value.starts_with("0b") && not lit.value.starts_with("0o") {
-                    if let n = lit.value.to_int() {
-                        if n == 2_147_483_648 {
-                            let owned = self.take()
-                            if let suffix = owned.suffix {
-                                if suffix != "i32" { return problem("unsupported integer suffix `{suffix}`", owned.line, owned.col) }
-                            }
-                            let dst = self.new_slot(ValueType.I32)
-                            let at = self.emit_at(Op.Const, t.line, t.col)
-                            self.code[at].dst = dst
-                            self.code[at].immediate = -2_147_483_648
-                            return ExprValue(ty: ValueType.I32, slot: dst, call: false)
-                        }
-                    }
+            if self.at(TokenKind.IntLit) && not self.literal_followed_by_cast() {
+                let lit = self.take()
+                guard let magnitude = literal_magnitude(lit.value) else { return problem("invalid integer literal", lit.line, lit.col) }
+                var ty = ValueType.I64
+                var bare = true
+                if let suffix = lit.suffix {
+                    bare = false
+                    guard let st = suffix_type(suffix) else { return problem("unsupported integer suffix `{suffix}`", lit.line, lit.col) }
+                    ty = st
                 }
+                if not integer_signed(ty) { return problem("cannot negate an unsigned integer", t.line, t.col) }
+                let limit = UInt.from(truncating: integer_max(ty)) + 1
+                if magnitude > limit { return problem("integer literal does not fit {type_name(ty)}", lit.line, lit.col) }
+                var bits = Int.from(truncating: magnitude)
+                if magnitude == UInt.from(truncating: Int.max) + 1 { bits = Int.min }
+                else { bits = 0 - bits }
+                bits = integer_normalize(bits, ty)
+                let dst = self.new_slot(ty)
+                let at = self.emit_at(Op.Const, t.line, t.col)
+                self.code[at].dst = dst
+                self.code[at].immediate = bits
+                let value = ExprValue(ty: ty, slot: dst, call: false, literal: bare,
+                                      literal_value: magnitude, literal_negative: true)
+                return value
             }
             let v = try self.parse_unary()
-            try self.require_type(v.ty, ValueType.I32, &t)
-            let dst = self.new_slot(ValueType.I32)
+            if not arithmetic_type(v.ty) || not integer_signed(v.ty) { return problem("unary `-` requires a signed integer", t.line, t.col) }
+            let dst = self.new_slot(v.ty)
             let at = self.emit_at(Op.Neg, t.line, t.col)
             self.code[at].dst = dst
             self.code[at].a = v.slot
-            return ExprValue(ty: ValueType.I32, slot: dst, call: false)
+            return expr_value(v.ty, dst, false)
         }
-        self.parse_primary()
+        if self.at(TokenKind.Tilde) {
+            let t = self.take()
+            self.expr_space()
+            var v = try self.parse_unary()
+            v = try self.transfer(v, v.ty, &t)
+            if not arithmetic_type(v.ty) { return problem("operator `~` requires an integer", t.line, t.col) }
+            let dst = self.new_slot(v.ty)
+            let at = self.emit_at(Op.BitNot, t.line, t.col)
+            self.code[at].dst = dst
+            self.code[at].a = v.slot
+            return expr_value(v.ty, dst, false)
+        }
+        self.parse_cast()
+    }
+
+    func parse_cast(&var self) -> Result<ExprValue, ProtoError> {
+        let value = try self.parse_primary()
+        self.parse_casts(value)
+    }
+
+    func parse_casts(&var self, initial: ExprValue) -> Result<ExprValue, ProtoError> {
+        var value = initial
+        self.expr_space()
+        while self.at(TokenKind.As) {
+            let t = self.take()
+            self.expr_space()
+            let target = try self.parse_type()
+            value = try self.transfer(value, value.ty, &t)
+            if not integer_type(value.ty) || not integer_type(target) || target == ValueType.Byte {
+                return problem("`as` requires integer source and target types", t.line, t.col)
+            }
+            let dst = self.new_slot(target)
+            let at = self.emit_at(Op.Cast, t.line, t.col)
+            self.code[at].dst = dst
+            self.code[at].a = value.slot
+            value = expr_value(target, dst, false)
+            self.expr_space()
+        }
+        value
     }
 
     func parse_unary(&var self) -> Result<ExprValue, ProtoError> {
@@ -385,22 +593,37 @@ extension Compiler {
         self.code[at].dst = dst
         self.code[at].a = left.slot
         self.code[at].b = right.slot
-        ExprValue(ty: result, slot: dst, call: false)
+        expr_value(result, dst, false)
+    }
+
+    func common_type(&self, left: &ExprValue, right: &ExprValue,
+                     t: &Token) -> Result<ValueType, ProtoError> {
+        if left.ty == right.ty {
+            if left.literal && not self.literal_fits_target(&left, left.ty) { return problem("integer literal does not fit {type_name(left.ty)}", t.line, t.col) }
+            if right.literal && not self.literal_fits_target(&right, right.ty) { return problem("integer literal does not fit {type_name(right.ty)}", t.line, t.col) }
+            return left.ty
+        }
+        if left.literal && not right.literal { return right.ty }
+        if right.literal && not left.literal { return left.ty }
+        problem("numeric operands must have the same type", t.line, t.col)
     }
 
     func parse_mul(&var self) -> Result<ExprValue, ProtoError> {
         self.expr_space()
         var left = try self.parse_unary()
         self.expr_space()
-        while self.at(TokenKind.Star) || self.at(TokenKind.Slash) || self.at(TokenKind.Percent) {
+        while self.at(TokenKind.Star) || self.at(TokenKind.Slash) || self.at(TokenKind.Percent) || self.at(TokenKind.WrapMul) {
             let t = self.take()
             self.expr_space()
-            let right = try self.parse_unary()
+            var right = try self.parse_unary()
             self.expr_space()
-            try self.require_type(left.ty, ValueType.I32, &t)
-            try self.require_type(right.ty, ValueType.I32, &t)
-            let op = if t.kind == TokenKind.Star { Op.Mul } else if t.kind == TokenKind.Slash { Op.Div } else { Op.Rem }
-            left = try self.binary(left, right, op, ValueType.I32, &t)
+            let common = try self.common_type(&left, &right, &t)
+            if left.ty != common { left = try self.adopt_literal(left, common, &t) }
+            if right.ty != common { right = try self.adopt_literal(right, common, &t) }
+            if not arithmetic_type(left.ty) { return problem("arithmetic requires integer operands", t.line, t.col) }
+            let op = if t.kind == TokenKind.Star { Op.Mul } else if t.kind == TokenKind.Slash { Op.Div } else if t.kind == TokenKind.Percent { Op.Rem } else { Op.WrapMul }
+            let result = left.ty
+            left = try self.binary(left, right, op, result, &t)
         }
         left
     }
@@ -408,45 +631,136 @@ extension Compiler {
     func parse_add(&var self) -> Result<ExprValue, ProtoError> {
         var left = try self.parse_mul()
         self.expr_space()
-        while self.at(TokenKind.Plus) || self.at(TokenKind.Minus) {
+        while self.at(TokenKind.Plus) || self.at(TokenKind.Minus) || self.at(TokenKind.WrapAdd) || self.at(TokenKind.WrapSub) {
             let t = self.take()
             self.expr_space()
-            let right = try self.parse_mul()
+            var right = try self.parse_mul()
             self.expr_space()
-            try self.require_type(left.ty, ValueType.I32, &t)
-            try self.require_type(right.ty, ValueType.I32, &t)
-            left = try self.binary(left, right, if t.kind == TokenKind.Plus { Op.Add } else { Op.Sub }, ValueType.I32, &t)
+            let common = try self.common_type(&left, &right, &t)
+            if left.ty != common { left = try self.adopt_literal(left, common, &t) }
+            if right.ty != common { right = try self.adopt_literal(right, common, &t) }
+            if not arithmetic_type(left.ty) { return problem("arithmetic requires integer operands", t.line, t.col) }
+            let op = if t.kind == TokenKind.Plus { Op.Add } else if t.kind == TokenKind.Minus { Op.Sub } else if t.kind == TokenKind.WrapAdd { Op.WrapAdd } else { Op.WrapSub }
+            let result = left.ty
+            left = try self.binary(left, right, op, result, &t)
+        }
+        left
+    }
+
+    func adjacent(&self, a: &Token, b: &Token) -> Bool {
+        a.line == b.line && b.col == a.col + 1
+    }
+
+    func shift_ahead(&self, kind: TokenKind) -> Bool {
+        if self.pos + 1 >= self.tokens.len() || not self.at(kind) || self.tokens[self.pos + 1].kind != kind { return false }
+        let a = self.token()
+        self.adjacent(&a, &self.tokens[self.pos + 1])
+    }
+
+    func parse_shift(&var self) -> Result<ExprValue, ProtoError> {
+        var left = try self.parse_add()
+        self.expr_space()
+        while self.shift_ahead(TokenKind.Lt) || self.shift_ahead(TokenKind.Gt) {
+            let t = self.take()
+            let _ = self.take()
+            self.expr_space()
+            var right = try self.parse_add()
+            self.expr_space()
+            left = try self.transfer(left, left.ty, &t)
+            right = try self.transfer(right, right.ty, &t)
+            if not arithmetic_type(left.ty) || not arithmetic_type(right.ty) { return problem("shift requires integer operands", t.line, t.col) }
+            let result = left.ty
+            left = try self.binary(left, right, if t.kind == TokenKind.Lt { Op.Shl } else { Op.Shr }, result, &t)
         }
         left
     }
 
     func parse_compare(&var self) -> Result<ExprValue, ProtoError> {
-        var left = try self.parse_add()
+        var left = try self.parse_shift()
         self.expr_space()
         if self.at(TokenKind.Lt) || self.at(TokenKind.Lte) || self.at(TokenKind.Gt) || self.at(TokenKind.Gte) {
             let t = self.take()
             self.expr_space()
-            let right = try self.parse_add()
+            var right = try self.parse_shift()
             self.expr_space()
-            try self.require_type(left.ty, ValueType.I32, &t)
-            try self.require_type(right.ty, ValueType.I32, &t)
+            let common = try self.common_type(&left, &right, &t)
+            if left.ty != common { left = try self.adopt_literal(left, common, &t) }
+            if right.ty != common { right = try self.adopt_literal(right, common, &t) }
+            if not arithmetic_type(left.ty) { return problem("comparison requires integer operands", t.line, t.col) }
             let op = if t.kind == TokenKind.Lt { Op.Lt } else if t.kind == TokenKind.Lte { Op.Le } else if t.kind == TokenKind.Gt { Op.Gt } else { Op.Ge }
             left = try self.binary(left, right, op, ValueType.Bool, &t)
         }
         left
     }
 
-    func parse_expr(&var self) -> Result<ExprValue, ProtoError> {
+    func parse_equality(&var self) -> Result<ExprValue, ProtoError> {
         self.expr_space()
         var left = try self.parse_compare()
         self.expr_space()
         if self.at(TokenKind.Eq) || self.at(TokenKind.Neq) {
             let t = self.take()
             self.expr_space()
-            let right = try self.parse_compare()
+            var right = try self.parse_compare()
             self.expr_space()
+            let common = try self.common_type(&left, &right, &t)
+            if left.ty != common { left = try self.adopt_literal(left, common, &t) }
+            if right.ty != common { right = try self.adopt_literal(right, common, &t) }
             if left.ty == ValueType.Void || left.ty != right.ty { return problem("equality operands must have the same scalar type", t.line, t.col) }
             left = try self.binary(left, right, if t.kind == TokenKind.Eq { Op.Eq } else { Op.Ne }, ValueType.Bool, &t)
+        }
+        left
+    }
+
+    func parse_bit_and(&var self) -> Result<ExprValue, ProtoError> {
+        var left = try self.parse_equality()
+        self.expr_space()
+        while self.at(TokenKind.Ampersand) {
+            let t = self.take()
+            self.expr_space()
+            var right = try self.parse_equality()
+            self.expr_space()
+            let common = try self.common_type(&left, &right, &t)
+            if left.ty != common { left = try self.adopt_literal(left, common, &t) }
+            if right.ty != common { right = try self.adopt_literal(right, common, &t) }
+            if not arithmetic_type(left.ty) { return problem("bitwise operator requires integer operands", t.line, t.col) }
+            let result = left.ty
+            left = try self.binary(left, right, Op.BitAnd, result, &t)
+        }
+        left
+    }
+
+    func parse_bit_xor(&var self) -> Result<ExprValue, ProtoError> {
+        var left = try self.parse_bit_and()
+        self.expr_space()
+        while self.at(TokenKind.Caret) {
+            let t = self.take()
+            self.expr_space()
+            var right = try self.parse_bit_and()
+            self.expr_space()
+            let common = try self.common_type(&left, &right, &t)
+            if left.ty != common { left = try self.adopt_literal(left, common, &t) }
+            if right.ty != common { right = try self.adopt_literal(right, common, &t) }
+            if not arithmetic_type(left.ty) { return problem("bitwise operator requires integer operands", t.line, t.col) }
+            let result = left.ty
+            left = try self.binary(left, right, Op.BitXor, result, &t)
+        }
+        left
+    }
+
+    func parse_expr(&var self) -> Result<ExprValue, ProtoError> {
+        var left = try self.parse_bit_xor()
+        self.expr_space()
+        while self.at(TokenKind.Pipe) {
+            let t = self.take()
+            self.expr_space()
+            var right = try self.parse_bit_xor()
+            self.expr_space()
+            let common = try self.common_type(&left, &right, &t)
+            if left.ty != common { left = try self.adopt_literal(left, common, &t) }
+            if right.ty != common { right = try self.adopt_literal(right, common, &t) }
+            if not arithmetic_type(left.ty) { return problem("bitwise operator requires integer operands", t.line, t.col) }
+            let result = left.ty
+            left = try self.binary(left, right, Op.BitOr, result, &t)
         }
         left
     }
@@ -478,9 +792,10 @@ extension Compiler {
                 annotated = Some(try self.parse_type())
             }
             let _ = try self.expect(TokenKind.Assign, "local declarations require an initializer")
-            let value = try self.parse_expr()
+            var value = try self.parse_expr()
             if value.ty == ValueType.Void { return problem("cannot initialize a local with Void", name.line, name.col) }
-            if let ty = annotated { try self.require_type(value.ty, ty, &name) }
+            if let ty = annotated { value = try self.transfer(value, ty, &name) }
+            else { value = try self.transfer(value, value.ty, &name) }
             let dst = self.new_slot(value.ty)
             let at = self.emit_at(Op.Copy, name.line, name.col)
             self.code[at].dst = dst
@@ -492,8 +807,8 @@ extension Compiler {
             let t = self.take()
             var src = -1
             if not self.at(TokenKind.Newline) && not self.at(TokenKind.RBrace) {
-                let value = try self.parse_expr()
-                try self.require_type(value.ty, self.current_result, &t)
+                var value = try self.parse_expr()
+                value = try self.transfer(value, self.current_result, &t)
                 src = value.slot
             } else if self.current_result != ValueType.Void { return problem("non-Void return requires a value", t.line, t.col) }
             let at = self.emit_at(Op.Return, t.line, t.col)
@@ -551,7 +866,8 @@ extension Compiler {
             self.depth += 1
             self.paren_depth += 1
             self.skip_newlines()
-            let value = try self.parse_expr()
+            var value = try self.parse_expr()
+            value = try self.transfer(value, value.ty, &t)
             self.skip_newlines()
             let _ = try self.expect(TokenKind.RParen, "expected `)` after print argument")
             self.paren_depth -= 1
@@ -567,8 +883,8 @@ extension Compiler {
             let bi = self.binding_index(name.value)
             if bi < 0 { return problem("unknown local `{name.value}`", name.line, name.col) }
             if not self.bindings[bi].mutable { return problem("cannot assign to immutable local `{name.value}`", name.line, name.col) }
-            let value = try self.parse_expr()
-            try self.require_type(value.ty, self.bindings[bi].ty, &name)
+            var value = try self.parse_expr()
+            value = try self.transfer(value, self.bindings[bi].ty, &name)
             let at = self.emit_at(Op.Copy, name.line, name.col)
             self.code[at].dst = self.bindings[bi].slot
             self.code[at].a = value.slot

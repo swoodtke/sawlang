@@ -1,0 +1,1 @@
+func main() { print((256 as UInt16) as UInt8) }

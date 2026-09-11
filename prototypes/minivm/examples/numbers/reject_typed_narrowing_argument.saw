@@ -1,0 +1,5 @@
+func take(x: Int8) { print(x) }
+func main() {
+    let wide: Int64 = 12
+    take(wide)
+}

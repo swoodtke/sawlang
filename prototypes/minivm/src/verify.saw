@@ -17,20 +17,29 @@ func check_instruction(p: &Program, f: &FuncIR, i: &Instruction) -> Result<Void,
         case Const -> {
             if dst == ValueType.Void { return invalid(&i) }
             if dst == ValueType.Bool && i.immediate != 0 && i.immediate != 1 { return invalid(&i) }
-            if dst == ValueType.I32 && (i.immediate < -2_147_483_648 || i.immediate > 2_147_483_647) { return invalid(&i) }
+            if integer_type(dst) && not integer_canonical(i.immediate, dst) { return invalid(&i) }
         },
         case Copy -> {
             if dst == ValueType.Void || a != dst { return invalid(&i) }
         },
-        case Add -> {
-            if dst != ValueType.I32 || a != ValueType.I32 || b != ValueType.I32 { return invalid(&i) }
-        },
-        case Sub -> { if dst != ValueType.I32 || a != ValueType.I32 || b != ValueType.I32 { return invalid(&i) } },
-        case Mul -> { if dst != ValueType.I32 || a != ValueType.I32 || b != ValueType.I32 { return invalid(&i) } },
-        case Div -> { if dst != ValueType.I32 || a != ValueType.I32 || b != ValueType.I32 { return invalid(&i) } },
-        case Rem -> { if dst != ValueType.I32 || a != ValueType.I32 || b != ValueType.I32 { return invalid(&i) } },
+        case Add -> { try check_binary(&i, dst, a, b) },
+        case Sub -> { try check_binary(&i, dst, a, b) },
+        case Mul -> { try check_binary(&i, dst, a, b) },
+        case Div -> { try check_binary(&i, dst, a, b) },
+        case Rem -> { try check_binary(&i, dst, a, b) },
+        case WrapAdd -> { try check_binary(&i, dst, a, b) },
+        case WrapSub -> { try check_binary(&i, dst, a, b) },
+        case WrapMul -> { try check_binary(&i, dst, a, b) },
+        case BitAnd -> { try check_binary(&i, dst, a, b) },
+        case BitOr -> { try check_binary(&i, dst, a, b) },
+        case BitXor -> { try check_binary(&i, dst, a, b) },
+        case Shl -> { if not arithmetic_type(dst) || a != dst || not arithmetic_type(b) { return invalid(&i) } },
+        case Shr -> { if not arithmetic_type(dst) || a != dst || not arithmetic_type(b) { return invalid(&i) } },
+        case Cast -> { if not integer_type(dst) || not integer_type(a) { return invalid(&i) } },
+        case Truncate -> { if not integer_type(dst) || not integer_type(a) { return invalid(&i) } },
+        case BitNot -> { if not arithmetic_type(dst) || a != dst { return invalid(&i) } },
         case Neg -> {
-            if dst != ValueType.I32 || a != ValueType.I32 { return invalid(&i) }
+            if not integer_signed(dst) || a != dst { return invalid(&i) }
         },
         case Not -> {
             if dst != ValueType.Bool || a != ValueType.Bool { return invalid(&i) }
@@ -40,11 +49,11 @@ func check_instruction(p: &Program, f: &FuncIR, i: &Instruction) -> Result<Void,
         },
         case Ne -> { if dst != ValueType.Bool || a == ValueType.Void || a != b { return invalid(&i) } },
         case Lt -> {
-            if dst != ValueType.Bool || a != ValueType.I32 || b != ValueType.I32 { return invalid(&i) }
+            if dst != ValueType.Bool || not arithmetic_type(a) || b != a { return invalid(&i) }
         },
-        case Le -> { if dst != ValueType.Bool || a != ValueType.I32 || b != ValueType.I32 { return invalid(&i) } },
-        case Gt -> { if dst != ValueType.Bool || a != ValueType.I32 || b != ValueType.I32 { return invalid(&i) } },
-        case Ge -> { if dst != ValueType.Bool || a != ValueType.I32 || b != ValueType.I32 { return invalid(&i) } },
+        case Le -> { if dst != ValueType.Bool || not arithmetic_type(a) || b != a { return invalid(&i) } },
+        case Gt -> { if dst != ValueType.Bool || not arithmetic_type(a) || b != a { return invalid(&i) } },
+        case Ge -> { if dst != ValueType.Bool || not arithmetic_type(a) || b != a { return invalid(&i) } },
         case Jump -> {
             if i.target < 0 || i.target >= f.code.len() { return invalid(&i) }
         },
@@ -71,6 +80,11 @@ func check_instruction(p: &Program, f: &FuncIR, i: &Instruction) -> Result<Void,
             } else if a != f.result { return invalid(&i) }
         }
     }
+    return
+}
+
+func check_binary(i: &Instruction, dst: ValueType, a: ValueType, b: ValueType) -> Result<Void, ProtoError> {
+    if not arithmetic_type(dst) || a != dst || b != dst { return invalid(&i) }
     return
 }
 

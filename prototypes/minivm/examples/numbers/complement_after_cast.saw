@@ -1,0 +1,4 @@
+func main() {
+    let x: Int = 255
+    print(~x as UInt8)
+}

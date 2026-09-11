@@ -42,11 +42,17 @@ func main() {
 }
 ```
 
-Single-file programs support `Int32`, `Bool`, functions, positional calls,
+Single-file programs support signed and unsigned 8/16/32/64-bit integers,
+`Int`/`UInt` (64-bit), `Byte`, `Bool`, functions, positional calls,
 recursion, `let`/`var`, assignment, lexical scopes, statement `if`/`else` and
 `while`, explicit returns, and scalar printing. Arithmetic is checked; signed
 division truncates toward zero. Overflow and division by zero print an error
 and exit with status 1. Boolean conditions require `Bool`.
+
+Integer literals support decimal, hex, binary, octal and fixed-width suffixes;
+bare literals default to `Int`. Numeric operations include checked `as` casts,
+truncating conversions, wrapping arithmetic, bitwise operations, and checked
+shift counts. See [M1_NUMBERS.md](M1_NUMBERS.md) for the precise numeric contract.
 
 Newlines separate statements. Omit the result annotation for Void functions;
 `main()` must take no arguments and return Void. Value-returning functions need
@@ -66,10 +72,15 @@ python prototypes/minivm/test_minivm.py --binary .build/minivm/minivm
 
 The harness compares VM execution and clang-compiled IR with explicit expected
 outputs and statuses, checks rejected programs, and exercises VM limits. It
-uses temporary files and 30-second subprocess timeouts. Initial validation passed
-all 43 cases, including native execution at both `-O0` and `-O2`.
+uses temporary files and 30-second subprocess timeouts. The numeric milestone passes
+all 91 cases, including native execution at both `-O0` and `-O2`.
 
-See [DESIGN.md](DESIGN.md) for the instruction schema and semantics. Source is
+The independent representation checks live in `tests/numeric_contract.saw`;
+build and run them with the Python compiler.
+
+See [DESIGN.md](DESIGN.md) and [M1_NUMBERS.md](M1_NUMBERS.md) for the instruction
+schema and semantics. [LEXER_DEPENDENCIES.md](LEXER_DEPENDENCIES.md) tracks the
+remaining dependencies needed to compile the existing lexer with this prototype. Source is
 split into `frontend.saw`, `model.saw`, `verify.saw`, `vm.saw`, `llvm.saw`, and
 `main.saw`. The verifier checks structural indices and types; initialization
 is established by the frontend, so this is not a loader for untrusted bytecode.
