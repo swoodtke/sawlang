@@ -1,0 +1,10 @@
+func high(flag: Bool) -> UInt64 {
+    if flag { UInt64.max } else { 9223372036854775808 }
+}
+
+func main() {
+    print(high(true))
+    print(high(false))
+    let small: UInt8 = if false { 0 } else { 255 }
+    print(small)
+}

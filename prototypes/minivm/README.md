@@ -31,9 +31,9 @@ not a dependency of the interpreter or text emitter.
 ```saw
 func factorial(n: Int32) -> Int32 {
     if n <= 1 {
-        return 1
+        1
     } else {
-        return n * factorial(n - 1)
+        n * factorial(n - 1)
     }
 }
 
@@ -44,13 +44,15 @@ func main() {
 
 Single-file programs support signed and unsigned 8/16/32/64-bit integers,
 `Int`/`UInt` (64-bit), `Byte`, `Bool`, functions, positional calls,
-recursion, `let`/`var`, assignment, lexical scopes, statement `if`/`else` and
-`while`, explicit returns, and numeric/Bool printing. Named structs can contain scalars
+recursion, `let`/`var`, assignment, lexical scopes, `if`/`else if`/`else` and
+`while`, explicit and implicit tail returns, and numeric/Bool printing. Named structs can contain scalars
 or nested structs, with
 field access, mutable fields, value copying, and function parameters/results.
 Payload-free enums support copying, equality, record fields and function
-parameters/results. Exhaustive statement `match` supports qualified or unqualified
-cases and a final wildcard; see [M4_ENUMS.md](M4_ENUMS.md).
+parameters/results. Exhaustive enum `match` supports qualified or unqualified
+cases and a final wildcard; see [M4_ENUMS.md](M4_ENUMS.md). Value-producing `if`
+and `match` join numeric, Bool, enum, or record values, with explicit returns
+allowed inside arms; see [M5_VALUE_CONTROL.md](M5_VALUE_CONTROL.md).
 Record layouts are limited to 256 words and 128 nesting levels; see
 [M2_RECORDS.md](M2_RECORDS.md). Arithmetic is checked; signed
 division truncates toward zero. Overflow and division by zero print an error
@@ -63,8 +65,9 @@ shift counts. See [M1_NUMBERS.md](M1_NUMBERS.md) for the precise numeric contrac
 
 Newlines separate statements. Omit the result annotation for Void functions;
 `main()` must take no arguments and return Void. Value-returning functions need
-explicit returns. There are no imports, strings, collections, references,
-generics, methods, implicit value tails, or concurrency in the accepted subset.
+a value on every continuing path, supplied by an explicit return or final expression.
+There are no imports, strings, collections, references,
+generics, methods, or concurrency in the accepted subset.
 Semicolons remain unsupported. Boolean `&&`/`||` short-circuit, mutable integers
 and fields support `+=`/`-=`/`*=`/`/=`/`%=`, and module `static` integer/Bool
 constants accept literal and numeric-limit initializers. See
@@ -83,20 +86,21 @@ python prototypes/minivm/test_minivm.py --binary .build/minivm/minivm
 
 The harness compares VM execution and clang-compiled IR with explicit expected
 outputs and statuses, checks rejected programs, and exercises VM limits. It
-uses temporary files and 30-second subprocess timeouts. The first four milestones
-pass all 161 cases, including native execution at both `-O0` and `-O2`.
+uses temporary files and 30-second subprocess timeouts. The first five milestones
+pass all 193 cases, including native execution at both `-O0` and `-O2`.
 
 Independent representation checks live in `tests/numeric_contract.saw` and
 `tests/record_contract.saw`, and `tests/enum_contract.saw`; build and run them
 with the Python compiler.
 Use `--section numbers`, `--section records`, `--section control`, or
-`--section enums` for an isolated
+`--section enums`, or `--section values` for an isolated
 integration gate.
 
 See [DESIGN.md](DESIGN.md) and [M1_NUMBERS.md](M1_NUMBERS.md) for the instruction
 schema and semantics. [LEXER_DEPENDENCIES.md](LEXER_DEPENDENCIES.md) tracks the
 remaining dependencies needed to compile the existing lexer with this prototype.
-The enum fixtures include the lexer's actual `TokenKind` declaration. Source is
+The fixtures include the lexer's actual `TokenKind` declaration and `hex_value`
+helper. Source is
 split into `frontend.saw`, `model.saw`, `verify.saw`, `vm.saw`, `llvm.saw`, and
 `main.saw`. The verifier checks structural indices and types; initialization
 is established by the frontend, so this is not a loader for untrusted bytecode.

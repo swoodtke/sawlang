@@ -1,0 +1,4 @@
+func main() {
+    let value: Int8 = if true { 1 } else { 128 }
+    print(value)
+}

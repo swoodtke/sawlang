@@ -1,0 +1,12 @@
+enum Pick { case First, case Second }
+func main() {
+    let result = match Pick.First {
+        case First -> {
+            let hidden = 7
+            hidden
+        },
+        case Second -> 0
+    }
+    print(result)
+    print(hidden)
+}

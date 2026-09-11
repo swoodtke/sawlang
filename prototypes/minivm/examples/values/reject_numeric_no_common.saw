@@ -1,0 +1,5 @@
+func main() {
+    let signed: Int8 = 1
+    let unsigned: UInt8 = 2
+    let value = if true { signed } else { unsigned }
+}

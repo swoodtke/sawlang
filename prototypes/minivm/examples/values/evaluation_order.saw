@@ -1,0 +1,14 @@
+func condition(label: Int, value: Bool) -> Bool {
+    print(label)
+    return value
+}
+
+func arm(label: Int, value: Int) -> Int {
+    print(label)
+    return value
+}
+
+func main() {
+    print(if condition(1, true) { arm(2, 20) } else { arm(3, 30) })
+    print(if condition(4, false) { 1 / 0 } else { arm(5, 50) })
+}

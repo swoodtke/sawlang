@@ -1,0 +1,13 @@
+func classify(value: Int) -> Int {
+    if value < 0 { -1 }
+    else if value == 0 { 0 }
+    else if value < 10 { 1 }
+    else { 2 }
+}
+
+func main() {
+    print(classify(-4))
+    print(classify(0))
+    print(classify(7))
+    print(classify(20))
+}

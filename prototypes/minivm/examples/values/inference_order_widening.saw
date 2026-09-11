@@ -1,0 +1,33 @@
+func take_u8(value: UInt8) { print(value) }
+func take_i16(value: Int16) { print(value) }
+
+enum Three { case Negative, case Small, case Wide }
+
+func inferred_match(value: Three) {
+    let result = match value {
+        case Negative -> -1i8,
+        case Small -> 1u8,
+        case Wide -> 2i16
+    }
+    take_i16(result)
+}
+
+func marker() { print(8) }
+
+func tail_after_void() -> Int {
+    marker()
+    42
+}
+
+func main() {
+    let reverse = if true { 6u8 } else { 5 }
+    take_u8(reverse)
+    let signed: Int16 = -3
+    let unsigned: UInt8 = 9
+    let widened = if true { signed } else { unsigned }
+    print(widened)
+    inferred_match(Three.Negative)
+    inferred_match(Three.Small)
+    inferred_match(Three.Wide)
+    print(tail_after_void())
+}

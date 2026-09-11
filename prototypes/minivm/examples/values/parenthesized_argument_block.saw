@@ -1,0 +1,17 @@
+func take(value: Int) { print(value) }
+
+func main() {
+    take(if true {
+        var n = 0
+        while n < 2 {
+            print(n)
+            n += 1
+        }
+        if n == 2 {
+            print(8)
+        }
+        n + 40
+    } else {
+        0
+    })
+}

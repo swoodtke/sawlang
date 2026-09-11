@@ -1,0 +1,14 @@
+enum Pick { case First, case Second }
+
+func marked(value: Pick) -> Pick {
+    print(6)
+    return value
+}
+
+func main() {
+    let answer = match marked(Pick.Second) {
+        case First -> 10,
+        case Second -> 20
+    }
+    print(answer)
+}

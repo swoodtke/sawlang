@@ -1,0 +1,5 @@
+enum First { case Value }
+enum Second { case Value }
+func main() {
+    let value = if true { First.Value } else { Second.Value }
+}

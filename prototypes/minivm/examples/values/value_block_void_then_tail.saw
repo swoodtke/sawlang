@@ -1,0 +1,11 @@
+func marker() { print(10) }
+
+func main() {
+    let value = if true {
+        marker()
+        42
+    } else {
+        0
+    }
+    print(value)
+}

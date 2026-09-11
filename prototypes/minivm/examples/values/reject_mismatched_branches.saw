@@ -1,0 +1,4 @@
+enum Mode { case On }
+func main() {
+    let value = if true { 1 } else { Mode.On }
+}

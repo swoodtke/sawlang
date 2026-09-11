@@ -48,11 +48,24 @@ struct ExprValue {
     literal: Bool
     literal_value: UInt
     literal_negative: Bool
+    always_returns: Bool
+}
+
+struct BlockValue {
+    has_value: Bool
+    value: ExprValue
+    always_returns: Bool
 }
 
 func expr_value(ty: ValueType, slot: Int, call: Bool) -> ExprValue {
     ExprValue(ty: ty, slot: slot, call: call, literal: false,
-              literal_value: 0, literal_negative: false)
+              literal_value: 0, literal_negative: false, always_returns: false)
+}
+
+func returning_value() -> ExprValue {
+    var v = expr_value(ValueType.Void, -1, false)
+    v.always_returns = true
+    v
 }
 
 func type_name(t: ValueType) -> String {
@@ -382,7 +395,7 @@ extension Compiler {
         bits = integer_normalize(bits, source)
         if bare {
             let probe = ExprValue(ty: source, slot: -1, call: false, literal: true,
-                                  literal_value: magnitude, literal_negative: negative)
+                                  literal_value: magnitude, literal_negative: negative, always_returns: false)
             if not self.literal_fits_target(&probe, target) {
                 return problem("integer literal does not fit {type_name(target)}", t.line, t.col)
             }
@@ -645,7 +658,7 @@ extension Compiler {
             }
         }
         ExprValue(ty: target, slot: v.slot, call: false, literal: true,
-                  literal_value: v.literal_value, literal_negative: v.literal_negative)
+                  literal_value: v.literal_value, literal_negative: v.literal_negative, always_returns: false)
     }
 
     func transfer(&var self, v: ExprValue, target: ValueType, t: &Token) -> Result<ExprValue, ProtoError> {
@@ -668,6 +681,8 @@ extension Compiler {
 
     func parse_atom(&var self) -> Result<ExprValue, ProtoError> {
         if self.depth > 128 { return self.fail("expression nesting limit exceeded") }
+        if self.at(TokenKind.If) { return self.parse_if_value(ValueType.Void, false) }
+        if self.at(TokenKind.Match) { return self.parse_match_value(ValueType.Void, false) }
         if self.at(TokenKind.IntLit) {
             let t = self.take()
             guard let magnitude = literal_magnitude(t.value) else { return problem("invalid integer literal", t.line, t.col) }
@@ -685,7 +700,7 @@ extension Compiler {
             self.code[at].dst = dst
             self.code[at].immediate = integer_normalize(Int.from(truncating: magnitude), ty)
             return ExprValue(ty: ty, slot: dst, call: false, literal: bare,
-                             literal_value: magnitude, literal_negative: false)
+                             literal_value: magnitude, literal_negative: false, always_returns: false)
         }
         if self.at(TokenKind.True_) || self.at(TokenKind.False_) {
             let t = self.take()
@@ -840,8 +855,8 @@ extension Compiler {
                 }
                 let _ = try self.expect(TokenKind.Colon, "expected `:` after record field label")
                 self.expr_space()
-                var value = try self.parse_expr()
-                value = try self.transfer(value, self.records[ri].field_types[fi], &label)
+                var value = try self.parse_expected_expr(self.records[ri].field_types[fi])
+                if value.always_returns { return problem("all-returning control flow cannot be used as an operand", label.line, label.col) }
                 value = try self.snapshot(value, &label)
                 try! fields.push(fi)
                 try! values.push(move value)
@@ -943,11 +958,11 @@ extension Compiler {
         if not self.at(TokenKind.RParen) {
             var more = true
             while more {
-                var value = try self.parse_expr()
                 if ai >= self.signatures[fi].params.len() {
                     return problem("too many arguments to `{name.value}`", name.line, name.col)
                 }
-                value = try self.transfer(value, self.signatures[fi].params[ai], &name)
+                var value = try self.parse_expected_expr(self.signatures[fi].params[ai])
+                if value.always_returns { return problem("all-returning control flow cannot be used as an operand", name.line, name.col) }
                 value = try self.snapshot(value, &name)
                 let layout = try value_layout(&self.records, value.ty)
                 var word = 0
@@ -1017,7 +1032,7 @@ extension Compiler {
                 self.code[at].dst = dst
                 self.code[at].immediate = bits
                 let value = ExprValue(ty: ty, slot: dst, call: false, literal: bare,
-                                      literal_value: magnitude, literal_negative: true)
+                                      literal_value: magnitude, literal_negative: true, always_returns: false)
                 return value
             }
             let v = try self.parse_unary()
@@ -1089,6 +1104,9 @@ extension Compiler {
 
     func common_type(&self, left: &ExprValue, right: &ExprValue,
                      t: &Token) -> Result<ValueType, ProtoError> {
+        if left.always_returns || right.always_returns {
+            return problem("all-returning control flow cannot be used as an operand", t.line, t.col)
+        }
         if left.ty == right.ty {
             if left.literal && not self.literal_fits_target(&left, left.ty) { return problem("integer literal does not fit {type_name(left.ty)}", t.line, t.col) }
             if right.literal && not self.literal_fits_target(&right, right.ty) { return problem("integer literal does not fit {type_name(right.ty)}", t.line, t.col) }
@@ -1308,6 +1326,422 @@ extension Compiler {
         left
     }
 
+    func parse_expected_expr(&var self, expected: ValueType) -> Result<ExprValue, ProtoError> {
+        if self.depth >= 128 { return self.fail("expression nesting limit exceeded") }
+        self.expr_space()
+        if self.wrapped_control_is_isolated() {
+            let _ = self.take()
+            self.depth += 1
+            self.paren_depth += 1
+            self.skip_newlines()
+            let value = try self.parse_expected_expr(expected)
+            self.skip_newlines()
+            let _ = try self.expect(TokenKind.RParen, "expected `)`")
+            self.paren_depth -= 1
+            self.depth -= 1
+            return value
+        }
+        if self.control_is_isolated() {
+            if self.at(TokenKind.If) { return self.parse_if_value(expected, true) }
+            if self.at(TokenKind.Match) { return self.parse_match_value(expected, true) }
+        }
+        let anchor = self.token()
+        let value = try self.parse_expr()
+        if value.always_returns { return value }
+        self.transfer(value, expected, &anchor)
+    }
+
+    func value_statement_start(&self) -> Bool {
+        let t = self.token()
+        if t.kind == TokenKind.Let || t.kind == TokenKind.Var || t.kind == TokenKind.Return || t.kind == TokenKind.While || t.kind == TokenKind.LBrace { return true }
+        if t.kind == TokenKind.Ident && t.value == "print" { return true }
+        self.assignment_ahead()
+    }
+
+    func expression_is_block_tail(&self) -> Bool {
+        var i = self.pos
+        var parens = 0
+        var braces = 0
+        while i < self.tokens.len() {
+            let kind = self.tokens[i].kind
+            if kind == TokenKind.LParen { parens += 1 }
+            else if kind == TokenKind.RParen { if parens > 0 { parens -= 1 } }
+            else if kind == TokenKind.LBrace { braces += 1 }
+            else if kind == TokenKind.RBrace {
+                if braces > 0 { braces -= 1 }
+                else { return true }
+            }
+            if kind == TokenKind.Newline && parens == 0 && braces == 0 {
+                var j = i + 1
+                while j < self.tokens.len() && self.tokens[j].kind == TokenKind.Newline { j += 1 }
+                if j < self.tokens.len() && self.tokens[j].kind == TokenKind.Else { i = j }
+                else { return j < self.tokens.len() && self.tokens[j].kind == TokenKind.RBrace }
+            }
+            i += 1
+        }
+        false
+    }
+
+    func control_end_from(&self, start: Int) -> Int {
+        if start < 0 || start >= self.tokens.len() { return -1 }
+        if self.tokens[start].kind != TokenKind.If && self.tokens[start].kind != TokenKind.Match { return -1 }
+        let starts_if = self.tokens[start].kind == TokenKind.If
+        var i = start
+        var braces = 0
+        var parens = 0
+        var saw_brace = false
+        while i < self.tokens.len() {
+            let kind = self.tokens[i].kind
+            if kind == TokenKind.LParen { parens += 1 }
+            else if kind == TokenKind.RParen { if parens > 0 { parens -= 1 } }
+            else if kind == TokenKind.LBrace && (saw_brace || parens == 0) {
+                braces += 1
+                saw_brace = true
+            }
+            else if kind == TokenKind.RBrace && saw_brace {
+                braces -= 1
+                if saw_brace && braces == 0 {
+                    var j = i + 1
+                    while j < self.tokens.len() && self.tokens[j].kind == TokenKind.Newline { j += 1 }
+                    if starts_if && j < self.tokens.len() && self.tokens[j].kind == TokenKind.Else {
+                        j += 1
+                        while j < self.tokens.len() && self.tokens[j].kind == TokenKind.Newline { j += 1 }
+                        i = j - 1
+                        saw_brace = false
+                    } else { return i + 1 }
+                }
+            }
+            i += 1
+        }
+        -1
+    }
+
+    func control_is_isolated(&self) -> Bool {
+        let i = self.control_end_from(self.pos)
+        if i < 0 { return false }
+        if i >= self.tokens.len() { return true }
+        let kind = self.tokens[i].kind
+        kind == TokenKind.RBrace || kind == TokenKind.RParen || kind == TokenKind.Comma || kind == TokenKind.Newline || kind == TokenKind.Eof
+    }
+
+    func if_has_else(&self) -> Bool {
+        let end = self.control_end_from(self.pos)
+        var i = self.pos
+        var braces = 0
+        var parens = 0
+        while i < end {
+            let kind = self.tokens[i].kind
+            if kind == TokenKind.LParen { parens += 1 }
+            else if kind == TokenKind.RParen { parens -= 1 }
+            else if kind == TokenKind.LBrace { braces += 1 }
+            else if kind == TokenKind.RBrace { braces -= 1 }
+            else if kind == TokenKind.Else && braces == 0 && parens == 0 { return true }
+            i += 1
+        }
+        false
+    }
+
+    func wrapped_control_is_isolated(&self) -> Bool {
+        var start = self.pos
+        var wrappers = 0
+        while start < self.tokens.len() && self.tokens[start].kind == TokenKind.LParen {
+            wrappers += 1
+            start += 1
+            while start < self.tokens.len() && self.tokens[start].kind == TokenKind.Newline { start += 1 }
+        }
+        if wrappers == 0 { return false }
+        var finish = self.control_end_from(start)
+        if finish < 0 { return false }
+        var n = 0
+        while n < wrappers {
+            while finish < self.tokens.len() && self.tokens[finish].kind == TokenKind.Newline { finish += 1 }
+            if finish >= self.tokens.len() || self.tokens[finish].kind != TokenKind.RParen { return false }
+            finish += 1
+            n += 1
+        }
+        if finish >= self.tokens.len() { return true }
+        let kind = self.tokens[finish].kind
+        kind == TokenKind.RBrace || kind == TokenKind.RParen || kind == TokenKind.Comma || kind == TokenKind.Newline || kind == TokenKind.Eof
+    }
+
+    func parse_value_block(&var self, expected: ValueType, has_expected: Bool) -> Result<BlockValue, ProtoError> {
+        if self.depth >= 128 { return self.fail("block nesting limit exceeded") }
+        self.depth += 1
+        let saved_parens = self.paren_depth
+        self.paren_depth = 0
+        self.skip_newlines()
+        var returns = false
+        while not self.at(TokenKind.RBrace) && not self.at(TokenKind.Eof) {
+            let tail = self.expression_is_block_tail()
+            if self.value_statement_start() || ((self.at(TokenKind.If) || self.at(TokenKind.Match)) && not tail) {
+                let r = try self.parse_statement()
+                if r { returns = true }
+                try self.terminator()
+                continue
+            }
+            let start = self.token()
+            var value = returning_value()
+            if has_expected && tail { value = try self.parse_expected_expr(expected) }
+            else { value = try self.parse_expr() }
+            let had_newline = self.at(TokenKind.Newline)
+            if had_newline { self.skip_newlines() }
+            if self.at(TokenKind.RBrace) {
+                let _ = self.take()
+                self.leave_scope()
+                self.depth -= 1
+                self.paren_depth = saved_parens
+                if returns || value.always_returns {
+                    return BlockValue(has_value: false, value: returning_value(), always_returns: true)
+                }
+                return BlockValue(has_value: true, value: value, always_returns: false)
+            }
+            if value.always_returns { returns = true }
+            else if not value.call || value.ty != ValueType.Void {
+                return problem("only Void function calls may be expression statements", start.line, start.col)
+            }
+            if not had_newline { return problem("expected newline after statement", start.line, start.col) }
+        }
+        let _ = try self.expect(TokenKind.RBrace, "expected closing brace")
+        self.leave_scope()
+        self.depth -= 1
+        self.paren_depth = saved_parens
+        BlockValue(has_value: false, value: returning_value(), always_returns: returns)
+    }
+
+    func merge_control_type(&self, a: &ExprValue, b: &ExprValue,
+                            expected: ValueType, has_expected: Bool, t: &Token) -> Result<ValueType, ProtoError> {
+        if has_expected { return expected }
+        if a.ty == b.ty { return a.ty }
+        if a.literal && integer_type(b.ty) { return b.ty }
+        if b.literal && integer_type(a.ty) { return a.ty }
+        if integer_widens(a.ty, b.ty) { return b.ty }
+        if integer_widens(b.ty, a.ty) { return a.ty }
+        problem("control-flow branches have incompatible types", t.line, t.col)
+    }
+
+    func append_value_exit(&var self, exit: Int, value: ExprValue, target: ValueType,
+                           dst: Int, t: &Token, joins: &var Vector<Int>) -> Result<Void, ProtoError> {
+        self.code[exit].target = self.code.len()
+        let converted = try self.transfer(value, target, &t)
+        try self.emit_copy_value(dst, converted.slot, target, &t)
+        let join = self.emit_at(Op.Jump, t.line, t.col)
+        try! joins.push(join)
+        return
+    }
+
+    func parse_if_value(&var self, expected: ValueType, has_expected: Bool) -> Result<ExprValue, ProtoError> {
+        if self.expr_depth >= 128 { return self.fail("expression nesting limit exceeded") }
+        self.expr_depth += 1
+        let result = try self.parse_if_value_inner(expected, has_expected)
+        self.expr_depth -= 1
+        result
+    }
+
+    func parse_if_value_inner(&var self, expected: ValueType, has_expected: Bool) -> Result<ExprValue, ProtoError> {
+        let it = self.take()
+        let condition = try self.parse_expr()
+        try self.require_type(condition.ty, ValueType.Bool, &it)
+        let _ = try self.expect(TokenKind.LBrace, "expected block after if condition")
+        let branch = self.emit_at(Op.Branch, it.line, it.col)
+        self.code[branch].a = condition.slot
+        let skip_then = self.emit_at(Op.Jump, it.line, it.col)
+        self.code[branch].target = self.code.len()
+        let then_value = try self.parse_value_block(expected, has_expected)
+        var then_exit = -1
+        if not then_value.always_returns { then_exit = self.emit_at(Op.Jump, it.line, it.col) }
+        self.code[skip_then].target = self.code.len()
+        self.skip_newlines()
+        if not self.at(TokenKind.Else) { return problem("value if requires an else", it.line, it.col) }
+        let _ = self.take()
+        var else_value = BlockValue(has_value: false, value: returning_value(), always_returns: false)
+        if self.at(TokenKind.If) {
+            let nested = try self.parse_if_value(expected, has_expected)
+            else_value = BlockValue(has_value: not nested.always_returns, value: nested,
+                                    always_returns: nested.always_returns)
+        } else {
+            let _ = try self.expect(TokenKind.LBrace, "expected block after else")
+            else_value = try self.parse_value_block(expected, has_expected)
+        }
+        var else_exit = -1
+        if not else_value.always_returns { else_exit = self.emit_at(Op.Jump, it.line, it.col) }
+        if not then_value.always_returns && not then_value.has_value {
+            return problem("continuing value branch requires a tail expression", it.line, it.col)
+        }
+        if not else_value.always_returns && not else_value.has_value {
+            return problem("continuing value branch requires a tail expression", it.line, it.col)
+        }
+        if then_value.always_returns && else_value.always_returns { return returning_value() }
+        var target = ValueType.Void
+        if then_value.always_returns {
+            target = else_value.value.ty
+            if has_expected { target = expected }
+        }
+        else if else_value.always_returns {
+            target = then_value.value.ty
+            if has_expected { target = expected }
+        }
+        else { target = try self.merge_control_type(&then_value.value, &else_value.value, expected, has_expected, &it) }
+        let dst = try self.new_value(target)
+        var joins = Vector<Int>()
+        if then_exit >= 0 { try self.append_value_exit(then_exit, then_value.value, target, dst, &it, &var joins) }
+        if else_exit >= 0 { try self.append_value_exit(else_exit, else_value.value, target, dst, &it, &var joins) }
+        let continuation = self.code.len()
+        var j = 0
+        while j < joins.len() {
+            self.code[joins[j]].target = continuation
+            j += 1
+        }
+        expr_value(target, dst, false)
+    }
+
+    func parse_match_value(&var self, expected: ValueType, has_expected: Bool) -> Result<ExprValue, ProtoError> {
+        if self.expr_depth >= 128 { return self.fail("expression nesting limit exceeded") }
+        self.expr_depth += 1
+        let result = try self.parse_match_value_inner(expected, has_expected)
+        self.expr_depth -= 1
+        result
+    }
+
+    func parse_match_value_inner(&var self, expected: ValueType, has_expected: Bool) -> Result<ExprValue, ProtoError> {
+        let mt = self.take()
+        var subject = try self.parse_expr()
+        subject = try self.snapshot(subject, &mt)
+        var ei = -1
+        match subject.ty {
+            case Enum(index) -> { ei = index },
+            case _ -> { return problem("match subject must have enum type", mt.line, mt.col) }
+        }
+        let _ = try self.expect(TokenKind.LBrace, "expected `\{` after match subject")
+        self.skip_newlines()
+        var covered = Vector<Bool>()
+        var n = 0
+        while n < self.enums[ei].cases.len() {
+            try! covered.push(false)
+            n += 1
+        }
+        var exits = Vector<Int>()
+        var values = Vector<ExprValue>()
+        var pending_false = -1
+        var wildcard = false
+        var arms = 0
+        while not self.at(TokenKind.RBrace) && not self.at(TokenKind.Eof) {
+            if wildcard { return self.fail("match arm follows wildcard") }
+            if pending_false >= 0 { self.code[pending_false].target = self.code.len() }
+            let ct = try self.expect(TokenKind.Case, "expected `case` in match")
+            let pattern = try self.expect(TokenKind.Ident, "expected enum case pattern")
+            var ordinal = -1
+            if pattern.value == "_" { wildcard = true }
+            else if self.at(TokenKind.Dot) {
+                let qualifier = self.enum_index(pattern.value)
+                if qualifier != ei { return problem("enum qualifier `{pattern.value}` does not match subject enum `{self.enums[ei].name}`", pattern.line, pattern.col) }
+                let _ = self.take()
+                let item = try self.expect(TokenKind.Ident, "expected qualified enum case")
+                ordinal = self.enum_case_index(ei, item.value)
+                if ordinal < 0 { return problem("enum `{self.enums[ei].name}` has no case `{item.value}`", item.line, item.col) }
+            } else {
+                ordinal = self.enum_case_index(ei, pattern.value)
+                if ordinal < 0 { return problem("enum `{self.enums[ei].name}` has no case `{pattern.value}`", pattern.line, pattern.col) }
+            }
+            if ordinal >= 0 {
+                if covered[ordinal] { return problem("duplicate match case `{self.enums[ei].cases[ordinal]}`", pattern.line, pattern.col) }
+                covered[ordinal] = true
+                let constant = self.new_slot(subject.ty)
+                let ci = self.emit_at(Op.Const, pattern.line, pattern.col)
+                self.code[ci].dst = constant
+                self.code[ci].immediate = ordinal
+                let equal = self.new_slot(ValueType.Bool)
+                let eq = self.emit_at(Op.Eq, pattern.line, pattern.col)
+                self.code[eq].dst = equal
+                self.code[eq].a = subject.slot
+                self.code[eq].b = constant
+                let branch = self.emit_at(Op.Branch, pattern.line, pattern.col)
+                self.code[branch].a = equal
+                pending_false = self.emit_at(Op.Jump, pattern.line, pattern.col)
+                self.code[branch].target = self.code.len()
+            } else { pending_false = -1 }
+            let _ = try self.expect(TokenKind.Arrow, "expected `->` after match pattern")
+            var outcome = BlockValue(has_value: false, value: returning_value(), always_returns: false)
+            if self.at(TokenKind.LBrace) {
+                let _ = self.take()
+                outcome = try self.parse_value_block(expected, has_expected)
+            } else {
+                var value = returning_value()
+                if has_expected { value = try self.parse_expected_expr(expected) }
+                else { value = try self.parse_expr() }
+                outcome = BlockValue(has_value: not value.always_returns, value: value,
+                                     always_returns: value.always_returns)
+            }
+            if not outcome.always_returns {
+                if not outcome.has_value { return problem("continuing value branch requires a tail expression", ct.line, ct.col) }
+                let exit = self.emit_at(Op.Jump, ct.line, ct.col)
+                try! exits.push(exit)
+                try! values.push(outcome.value)
+            }
+            arms += 1
+            self.skip_newlines()
+            if self.at(TokenKind.Comma) {
+                let _ = self.take()
+                self.skip_newlines()
+            }
+        }
+        let _ = try self.expect(TokenKind.RBrace, "expected closing brace for match")
+        if arms == 0 { return problem("non-exhaustive match", mt.line, mt.col) }
+        var exhaustive = wildcard
+        if not exhaustive {
+            exhaustive = true
+            n = 0
+            while n < covered.len() {
+                if not covered[n] { exhaustive = false }
+                n += 1
+            }
+        }
+        if not exhaustive { return problem("non-exhaustive match", mt.line, mt.col) }
+        if values.len() == 0 {
+            if pending_false >= 0 { self.code[pending_false].target = self.code.len() }
+            return returning_value()
+        }
+        var target = values[0].ty
+        if has_expected { target = expected }
+        if not has_expected {
+            var candidate = -1
+            var saw_typed = false
+            n = 0
+            while n < values.len() {
+                if not values[n].literal {
+                    saw_typed = true
+                    var accepts = true
+                    var j = 0
+                    while j < values.len() {
+                        if values[j].ty != values[n].ty && not values[j].literal && not integer_widens(values[j].ty, values[n].ty) { accepts = false }
+                        j += 1
+                    }
+                    if accepts {
+                        candidate = n
+                        break
+                    }
+                }
+                n += 1
+            }
+            if candidate >= 0 { target = values[candidate].ty }
+            else if saw_typed { return problem("control-flow branches have incompatible types", mt.line, mt.col) }
+        }
+        let dst = try self.new_value(target)
+        var joins = Vector<Int>()
+        n = 0
+        while n < values.len() {
+            try self.append_value_exit(exits[n], values[n], target, dst, &mt, &var joins)
+            n += 1
+        }
+        let continuation = self.code.len()
+        if pending_false >= 0 { self.code[pending_false].target = continuation }
+        n = 0
+        while n < joins.len() {
+            self.code[joins[n]].target = continuation
+            n += 1
+        }
+        expr_value(target, dst, false)
+    }
+
     func parse_block(&var self) -> Result<Bool, ProtoError> {
         if self.depth >= 128 { return self.fail("block nesting limit exceeded") }
         self.depth += 1
@@ -1420,6 +1854,7 @@ extension Compiler {
     }
 
     func parse_statement(&var self) -> Result<Bool, ProtoError> {
+        let statement_token = self.token()
         if self.at(TokenKind.Semicolon) { return self.fail("semicolons are not supported") }
         if self.at(TokenKind.Match) { return self.parse_match_statement() }
         if self.at(TokenKind.Let) || self.at(TokenKind.Var) {
@@ -1431,10 +1866,10 @@ extension Compiler {
                 annotated = Some(try self.parse_type())
             }
             let _ = try self.expect(TokenKind.Assign, "local declarations require an initializer")
-            var value = try self.parse_expr()
+            var value = if let ty = annotated { try self.parse_expected_expr(ty) } else { try self.parse_expr() }
+            if value.always_returns { return problem("all-returning control flow cannot be used as an operand", name.line, name.col) }
             if value.ty == ValueType.Void { return problem("cannot initialize a local with Void", name.line, name.col) }
-            if let ty = annotated { value = try self.transfer(value, ty, &name) }
-            else { value = try self.transfer(value, value.ty, &name) }
+            if let _ = annotated {} else { value = try self.transfer(value, value.ty, &name) }
             let dst = try self.new_value(value.ty)
             try self.emit_copy_value(dst, value.slot, value.ty, &name)
             try self.declare(name, value.ty, dst, kw.kind == TokenKind.Var)
@@ -1444,8 +1879,8 @@ extension Compiler {
             let t = self.take()
             var src = -1
             if not self.at(TokenKind.Newline) && not self.at(TokenKind.RBrace) {
-                var value = try self.parse_expr()
-                value = try self.transfer(value, self.current_result, &t)
+                var value = try self.parse_expected_expr(self.current_result)
+                if value.always_returns { return true }
                 src = value.slot
             } else if self.current_result != ValueType.Void { return problem("non-Void return requires a value", t.line, t.col) }
             let at = self.emit_at(Op.Return, t.line, t.col)
@@ -1469,8 +1904,15 @@ extension Compiler {
             self.skip_newlines()
             if self.at(TokenKind.Else) {
                 let _ = self.take()
-                let _ = try self.expect(TokenKind.LBrace, "expected block after else")
-                else_returns = try self.parse_block()
+                if self.at(TokenKind.If) {
+                    if self.depth >= 128 { return self.fail("block nesting limit exceeded") }
+                    self.depth += 1
+                    else_returns = try self.parse_statement()
+                    self.depth -= 1
+                } else {
+                    let _ = try self.expect(TokenKind.LBrace, "expected block after else")
+                    else_returns = try self.parse_block()
+                }
             } else {
                 self.pos = before_else
             }
@@ -1497,13 +1939,14 @@ extension Compiler {
             let _ = self.take()
             return self.parse_block()
         }
-        if self.at(TokenKind.Ident) && self.token().value == "print" {
+        if statement_token.kind == TokenKind.Ident && statement_token.value == "print" {
             let t = self.take()
             let _ = try self.expect(TokenKind.LParen, "expected `(` after print")
             self.depth += 1
             self.paren_depth += 1
             self.skip_newlines()
             var value = try self.parse_expr()
+            if value.always_returns { return problem("all-returning control flow cannot be used as an operand", t.line, t.col) }
             value = try self.transfer(value, value.ty, &t)
             self.skip_newlines()
             let _ = try self.expect(TokenKind.RParen, "expected `)` after print argument")
@@ -1526,7 +1969,8 @@ extension Compiler {
             let place = parsed.1
             let assign = self.take()
             if not place.mutable { return problem("cannot assign to immutable local `{name.value}`", name.line, name.col) }
-            var value = try self.parse_expr()
+            var value = if assign.kind == TokenKind.Assign { try self.parse_expected_expr(place.ty) } else { try self.parse_expr() }
+            if value.always_returns { return problem("all-returning control flow cannot be used as an operand", assign.line, assign.col) }
             if assign.kind != TokenKind.Assign {
                 if not arithmetic_type(place.ty) { return problem("compound assignment requires an arithmetic integer destination", assign.line, assign.col) }
                 if value.literal { value = try self.transfer(value, place.ty, &assign) }
@@ -1534,7 +1978,7 @@ extension Compiler {
                 let op = if assign.kind == TokenKind.PlusAssign { Op.Add } else if assign.kind == TokenKind.MinusAssign { Op.Sub } else if assign.kind == TokenKind.StarAssign { Op.Mul } else if assign.kind == TokenKind.SlashAssign { Op.Div } else { Op.Rem }
                 let left = expr_value(place.ty, place.slot, false)
                 value = try self.binary(left, value, op, place.ty, &assign)
-            } else { value = try self.transfer(value, place.ty, &name) }
+            }
             value = try self.snapshot(value, &name)
             try self.emit_copy_value(place.slot, value.slot, place.ty, &name)
             return false
@@ -1567,6 +2011,17 @@ extension Compiler {
         self.skip_newlines()
         var returns = false
         while self.pos < self.signatures[index].body_end {
+            if self.current_result != ValueType.Void && self.expression_is_block_tail() && not self.value_statement_start() && (not self.at(TokenKind.If) || self.if_has_else()) {
+                let tail = try self.parse_expected_expr(self.current_result)
+                if tail.always_returns { returns = true }
+                else {
+                    let r = self.emit_at(Op.Return, self.signatures[index].line, self.signatures[index].col)
+                    self.code[r].a = tail.slot
+                    returns = true
+                }
+                self.skip_newlines()
+                break
+            }
             let r = try self.parse_statement()
             if not returns && r { returns = true }
             try self.terminator()

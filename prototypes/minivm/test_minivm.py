@@ -129,6 +129,24 @@ RUN_CASES = (
     RunCase("enums/subject_once", "7\n2\n", section="enums"),
     RunCase("enums/all_arms_return", "20\n40\n60\n", section="enums"),
     RunCase("enums/lexer_token_kind", "1\n2\n3\ntrue\n", section="enums"),
+    RunCase("values/scalar_bool_tails", "42\ntrue\n-128\n", section="values"),
+    RunCase("values/if_nested", "11\n12\n21\n22\n", section="values"),
+    RunCase("values/else_if", "-1\n0\n1\n2\n", section="values"),
+    RunCase("values/match_arms", "1\n3\n11\n22\n33\n", section="values"),
+    RunCase("values/record_enum_values", "7\ntrue\n9\ntrue\ntrue\n", section="values"),
+    RunCase("values/contexts", "-7\n5\n-128\n4294967295\n65535\n", section="values"),
+    RunCase("values/evaluation_order", "1\n2\n20\n4\n5\n50\n", section="values"),
+    RunCase("values/match_subject_once", "6\n20\n", section="values"),
+    RunCase("values/returns_and_scope", "10\n20\n30\n40\n3\n9\n50\n", section="values"),
+    RunCase("values/u64_context", "18446744073709551615\n9223372036854775808\n255\n", section="values"),
+    RunCase("values/lexer_hex_value", "0\n9\n10\n15\n10\n15\n", section="values"),
+    RunCase("values/inference_order_widening", "6\n-3\n-1\n1\n2\n8\n42\n", section="values"),
+    RunCase("values/review_grid", "10\n11\n18446744073709551615\n10\n12\n9223372036854775808\n20\n20\n18446744073709551615\n30\n30\n99\n40\n43\n9223372036854775808\n46\n", section="values"),
+    RunCase("values/review_context", "true\nfalse\n2\n1\n3\n5\n3\n40\n7\n", section="values"),
+    RunCase("values/review_composition", "true\n9\n8\n11\n255\n1\n", section="values"),
+    RunCase("values/statement_else_if", "2\n3\n5\n6\n7\n", section="values"),
+    RunCase("values/value_block_void_then_tail", "10\n42\n", section="values"),
+    RunCase("values/parenthesized_argument_block", "0\n1\n8\n42\n", section="values"),
 )
 
 REJECT_CASES = (
@@ -197,6 +215,20 @@ REJECT_CASES = (
     RejectCase("enums/reject_print", "cannot print an enum value", "enums"),
     RejectCase("enums/reject_payload", "payload enum cases are not supported", "enums"),
     RejectCase("enums/reject_arithmetic", "arithmetic requires integer operands", "enums"),
+    RejectCase("values/reject_missing_else", "value if requires an else", "values"),
+    RejectCase("values/reject_missing_tail", "continuing value branch requires a tail expression", "values"),
+    RejectCase("values/reject_mismatched_branches", "control-flow branches have incompatible types", "values"),
+    RejectCase("values/reject_unselected_range", "integer literal does not fit", "values"),
+    RejectCase("values/reject_incomplete_match", "non-exhaustive match", "values"),
+    RejectCase("values/reject_non_tail_expression", "only Void function calls may be expression statements", "values"),
+    RejectCase("values/reject_arm_scope_leak", "unknown name", "values"),
+    RejectCase("values/reject_record_branches", "incompatible types", "values"),
+    RejectCase("values/reject_enum_branches", "incompatible types", "values"),
+    RejectCase("values/reject_match_missing_tail", "continuing value branch requires a tail expression", "values"),
+    RejectCase("values/reject_numeric_no_common", "incompatible types", "values"),
+    RejectCase("values/reject_all_returning_operand", "all-returning control flow cannot be used as an operand", "values"),
+    RejectCase("values/reject_deep_else_if", "nesting limit exceeded", "values"),
+    RejectCase("values/reject_extra_call_argument", "too many arguments", "values"),
 )
 
 
@@ -281,7 +313,7 @@ def main() -> int:
     parser.add_argument("--binary", type=Path, default=Path(".build/minivm/minivm"))
     parser.add_argument("--clang", default="clang")
     parser.add_argument(
-        "--section", choices=("all", "core", "numbers", "records", "control", "enums"), default="all",
+        "--section", choices=("all", "core", "numbers", "records", "control", "enums", "values"), default="all",
         help="run all cases or one isolated test section",
     )
     args = parser.parse_args()
@@ -310,7 +342,7 @@ def main() -> int:
                 failures.extend(test_rejection(binary, case))
             except subprocess.TimeoutExpired:
                 failures.append(f"{case.name}: timed out after {TIMEOUT}s")
-        limit_cases = () if args.section in ("numbers", "records", "control", "enums") else (
+        limit_cases = () if args.section in ("numbers", "records", "control", "enums", "values") else (
             ("budget", 20, "runtime error: instruction budget exceeded"),
             ("depth", 10_000, "runtime error: call depth exceeded"),
         )

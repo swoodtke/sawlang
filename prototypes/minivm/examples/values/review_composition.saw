@@ -1,0 +1,15 @@
+enum E { case A, case B }
+struct Cell { n: Int }
+func narrow(flag: Bool) -> UInt8 {
+    (if flag { 255 } else { 1 })
+}
+func main() {
+    let flag = false
+    let a: Bool = (if flag { 1 } else { 2 }) == 2
+    print(a)
+    print((if flag { 3 } else { 4 }) + 5)
+    print((if flag { Cell(n: 7) } else { Cell(n: 8) }).n)
+    print((match E.B { case A -> 10, case B -> 11 }) as UInt8)
+    print(narrow(true))
+    print(narrow(false))
+}

@@ -1,0 +1,24 @@
+// Constants and helper copied from selfhost/lexer/src/lib.saw.
+static B_D0: Int = 48
+static B_D9: Int = 57
+static B_LO_A: Int = 97
+static B_LO_F: Int = 102
+static B_UP_A: Int = 65
+static B_UP_F: Int = 70
+
+func is_digit(b: Int) -> Bool { b >= B_D0 && b <= B_D9 }
+
+func hex_value(b: Int) -> Int {
+    if is_digit(b) { b - B_D0 }
+    else if b >= B_LO_A && b <= B_LO_F { b - B_LO_A + 10 }
+    else { b - B_UP_A + 10 }
+}
+
+func main() {
+    print(hex_value(48))
+    print(hex_value(57))
+    print(hex_value(97))
+    print(hex_value(102))
+    print(hex_value(65))
+    print(hex_value(70))
+}

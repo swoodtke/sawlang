@@ -1,0 +1,9 @@
+func number() -> Int { 42 }
+func truth() -> Bool { true }
+func narrow() -> Int8 { -128 }
+
+func main() {
+    print(number())
+    print(truth())
+    print(narrow())
+}

@@ -1,0 +1,34 @@
+enum Color { case Red, case Green, case Blue }
+
+func direct(value: Color) -> Int {
+    match value {
+        case Red -> 1,
+        case Green -> 2,
+        case Blue -> 3
+    }
+}
+
+func blocked(value: Color) -> Int {
+    match value {
+        case Red -> {
+            let n = 10
+            n + 1
+        },
+        case Green -> {
+            let n = 20
+            n + 2
+        },
+        case Blue -> {
+            let n = 30
+            n + 3
+        }
+    }
+}
+
+func main() {
+    print(direct(Color.Red))
+    print(direct(Color.Blue))
+    print(blocked(Color.Red))
+    print(blocked(Color.Green))
+    print(blocked(Color.Blue))
+}

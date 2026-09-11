@@ -1,0 +1,14 @@
+func choose(first: Bool, second: Bool) -> Int {
+    if first {
+        if second { 11 } else { 12 }
+    } else {
+        if second { 21 } else { 22 }
+    }
+}
+
+func main() {
+    print(choose(true, true))
+    print(choose(true, false))
+    print(choose(false, true))
+    print(choose(false, false))
+}

@@ -1,0 +1,27 @@
+enum Mode { case Cold, case Warm }
+struct Pair { left: Int, right: Mode }
+
+func pair(flag: Bool) -> Pair {
+    if flag {
+        Pair(right: Mode.Warm, left: 7)
+    } else {
+        Pair(left: 9, right: Mode.Cold)
+    }
+}
+
+func mode(flag: Bool) -> Mode {
+    match pair(flag).right {
+        case Cold -> Mode.Warm,
+        case Warm -> Mode.Cold
+    }
+}
+
+func main() {
+    let first = pair(true)
+    let second = pair(false)
+    print(first.left)
+    print(first.right == Mode.Warm)
+    print(second.left)
+    print(mode(true) == Mode.Cold)
+    print(mode(false) == Mode.Warm)
+}

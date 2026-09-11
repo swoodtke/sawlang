@@ -8,7 +8,8 @@ calls. This inventory was taken at the 43-case Int32/Bool baseline. M1 now suppl
 the numeric foundation; M2 supplies scalar value records, and M3 adds module
 constants, compound assignment and short-circuit Booleans. M4 supplies payload-free
 enums and exhaustive statement match, including the actual TokenKind declaration
-in isolation (161 total cases).
+in isolation. M5 adds implicit tails, value if/match and else-if chains, including
+the unchanged numeric `hex_value` helper (193 total cases).
 Strings, collections, references, generics and methods remain outstanding.
 The dependency groups below are an inventory, not the implementation commit order;
 the numbered milestone designs define each isolated slice.

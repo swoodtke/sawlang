@@ -1,0 +1,33 @@
+func mixed(flag: Bool) -> Int {
+    if flag { return 10 } else { 20 }
+}
+
+func all_return(flag: Bool) -> Int {
+    if flag { return 30 } else { return 40 }
+}
+
+func scoped(flag: Bool) -> Int {
+    if flag {
+        var n = 0
+        while n < 3 { n += 1 }
+        n
+    } else {
+        let n = 9
+        n
+    }
+}
+
+func early(flag: Bool) -> Int {
+    if flag { return 50 }
+    1 / 0
+}
+
+func main() {
+    print(mixed(true))
+    print(mixed(false))
+    print(all_return(true))
+    print(all_return(false))
+    print(scoped(true))
+    print(scoped(false))
+    print(early(true))
+}

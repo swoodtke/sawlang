@@ -1,0 +1,31 @@
+enum E { case A, case B }
+func f(flag: Bool) -> Bool {
+    if (if flag { 1 } else { 2 }) == 1 { true } else { false }
+}
+func g(flag: Bool) -> UInt8 {
+    if (if flag { 300 } else { 400 }) > 350 { 1 } else { 2 }
+}
+func h(flag: Bool) -> UInt8 {
+    if flag {
+        let local: Int = if flag { 300 } else { 400 }
+        if local == 300 { 3 } else { 4 }
+    } else { 5 }
+}
+func k(flag: Bool) -> Int {
+    return 1 + (if flag { 2 } else { return 40 })
+}
+func main() {
+    print(f(true))
+    print(f(false))
+    print(g(true))
+    print(g(false))
+    print(h(true))
+    print(h(false))
+    print(k(true))
+    print(k(false))
+    let v = match E.A {
+        case A -> if true { 7 } else { 8 },
+        case B -> 9
+    }
+    print(v)
+}

@@ -1,0 +1,8 @@
+enum Pick { case First, case Second }
+func main() {
+    let value = match Pick.First {
+        case First -> { let n = 1 },
+        case Second -> 2
+    }
+    print(value)
+}

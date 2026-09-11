@@ -1,0 +1,45 @@
+enum Mode { case A, case B, case C }
+struct Pair { left: Int, right: UInt64 }
+func mark(n: Int) -> Int {
+    print(n)
+    n
+}
+func pair(a: Int, b: UInt64) -> Pair { Pair(left: a, right: b) }
+func choose(a: Bool, b: Bool, mode: Mode) -> Pair {
+    pair(
+        if a {
+            let n = mark(10)
+            if b { n + 1 } else { n + 2 }
+        } else {
+            match mode {
+                case A -> mark(20),
+                case B -> { return Pair(left: mark(30), right: 99) },
+                case C -> {
+                    var n = 0
+                    while n < 3 { n += 1 }
+                    n + mark(40)
+                }
+            }
+        },
+        if b { 18446744073709551615 } else { 9223372036854775808 }
+    )
+}
+func show(a: Bool, b: Bool, m: Mode) {
+    let p = choose(a, b, m)
+    print(p.left)
+    print(p.right)
+}
+func main() {
+    show(true, true, Mode.A)
+    show(true, false, Mode.B)
+    show(false, true, Mode.A)
+    show(false, false, Mode.B)
+    show(false, false, Mode.C)
+    var n = 0
+    var total = 0
+    while n < 5 {
+        total += if n % 2 == 0 { n } else { n * 10 }
+        n += 1
+    }
+    print(total)
+}
