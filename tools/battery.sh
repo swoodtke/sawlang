@@ -78,6 +78,7 @@ STAGES=(
     "corodiff|no|coroutine twin parity: suspending vs non-suspending|$PY tools/corodiff.py --quick"
     "bench|no|warehouse benchmark: checksums gate, timing reports|__BENCH__"
     "selfhostlex|no|the selfhost lexer's own tests compile and pass|__SELFHOSTLEX__"
+    "minivm|no|the minivm prototype builds and its differential harness passes|__MINIVM__"
     "reemit|yes|two compiles in ONE process emit identical unopt IR, opt IR and object|$PY tools/reemitdiff.py"
     "irdet|yes|IR determinism over the WHOLE corpus (not a sample)|__IRDET__"
     "gmgate|yes|ownership + concurrency oracles under Guard Malloc (macOS)|$PY tools/gmgate.py"
@@ -181,6 +182,21 @@ run_selfhostlex() {
     [ "$failed" -eq 0 ]
 }
 
+# prototypes/minivm was typechecked by NO stage (SL-266, Sep 11: lexdiff/
+# astdiff only lex/parse it, and neither the suite nor the server gate ever
+# opens it) — SL-238.p1 r1 shipped a minivm build break past every gate, and
+# only review caught it. This builds the prototype against the selfhost lexer
+# it consumes, then runs its full differential harness (VM + clang-native,
+# explicit expected-output oracles). Its own build dir: the lane must never
+# clobber a developer's .build/minivm.
+run_minivm() {
+    mkdir -p .build/minivm-battery
+    "$PY" sawc/sawc.py prototypes/minivm/src/main.saw \
+        --module-path sawlex=selfhost/lexer \
+        -o .build/minivm-battery/minivm || return 1
+    "$PY" prototypes/minivm/test_minivm.py --binary .build/minivm-battery/minivm
+}
+
 echo "battery: $REPO"
 echo "battery: python $PY"
 started=$(date +%s)
@@ -206,6 +222,8 @@ for entry in "${STAGES[@]}"; do
         run_bench
     elif [ "$cmd" = "__SELFHOSTLEX__" ]; then
         run_selfhostlex
+    elif [ "$cmd" = "__MINIVM__" ]; then
+        run_minivm
     else
         $cmd
     fi
