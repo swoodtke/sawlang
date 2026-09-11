@@ -35,6 +35,7 @@ class RejectCase:
 
 
 RUN_CASES = (
+    RunCase("enums/nested_control", "true\n10\n11\n20\n", section="enums"),
     RunCase("control/static_literals", "-128\n32767\n255\n18446744073709551615\n", section="control"),
     RunCase("control/logical_loops", "0\n1\n2\n3\n9\n4\n", section="control"),
     RunCase("control/compound_rem_overflow", "runtime error: integer overflow\n", 1, "control"),
@@ -119,9 +120,21 @@ RUN_CASES = (
     RunCase("control/statics", "4294967295\n18446744073709551615\ntrue\n-9223372036854775808\n-32768\n18446744073709551614\n", section="control"),
     RunCase("control/compound_overflow", "runtime error: integer overflow\n", 1, "control"),
     RunCase("control/compound_div_zero", "runtime error: division by zero\n", 1, "control"),
+    RunCase("enums/values_copy_equality", "true\nfalse\ntrue\ntrue\n", section="enums"),
+    RunCase("enums/calls_returns_forward", "true\ntrue\n", section="enums"),
+    RunCase("enums/record_fields", "true\ntrue\ntrue\n3\n", section="enums"),
+    RunCase("enums/match_unqualified", "1\n2\n3\n", section="enums"),
+    RunCase("enums/match_qualified", "true\nfalse\n", section="enums"),
+    RunCase("enums/match_wildcard", "10\n99\n99\n", section="enums"),
+    RunCase("enums/subject_once", "7\n2\n", section="enums"),
+    RunCase("enums/all_arms_return", "20\n40\n60\n", section="enums"),
+    RunCase("enums/lexer_token_kind", "1\n2\n3\ntrue\n", section="enums"),
 )
 
 REJECT_CASES = (
+    RejectCase("enums/reject_empty", "at least one case", "enums"),
+    RejectCase("enums/reject_record_collision", "duplicate module name", "enums"),
+    RejectCase("enums/reject_static_enum", "static type", "enums"),
     RejectCase("control/reject_static_negative_range", "integer literal", "control"),
     RejectCase("control/reject_static_typed_narrowing", "convert", "control"),
     RejectCase("control/reject_static_function_collision", "conflicts", "control"),
@@ -141,7 +154,7 @@ REJECT_CASES = (
     RejectCase("reject_semicolon", "semicolons are not supported"),
     RejectCase("reject_string", "expected expression"),
     RejectCase("reject_bool_arithmetic", "arithmetic requires integer operands"),
-    RejectCase("reject_import", "only function, record, and static declarations are supported"),
+    RejectCase("reject_import", "only function, record, enum, and static declarations are supported"),
     RejectCase("reject_scope_leak", "unknown name"),
     RejectCase("reject_unary_depth", "expression nesting limit exceeded"),
     RejectCase("reject_reserved_print", "reserved"),
@@ -172,6 +185,18 @@ REJECT_CASES = (
     RejectCase("control/reject_duplicate_static", "duplicate module name", "control"),
     RejectCase("control/reject_assigned_static", "cannot assign to immutable static", "control"),
     RejectCase("control/reject_dynamic_static", "unsupported static initializer", "control"),
+    RejectCase("enums/reject_duplicate_enum", "duplicate module name", "enums"),
+    RejectCase("enums/reject_duplicate_case", "duplicate enum case", "enums"),
+    RejectCase("enums/reject_missing_match_case", "non-exhaustive match", "enums"),
+    RejectCase("enums/reject_duplicate_arm", "duplicate match case", "enums"),
+    RejectCase("enums/reject_arm_after_wildcard", "match arm follows wildcard", "enums"),
+    RejectCase("enums/reject_wrong_qualifier", "does not match subject enum", "enums"),
+    RejectCase("enums/reject_mixed_equality", "same type", "enums"),
+    RejectCase("enums/reject_mixed_transfer", "cannot implicitly convert", "enums"),
+    RejectCase("enums/reject_cast", "requires integer", "enums"),
+    RejectCase("enums/reject_print", "cannot print an enum value", "enums"),
+    RejectCase("enums/reject_payload", "payload enum cases are not supported", "enums"),
+    RejectCase("enums/reject_arithmetic", "arithmetic requires integer operands", "enums"),
 )
 
 
@@ -256,7 +281,7 @@ def main() -> int:
     parser.add_argument("--binary", type=Path, default=Path(".build/minivm/minivm"))
     parser.add_argument("--clang", default="clang")
     parser.add_argument(
-        "--section", choices=("all", "core", "numbers", "records", "control"), default="all",
+        "--section", choices=("all", "core", "numbers", "records", "control", "enums"), default="all",
         help="run all cases or one isolated test section",
     )
     args = parser.parse_args()
@@ -285,7 +310,7 @@ def main() -> int:
                 failures.extend(test_rejection(binary, case))
             except subprocess.TimeoutExpired:
                 failures.append(f"{case.name}: timed out after {TIMEOUT}s")
-        limit_cases = () if args.section in ("numbers", "records", "control") else (
+        limit_cases = () if args.section in ("numbers", "records", "control", "enums") else (
             ("budget", 20, "runtime error: instruction budget exceeded"),
             ("depth", 10_000, "runtime error: call depth exceeded"),
         )

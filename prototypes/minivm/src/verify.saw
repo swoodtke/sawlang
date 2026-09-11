@@ -9,6 +9,54 @@ func invalid(i: &Instruction) -> ProtoError {
     return problem("internal prototype error: invalid instruction", i.line, i.col)
 }
 
+func check_type(p: &Program, t: ValueType) -> Result<Void, ProtoError> {
+    match t {
+        case Enum(index) -> {
+            if index < 0 || index >= p.enums.len() { return problem("internal prototype error: invalid enum type index", 0, 0) }
+        },
+        case Record(index) -> {
+            if index < 0 || index >= p.records.len() { return problem("internal prototype error: invalid record type index", 0, 0) }
+        },
+        case _ -> {}
+    }
+    return
+}
+
+func check_declared_types(p: &Program) -> Result<Void, ProtoError> {
+    var n = 0
+    while n < p.records.len() {
+        let record = p.records[n].copy()
+        var e = 0
+        while e < p.enums.len() {
+            if record.name == p.enums[e].name { return problem("duplicate module type name", record.line, record.col) }
+            e += 1
+        }
+        var field = 0
+        while field < record.field_types.len() {
+            try check_type(&p, record.field_types[field])
+            field += 1
+        }
+        n += 1
+    }
+    n = 0
+    while n < p.functions.len() {
+        let f = p.functions[n].copy()
+        try check_type(&p, f.result)
+        var word = 0
+        while word < f.params.len() {
+            try check_type(&p, f.params[word])
+            word += 1
+        }
+        word = 0
+        while word < f.slots.len() {
+            try check_type(&p, f.slots[word])
+            word += 1
+        }
+        n += 1
+    }
+    return
+}
+
 func parameter_layout(p: &Program, f: &FuncIR) -> Result<Vector<ValueType>, ProtoError> {
     var words = Vector<ValueType>()
     var n = 0
@@ -44,6 +92,12 @@ func check_instruction(p: &Program, f: &FuncIR, i: &Instruction) -> Result<Void,
             if not scalar_type(dst) { return invalid(&i) }
             if dst == ValueType.Bool && i.immediate != 0 && i.immediate != 1 { return invalid(&i) }
             if integer_type(dst) && not integer_canonical(i.immediate, dst) { return invalid(&i) }
+            match dst {
+                case Enum(index) -> {
+                    if i.immediate < 0 || i.immediate >= p.enums[index].cases.len() { return invalid(&i) }
+                },
+                case _ -> {}
+            }
         },
         case Copy -> {
             if not scalar_type(dst) || a != dst { return invalid(&i) }
@@ -102,7 +156,7 @@ func check_instruction(p: &Program, f: &FuncIR, i: &Instruction) -> Result<Void,
             }
         },
         case Print -> {
-            if not scalar_type(a) { return invalid(&i) }
+            if not printable_type(a) { return invalid(&i) }
         },
         case Return -> {
             if f.result == ValueType.Void {
@@ -160,6 +214,8 @@ func check_function(p: &Program, f: &FuncIR) -> Result<Void, ProtoError> {
 }
 
 public func verify(program: &Program) -> Result<Void, ProtoError> {
+    try validate_enums(&program.enums)
+    try check_declared_types(&program)
     try validate_records(&program.records)
     if program.main_index < 0 || program.main_index >= program.functions.len() {
         return problem("internal prototype error: missing main", 0, 0)

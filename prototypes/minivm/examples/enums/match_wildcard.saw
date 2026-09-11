@@ -1,0 +1,14 @@
+enum Code { case First, case Second, case Third }
+
+func show(value: Code) {
+    match value {
+        case First -> { print(10) },
+        case _ -> { print(99) }
+    }
+}
+
+func main() {
+    show(Code.First)
+    show(Code.Second)
+    show(Code.Third)
+}

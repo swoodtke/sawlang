@@ -1,0 +1,3 @@
+enum Status { case Ready }
+enum Status { case Done }
+func main() {}

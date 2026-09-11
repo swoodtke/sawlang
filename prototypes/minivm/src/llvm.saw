@@ -493,6 +493,7 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
             next_block(&var out, instruction_index)
         },
         case Print -> {
+            if not printable_type(function.slots[inst.a]) { return problem("internal prototype error: non-printable value", inst.line, inst.col) }
             put(&var out, "  ")
             load_slot(&var out, instruction_index, "a", inst.a)
             if function.slots[inst.a] == ValueType.Bool {

@@ -1,0 +1,27 @@
+enum Phase { case Start, case Done }
+func classify(a: Phase, b: Phase) -> Int {
+    match a {
+        case Start -> {
+            match b {
+                case Start -> { return 10 },
+                case Done -> { return 11 }
+            }
+        },
+        case Done -> { return 20 }
+    }
+}
+func main() {
+    var phase = Phase.Start
+    var count = 0
+    while count < 2 {
+        match phase {
+            case Start -> { phase = Phase.Done },
+            case Done -> { phase = Phase.Start }
+        }
+        count += 1
+    }
+    print(phase == Phase.Start)
+    print(classify(phase, Phase.Start))
+    print(classify(phase, Phase.Done))
+    print(classify(Phase.Done, phase))
+}

@@ -1,0 +1,13 @@
+enum Choice { case Yes, case No }
+
+func marked(value: Choice) -> Choice {
+    print(7)
+    return value
+}
+
+func main() {
+    match marked(Choice.No) {
+        case Yes -> { print(1) },
+        case No -> { print(2) }
+    }
+}

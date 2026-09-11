@@ -165,6 +165,7 @@ func run_function(program: &Program, function_index: Int, arguments: &Vector<Int
                 }
             },
             case Print -> {
+                if not printable_type(function.slots[inst.a]) { return problem("internal prototype error: non-printable value", inst.line, inst.col) }
                 let pt = function.slots[inst.a]
                 if pt == ValueType.Bool { if slots[inst.a] == 0 { print("false") } else { print("true") } }
                 else if integer_signed(pt) { print(slots[inst.a]) } else { print(UInt.from(truncating: slots[inst.a])) }

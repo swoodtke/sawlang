@@ -1,0 +1,2 @@
+enum ResultKind { case Good(value: Int), case Bad }
+func main() {}

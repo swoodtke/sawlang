@@ -45,9 +45,12 @@ func main() {
 Single-file programs support signed and unsigned 8/16/32/64-bit integers,
 `Int`/`UInt` (64-bit), `Byte`, `Bool`, functions, positional calls,
 recursion, `let`/`var`, assignment, lexical scopes, statement `if`/`else` and
-`while`, explicit returns, and scalar printing. Named structs can contain scalars
+`while`, explicit returns, and numeric/Bool printing. Named structs can contain scalars
 or nested structs, with
 field access, mutable fields, value copying, and function parameters/results.
+Payload-free enums support copying, equality, record fields and function
+parameters/results. Exhaustive statement `match` supports qualified or unqualified
+cases and a final wildcard; see [M4_ENUMS.md](M4_ENUMS.md).
 Record layouts are limited to 256 words and 128 nesting levels; see
 [M2_RECORDS.md](M2_RECORDS.md). Arithmetic is checked; signed
 division truncates toward zero. Overflow and division by zero print an error
@@ -80,18 +83,20 @@ python prototypes/minivm/test_minivm.py --binary .build/minivm/minivm
 
 The harness compares VM execution and clang-compiled IR with explicit expected
 outputs and statuses, checks rejected programs, and exercises VM limits. It
-uses temporary files and 30-second subprocess timeouts. The first three milestones
-pass all 136 cases, including native execution at both `-O0` and `-O2`.
+uses temporary files and 30-second subprocess timeouts. The first four milestones
+pass all 161 cases, including native execution at both `-O0` and `-O2`.
 
 Independent representation checks live in `tests/numeric_contract.saw` and
-`tests/record_contract.saw`; build and run them with the Python compiler.
-Use `--section numbers`, `--section records`, or `--section control` for an isolated
+`tests/record_contract.saw`, and `tests/enum_contract.saw`; build and run them
+with the Python compiler.
+Use `--section numbers`, `--section records`, `--section control`, or
+`--section enums` for an isolated
 integration gate.
 
 See [DESIGN.md](DESIGN.md) and [M1_NUMBERS.md](M1_NUMBERS.md) for the instruction
 schema and semantics. [LEXER_DEPENDENCIES.md](LEXER_DEPENDENCIES.md) tracks the
 remaining dependencies needed to compile the existing lexer with this prototype.
-[M4_ENUMS.md](M4_ENUMS.md) designs the next isolated slice. Source is
+The enum fixtures include the lexer's actual `TokenKind` declaration. Source is
 split into `frontend.saw`, `model.saw`, `verify.saw`, `vm.saw`, `llvm.saw`, and
 `main.saw`. The verifier checks structural indices and types; initialization
 is established by the frontend, so this is not a loader for untrusted bytecode.

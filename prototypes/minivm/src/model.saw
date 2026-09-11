@@ -1,7 +1,7 @@
 public enum ValueType {
     case I8, case I16, case I32, case I64,
     case U8, case U16, case U32, case U64, case Byte,
-    case Bool, case Void, case Record(index: Int)
+    case Bool, case Void, case Record(index: Int), case Enum(index: Int)
 }
 @synthesize
 extension ValueType: Equatable {}
@@ -105,7 +105,17 @@ public struct FuncIR {
     public code: Vector<Instruction>
 }
 
+public struct EnumIR {
+    public name: String
+    public cases: Vector<String>
+    public line: Int
+    public col: Int
+}
+@synthesize
+extension EnumIR: ExplicitCopy {}
+
 public struct Program {
+    public enums: Vector<EnumIR>
     public records: Vector<RecordIR>
     public functions: Vector<FuncIR>
     public main_index: Int
@@ -148,8 +158,39 @@ public func problem(message: String, line: Int, col: Int) -> ProtoError {
     ProtoError(message: message, line: line, col: col)
 }
 
-public func scalar_type(t: ValueType) -> Bool {
+public func printable_type(t: ValueType) -> Bool {
     integer_type(t) || t == ValueType.Bool
+}
+
+public func scalar_type(t: ValueType) -> Bool {
+    match t {
+        case Enum(_) -> true,
+        case _ -> printable_type(t)
+    }
+}
+
+public func validate_enums(enums: &Vector<EnumIR>) -> Result<Void, ProtoError> {
+    var n = 0
+    while n < enums.len() {
+        let declaration = enums[n].copy()
+        if declaration.cases.len() == 0 { return problem("enum must have at least one case", declaration.line, declaration.col) }
+        var previous = 0
+        while previous < n {
+            if enums[previous].name == declaration.name { return problem("duplicate enum", declaration.line, declaration.col) }
+            previous += 1
+        }
+        var current = 0
+        while current < declaration.cases.len() {
+            previous = 0
+            while previous < current {
+                if declaration.cases[previous] == declaration.cases[current] { return problem("duplicate enum case", declaration.line, declaration.col) }
+                previous += 1
+            }
+            current += 1
+        }
+        n += 1
+    }
+    return
 }
 
 func append_layout(records: &Vector<RecordIR>, t: ValueType,

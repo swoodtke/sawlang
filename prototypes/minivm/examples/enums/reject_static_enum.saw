@@ -1,0 +1,3 @@
+enum E { case A }
+static X: E = E.A
+func main() {}

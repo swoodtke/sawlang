@@ -1,0 +1,2 @@
+enum Color { case Red }
+func main() { print(Color.Red) }

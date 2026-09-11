@@ -1,0 +1,18 @@
+struct State {
+    before: Mode
+    after: Mode
+    count: Int
+}
+
+enum Mode { case Cold, case Warm }
+
+func relay(value: State) -> State { return value }
+
+func main() {
+    var state = relay(State(count: 3, after: Mode.Warm, before: Mode.Cold))
+    print(state.before == Mode.Cold)
+    print(state.after == Mode.Warm)
+    state.before = state.after
+    print(state.before == Mode.Warm)
+    print(state.count)
+}

@@ -20,7 +20,8 @@ The original Int32-only contract below records the baseline.
 literal type, and signed-minimum remainder behavior.
 [M2_RECORDS.md](M2_RECORDS.md) adds value records and flattened call/result layouts.
 [M3_SCALAR_CONTROL.md](M3_SCALAR_CONTROL.md) adds short-circuit operators, compound
-assignments and module constants.
+assignments and module constants. [M4_ENUMS.md](M4_ENUMS.md) adds nominal
+payload-free enums and exhaustive statement match.
 
 ## Source contract
 

@@ -1,0 +1,3 @@
+struct Same { x: Int }
+enum Same { case A }
+func main() {}

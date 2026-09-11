@@ -1,0 +1,8 @@
+enum Color { case Red, case Green, case Blue }
+func main() {
+    let value = Color.Red
+    match value {
+        case Red -> { print(1) },
+        case Green -> { print(2) }
+    }
+}

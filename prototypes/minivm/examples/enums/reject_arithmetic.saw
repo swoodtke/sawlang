@@ -1,0 +1,4 @@
+enum Color { case Red, case Green }
+func main() {
+    let value = Color.Red + Color.Green
+}

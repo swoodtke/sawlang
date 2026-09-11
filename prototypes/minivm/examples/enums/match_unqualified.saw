@@ -1,0 +1,15 @@
+enum Color { case Red, case Green, case Blue }
+
+func show(value: Color) {
+    match value {
+        case Red -> { print(1) },
+        case Green -> { print(2) },
+        case Blue -> { print(3) }
+    }
+}
+
+func main() {
+    show(Color.Red)
+    show(Color.Green)
+    show(Color.Blue)
+}

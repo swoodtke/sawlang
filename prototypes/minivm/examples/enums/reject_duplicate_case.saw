@@ -1,0 +1,2 @@
+enum Status { case Ready, case Ready }
+func main() {}

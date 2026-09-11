@@ -1,0 +1,18 @@
+func choose(flag: Bool) -> Direction {
+    if flag { return Direction.Left }
+    return Direction.Right
+}
+
+func same(value: Direction, expected: Direction) -> Bool {
+    return value == expected
+}
+
+enum Direction {
+    case Left,
+    case Right
+}
+
+func main() {
+    print(same(choose(true), Direction.Left))
+    print(same(choose(false), Direction.Right))
+}

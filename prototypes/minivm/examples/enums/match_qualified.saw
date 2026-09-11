@@ -1,0 +1,13 @@
+enum Switch { case Off, case On }
+
+func show(value: Switch) {
+    match value {
+        case Switch.Off -> { print(false) },
+        case Switch.On -> { print(true) }
+    }
+}
+
+func main() {
+    show(Switch.On)
+    show(Switch.Off)
+}

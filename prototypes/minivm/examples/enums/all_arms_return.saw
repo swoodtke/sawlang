@@ -1,0 +1,15 @@
+enum ResultKind { case Good, case Bad, case Unknown }
+
+func code(value: ResultKind) -> Int {
+    match value {
+        case Good -> { return 20 },
+        case Bad -> { return 40 },
+        case Unknown -> { return 60 }
+    }
+}
+
+func main() {
+    print(code(ResultKind.Good))
+    print(code(ResultKind.Bad))
+    print(code(ResultKind.Unknown))
+}

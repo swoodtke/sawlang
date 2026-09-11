@@ -1,0 +1,15 @@
+public enum Color {
+    case Red,
+    case Green,
+    case Blue
+}
+
+func main() {
+    let original = Color.Red
+    var copy = original
+    print(copy == original)
+    copy = Color.Blue
+    print(copy == original)
+    print(copy != Color.Green)
+    print(original == Color.Red)
+}

@@ -1,0 +1,3 @@
+enum Color { case Red }
+enum Direction { case Red }
+func main() { print(Color.Red == Direction.Red) }

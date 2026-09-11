@@ -1,0 +1,4 @@
+enum Color { case Red }
+enum Direction { case Red }
+func take(value: Color) {}
+func main() { take(Direction.Red) }

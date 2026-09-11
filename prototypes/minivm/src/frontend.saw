@@ -60,7 +60,7 @@ func type_name(t: ValueType) -> String {
         case I8 -> "Int8", case I16 -> "Int16", case I32 -> "Int32", case I64 -> "Int",
         case U8 -> "UInt8", case U16 -> "UInt16", case U32 -> "UInt32", case U64 -> "UInt",
         case Byte -> "Byte", case Bool -> "Bool", case Void -> "Void",
-        case Record(_) -> "record"
+        case Record(_) -> "record", case Enum(_) -> "enum"
     }
 }
 
@@ -95,6 +95,7 @@ func literal_magnitude(value: String) -> UInt? {
 struct Compiler {
     tokens: Vector<Token>
     records: Vector<RecordIR>
+    enums: Vector<EnumIR>
     statics: Vector<StaticBinding>
     signatures: Vector<Signature>
     pos: Int
@@ -150,6 +151,8 @@ extension Compiler {
         if let ty = named_integer_type(t.value) { return ty }
         let ri = self.record_index(t.value)
         if ri >= 0 { return ValueType.Record(ri) }
+        let ei = self.enum_index(t.value)
+        if ei >= 0 { return ValueType.Enum(ei) }
         problem("unsupported type `{t.value}`", t.line, t.col)
     }
 
@@ -171,11 +174,24 @@ extension Compiler {
         -1
     }
 
+    func enum_index(&self, name: String) -> Int {
+        var i = 0
+        while i < self.enums.len() {
+            if self.enums[i].name == name { return i }
+            i += 1
+        }
+        -1
+    }
+
     func display_type(&self, ty: ValueType) -> String {
         match ty {
             case Record(index) -> {
                 if index >= 0 && index < self.records.len() { return self.records[index].name }
                 "record"
+            },
+            case Enum(index) -> {
+                if index >= 0 && index < self.enums.len() { return self.enums[index].name }
+                "enum"
             },
             case _ -> type_name(ty)
         }
@@ -196,14 +212,20 @@ extension Compiler {
                 let _ = self.take()
                 let name = try self.expect(TokenKind.Ident, "expected record name")
                 if self.reserved_type_name(name.value) || name.value == "print" { return problem("record name `{name.value}` is reserved", name.line, name.col) }
-                if self.record_index(name.value) >= 0 || self.static_index(name.value) >= 0 { return problem("duplicate module name `{name.value}`", name.line, name.col) }
+                if self.record_index(name.value) >= 0 || self.enum_index(name.value) >= 0 || self.static_index(name.value) >= 0 { return problem("duplicate module name `{name.value}`", name.line, name.col) }
                 try! self.records.push(RecordIR(name: name.value, field_names: Vector<String>(),
                                                 field_types: Vector<ValueType>(), line: name.line, col: name.col))
+            } else if self.at(TokenKind.Enum) {
+                let _ = self.take()
+                let name = try self.expect(TokenKind.Ident, "expected enum name")
+                if self.reserved_type_name(name.value) || name.value == "print" { return problem("enum name `{name.value}` is reserved", name.line, name.col) }
+                if self.record_index(name.value) >= 0 || self.enum_index(name.value) >= 0 || self.static_index(name.value) >= 0 { return problem("duplicate module name `{name.value}`", name.line, name.col) }
+                try! self.enums.push(EnumIR(name: name.value, cases: Vector<String>(), line: name.line, col: name.col))
             } else if self.at(TokenKind.Static) {
                 let _ = self.take()
                 let name = try self.expect(TokenKind.Ident, "expected static name")
                 if name.value == "print" || self.reserved_type_name(name.value) { return problem("static name `{name.value}` is reserved", name.line, name.col) }
-                if self.record_index(name.value) >= 0 || self.static_index(name.value) >= 0 {
+                if self.record_index(name.value) >= 0 || self.enum_index(name.value) >= 0 || self.static_index(name.value) >= 0 {
                     return problem("duplicate module name `{name.value}`", name.line, name.col)
                 }
                 try! self.statics.push(StaticBinding(name: name.value, ty: ValueType.Void,
@@ -212,7 +234,7 @@ extension Compiler {
                 self.skip_newlines()
                 continue
             } else if not self.at(TokenKind.Func) {
-                return self.fail("only function, record, and static declarations are supported at module scope")
+                return self.fail("only function, record, enum, and static declarations are supported at module scope")
             }
             while not self.at(TokenKind.LBrace) && not self.at(TokenKind.Eof) { let _ = self.take() }
             if self.at(TokenKind.Eof) { return self.fail("expected declaration body") }
@@ -248,12 +270,17 @@ extension Compiler {
                 self.skip_newlines()
                 continue
             }
+            if self.at(TokenKind.Enum) {
+                try self.scan_enum()
+                self.skip_newlines()
+                continue
+            }
             if self.at(TokenKind.Static) {
                 try self.scan_static()
                 self.skip_newlines()
                 continue
             }
-            let ft = try self.expect(TokenKind.Func, "only function, record, and static declarations are supported at module scope")
+            let ft = try self.expect(TokenKind.Func, "only function, record, enum, and static declarations are supported at module scope")
             let name = try self.expect(TokenKind.Ident, "expected function name")
             if name.value == "print" {
                 return problem("`print` is reserved by the prototype", name.line, name.col)
@@ -263,6 +290,9 @@ extension Compiler {
             }
             if self.record_index(name.value) >= 0 {
                 return problem("function `{name.value}` conflicts with a record name", name.line, name.col)
+            }
+            if self.enum_index(name.value) >= 0 {
+                return problem("function `{name.value}` conflicts with an enum name", name.line, name.col)
             }
             if self.static_index(name.value) >= 0 {
                 return problem("function `{name.value}` conflicts with a static name", name.line, name.col)
@@ -371,7 +401,7 @@ extension Compiler {
         if si < 0 { return problem("unknown static declaration `{name.value}`", name.line, name.col) }
         let _ = try self.expect(TokenKind.Colon, "expected `:` after static name")
         let target = try self.parse_type()
-        if target == ValueType.Byte || not scalar_type(target) {
+        if target == ValueType.Byte || not printable_type(target) {
             return problem("static type must be an integer or Bool", name.line, name.col)
         }
         let _ = try self.expect(TokenKind.Assign, "static declaration requires an initializer")
@@ -458,6 +488,36 @@ extension Compiler {
         if names.len() == 0 { return problem("record must have at least one field", name.line, name.col) }
         self.records[ri].field_names = move names
         self.records[ri].field_types = move types
+        return
+    }
+
+    func scan_enum(&var self) -> Result<Void, ProtoError> {
+        let _ = self.take()
+        let name = try self.expect(TokenKind.Ident, "expected enum name")
+        let ei = self.enum_index(name.value)
+        if ei < 0 { return problem("unknown enum declaration `{name.value}`", name.line, name.col) }
+        let _ = try self.expect(TokenKind.LBrace, "expected enum body")
+        self.skip_newlines()
+        var cases = Vector<String>()
+        while not self.at(TokenKind.RBrace) && not self.at(TokenKind.Eof) {
+            let _ = try self.expect(TokenKind.Case, "expected `case` in enum declaration")
+            let item = try self.expect(TokenKind.Ident, "expected enum case name")
+            if self.at(TokenKind.LParen) { return problem("payload enum cases are not supported", item.line, item.col) }
+            var i = 0
+            while i < cases.len() {
+                if cases[i] == item.value { return problem("duplicate enum case `{item.value}`", item.line, item.col) }
+                i += 1
+            }
+            try! cases.push(item.value)
+            if self.at(TokenKind.Comma) {
+                let _ = self.take()
+                self.skip_newlines()
+            } else if self.at(TokenKind.Newline) { self.skip_newlines() }
+            else if not self.at(TokenKind.RBrace) { return self.fail("expected comma or newline after enum case") }
+        }
+        let _ = try self.expect(TokenKind.RBrace, "expected closing brace for enum")
+        if cases.len() == 0 { return problem("enum must have at least one case", name.line, name.col) }
+        self.enums[ei].cases = move cases
         return
     }
 
@@ -649,6 +709,19 @@ extension Compiler {
         }
         if self.at(TokenKind.Ident) {
             let name = self.take()
+            let ei = self.enum_index(name.value)
+            if ei >= 0 && self.at(TokenKind.Dot) {
+                let _ = self.take()
+                let item = try self.expect(TokenKind.Ident, "expected enum case after `.`")
+                let ci = self.enum_case_index(ei, item.value)
+                if ci < 0 { return problem("enum `{name.value}` has no case `{item.value}`", item.line, item.col) }
+                let ty = ValueType.Enum(ei)
+                let dst = self.new_slot(ty)
+                let at = self.emit_at(Op.Const, name.line, name.col)
+                self.code[at].dst = dst
+                self.code[at].immediate = ci
+                return expr_value(ty, dst, false)
+            }
             let ri = self.record_index(name.value)
             if ri >= 0 && self.at(TokenKind.LParen) { return self.parse_record_constructor(name, ri) }
             if let ty = named_integer_type(name.value) {
@@ -678,6 +751,15 @@ extension Compiler {
         var i = 0
         while i < self.records[record].field_names.len() {
             if self.records[record].field_names[i] == name { return i }
+            i += 1
+        }
+        -1
+    }
+
+    func enum_case_index(&self, enum_index: Int, name: String) -> Int {
+        var i = 0
+        while i < self.enums[enum_index].cases.len() {
+            if self.enums[enum_index].cases[i] == name { return i }
             i += 1
         }
         -1
@@ -1014,7 +1096,7 @@ extension Compiler {
         }
         if left.literal && not right.literal { return right.ty }
         if right.literal && not left.literal { return left.ty }
-        problem("numeric operands must have the same type", t.line, t.col)
+        problem("operands must have the same type", t.line, t.col)
     }
 
     func parse_mul(&var self) -> Result<ExprValue, ProtoError> {
@@ -1242,8 +1324,104 @@ extension Compiler {
         returns
     }
 
+    func parse_match_statement(&var self) -> Result<Bool, ProtoError> {
+        let mt = self.take()
+        var subject = try self.parse_expr()
+        subject = try self.snapshot(subject, &mt)
+        var ei = -1
+        match subject.ty {
+            case Enum(index) -> { ei = index },
+            case _ -> { return problem("match subject must have enum type", mt.line, mt.col) }
+        }
+        let _ = try self.expect(TokenKind.LBrace, "expected `\{` after match subject")
+        self.skip_newlines()
+        var covered = Vector<Bool>()
+        var i = 0
+        while i < self.enums[ei].cases.len() {
+            try! covered.push(false)
+            i += 1
+        }
+        var joins = Vector<Int>()
+        var pending_false = -1
+        var wildcard = false
+        var arm_count = 0
+        var all_return = true
+        while not self.at(TokenKind.RBrace) && not self.at(TokenKind.Eof) {
+            if wildcard { return self.fail("match arm follows wildcard") }
+            if pending_false >= 0 { self.code[pending_false].target = self.code.len() }
+            let ct = try self.expect(TokenKind.Case, "expected `case` in match")
+            let pattern = try self.expect(TokenKind.Ident, "expected enum case pattern")
+            var ordinal = -1
+            if pattern.value == "_" {
+                wildcard = true
+            } else if self.at(TokenKind.Dot) {
+                let qualifier = self.enum_index(pattern.value)
+                if qualifier != ei { return problem("enum qualifier `{pattern.value}` does not match subject enum `{self.enums[ei].name}`", pattern.line, pattern.col) }
+                let _ = self.take()
+                let item = try self.expect(TokenKind.Ident, "expected qualified enum case")
+                ordinal = self.enum_case_index(ei, item.value)
+                if ordinal < 0 { return problem("enum `{self.enums[ei].name}` has no case `{item.value}`", item.line, item.col) }
+            } else {
+                ordinal = self.enum_case_index(ei, pattern.value)
+                if ordinal < 0 { return problem("enum `{self.enums[ei].name}` has no case `{pattern.value}`", pattern.line, pattern.col) }
+            }
+            if ordinal >= 0 {
+                if covered[ordinal] { return problem("duplicate match case `{self.enums[ei].cases[ordinal]}`", pattern.line, pattern.col) }
+                covered[ordinal] = true
+                let constant = self.new_slot(subject.ty)
+                let ci = self.emit_at(Op.Const, pattern.line, pattern.col)
+                self.code[ci].dst = constant
+                self.code[ci].immediate = ordinal
+                let equal = self.new_slot(ValueType.Bool)
+                let eq = self.emit_at(Op.Eq, pattern.line, pattern.col)
+                self.code[eq].dst = equal
+                self.code[eq].a = subject.slot
+                self.code[eq].b = constant
+                let branch = self.emit_at(Op.Branch, pattern.line, pattern.col)
+                self.code[branch].a = equal
+                pending_false = self.emit_at(Op.Jump, pattern.line, pattern.col)
+                self.code[branch].target = self.code.len()
+            } else { pending_false = -1 }
+            let _ = try self.expect(TokenKind.Arrow, "expected `->` after match pattern")
+            let _ = try self.expect(TokenKind.LBrace, "match arms require statement blocks")
+            let returns = try self.parse_block()
+            if not returns {
+                all_return = false
+                let join = self.emit_at(Op.Jump, ct.line, ct.col)
+                try! joins.push(join)
+            }
+            arm_count += 1
+            self.skip_newlines()
+            if self.at(TokenKind.Comma) {
+                let _ = self.take()
+                self.skip_newlines()
+            }
+        }
+        let _ = try self.expect(TokenKind.RBrace, "expected closing brace for match")
+        if arm_count == 0 { return problem("non-exhaustive match", mt.line, mt.col) }
+        var exhaustive = wildcard
+        if not exhaustive {
+            exhaustive = true
+            i = 0
+            while i < covered.len() {
+                if not covered[i] { exhaustive = false }
+                i += 1
+            }
+        }
+        if not exhaustive { return problem("non-exhaustive match", mt.line, mt.col) }
+        let continuation = self.code.len()
+        if pending_false >= 0 { self.code[pending_false].target = continuation }
+        i = 0
+        while i < joins.len() {
+            self.code[joins[i]].target = continuation
+            i += 1
+        }
+        all_return
+    }
+
     func parse_statement(&var self) -> Result<Bool, ProtoError> {
         if self.at(TokenKind.Semicolon) { return self.fail("semicolons are not supported") }
+        if self.at(TokenKind.Match) { return self.parse_match_statement() }
         if self.at(TokenKind.Let) || self.at(TokenKind.Var) {
             let kw = self.take()
             let name = try self.expect(TokenKind.Ident, "expected local name")
@@ -1332,7 +1510,12 @@ extension Compiler {
             self.paren_depth -= 1
             self.depth -= 1
             if value.ty == ValueType.Void { return problem("cannot print Void", t.line, t.col) }
-            if not scalar_type(value.ty) { return problem("cannot print a record value", t.line, t.col) }
+            if not printable_type(value.ty) {
+                match value.ty {
+                    case Enum(_) -> { return problem("cannot print an enum value", t.line, t.col) },
+                    case _ -> { return problem("cannot print a record value", t.line, t.col) }
+                }
+            }
             let at = self.emit_at(Op.Print, t.line, t.col)
             self.code[at].a = value.slot
             return false
@@ -1422,7 +1605,7 @@ public func compile_source(source: String) -> Result<Program, ProtoError> {
         case Ok(ts) -> move ts,
         case Err(e) -> { return problem(e.message, e.line, e.col) }
     }
-    var compiler = Compiler(tokens: move tokens, records: Vector<RecordIR>(), statics: Vector<StaticBinding>(),
+    var compiler = Compiler(tokens: move tokens, records: Vector<RecordIR>(), enums: Vector<EnumIR>(), statics: Vector<StaticBinding>(),
                             signatures: Vector<Signature>(), pos: 0, depth: 0,
                             expr_depth: 0, paren_depth: 0,
                             bindings: Vector<Binding>(), slots: Vector<ValueType>(),
@@ -1430,6 +1613,7 @@ public func compile_source(source: String) -> Result<Program, ProtoError> {
     try compiler.collect_record_names()
     try compiler.scan_signatures()
     try validate_records(&compiler.records)
+    try validate_enums(&compiler.enums)
     var functions = Vector<FuncIR>()
     var main_index = -1
     var i = 0
@@ -1439,5 +1623,5 @@ public func compile_source(source: String) -> Result<Program, ProtoError> {
         try! functions.push(move f)
         i += 1
     }
-    Program(records: compiler.records.copy(), functions: move functions, main_index: main_index)
+    Program(enums: compiler.enums.copy(), records: compiler.records.copy(), functions: move functions, main_index: main_index)
 }

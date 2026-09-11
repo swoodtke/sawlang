@@ -1,0 +1,154 @@
+import src.model.*
+import src.verify.*
+
+func enum_decl(name: String) -> EnumIR {
+    var cases = Vector<String>()
+    try! cases.push("First")
+    try! cases.push("Last")
+    EnumIR(name: name, cases: move cases, line: 1, col: 1)
+}
+
+func enum_record() -> RecordIR {
+    var names = Vector<String>()
+    try! names.push("tag")
+    try! names.push("count")
+    var types = Vector<ValueType>()
+    try! types.push(ValueType.Enum(0))
+    try! types.push(ValueType.I32)
+    RecordIR(name: "Tagged", field_names: move names, field_types: move types,
+             line: 2, col: 1)
+}
+
+func valid(program: &Program) -> Bool {
+    try verify(&program) catch { return false }
+    true
+}
+
+func base_program() -> Program {
+    var enums = Vector<EnumIR>()
+    try! enums.push(enum_decl("Alpha"))
+    try! enums.push(enum_decl("Beta"))
+    var records = Vector<RecordIR>()
+    try! records.push(enum_record())
+
+    var main_slots = Vector<ValueType>()
+    try! main_slots.push(ValueType.Enum(0))
+    try! main_slots.push(ValueType.Enum(1))
+    var first = instruction(Op.Const)
+    first.dst = 0
+    first.immediate = 0
+    var last = instruction(Op.Const)
+    last.dst = 1
+    last.immediate = 1
+    var args = Vector<Int>()
+    try! args.push(0)
+    var call = instruction(Op.Call)
+    call.target = 1
+    call.dst = 0
+    call.args = move args
+    var main_code = Vector<Instruction>()
+    try! main_code.push(move first)
+    try! main_code.push(move last)
+    try! main_code.push(move call)
+    try! main_code.push(instruction(Op.Return))
+
+    var identity_params = Vector<ValueType>()
+    try! identity_params.push(ValueType.Enum(0))
+    var identity_slots = Vector<ValueType>()
+    try! identity_slots.push(ValueType.Enum(0))
+    var ret = instruction(Op.Return)
+    ret.a = 0
+    var identity_code = Vector<Instruction>()
+    try! identity_code.push(move ret)
+
+    var functions = Vector<FuncIR>()
+    try! functions.push(FuncIR(name: "main", params: Vector<ValueType>(),
+        result: ValueType.Void, slots: move main_slots, code: move main_code))
+    try! functions.push(FuncIR(name: "identity", params: move identity_params,
+        result: ValueType.Enum(0), slots: move identity_slots,
+        code: move identity_code))
+    Program(enums: move enums, records: move records,
+            functions: move functions, main_index: 0)
+}
+
+func main() {
+    let program = base_program()
+    assert(valid(&program), "valid enum program")
+    assert(scalar_type(ValueType.Enum(0)), "enum is scalar")
+    assert(not integer_type(ValueType.Enum(0)), "enum is not integer")
+    assert(not printable_type(ValueType.Enum(0)), "enum is not printable")
+    let record_layout = try! value_layout(&program.records, ValueType.Record(0))
+    assert(record_layout.len() == 2 && record_layout[0] == ValueType.Enum(0) &&
+           record_layout[1] == ValueType.I32, "record preserves enum field type")
+
+    var negative_field = program.copy()
+    negative_field.records[0].field_types.set(0, ValueType.Enum(-1))
+    assert(not valid(&negative_field), "negative enum index in record field")
+    var high_field = program.copy()
+    high_field.records[0].field_types.set(0, ValueType.Enum(2))
+    assert(not valid(&high_field), "high enum index in record field")
+
+    var negative_param = program.copy()
+    negative_param.functions[1].params.set(0, ValueType.Enum(-1))
+    assert(not valid(&negative_param), "negative enum index in parameter")
+    var high_param = program.copy()
+    high_param.functions[1].params.set(0, ValueType.Enum(2))
+    assert(not valid(&high_param), "high enum index in parameter")
+    var negative_result = program.copy()
+    negative_result.functions[1].result = ValueType.Enum(-1)
+    assert(not valid(&negative_result), "negative enum index in result")
+    var high_result = program.copy()
+    high_result.functions[1].result = ValueType.Enum(2)
+    assert(not valid(&high_result), "high enum index in result")
+    var negative_slot = program.copy()
+    negative_slot.functions[0].slots.set(0, ValueType.Enum(-1))
+    assert(not valid(&negative_slot), "negative enum index in slot")
+    var high_slot = program.copy()
+    high_slot.functions[0].slots.set(0, ValueType.Enum(2))
+    assert(not valid(&high_slot), "high enum index in slot")
+
+    var first_case = program.copy()
+    first_case.functions[0].code[0].immediate = 0
+    assert(valid(&first_case), "first ordinal accepted")
+    var last_case = program.copy()
+    last_case.functions[0].code[0].immediate = 1
+    assert(valid(&last_case), "last ordinal accepted")
+    var negative_case = program.copy()
+    negative_case.functions[0].code[0].immediate = -1
+    assert(not valid(&negative_case), "negative ordinal rejected")
+    var past_last_case = program.copy()
+    past_last_case.functions[0].code[0].immediate = 2
+    assert(not valid(&past_last_case), "case count ordinal rejected")
+
+    var empty_enum = program.copy()
+    empty_enum.enums[0].cases = Vector<String>()
+    assert(not valid(&empty_enum), "empty enum rejected")
+    var duplicate_enum = program.copy()
+    duplicate_enum.enums[1].name = "Alpha"
+    assert(not valid(&duplicate_enum), "duplicate enum rejected")
+    var cross_kind = program.copy()
+    cross_kind.records[0].name = "Alpha"
+    assert(not valid(&cross_kind), "enum and record name collision rejected")
+    var duplicate_case = program.copy()
+    duplicate_case.enums[0].cases.set(1, "First")
+    assert(not valid(&duplicate_case), "duplicate enum case rejected")
+
+    var enum_print = program.copy()
+    var print_inst = instruction(Op.Print)
+    print_inst.a = 0
+    enum_print.functions[0].code.set(2, move print_inst)
+    assert(not valid(&enum_print), "enum print rejected")
+
+    var wrong_argument = program.copy()
+    wrong_argument.functions[0].code[2].args.set(0, 1)
+    assert(not valid(&wrong_argument), "nominal enum call argument rejected")
+    var wrong_destination = program.copy()
+    wrong_destination.functions[0].code[2].dst = 1
+    assert(not valid(&wrong_destination), "nominal enum call result rejected")
+    var wrong_return = program.copy()
+    wrong_return.functions[1].result = ValueType.Enum(1)
+    wrong_return.functions[0].code[2].dst = 1
+    assert(not valid(&wrong_return), "nominal enum return rejected")
+
+    print("enum contract passed")
+}

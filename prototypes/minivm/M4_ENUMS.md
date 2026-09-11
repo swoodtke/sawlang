@@ -1,6 +1,6 @@
 # M4: payload-free enums and exhaustive statement match
 
-Status: design, after M3. This isolates the TokenKind representation and dispatch
+Status: implemented after M3 (781a7fff); all 161 integration cases pass. This isolates the TokenKind representation and dispatch
 required by the lexer. Value-producing match, implicit tails, strings, and payload
 enums remain later slices. No new instruction opcode is required.
 
@@ -33,7 +33,9 @@ line: Int, col: Int }`, and `Program.enums`. A value occupies one scalar slot;
 its canonical immediate/cell is the case's zero-based ordinal. Enum identity stays
 in slot types, function signatures and record fields. No integer helper should
 classify enums as integers. `scalar_type` includes enums so layout/copy/call ABI
-remain unchanged, while printing still accepts only numeric and Bool values.
+remain unchanged, while `printable_type` accepts only numeric and Bool values.
+`validate_enums(enums: &Vector<EnumIR>) -> Result<Void, ProtoError>` checks
+declaration shape; the verifier checks all type references before instructions.
 
 The record layout routine does not dereference enum metadata: enums flatten to
 one word. Full Program verification must separately validate enum type indices
