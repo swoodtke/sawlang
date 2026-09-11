@@ -1,0 +1,13 @@
+// SL-235: the `match` twin — a reachable arm whose block supplies no value
+// makes the whole `match` value-less, so consuming it as an `Int` is rejected
+// rather than fabricating a zero on that arm. A diverging arm (`{ ...; return }`)
+// stays exempt; this one merely ends in a `let`.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: but returns `Void`
+func choose(n: Int) -> Int {
+    match n {
+        case 0 -> 1,
+        case _ -> { let x = 2 }
+    }
+}
+func main() { print("{}", choose(5)) }

@@ -1,0 +1,29 @@
+// SL-235 (the other half): the rejection is for VALUE position only. A value-less
+// arm in STATEMENT position — where the branch value is discarded — stays legal,
+// and a DIVERGING arm (`return`/`panic`) that exits keeps its sibling's value.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// stmt-then
+// early-2
+// panic-side-11
+func side() { print("stmt-then") }
+
+// A value-less arm is fine when the branch is a statement (value discarded).
+func in_statement(flag: Bool) {
+    if flag { side() } else { let x = 2 }
+}
+
+// A DIVERGING sibling arm keeps the value `if` valid — the arm exits.
+func with_early_return(flag: Bool) -> Int {
+    if flag { return 2 } else { let x = 7  x }
+}
+
+func with_panic(flag: Bool) -> Int {
+    if flag { 11 } else { panic("unreachable in this test") }
+}
+
+func main() {
+    in_statement(true)
+    print("early-{}", with_early_return(true))
+    print("panic-side-{}", with_panic(true))
+}

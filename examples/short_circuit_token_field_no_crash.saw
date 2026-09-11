@@ -1,0 +1,31 @@
+// SL-236 (the filed reproducer): the second `if`'s `&&` RHS reads the String
+// field of a fresh `Tok` temporary, but the LHS `self.at(Kind.Ident)` is false
+// (the token is Number), so the RHS is never evaluated. Its temporary — whose
+// `suffix: String?` field carries a drop flag — must not be torn down on the
+// short-circuit path. Before the fix this ran a destructor over an
+// uninitialized slot and the executable SIGBUS'd instead of printing `false`.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// false
+enum Kind { case Ident, case Number, case Let, case Var, case Return, case While, case Brace }
+struct Tok { kind: Kind, value: String, line: Int, col: Int, suffix: String? }
+func clone(t: &Tok) -> Tok {
+    Tok(kind: t.kind, value: t.value, line: t.line, col: t.col, suffix: t.suffix)
+}
+struct Reader { tokens: Vector<Tok>, pos: Int }
+extension Reader: NoCopy {}
+extension Reader {
+    func token(&self) -> Tok { clone(&self.tokens[self.pos]) }
+    func at(&self, k: Kind) -> Bool { self.token().kind == k }
+    func classify(&self) -> Bool {
+        if self.at(Kind.Let) || self.at(Kind.Var) || self.at(Kind.Return) || self.at(Kind.While) || self.at(Kind.Brace) { return true }
+        if self.at(Kind.Ident) && self.token().value == "print" { return true }
+        false
+    }
+}
+func main() {
+    var tokens = Vector<Tok>()
+    try! tokens.push(Tok(kind: Kind.Number, value: "42", line: 1, col: 1, suffix: None))
+    let reader = Reader(tokens: move tokens, pos: 0)
+    print(reader.classify())
+}

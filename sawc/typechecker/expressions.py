@@ -55,6 +55,22 @@ VOID_THREAD_STRUCT_NAME = _type_identity("VoidThread", ("<std>", "task"))
 _ABSTRACT_COUNT = object()
 
 
+def _branch_is_valueless(block, diverges: bool) -> bool:
+    """True when an `if`/`if let` branch REACHABLY supplies no value (SL-235).
+
+    A branch contributes the construct's value through its block's final
+    EXPRESSION. A block that ends in a plain statement — `{ let x = 2 }` — has no
+    final expression, so `_check_block` types it `None`, meaning "no value". The
+    branch reconciliation must not read that `None` as "the sibling's type" or as
+    "compatible with anything": a reachable branch that supplies no value makes
+    the whole construct valueless. A DIVERGING branch (`{ return }`,
+    `{ panic() }`) is exempt — it never falls through with a missing value, so the
+    construct legitimately takes the other branch's type (design 49)."""
+    if diverges:
+        return False
+    return getattr(block, 'final_expr', None) is None
+
+
 class _SpawnBorrow(NamedTuple):
     """One root a `group.spawn(...)` borrows for its task's life.
 
@@ -5351,6 +5367,22 @@ class ExpressionsMixin:
             entry_moves,
             [(then_state, then_diverges), (else_state, else_diverges)])
 
+        # SL-235: a REACHABLE branch whose block supplies no value — it ends in a
+        # statement, not an expression, so `_check_block` returned None — cannot
+        # contribute the `if`'s value. Yield `Void` (not the sibling's type): a
+        # value-requiring consumer then rejects the whole `if` with a located
+        # error (`let n = <Void>`, an argument mismatch, a `-> Int` tail
+        # mismatch), while STATEMENT position — where the value is discarded —
+        # stays legal. A DIVERGING branch is exempt: it exits rather than falling
+        # through valueless, and the NEVER handling below hands back the other
+        # arm. Until this, the None type flowed on as "compatible with anything"
+        # and the `if` handed back the value arm's type on both paths, fabricating
+        # a zero on the reachable valueless one.
+        if _branch_is_valueless(expr.then_branch, then_diverges) or (
+                expr.else_branch is not None
+                and _branch_is_valueless(expr.else_branch, else_diverges)):
+            return SawType(TypeKind.VOID)
+
         if expr.else_branch:
             # design 49: a diverging branch (`panic(...)`, type NEVER) contributes
             # no value to the merge — the `if` takes the other branch's type.
@@ -5362,9 +5394,19 @@ class ExpressionsMixin:
             # this general test's — `_merge_value_branch_types` below owns both
             # the lossless-widening admission and the refusal, with the three
             # conversion spellings in its hint.
+            #
+            # SL-239: arm reconciliation is SYMMETRIC — a `T` arm and a `T?` arm
+            # merge to `T?` whichever one is written first, so the compatibility
+            # test is asked BOTH ways (`_types_compatible` is directional: it
+            # admits `T` into `T?` but not the reverse). Without the second call a
+            # `then: String?` / `else: String` pair — the annotated-`String?`
+            # destination reaching one arm and not the other — took the incompatible
+            # branch and errored, even though the wrapping block below already
+            # handles a then-optional arm; only the guard was one-directional.
             if (then_type and else_type
                     and not self._both_int_kinds(then_type, else_type)
-                    and not self._types_compatible(then_type, else_type)):
+                    and not self._types_compatible(then_type, else_type)
+                    and not self._types_compatible(else_type, then_type)):
                 # Check if branches could be Result auto-wrapped.
                 # design 213 entry point 2: inside a closure this is the
                 # CLOSURE's return type — a closure declared `-> Result<T, E>`
@@ -5586,6 +5628,16 @@ class ExpressionsMixin:
         self.moved_bindings = self._merge_move_branches(
             entry_moves,
             [(then_state, then_diverges), (else_state, else_diverges)])
+        # SL-235: a reachable branch that supplies no value makes the whole
+        # `if let` value-less — yield Void (see `_check_if_expr` for the rule and
+        # why a value-requiring consumer, not this reconciliation, reports it).
+        # `while let` is exempt: its synthesized `else` is a `break` and value
+        # position is refused upstream, so its own reconciliation still governs.
+        if not expr.while_let and (
+                _branch_is_valueless(expr.then_branch, then_diverges)
+                or (expr.else_branch is not None
+                    and _branch_is_valueless(expr.else_branch, else_diverges))):
+            return SawType(TypeKind.VOID)
         if expr.else_branch:
             # design 49: a diverging branch (`panic(...)`, type NEVER) takes the
             # other branch's type.
@@ -5599,7 +5651,17 @@ class ExpressionsMixin:
                 # value to merge with, and a `while let` yields nothing anyway
                 # (value position is refused in `_check_while_expr_as_expression`).
                 return then_type
-            if then_type and else_type and not self._types_compatible(then_type, else_type):
+            # SL-239: arm reconciliation is SYMMETRIC (see `_check_if_expr`) — a
+            # `T` arm and a `T?` arm merge to `T?` in either order, so the
+            # compatibility guard is asked BOTH ways (`_types_compatible` admits
+            # `T` into `T?` but not the reverse). Without the second call a
+            # then-optional / else-plain pair — the annotated-`T?` destination
+            # reaching one arm — was rejected outright, even though the optional
+            # cross-wrap below handles it. The `if let` twin of the ordinary-`if`
+            # reconciliation, kept in step with it.
+            if (then_type and else_type
+                    and not self._types_compatible(then_type, else_type)
+                    and not self._types_compatible(else_type, then_type)):
                 self._error(
                     ErrorKind.TYPE_MISMATCH,
                     f"`if let` branches have incompatible types: `{then_type}` vs `{else_type}`",
@@ -5620,6 +5682,30 @@ class ExpressionsMixin:
                 if then_type.is_none_literal() and else_type.is_optional():
                     self._annotate_none_in_block(expr.then_branch, else_type)
                     return else_type
+                # SL-239: one arm is `T?`, the other its payload `T`. Wrap the
+                # bare arm into `Some(...)` so the `if let` yields a homogeneous
+                # `T?` value — the exact mirror of `_check_if_expr`, which the
+                # `if let` path had never grown, so an annotated-`String?`
+                # destination whose `String` arm needed the wrap was rejected as
+                # `String? vs String`.
+                if else_type.is_optional() and not then_type.is_optional():
+                    if expr.then_branch.final_expr:
+                        expr.then_branch.final_expr = OptionalWrap(
+                            value=expr.then_branch.final_expr,
+                            target_type=else_type,
+                            line=expr.then_branch.final_expr.line,
+                            column=expr.then_branch.final_expr.column
+                        )
+                    return else_type
+                if then_type.is_optional() and not else_type.is_optional():
+                    if expr.else_branch.final_expr:
+                        expr.else_branch.final_expr = OptionalWrap(
+                            value=expr.else_branch.final_expr,
+                            target_type=then_type,
+                            line=expr.else_branch.final_expr.line,
+                            column=expr.else_branch.final_expr.column
+                        )
+                    return then_type
             return then_type or else_type
         else:
             return then_type
@@ -12110,7 +12196,8 @@ class ExpressionsMixin:
                     expr.line, expr.column,
                     hint="add missing cases or use `case _ ->` as a default"
                 )
-        return self._reconcile_match_arm_types(expr, arm_types)
+        return self._reconcile_match_arm_types(
+            expr, arm_types, [d for (_, d) in arm_move_states])
 
     @staticmethod
     def _arm_yields_no_value(arm_type: Optional[SawType]) -> bool:
@@ -12134,12 +12221,35 @@ class ExpressionsMixin:
         """
         return arm_type is None or arm_type.kind == TypeKind.NEVER
 
-    def _reconcile_match_arm_types(self, expr: MatchExpr, arm_types) -> Optional[SawType]:
+    def _reconcile_match_arm_types(self, expr: MatchExpr, arm_types,
+                                   arm_diverges=None) -> Optional[SawType]:
         """Compute a match expression's result type from its arm types, honoring
         NEVER arms (design 49) and Result auto-wrap. Shared by the enum-switch
-        path and the general pattern path (design 63)."""
+        path and the general pattern path (design 63).
+
+        `arm_diverges` is the per-arm divergence flags (from `_arm_diverges`,
+        aligned with `arm_types`), when the caller has them. They separate the
+        two spellings of a `None` arm type that `_arm_yields_no_value` cannot:
+        a block whose every path EXITED (a value-less block that DIVERGES —
+        contributes nothing, design 49) from a block that merely ENDS IN A
+        STATEMENT (a value-less block that does NOT diverge — SL-235). The second
+        makes the whole `match` value-less, exactly as a valueless `if` arm does;
+        see below."""
         if not arm_types:
             return None
+        # SL-235: a REACHABLE arm that supplies no value — its block ends in a
+        # statement, so `_check_block` typed it `None`, and it does not diverge —
+        # makes the whole `match` value-less. Yield `Void` (not the surviving
+        # arm's type): a value-requiring consumer then rejects the match with a
+        # located error, while statement position discards it. Until this, such
+        # an arm was skipped as if it diverged (`_arm_yields_no_value(None)`),
+        # and the match handed back a live arm's type on the reachable valueless
+        # path, fabricating a zero. A diverging value-less arm (`case _ -> { … ;
+        # return }`) is NOT this case — `arm_diverges` tells the two apart.
+        if arm_diverges is not None:
+            for at, div in zip(arm_types, arm_diverges):
+                if at is None and not div:
+                    return SawType(TypeKind.VOID)
         # design 49 + DF-140e: an arm that yields no value (a diverging
         # `panic(...)`, or a block whose every path returned) contributes
         # nothing to the match's type — skip such arms when computing the common
@@ -12881,7 +12991,8 @@ class ExpressionsMixin:
                 expr.line, expr.column,
                 hint="add a `case _ ->` (or a bare-binding) fallback arm",
             )
-        return self._reconcile_match_arm_types(expr, arm_types)
+        return self._reconcile_match_arm_types(
+            expr, arm_types, [d for (_, d) in arm_move_states])
 
     def _first_reference_in_type(self, t: Optional[SawType]) -> Optional[SawType]:
         """The first reference reachable from an INFERRED type (a closure's

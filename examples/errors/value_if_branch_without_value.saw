@@ -1,0 +1,10 @@
+// SL-235: a value-producing `if` whose REACHABLE continuing branch supplies no
+// value — its block ends in a statement (`let x = 2`), not an expression — must
+// be REJECTED, not accepted with a fabricated zero returned on that path. A
+// `return` in the arm would be valid (it exits); a bare declaration is not.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: but returns `Void`
+func choose(flag: Bool) -> Int {
+    if flag { 1 } else { let x = 2 }
+}
+func main() { print("{}", choose(false)) }

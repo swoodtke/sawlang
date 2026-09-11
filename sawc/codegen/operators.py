@@ -1284,6 +1284,29 @@ class OperatorsMixin:
             self.builder.branch(merge_bb)
         self.builder.position_at_end(merge_bb)
 
+    def _confine_short_circuit_temps(self, temp_mark):
+        """Drop the statement temps created since `temp_mark` in the CURRENT
+        block, and remove them from the enclosing statement's temp list (SL-236).
+
+        THE THIRD ENTRY POINT of design 94's block confinement (obligation 1) —
+        `_generate_block`'s tail and a loop body being the other two. The `&&`/
+        `||` RHS is evaluated in a CONDITIONALLY-taken block, so an owned
+        statement temp created while generating it (a method-call receiver whose
+        field/method is then read — `token().value`) must be dropped on the path
+        that CONSTRUCTS it. Left to the enclosing statement's cleanup drain, it
+        was dropped at the statement's merge — a point the SHORT-CIRCUIT path
+        also reaches, where the temp's slot was never stored — so a destructor
+        ran over an uninitialized alloca (a garbage `String` pointer -> SIGBUS).
+        `temp_mark` is None when there is no statement-temp context to confine."""
+        if temp_mark is None or self.builder.block.is_terminated:
+            return
+        branch_temps = self.statement_temps[temp_mark:]
+        if not branch_temps:
+            return
+        for slot, saw_type in reversed(branch_temps):
+            self._emit_drop_at(slot, saw_type)
+        del self.statement_temps[temp_mark:]
+
     def _generate_logical_and(self, expr: BinaryOp):
         """Generate short-circuit && evaluation.
 
@@ -1305,9 +1328,13 @@ class OperatorsMixin:
         # Branch: if left is false, go to merge with false; else evaluate right
         self.builder.cbranch(left, eval_right_block, merge_block)
 
-        # Evaluate right operand
+        # Evaluate right operand. SL-236: confine any owned temp created for the
+        # RHS to this conditionally-taken block — see `_confine_short_circuit_temps`.
         self.builder.position_at_end(eval_right_block)
+        temp_mark = (len(self.statement_temps)
+                     if self.statement_temps is not None else None)
         right = self._generate_expression(expr.right)
+        self._confine_short_circuit_temps(temp_mark)
         right_block = self.builder.block
         self.builder.branch(merge_block)
 
@@ -1340,9 +1367,13 @@ class OperatorsMixin:
         # Branch: if left is true, go to merge with true; else evaluate right
         self.builder.cbranch(left, merge_block, eval_right_block)
 
-        # Evaluate right operand
+        # Evaluate right operand. SL-236: confine any owned temp created for the
+        # RHS to this conditionally-taken block — see `_confine_short_circuit_temps`.
         self.builder.position_at_end(eval_right_block)
+        temp_mark = (len(self.statement_temps)
+                     if self.statement_temps is not None else None)
         right = self._generate_expression(expr.right)
+        self._confine_short_circuit_temps(temp_mark)
         right_block = self.builder.block
         self.builder.branch(merge_block)
 
