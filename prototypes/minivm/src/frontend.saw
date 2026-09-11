@@ -1,0 +1,653 @@
+import sawlex.src.lib.*
+import src.model.*
+
+func Some<T>(value: T) -> T? { move value }
+
+func clone_token(t: &Token) -> Token {
+    Token(kind: t.kind, value: t.value, line: t.line, col: t.col, suffix: t.suffix)
+}
+
+struct Signature {
+    name: String
+    param_names: Vector<String>
+    params: Vector<ValueType>
+    result: ValueType
+    body_start: Int
+    body_end: Int
+    line: Int
+    col: Int
+}
+extension Signature: NoCopy {}
+
+struct Binding {
+    name: String
+    ty: ValueType
+    slot: Int
+    mutable: Bool
+    depth: Int
+}
+
+struct ExprValue {
+    ty: ValueType
+    slot: Int
+    call: Bool
+}
+
+struct Compiler {
+    tokens: Vector<Token>
+    signatures: Vector<Signature>
+    pos: Int
+    depth: Int
+    expr_depth: Int
+    paren_depth: Int
+    bindings: Vector<Binding>
+    slots: Vector<ValueType>
+    code: Vector<Instruction>
+    current_result: ValueType
+}
+extension Compiler: NoCopy {}
+
+extension Compiler {
+    func token(&self) -> Token { clone_token(&self.tokens[self.pos]) }
+
+    func at(&self, kind: TokenKind) -> Bool { self.token().kind == kind }
+
+    func fail(&self, message: String) -> ProtoError {
+        problem(message, self.token().line, self.token().col)
+    }
+
+    func take(&var self) -> Token {
+        let t = clone_token(&self.tokens[self.pos])
+        self.pos += 1
+        t
+    }
+
+    func expect(&var self, kind: TokenKind, message: String) -> Result<Token, ProtoError> {
+        if not self.at(kind) { return self.fail(message) }
+        self.take()
+    }
+
+    func skip_newlines(&var self) {
+        while self.at(TokenKind.Newline) { let _ = self.take() }
+    }
+
+    func expr_space(&var self) {
+        if self.paren_depth > 0 { self.skip_newlines() }
+    }
+
+    func parse_type(&var self) -> Result<ValueType, ProtoError> {
+        let t = try self.expect(TokenKind.Ident, "expected type")
+        if t.value == "Int32" { return ValueType.I32 }
+        if t.value == "Bool" { return ValueType.Bool }
+        problem("unsupported type `{t.value}`", t.line, t.col)
+    }
+
+    func signature_index(&self, name: String) -> Int {
+        var i = 0
+        while i < self.signatures.len() {
+            if self.signatures[i].name == name { return i }
+            i += 1
+        }
+        -1
+    }
+
+    func scan_signatures(&var self) -> Result<Void, ProtoError> {
+        self.pos = 0
+        self.skip_newlines()
+        while not self.at(TokenKind.Eof) {
+            let ft = try self.expect(TokenKind.Func, "only function declarations are supported at module scope")
+            let name = try self.expect(TokenKind.Ident, "expected function name")
+            if name.value == "print" {
+                return problem("`print` is reserved by the prototype", name.line, name.col)
+            }
+            if self.signature_index(name.value) >= 0 {
+                return problem("duplicate function `{name.value}`", name.line, name.col)
+            }
+            let _ = try self.expect(TokenKind.LParen, "expected `(` after function name")
+            var pnames = Vector<String>()
+            var ptypes = Vector<ValueType>()
+            self.skip_newlines()
+            if not self.at(TokenKind.RParen) {
+                var more = true
+                while more {
+                    let pn = try self.expect(TokenKind.Ident, "expected parameter name")
+                    var j = 0
+                    while j < pnames.len() {
+                        if pnames[j] == pn.value {
+                            return problem("duplicate parameter `{pn.value}`", pn.line, pn.col)
+                        }
+                        j += 1
+                    }
+                    self.skip_newlines()
+                    let _ = try self.expect(TokenKind.Colon, "expected `:` after parameter name")
+                    self.skip_newlines()
+                    let pt = try self.parse_type()
+                    try! pnames.push(pn.value)
+                    try! ptypes.push(pt)
+                    self.skip_newlines()
+                    if self.at(TokenKind.Comma) {
+                        let _ = self.take()
+                        self.skip_newlines()
+                    } else { more = false }
+                }
+            }
+            let _ = try self.expect(TokenKind.RParen, "expected `)` after parameters")
+            var result = ValueType.Void
+            if self.at(TokenKind.Arrow) {
+                let _ = self.take()
+                result = try self.parse_type()
+            }
+            let _ = try self.expect(TokenKind.LBrace, "expected function body")
+            let start = self.pos
+            var braces = 1
+            while braces > 0 && not self.at(TokenKind.Eof) {
+                if self.at(TokenKind.LBrace) { braces += 1 }
+                if self.at(TokenKind.RBrace) { braces -= 1 }
+                let _ = self.take()
+            }
+            if braces != 0 { return problem("unterminated function body", ft.line, ft.col) }
+            let finish = self.pos - 1
+            try! self.signatures.push(Signature(name: name.value, param_names: move pnames,
+                params: move ptypes, result: result, body_start: start, body_end: finish,
+                line: name.line, col: name.col))
+            self.skip_newlines()
+        }
+        var mains = 0
+        var main_i = -1
+        var i = 0
+        while i < self.signatures.len() {
+            if self.signatures[i].name == "main" {
+                mains += 1
+                main_i = i
+                if self.signatures[i].params.len() != 0 || self.signatures[i].result != ValueType.Void {
+                    return problem("main must have no parameters and return Void",
+                                   self.signatures[i].line, self.signatures[i].col)
+                }
+            }
+            i += 1
+        }
+        if mains != 1 {
+            let t = self.token()
+            return problem("program must declare exactly one main function", t.line, t.col)
+        }
+        return
+    }
+
+    func new_slot(&var self, ty: ValueType) -> Int {
+        let n = self.slots.len()
+        try! self.slots.push(ty)
+        n
+    }
+
+    func emit(&var self, ins: Instruction) -> Int {
+        let n = self.code.len()
+        try! self.code.push(move ins)
+        n
+    }
+
+    func emit_at(&var self, op: Op, line: Int, col: Int) -> Int {
+        var ins = instruction(op: op)
+        ins.line = line
+        ins.col = col
+        self.emit(move ins)
+    }
+
+    func binding_index(&self, name: String) -> Int {
+        var i = self.bindings.len()
+        while i > 0 {
+            i -= 1
+            if self.bindings[i].name == name { return i }
+        }
+        -1
+    }
+
+    func declare(&var self, name: Token, ty: ValueType, slot: Int, mutable: Bool) -> Result<Void, ProtoError> {
+        var i = self.bindings.len()
+        while i > 0 {
+            i -= 1
+            if self.bindings[i].depth != self.depth { break }
+            if self.bindings[i].name == name.value {
+                return problem("duplicate declaration `{name.value}` in this scope", name.line, name.col)
+            }
+        }
+        try! self.bindings.push(Binding(name: name.value, ty: ty, slot: slot,
+                                        mutable: mutable, depth: self.depth))
+        return
+    }
+
+    func leave_scope(&var self) {
+        while self.bindings.len() > 0 && self.bindings[self.bindings.len() - 1].depth == self.depth {
+            let _ = self.bindings.pop()
+        }
+    }
+
+    func terminator(&var self) -> Result<Void, ProtoError> {
+        if self.at(TokenKind.Semicolon) { return self.fail("semicolons are not supported") }
+        if self.at(TokenKind.Newline) {
+            self.skip_newlines()
+            return
+        }
+        if self.at(TokenKind.RBrace) { return }
+        self.fail("expected newline after statement")
+    }
+
+    func require_type(&self, got: ValueType, wanted: ValueType, t: &Token) -> Result<Void, ProtoError> {
+        if got != wanted { return problem("type mismatch", t.line, t.col) }
+        return
+    }
+
+    func parse_primary(&var self) -> Result<ExprValue, ProtoError> {
+        if self.depth > 128 { return self.fail("expression nesting limit exceeded") }
+        if self.at(TokenKind.IntLit) {
+            let t = self.take()
+            if t.value.starts_with("0x") || t.value.starts_with("0b") || t.value.starts_with("0o") {
+                return problem("only decimal integer literals are supported", t.line, t.col)
+            }
+            if let suffix = t.suffix {
+                if suffix != "i32" { return problem("unsupported integer suffix `{suffix}`", t.line, t.col) }
+            }
+            guard let value = t.value.to_int() else { return problem("invalid integer literal", t.line, t.col) }
+            if value > 2_147_483_647 { return problem("integer literal does not fit Int32", t.line, t.col) }
+            let dst = self.new_slot(ValueType.I32)
+            let at = self.emit_at(Op.Const, t.line, t.col)
+            self.code[at].dst = dst
+            self.code[at].immediate = value
+            return ExprValue(ty: ValueType.I32, slot: dst, call: false)
+        }
+        if self.at(TokenKind.True_) || self.at(TokenKind.False_) {
+            let t = self.take()
+            let dst = self.new_slot(ValueType.Bool)
+            let at = self.emit_at(Op.Const, t.line, t.col)
+            self.code[at].dst = dst
+            self.code[at].immediate = if t.kind == TokenKind.True_ { 1 } else { 0 }
+            return ExprValue(ty: ValueType.Bool, slot: dst, call: false)
+        }
+        if self.at(TokenKind.LParen) {
+            let _ = self.take()
+            self.depth += 1
+            self.paren_depth += 1
+            self.skip_newlines()
+            let value = try self.parse_expr()
+            self.skip_newlines()
+            let _ = try self.expect(TokenKind.RParen, "expected `)`")
+            self.paren_depth -= 1
+            self.depth -= 1
+            return value
+        }
+        if self.at(TokenKind.Ident) {
+            let name = self.take()
+            if self.at(TokenKind.LParen) { return self.parse_call(name) }
+            let bi = self.binding_index(name.value)
+            if bi < 0 { return problem("unknown name `{name.value}`", name.line, name.col) }
+            return ExprValue(ty: self.bindings[bi].ty, slot: self.bindings[bi].slot, call: false)
+        }
+        self.fail("expected expression; this syntax is unsupported")
+    }
+
+    func parse_call(&var self, name: Token) -> Result<ExprValue, ProtoError> {
+        let fi = self.signature_index(name.value)
+        if fi < 0 { return problem("unknown function `{name.value}`", name.line, name.col) }
+        let _ = self.take()
+        var args = Vector<Int>()
+        var ai = 0
+        self.depth += 1
+        self.paren_depth += 1
+        self.skip_newlines()
+        if not self.at(TokenKind.RParen) {
+            var more = true
+            while more {
+                let value = try self.parse_expr()
+                if ai >= self.signatures[fi].params.len() {
+                    return problem("too many arguments to `{name.value}`", name.line, name.col)
+                }
+                try self.require_type(value.ty, self.signatures[fi].params[ai], &name)
+                try! args.push(value.slot)
+                ai += 1
+                self.skip_newlines()
+                if self.at(TokenKind.Comma) {
+                    let _ = self.take()
+                    self.skip_newlines()
+                } else { more = false }
+            }
+        }
+        let _ = try self.expect(TokenKind.RParen, "expected `)` after arguments")
+        self.paren_depth -= 1
+        self.depth -= 1
+        if ai != self.signatures[fi].params.len() {
+            return problem("wrong number of arguments to `{name.value}`", name.line, name.col)
+        }
+        let rt = self.signatures[fi].result
+        let dst = if rt == ValueType.Void { -1 } else { self.new_slot(rt) }
+        let at = self.emit_at(Op.Call, name.line, name.col)
+        self.code[at].target = fi
+        self.code[at].dst = dst
+        self.code[at].args = move args
+        ExprValue(ty: rt, slot: dst, call: true)
+    }
+
+    func parse_unary_inner(&var self) -> Result<ExprValue, ProtoError> {
+        self.expr_space()
+        if self.at(TokenKind.Exclaim) || self.at(TokenKind.Not_) {
+            let t = self.take()
+            self.expr_space()
+            let v = try self.parse_unary()
+            try self.require_type(v.ty, ValueType.Bool, &t)
+            let dst = self.new_slot(ValueType.Bool)
+            let at = self.emit_at(Op.Not, t.line, t.col)
+            self.code[at].dst = dst
+            self.code[at].a = v.slot
+            return ExprValue(ty: ValueType.Bool, slot: dst, call: false)
+        }
+        if self.at(TokenKind.Minus) {
+            let t = self.take()
+            self.expr_space()
+            if self.at(TokenKind.IntLit) {
+                let lit = self.token()
+                if not lit.value.starts_with("0x") && not lit.value.starts_with("0b") && not lit.value.starts_with("0o") {
+                    if let n = lit.value.to_int() {
+                        if n == 2_147_483_648 {
+                            let owned = self.take()
+                            if let suffix = owned.suffix {
+                                if suffix != "i32" { return problem("unsupported integer suffix `{suffix}`", owned.line, owned.col) }
+                            }
+                            let dst = self.new_slot(ValueType.I32)
+                            let at = self.emit_at(Op.Const, t.line, t.col)
+                            self.code[at].dst = dst
+                            self.code[at].immediate = -2_147_483_648
+                            return ExprValue(ty: ValueType.I32, slot: dst, call: false)
+                        }
+                    }
+                }
+            }
+            let v = try self.parse_unary()
+            try self.require_type(v.ty, ValueType.I32, &t)
+            let dst = self.new_slot(ValueType.I32)
+            let at = self.emit_at(Op.Neg, t.line, t.col)
+            self.code[at].dst = dst
+            self.code[at].a = v.slot
+            return ExprValue(ty: ValueType.I32, slot: dst, call: false)
+        }
+        self.parse_primary()
+    }
+
+    func parse_unary(&var self) -> Result<ExprValue, ProtoError> {
+        if self.expr_depth >= 128 { return self.fail("expression nesting limit exceeded") }
+        self.expr_depth += 1
+        let value = try self.parse_unary_inner()
+        self.expr_depth -= 1
+        value
+    }
+
+    func binary(&var self, left: ExprValue, right: ExprValue, op: Op,
+                result: ValueType, t: &Token) -> Result<ExprValue, ProtoError> {
+        let dst = self.new_slot(result)
+        let at = self.emit_at(op, t.line, t.col)
+        self.code[at].dst = dst
+        self.code[at].a = left.slot
+        self.code[at].b = right.slot
+        ExprValue(ty: result, slot: dst, call: false)
+    }
+
+    func parse_mul(&var self) -> Result<ExprValue, ProtoError> {
+        self.expr_space()
+        var left = try self.parse_unary()
+        self.expr_space()
+        while self.at(TokenKind.Star) || self.at(TokenKind.Slash) || self.at(TokenKind.Percent) {
+            let t = self.take()
+            self.expr_space()
+            let right = try self.parse_unary()
+            self.expr_space()
+            try self.require_type(left.ty, ValueType.I32, &t)
+            try self.require_type(right.ty, ValueType.I32, &t)
+            let op = if t.kind == TokenKind.Star { Op.Mul } else if t.kind == TokenKind.Slash { Op.Div } else { Op.Rem }
+            left = try self.binary(left, right, op, ValueType.I32, &t)
+        }
+        left
+    }
+
+    func parse_add(&var self) -> Result<ExprValue, ProtoError> {
+        var left = try self.parse_mul()
+        self.expr_space()
+        while self.at(TokenKind.Plus) || self.at(TokenKind.Minus) {
+            let t = self.take()
+            self.expr_space()
+            let right = try self.parse_mul()
+            self.expr_space()
+            try self.require_type(left.ty, ValueType.I32, &t)
+            try self.require_type(right.ty, ValueType.I32, &t)
+            left = try self.binary(left, right, if t.kind == TokenKind.Plus { Op.Add } else { Op.Sub }, ValueType.I32, &t)
+        }
+        left
+    }
+
+    func parse_compare(&var self) -> Result<ExprValue, ProtoError> {
+        var left = try self.parse_add()
+        self.expr_space()
+        if self.at(TokenKind.Lt) || self.at(TokenKind.Lte) || self.at(TokenKind.Gt) || self.at(TokenKind.Gte) {
+            let t = self.take()
+            self.expr_space()
+            let right = try self.parse_add()
+            self.expr_space()
+            try self.require_type(left.ty, ValueType.I32, &t)
+            try self.require_type(right.ty, ValueType.I32, &t)
+            let op = if t.kind == TokenKind.Lt { Op.Lt } else if t.kind == TokenKind.Lte { Op.Le } else if t.kind == TokenKind.Gt { Op.Gt } else { Op.Ge }
+            left = try self.binary(left, right, op, ValueType.Bool, &t)
+        }
+        left
+    }
+
+    func parse_expr(&var self) -> Result<ExprValue, ProtoError> {
+        self.expr_space()
+        var left = try self.parse_compare()
+        self.expr_space()
+        if self.at(TokenKind.Eq) || self.at(TokenKind.Neq) {
+            let t = self.take()
+            self.expr_space()
+            let right = try self.parse_compare()
+            self.expr_space()
+            if left.ty == ValueType.Void || left.ty != right.ty { return problem("equality operands must have the same scalar type", t.line, t.col) }
+            left = try self.binary(left, right, if t.kind == TokenKind.Eq { Op.Eq } else { Op.Ne }, ValueType.Bool, &t)
+        }
+        left
+    }
+
+    func parse_block(&var self) -> Result<Bool, ProtoError> {
+        if self.depth >= 128 { return self.fail("block nesting limit exceeded") }
+        self.depth += 1
+        self.skip_newlines()
+        var returns = false
+        while not self.at(TokenKind.RBrace) && not self.at(TokenKind.Eof) {
+            let r = try self.parse_statement()
+            if not returns && r { returns = true }
+            try self.terminator()
+        }
+        let _ = try self.expect(TokenKind.RBrace, "expected closing brace")
+        self.leave_scope()
+        self.depth -= 1
+        returns
+    }
+
+    func parse_statement(&var self) -> Result<Bool, ProtoError> {
+        if self.at(TokenKind.Semicolon) { return self.fail("semicolons are not supported") }
+        if self.at(TokenKind.Let) || self.at(TokenKind.Var) {
+            let kw = self.take()
+            let name = try self.expect(TokenKind.Ident, "expected local name")
+            var annotated: ValueType? = None
+            if self.at(TokenKind.Colon) {
+                let _ = self.take()
+                annotated = Some(try self.parse_type())
+            }
+            let _ = try self.expect(TokenKind.Assign, "local declarations require an initializer")
+            let value = try self.parse_expr()
+            if value.ty == ValueType.Void { return problem("cannot initialize a local with Void", name.line, name.col) }
+            if let ty = annotated { try self.require_type(value.ty, ty, &name) }
+            let dst = self.new_slot(value.ty)
+            let at = self.emit_at(Op.Copy, name.line, name.col)
+            self.code[at].dst = dst
+            self.code[at].a = value.slot
+            try self.declare(name, value.ty, dst, kw.kind == TokenKind.Var)
+            return false
+        }
+        if self.at(TokenKind.Return) {
+            let t = self.take()
+            var src = -1
+            if not self.at(TokenKind.Newline) && not self.at(TokenKind.RBrace) {
+                let value = try self.parse_expr()
+                try self.require_type(value.ty, self.current_result, &t)
+                src = value.slot
+            } else if self.current_result != ValueType.Void { return problem("non-Void return requires a value", t.line, t.col) }
+            let at = self.emit_at(Op.Return, t.line, t.col)
+            self.code[at].a = src
+            return true
+        }
+        if self.at(TokenKind.If) {
+            let t = self.take()
+            let cond = try self.parse_expr()
+            try self.require_type(cond.ty, ValueType.Bool, &t)
+            let _ = try self.expect(TokenKind.LBrace, "expected block after if condition")
+            let branch = self.emit_at(Op.Branch, t.line, t.col)
+            self.code[branch].a = cond.slot
+            let skip_then = self.emit_at(Op.Jump, t.line, t.col)
+            self.code[branch].target = self.code.len()
+            let then_returns = try self.parse_block()
+            let skip_else = self.emit_at(Op.Jump, t.line, t.col)
+            self.code[skip_then].target = self.code.len()
+            var else_returns = false
+            let before_else = self.pos
+            self.skip_newlines()
+            if self.at(TokenKind.Else) {
+                let _ = self.take()
+                let _ = try self.expect(TokenKind.LBrace, "expected block after else")
+                else_returns = try self.parse_block()
+            } else {
+                self.pos = before_else
+            }
+            self.code[skip_else].target = self.code.len()
+            return then_returns && else_returns
+        }
+        if self.at(TokenKind.While) {
+            let t = self.take()
+            let cond_start = self.code.len()
+            let cond = try self.parse_expr()
+            try self.require_type(cond.ty, ValueType.Bool, &t)
+            let _ = try self.expect(TokenKind.LBrace, "expected block after while condition")
+            let branch = self.emit_at(Op.Branch, t.line, t.col)
+            self.code[branch].a = cond.slot
+            let exit = self.emit_at(Op.Jump, t.line, t.col)
+            self.code[branch].target = self.code.len()
+            let _ = try self.parse_block()
+            let back = self.emit_at(Op.Jump, t.line, t.col)
+            self.code[back].target = cond_start
+            self.code[exit].target = self.code.len()
+            return false
+        }
+        if self.at(TokenKind.LBrace) {
+            let _ = self.take()
+            return self.parse_block()
+        }
+        if self.at(TokenKind.Ident) && self.token().value == "print" {
+            let t = self.take()
+            let _ = try self.expect(TokenKind.LParen, "expected `(` after print")
+            self.depth += 1
+            self.paren_depth += 1
+            self.skip_newlines()
+            let value = try self.parse_expr()
+            self.skip_newlines()
+            let _ = try self.expect(TokenKind.RParen, "expected `)` after print argument")
+            self.paren_depth -= 1
+            self.depth -= 1
+            if value.ty == ValueType.Void { return problem("cannot print Void", t.line, t.col) }
+            let at = self.emit_at(Op.Print, t.line, t.col)
+            self.code[at].a = value.slot
+            return false
+        }
+        if self.at(TokenKind.Ident) && self.pos + 1 < self.tokens.len() && self.tokens[self.pos + 1].kind == TokenKind.Assign {
+            let name = self.take()
+            let _ = self.take()
+            let bi = self.binding_index(name.value)
+            if bi < 0 { return problem("unknown local `{name.value}`", name.line, name.col) }
+            if not self.bindings[bi].mutable { return problem("cannot assign to immutable local `{name.value}`", name.line, name.col) }
+            let value = try self.parse_expr()
+            try self.require_type(value.ty, self.bindings[bi].ty, &name)
+            let at = self.emit_at(Op.Copy, name.line, name.col)
+            self.code[at].dst = self.bindings[bi].slot
+            self.code[at].a = value.slot
+            return false
+        }
+        let start = self.token()
+        let value = try self.parse_expr()
+        if not value.call || value.ty != ValueType.Void {
+            return problem("only Void function calls may be expression statements", start.line, start.col)
+        }
+        false
+    }
+
+    func compile_function(&var self, index: Int) -> Result<FuncIR, ProtoError> {
+        self.pos = self.signatures[index].body_start
+        self.depth = 0
+        self.expr_depth = 0
+        self.paren_depth = 0
+        self.bindings = Vector<Binding>()
+        self.slots = Vector<ValueType>()
+        self.code = Vector<Instruction>()
+        self.current_result = self.signatures[index].result
+        var i = 0
+        while i < self.signatures[index].params.len() {
+            let slot = self.new_slot(self.signatures[index].params[i])
+            let fake = Token(kind: TokenKind.Ident, value: self.signatures[index].param_names[i],
+                             line: self.signatures[index].line, col: self.signatures[index].col, suffix: None)
+            try self.declare(fake, self.signatures[index].params[i], slot, false)
+            i += 1
+        }
+        self.skip_newlines()
+        var returns = false
+        while self.pos < self.signatures[index].body_end {
+            let r = try self.parse_statement()
+            if not returns && r { returns = true }
+            try self.terminator()
+        }
+        if self.pos != self.signatures[index].body_end { return self.fail("malformed function body") }
+        if self.current_result != ValueType.Void && not returns {
+            return problem("function `{self.signatures[index].name}` may reach its end without returning a value",
+                           self.signatures[index].line, self.signatures[index].col)
+        }
+        if self.current_result == ValueType.Void {
+            let _ = self.emit_at(Op.Return, self.signatures[index].line, self.signatures[index].col)
+        } else {
+            // Return-path checking above proves this padding unreachable. It gives
+            // end-of-block jumps a real target and leaves every emitted block terminated.
+            let slot = self.new_slot(self.current_result)
+            let c = self.emit_at(Op.Const, self.signatures[index].line, self.signatures[index].col)
+            self.code[c].dst = slot
+            self.code[c].immediate = 0
+            let r = self.emit_at(Op.Return, self.signatures[index].line, self.signatures[index].col)
+            self.code[r].a = slot
+        }
+        let slots = self.slots.copy()
+        let code = self.code.copy()
+        FuncIR(name: self.signatures[index].name, params: self.signatures[index].params.copy(),
+               result: self.current_result, slots: move slots, code: move code)
+    }
+}
+
+public func compile_source(source: String) -> Result<Program, ProtoError> {
+    let tokens = match lex(source) {
+        case Ok(ts) -> move ts,
+        case Err(e) -> { return problem(e.message, e.line, e.col) }
+    }
+    var compiler = Compiler(tokens: move tokens, signatures: Vector<Signature>(), pos: 0, depth: 0,
+                            expr_depth: 0, paren_depth: 0,
+                            bindings: Vector<Binding>(), slots: Vector<ValueType>(),
+                            code: Vector<Instruction>(), current_result: ValueType.Void)
+    try compiler.scan_signatures()
+    var functions = Vector<FuncIR>()
+    var main_index = -1
+    var i = 0
+    while i < compiler.signatures.len() {
+        if compiler.signatures[i].name == "main" { main_index = i }
+        let f = try compiler.compile_function(i)
+        try! functions.push(move f)
+        i += 1
+    }
+    Program(functions: move functions, main_index: main_index)
+}

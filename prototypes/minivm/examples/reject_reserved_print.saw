@@ -1,0 +1,4 @@
+func print(x: Bool) {
+    return
+}
+func main() {}

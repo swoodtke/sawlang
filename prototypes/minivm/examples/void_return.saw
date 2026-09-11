@@ -1,0 +1,11 @@
+func announce(flag: Bool) {
+    if flag {
+        print(7)
+        return
+    }
+    print(8)
+}
+func main() {
+    announce(true)
+    announce(false)
+}

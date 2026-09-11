@@ -1,0 +1,7 @@
+func main() {
+    print(is_zero(0))
+    print(is_zero(2))
+}
+func is_zero(x: Int32) -> Bool {
+    return x == 0
+}

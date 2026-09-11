@@ -1,0 +1,9 @@
+func main() {
+    var i: Int32 = 0
+    var total: Int32 = 0
+    while i < 5 {
+        total = total + i
+        i = i + 1
+    }
+    print(total)
+}

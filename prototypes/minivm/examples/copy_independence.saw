@@ -1,0 +1,7 @@
+func main() {
+    var source = 4
+    let copy = source
+    source = 9
+    print(copy)
+    print(source)
+}

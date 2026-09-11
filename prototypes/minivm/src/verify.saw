@@ -1,0 +1,127 @@
+import src.model.*
+
+func slot_type(f: &FuncIR, n: Int) -> ValueType {
+    if n < 0 || n >= f.slots.len() { return ValueType.Void }
+    return f.slots[n]
+}
+
+func invalid(i: &Instruction) -> ProtoError {
+    return problem("internal prototype error: invalid instruction", i.line, i.col)
+}
+
+func check_instruction(p: &Program, f: &FuncIR, i: &Instruction) -> Result<Void, ProtoError> {
+    let dst = slot_type(&f, i.dst)
+    let a = slot_type(&f, i.a)
+    let b = slot_type(&f, i.b)
+    match i.op {
+        case Const -> {
+            if dst == ValueType.Void { return invalid(&i) }
+            if dst == ValueType.Bool && i.immediate != 0 && i.immediate != 1 { return invalid(&i) }
+            if dst == ValueType.I32 && (i.immediate < -2_147_483_648 || i.immediate > 2_147_483_647) { return invalid(&i) }
+        },
+        case Copy -> {
+            if dst == ValueType.Void || a != dst { return invalid(&i) }
+        },
+        case Add -> {
+            if dst != ValueType.I32 || a != ValueType.I32 || b != ValueType.I32 { return invalid(&i) }
+        },
+        case Sub -> { if dst != ValueType.I32 || a != ValueType.I32 || b != ValueType.I32 { return invalid(&i) } },
+        case Mul -> { if dst != ValueType.I32 || a != ValueType.I32 || b != ValueType.I32 { return invalid(&i) } },
+        case Div -> { if dst != ValueType.I32 || a != ValueType.I32 || b != ValueType.I32 { return invalid(&i) } },
+        case Rem -> { if dst != ValueType.I32 || a != ValueType.I32 || b != ValueType.I32 { return invalid(&i) } },
+        case Neg -> {
+            if dst != ValueType.I32 || a != ValueType.I32 { return invalid(&i) }
+        },
+        case Not -> {
+            if dst != ValueType.Bool || a != ValueType.Bool { return invalid(&i) }
+        },
+        case Eq -> {
+            if dst != ValueType.Bool || a == ValueType.Void || a != b { return invalid(&i) }
+        },
+        case Ne -> { if dst != ValueType.Bool || a == ValueType.Void || a != b { return invalid(&i) } },
+        case Lt -> {
+            if dst != ValueType.Bool || a != ValueType.I32 || b != ValueType.I32 { return invalid(&i) }
+        },
+        case Le -> { if dst != ValueType.Bool || a != ValueType.I32 || b != ValueType.I32 { return invalid(&i) } },
+        case Gt -> { if dst != ValueType.Bool || a != ValueType.I32 || b != ValueType.I32 { return invalid(&i) } },
+        case Ge -> { if dst != ValueType.Bool || a != ValueType.I32 || b != ValueType.I32 { return invalid(&i) } },
+        case Jump -> {
+            if i.target < 0 || i.target >= f.code.len() { return invalid(&i) }
+        },
+        case Branch -> { if i.target < 0 || i.target >= f.code.len() || a != ValueType.Bool { return invalid(&i) } },
+        case Call -> {
+            if i.target < 0 || i.target >= p.functions.len() { return invalid(&i) }
+            let callee = p.functions[i.target].copy()
+            if i.args.len() != callee.params.len() { return invalid(&i) }
+            if callee.result == ValueType.Void {
+                if i.dst != -1 { return invalid(&i) }
+            } else if dst != callee.result { return invalid(&i) }
+            var n = 0
+            while n < i.args.len() {
+                if slot_type(&f, i.args[n]) != callee.params[n] { return invalid(&i) }
+                n = n + 1
+            }
+        },
+        case Print -> {
+            if a == ValueType.Void { return invalid(&i) }
+        },
+        case Return -> {
+            if f.result == ValueType.Void {
+                if i.a != -1 { return invalid(&i) }
+            } else if a != f.result { return invalid(&i) }
+        }
+    }
+    return
+}
+
+func check_function(p: &Program, f: &FuncIR) -> Result<Void, ProtoError> {
+    if f.code.len() == 0 || f.slots.len() < f.params.len() {
+        return problem("internal prototype error: invalid function", 0, 0)
+    }
+    var n = 0
+    while n < f.slots.len() {
+        if f.slots[n] == ValueType.Void { return problem("internal prototype error: Void slot", 0, 0) }
+        if n < f.params.len() && f.slots[n] != f.params[n] {
+            return problem("internal prototype error: parameter slot mismatch", 0, 0)
+        }
+        n = n + 1
+    }
+    n = 0
+    while n < f.code.len() {
+        try check_instruction(&p, &f, &f.code[n]) catch { return error }
+        n = n + 1
+    }
+    var visited = Vector<Bool>()
+    n = 0
+    while n < f.code.len() { try! visited.push(false) n = n + 1 }
+    var pending = Vector<Int>()
+    try! pending.push(0)
+    while let pc = pending.pop() {
+        if pc < 0 || pc >= f.code.len() {
+            return problem("internal prototype error: reachable function falloff", 0, 0)
+        }
+        if not visited[pc] {
+            visited.set(pc, true)
+            let i = f.code[pc].copy()
+            if i.op == Op.Jump || i.op == Op.Branch { try! pending.push(i.target) }
+            if i.op != Op.Jump && i.op != Op.Return { try! pending.push(pc + 1) }
+        }
+    }
+    return
+}
+
+public func verify(program: &Program) -> Result<Void, ProtoError> {
+    if program.main_index < 0 || program.main_index >= program.functions.len() {
+        return problem("internal prototype error: missing main", 0, 0)
+    }
+    let entry = program.functions[program.main_index].copy()
+    if entry.result != ValueType.Void || entry.params.len() != 0 {
+        return problem("main must take no parameters and return Void", 0, 0)
+    }
+    var n = 0
+    while n < program.functions.len() {
+        try check_function(&program, &program.functions[n]) catch { return error }
+        n = n + 1
+    }
+    return
+}

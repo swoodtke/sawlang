@@ -1,0 +1,134 @@
+import src.model.*
+
+static I32_MIN: Int = -2_147_483_648
+static I32_MAX: Int = 2_147_483_647
+static MAX_CALL_DEPTH: Int = 128
+
+struct CallResult {
+    value: Int
+    has_value: Bool
+}
+
+func runtime_error(message: String) -> ProtoError {
+    problem(message, 0, 0)
+}
+
+func checked_i32(value: Int) -> Result<Int, ProtoError> {
+    if value < I32_MIN || value > I32_MAX {
+        return runtime_error("runtime error: integer overflow")
+    }
+    value
+}
+
+func run_function(program: &Program, function_index: Int, arguments: &Vector<Int>,
+                  remaining: &var Int, depth: Int) -> Result<CallResult, ProtoError> {
+    if depth > MAX_CALL_DEPTH {
+        return runtime_error("runtime error: call depth exceeded")
+    }
+
+    let function = program.functions[function_index].copy()
+    var slots = Vector<Int>()
+    var slot_index = 0
+    while slot_index < function.slots.len() {
+        try! slots.push(0)
+        slot_index = slot_index + 1
+    }
+    var argument_index = 0
+    while argument_index < arguments.len() {
+        slots[argument_index] = arguments[argument_index]
+        argument_index = argument_index + 1
+    }
+
+    var pc = 0
+    while pc < function.code.len() {
+        if remaining <= 0 {
+            return runtime_error("runtime error: instruction budget exceeded")
+        }
+        remaining = remaining - 1
+
+        let inst = function.code[pc].copy()
+        match inst.op {
+            case Const -> { slots[inst.dst] = inst.immediate },
+            case Copy -> { slots[inst.dst] = slots[inst.a] },
+            case Add -> { slots[inst.dst] = try checked_i32(slots[inst.a] + slots[inst.b]) },
+            case Sub -> { slots[inst.dst] = try checked_i32(slots[inst.a] - slots[inst.b]) },
+            case Mul -> { slots[inst.dst] = try checked_i32(slots[inst.a] * slots[inst.b]) },
+            case Div -> {
+                let lhs = slots[inst.a]
+                let rhs = slots[inst.b]
+                if rhs == 0 {
+                    return runtime_error("runtime error: division by zero")
+                }
+                if lhs == I32_MIN && rhs == -1 {
+                    return runtime_error("runtime error: integer overflow")
+                }
+                slots[inst.dst] = lhs / rhs
+            },
+            case Rem -> {
+                let lhs = slots[inst.a]
+                let rhs = slots[inst.b]
+                if rhs == 0 {
+                    return runtime_error("runtime error: division by zero")
+                }
+                if lhs == I32_MIN && rhs == -1 {
+                    slots[inst.dst] = 0
+                } else {
+                    slots[inst.dst] = lhs % rhs
+                }
+            },
+            case Neg -> { slots[inst.dst] = try checked_i32(0 - slots[inst.a]) },
+            case Not -> { slots[inst.dst] = if slots[inst.a] == 0 { 1 } else { 0 } },
+            case Eq -> { slots[inst.dst] = if slots[inst.a] == slots[inst.b] { 1 } else { 0 } },
+            case Ne -> { slots[inst.dst] = if slots[inst.a] != slots[inst.b] { 1 } else { 0 } },
+            case Lt -> { slots[inst.dst] = if slots[inst.a] < slots[inst.b] { 1 } else { 0 } },
+            case Le -> { slots[inst.dst] = if slots[inst.a] <= slots[inst.b] { 1 } else { 0 } },
+            case Gt -> { slots[inst.dst] = if slots[inst.a] > slots[inst.b] { 1 } else { 0 } },
+            case Ge -> { slots[inst.dst] = if slots[inst.a] >= slots[inst.b] { 1 } else { 0 } },
+            case Jump -> {
+                pc = inst.target
+                continue
+            },
+            case Branch -> {
+                if slots[inst.a] != 0 {
+                    pc = inst.target
+                    continue
+                }
+            },
+            case Call -> {
+                var call_arguments = Vector<Int>()
+                var i = 0
+                while i < inst.args.len() {
+                    try! call_arguments.push(slots[inst.args[i]])
+                    i = i + 1
+                }
+                let result = try run_function(&program, inst.target, &call_arguments,
+                                              &var remaining, depth + 1)
+                if inst.dst >= 0 {
+                    slots[inst.dst] = result.value
+                }
+            },
+            case Print -> {
+                if function.slots[inst.a] == ValueType.Bool {
+                    if slots[inst.a] == 0 { print("false") } else { print("true") }
+                } else {
+                    print(slots[inst.a])
+                }
+            },
+            case Return -> {
+                if inst.a < 0 {
+                    return CallResult(value: 0, has_value: false)
+                }
+                return CallResult(value: slots[inst.a], has_value: true)
+            }
+        }
+        pc = pc + 1
+    }
+    runtime_error("runtime error: instruction budget exceeded")
+}
+
+public func execute(program: &Program, budget: Int) -> Result<Void, ProtoError> {
+    var remaining = budget
+    let arguments = Vector<Int>()
+    let _ = try run_function(&program, program.main_index, &arguments, &var remaining, 1)
+    return
+}

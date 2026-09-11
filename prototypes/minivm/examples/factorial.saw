@@ -1,0 +1,6 @@
+func factorial(n: Int32) -> Int32 {
+    if n <= 1 { return 1 } else { return n * factorial(n - 1) }
+}
+func main() {
+    print(factorial(6))
+}

@@ -1,0 +1,63 @@
+public enum ValueType { case I32, case Bool, case Void }
+@synthesize
+extension ValueType: Equatable {}
+
+public enum Op {
+    case Const, case Copy, case Add, case Sub, case Mul, case Div, case Rem,
+    case Neg, case Not, case Eq, case Ne, case Lt, case Le, case Gt, case Ge,
+    case Jump, case Branch, case Call, case Print, case Return
+}
+@synthesize
+extension Op: Equatable {}
+
+public struct Instruction {
+    public op: Op
+    public dst: Int
+    public a: Int
+    public b: Int
+    public immediate: Int
+    public target: Int
+    public args: Vector<Int>
+    public line: Int
+    public col: Int
+}
+
+public struct FuncIR {
+    public name: String
+    public params: Vector<ValueType>
+    public result: ValueType
+    public slots: Vector<ValueType>
+    public code: Vector<Instruction>
+}
+
+public struct Program {
+    public functions: Vector<FuncIR>
+    public main_index: Int
+}
+
+@synthesize
+extension Instruction: ExplicitCopy {}
+@synthesize
+extension FuncIR: ExplicitCopy {}
+@synthesize
+extension Program: ExplicitCopy {}
+
+public struct ProtoError {
+    public message: String
+    public line: Int
+    public col: Int
+}
+extension ProtoError: Error {
+    public func format(&self, into: &var StringBuilder) {
+        try! into.append(self.message)
+    }
+}
+
+public func instruction(op: Op) -> Instruction {
+    Instruction(op: op, dst: -1, a: -1, b: -1, immediate: 0,
+                target: -1, args: Vector<Int>(), line: 0, col: 0)
+}
+
+public func problem(message: String, line: Int, col: Int) -> ProtoError {
+    ProtoError(message: message, line: line, col: col)
+}

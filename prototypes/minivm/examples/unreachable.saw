@@ -1,0 +1,8 @@
+func stop() -> Int32 {
+    return 7
+    print(99)
+    if true { print(98) }
+}
+func main() {
+    print(stop())
+}

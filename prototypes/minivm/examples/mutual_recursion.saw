@@ -1,0 +1,10 @@
+func even(n: Int32) -> Bool {
+    if n == 0 { return true } else { return odd(n - 1) }
+}
+func odd(n: Int32) -> Bool {
+    if n == 0 { return false } else { return even(n - 1) }
+}
+func main() {
+    print(even(10))
+    print(odd(9))
+}

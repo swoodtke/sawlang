@@ -1,0 +1,2 @@
+func dive(n: Int32) -> Int32 { return dive(n + 1) }
+func main() { print(dive(0)) }

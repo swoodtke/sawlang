@@ -1,0 +1,8 @@
+func main() {
+    print(7 + 5)
+    print(7 - 10)
+    print(6 * 7)
+    print(-7 / 3)
+    print(-7 % 3)
+    print(-2147483648 % -1)
+}

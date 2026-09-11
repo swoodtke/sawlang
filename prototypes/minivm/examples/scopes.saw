@@ -1,0 +1,9 @@
+func main() {
+    var x: Int32 = 1
+    if true {
+        let x: Int32 = 9
+        print(x)
+    }
+    x = x + 2
+    print(x)
+}

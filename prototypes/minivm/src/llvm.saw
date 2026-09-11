@@ -1,0 +1,370 @@
+import src.model.*
+
+func put(out: &var StringBuilder, text: String) {
+    try! out.append(text)
+}
+
+func put_int(out: &var StringBuilder, value: Int) {
+    try! out.append(value)
+}
+
+func slot_name(out: &var StringBuilder, index: Int) {
+    put(&var out, "%s")
+    put_int(&var out, index)
+}
+
+func temp_name(out: &var StringBuilder, instruction_index: Int, suffix: String) {
+    put(&var out, "%t")
+    put_int(&var out, instruction_index)
+    put(&var out, suffix)
+}
+
+func block_name(out: &var StringBuilder, instruction_index: Int) {
+    put(&var out, "i")
+    put_int(&var out, instruction_index)
+}
+
+func next_block(out: &var StringBuilder, instruction_index: Int) {
+    put(&var out, "  br label %i")
+    put_int(&var out, instruction_index + 1)
+    put(&var out, "\n")
+}
+
+func load_slot(out: &var StringBuilder, instruction_index: Int,
+               suffix: String, slot: Int) {
+    temp_name(&var out, instruction_index, suffix)
+    put(&var out, " = load i64, ptr ")
+    slot_name(&var out, slot)
+    put(&var out, "\n")
+}
+
+func store_temp(out: &var StringBuilder, instruction_index: Int,
+                suffix: String, slot: Int) {
+    put(&var out, "  store i64 ")
+    temp_name(&var out, instruction_index, suffix)
+    put(&var out, ", ptr ")
+    slot_name(&var out, slot)
+    put(&var out, "\n")
+}
+
+func emit_checked_result(out: &var StringBuilder, instruction_index: Int,
+                         dst: Int, value_suffix: String) {
+    put(&var out, "  ")
+    temp_name(&var out, instruction_index, "lo")
+    put(&var out, " = icmp slt i64 ")
+    temp_name(&var out, instruction_index, value_suffix)
+    put(&var out, ", -2147483648\n  ")
+    temp_name(&var out, instruction_index, "hi")
+    put(&var out, " = icmp sgt i64 ")
+    temp_name(&var out, instruction_index, value_suffix)
+    put(&var out, ", 2147483647\n  ")
+    temp_name(&var out, instruction_index, "bad")
+    put(&var out, " = or i1 ")
+    temp_name(&var out, instruction_index, "lo")
+    put(&var out, ", ")
+    temp_name(&var out, instruction_index, "hi")
+    put(&var out, "\n  br i1 ")
+    temp_name(&var out, instruction_index, "bad")
+    put(&var out, ", label %i")
+    put_int(&var out, instruction_index)
+    put(&var out, ".overflow, label %i")
+    put_int(&var out, instruction_index)
+    put(&var out, ".ok\n\ni")
+    put_int(&var out, instruction_index)
+    put(&var out, ".overflow:\n  call void @minivm_overflow()\n  unreachable\n\ni")
+    put_int(&var out, instruction_index)
+    put(&var out, ".ok:\n")
+    store_temp(&var out, instruction_index, value_suffix, dst)
+    next_block(&var out, instruction_index)
+}
+
+func emit_binary(out: &var StringBuilder, instruction_index: Int,
+                 inst: &Instruction, llvm_op: String, checked: Bool) {
+    put(&var out, "  ")
+    load_slot(&var out, instruction_index, "a", inst.a)
+    put(&var out, "  ")
+    load_slot(&var out, instruction_index, "b", inst.b)
+    put(&var out, "  ")
+    temp_name(&var out, instruction_index, "v")
+    put(&var out, " = ")
+    put(&var out, llvm_op)
+    put(&var out, " i64 ")
+    temp_name(&var out, instruction_index, "a")
+    put(&var out, ", ")
+    temp_name(&var out, instruction_index, "b")
+    put(&var out, "\n")
+    if checked {
+        emit_checked_result(&var out, instruction_index, inst.dst, "v")
+    } else {
+        store_temp(&var out, instruction_index, "v", inst.dst)
+        next_block(&var out, instruction_index)
+    }
+}
+
+func emit_compare(out: &var StringBuilder, instruction_index: Int,
+                  inst: &Instruction, predicate: String) {
+    put(&var out, "  ")
+    load_slot(&var out, instruction_index, "a", inst.a)
+    put(&var out, "  ")
+    load_slot(&var out, instruction_index, "b", inst.b)
+    put(&var out, "  ")
+    temp_name(&var out, instruction_index, "c")
+    put(&var out, " = icmp ")
+    put(&var out, predicate)
+    put(&var out, " i64 ")
+    temp_name(&var out, instruction_index, "a")
+    put(&var out, ", ")
+    temp_name(&var out, instruction_index, "b")
+    put(&var out, "\n  ")
+    temp_name(&var out, instruction_index, "v")
+    put(&var out, " = zext i1 ")
+    temp_name(&var out, instruction_index, "c")
+    put(&var out, " to i64\n")
+    store_temp(&var out, instruction_index, "v", inst.dst)
+    next_block(&var out, instruction_index)
+}
+
+func emit_division(out: &var StringBuilder, instruction_index: Int,
+                   inst: &Instruction, remainder: Bool) {
+    put(&var out, "  ")
+    load_slot(&var out, instruction_index, "a", inst.a)
+    put(&var out, "  ")
+    load_slot(&var out, instruction_index, "b", inst.b)
+    put(&var out, "  ")
+    temp_name(&var out, instruction_index, "zero")
+    put(&var out, " = icmp eq i64 ")
+    temp_name(&var out, instruction_index, "b")
+    put(&var out, ", 0\n  br i1 ")
+    temp_name(&var out, instruction_index, "zero")
+    put(&var out, ", label %i")
+    put_int(&var out, instruction_index)
+    put(&var out, ".divzero, label %i")
+    put_int(&var out, instruction_index)
+    put(&var out, ".divide\n\ni")
+    put_int(&var out, instruction_index)
+    put(&var out, ".divzero:\n  call void @minivm_divzero()\n  unreachable\n\ni")
+    put_int(&var out, instruction_index)
+    put(&var out, ".divide:\n  ")
+    temp_name(&var out, instruction_index, "v")
+    put(&var out, if remainder { " = srem i64 " } else { " = sdiv i64 " })
+    temp_name(&var out, instruction_index, "a")
+    put(&var out, ", ")
+    temp_name(&var out, instruction_index, "b")
+    put(&var out, "\n")
+    if remainder {
+        store_temp(&var out, instruction_index, "v", inst.dst)
+        next_block(&var out, instruction_index)
+    } else {
+        emit_checked_result(&var out, instruction_index, inst.dst, "v")
+    }
+}
+
+func emit_instruction(out: &var StringBuilder, program: &Program,
+                      function: &FuncIR, instruction_index: Int,
+                      inst: &Instruction) {
+    block_name(&var out, instruction_index)
+    put(&var out, ":\n")
+    match inst.op {
+        case Const -> {
+            put(&var out, "  store i64 ")
+            put_int(&var out, inst.immediate)
+            put(&var out, ", ptr ")
+            slot_name(&var out, inst.dst)
+            put(&var out, "\n")
+            next_block(&var out, instruction_index)
+        },
+        case Copy -> {
+            put(&var out, "  ")
+            load_slot(&var out, instruction_index, "v", inst.a)
+            store_temp(&var out, instruction_index, "v", inst.dst)
+            next_block(&var out, instruction_index)
+        },
+        case Add -> emit_binary(&var out, instruction_index, &inst, "add", true),
+        case Sub -> emit_binary(&var out, instruction_index, &inst, "sub", true),
+        case Mul -> emit_binary(&var out, instruction_index, &inst, "mul", true),
+        case Div -> emit_division(&var out, instruction_index, &inst, false),
+        case Rem -> emit_division(&var out, instruction_index, &inst, true),
+        case Neg -> {
+            put(&var out, "  ")
+            load_slot(&var out, instruction_index, "a", inst.a)
+            put(&var out, "  ")
+            temp_name(&var out, instruction_index, "v")
+            put(&var out, " = sub i64 0, ")
+            temp_name(&var out, instruction_index, "a")
+            put(&var out, "\n")
+            emit_checked_result(&var out, instruction_index, inst.dst, "v")
+        },
+        case Not -> {
+            put(&var out, "  ")
+            load_slot(&var out, instruction_index, "a", inst.a)
+            put(&var out, "  ")
+            temp_name(&var out, instruction_index, "c")
+            put(&var out, " = icmp eq i64 ")
+            temp_name(&var out, instruction_index, "a")
+            put(&var out, ", 0\n  ")
+            temp_name(&var out, instruction_index, "v")
+            put(&var out, " = zext i1 ")
+            temp_name(&var out, instruction_index, "c")
+            put(&var out, " to i64\n")
+            store_temp(&var out, instruction_index, "v", inst.dst)
+            next_block(&var out, instruction_index)
+        },
+        case Eq -> emit_compare(&var out, instruction_index, &inst, "eq"),
+        case Ne -> emit_compare(&var out, instruction_index, &inst, "ne"),
+        case Lt -> emit_compare(&var out, instruction_index, &inst, "slt"),
+        case Le -> emit_compare(&var out, instruction_index, &inst, "sle"),
+        case Gt -> emit_compare(&var out, instruction_index, &inst, "sgt"),
+        case Ge -> emit_compare(&var out, instruction_index, &inst, "sge"),
+        case Jump -> {
+            put(&var out, "  br label %i")
+            put_int(&var out, inst.target)
+            put(&var out, "\n")
+        },
+        case Branch -> {
+            put(&var out, "  ")
+            load_slot(&var out, instruction_index, "a", inst.a)
+            put(&var out, "  ")
+            temp_name(&var out, instruction_index, "c")
+            put(&var out, " = icmp ne i64 ")
+            temp_name(&var out, instruction_index, "a")
+            put(&var out, ", 0\n  br i1 ")
+            temp_name(&var out, instruction_index, "c")
+            put(&var out, ", label %i")
+            put_int(&var out, inst.target)
+            put(&var out, ", label %i")
+            put_int(&var out, instruction_index + 1)
+            put(&var out, "\n")
+        },
+        case Call -> {
+            var argument_index = 0
+            while argument_index < inst.args.len() {
+                put(&var out, "  ")
+                load_slot(&var out, instruction_index, "arg{argument_index}", inst.args[argument_index])
+                argument_index = argument_index + 1
+            }
+            put(&var out, "  ")
+            if inst.dst >= 0 {
+                temp_name(&var out, instruction_index, "call")
+                put(&var out, " = ")
+            }
+            put(&var out, "call ")
+                        put(&var out, if program.functions[inst.target].result == ValueType.Void { "void" } else { "i64" })
+            put(&var out, " @f")
+            put_int(&var out, inst.target)
+            put(&var out, "(")
+            argument_index = 0
+            while argument_index < inst.args.len() {
+                if argument_index > 0 { put(&var out, ", ") }
+                put(&var out, "i64 ")
+                temp_name(&var out, instruction_index, "arg{argument_index}")
+                argument_index = argument_index + 1
+            }
+            put(&var out, ")\n")
+            if inst.dst >= 0 { store_temp(&var out, instruction_index, "call", inst.dst) }
+            next_block(&var out, instruction_index)
+        },
+        case Print -> {
+            put(&var out, "  ")
+            load_slot(&var out, instruction_index, "a", inst.a)
+            if function.slots[inst.a] == ValueType.Bool {
+                put(&var out, "  ")
+                temp_name(&var out, instruction_index, "c")
+                put(&var out, " = icmp ne i64 ")
+                temp_name(&var out, instruction_index, "a")
+                put(&var out, ", 0\n  ")
+                temp_name(&var out, instruction_index, "str")
+                put(&var out, " = select i1 ")
+                temp_name(&var out, instruction_index, "c")
+                put(&var out, ", ptr @.true, ptr @.false\n  call i32 @puts(ptr ")
+                temp_name(&var out, instruction_index, "str")
+                put(&var out, ")\n")
+            } else {
+                put(&var out, "  call i32 (ptr, ...) @printf(ptr @.fmt_i64, i64 ")
+                temp_name(&var out, instruction_index, "a")
+                put(&var out, ")\n")
+            }
+            next_block(&var out, instruction_index)
+        },
+        case Return -> {
+            if inst.a < 0 {
+                put(&var out, "  ret void\n")
+            } else {
+                put(&var out, "  ")
+                load_slot(&var out, instruction_index, "ret", inst.a)
+                put(&var out, "  ret i64 ")
+                temp_name(&var out, instruction_index, "ret")
+                put(&var out, "\n")
+            }
+        }
+    }
+    put(&var out, "\n")
+}
+
+func emit_function(out: &var StringBuilder, program: &Program,
+                   function_index: Int, function: &FuncIR) {
+    put(&var out, "define ")
+    put(&var out, if function.result == ValueType.Void { "void" } else { "i64" })
+    put(&var out, " @f")
+    put_int(&var out, function_index)
+    put(&var out, "(")
+    var parameter_index = 0
+    while parameter_index < function.params.len() {
+        if parameter_index > 0 { put(&var out, ", ") }
+        put(&var out, "i64 %arg")
+        put_int(&var out, parameter_index)
+        parameter_index = parameter_index + 1
+    }
+    put(&var out, ") \{\nentry:\n")
+    var slot_index = 0
+    while slot_index < function.slots.len() {
+        put(&var out, "  ")
+        slot_name(&var out, slot_index)
+        put(&var out, " = alloca i64\n")
+        slot_index = slot_index + 1
+    }
+    parameter_index = 0
+    while parameter_index < function.params.len() {
+        put(&var out, "  store i64 %arg")
+        put_int(&var out, parameter_index)
+        put(&var out, ", ptr ")
+        slot_name(&var out, parameter_index)
+        put(&var out, "\n")
+        parameter_index = parameter_index + 1
+    }
+    put(&var out, "  br label %i0\n\n")
+    var instruction_index = 0
+    while instruction_index < function.code.len() {
+        emit_instruction(&var out, &program, &function, instruction_index,
+                         &function.code[instruction_index])
+        instruction_index = instruction_index + 1
+    }
+    // Keep the text structurally valid even when verification permits an
+    // unreachable final non-terminator. A reachable edge here is still a
+    // malformed Program and has no language-level behavior.
+    block_name(&var out, function.code.len())
+    put(&var out, ":\n  unreachable\n")
+    put(&var out, "\}\n\n")
+}
+
+public func emit_llvm(program: &Program) -> Result<String, ProtoError> {
+    var out = StringBuilder()
+    put(&var out, "; minivm textual LLVM IR\n")
+    put(&var out, "@.fmt_i64 = private unnamed_addr constant [5 x i8] c\"%ld\\0A\\00\"\n")
+    put(&var out, "@.true = private unnamed_addr constant [5 x i8] c\"true\\00\"\n")
+    put(&var out, "@.false = private unnamed_addr constant [6 x i8] c\"false\\00\"\n")
+    put(&var out, "@.overflow = private unnamed_addr constant [32 x i8] c\"runtime error: integer overflow\\00\"\n")
+    put(&var out, "@.divzero = private unnamed_addr constant [32 x i8] c\"runtime error: division by zero\\00\"\n\n")
+    put(&var out, "declare i32 @printf(ptr, ...)\ndeclare i32 @puts(ptr)\ndeclare void @exit(i32)\n\n")
+    put(&var out, "define internal void @minivm_overflow() \{\nentry:\n  call i32 @puts(ptr @.overflow)\n  call void @exit(i32 1)\n  unreachable\n\}\n\n")
+    put(&var out, "define internal void @minivm_divzero() \{\nentry:\n  call i32 @puts(ptr @.divzero)\n  call void @exit(i32 1)\n  unreachable\n\}\n\n")
+    var function_index = 0
+    while function_index < program.functions.len() {
+        emit_function(&var out, &program, function_index,
+                      &program.functions[function_index])
+        function_index = function_index + 1
+    }
+    put(&var out, "define i32 @main() \{\nentry:\n  call void @f")
+    put_int(&var out, program.main_index)
+    put(&var out, "()\n  ret i32 0\n\}\n")
+    out.build()
+}

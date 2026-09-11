@@ -1,0 +1,70 @@
+import src.model.*
+import src.frontend
+import src.vm
+import src.llvm
+import src.verify
+import std.env.{Env}
+import std.file.{File}
+import std.path.{Path}
+
+func read_source(path: String) -> Result<String, ProtoError> {
+    var file = try File.open(Path(s: path)) catch {
+        return problem("cannot open {path}: {error}", 0, 0)
+    }
+    let data = try file.read() catch {
+        return problem("cannot read {path}: {error}", 0, 0)
+    }
+    let source = try data.to_string() catch {
+        return problem("invalid UTF-8 in {path}", 0, 0)
+    }
+    return source
+}
+
+func report(path: String, e: &ProtoError) -> Int {
+    if e.line > 0 {
+        print("{path}:{e.line}:{e.col}: {e.message}")
+    } else {
+        print(e.message)
+    }
+    return 1
+}
+
+func main() -> Int {
+    let args = try! Env.args()
+    if args.len() != 3 && args.len() != 5 {
+        print("usage: minivm run FILE [--budget N] | minivm emit-llvm FILE")
+        return 1
+    }
+    let command = args[1]
+    let path = args[2]
+    if command != "run" && command != "emit-llvm" {
+        print("unknown command: {command}")
+        return 1
+    }
+    var budget = 1_000_000
+    if args.len() == 5 {
+        if command != "run" || args[3] != "--budget" {
+            print("--budget is only supported by run")
+            return 1
+        }
+        guard let value = args[4].to_int() else {
+            print("budget must be a positive integer")
+            return 1
+        }
+        if value <= 0 {
+            print("budget must be a positive integer")
+            return 1
+        }
+        budget = value
+    }
+    let source = try read_source(path) catch { return report(path, &error) }
+    let program = try frontend.compile_source(source) catch { return report(path, &error) }
+    try verify.verify(&program) catch { return report(path, &error) }
+    if command == "run" {
+        try vm.execute(&program, budget) catch { return report(path, &error) }
+    } else {
+        let text = try llvm.emit_llvm(&program) catch { return report(path, &error) }
+        print(text)
+    }
+    return 0
+}

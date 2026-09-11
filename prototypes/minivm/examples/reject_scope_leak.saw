@@ -1,0 +1,4 @@
+func main() {
+    if true { let hidden = 4 }
+    print(hidden)
+}

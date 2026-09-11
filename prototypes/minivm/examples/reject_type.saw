@@ -1,0 +1,1 @@
+func main() { let x: Bool = 1 print(x) }
