@@ -1,0 +1,8 @@
+func value() -> Result<Int, String> { 1 }
+func main() {
+    match value() {
+        case Ok(n) -> { print(n) },
+        case Ok(_) -> { print(0) },
+        case Err(e) -> { print(e) }
+    }
+}

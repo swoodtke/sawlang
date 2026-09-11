@@ -1,0 +1,15 @@
+func step(ok: Bool) -> Result<Void, String> {
+    if not ok { return "failed" }
+    return
+}
+
+func main() {
+    match step(true) {
+        case Ok -> { print("ok") },
+        case Err(e) -> { print(e) }
+    }
+    match step(false) {
+        case Ok -> { print("wrong") },
+        case Err(e) -> { print(e) }
+    }
+}

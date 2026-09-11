@@ -13,15 +13,15 @@ the unchanged numeric `hex_value` helper (193 total cases).
 M6 supplies direct-call scalar references, forwarding and mutation, including
 borrowing scalar fields of direct records. M7 adds whole-record references,
 nested field forwarding and basic shared/mutable methods, tested with a
-scalar-only `Lexer.advance`-shaped record (250 total cases). Strings, collections,
-Optional/Result payloads, intrinsic generic types and module integration remain
-outstanding. M8 adds owned String literals/locals/parameters/results/references,
+scalar-only `Lexer.advance`-shaped record (250 total cases). M8 adds owned String literals/locals/parameters/results/references,
 byte length/access, equality and substring with explicit copy/drop rules (277
 total cases). M9 adds String-valued records and String-pattern match (288 cases),
 including unchanged keyword/suffix classification and the actual String-backed
 Lexer.advance. M10 adds Optional payloads, contextual None/wrapping and value
 conditional binding, including the unchanged Token/tok extraction (307 cases).
-Next are Result control flow, checked unsigned parsing and collections. The lexer has
+M11 adds fixed `Result<T,E>` construction and matching plus `try`/`try!`
+propagation, including owning payloads and Void success (336 cases). Next are
+checked unsigned parsing, `Scalar`, `StringBuilder`, and `Vector`. The lexer has
 no imports, so its first whole-file test can combine the unchanged library with
 a small wrapper without implementing general module loading.
 The dependency groups below are an inventory, not the implementation commit order;
@@ -191,10 +191,9 @@ precise rejection. Keep all earlier milestone tests green at every gate.
    equality, qualified members, extensions, `&self`/`&var self`, field mutation,
    and named calls. Test an `advance`-shaped mutable receiver and reject mutation
    through `&self`, wrong labels, missing fields, and non-exhaustive enum match.
-4. **Optional/Result control flow.** Add `T?`, `Result<T,E>`, `None`, implicit
-   optional injection, `if let`, `try`, and `try!`. Test success/error
-   propagation with owning String payloads and verify `try!` traps. Reject `try`
-   where the enclosing result error is incompatible.
+4. **Optional/Result control flow — complete through M11.** `T?`, fixed
+   `Result<T,E>`, `None`, implicit injection, `if let`, `try`, and `try!` are
+   covered with owning String payloads, propagation, and trap behavior.
 5. **Opaque builder and vector generics.** Expose only the contracts listed
    above and implement correct ownership for `Vector<Token>` /
    `Vector<DocComment>`. Test growth, indexing bounds, push of structs containing

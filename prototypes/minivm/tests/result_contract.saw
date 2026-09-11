@@ -1,0 +1,161 @@
+import src.model.*
+import src.verify.*
+import src.vm.*
+import src.llvm
+import std.env.{Env}
+
+func valid(p: &Program) -> Bool {
+    try verify(&p) catch { return false }
+    true
+}
+
+func fixed_panic(p: &Program) -> Bool {
+    try execute(&p, 10) catch { return error.message == "runtime error: try! failed" }
+    false
+}
+
+func op(code: &var Vector<Instruction>, kind: Op, dst: Int, a: Int, b: Int, immediate: Int) {
+    var i = instruction(kind)
+    i.dst = dst
+    i.a = a
+    i.b = b
+    i.immediate = immediate
+    try! code.push(move i)
+}
+
+func result_program() -> Program {
+    let names: Vector<String> = ["number", "text"]
+    let fields: Vector<ValueType> = [ValueType.I32, ValueType.String]
+    var records = Vector<RecordIR>()
+    try! records.push(RecordIR(name: "Mixed", field_names: move names,
+        field_types: move fields, line: 1, col: 1))
+    var sums = Vector<SumIR>()
+    try! sums.push(SumIR(kind: SumKind.Optional, payload: ValueType.String, error: ValueType.Void))
+    try! sums.push(SumIR(kind: SumKind.Result, payload: ValueType.I64, error: ValueType.String))
+    try! sums.push(SumIR(kind: SumKind.Result, payload: ValueType.String, error: ValueType.Record(0)))
+    try! sums.push(SumIR(kind: SumKind.Result, payload: ValueType.Optional(0), error: ValueType.Result(4)))
+    try! sums.push(SumIR(kind: SumKind.Result, payload: ValueType.Void, error: ValueType.String))
+    // [Bool, String, Bool, String] permits a two-word overlapping reference copy.
+    try! sums.push(SumIR(kind: SumKind.Result, payload: ValueType.String, error: ValueType.Optional(0)))
+    var references = Vector<ReferenceIR>()
+    try! references.push(ReferenceIR(target: ValueType.Result(5), mutable: true))
+
+    let slots: Vector<ValueType> = [
+        ValueType.Bool, ValueType.String, ValueType.Bool, ValueType.String,
+        ValueType.Bool, ValueType.String, ValueType.Ref(0), ValueType.Ref(0),
+        ValueType.Bool, ValueType.String, ValueType.I32, ValueType.String,
+        ValueType.Bool, ValueType.String, ValueType.I32, ValueType.String
+    ]
+    var code = Vector<Instruction>()
+    op(&var code, Op.Const, 0, -1, -1, 1)
+    op(&var code, Op.StringConst, 1, -1, -1, 0)
+    op(&var code, Op.Const, 2, -1, -1, 0)
+    op(&var code, Op.StringConst, 3, -1, -1, 1)
+    op(&var code, Op.Const, 4, -1, -1, 1)
+    op(&var code, Op.StringConst, 5, -1, -1, 2)
+    op(&var code, Op.Addr, 6, 0, -1, 0)
+    op(&var code, Op.Addr, 7, 2, -1, 0)
+    // Snapshot [0,4) before releasing destination [2,6).
+    op(&var code, Op.StoreRef, -1, 7, 0, 0)
+    op(&var code, Op.Print, -1, 1, -1, 0)
+    op(&var code, Op.Print, -1, 3, -1, 0)
+    op(&var code, Op.Print, -1, 5, -1, 0)
+    // Reverse-direction overlap exercises LoadRef's same snapshot discipline.
+    op(&var code, Op.LoadRef, 0, 7, -1, 0)
+    op(&var code, Op.Print, -1, 1, -1, 0)
+    op(&var code, Op.Print, -1, 3, -1, 0)
+    op(&var code, Op.Print, -1, 5, -1, 0)
+
+    // Result<String, Mixed> carries String leaves in both alternatives.
+    op(&var code, Op.Const, 8, -1, -1, 1)
+    op(&var code, Op.StringConst, 9, -1, -1, 3)
+    op(&var code, Op.Const, 10, -1, -1, 0)
+    op(&var code, Op.Drop, -1, 11, -1, 0)
+    var call = instruction(Op.Call)
+    call.dst = 12
+    call.target = 1
+    try! call.args.push(8)
+    try! call.args.push(9)
+    try! call.args.push(10)
+    try! call.args.push(11)
+    try! code.push(move call)
+    op(&var code, Op.Print, -1, 13, -1, 0)
+    op(&var code, Op.Return, -1, -1, -1, 0)
+
+    let echo_params: Vector<ValueType> = [ValueType.Result(2)]
+    let echo_slots: Vector<ValueType> = [ValueType.Bool, ValueType.String, ValueType.I32, ValueType.String]
+    var echo_code = Vector<Instruction>()
+    op(&var echo_code, Op.Return, -1, 0, -1, 0)
+    var functions = Vector<FuncIR>()
+    try! functions.push(FuncIR(name: "main", params: Vector<ValueType>(), result: ValueType.Void,
+        slots: move slots, code: move code))
+    try! functions.push(FuncIR(name: "echo", params: move echo_params, result: ValueType.Result(2),
+        slots: move echo_slots, code: move echo_code))
+    let strings: Vector<String> = ["A", "B", "C", "payload"]
+    Program(strings: move strings, references: move references, enums: Vector<EnumIR>(),
+        records: move records, sums: move sums, functions: move functions, main_index: 0)
+}
+
+func panic_program() -> Program {
+    let p = result_program()
+    var code = Vector<Instruction>()
+    try! code.push(instruction(Op.Panic))
+    var functions = Vector<FuncIR>()
+    try! functions.push(FuncIR(name: "main", params: Vector<ValueType>(), result: ValueType.Void,
+        slots: Vector<ValueType>(), code: move code))
+    Program(strings: p.strings.copy(), references: p.references.copy(), enums: p.enums.copy(),
+        records: p.records.copy(), sums: p.sums.copy(), functions: move functions, main_index: 0)
+}
+
+func main() {
+    let p = result_program()
+    assert(valid(&p), "mixed Result reference and ABI program")
+    let basic = try! value_layout(&p.records, &p.sums, ValueType.Result(1))
+    assert(basic.len() == 3 && basic[0] == ValueType.Bool && basic[1] == ValueType.I64 && basic[2] == ValueType.String,
+        "Result<Int, String> layout")
+    let mixed = try! value_layout(&p.records, &p.sums, ValueType.Result(2))
+    assert(mixed.len() == 4 && mixed[0] == ValueType.Bool && mixed[1] == ValueType.String &&
+        mixed[2] == ValueType.I32 && mixed[3] == ValueType.String, "mixed owning Result layout")
+    let nested = try! value_layout(&p.records, &p.sums, ValueType.Result(3))
+    assert(nested.len() == 5 && nested[0] == ValueType.Bool && nested[1] == ValueType.Bool &&
+        nested[2] == ValueType.String && nested[3] == ValueType.Bool && nested[4] == ValueType.String,
+        "nested Result and Optional layout")
+    let void_ok = try! value_layout(&p.records, &p.sums, ValueType.Result(4))
+    assert(void_ok.len() == 2 && void_ok[0] == ValueType.Bool && void_ok[1] == ValueType.String,
+        "Void Ok has no payload word")
+
+    let panic = panic_program()
+    assert(valid(&panic), "Panic is a terminal instruction")
+    assert(fixed_panic(&panic), "fixed VM panic message")
+    var bad = panic.copy()
+    bad.functions[0].code[0].dst = 0
+    assert(not valid(&bad), "Panic rejects destination")
+    bad = panic.copy()
+    bad.functions[0].code[0].a = 0
+    assert(not valid(&bad), "Panic rejects first operand")
+    bad = panic.copy()
+    bad.functions[0].code[0].b = 0
+    assert(not valid(&bad), "Panic rejects second operand")
+    bad = panic.copy()
+    bad.functions[0].code[0].immediate = 1
+    assert(not valid(&bad), "Panic rejects nondefault immediate")
+    bad = panic.copy()
+    bad.functions[0].code[0].target = 0
+    assert(not valid(&bad), "Panic rejects target")
+    bad = panic.copy()
+    try! bad.functions[0].code[0].args.push(0)
+    assert(not valid(&bad), "Panic rejects arguments")
+
+    let args = try! Env.args()
+    if args.len() == 2 && args[1] == "emit-llvm" {
+        print(try! llvm.emit_llvm(&p))
+        return
+    }
+    if args.len() == 2 && args[1] == "emit-panic-llvm" {
+        print(try! llvm.emit_llvm(&panic))
+        return
+    }
+    // Expected output: A / A / B / A / B / B / payload.
+    try! execute(&p, 200)
+    print("result contract passed")
+}

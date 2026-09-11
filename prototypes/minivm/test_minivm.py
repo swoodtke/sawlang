@@ -35,6 +35,19 @@ class RejectCase:
 
 
 RUN_CASES = (
+    RunCase("results/review_composition", "hello\n7\n0\nkept\n5\nbad\n", section="results"),
+    RunCase("results/construction_wrapping", "7\nbad\n255\n9\n9\n11\nexplicit\n", section="results"),
+    RunCase("results/nested_optional", "inner-none\nouter-none\n7\ninner\n", section="results"),
+    RunCase("results/same_type_explicit", "42\n999\n", section="results"),
+    RunCase("results/void_success", "ok\nfailed\n", section="results"),
+    RunCase("results/match_snapshot_ownership", "subject\nold\nsaved\nchanged\n", section="results"),
+    RunCase("results/try_propagation", "later\nleaf\n8\nstop\n", section="results"),
+    RunCase("results/try_nested_success", "7\n", section="results"),
+    RunCase("results/try_panic", "runtime error: try! failed\n", 1, "results"),
+    RunCase("results/loop_cleanup", "early\n200\n", section="results"),
+    RunCase("results/value_match_control", "8\n-1\nkept\nfailure\n", section="results"),
+    RunCase("results/value_match_widening", "64\n-8\n16\n", section="results"),
+    RunCase("results/try_void", "after\npropagated\nstopped\nforced\n", section="results"),
     RunCase("optionals/review_nested_context", "chosen\nsome-none\nnested-none\n", section="optionals"),
     RunCase("optionals/basic_numeric", "7\nnone\n255\n", section="optionals"),
     RunCase("optionals/nested_semantics", "outer-none\ninner-none\n9\nbranch-inner-none\n7\n18446744073709551615\n", section="optionals"),
@@ -205,6 +218,22 @@ RUN_CASES = (
 )
 
 REJECT_CASES = (
+    RejectCase("results/reject_ambiguous_same_type", "ambiguous Result auto-wrap", "results"),
+    RejectCase("results/reject_ambiguous_literal", "ambiguous Result auto-wrap", "results"),
+    RejectCase("results/reject_none_non_optional", "None requires an expected Optional type", "results"),
+    RejectCase("results/reject_void_return_none", "None requires an expected Optional type", "results"),
+    RejectCase("results/reject_void_error", "Result error type cannot be Void", "results"),
+    RejectCase("results/reject_type_arity", "Result requires exactly two type arguments", "results"),
+    RejectCase("results/reject_reference_payload", "Result reference payloads are not supported", "results"),
+    RejectCase("results/reject_constructor_label", "argument label", "results"),
+    RejectCase("results/reject_constructor_arity", "Result.Err requires an error payload", "results"),
+    RejectCase("results/reject_void_constructor", "Result.Ok requires a value payload", "results"),
+    RejectCase("results/reject_match_duplicate", "duplicate Result match arm", "results"),
+    RejectCase("results/reject_match_missing", "non-exhaustive Result match", "results"),
+    RejectCase("results/reject_match_payload_arity", "Result Ok pattern requires a payload", "results"),
+    RejectCase("results/reject_try_non_result", "try operand must be a Result", "results"),
+    RejectCase("results/reject_try_context", "try requires a Result-returning function", "results"),
+    RejectCase("results/reject_try_error_type", "try error type does not match function result", "results"),
     RejectCase("optionals/reject_uncontextualized_none", "None requires an expected Optional type", "optionals"),
     RejectCase("optionals/reject_if_let_non_optional", "if binding requires an Optional value", "optionals"),
     RejectCase("optionals/reject_binding_scope", "unknown name", "optionals"),
@@ -427,7 +456,7 @@ def main() -> int:
     parser.add_argument("--binary", type=Path, default=Path(".build/minivm/minivm"))
     parser.add_argument("--clang", default="clang")
     parser.add_argument(
-        "--section", choices=("all", "core", "numbers", "records", "control", "enums", "values", "references", "receivers", "strings", "owning_records", "optionals"), default="all",
+        "--section", choices=("all", "core", "numbers", "records", "control", "enums", "values", "references", "receivers", "strings", "owning_records", "optionals", "results"), default="all",
         help="run all cases or one isolated test section",
     )
     args = parser.parse_args()
@@ -456,7 +485,7 @@ def main() -> int:
                 failures.extend(test_rejection(binary, case))
             except subprocess.TimeoutExpired:
                 failures.append(f"{case.name}: timed out after {TIMEOUT}s")
-        limit_cases = () if args.section in ("numbers", "records", "control", "enums", "values", "references", "receivers", "strings", "owning_records", "optionals") else (
+        limit_cases = () if args.section in ("numbers", "records", "control", "enums", "values", "references", "receivers", "strings", "owning_records", "optionals", "results") else (
             ("budget", 20, "runtime error: instruction budget exceeded"),
             ("depth", 10_000, "runtime error: call depth exceeded"),
         )

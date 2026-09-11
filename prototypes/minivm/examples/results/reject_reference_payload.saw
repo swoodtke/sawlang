@@ -1,0 +1,2 @@
+func bad(value: &Int) -> Result<&Int, String> { value }
+func main() { print(0) }

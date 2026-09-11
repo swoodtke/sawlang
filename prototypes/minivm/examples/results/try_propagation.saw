@@ -1,0 +1,35 @@
+func leaf(ok: Bool) -> Result<String, String> {
+    if ok {
+        Result<String, String>.Ok(value: "leaf")
+    } else {
+        Result<String, String>.Err(error: "stop")
+    }
+}
+
+func later() -> String {
+    print("later")
+    "tail"
+}
+
+func pair(left: String, right: String) -> String { left }
+
+func middle(ok: Bool) -> Result<String, String> {
+    Result<String, String>.Ok(value: pair(try leaf(ok), later()))
+}
+
+func outer(ok: Bool) -> Result<Int, String> {
+    let value = try middle(ok)
+    print(value)
+    8
+}
+
+func main() {
+    match outer(true) {
+        case Ok(n) -> { print(n) },
+        case Err(e) -> { print(e) }
+    }
+    match outer(false) {
+        case Ok(n) -> { print(n) },
+        case Err(e) -> { print(e) }
+    }
+}

@@ -10,7 +10,7 @@ extension ValueType: Equatable {}
 public enum Op {
     case Const, case Copy, case Add, case Sub, case Mul, case Div, case Rem,
     case Neg, case Not, case Eq, case Ne, case Lt, case Le, case Gt, case Ge,
-    case Jump, case Branch, case Call, case Print, case Return,
+    case Jump, case Branch, case Call, case Print, case Return, case Panic,
     case Cast, case Truncate, case WrapAdd, case WrapSub, case WrapMul,
     case Addr, case LoadRef, case StoreRef, case RefField,
     case StringConst, case StringLen, case StringByteAt, case StringSlice, case Drop,

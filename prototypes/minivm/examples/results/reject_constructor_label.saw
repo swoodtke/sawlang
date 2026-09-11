@@ -1,0 +1,4 @@
+func bad() -> Result<Int, String> {
+    Result<Int, String>.Ok(error: 1)
+}
+func main() { print(0) }

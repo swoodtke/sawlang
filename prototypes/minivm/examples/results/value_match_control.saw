@@ -1,0 +1,22 @@
+func choose(value: Result<Int, String>) -> Int {
+    match value {
+        case Ok(n) -> { return n },
+        case Err(_) -> { return -1 }
+    }
+}
+
+func select(value: Result<String, String>) -> String {
+    match value {
+        case Ok(text) -> { text },
+        case Err(error) -> { error }
+    }
+}
+
+func main() {
+    print(choose(8))
+    print(choose("bad"))
+    let ok = Result<String, String>.Ok(value: "kept")
+    let err = Result<String, String>.Err(error: "failure")
+    print(select(ok))
+    print(select(err))
+}

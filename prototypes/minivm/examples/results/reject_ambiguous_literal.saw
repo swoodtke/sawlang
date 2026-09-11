@@ -1,0 +1,2 @@
+func bad() -> Result<Int32, Int8> { 4 }
+func main() { print(0) }

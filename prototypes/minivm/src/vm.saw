@@ -333,6 +333,7 @@ func run_function(program: &Program, function_index: Int, arguments: &Vector<Int
                 try string_release(&var heap, cells[base + inst.a])
                 cells[base + inst.a] = 0
             },
+            case Panic -> { return runtime_error("runtime error: try! failed") },
             case Return -> {
                 var values = Vector<Int>()
                 let layout = try value_layout(&program.records, &program.sums, function.result)

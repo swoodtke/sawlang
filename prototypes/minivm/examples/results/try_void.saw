@@ -1,0 +1,23 @@
+func action(ok: Bool) -> Result<Void, String> {
+    if not ok { return "stopped" }
+    return
+}
+
+func propagate(ok: Bool) -> Result<Void, String> {
+    try action(ok)
+    print("after")
+    return
+}
+
+func main() {
+    match propagate(true) {
+        case Ok -> { print("propagated") },
+        case Err(e) -> { print(e) }
+    }
+    match propagate(false) {
+        case Ok -> { print("wrong") },
+        case Err(e) -> { print(e) }
+    }
+    try! action(true)
+    print("forced")
+}

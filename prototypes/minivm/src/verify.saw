@@ -230,6 +230,9 @@ func check_instruction(p: &Program, f: &FuncIR, i: &Instruction) -> Result<Void,
         case Print -> {
             if not printable_type(a) { return invalid(&i) }
         },
+        case Panic -> {
+            if i.dst != -1 || i.a != -1 || i.b != -1 || i.immediate != 0 || i.target != -1 || i.args.len() != 0 { return invalid(&i) }
+        },
         case Return -> {
             if f.result == ValueType.Void {
                 if i.a != -1 { return invalid(&i) }
@@ -279,7 +282,7 @@ func check_function(p: &Program, f: &FuncIR) -> Result<Void, ProtoError> {
             visited.set(pc, true)
             let i = f.code[pc].copy()
             if i.op == Op.Jump || i.op == Op.Branch { try! pending.push(i.target) }
-            if i.op != Op.Jump && i.op != Op.Return { try! pending.push(pc + 1) }
+            if i.op != Op.Jump && i.op != Op.Return && i.op != Op.Panic { try! pending.push(pc + 1) }
         }
     }
     return

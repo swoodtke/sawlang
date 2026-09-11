@@ -1,0 +1,29 @@
+func make(index: Int) -> Result<String, String> {
+    if index % 2 == 0 {
+        Result<String, String>.Ok(value: "even")
+    } else {
+        Result<String, String>.Err(error: "odd")
+    }
+}
+
+func stop() -> Result<String, String> {
+    let local = "early"
+    return Result<String, String>.Ok(value: local)
+}
+
+func main() {
+    var index = 0
+    while index < 200 {
+        let result = make(index)
+        match result {
+            case Ok(_) -> {},
+            case Err(_) -> {}
+        }
+        index = index + 1
+    }
+    match stop() {
+        case Ok(value) -> { print(value) },
+        case Err(e) -> { print(e) }
+    }
+    print(index)
+}

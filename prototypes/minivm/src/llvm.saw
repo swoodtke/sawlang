@@ -909,6 +909,9 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
                 temp_name(&var out, instruction_index, "retagg{result_layout.len() - 1}")
                 put(&var out, "\n")
             }
+        },
+        case Panic -> {
+            put(&var out, "  call void @minivm_try_failed()\n  unreachable\n")
         }
     }
     put(&var out, "\n")
@@ -1020,6 +1023,7 @@ public func emit_llvm(program: &Program) -> Result<String, ProtoError> {
     put(&var out, "@.divzero = private unnamed_addr constant [32 x i8] c\"runtime error: division by zero\\00\"\n\n")
     put(&var out, "@.cast = private unnamed_addr constant [41 x i8] c\"runtime error: integer cast out of range\\00\"\n")
     put(&var out, "@.shift = private unnamed_addr constant [34 x i8] c\"runtime error: shift out of range\\00\"\n\n")
+    put(&var out, "@.try_failed = private unnamed_addr constant [27 x i8] c\"runtime error: try! failed\\00\"\n\n")
     emit_string_constants(&var out, &program.strings)
     put(&var out, "declare i32 @printf(ptr, ...)\ndeclare i32 @puts(ptr)\ndeclare void @exit(i32)\n")
     put(&var out, "declare \{i64, i1\} @llvm.sadd.with.overflow.i64(i64, i64)\n")
@@ -1033,6 +1037,7 @@ public func emit_llvm(program: &Program) -> Result<String, ProtoError> {
     put(&var out, "define internal void @minivm_divzero() \{\nentry:\n  call i32 @puts(ptr @.divzero)\n  call void @exit(i32 1)\n  unreachable\n\}\n\n")
     put(&var out, "define internal void @minivm_cast() \{\nentry:\n  call i32 @puts(ptr @.cast)\n  call void @exit(i32 1)\n  unreachable\n\}\n\n")
     put(&var out, "define internal void @minivm_shift() \{\nentry:\n  call i32 @puts(ptr @.shift)\n  call void @exit(i32 1)\n  unreachable\n\}\n\n")
+    put(&var out, "define internal void @minivm_try_failed() \{\nentry:\n  call i32 @puts(ptr @.try_failed)\n  call void @exit(i32 1)\n  unreachable\n\}\n\n")
     var function_index = 0
     while function_index < program.functions.len() {
         try emit_function(&var out, &program, function_index,

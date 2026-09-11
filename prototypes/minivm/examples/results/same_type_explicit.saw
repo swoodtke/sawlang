@@ -1,0 +1,18 @@
+func choose(ok: Bool) -> Result<Int, Int> {
+    if ok {
+        Result<Int, Int>.Ok(value: 42)
+    } else {
+        Result<Int, Int>.Err(error: -1)
+    }
+}
+
+func main() {
+    match choose(true) {
+        case Ok(n) -> { print(n) },
+        case Err(e) -> { print(e) }
+    }
+    match choose(false) {
+        case Ok(n) -> { print(n) },
+        case Err(_) -> { print(999) }
+    }
+}

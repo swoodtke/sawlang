@@ -1,0 +1,35 @@
+func one_more(value: Int?) -> Result<Int??, String> { value }
+func absent() -> Result<Int??, String> { None }
+func nested() -> Result<Result<Int, String>, Bool> {
+    Result<Result<Int, String>, Bool>.Ok(
+        value: Result<Int, String>.Err(error: "inner")
+    )
+}
+
+func show(value: Result<Int??, String>) {
+    match value {
+        case Ok(outer) -> {
+            if let inner = outer {
+                if let n = inner { print(n) } else { print("inner-none") }
+            } else { print("outer-none") }
+        },
+        case Err(e) -> { print(e) }
+    }
+}
+
+func main() {
+    let n: Int? = None
+    show(one_more(n))
+    show(absent())
+    let seven: Int? = 7
+    show(one_more(seven))
+    match nested() {
+        case Ok(inner) -> {
+            match inner {
+                case Ok(n) -> { print(n) },
+                case Err(e) -> { print(e) }
+            }
+        },
+        case Err(_) -> { print("wrong") }
+    }
+}

@@ -183,6 +183,11 @@ extension Compiler {
     }
 
     func parse_type(&var self) -> Result<ValueType, ProtoError> {
+        self.parse_type_inner(0)
+    }
+
+    func parse_type_inner(&var self, type_depth: Int) -> Result<ValueType, ProtoError> {
+        if type_depth >= 128 { return self.fail("type nesting limit exceeded") }
         if self.at(TokenKind.Ampersand) {
             let amp = self.take()
             var mutable = false
@@ -194,18 +199,31 @@ extension Compiler {
                 let nested = self.token()
                 return problem("references to references are not supported", nested.line, nested.col)
             }
-            let target = try self.parse_type()
+            let target = try self.parse_type_inner(type_depth + 1)
             if reference_type(target) { return problem("references to references are not supported", amp.line, amp.col) }
             var supported = scalar_type(target)
             match target { case Record(_) -> { supported = true }, case _ -> {} }
             if target == ValueType.String { supported = true }
             match target { case Optional(_) -> { supported = true }, case _ -> {} }
+            match target { case Result(_) -> { supported = true }, case _ -> {} }
             if not supported { return problem("only data references are supported", amp.line, amp.col) }
             return self.intern_reference(target, mutable)
         }
         let t = try self.expect(TokenKind.Ident, "expected type")
         var ty = ValueType.Void
-        if t.value == "Void" { ty = ValueType.Void }
+        if t.value == "Result" {
+            let _ = try self.expect(TokenKind.Lt, "Result requires exactly two type arguments")
+            let success = try self.parse_type_inner(type_depth + 1)
+            let _ = try self.expect(TokenKind.Comma, "Result requires exactly two type arguments")
+            let error = try self.parse_type_inner(type_depth + 1)
+            let _ = try self.expect(TokenKind.Gt, "Result requires exactly two type arguments")
+            if error == ValueType.Void { return problem("Result error type cannot be Void", t.line, t.col) }
+            if reference_type(success) || reference_type(error) {
+                return problem("Result reference payloads are not supported", t.line, t.col)
+            }
+            ty = self.intern_result(success, error)
+        }
+        else if t.value == "Void" { ty = ValueType.Void }
         else if t.value == "Bool" { ty = ValueType.Bool }
         else if t.value == "String" { ty = ValueType.String }
         else if let integer = named_integer_type(t.value) { ty = integer }
@@ -245,6 +263,18 @@ extension Compiler {
         }
         try! self.sums.push(SumIR(kind: SumKind.Optional, payload: payload, error: ValueType.Void))
         ValueType.Optional(self.sums.len() - 1)
+    }
+
+    func intern_result(&var self, payload: ValueType, error: ValueType) -> ValueType {
+        var i = 0
+        while i < self.sums.len() {
+            if self.sums[i].kind == SumKind.Result && self.sums[i].payload == payload && self.sums[i].error == error {
+                return ValueType.Result(i)
+            }
+            i += 1
+        }
+        try! self.sums.push(SumIR(kind: SumKind.Result, payload: payload, error: error))
+        ValueType.Result(self.sums.len() - 1)
     }
 
     func intern_reference(&var self, target: ValueType, mutable: Bool) -> ValueType {
@@ -312,7 +342,12 @@ extension Compiler {
                 }
                 "Optional"
             },
-            case Result(_) -> "Result",
+            case Result(index) -> {
+                if index >= 0 && index < self.sums.len() {
+                    return "Result<{self.display_type(self.sums[index].payload)}, {self.display_type(self.sums[index].error)}>"
+                }
+                "Result"
+            },
             case _ -> type_name(ty)
         }
     }
@@ -1008,6 +1043,96 @@ extension Compiler {
         expr_value(target, dst, false)
     }
 
+    func can_transfer(&self, v: &ExprValue, target: ValueType) -> Bool {
+        if v.none_literal {
+            match target {
+                case Optional(_) -> { return true },
+                case Result(index) -> {
+                    if index < 0 || index >= self.sums.len() { return false }
+                    let ok = self.sums[index].payload != ValueType.Void && self.can_transfer(&v, self.sums[index].payload)
+                    let err = self.can_transfer(&v, self.sums[index].error)
+                    return ok != err
+                },
+                case _ -> { return false }
+            }
+        }
+        if v.ty == target { return true }
+        if v.literal && integer_type(target) { return self.literal_fits_target(&v, target) }
+        if integer_widens(v.ty, target) { return true }
+        match target {
+            case Optional(index) -> {
+                if index < 0 || index >= self.sums.len() { return false }
+                return self.can_transfer(&v, self.sums[index].payload)
+            },
+            case Result(index) -> {
+                if index < 0 || index >= self.sums.len() { return false }
+                let ok = self.sums[index].payload != ValueType.Void && self.can_transfer(&v, self.sums[index].payload)
+                let err = self.can_transfer(&v, self.sums[index].error)
+                return ok != err
+            },
+            case _ -> { return false }
+        }
+    }
+
+    func construct_result(&var self, v: ExprValue, target: ValueType, ok: Bool,
+                          t: &Token) -> Result<ExprValue, ProtoError> {
+        let payload = if ok { try result_payload(&self.sums, target) } else { try result_error(&self.sums, target) }
+        if payload == ValueType.Void { return problem("Result.Ok requires a value payload", t.line, t.col) }
+        let converted = try self.transfer(v, payload, &t)
+        let dst = try self.new_value(target)
+        let layout = try value_layout(&self.records, &self.sums, target)
+        var i = 0
+        while i < layout.len() {
+            if layout[i] == ValueType.String {
+                let drop = self.emit_at(Op.Drop, t.line, t.col)
+                self.code[drop].a = dst + i
+            } else {
+                let zero = self.emit_at(Op.Const, t.line, t.col)
+                self.code[zero].dst = dst + i
+                self.code[zero].immediate = 0
+            }
+            i += 1
+        }
+        let tag = self.emit_at(Op.Const, t.line, t.col)
+        self.code[tag].dst = dst
+        self.code[tag].immediate = if ok { 1 } else { 0 }
+        var offset = 1
+        if not ok { offset += (try value_layout(&self.records, &self.sums, try result_payload(&self.sums, target))).len() }
+        try self.emit_copy_value(dst + offset, converted.slot, payload, &t)
+        expr_value(target, dst, false)
+    }
+
+    func construct_void_ok(&var self, target: ValueType, t: &Token) -> Result<ExprValue, ProtoError> {
+        let payload = try result_payload(&self.sums, target)
+        if payload != ValueType.Void { return problem("non-Void return requires a value", t.line, t.col) }
+        let dst = try self.new_value(target)
+        let layout = try value_layout(&self.records, &self.sums, target)
+        var i = 0
+        while i < layout.len() {
+            if layout[i] == ValueType.String {
+                let drop = self.emit_at(Op.Drop, t.line, t.col)
+                self.code[drop].a = dst + i
+            } else {
+                let zero = self.emit_at(Op.Const, t.line, t.col)
+                self.code[zero].dst = dst + i
+                self.code[zero].immediate = 0
+            }
+            i += 1
+        }
+        let tag = self.emit_at(Op.Const, t.line, t.col)
+        self.code[tag].dst = dst
+        self.code[tag].immediate = 1
+        expr_value(target, dst, false)
+    }
+
+    func emit_function_return(&var self, src: Int, t: &Token) -> Result<Void, ProtoError> {
+        let preserve_end = if src < 0 { -1 } else { src + (try value_layout(&self.records, &self.sums, self.current_result)).len() }
+        self.cleanup_function(src, preserve_end, &t)
+        let at = self.emit_at(Op.Return, t.line, t.col)
+        self.code[at].a = src
+        return
+    }
+
     func wrap_optional(&var self, v: ExprValue, target: ValueType,
                        t: &Token) -> Result<ExprValue, ProtoError> {
         let payload = try optional_payload(&self.sums, target)
@@ -1024,10 +1149,10 @@ extension Compiler {
         if v.none_literal {
             match target {
                 case Optional(_) -> { return self.initialize_optional_none(target, &t) },
-                case _ -> { return problem("None requires an expected Optional type", t.line, t.col) }
+                case _ -> {}
             }
         }
-        if v.ty == target {
+        if v.ty == target && not v.none_literal {
             if v.literal && not self.literal_fits_target(&v, target) {
                 return problem("integer literal does not fit {type_name(target)}", t.line, t.col)
             }
@@ -1035,8 +1160,18 @@ extension Compiler {
         }
         match target {
             case Optional(_) -> { return self.wrap_optional(v, target, &t) },
+            case Result(index) -> {
+                let success = self.sums[index].payload
+                let error = self.sums[index].error
+                let ok = success != ValueType.Void && self.can_transfer(&v, success)
+                let err = self.can_transfer(&v, error)
+                if ok && err { return problem("ambiguous Result auto-wrap", t.line, t.col) }
+                if ok { return self.construct_result(v, target, true, &t) }
+                if err { return self.construct_result(v, target, false, &t) }
+            },
             case _ -> {}
         }
+        if v.none_literal { return problem("None requires an expected Optional type", t.line, t.col) }
         if v.literal && integer_type(target) { return self.adopt_literal(v, target, &t) }
         if integer_widens(v.ty, target) {
             let dst = self.new_slot(target)
@@ -1170,6 +1305,14 @@ extension Compiler {
             self.depth -= 1
             return value
         }
+        var result_constructor = false
+        let constructor_token = self.token()
+        if self.at(TokenKind.Ident) && constructor_token.value == "Result" && self.pos + 1 < self.tokens.len() {
+            result_constructor = self.tokens[self.pos + 1].kind == TokenKind.Lt
+        }
+        if result_constructor {
+            return self.parse_result_constructor()
+        }
         if self.at(TokenKind.Ident) || self.at(TokenKind.SelfKw) {
             let candidate = self.token()
             if self.binding_index(candidate.value) >= 0 {
@@ -1237,6 +1380,36 @@ extension Compiler {
             return problem("unknown name `{name.value}`", name.line, name.col)
         }
         self.fail("expected expression; this syntax is unsupported")
+    }
+
+    func parse_result_constructor(&var self) -> Result<ExprValue, ProtoError> {
+        let anchor = self.token()
+        let result_ty = try self.parse_type()
+        let _ = try self.expect(TokenKind.Dot, "expected `.Ok` or `.Err` after Result type")
+        let variant = try self.expect(TokenKind.Ident, "expected `Ok` or `Err` Result constructor")
+        let ok = variant.value == "Ok"
+        if not ok && variant.value != "Err" { return problem("unknown Result constructor `{variant.value}`", variant.line, variant.col) }
+        let _ = try self.expect(TokenKind.LParen, "expected `(` after Result constructor")
+        self.depth += 1
+        self.paren_depth += 1
+        self.skip_newlines()
+        if self.at(TokenKind.RParen) {
+            return problem(if ok { "Result.Ok requires a value payload" } else { "Result.Err requires an error payload" }, variant.line, variant.col)
+        }
+        let label = try self.expect(TokenKind.Ident, if ok { "Result.Ok argument label must be `value`" } else { "Result.Err argument label must be `error`" })
+        let wanted = if ok { "value" } else { "error" }
+        if label.value != wanted { return problem("Result.{variant.value} argument label must be `{wanted}`", label.line, label.col) }
+        let _ = try self.expect(TokenKind.Colon, "expected `:` after Result constructor argument label")
+        self.expr_space()
+        let payload = if ok { try result_payload(&self.sums, result_ty) } else { try result_error(&self.sums, result_ty) }
+        if ok && payload == ValueType.Void { return problem("Result.Ok requires a value payload", variant.line, variant.col) }
+        let value = try self.parse_expected_expr(payload)
+        self.skip_newlines()
+        if self.at(TokenKind.Comma) { return problem("Result.{variant.value} accepts exactly one argument", variant.line, variant.col) }
+        let _ = try self.expect(TokenKind.RParen, "expected `)` after Result constructor")
+        self.paren_depth -= 1
+        self.depth -= 1
+        self.construct_result(value, result_ty, ok, &anchor)
     }
 
     func field_index(&self, record: Int, name: String) -> Int {
@@ -1756,6 +1929,7 @@ extension Compiler {
 
     func parse_unary_inner(&var self) -> Result<ExprValue, ProtoError> {
         self.expr_space()
+        if self.at(TokenKind.Try) { return self.parse_try() }
         if self.at(TokenKind.Exclaim) || self.at(TokenKind.Not_) {
             let t = self.take()
             self.expr_space()
@@ -1817,6 +1991,43 @@ extension Compiler {
             return expr_value(v.ty, dst, false)
         }
         self.parse_cast()
+    }
+
+    func parse_try(&var self) -> Result<ExprValue, ProtoError> {
+        let t = self.take()
+        var forced = false
+        if self.at(TokenKind.Exclaim) {
+            let _ = self.take()
+            forced = true
+        }
+        let operand = try self.parse_expr()
+        var result_index = -1
+        match operand.ty { case Result(index) -> { result_index = index }, case _ -> {} }
+        if result_index < 0 { return problem("try operand must be a Result", t.line, t.col) }
+        let value = self.sums[result_index].payload
+        let error = self.sums[result_index].error
+        if not forced {
+            var caller_index = -1
+            match self.current_result { case Result(index) -> { caller_index = index }, case _ -> {} }
+            if caller_index < 0 { return problem("try requires a Result-returning function", t.line, t.col) }
+            if self.sums[caller_index].error != error {
+                return problem("try error type does not match function result", t.line, t.col)
+            }
+        }
+        let branch = self.emit_at(Op.Branch, t.line, t.col)
+        self.code[branch].a = operand.slot
+        if forced {
+            let _ = self.emit_at(Op.Panic, t.line, t.col)
+        } else {
+            let success_layout = try value_layout(&self.records, &self.sums, value)
+            let error_value = expr_value(error, operand.slot + 1 + success_layout.len(), false)
+            let propagated = try self.construct_result(error_value, self.current_result, false, &t)
+            try self.emit_function_return(propagated.slot, &t)
+        }
+        self.code[branch].target = self.code.len()
+        if value == ValueType.Void { return expr_value(ValueType.Void, -1, true) }
+        let success = expr_value(value, operand.slot + 1, false)
+        self.snapshot(success, &t)
     }
 
     func parse_cast(&var self) -> Result<ExprValue, ProtoError> {
@@ -2308,12 +2519,18 @@ extension Compiler {
 
     func stage_optional_binding(&var self, name: Token, mutable: Bool,
                                 subject: &ExprValue, payload: ValueType) -> Result<Void, ProtoError> {
+        self.stage_payload_binding(name, mutable, &subject, payload, 1)
+    }
+
+    func stage_payload_binding(&var self, name: Token, mutable: Bool,
+                               subject: &ExprValue, payload: ValueType,
+                               offset: Int) -> Result<Void, ProtoError> {
         if name.value == "_" { return }
         // The following block owns this payload snapshot. Stage its lexical depth
         // before the block parser enters so String leaves are dropped at that edge.
         self.scope_depth += 1
         let dst = try self.new_value(payload)
-        try self.emit_copy_value(dst, subject.slot + 1, payload, &name)
+        try self.emit_copy_value(dst, subject.slot + offset, payload, &name)
         self.scope_depth -= 1
         try! self.bindings.push(Binding(name: name.value, ty: payload, slot: dst,
                                         mutable: mutable, depth: self.depth + 1))
@@ -2498,6 +2715,10 @@ extension Compiler {
         let mt = self.take()
         var subject = try self.parse_expr()
         subject = try self.snapshot(subject, &mt)
+        match subject.ty {
+            case Result(index) -> { return self.parse_result_match_value(mt, subject, index, expected, has_expected) },
+            case _ -> {}
+        }
         var ei = -1
         let string_match = subject.ty == ValueType.String
         match subject.ty {
@@ -2660,6 +2881,137 @@ extension Compiler {
         expr_value(target, dst, false)
     }
 
+    func parse_result_match_value(&var self, mt: Token, subject: ExprValue, index: Int,
+                                  expected: ValueType, has_expected: Bool) -> Result<ExprValue, ProtoError> {
+        let success = self.sums[index].payload
+        let error = self.sums[index].error
+        let success_words = (try value_layout(&self.records, &self.sums, success)).len()
+        let _ = try self.expect(TokenKind.LBrace, "expected `\{` after match subject")
+        self.skip_newlines()
+        var covered_ok = false
+        var covered_err = false
+        var wildcard = false
+        var pending_false = -1
+        var exits = Vector<Int>()
+        var values = Vector<ExprValue>()
+        var all_return = true
+        while not self.at(TokenKind.RBrace) && not self.at(TokenKind.Eof) {
+            if wildcard { return self.fail("wildcard match arm must be final") }
+            if pending_false >= 0 { self.code[pending_false].target = self.code.len() }
+            let _ = try self.expect(TokenKind.Case, "expected `case` in match")
+            let pattern = try self.expect(TokenKind.Ident, "expected Result match pattern")
+            var variant = -1
+            if pattern.value == "Ok" { variant = 1 }
+            else if pattern.value == "Err" { variant = 0 }
+            else if pattern.value == "_" { wildcard = true }
+            else { return problem("Result match patterns must be Ok, Err, or `_`", pattern.line, pattern.col) }
+            if variant == 1 && covered_ok { return problem("duplicate Result match arm", pattern.line, pattern.col) }
+            if variant == 0 && covered_err { return problem("duplicate Result match arm", pattern.line, pattern.col) }
+            var binding = Token(kind: TokenKind.Ident, value: "_", line: pattern.line, col: pattern.col, suffix: None)
+            var payload = ValueType.Void
+            var offset = 0
+            if variant >= 0 {
+                payload = if variant == 1 { success } else { error }
+                offset = if variant == 1 { 1 } else { 1 + success_words }
+                if payload == ValueType.Void {
+                    if self.at(TokenKind.LParen) { return problem("Result Void Ok pattern does not accept a payload", pattern.line, pattern.col) }
+                } else {
+                    if not self.at(TokenKind.LParen) { return problem("Result {pattern.value} pattern requires a payload", pattern.line, pattern.col) }
+                    let _ = self.take()
+                    binding = try self.expect(TokenKind.Ident, "expected Result payload binding")
+                    let _ = try self.expect(TokenKind.RParen, "Result match payload pattern accepts one binding")
+                }
+                if variant == 1 { covered_ok = true } else { covered_err = true }
+                let condition = if variant == 1 { subject.slot } else {
+                    let dst = self.new_slot(ValueType.Bool)
+                    let invert = self.emit_at(Op.Not, pattern.line, pattern.col)
+                    self.code[invert].dst = dst
+                    self.code[invert].a = subject.slot
+                    dst
+                }
+                let branch = self.emit_at(Op.Branch, pattern.line, pattern.col)
+                self.code[branch].a = condition
+                pending_false = self.emit_at(Op.Jump, pattern.line, pattern.col)
+                self.code[branch].target = self.code.len()
+            } else { pending_false = -1 }
+            let _ = try self.expect(TokenKind.Arrow, "expected `->` after match pattern")
+            if variant >= 0 && payload != ValueType.Void {
+                try self.stage_payload_binding(binding, false, &subject, payload, offset)
+            }
+            var arm = BlockValue(has_value: false, value: returning_value(), always_returns: false)
+            if self.at(TokenKind.LBrace) {
+                let _ = self.take()
+                arm = try self.parse_value_block(expected, has_expected)
+            } else {
+                self.depth += 1
+                self.scope_depth += 1
+                let value = if has_expected { try self.parse_expected_expr(expected) } else { try self.parse_expr() }
+                let end = value.slot + (try value_layout(&self.records, &self.sums, value.ty)).len()
+                self.cleanup_scope(value.slot, end, &pattern)
+                self.leave_scope()
+                self.scope_depth -= 1
+                self.depth -= 1
+                arm = BlockValue(has_value: not value.always_returns, value: value, always_returns: value.always_returns)
+            }
+            if arm.always_returns {} else {
+                all_return = false
+                if not arm.has_value { return problem("continuing value branch requires a tail expression", pattern.line, pattern.col) }
+                try! values.push(arm.value)
+                try! exits.push(self.emit_at(Op.Jump, mt.line, mt.col))
+            }
+            self.skip_newlines()
+            if self.at(TokenKind.Comma) {
+                let _ = self.take()
+                self.skip_newlines()
+            }
+        }
+        let _ = try self.expect(TokenKind.RBrace, "expected closing brace for match")
+        if not wildcard && (not covered_ok || not covered_err) { return problem("non-exhaustive Result match", mt.line, mt.col) }
+        if all_return {
+            if pending_false >= 0 { self.code[pending_false].target = self.code.len() }
+            return returning_value()
+        }
+        var target = if has_expected { expected } else { values[0].ty }
+        if not has_expected {
+            var candidate = -1
+            var saw_typed = false
+            var n = 0
+            while n < values.len() {
+                if not values[n].literal {
+                    saw_typed = true
+                    var accepts = true
+                    var j = 0
+                    while j < values.len() {
+                        if values[j].ty != values[n].ty && not values[j].literal && not integer_widens(values[j].ty, values[n].ty) { accepts = false }
+                        j += 1
+                    }
+                    if accepts {
+                        candidate = n
+                        break
+                    }
+                }
+                n += 1
+            }
+            if candidate >= 0 { target = values[candidate].ty }
+            else if saw_typed { return problem("control-flow branches have incompatible types", mt.line, mt.col) }
+        }
+        let dst = try self.new_value(target)
+        var joins = Vector<Int>()
+        var n = 0
+        while n < values.len() {
+            try self.append_value_exit(exits[n], values[n], target, dst, &mt, &var joins)
+            n += 1
+        }
+        let continuation = self.code.len()
+        if pending_false >= 0 { self.code[pending_false].target = continuation }
+        n = 0
+        while n < joins.len() {
+            self.code[joins[n]].target = continuation
+            n += 1
+        }
+        expr_value(target, dst, false)
+    }
+
     func parse_block(&var self) -> Result<Bool, ProtoError> {
         if self.depth >= 128 { return self.fail("block nesting limit exceeded") }
         self.depth += 1
@@ -2683,6 +3035,10 @@ extension Compiler {
         let mt = self.take()
         var subject = try self.parse_expr()
         subject = try self.snapshot(subject, &mt)
+        match subject.ty {
+            case Result(index) -> { return self.parse_result_match_statement(mt, subject, index) },
+            case _ -> {}
+        }
         var ei = -1
         let string_match = subject.ty == ValueType.String
         match subject.ty {
@@ -2799,6 +3155,91 @@ extension Compiler {
         all_return
     }
 
+    func parse_result_match_statement(&var self, mt: Token, subject: ExprValue,
+                                      index: Int) -> Result<Bool, ProtoError> {
+        let success = self.sums[index].payload
+        let error = self.sums[index].error
+        let success_words = (try value_layout(&self.records, &self.sums, success)).len()
+        let _ = try self.expect(TokenKind.LBrace, "expected `\{` after match subject")
+        self.skip_newlines()
+        var covered_ok = false
+        var covered_err = false
+        var wildcard = false
+        var pending_false = -1
+        var joins = Vector<Int>()
+        var all_return = true
+        var arms = 0
+        while not self.at(TokenKind.RBrace) && not self.at(TokenKind.Eof) {
+            if wildcard { return self.fail("wildcard match arm must be final") }
+            if pending_false >= 0 { self.code[pending_false].target = self.code.len() }
+            let _ = try self.expect(TokenKind.Case, "expected `case` in match")
+            let pattern = try self.expect(TokenKind.Ident, "expected Result match pattern")
+            var variant = -1
+            if pattern.value == "Ok" { variant = 1 }
+            else if pattern.value == "Err" { variant = 0 }
+            else if pattern.value == "_" { wildcard = true }
+            else { return problem("Result match patterns must be Ok, Err, or `_`", pattern.line, pattern.col) }
+            if variant == 1 && covered_ok { return problem("duplicate Result match arm", pattern.line, pattern.col) }
+            if variant == 0 && covered_err { return problem("duplicate Result match arm", pattern.line, pattern.col) }
+            var binding = Token(kind: TokenKind.Ident, value: "_", line: pattern.line, col: pattern.col, suffix: None)
+            var payload = ValueType.Void
+            var offset = 0
+            if variant >= 0 {
+                payload = if variant == 1 { success } else { error }
+                offset = if variant == 1 { 1 } else { 1 + success_words }
+                if payload == ValueType.Void {
+                    if self.at(TokenKind.LParen) { return problem("Result Void Ok pattern does not accept a payload", pattern.line, pattern.col) }
+                } else {
+                    if not self.at(TokenKind.LParen) { return problem("Result {pattern.value} pattern requires a payload", pattern.line, pattern.col) }
+                    let _ = self.take()
+                    binding = try self.expect(TokenKind.Ident, "expected Result payload binding")
+                    let _ = try self.expect(TokenKind.RParen, "Result match payload pattern accepts one binding")
+                }
+                if variant == 1 { covered_ok = true } else { covered_err = true }
+                let condition = if variant == 1 { subject.slot } else {
+                    let dst = self.new_slot(ValueType.Bool)
+                    let invert = self.emit_at(Op.Not, pattern.line, pattern.col)
+                    self.code[invert].dst = dst
+                    self.code[invert].a = subject.slot
+                    dst
+                }
+                let branch = self.emit_at(Op.Branch, pattern.line, pattern.col)
+                self.code[branch].a = condition
+                pending_false = self.emit_at(Op.Jump, pattern.line, pattern.col)
+                self.code[branch].target = self.code.len()
+            } else { pending_false = -1 }
+            let _ = try self.expect(TokenKind.Arrow, "expected `->` after match pattern")
+            let _ = try self.expect(TokenKind.LBrace, "match arms require statement blocks")
+            if variant >= 0 && payload != ValueType.Void {
+                try self.stage_payload_binding(binding, false, &subject, payload, offset)
+            }
+            let returns = try self.parse_block()
+            if not returns {
+                all_return = false
+                let join = self.emit_at(Op.Jump, mt.line, mt.col)
+                try! joins.push(join)
+            }
+            arms += 1
+            self.skip_newlines()
+            if self.at(TokenKind.Comma) {
+                let _ = self.take()
+                self.skip_newlines()
+            }
+        }
+        let _ = try self.expect(TokenKind.RBrace, "expected closing brace for match")
+        if arms == 0 || (not wildcard && (not covered_ok || not covered_err)) {
+            return problem("non-exhaustive Result match", mt.line, mt.col)
+        }
+        let continuation = self.code.len()
+        if pending_false >= 0 { self.code[pending_false].target = continuation }
+        var i = 0
+        while i < joins.len() {
+            self.code[joins[i]].target = continuation
+            i += 1
+        }
+        all_return
+    }
+
     func parse_statement(&var self) -> Result<Bool, ProtoError> {
         let statement_token = self.token()
         if self.at(TokenKind.Semicolon) { return self.fail("semicolons are not supported") }
@@ -2834,11 +3275,13 @@ extension Compiler {
                 var value = try self.parse_expected_expr(self.current_result)
                 if value.always_returns { return true }
                 src = value.slot
-            } else if self.current_result != ValueType.Void { return problem("non-Void return requires a value", t.line, t.col) }
-            let preserve_end = if src < 0 { -1 } else { src + (try value_layout(&self.records, &self.sums, self.current_result)).len() }
-            self.cleanup_function(src, preserve_end, &t)
-            let at = self.emit_at(Op.Return, t.line, t.col)
-            self.code[at].a = src
+            } else if self.current_result != ValueType.Void {
+                match self.current_result {
+                    case Result(_) -> { src = (try self.construct_void_ok(self.current_result, &t)).slot },
+                    case _ -> { return problem("non-Void return requires a value", t.line, t.col) }
+                }
+            }
+            try self.emit_function_return(src, &t)
             return true
         }
         if self.at(TokenKind.If) {

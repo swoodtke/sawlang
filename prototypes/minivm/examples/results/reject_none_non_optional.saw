@@ -1,0 +1,2 @@
+func bad() -> Result<Int, String> { None }
+func main() { print(0) }

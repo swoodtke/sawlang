@@ -1,0 +1,8 @@
+func number() -> Result<Int, String> { 6 }
+func add(value: Int) -> Result<Int, Bool> { value + 1 }
+func nested() -> Result<Int, String> { try! add(try number()) }
+
+func main() {
+    let value = try! nested()
+    print(value)
+}

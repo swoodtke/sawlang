@@ -1,0 +1,27 @@
+func ok_value() -> Result<Int, String> { 7 }
+func err_value() -> Result<Int, String> { "bad" }
+func narrow() -> Result<UInt8, String> { 255 }
+func explicit_ok() -> Result<Int, String> { return 11 }
+func explicit_err() -> Result<Int, String> { return "explicit" }
+
+func show(value: Result<Int, String>) {
+    match value {
+        case Ok(n) -> { print(n) },
+        case Err(e) -> { print(e) }
+    }
+}
+
+func main() {
+    show(ok_value())
+    show(err_value())
+    match narrow() {
+        case Ok(n) -> { print(n) },
+        case Err(_) -> { print("wrong") }
+    }
+    let chosen: Result<Int, String> = if true { 9 } else { "no" }
+    show(chosen)
+    let copied = chosen
+    show(copied)
+    show(explicit_ok())
+    show(explicit_err())
+}

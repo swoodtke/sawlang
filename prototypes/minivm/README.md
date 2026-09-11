@@ -66,8 +66,8 @@ shift counts. See [M1_NUMBERS.md](M1_NUMBERS.md) for the precise numeric contrac
 Newlines separate statements. Omit the result annotation for Void functions;
 `main()` must take no arguments and return Void. Value-returning functions need
 a value on every continuing path, supplied by an explicit return or final expression.
-There are no imports, collections, generics, or concurrency in the
-accepted subset.
+There are no imports, collections, user-defined generics, or concurrency in the
+accepted subset. `Result<T,E>` is a compiler-known fixed generic type.
 Semicolons remain unsupported. Boolean `&&`/`||` short-circuit, mutable integers
 and fields support `+=`/`-=`/`*=`/`/=`/`%=`, and module `static` integer/Bool
 constants accept literal and numeric-limit initializers. See
@@ -105,6 +105,13 @@ and value `if let` / `if var` evaluate once and bind copied payloads in the then
 scope. Coalescing, chaining and force unwrap remain unsupported. See
 [M10_OPTIONALS.md](M10_OPTIONALS.md).
 
+Fixed `Result<T,E>` types support unambiguous payload wrapping, explicit qualified
+Ok/Err constructors, payload matches, and `try` / `try!`. Error propagation
+returns immediately with full ownership cleanup. Result<Void,E> success uses a
+bare return. Statement match arms require blocks; value arms may be expressions
+or blocks. Forced errors print `runtime error: try! failed`; cause formatting
+and catch blocks remain unsupported. See [M11_RESULTS.md](M11_RESULTS.md).
+
 The VM defaults to a shared budget of 1,000,000 instructions and a maximum call
 depth of 128. Override the budget with `run FILE --budget N`. These limits apply
 only to VM execution; native code uses the host call stack and has no budget.
@@ -117,19 +124,19 @@ python prototypes/minivm/test_minivm.py --binary .build/minivm/minivm
 
 The harness compares VM execution and clang-compiled IR with explicit expected
 outputs and statuses, checks rejected programs, and exercises VM limits. It
-uses temporary files and 30-second subprocess timeouts. The first ten milestones
-cover 307 cases, including native execution at both `-O0` and `-O2`.
+uses temporary files and 30-second subprocess timeouts. The first eleven milestones
+cover 336 cases, including native execution at both `-O0` and `-O2`.
 
 Independent representation checks live in `tests/numeric_contract.saw`,
 `tests/record_contract.saw`, `tests/enum_contract.saw`,
-`tests/reference_contract.saw`, `tests/receiver_contract.saw`, and
-`tests/string_contract.saw`, `tests/owning_record_contract.saw`, and
-`tests/optional_contract.saw`; build and run them
+`tests/reference_contract.saw`, `tests/receiver_contract.saw`,
+`tests/string_contract.saw`, `tests/owning_record_contract.saw`,
+`tests/optional_contract.saw`, and `tests/result_contract.saw`; build and run them
 with the Python compiler.
 Use `--section numbers`, `--section records`, `--section control`, or
 `--section enums`, `--section values`, `--section references`, or
 `--section receivers`, `--section strings`, `--section owning_records` or
-`--section optionals` for an isolated
+`--section optionals` or `--section results` for an isolated
 integration gate.
 
 See [DESIGN.md](DESIGN.md) and [M1_NUMBERS.md](M1_NUMBERS.md) for the instruction

@@ -1,0 +1,44 @@
+struct Trouble { message: String }
+func maybe(ok: Bool) -> Result<String, Trouble> {
+    if ok { "hello" } else { Trouble(message: "bad") }
+}
+func mutate(value: &var Result<String, Trouble>) {
+    value = Trouble(message: "changed")
+}
+func observe(value: Result<String, Trouble>?) -> Int {
+    if let result = value {
+        match result {
+            case Ok(text) -> { text.len() },
+            case Err(error) -> { error.message.len() }
+        }
+    } else { 0 }
+}
+func no_operation() -> Result<Void, Trouble> { return }
+func relay(ok: Bool) -> Result<Int, Trouble> {
+    let keep = "kept"
+    try no_operation()
+    let text = try maybe(ok)
+    print(keep)
+    text.len()
+}
+func main() {
+    var source = maybe(true)
+    match source {
+        case Ok(text) -> {
+            mutate(&var source)
+            print(text)
+        },
+        case Err(_) -> {}
+    }
+    print(observe(source))
+    print(observe(None))
+    try! no_operation()
+    match relay(true) {
+        case Ok(n) -> { print(n) },
+        case Err(error) -> { print(error.message) }
+    }
+    match relay(false) {
+        case Ok(n) -> { print(n) },
+        case Err(error) -> { print(error.message) }
+    }
+}

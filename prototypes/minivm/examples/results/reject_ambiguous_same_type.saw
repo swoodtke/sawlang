@@ -1,0 +1,2 @@
+func bad() -> Result<Int, Int> { 1 }
+func main() { print(0) }

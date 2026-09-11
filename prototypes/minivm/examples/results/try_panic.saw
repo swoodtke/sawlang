@@ -1,0 +1,5 @@
+func fail() -> Result<Int, String> { "hidden" }
+
+func main() {
+    print(try! fail())
+}

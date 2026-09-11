@@ -1,6 +1,6 @@
 # M11: Result construction, matching and propagation
 
-Planned after the M10 Optional gate. This design uses M10's SumIR metadata and
+Implemented after the M10 Optional gate. This design uses M10's SumIR metadata and
 disjoint tagged payload layout. It does not authorize changing production code.
 
 ## Source boundary
@@ -29,6 +29,9 @@ Support statement and value matches with `case Ok(name)` and `case Err(name)`,
 including `_` payload patterns; Void Ok uses `case Ok`. A final whole-value `_`
 may cover the remaining variant. Reject duplicate/missing arms and wrong arity.
 Bindings are local payload snapshots; evaluate the scrutinee exactly once.
+Statement arms use blocks, matching the existing statement-match subset; value
+arms may use expressions or blocks. A final wildcard after both named variants
+is accepted and typechecked even though it is unreachable at runtime.
 Retain complete String/record/Optional payloads before source mutation or scope
 cleanup. This small match surface also lets the eventual lexer test wrapper
 observe LexError line/column without requiring catch support.
@@ -71,6 +74,13 @@ through several frames and argument evaluation; try! Ok/Err; loops and branch
 cleanup; explicit and implicit return contexts; malformed type/constructor/
 match/try rejects. Add direct representation/IR checks and ASan ownership probes.
 Full regression gate remains required before a milestone commit.
+
+## Review notes
+
+Regression cases cover all-returning value-match exits, all-arm numeric type
+selection, standalone Void try/try!, None rejection at Void returns, and
+Optional<Result> plus Result references. Constructor lookahead uses a named
+Token local to avoid the independently filed Python bootstrap bug SL-236.
 
 ## Following slice
 

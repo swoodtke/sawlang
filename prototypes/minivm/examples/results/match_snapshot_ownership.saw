@@ -1,0 +1,22 @@
+struct Message { text: String, fallback: String? }
+
+func subject() -> Result<Message, String> {
+    print("subject")
+    Message(text: "old", fallback: "saved")
+}
+
+func main() {
+    var source = subject()
+    match source {
+        case Ok(message) -> {
+            source = "changed"
+            print(message.text)
+            if let fallback = message.fallback { print(fallback) }
+        },
+        case Err(e) -> { print(e) }
+    }
+    match source {
+        case Ok(_) -> { print("wrong") },
+        case Err(e) -> { print(e) }
+    }
+}

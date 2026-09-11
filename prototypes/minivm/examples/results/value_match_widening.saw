@@ -1,0 +1,35 @@
+func choose_error(short: Bool) -> Result<Int64, Int8> {
+    if short {
+        Result<Int64, Int8>.Err(error: -8)
+    } else {
+        Result<Int64, Int8>.Ok(value: 64)
+    }
+}
+
+func widen(value: Result<Int64, Int8>) -> Int64 {
+    let selected = match value {
+        case Ok(wide) -> { wide },
+        case Err(narrow) -> { narrow },
+        case _ -> {
+            let medium: Int16 = 160
+            medium
+        }
+    }
+    selected
+}
+
+func wildcard(value: Result<Int8, String>) -> Int16 {
+    match value {
+        case Ok(n) -> { n },
+        case _ -> {
+            let fallback: Int16 = 16
+            fallback
+        }
+    }
+}
+
+func main() {
+    print(widen(choose_error(false)))
+    print(widen(choose_error(true)))
+    print(wildcard("ignored"))
+}
