@@ -1541,6 +1541,31 @@ extension Compiler {
         self.depth += 1
         self.paren_depth += 1
         self.skip_newlines()
+        if name.value == "to_uint" {
+            let saved_receiver = try self.snapshot(receiver, &name)
+            var radix_slot = -1
+            if self.at(TokenKind.RParen) {
+                radix_slot = self.new_slot(ValueType.I64)
+                let constant = self.emit_at(Op.Const, name.line, name.col)
+                self.code[constant].dst = radix_slot
+                self.code[constant].immediate = 10
+            } else {
+                let radix = try self.parse_string_argument(&name, "radix", ValueType.I64)
+                radix_slot = radix.slot
+                self.skip_newlines()
+                if self.at(TokenKind.Comma) { return problem("wrong number of arguments to String.to_uint", name.line, name.col) }
+            }
+            let _ = try self.expect(TokenKind.RParen, "wrong number of arguments to String.to_uint")
+            self.paren_depth -= 1
+            self.depth -= 1
+            let result_type = self.intern_optional(ValueType.U64)
+            let dst = try self.new_value(result_type)
+            let at = self.emit_at(Op.StringToUInt, name.line, name.col)
+            self.code[at].dst = dst
+            self.code[at].a = saved_receiver.slot
+            self.code[at].b = radix_slot
+            return expr_value(result_type, dst, false)
+        }
         if name.value == "len" || name.value == "is_empty" {
             if not self.at(TokenKind.RParen) { return problem("wrong number of arguments to String.{name.value}", name.line, name.col) }
             let _ = self.take()

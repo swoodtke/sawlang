@@ -1,0 +1,151 @@
+import src.model.*
+import src.verify.*
+import src.vm.*
+import src.llvm
+import src.uint_parse_runtime.*
+import std.env.{Env}
+
+func is_some_value(text: String, radix: Int, expected: UInt) -> Bool {
+    guard let value = parse_uint_bytes(&text, radix) else { return false }
+    value == expected
+}
+
+func is_none_value(text: String, radix: Int) -> Bool {
+    if let value = parse_uint_bytes(&text, radix) { return false }
+    true
+}
+
+func valid(p: &Program) -> Bool {
+    try verify(&p) catch { return false }
+    true
+}
+
+func op(code: &var Vector<Instruction>, kind: Op, dst: Int, a: Int, b: Int, immediate: Int) {
+    var i = instruction(kind)
+    i.dst = dst
+    i.a = a
+    i.b = b
+    i.immediate = immediate
+    try! code.push(move i)
+}
+
+func direct_program() -> Program {
+    let strings: Vector<String> = ["18446744073709551615", "18446744073709551616"]
+    let slots: Vector<ValueType> = [ValueType.String, ValueType.I64, ValueType.Bool,
+        ValueType.U64, ValueType.Bool, ValueType.U64, ValueType.Bool,
+        ValueType.I64, ValueType.U64, ValueType.Bool, ValueType.I64, ValueType.Bool]
+    var code = Vector<Instruction>()
+    op(&var code, Op.StringConst, 0, -1, -1, 0)
+    op(&var code, Op.Const, 1, -1, -1, 10)
+    op(&var code, Op.Const, 2, -1, -1, 0)
+    op(&var code, Op.Const, 3, -1, -1, 0)
+    op(&var code, Op.StringToUInt, 2, 0, 1, 0)
+    op(&var code, Op.Const, 4, -1, -1, 1)
+    op(&var code, Op.Const, 5, -1, -1, -1)
+    op(&var code, Op.Eq, 6, 2, 4, 0)
+    var branch = instruction(Op.Branch)
+    branch.a = 6
+    branch.target = 10
+    try! code.push(move branch)
+    op(&var code, Op.Panic, -1, -1, -1, 0)
+    op(&var code, Op.Eq, 6, 3, 5, 0)
+    branch = instruction(Op.Branch)
+    branch.a = 6
+    branch.target = 13
+    try! code.push(move branch)
+    op(&var code, Op.Panic, -1, -1, -1, 0)
+    op(&var code, Op.StringConst, 0, -1, -1, 1)
+    op(&var code, Op.Const, 2, -1, -1, 1)
+    op(&var code, Op.Const, 3, -1, -1, 99)
+    op(&var code, Op.StringToUInt, 2, 0, 1, 0)
+    op(&var code, Op.Const, 4, -1, -1, 0)
+    op(&var code, Op.Const, 5, -1, -1, 0)
+    op(&var code, Op.Eq, 6, 2, 4, 0)
+    branch = instruction(Op.Branch)
+    branch.a = 6
+    branch.target = 22
+    try! code.push(move branch)
+    op(&var code, Op.Panic, -1, -1, -1, 0)
+    op(&var code, Op.Eq, 6, 3, 5, 0)
+    branch = instruction(Op.Branch)
+    branch.a = 6
+    branch.target = 25
+    try! code.push(move branch)
+    op(&var code, Op.Panic, -1, -1, -1, 0)
+    op(&var code, Op.Drop, -1, 0, -1, 0)
+    op(&var code, Op.Return, -1, -1, -1, 0)
+    var functions = Vector<FuncIR>()
+    try! functions.push(FuncIR(name: "main", params: Vector<ValueType>(), result: ValueType.Void,
+        slots: move slots, code: move code))
+    Program(strings: move strings, references: Vector<ReferenceIR>(), enums: Vector<EnumIR>(),
+        records: Vector<RecordIR>(), sums: Vector<SumIR>(), functions: move functions, main_index: 0)
+}
+
+func main() {
+    assert(is_some_value("1111", 2, 15), "base 2")
+    assert(is_some_value("777", 8, 511), "base 8")
+    assert(is_some_value("4294967296", 10, 4294967296), "base 10")
+    assert(is_some_value("fF", 16, 255), "base 16 mixed case")
+    assert(is_some_value("Zz", 36, 1295), "base 36 mixed case")
+    assert(is_some_value("+42", 10, 42), "leading plus")
+    assert(is_some_value("00000000000000000042", 10, 42), "leading zeros")
+    assert(is_some_value("18446744073709551614", 10, UInt.max - 1), "decimal max minus one")
+    assert(is_some_value("18446744073709551615", 10, UInt.max), "decimal max")
+    assert(is_none_value("18446744073709551616", 10), "decimal overflow")
+    assert(is_some_value("ffffffffffffffff", 16, UInt.max), "hex max")
+    assert(is_none_value("10000000000000000", 16), "hex overflow")
+    assert(is_some_value("1777777777777777777777", 8, UInt.max), "octal max")
+    assert(is_none_value("2000000000000000000000", 8), "octal overflow")
+    assert(is_some_value("1111111111111111111111111111111111111111111111111111111111111111", 2, UInt.max), "binary max")
+    assert(is_none_value("10000000000000000000000000000000000000000000000000000000000000000", 2), "binary overflow")
+    assert(is_some_value("3w5e11264sgsf", 36, UInt.max), "base 36 max")
+    assert(is_none_value("3w5e11264sgsg", 36), "base 36 overflow")
+    assert(is_none_value("", 10) && is_none_value("+", 10), "empty and lone plus")
+    assert(is_none_value("-1", 10), "minus")
+    assert(is_none_value(" 1", 10) && is_none_value("1 ", 10), "whitespace")
+    assert(is_none_value("1_0", 10) && is_none_value("0x10", 16), "separator and prefix")
+    assert(is_none_value("12x", 10) && is_none_value("1\0", 10), "junk and NUL")
+    assert(is_none_value("é", 36), "non-ASCII bytes")
+    assert(is_none_value("10", 1) && is_none_value("10", 37), "radix bounds")
+
+    let p = direct_program()
+    assert(valid(&p), "StringToUInt exact operands and [Bool,U64] destination")
+    try! execute(&p, 1000)
+    var changed = p.copy()
+    changed.functions[0].code[4].a = 1
+    assert(not valid(&changed), "StringToUInt source must be String")
+    changed = p.copy()
+    changed.functions[0].code[4].b = 2
+    assert(not valid(&changed), "StringToUInt radix must be I64")
+    changed = p.copy()
+    changed.functions[0].code[4].dst = 7
+    assert(not valid(&changed), "StringToUInt tag must be Bool")
+    changed = p.copy()
+    changed.functions[0].code[4].dst = 9
+    assert(not valid(&changed), "StringToUInt value must be U64")
+    changed = p.copy()
+    changed.functions[0].code[4].dst = 11
+    assert(not valid(&changed), "StringToUInt destination range must contain two words")
+    changed = p.copy()
+    changed.functions[0].code[4].dst = Int.max
+    assert(not valid(&changed), "StringToUInt destination range arithmetic is safe")
+    changed = p.copy()
+    changed.functions[0].code[4].a = -1
+    assert(not valid(&changed), "StringToUInt source slot must exist")
+    changed = p.copy()
+    changed.functions[0].code[4].b = Int.max
+    assert(not valid(&changed), "StringToUInt radix slot must exist")
+    changed = p.copy()
+    changed.functions[0].code[4].dst = -1
+    assert(not valid(&changed), "StringToUInt destination must exist")
+
+    let emitted = try! llvm.emit_llvm(&p)
+    assert(emitted.contains("call \{ i64, i64 \} @minivm_string_to_uint"), "native instruction calls two-word helper")
+    assert(emitted.contains("ret \{ i64, i64 \} \{ i64 0, i64 0 \}"), "native failure resets both words")
+    let args = try! Env.args()
+    if args.len() == 2 && args[1] == "emit-llvm" {
+        print(emitted)
+        return
+    }
+    print("uint parse contract passed")
+}

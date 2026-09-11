@@ -1,0 +1,11 @@
+// M12 preserves M8 receiver snapshot semantics. SL-260 records the existing
+// prototype exclusivity gap: Python sawc rejects this overlapping borrow.
+func radix(value: &var String) -> Int {
+    value = "bad"
+    return 16
+}
+func main() {
+    var text = "ff"
+    if let v = text.to_uint(radix(&var text)) { print(v) } else { print("none") }
+    print(text)
+}

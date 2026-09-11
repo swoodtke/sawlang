@@ -140,6 +140,10 @@ func check_instruction(p: &Program, f: &FuncIR, i: &Instruction) -> Result<Void,
             if not string_type(a) || b != ValueType.I64 || not string_type(dst) || i.args.len() != 1 { return invalid(&i) }
             if slot_type(&f, i.args[0]) != ValueType.I64 { return invalid(&i) }
         },
+        case StringToUInt -> {
+            let layout: Vector<ValueType> = [ValueType.Bool, ValueType.U64]
+            if not string_type(a) || b != ValueType.I64 || not range_matches(&f, i.dst, &layout) { return invalid(&i) }
+        },
         case Drop -> {
             if not string_type(a) { return invalid(&i) }
         },

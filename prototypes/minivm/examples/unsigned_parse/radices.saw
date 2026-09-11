@@ -1,0 +1,21 @@
+func show(s: String, radix: Int) {
+    if let value = s.to_uint(radix: radix) { print(value) } else { print("none") }
+}
+func main() {
+    if let value = "42".to_uint() { print(value) } else { print("none") }
+    show("101010", 2)
+    show("52", 8)
+    show("42", 10)
+    show("2a", 16)
+    show("2A", 16)
+    show("16", 36)
+    show("zZ", 36)
+    show("+42", 10)
+    show("00000000000000000000000000000000000000000000000000000000000000000042", 10)
+    show("0xff", 36)
+    show("0b", 12)
+    show("0x10", 16)
+    show("0b10", 2)
+    show("0", 2)
+    show("+0", 36)
+}

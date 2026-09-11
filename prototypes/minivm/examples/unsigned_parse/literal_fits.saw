@@ -1,0 +1,34 @@
+func literal_fits(digits: String, base: Int, width: Int) -> Bool {
+    if let v = digits.to_uint(base) {
+        if width == 8 {
+            v <= (UInt8.max as UInt)
+        } else if width == 16 {
+            v <= (UInt16.max as UInt)
+        } else if width == 32 {
+            v <= (UInt32.max as UInt)
+        } else {
+            true                // width 64: fitting in UInt IS the ceiling check
+        }
+    } else {
+        false                   // overflowed 64 bits (or a non-base digit slipped in)
+    }
+}
+
+func main() {
+    print(literal_fits("255", 10, 8))
+    print(literal_fits("256", 10, 8))
+    print(literal_fits("65535", 10, 16))
+    print(literal_fits("65536", 10, 16))
+    print(literal_fits("4294967295", 10, 32))
+    print(literal_fits("4294967296", 10, 32))
+    print(literal_fits("18446744073709551615", 10, 64))
+    print(literal_fits("18446744073709551616", 10, 64))
+    print(literal_fits("ff", 16, 8))
+    print(literal_fits("100", 16, 8))
+    print(literal_fits("177777", 8, 16))
+    print(literal_fits("200000", 8, 16))
+    print(literal_fits("11111111111111111111111111111111", 2, 32))
+    print(literal_fits("100000000000000000000000000000000", 2, 32))
+    print(literal_fits("", 10, 64))
+    print(literal_fits("gg", 16, 64))
+}

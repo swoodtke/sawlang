@@ -1,0 +1,26 @@
+func show(s: String, radix: Int) {
+    if let value = s.to_uint(radix) { print(value) } else { print("none") }
+}
+func main() {
+    show("", 10)
+    show("+", 10)
+    show("-1", 10)
+    show("-0", 10)
+    show(" 1", 10)
+    show("1 ", 10)
+    show("1\n", 10)
+    show("1_000", 10)
+    show("12z", 10)
+    show("2", 2)
+    show("1\0", 10)
+    show("\0", 10)
+    show("é", 36)
+    show("１", 10)
+    show("1\u{1}", 10)
+    show("++1", 10)
+    show("1", 0)
+    show("1", 1)
+    show("1", 37)
+    show("1", Int.min)
+    show("1", Int.max)
+}

@@ -1,0 +1,8 @@
+struct ParseHolder { text: String }
+func parse(s: &String) -> UInt? { s.to_uint() }
+func main() {
+    let box = ParseHolder(text: "123")
+    if let v = box.text.to_uint() { print(v) } else { print("none") }
+    if let v = "x42y".substring(1, 3).to_uint() { print(v) } else { print("none") }
+    if let v = parse(&box.text) { print(v) } else { print("none") }
+}

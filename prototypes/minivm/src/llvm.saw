@@ -1,5 +1,6 @@
 import src.model.*
 import src.string_runtime.*
+import src.uint_parse_runtime.*
 
 func put(out: &var StringBuilder, text: String) {
     try! out.append(text)
@@ -795,6 +796,30 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
             assign_string_temp(&var out, instruction_index, "new", inst.dst, false)
             next_block(&var out, instruction_index)
         },
+        case StringToUInt -> {
+            put(&var out, "  ")
+            load_ref_slot(&var out, instruction_index, "text", inst.a)
+            put(&var out, "  ")
+            load_slot(&var out, instruction_index, "radix", inst.b)
+            put(&var out, "  ")
+            temp_name(&var out, instruction_index, "parsed")
+            put(&var out, " = call \{ i64, i64 \} @minivm_string_to_uint(ptr ")
+            temp_name(&var out, instruction_index, "text")
+            put(&var out, ", i64 ")
+            temp_name(&var out, instruction_index, "radix")
+            put(&var out, ")\n  ")
+            temp_name(&var out, instruction_index, "tag")
+            put(&var out, " = extractvalue \{ i64, i64 \} ")
+            temp_name(&var out, instruction_index, "parsed")
+            put(&var out, ", 0\n  ")
+            temp_name(&var out, instruction_index, "value")
+            put(&var out, " = extractvalue \{ i64, i64 \} ")
+            temp_name(&var out, instruction_index, "parsed")
+            put(&var out, ", 1\n")
+            store_temp(&var out, instruction_index, "tag", inst.dst)
+            store_temp(&var out, instruction_index, "value", inst.dst + 1)
+            next_block(&var out, instruction_index)
+        },
         case Drop -> {
             put(&var out, "  ")
             load_ref_slot(&var out, instruction_index, "value", inst.a)
@@ -1033,6 +1058,7 @@ public func emit_llvm(program: &Program) -> Result<String, ProtoError> {
     put(&var out, "declare \{i64, i1\} @llvm.usub.with.overflow.i64(i64, i64)\n")
     put(&var out, "declare \{i64, i1\} @llvm.umul.with.overflow.i64(i64, i64)\n\n")
     emit_string_runtime(&var out)
+    emit_uint_parser(&var out)
     put(&var out, "define internal void @minivm_overflow() \{\nentry:\n  call i32 @puts(ptr @.overflow)\n  call void @exit(i32 1)\n  unreachable\n\}\n\n")
     put(&var out, "define internal void @minivm_divzero() \{\nentry:\n  call i32 @puts(ptr @.divzero)\n  call void @exit(i32 1)\n  unreachable\n\}\n\n")
     put(&var out, "define internal void @minivm_cast() \{\nentry:\n  call i32 @puts(ptr @.cast)\n  call void @exit(i32 1)\n  unreachable\n\}\n\n")

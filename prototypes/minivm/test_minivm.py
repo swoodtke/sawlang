@@ -17,6 +17,8 @@ EXAMPLES = ROOT / "examples"
 # Include process startup and clang/linker work on a busy developer machine.
 # The VM has an independent deterministic instruction budget for nontermination.
 TIMEOUT = 30
+# Python sawc also builds runtime objects in a fresh checkout.
+SAWC_COMPILE_TIMEOUT = 180
 
 
 @dataclass(frozen=True)
@@ -25,6 +27,7 @@ class RunCase:
     stdout: str
     exit_code: int = 0
     section: str = "core"
+    compare_sawc: bool = False
 
 
 @dataclass(frozen=True)
@@ -32,9 +35,16 @@ class RejectCase:
     name: str
     message: str
     section: str = "core"
+    compare_sawc: bool = False
 
 
 RUN_CASES = (
+    RunCase("unsigned_parse/radices", "42\n" * 7 + "1295\n42\n42\n43323\n11\nnone\nnone\n0\n0\n", section="unsigned_parse", compare_sawc=True),
+    RunCase("unsigned_parse/boundaries", "9223372036854775808\n18446744073709551614\n18446744073709551615\nnone\n18446744073709551614\n18446744073709551615\nnone\n18446744073709551615\nnone\n18446744073709551615\nnone\n18446744073709551615\nnone\n18446744073709551615\n", section="unsigned_parse", compare_sawc=True),
+    RunCase("unsigned_parse/invalid", "none\n" * 21, section="unsigned_parse", compare_sawc=True),
+    RunCase("unsigned_parse/receivers", "123\n42\n123\n", section="unsigned_parse", compare_sawc=True),
+    RunCase("unsigned_parse/receiver_snapshot", "255\nbad\n", section="unsigned_parse", compare_sawc=True),
+    RunCase("unsigned_parse/literal_fits", "true\nfalse\n" * 7 + "false\nfalse\n", section="unsigned_parse", compare_sawc=True),
     RunCase("results/review_composition", "hello\n7\n0\nkept\n5\nbad\n", section="results"),
     RunCase("results/construction_wrapping", "7\nbad\n255\n9\n9\n11\nexplicit\n", section="results"),
     RunCase("results/nested_optional", "inner-none\nouter-none\n7\ninner\n", section="results"),
@@ -218,6 +228,10 @@ RUN_CASES = (
 )
 
 REJECT_CASES = (
+    RejectCase("unsigned_parse/reject_radix_type", "argument must be Int", "unsigned_parse", True),
+    RejectCase("unsigned_parse/reject_arity", "wrong number of arguments", "unsigned_parse", True),
+    RejectCase("unsigned_parse/reject_label", "does not match parameter", "unsigned_parse", True),
+    RejectCase("unsigned_parse/reject_result_type", "cannot implicitly convert", "unsigned_parse", True),
     RejectCase("results/reject_ambiguous_same_type", "ambiguous Result auto-wrap", "results"),
     RejectCase("results/reject_ambiguous_literal", "ambiguous Result auto-wrap", "results"),
     RejectCase("results/reject_none_non_optional", "None requires an expected Optional type", "results"),
@@ -451,18 +465,70 @@ def test_vm_limit(binary: Path, name: str, budget: int, message: str) -> list[st
     return check_result(name, result, message + "\n", 1)
 
 
+SAWC_KNOWN_DIVERGENCES = {
+    # SL-260: the M8/M12 snapshot contract currently accepts a nested mutation
+    # that Saw's receiver borrowing rules reject. Require this exact diagnostic;
+    # disappearance or any different failure is a gate failure, not a silent skip.
+    "unsigned_parse/receiver_snapshot": "exclusive access violation",
+}
+
+
+def test_sawc_case(python: str, sawc: Path, case: RunCase | RejectCase,
+                   temp: Path) -> list[str]:
+    """SL-260's first slice: identical sources, independent fixed oracles.
+
+    Only explicitly marked shared-subset cases participate. Diagnostics differ
+    between compilers, but rejection must be a normal diagnostic, never a crash.
+    Known differences have an issue-linked, diagnostic-checked ledger below.
+    """
+    source = EXAMPLES / f"{case.name}.saw"
+    output = temp / (case.name.replace("/", "-") + "-sawc")
+    compiled = invoke([python, str(sawc), str(source), "-o", str(output)],
+                      timeout=SAWC_COMPILE_TIMEOUT)
+    known = SAWC_KNOWN_DIVERGENCES.get(case.name)
+    if known is not None:
+        diagnostic = (compiled.stdout + compiled.stderr).lower()
+        plain = re.sub(r"\x1b\[[0-9;]*m", "", diagnostic)
+        error_count = len(re.findall(r"^error:", plain, re.MULTILINE))
+        if (compiled.returncode != 1 or known not in diagnostic
+                or error_count != 1
+                or "traceback" in diagnostic or "internal compiler error" in diagnostic):
+            return [f"{case.name} sawc: SL-260 known divergence changed; "
+                    f"exit {compiled.returncode}: {diagnostic!r}"]
+        return []
+    if isinstance(case, RejectCase):
+        diagnostic = (compiled.stdout + compiled.stderr).lower()
+        if (compiled.returncode != 1 or "error" not in diagnostic
+                or "traceback" in diagnostic or "internal compiler error" in diagnostic):
+            return [f"{case.name} sawc: expected diagnostic rejection, got "
+                    f"exit {compiled.returncode}: {diagnostic!r}"]
+        return []
+    if compiled.returncode != 0:
+        return [f"{case.name} sawc compile: exit {compiled.returncode}\n"
+                f"stdout: {compiled.stdout}\nstderr: {compiled.stderr}"]
+    return check_result(f"{case.name} sawc", invoke([str(output)]),
+                        case.stdout, case.exit_code)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--binary", type=Path, default=Path(".build/minivm/minivm"))
     parser.add_argument("--clang", default="clang")
+    parser.add_argument("--sawc", type=Path,
+                        help="also check explicitly marked shared-subset cases with this sawc.py")
+    parser.add_argument("--sawc-python", default=sys.executable,
+                        help="Python interpreter with sawc dependencies (default: this interpreter)")
     parser.add_argument(
-        "--section", choices=("all", "core", "numbers", "records", "control", "enums", "values", "references", "receivers", "strings", "owning_records", "optionals", "results"), default="all",
+        "--section", choices=("all", "core", "numbers", "records", "control", "enums", "values", "references", "receivers", "strings", "owning_records", "optionals", "results", "unsigned_parse"), default="all",
         help="run all cases or one isolated test section",
     )
     args = parser.parse_args()
     binary = args.binary.resolve()
     if not binary.is_file():
         parser.error(f"binary does not exist: {binary}")
+    sawc = args.sawc.resolve() if args.sawc else None
+    if sawc is not None and not sawc.is_file():
+        parser.error(f"sawc does not exist: {sawc}")
 
     failures: list[str] = []
     with tempfile.TemporaryDirectory(prefix="minivm-test-") as directory:
@@ -485,7 +551,16 @@ def main() -> int:
                 failures.extend(test_rejection(binary, case))
             except subprocess.TimeoutExpired:
                 failures.append(f"{case.name}: timed out after {TIMEOUT}s")
-        limit_cases = () if args.section in ("numbers", "records", "control", "enums", "values", "references", "receivers", "strings", "owning_records", "optionals", "results") else (
+        differential_cases = tuple(case for case in (*run_cases, *reject_cases)
+                                   if case.compare_sawc) if sawc is not None else ()
+        if sawc is not None and not differential_cases:
+            parser.error("selected section has no declared sawc differential cases")
+        for case in differential_cases:
+            try:
+                failures.extend(test_sawc_case(args.sawc_python, sawc, case, temp))
+            except subprocess.TimeoutExpired as error:
+                failures.append(f"{case.name} sawc: timed out after {error.timeout}s")
+        limit_cases = () if args.section not in ("all", "core") else (
             ("budget", 20, "runtime error: instruction budget exceeded"),
             ("depth", 10_000, "runtime error: call depth exceeded"),
         )
@@ -502,6 +577,10 @@ def main() -> int:
         return 1
     total = len(run_cases) + len(reject_cases) + len(limit_cases)
     print(f"minivm: {total} cases passed")
+    if sawc is not None:
+        known_count = sum(case.name in SAWC_KNOWN_DIVERGENCES for case in differential_cases)
+        print(f"sawc differential: {len(differential_cases) - known_count} cases agree, "
+              f"{known_count} known divergence(s) verified")
     return 0
 
 

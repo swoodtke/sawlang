@@ -1,6 +1,6 @@
 # M12: checked String.to_uint intrinsic
 
-Planned after Optional/Result integration. This is the next isolated dependency
+Implemented after Optional/Result integration. This is an isolated dependency
 for the unchanged lexer literal_fits helper; it does not compile std/string.saw.
 
 ## Source contract
@@ -44,3 +44,15 @@ embedded NUL, empty, max-1/max/max+1 in several bases, leading zeros and receive
 snapshot mutation. Include the unchanged literal_fits function with boundaries
 for 8/16/32/64-bit widths and all lexer radices. Direct IR checks reject invalid
 destination/argument ranges. Full VM/native regression gate before commit.
+
+The `unsigned_parse` gate has six execution fixtures and four diagnostic fixtures.
+Its literal_fits helper is copied unchanged from the lexer. The direct
+`tests/uint_parse_contract.saw` checks the representation and instruction.
+
+SL-260's first differential slice uses `--sawc sawc/sawc.py` in the harness.
+Nine cases require agreement against explicit oracles. One known difference
+is separately checked: the existing M8/M12 receiver snapshot contract accepts
+mutation of that receiver in an argument, while Python sawc correctly rejects
+the overlapping borrow. The issue-linked ledger requires that exact diagnostic
+and fails if the difference changes. Resolving the common String-intrinsic
+borrowing rule is follow-up SL-260 work, not a Python compiler defect.

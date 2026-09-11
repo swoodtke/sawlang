@@ -1,4 +1,5 @@
 import src.model.*
+import src.uint_parse_runtime.*
 
 static MAX_CALL_DEPTH: Int = 128
 struct CallResult { values: Vector<Int> }
@@ -328,6 +329,18 @@ func run_function(program: &Program, function_index: Int, arguments: &Vector<Int
                 if start < 0 || start > end || end > heap[index].value.len() { return runtime_error("runtime error: string range out of bounds") }
                 let handle = try string_allocate(&var heap, heap[index].value.substring(start, end))
                 try string_assign(&var cells, base + inst.dst, handle, &var heap, false)
+            },
+            case StringToUInt -> {
+                let index = try string_entry(&heap, cells[base + inst.a])
+                let parsed = parse_uint_bytes(&heap[index].value, cells[base + inst.b])
+                guard let value = parsed else {
+                    cells[base + inst.dst] = 0
+                    cells[base + inst.dst + 1] = 0
+                    pc += 1
+                    continue
+                }
+                cells[base + inst.dst] = 1
+                cells[base + inst.dst + 1] = Int.from(truncating: value)
             },
             case Drop -> {
                 try string_release(&var heap, cells[base + inst.a])

@@ -1,0 +1,1 @@
+func main() { let value = "42".to_uint(10, 16) }

@@ -1,0 +1,36 @@
+public func parse_uint_bytes(s: &String, radix: Int) -> UInt? {
+    if radix < 2 || radix > 36 || s.len() == 0 { return None }
+    var index = 0
+    if (s.byte_at(0) as Int) == 43 {
+        index = 1
+        if index == s.len() { return None }
+    }
+    let base = UInt.from(truncating: radix)
+    var value: UInt = 0
+    while index < s.len() {
+        let byte = s.byte_at(index) as Int
+        var digit = -1
+        if byte >= 48 && byte <= 57 { digit = byte - 48 }
+        else if byte >= 65 && byte <= 90 { digit = byte - 65 + 10 }
+        else if byte >= 97 && byte <= 122 { digit = byte - 97 + 10 }
+        if digit < 0 || digit >= radix { return None }
+        let unsigned_digit = UInt.from(truncating: digit)
+        if value > (UInt.max - unsigned_digit) / base { return None }
+        value = value * base + unsigned_digit
+        index += 1
+    }
+    value
+}
+
+public func emit_uint_parser(out: &var StringBuilder) {
+    try! out.append("define internal \{ i64, i64 \} @minivm_string_to_uint(ptr %value, i64 %radix) \{\n")
+    try! out.append("entry:\n  %radix_low = icmp slt i64 %radix, 2\n  %radix_high = icmp sgt i64 %radix, 36\n  %radix_bad = or i1 %radix_low, %radix_high\n  br i1 %radix_bad, label %fail, label %length\n")
+    try! out.append("length:\n  %len = call i64 @minivm_string_len(ptr %value)\n  %empty = icmp eq i64 %len, 0\n  br i1 %empty, label %fail, label %first\n")
+    try! out.append("first:\n  %data = getelementptr i8, ptr %value, i64 16\n  %first_byte = load i8, ptr %data\n  %plus = icmp eq i8 %first_byte, 43\n  %start = select i1 %plus, i64 1, i64 0\n  %lone_plus = icmp uge i64 %start, %len\n  br i1 %lone_plus, label %fail, label %loop\n")
+    try! out.append("loop:\n  %index = phi i64 [ %start, %first ], [ %next, %step ]\n  %acc = phi i64 [ 0, %first ], [ %added, %step ]\n  %at = getelementptr i8, ptr %data, i64 %index\n  %byte = load i8, ptr %at\n")
+    try! out.append("  %digit_lo = icmp uge i8 %byte, 48\n  %digit_hi = icmp ule i8 %byte, 57\n  %is_digit = and i1 %digit_lo, %digit_hi\n  %upper_lo = icmp uge i8 %byte, 65\n  %upper_hi = icmp ule i8 %byte, 90\n  %is_upper = and i1 %upper_lo, %upper_hi\n  %lower_lo = icmp uge i8 %byte, 97\n  %lower_hi = icmp ule i8 %byte, 122\n  %is_lower = and i1 %lower_lo, %lower_hi\n  %is_letter = or i1 %is_upper, %is_lower\n  %valid_char = or i1 %is_digit, %is_letter\n")
+    try! out.append("  %number_value = sub i8 %byte, 48\n  %upper_offset = sub i8 %byte, 65\n  %upper_value = add i8 %upper_offset, 10\n  %lower_offset = sub i8 %byte, 97\n  %lower_value = add i8 %lower_offset, 10\n  %letter_value = select i1 %is_upper, i8 %upper_value, i8 %lower_value\n  %digit8 = select i1 %is_digit, i8 %number_value, i8 %letter_value\n  %digit = zext i8 %digit8 to i64\n  %in_radix = icmp ult i64 %digit, %radix\n  %valid = and i1 %valid_char, %in_radix\n  br i1 %valid, label %check_overflow, label %fail\n")
+    try! out.append("check_overflow:\n  %remaining = sub i64 -1, %digit\n  %limit = udiv i64 %remaining, %radix\n  %overflow = icmp ugt i64 %acc, %limit\n  br i1 %overflow, label %fail, label %step\n")
+    try! out.append("step:\n  %scaled = mul i64 %acc, %radix\n  %added = add i64 %scaled, %digit\n  %next = add i64 %index, 1\n  %done = icmp eq i64 %next, %len\n  br i1 %done, label %success, label %loop\n")
+    try! out.append("success:\n  %tagged = insertvalue \{ i64, i64 \} undef, i64 1, 0\n  %result = insertvalue \{ i64, i64 \} %tagged, i64 %added, 1\n  ret \{ i64, i64 \} %result\nfail:\n  ret \{ i64, i64 \} \{ i64 0, i64 0 \}\n\}\n\n")
+}

@@ -112,6 +112,11 @@ bare return. Statement match arms require blocks; value arms may be expressions
 or blocks. Forced errors print `runtime error: try! failed`; cause formatting
 and catch blocks remain unsupported. See [M11_RESULTS.md](M11_RESULTS.md).
 
+`String.to_uint()` and `String.to_uint(radix:)` return `UInt?`, accepting whole
+byte strings in bases 2 through 36 and an optional leading plus. Invalid input
+and overflow return None. Full unsigned 64-bit values are preserved; see
+[M12_UNSIGNED_PARSE.md](M12_UNSIGNED_PARSE.md).
+
 The VM defaults to a shared budget of 1,000,000 instructions and a maximum call
 depth of 128. Override the budget with `run FILE --budget N`. These limits apply
 only to VM execution; native code uses the host call stack and has no budget.
@@ -124,20 +129,36 @@ python prototypes/minivm/test_minivm.py --binary .build/minivm/minivm
 
 The harness compares VM execution and clang-compiled IR with explicit expected
 outputs and statuses, checks rejected programs, and exercises VM limits. It
-uses temporary files and 30-second subprocess timeouts. The first eleven milestones
-cover 336 cases, including native execution at both `-O0` and `-O2`.
+uses temporary files and 30-second execution timeouts. The first twelve milestones
+cover 346 cases, including native execution at both `-O0` and `-O2`.
 
 Independent representation checks live in `tests/numeric_contract.saw`,
 `tests/record_contract.saw`, `tests/enum_contract.saw`,
 `tests/reference_contract.saw`, `tests/receiver_contract.saw`,
 `tests/string_contract.saw`, `tests/owning_record_contract.saw`,
-`tests/optional_contract.saw`, and `tests/result_contract.saw`; build and run them
+`tests/optional_contract.saw`, `tests/result_contract.saw`, and
+`tests/uint_parse_contract.saw`; build and run them
 with the Python compiler.
 Use `--section numbers`, `--section records`, `--section control`, or
 `--section enums`, `--section values`, `--section references`, or
 `--section receivers`, `--section strings`, `--section owning_records` or
-`--section optionals` or `--section results` for an isolated
+`--section optionals`, `--section results`, or `--section unsigned_parse` for an isolated
 integration gate.
+
+To run the initial SL-260 shared-subset differential as well:
+
+```sh
+python prototypes/minivm/test_minivm.py --binary .build/minivm/minivm \
+  --section unsigned_parse --sawc sawc/sawc.py
+```
+
+Use a Python environment containing sawc's dependencies, or pass
+`--sawc-python /path/to/python`. Compiler invocations have a separate 180-second
+timeout. The initial lane covers nine agreement cases and one explicitly
+checked known divergence: String receiver snapshot evaluation permits an
+overlapping borrow that Saw rejects. SL-260 tracks this existing M8/M12 gap;
+the diagnostic-checked ledger lives in `test_minivm.py`. This is initial coverage,
+not a claim of parity across the entire accepted subset.
 
 See [DESIGN.md](DESIGN.md) and [M1_NUMBERS.md](M1_NUMBERS.md) for the instruction
 schema and semantics. [LEXER_DEPENDENCIES.md](LEXER_DEPENDENCIES.md) tracks the
