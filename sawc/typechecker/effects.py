@@ -131,7 +131,7 @@ class SuspendSource:
 # closure-taking call raises and which must NOT, on its own, wrap `main` in an
 # entry executor or pull a body into the coroutine transform's driven closure.
 REAL_SUSPEND_LABELS = ("yield_now", "sleep", "__saw_io_park", "io_wait",
-                       "__saw_chan_park")
+                       "io_wait_until", "__saw_chan_park")
 
 
 _BLOCKING_SOURCE_PREFIX = "blocking extern"

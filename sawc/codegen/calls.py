@@ -562,16 +562,26 @@ class CallsMixin:
         # park policy stays in one place and out of synthesized IR.
         if expr.name == "__saw_chan_park":
             word = self._generate_expression(expr.arguments[0].value)
-            self.builder.call(self.functions["__saw_exec_park"], [word])
+            # design 272: no frame here, so no deadline to honour — the park's
+            # second argument is the "unbounded" 0.
+            self.builder.call(self.functions["__saw_exec_park"],
+                              [word, ir.Constant(self.int_type, 0)])
             return None
         # design 76 (A4): `io_wait(fd, dir)` reached OUTSIDE a coroutine frame (the
         # transform rewrites it to register+park inside a driven/spawned body).
         # With no executor to hand back to, register the fd and block the thread in
         # the reactor until it is ready — correct blocking semantics for a
         # non-cooperative caller.
-        if expr.name == "io_wait":
+        if expr.name in ("io_wait", "io_wait_until"):
             fd = self._generate_expression(expr.arguments[0].value)
             direction = self._generate_expression(expr.arguments[1].value)
+            # design 272 unit 1: the timed spelling reached outside a frame. The
+            # arm is identical; the park is BOUNDED by the deadline instead of
+            # blocking until the fd is ready, so a sync caller that asked for a
+            # timeout gets one rather than the unbounded wait `io_wait` means.
+            deadline = (self._generate_expression(expr.arguments[2].value)
+                        if expr.name == "io_wait_until"
+                        else ir.Constant(self.int_type, 0))
             # design 118 stage 2: route the blocking-thread fallback (io_wait reached
             # OUTSIDE a coroutine frame, no executor to hand back to) through the SAME
             # Saw executor entry points the coroutine transform's io_wait lowering uses
@@ -583,7 +593,7 @@ class CallsMixin:
             self.builder.call(self.functions["__saw_exec_io_register"],
                               [fd, direction, ir.Constant(self.int_type, 0)])
             self.builder.call(self.functions["__saw_exec_park"],
-                              [ir.Constant(self.int_type, -1)])
+                              [ir.Constant(self.int_type, -1), deadline])
             return None
         # DF-134a: `io_unwait(fd, dir)` drops the readiness interest `io_wait`
         # armed. It never parks, so unlike `io_wait` there is no in-frame vs

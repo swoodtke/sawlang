@@ -1,0 +1,62 @@
+// Conformance row K97 — a deadline-bounded park leaves NO reactor registration
+// behind on ANY exit: ready, timeout, or frame release
+//
+// Design 272 unit 1 (SL-204), and the rule it inherits is DF-134a's: a park loop
+// that leaves a one-shot registration armed leaves the reactor holding a token
+// that points INTO the frame, and design 134 frees the frame box at task
+// completion — so the next readiness event writes a word into freed memory. A
+// timed park added a THIRD way out of the loop (the deadline), which is a third
+// place that bug can be reintroduced; the `io_unwait` on the timeout path and
+// the unconditional clear in the synthesized `release` are what this row pins.
+//
+// WHAT IT ASSERTS, and why it is shaped this way: a stranded registration is not
+// directly observable from Saw, so the row asserts the consequence that IS —
+// the fd is reused. Each iteration times out on its own socketpair and then
+// DROPS it, closing the fd, and the next iteration's socketpair is handed the
+// same descriptor numbers back by the kernel. If the timeout exit had left the
+// previous frame's one-shot armed on that number with a token into a freed
+// frame, the arm the NEXT iteration makes would collide with it and the loop
+// would hang, crash, or wake early. Ten rounds, so a single lucky round proves
+// nothing, and every round asserts its own timeout.
+//
+// The `deinits` oracle is the frame-release half: each task's held sentinel drops
+// exactly once, so the release that clears the deadline ran exactly once per
+// task and nothing was torn down twice.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// 10 rounds timed out
+// deinits=10
+
+import std.net.{TcpStream, Timed}
+
+static DEINITS: Atomic<Int> = Atomic(0)
+static TIMEOUTS: Atomic<Int> = Atomic(0)
+
+struct Res { id: Int }
+extension Res: NoCopy { func deinit(&var self) { DEINITS.fetch_add(1) } }
+
+func one_round(s: TcpStream, id: Int) {
+    let _held = Res(id: id)
+    match s.read(timeout: Duration.ms(20)) {
+        case Ok(o) -> match o {
+            case Value(_) -> print("ROUND {} READ", id),
+            case TimedOut -> { let _ = TIMEOUTS.fetch_add(1) }
+        },
+        case Err(e) -> print("ROUND {} ERR {}", id, e)
+    }
+    // `s` deinits here: the fd closes, and the NEXT round is handed it back.
+}
+
+func main() {
+    var i = 0
+    while i < 10 {
+        let (a, b) = TcpStream.pair()
+        var group = TaskGroup()
+        let t = group.spawn(one_round(move a, i))
+        t.join()
+        let _ = move b
+        i = i + 1
+    }
+    print("{} rounds timed out", TIMEOUTS.load())
+    print("deinits={}", DEINITS.load())
+}

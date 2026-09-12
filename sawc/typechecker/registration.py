@@ -49,7 +49,7 @@ def _ref_self_type() -> SawType:
 # is deliberately a wrapper whose body calls the intercepted intrinsic.
 BUILTIN_CALL_NAMES = frozenset({
     "print", "panic", "assert", "sleep", "spawn", "cancelled", "yield_now",
-    "io_wait", "io_unwait", "sizeof", "alignof",
+    "io_wait", "io_wait_until", "io_unwait", "sizeof", "alignof",
     # compiler-internal intrinsics (also intercepted, also unreachable if
     # redeclared)
     "__saw_test_suspend", "__saw_suspend", "__saw_io_park", "__saw_chan_park",

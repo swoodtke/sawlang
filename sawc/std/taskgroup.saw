@@ -261,11 +261,99 @@ static MT_POLL_CAP_NANOS: Int = 50000000
 //           channel import, no channel-layout knowledge and no per-channel
 //           bookkeeping — and a send wakes exactly the receivers parked on THAT
 //           channel, since no other frame's wake word names that address.
+//
+// design 272 unit 1 adds the FIFTH state, and it is a PAIR rather than a fifth
+// number — see `__park_deadline_remaining` below for why, and for the funnel
+// every reader of it goes through.
 static WAKE_IO: Int = -1
 
 func __park_is_io(wake: Int) sync -> Bool { wake == WAKE_IO }
 
 func __park_is_flag(wake: Int) sync -> Bool { wake < WAKE_IO }
+
+// =============================================================================
+// THE PARK-DEADLINE FUNNEL (design 272 unit 1, SL-204)
+// =============================================================================
+// An io park can now carry a DEADLINE: `io_wait_until(fd, dir, at)` arms the
+// reactor exactly as `io_wait` does and additionally stamps the frame's
+// `__io_deadline` field, which `Resumable.io_deadline()` reads. The state is
+// the PAIR, not a fifth number in the wake word:
+//
+//     __wake == -1  &&  io_deadline() == 0   the io park (design 76, unchanged)
+//     __wake == -1  &&  io_deadline() >  0   the DEADLINE-BOUNDED io park
+//
+// The deadline is an ABSOLUTE monotonic nanosecond instant, never a countdown,
+// and that is load-bearing rather than stylistic: the `remaining` bookkeeping
+// beside it is RELATIVE and is decremented by whichever thread just polled, so
+// two MT workers polling one group would charge a countdown twice and time a
+// frame out early. `now >= deadline` is idempotent — every reader on every
+// thread computes the same answer from the same clock — so the MT path needs no
+// accounting at all.
+//
+// THESE TWO FUNCTIONS ARE THE ONLY PLACE THE DEADLINE HALF OF THE VOCABULARY IS
+// INTERPRETED. Their entry points, all in this file:
+//
+//   1. `__saw_exec_run_inner` phase 2   — the ambient sweep's poll-bound scan
+//   2. `__saw_exec_wake_io`             — the ambient sweep's post-poll promote
+//   3. `__saw_exec_worker`, io branch   — the MT worker's bound AND promote
+//   4. `__saw_exec_park_io`             — the single-frame drive's io park
+//
+// A fifth reader would be added by calling these, never by re-spelling
+// `now >= deadline` at a new site.
+
+// What is LEFT of a deadline, as the relative nanosecond span the poll-bound
+// arithmetic upstream already speaks. `-1` means "this frame has no deadline",
+// which is the same "no bound" value a group with no sleeper contributes, so a
+// deadline drops into the existing earliest-deadline fold with no new cases. A
+// deadline already past answers 0 rather than a negative span: the frame is
+// runnable NOW, and a negative would read as "block indefinitely" one layer up.
+func __park_deadline_remaining(deadline: Int, now: Int) sync -> Int {
+    if deadline <= 0 {
+        return -1
+    }
+    if now >= deadline {
+        return 0
+    }
+    deadline - now
+}
+
+// Has this frame's deadline arrived? A frame with no deadline never expires.
+func __park_deadline_expired(deadline: Int, now: Int) sync -> Bool {
+    deadline > 0 && now >= deadline
+}
+
+// WHY an io-parked frame becomes runnable — all three reasons, in one place.
+// The ambient sweep and the MT worker both promote io parks, and before design
+// 272 they each spelled the same two-reason test; a third reason spelled twice
+// is how the two drift. Now they ask this.
+//
+//   * the reactor LATCHED the frame's wake word (design 91 precise wakeup) —
+//     the event it registered for has fired;
+//   * a peer CANCELLED it (design 102 item 2) — it resumes, re-checks
+//     `cancelled()` at its park-loop top and bails;
+//   * its own DEADLINE arrived (design 272) — it resumes, re-issues its
+//     syscall, and reports the timeout itself.
+//
+// All three mean the same thing to the scheduler ("make this slot runnable")
+// and different things to the frame, which is exactly why the frame decides
+// which happened and this does not try to tell it.
+func __park_io_runnable(wake: Int, cancelled: Bool, deadline: Int, now: Int) sync -> Bool {
+    wake >= 0 || cancelled || __park_deadline_expired(deadline, now)
+}
+
+// Fold one frame's deadline into a scan's running earliest-deadline value.
+// `best` and the result are both "-1 = no bound", so this is what every entry
+// point above calls instead of open-coding the comparison.
+func __park_deadline_fold(best: Int, deadline: Int, now: Int) sync -> Int {
+    let rem = __park_deadline_remaining(deadline, now)
+    if rem < 0 {
+        return best
+    }
+    if best < 0 || rem < best {
+        return rem
+    }
+    best
+}
 
 // Read the readiness word a `__park_is_flag` wake reason names. Unsynchronized
 // by design, exactly as the design-91 `__wake` latch already is: the word is
@@ -402,14 +490,41 @@ func __saw_exec_poll_ms(ns: Int) -> Int {
 // test-only `__saw_drive`: there is no sibling to cede to, no TaskGroup to reach
 // a `cancel()` through, and no `remaining` bookkeeping to re-park against if a
 // poll came back early. A pokeable park would have nothing to be poked by.
-func __saw_exec_park(wake: Int) {
+//
+// design 272 unit 1 gave it a SECOND argument: the frame's `__io_deadline`, or
+// 0 when the frame has no deadline field at all. The entry executor reads the
+// field directly (it holds the concrete frame, not an erased one), and the two
+// codegen fallbacks that reach this function from outside any frame pass what
+// they have — 0 for a channel park and for an untimed `io_wait`, the deadline
+// for `io_wait_until`.
+func __saw_exec_park(wake: Int, deadline: Int) {
     if wake > 0 {
         __saw_exec_sleep_ns(wake)
     } else if __park_is_io(wake) {
-        let _ = __saw_host_reactor().poll(-1)
+        __saw_exec_park_io(deadline)
     } else if __park_is_flag(wake) {
         __saw_exec_park_flag(wake)
     }
+}
+
+// ENTRY POINT 4 of the design-272 park-deadline funnel: the single-frame
+// drive's io park. Without a deadline this is the pre-272 `poll(-1)` verbatim —
+// block until the fd the frame registered is ready, since a single-frame drive
+// has nothing else to honour. With one, the poll is BOUNDED by what is left of
+// it, so the drive loop comes back round and resumes the frame, which re-issues
+// its syscall and decides for itself whether that was readiness or a timeout.
+//
+// An already-expired deadline polls with a zero timeout rather than skipping the
+// poll: a reactor event that arrived in the same instant is still worth
+// latching, and a zero-timeout poll cannot block.
+func __saw_exec_park_io(deadline: Int) {
+    if deadline <= 0 {
+        let _ = __saw_host_reactor().poll(-1)
+        return
+    }
+    let now = __saw_rt_clock_monotonic_nanos() as Int
+    let _ = __saw_host_reactor().poll(
+        __saw_exec_poll_ms(__park_deadline_remaining(deadline, now)))
 }
 
 // design 230: the single-frame drive's park on a READINESS WORD. Reached from a
@@ -1328,6 +1443,9 @@ func __saw_exec_worker(addr: Int) unsafe {
             var anyio = false
             var anyflag = false
             var minrem = -1
+            // ENTRY POINT 3 of the design-272 park-deadline funnel. One clock
+            // read per scan, as in the ambient sweep, and for the same reason.
+            let now = __saw_rt_clock_monotonic_nanos() as Int
             var i = 0
             while i < n {
                 let st = __saw_exec_slot_state(g, i)
@@ -1341,7 +1459,24 @@ func __saw_exec_worker(addr: Int) unsafe {
                                 idx = i
                             }
                         } else if __park_is_io(st.remaining) {
-                            anyio = true          // design 76: io-parked
+                            // design 272: an io park whose deadline has ALREADY
+                            // arrived is promoted right here, the way the
+                            // readiness-word arm below promotes — the scan holds
+                            // the lock and the slot, and a promoted frame is just
+                            // the next `idx`. One that is still in date folds its
+                            // remaining span into the poll bound instead.
+                            let dl = g[0].tasks.with_var_ref<Int>(i, { f in
+                                f!.io_deadline()
+                            })
+                            if __park_deadline_expired(dl, now) {
+                                g[0].remaining.set(i, 0)
+                                if idx < 0 {
+                                    idx = i
+                                }
+                            } else {
+                                anyio = true      // design 76: io-parked
+                                minrem = __park_deadline_fold(minrem, dl, now)
+                            }
                         } else if __park_is_flag(st.remaining) {
                             // design 230: parked on a readiness word. PROMOTE it
                             // here rather than in a second pass — the scan is
@@ -1458,6 +1593,9 @@ func __saw_exec_worker(addr: Int) unsafe {
                         let _ = pthread_mutex_unlock(lk)
                         let events = __saw_host_reactor().poll(__saw_exec_poll_ms(tmo))
                         pthread_mutex_lock(lk)
+                        // design 272: read the clock AFTER the poll — the poll is
+                        // where a deadline's time actually goes by.
+                        let post = __saw_rt_clock_monotonic_nanos() as Int
                         let kn = g[0].tasks.len()
                         var k = 0
                         while k < kn {
@@ -1466,10 +1604,11 @@ func __saw_exec_worker(addr: Int) unsafe {
                                 if __park_is_io(st.remaining) {
                                     // design 102 item 2: wake a reactor-latched OR a
                                     // peer-cancelled io-parked frame (it re-checks
-                                    // cancelled() and bails); non-cancelled parked
-                                    // siblings stay parked.
+                                    // cancelled() and bails) — or, since design 272,
+                                    // one whose own deadline arrived; non-cancelled,
+                                    // not-yet-due parked siblings stay parked.
                                     let wk = g[0].tasks.with_var_ref<Bool>(k, { f in
-                                        f!.wake_reason() >= 0 || f!.is_cancelled()
+                                        __park_io_runnable(f!.wake_reason(), f!.is_cancelled(), f!.io_deadline(), post)
                                     })
                                     if wk {
                                         g[0].remaining.set(k, 0)
@@ -2002,7 +2141,13 @@ func __saw_exec_should_stop(term_group: Int, term_slot: Int, term_gen: Int) unsa
 // >= 0 — a frame still parked (word == -1) stays parked (no thundering herd, and
 // no reliance on every op re-verifying). If the poll TIMED OUT (events == 0),
 // advance sleepers by the elapsed deadline. Skips frames active on the C stack.
-func __saw_exec_wake_io(events: Int, deadline: Int) unsafe {
+//
+// ENTRY POINT 2 of the design-272 park-deadline funnel: an io-parked frame whose
+// own deadline has arrived joins the two reasons that already make one runnable.
+// `now` is read ONCE by the caller and passed in, so every frame in one sweep is
+// judged against one instant — a clock read per slot could time one frame out
+// and not its identical twin.
+func __saw_exec_wake_io(events: Int, deadline: Int, now: Int) unsafe {
     var cur = __saw_exec_head.load()
     while cur != 0 {
         let g = cur as UnsafePointer<TaskGroup>
@@ -2016,10 +2161,12 @@ func __saw_exec_wake_io(events: Int, deadline: Int) unsafe {
                 if __park_is_io(r) {
                     // Wake an io-parked frame the reactor latched (wake word >= 0)
                     // OR one a peer cancelled (design 102 item 2) — it re-checks
-                    // cancelled() at its park-loop top and bails. Non-cancelled,
-                    // still-parked siblings stay parked (no herd wake).
+                    // cancelled() at its park-loop top and bails — OR one whose
+                    // own deadline has arrived (design 272; it re-issues its
+                    // syscall and reports the timeout itself). Non-cancelled,
+                    // still-parked, not-yet-due siblings stay parked (no herd wake).
                     let woke = g[0].tasks.with_var_ref<Bool>(i, { f in
-                        f!.wake_reason() >= 0 || f!.is_cancelled()
+                        __park_io_runnable(f!.wake_reason(), f!.is_cancelled(), f!.io_deadline(), now)
                     })
                     if woke {
                         g[0].remaining.set(i, 0)
@@ -2388,6 +2535,12 @@ func __saw_exec_run_inner(term_group: Int, term_slot: Int, term_gen: Int) unsafe
         var io = false
         var flag = false
         var anylive = false
+        // ENTRY POINT 1 of the design-272 park-deadline funnel. ONE clock read
+        // for the whole scan, so every frame is judged against one instant, and
+        // an io park's deadline folds into the SAME earliest-deadline variable a
+        // sleeper's does — which is what bounds the poll below with no new
+        // arithmetic anywhere downstream.
+        let now = __saw_rt_clock_monotonic_nanos() as Int
         var cur2 = __saw_exec_head.load()
         while cur2 != 0 {
             let g = cur2 as UnsafePointer<TaskGroup>
@@ -2399,6 +2552,10 @@ func __saw_exec_run_inner(term_group: Int, term_slot: Int, term_gen: Int) unsafe
                     anylive = true
                     if __park_is_io(st.remaining) {
                         io = true
+                        let dl = g[0].tasks.with_var_ref<Int>(i, { f in
+                            f!.io_deadline()
+                        })
+                        deadline = __park_deadline_fold(deadline, dl, now)
                     } else if __park_is_flag(st.remaining) {
                         flag = true
                     } else if st.remaining > 0 {
@@ -2427,14 +2584,18 @@ func __saw_exec_run_inner(term_group: Int, term_slot: Int, term_gen: Int) unsafe
                 // inline poll — see __saw_exec_any_latched_io) or a peer
                 // cancelled it (via cancel_addr, no self-wake) — wake it now
                 // instead of blocking in poll on an event that will never come.
-                __saw_exec_wake_io(1, deadline)
+                __saw_exec_wake_io(1, deadline, now)
             } else {
                 // The advance passed to `__saw_exec_wake_io` is what the poll
                 // actually WAITED, not what the sleepers asked for: a poll cut
                 // short by the flag bound has not earned the whole deadline.
                 let tmo = __saw_exec_flag_bound(deadline, flag)
                 let events = __saw_host_reactor().poll(__saw_exec_poll_ms(tmo))
-                __saw_exec_wake_io(events, tmo)
+                // design 272: the promote is judged against the clock AFTER the
+                // poll, not the pre-poll `now` the bound was computed from — the
+                // poll is exactly where the time a deadline measures goes by.
+                __saw_exec_wake_io(events, tmo,
+                                   __saw_rt_clock_monotonic_nanos() as Int)
             }
         } else if flag && deadline < 0 {
             // Nothing but readiness-word parks. Nothing on this thread can

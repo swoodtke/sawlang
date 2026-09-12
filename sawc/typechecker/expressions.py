@@ -4513,6 +4513,30 @@ class ExpressionsMixin:
                             expr.line, expr.column)
             self._effect_direct_source("io_wait", expr.line)
             return SawType(TypeKind.VOID)
+        if expr.name == "io_wait_until":
+            # design 272 unit 1 (SL-204): `io_wait` with a DEADLINE. Registers
+            # `fd` exactly as `io_wait` does and parks until it is ready OR until
+            # the absolute monotonic instant `at` (nanoseconds) arrives —
+            # whichever comes first. The park loop that called it decides which
+            # happened by re-issuing its syscall and reading the clock; the
+            # executor only makes the frame runnable. A real suspension source,
+            # like `io_wait`. Three Int args; returns Void.
+            if len(expr.arguments) != 3:
+                self._error(
+                    ErrorKind.WRONG_ARGUMENT_COUNT,
+                    f"`io_wait_until` takes exactly three positional Int arguments "
+                    f"(fd, write, deadline_nanos), but {len(expr.arguments)} were given",
+                    expr.line, expr.column)
+            else:
+                for a in expr.arguments:
+                    at = self._check_expression(a.value)
+                    if at is not None and self._get_underlying_type(at).kind != TypeKind.INT:
+                        self._error(
+                            ErrorKind.TYPE_MISMATCH,
+                            f"`io_wait_until` expects Int arguments, got `{at}`",
+                            expr.line, expr.column)
+            self._effect_direct_source("io_wait_until", expr.line)
+            return SawType(TypeKind.VOID)
         if expr.name == "io_unwait":
             # DF-134a: the inverse of `io_wait` — drop the readiness interest
             # `io_wait(fd, write)` armed. NOT a suspension source: it neither

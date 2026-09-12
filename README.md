@@ -699,7 +699,10 @@ The standard library lives in `sawc/std/` and includes:
   rest of the concurrency surface — `Channel`, `Mutex`, `Once` — needs an
   import: `std.channel`, `std.mutex`, `std.once`.
 - **std.data** — `Data`, copy-on-write byte buffer.
-- **std.net** — `TcpListener` / `TcpStream`, owning and cooperative.
+- **std.net** — `TcpListener` / `TcpStream`, owning and cooperative. `accept`,
+  `read`, `read_into` and `connect` each take an optional `timeout: Duration`
+  and answer `Timed<T>`, so a server can drop an idle connection instead of
+  waiting for a peer that never speaks.
 - **The filesystem** — `File` (std.file), `Directory` (std.directory), `Path`
   (std.path) and `Env` (std.env), one module each; every fallible operation
   returns a `Result`.

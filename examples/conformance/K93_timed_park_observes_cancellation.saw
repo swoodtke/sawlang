@@ -1,0 +1,64 @@
+// Conformance row K93 — a DEADLINE-BOUNDED io park still observes cancellation,
+// and takes the CANCEL path rather than the timeout path
+//
+// Design 272 unit 1 (SL-204). Design 102 item 2 made a cancel wake an io-parked
+// task; design 272 gives that park a second way to end. The guarantee is that
+// adding one did not cost the other, and — the part a weaker test would miss —
+// that the two are told APART: a task cancelled while parked must report the
+// cancellation, not "timed out", or a shutdown would be indistinguishable from
+// an idle connection and a server would log the wrong thing about every
+// connection it closed on the way down.
+//
+// The deadline here is 30 SECONDS, far longer than the cancel takes to arrive,
+// so if the reported outcome were ever `TimedOut` it could only be because the
+// cancel path was lost. And the test cannot pass by hanging: the runner's
+// timeout is the backstop, and a lost cancel wake is exactly the hang design 102
+// fixed.
+//
+// Deinit oracle alongside, as in `net_cancel_parked_read.saw`: the reader's held
+// sentinel drops EXACTLY once, so the cancel exit out of a TIMED park is as
+// clean as the one out of an untimed park.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// reader-cancelled
+// deinits=1
+
+import std.net.{TcpStream, Timed}
+
+static DEINITS: Atomic<Int> = Atomic(0)
+
+struct Res { id: Int }
+extension Res: NoCopy { func deinit(&var self) { DEINITS.fetch_add(1) } }
+
+func reader(s: TcpStream) {
+    let _held = Res(id: 1)
+    // A 30-second deadline on a socket whose peer never writes. The ONLY thing
+    // that can end this park in a passing run is the cancel.
+    match s.read(timeout: Duration.secs(30)) {
+        case Ok(o) -> match o {
+            case Value(_) -> print("reader-read"),
+            case TimedOut -> print("READER-TIMED-OUT")
+        },
+        case Err(_) -> print("reader-cancelled")
+    }
+}
+
+func canceller(addr: Int) unsafe {
+    let p = addr as UnsafePointer<Bool>
+    p[0] = true
+}
+
+func run() {
+    let (a, b) = TcpStream.pair()
+    var group = TaskGroup()
+    let hr = group.spawn(reader(move a))
+    let addr = hr.cancel_addr()
+    let _ = group.spawn(canceller(addr))
+    hr.join()
+    let _ = move b
+}
+
+func main() {
+    run()
+    print("deinits={}", DEINITS.load())
+}

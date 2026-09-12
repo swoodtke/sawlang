@@ -1,0 +1,70 @@
+// Conformance row K96 — a timed park and an UNTIMED park in one program each
+// get their own wakeup: neither starves the other, and neither steals the other's
+//
+// Design 272 unit 1 (SL-204). The deadline folds into the SAME earliest-deadline
+// variable a sleeper's span folds into, and that variable is what bounds the one
+// reactor poll every parked frame in the process shares. Two things could go
+// wrong at that junction and only a mixed program can catch either:
+//
+//   * the timed frame's short deadline shortens the poll, which returns before
+//     the untimed frame's fd is ready — the untimed frame must simply re-park,
+//     not be reported as anything, and certainly not lose its registration. A
+//     bounded poll that dropped interest on re-entry would hang the untimed
+//     read forever;
+//   * the untimed frame's "block indefinitely" must NOT win the fold and erase
+//     the timed frame's bound, which is the bug the fold exists to prevent —
+//     `-1` means "no bound from me", never "no bound for anybody".
+//
+// The program is deterministic by construction: `idle` is parked on a peer that
+// is never written, so it can only end at its deadline; `patient` is parked on a
+// peer that IS written, but only after `idle` has already timed out, so the
+// ordering in the expected output is forced by the program rather than by
+// timing. `patient` has NO deadline at all, so if the poll bound leaked into it
+// the second line would never print and the runner's timeout would catch it.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// idle timed out
+// patient got 4 bytes
+
+import std.net.{TcpStream, Timed}
+import std.channel.{Channel}
+
+func idle(s: TcpStream, done: Channel<Int>) {
+    match s.read(timeout: Duration.ms(40)) {
+        case Ok(o) -> match o {
+            case Value(d) -> print("IDLE READ {} BYTES", d.len()),
+            case TimedOut -> print("idle timed out")
+        },
+        case Err(e) -> print("IDLE ERR {}", e)
+    }
+    try! done.send(1)
+}
+
+// No deadline: this park is unbounded and must survive every short poll the
+// timed sibling's deadline causes.
+func patient(s: TcpStream) {
+    match s.read() {
+        case Ok(d) -> print("patient got {} bytes", d.len()),
+        case Err(e) -> print("PATIENT ERR {}", e)
+    }
+}
+
+func main() {
+    let (ia, ib) = TcpStream.pair()   // ib is never written: idle must time out
+    let (pa, pb) = TcpStream.pair()
+    var group = TaskGroup()
+    let done = try! Channel<Int>()
+
+    let t_idle = group.spawn(idle(move ia, done.copy()))
+    let t_patient = group.spawn(patient(move pa))
+
+    // Wait for the timeout to have happened, THEN feed the patient reader — so
+    // the output order is a fact of the program, not a race.
+    let _ = try! done.receive()
+    try! pb.write("abcd")
+
+    t_idle.join()
+    t_patient.join()
+    let _ = move ib
+    let _ = move pb
+}

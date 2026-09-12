@@ -33,6 +33,8 @@ is scheduled and in what order is the whole of what they say.
 
 
 
+- Design 272 — server hardening: io deadlines + socket options + signals (designs/272-server-hardening.md; SL-204 + SL-229 + SL-228, one dispatch window at the queue tail per the user's Sep-10 ruling). Three units in landing order; the brief's DECISIONS section carries the open points the rulings left, D3-3 (SIGPIPE) being the one that decides whether the trio composes
+
 - Design 259 — the self-hosted parser (designs/259-selfhost-parser.md; QUEUED Sep 1 by the user, §3 ruling batch fully RULED same day incl. R7′ statement arms). The brief is the source of the next batch: U0 grammar debt + U1 depth funnel are compiler dispatches and serialize with the pipeline (N10's soundness fix goes FIRST after 218/1.5 integrates, by fix-on-discovery — brief §4); U2–U5 are selfhost/-side and may run CONCURRENT with design 258 in a worktree; the Class-2 fix set (incl. DF-287a/b) triages at U0 dispatch
 
 ## [BACKLOG] — filed, not scheduled

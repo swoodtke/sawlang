@@ -1,0 +1,69 @@
+// Conformance row K95 — a deadline-bounded park that becomes READY before its
+// deadline reports the value, and an untimed park is untouched
+//
+// Design 272 unit 1 (SL-204). The other half of K94, and the half a bounded poll
+// gets wrong most easily: bounding the wait must not turn readiness into a
+// timeout, and the deadline must not be consulted before the syscall is retried.
+// The park loop re-issues its read FIRST on every wake and only then looks at
+// the clock, so bytes that arrive in the same instant the deadline does are
+// reported as bytes.
+//
+// The handshake is what makes it deterministic — the reader announces that it is
+// about to park and the writer only then writes, so the park is FORCED rather
+// than raced (the SL-208 io_wake precedent; a test where the bytes might already
+// be buffered proves nothing about parking). The deadline is 30 seconds, so
+// scheduling jitter cannot reach it.
+//
+// The second case is the REGRESSION half: an ordinary untimed `read()` still
+// blocks until data arrives and reports it. Design 272 gave every frame a
+// deadline field and every io park a deadline check; this is the line that says
+// an unbounded park is still unbounded.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// timed read got 5 bytes
+// untimed read got 3 bytes
+
+import std.net.{TcpStream, Timed}
+import std.channel.{Channel}
+
+func timed_reader(s: TcpStream, ready: Channel<Int>) {
+    // Announce BEFORE the read, so the writer cannot write until this task is
+    // on its way into the park.
+    try! ready.send(1)
+    match s.read(timeout: Duration.secs(30)) {
+        case Ok(o) -> match o {
+            case Value(d) -> print("timed read got {} bytes", d.len()),
+            case TimedOut -> print("TIMED OUT ON A LIVE PEER")
+        },
+        case Err(e) -> print("TIMED ERR {}", e)
+    }
+}
+
+func untimed_reader(s: TcpStream, ready: Channel<Int>) {
+    try! ready.send(1)
+    match s.read() {
+        case Ok(d) -> print("untimed read got {} bytes", d.len()),
+        case Err(e) -> print("UNTIMED ERR {}", e)
+    }
+}
+
+func main() {
+    // Each case gets its own pair, so neither can see the other's bytes.
+    let (a, b) = TcpStream.pair()
+    var g1 = TaskGroup()
+    let r1 = try! Channel<Int>()
+    let t1 = g1.spawn(timed_reader(move a, r1.copy()))
+    let _ = try! r1.receive()          // the reader is at its park
+    try! b.write("hello")
+    t1.join()
+    let _ = move b
+
+    let (c, d) = TcpStream.pair()
+    var g2 = TaskGroup()
+    let r2 = try! Channel<Int>()
+    let t2 = g2.spawn(untimed_reader(move c, r2.copy()))
+    let _ = try! r2.receive()
+    try! d.write("abc")
+    t2.join()
+    let _ = move d
+}

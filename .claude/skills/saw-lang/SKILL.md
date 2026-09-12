@@ -2320,6 +2320,37 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   let (a, b) = TcpStream.pair()                // connected pair, tests/IPC (no port)
   let s = try! TcpStream.connect("127.0.0.1", port)  // Result; suspends until connected
   ```
+  **DEADLINES: pass `timeout: Duration` and match on `Timed<T>`.** `accept`,
+  `read`, `read_into` and `connect` each have a twin taking a timeout; the twin
+  returns `Result<Timed<T>, IoError>` where `Timed<T>` is `Value(value: T)` or
+  `TimedOut` (`import std.net.{Timed}`). Without one the untimed method parks
+  until the peer acts, so a connection that never sends anything holds its
+  handler until the peer closes — which is the idle-connection stall servers
+  hit.
+  ```saw-fragment
+  match try! stream.read(timeout: Duration.secs(30)) {
+      case Value(chunk) -> {
+          if chunk.len() == 0 { break }   // the peer closed (EOF is an EMPTY Value)
+          handle(move chunk)
+      },
+      case TimedOut -> break              // idle too long; drop the connection
+  }
+  ```
+  FOUR outcomes stay distinct and that is the whole point of the shape: bytes =
+  non-empty `Value`, clean close = empty `Value`, deadline = `TimedOut`, failure
+  = `Err`. A timeout is deliberately NOT an `IoError` — `IoErrorKind.TimedOut`
+  already means the platform's `ETIMEDOUT`, and a deadline your program set is a
+  different fact from one the network reported. Do not reach for
+  `e.kind() == TimedOut` to detect your own timeout; it will not be there.
+  The deadline is measured FROM THE CALL, not from each wake, so a peer dribbling
+  one byte before every deadline cannot hold the handler open. Readiness wins
+  ties (the op retries its syscall before reading the clock). Late is possible,
+  early is not — the reactor timeout is whole milliseconds, rounded up.
+  Cancellation still beats a timed park and reports cancellation, not a timeout.
+  ONE BOUNDARY on `connect(host:port:timeout:)`: a NAME's lookup is not
+  interrupted by the deadline (the resolver runs on a worker thread and cannot be
+  cancelled), so the timeout is checked once resolution returns and then governs
+  the dial. Pass a dotted quad when the whole span must be bounded.
   **`connect` TAKES AN IPv4 ADDRESS OR A NAME, and RESOLUTION IS OFFLOADED
   (design 184).** A dotted quad — strictly four octets, 1-3 digits each, no
   leading zero, nothing else in the string — is an address already, so it is

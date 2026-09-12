@@ -270,7 +270,7 @@ def _poll(variant):
 # The suspension-boundary intrinsics: `__saw_suspend` (test-only synthetic), and the
 # real primitives `yield_now()` (immediately re-ready) and `sleep(d)` (timed).
 _SUSPEND_CALLS = ("__saw_suspend", "yield_now", "sleep", "__saw_io_park", "io_wait",
-                  "__saw_chan_park")
+                  "io_wait_until", "__saw_chan_park")
 
 # design 76 (A4): the IO-park wake reason. A negative sentinel distinct from the
 # `sleep(d)` (>0) and yield (0) reasons: the executor parks in the reactor
@@ -1997,19 +1997,23 @@ def _cell_ref_type(fb):
 
 
 def _body_arms_io(body):
-    """True if `body` contains a literal `io_wait(fd, dir)` call (DF-134a).
+    """True if `body` contains a literal `io_wait`/`io_wait_until` call (DF-134a).
 
-    That call is the only thing that ARMS a reactor registration, and the
+    Those calls are the only things that ARM a reactor registration, and the
     registration carries a token pointing into the frame — so the frame that
     made it is the frame that must be able to drop it. A frame that only embeds
     a suspending callee arms nothing itself; the callee's frame owns its own.
+
+    This predicate is also what decides whether the frame gets an
+    `__io_deadline` field at all (design 272 unit 1): a frame that arms nothing
+    has no deadline to carry, and its `io_deadline()` is a literal 0.
     """
     found = [False]
 
     def scan(n):
         if found[0]:
             return
-        if isinstance(n, FunctionCall) and n.name == "io_wait":
+        if isinstance(n, FunctionCall) and n.name in ("io_wait", "io_wait_until"):
             found[0] = True
             return
         if isinstance(n, ASTNode):
@@ -4923,6 +4927,19 @@ class _FrameBuilder:
         # so an `io_wait` buried in a sub-frame routes the wakeup to the TOP-LEVEL
         # frame's `__wake` word — the one the scheduler reads. 0 = not yet set.
         fields.append(StructField(name="__io_tok", type=SawType(TypeKind.INT)))
+        # design 272 unit 1 (SL-204): the ABSOLUTE monotonic instant, in
+        # nanoseconds, at which this frame's io park gives up — 0 for the
+        # unbounded park every pre-272 `io_wait` performs. It is a SECOND field
+        # rather than a fifth encoding in `__wake` because a park bounded by both
+        # an fd and a clock is two facts, and one Int cannot hold both;
+        # `Resumable.io_deadline()` is how the executor reads it.
+        #
+        # UNCONDITIONAL, exactly as `__io_tok` above is unconditional and for the
+        # same reason: a frame that arms nothing itself still DRIVES sub-frames
+        # that do, and the scheduler reads only the root. The deadline rides up
+        # the chain beside the wake word at each pending drive, so every frame on
+        # the chain needs somewhere to hold it.
+        fields.append(StructField(name="__io_deadline", type=SawType(TypeKind.INT)))
         if self.arms_io:
             # DF-134a: the LAST (fd, direction) this frame armed, so `release`
             # can drop a registration the body left behind. -1 = nothing armed.
@@ -5674,6 +5691,23 @@ class _FrameBuilder:
             is_synthesized=True,
             line=func.line, column=func.column,
             source_file=getattr(func, 'source_file', ""))
+        # design 272 unit 1 (SL-204): when this frame's io park gives up, as an
+        # ABSOLUTE monotonic nanosecond instant, or 0 for the unbounded park.
+        # A frame that arms no registration has no field to read and answers a
+        # literal 0 — the same shape `bt_desc` uses for a fact that is a
+        # property of the frame TYPE rather than of its storage. That is what
+        # keeps the trait method uniform while the FIELD stays conditional, so
+        # no program pays a word for a deadline it never asks for.
+        io_deadline = Method(
+            name="io_deadline",
+            parameters=[Parameter(name="self", type=SawType(TypeKind.VOID),
+                                  is_reference=True, reference_mutable=False)],
+            return_type=SawType(TypeKind.INT),
+            body=Block(statements=[], final_expr=_self_field("__io_deadline")),
+            self_mutable=False, self_is_reference=True, is_sync=True,
+            is_synthesized=True,
+            line=func.line, column=func.column,
+            source_file=getattr(func, 'source_file', ""))
         # design 158: which entry of the in-binary backtrace table describes THIS
         # frame type. The literal is patched once every frame has been built and
         # the table order is fixed (`_assign_bt_indices`) — until then it reads
@@ -5729,11 +5763,12 @@ class _FrameBuilder:
         _declare_unsafe(resume, True)
         _declare_unsafe(wake_reason, False)
         _declare_unsafe(is_cancelled, self.is_spawn_root)
+        _declare_unsafe(io_deadline, False)
         _declare_unsafe(bt_desc, False)
         _declare_unsafe(release, _frame_fields_name_unsafe(self))
         resume_ext = Extension(struct_name=self.frame_name,
                                methods=[resume, wake_reason, is_cancelled,
-                                        bt_desc, release],
+                                        io_deadline, bt_desc, release],
                                conformances=["Resumable"],
                                line=func.line, column=func.column,
                                source_file=getattr(func, 'source_file', ""))
@@ -6150,9 +6185,18 @@ class _FrameBuilder:
             # design 76 (A4): `io_wait(fd, dir)` is register-then-park sugar. Emit
             # the (non-suspending) reactor registration IN PLACE with `fd`/`dir`
             # rewritten to frame fields, then suspend with the IO-PARK wake reason.
-            if fc.name == "io_wait":
+            if fc.name in ("io_wait", "io_wait_until"):
                 fd_a = self._rewrite_expr(fc.arguments[0].value, forgets)
                 dir_a = self._rewrite_expr(fc.arguments[1].value, forgets)
+                # design 272 unit 1 (SL-204): `io_wait_until(fd, dir, at)` is
+                # `io_wait` plus a DEADLINE — the absolute monotonic instant the
+                # park gives up at. `io_wait` stamps 0 into the same field rather
+                # than leaving it alone, which is the whole of what keeps an
+                # untimed park untimed: the field is per-FRAME, not per-park, so
+                # a body that does one timed read and then an untimed one would
+                # otherwise inherit the first read's deadline into the second.
+                deadline_a = (self._rewrite_expr(fc.arguments[2].value, forgets)
+                              if fc.name == "io_wait_until" else _int(0))
                 self._emit(self._forgets(forgets))
                 # design 91: register with the TOP-LEVEL frame's `__wake`-word address
                 # (`self.__io_tok`) as the reactor token, so a readiness event latches
@@ -6170,6 +6214,8 @@ class _FrameBuilder:
                 self._emit([
                     AssignStatement(target=_self_field("__io_fd"), value=fd_a),
                     AssignStatement(target=_self_field("__io_dir"), value=dir_a),
+                    AssignStatement(target=_self_field("__io_deadline"),
+                                    value=deadline_a),
                 ])
                 self._emit([ExpressionStatement(expression=FunctionCall(
                     name="__saw_exec_io_register",
@@ -7144,10 +7190,21 @@ class _FrameBuilder:
                         value=NoneLiteral()))
             done_body.append(AssignStatement(
                 target=_self_field("__state"), value=_int(after)))
+        # design 272 unit 1: the deadline rides UP with the wake word it belongs
+        # to. The two are ONE park state — `__wake == -1` plus a deadline is the
+        # bounded io park — and the scheduler only ever reads the ROOT frame, so
+        # a deadline stamped by an `io_wait_until` inside a nested suspending
+        # method (which is where every std.net timed op puts it) has to reach the
+        # root the same way its wake reason does. Propagating only the wake word
+        # would leave the root reporting an UNBOUNDED io park and the timeout
+        # would never fire — the failure this line exists to prevent.
         pending_body = [
             AssignStatement(target=_self_field("__wake"),
                             value=MemberAccess(object=_self_field(sub),
                                                member="__wake")),
+            AssignStatement(target=_self_field("__io_deadline"),
+                            value=MemberAccess(object=_self_field(sub),
+                                               member="__io_deadline")),
             ReturnStatement(value=_poll("Pending")),
         ]
         # design 91: hand the sub-frame THIS frame's reactor token (the root's
@@ -8582,6 +8639,16 @@ class _FrameBuilder:
                             Argument(name=None, value=_self_field("__io_dir")),
                         ]))], final_expr=None),
                 else_branch=None)))
+        # design 272 unit 1: clear the deadline beside the registration it
+        # bounded. UNGUARDED, unlike the disarm above — the disarm is guarded
+        # because unregistering a closed fd could hit a reused number, whereas
+        # this writes a word the frame owns and nothing else reads once
+        # `release` has run. Outside the `arms_io` guard because the field is:
+        # a frame that only DROVE a timed callee still carries the deadline it
+        # propagated up, and leaving it set would report a finished frame as
+        # parked-with-a-deadline.
+        seq.append(AssignStatement(target=_self_field("__io_deadline"),
+                                   value=_int(0)))
         for name, enc, t in reversed(self._owned_frame_fields()):
             seq.extend(self._release_shape(name, enc, t))
         return seq
@@ -9165,6 +9232,8 @@ def _build_frame_init(fb: _FrameBuilder, param_values, fbs, recv_value=None,
     field_inits.append(("__state", _int(0)))
     field_inits.append(("__wake", _int(0)))
     field_inits.append(("__io_tok", _int(0)))   # design 91: reactor wake-word address
+    # design 272: no deadline until an `io_wait_until` stamps one.
+    field_inits.append(("__io_deadline", _int(0)))
     if fb.arms_io:
         # DF-134a: nothing armed yet.
         field_inits.append(("__io_fd", _int(-1)))
@@ -9272,10 +9341,18 @@ def _make_entry_executor(fb: _FrameBuilder, fbs):
     # `resume` + one `__saw_exec_park` call. (A monomorphized generic
     # `__saw_exec_run_single(box)` that removes even this loop is the DEFERRED
     # option recorded in ABI.md.)
+    # design 272 unit 1: the park also gets the frame's `__io_deadline`, so a
+    # single-frame drive honours a timed read exactly as the group scheduler
+    # does. This executor holds the CONCRETE frame, so it reads the field
+    # directly rather than through `Resumable.io_deadline()`; a frame that arms
+    # no registration has no such field and passes a literal 0.
+    park_deadline = MemberAccess(object=Identifier(name="__f"),
+                                 member="__io_deadline")
     pending_body = Block(statements=[ExpressionStatement(expression=FunctionCall(
         name="__saw_exec_park",
         arguments=[Argument(name=None, value=MemberAccess(
-            object=Identifier(name="__f"), member="__wake"))]))], final_expr=None)
+            object=Identifier(name="__f"), member="__wake")),
+                   Argument(name=None, value=park_deadline)]))], final_expr=None)
     done_body = Block(statements=[AssignStatement(
         target=Identifier(name="__done"), value=BoolLiteral(value=True))],
         final_expr=None)

@@ -8424,6 +8424,56 @@ The design-76 raw layer (`tcp_*` / `net_*` free functions + `io_wait(fd, dir)`, 
 as the PRIVATE implementation std.net's methods drive — it is not part of the public
 surface.
 
+### Deadlines
+
+`accept`, `read`, `read_into` and `connect` each have a twin taking
+`timeout: Duration`. The twin returns `Result<Timed<T>, IoError>`, where
+`Timed<T>` is `Value(value: T)` or `TimedOut`. Without a timeout the untimed
+method parks until the peer acts, which for a connection that never sends
+anything means until the peer closes.
+
+```saw
+import std.net.{TcpStream, Timed}
+
+// Read a request, dropping the connection if it goes quiet for 30 seconds.
+func serve(stream: TcpStream) -> Int {
+    var total = 0
+    while true {
+        match try! stream.read(timeout: Duration.secs(30)) {
+            case Value(chunk) -> {
+                if chunk.len() == 0 { break }   // the peer closed
+                total = total + chunk.len()
+            },
+            case TimedOut -> { break }          // idle too long
+        }
+    }
+    return total
+}
+```
+
+Four outcomes stay distinct, which is the point of the shape: bytes are a
+non-empty `Value`, a clean close is an empty `Value`, the deadline elapsing is
+`TimedOut`, and a failure is `Err`. A timeout is not an `IoError` — the kind
+`IoErrorKind.TimedOut` already means the platform's own `ETIMEDOUT`, and a
+deadline the program itself set is a different fact from one the network
+reported.
+
+The deadline is measured from the call, not from each wake, so a peer that
+sends one byte just before every deadline cannot hold a handler open forever.
+Readiness wins ties: the operation retries its syscall before consulting the
+clock, so data arriving in the same instant the deadline does is reported as
+data. A deadline can arrive late but never early — the reactor's timeout is a
+whole number of milliseconds and rounds up.
+
+Cancellation still works while a timed operation is parked, and reports
+cancellation rather than a timeout.
+
+One boundary on `connect(host:port:timeout:)`: when `host` is a name rather
+than a dotted IPv4 literal, the deadline does not interrupt the lookup. Name
+resolution runs on a worker thread and the platform resolver cannot be
+cancelled, so the timeout is checked once resolution returns and then governs
+the dial. Pass a literal address when the whole span must be bounded.
+
 ### Explicit IPv4 listener binding
 
 `TcpListener.listen(port)` binds loopback as before.

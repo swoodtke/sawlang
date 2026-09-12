@@ -236,6 +236,17 @@ public trait Resumable {
     /// at its park-loop top.
     func is_cancelled(&self) sync -> Bool
 
+    /// The absolute monotonic instant this frame's io park expires, in
+    /// nanoseconds, or 0 when the park carries no deadline.
+    ///
+    /// An io park and a sleep are different states of the wake word, so a wait
+    /// that is bounded by BOTH a file descriptor and a clock cannot be spelled
+    /// in that one word. It is spelled as a pair instead: the wake word stays
+    /// the io park and this says when to give up on it. A frame that never
+    /// arms a deadline answers 0, and the executor leaves it parked exactly as
+    /// it always did.
+    func io_deadline(&self) sync -> Int
+
     /// This frame type's entry in the in-binary backtrace table, or -1 when
     /// the program carries none.
     ///
