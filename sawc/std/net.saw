@@ -39,6 +39,12 @@ extern "C" {
     // SysError tag on failure (rt/ABI.md) — the errno accessors are gone.
     func __saw_rt_tcp_listen(port: Int) -> Int
     func __saw_rt_tcp_listen_on(addr_be: Int, port: Int) -> Int
+    // design 272 unit 2 (SL-229): bind + listen carrying the options that can
+    // only be set between `socket()` and `bind()`, and the by-tag option setter
+    // for the ones a live connection takes.
+    func __saw_rt_tcp_listen_with(addr_be: Int, port: Int, reuse_address: Int,
+                                  backlog: Int) -> Int
+    func __saw_rt_socket_set_option(fd: Int, option: Int, value: Int) -> Int
     func __saw_rt_tcp_local_port(fd: Int) -> Int
     func __saw_rt_tcp_accept(listen_fd: Int) -> Int
     func __saw_rt_tcp_connect_start(addr_be: Int, port: Int) -> Int
@@ -128,6 +134,17 @@ static NET_ERROR: Int = -1           // the `tcp_*` error sentinel
 // that used to spell it now build their error from `IoErrorKind.Interrupted`
 // directly, through `io_cancelled`, because nothing classified an errno there
 // and the raw code must stay 0.)
+// design 272 unit 2: the default listen backlog — the depth of the kernel's
+// queue of arrived-but-not-yet-accepted connections. Unchanged from the value
+// the runtime hardcoded before it became a parameter, so exposing it changed
+// nothing for a caller who does not name it.
+static DEFAULT_BACKLOG: Int = 16
+
+// design 272 unit 2: the portable socket-option tags (rt/ABI.md). The host maps
+// each to its own `(level, name)` pair; std never names a platform constant.
+static OPT_NO_DELAY: Int = 1
+static OPT_KEEPALIVE: Int = 2
+
 static SYS_WOULD_BLOCK: Int = 1
 static SYS_IN_PROGRESS: Int = 2
 static SYS_NOT_FOUND: Int = 10
@@ -709,27 +726,35 @@ public struct TcpListener {
 }
 
 extension TcpListener {
-    // Bind + listen on 127.0.0.1:port (port 0 = an ephemeral port; read it back
-    // with `local_port`). Returns the owning listener or an IoError.
-    public static func listen(port: Int) -> Result<TcpListener, IoError> {
-        let fd = __saw_rt_tcp_listen(port)
-        if fd < 0 {
-            return io_error("listen", -fd)
-        }
-        return TcpListener(fd: fd)
-    }
-
-    /// Bind an IPv4 address explicitly. Use "0.0.0.0" for all IPv4 interfaces.
-    /// Only dotted IPv4 literals are accepted; listening never performs DNS.
-    /// The one-argument overload keeps its loopback-only default.
-    public static func listen(port: Int, host: String) -> Result<TcpListener, IoError> {
+    /// Binds and listens on `host`:`port`, returning the owning listener.
+    ///
+    /// `port` 0 requests an ephemeral port; read the one the OS chose back with
+    /// `local_port`. `host` takes a dotted IPv4 literal — use "0.0.0.0" for all
+    /// IPv4 interfaces — and listening never performs DNS.
+    ///
+    /// `reuse_address` defaults ON, so restarting a server does not lose to the
+    /// dead process's lingering socket. It does not make a real collision quiet:
+    /// binding an address and port another socket already holds still fails with
+    /// `AddressInUse`. Pass `reuse_address: false` to require a completely
+    /// unused address.
+    ///
+    /// `backlog` is the depth of the kernel's queue of connections that have
+    /// arrived but not yet been accepted.
+    public static func listen(port: Int,
+                              host: String = "127.0.0.1",
+                              reuse_address: Bool = true,
+                              backlog: Int = DEFAULT_BACKLOG) -> Result<TcpListener, IoError> {
         if port < 0 || port > 65535 {
             return IoError.of(syscall: "listen: port must be 0..65535", kind: IoErrorKind.InvalidArgument)
+        }
+        if backlog < 1 {
+            return IoError.of(syscall: "listen: backlog must be at least 1", kind: IoErrorKind.InvalidArgument)
         }
         guard let addr = parse_ipv4_literal(host) else {
             return IoError.of(syscall: "listen: expected an IPv4 address", kind: IoErrorKind.InvalidArgument)
         }
-        let fd = __saw_rt_tcp_listen_on(addr as Int, port)
+        let reuse = if reuse_address { 1 } else { 0 }
+        let fd = __saw_rt_tcp_listen_with(addr as Int, port, reuse, backlog)
         if fd < 0 { return io_error("listen", -fd) }
         return TcpListener(fd: fd)
     }
@@ -991,6 +1016,32 @@ extension TcpStream {
             yield_now()
         }
         return Timed<TcpStream>.Value(value: TcpStream(fd: fd))
+    }
+
+    /// Sets whether small writes are sent immediately rather than coalesced.
+    ///
+    /// On by default, which is what a request/response protocol wants: with
+    /// coalescing on, a small reply can sit in the kernel waiting for more data
+    /// to accompany it while the peer waits for the reply, and the pair resolves
+    /// only when a delayed-acknowledgement timer fires. Turn it off for a
+    /// stream of many small writes where throughput matters more than latency.
+    public func set_no_delay(&self, on: Bool) -> Result<Void, IoError> {
+        let r = __saw_rt_socket_set_option(self.fd, OPT_NO_DELAY, if on { 1 } else { 0 })
+        if r < 0 { return io_error("set_no_delay", -r) }
+        return
+    }
+
+    /// Sets whether the OS probes an idle connection to learn if the peer is
+    /// still there.
+    ///
+    /// Off by default. The probe interval is the system's, not this API's — it
+    /// is measured in hours on most hosts and the tuning knobs for it do not
+    /// mean the same thing across platforms. For a bound an application
+    /// controls, give the read a `timeout` instead.
+    public func set_keepalive(&self, on: Bool) -> Result<Void, IoError> {
+        let r = __saw_rt_socket_set_option(self.fd, OPT_KEEPALIVE, if on { 1 } else { 0 })
+        if r < 0 { return io_error("set_keepalive", -r) }
+        return
     }
 
     // A connected, nonblocking stream pair (AF_UNIX socketpair) — for tests and

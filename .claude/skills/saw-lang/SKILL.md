@@ -2312,6 +2312,10 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   let listener = try! TcpListener.listen(0)    // Result<TcpListener, IoError>
   // Explicit IPv4 binding (no DNS); one-argument listen stays on loopback.
   let public_listener = try! TcpListener.listen(0, host: "0.0.0.0")
+  // Bind-time options are LABELLED PARAMETERS WITH DEFAULTS — no options object.
+  let strict = try! TcpListener.listen(0, reuse_address: false, backlog: 128)
+  try! stream.set_no_delay(false)               // Result; per-connection setters
+  try! stream.set_keepalive(true)
   let port = listener.local_port()
   let stream = try! listener.accept()          // Result<TcpStream, IoError>; suspends
   let chunk = try! stream.read()               // Result<Data, IoError>; Ok(EMPTY) = EOF
@@ -2320,6 +2324,19 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   let (a, b) = TcpStream.pair()                // connected pair, tests/IPC (no port)
   let s = try! TcpStream.connect("127.0.0.1", port)  // Result; suspends until connected
   ```
+  **SOCKET OPTIONS: labelled parameters at `listen`, `Result`-returning setters
+  on a connection.** `reuse_address` DEFAULTS ON (restarting a server just
+  works) and `no_delay` is ON by default on every accepted and dialled
+  connection. Neither makes anything quiet: an exact address+port collision
+  still fails `AddressInUse` with reuse on, and a refused option is an `Err`
+  rather than a silent no-op. Curated, not exhaustive — buffer sizes, `linger`,
+  `reuse_port` and a raw `setsockopt` are deliberately ABSENT (`reuse_port`
+  means different things on Linux and BSD).
+  **A WRITE TO A CLOSED PEER IS `Err(BrokenPipe)`, never a dead process.** The
+  runtime suppresses SIGPIPE per socket (`SO_NOSIGPIPE` / `MSG_NOSIGNAL`), not
+  process-wide — a process-wide ignore is inherited across `execve` and would
+  follow every child into pipelines the program did not write. Pipes keep their
+  ordinary behaviour; only sockets change.
   **DEADLINES: pass `timeout: Duration` and match on `Timed<T>`.** `accept`,
   `read`, `read_into` and `connect` each have a twin taking a timeout; the twin
   returns `Result<Timed<T>, IoError>` where `Timed<T>` is `Value(value: T)` or

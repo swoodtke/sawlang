@@ -1,0 +1,67 @@
+// A write to a socket whose peer has gone is an ERROR, not a dead process
+// (design 272 unit 2, D3-3).
+//
+// By default a write to a closed socket raises SIGPIPE, whose default action
+// TERMINATES the process. A server would then lose to any client that hung up
+// mid-reply — silently, with nothing in the log, because there is no error to
+// report when the process is already gone. That is the opposite of what a
+// language surfacing failures as `Result` promises.
+//
+// The runtime suppresses SIGPIPE PER SOCKET (`SO_NOSIGPIPE` on macOS,
+// `MSG_NOSIGNAL` on the send on Linux), so the write reports `EPIPE`, which
+// std.net classifies as `BrokenPipe`. Deliberately NOT a process-wide
+// `SIG_IGN`: that disposition is inherited across `execve`, so it would follow
+// every child a Saw program spawns into shells and pipelines it did not write.
+//
+// If this ever regresses it does not fail with a wrong line of output — the
+// process dies on a signal and the runner reports THAT, which is exactly the
+// symptom being pinned. Reaching the last line is half the assertion.
+//
+// The peer is closed before the first write, which may still be accepted into a
+// socket buffer whose reader is gone, so `write_once` is called until it is
+// refused: WHICH write earns the EPIPE is a kernel buffering detail, that SOME
+// write does is the guarantee.
+//
+// `write_once` exists because the match must not sit in a loop that suspends
+// ahead of it — that is SL-273, pinned by
+// `examples/errors/match_on_suspending_call_in_a_loop.saw`. Keeping the match in
+// a loop-free helper keeps an unrelated open bug out of a test about sockets.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// write refused: broken pipe
+// still running
+
+import std.net.{TcpStream, IoErrorKind}
+
+// 0 = accepted, 1 = refused with BrokenPipe, 2 = refused with anything else.
+func write_once(s: &TcpStream) -> Int {
+    match s.write("payload") {
+        case Ok(_) -> 0,
+        case Err(e) -> if e.kind() == IoErrorKind.BrokenPipe { 1 } else { 2 }
+    }
+}
+
+func main() {
+    let (a, b) = TcpStream.pair()
+    let _ = move b                      // the peer is gone as of here
+
+    var i = 0
+    var verdict = 0
+    while i < 64 {
+        verdict = write_once(&a)
+        if verdict != 0 {
+            break
+        }
+        i = i + 1
+    }
+
+    if verdict == 1 {
+        print("write refused: broken pipe")
+    } else if verdict == 2 {
+        print("write refused with the WRONG kind")
+    } else {
+        print("WRONG: 64 writes to a closed peer all succeeded")
+    }
+    print("still running")
+    let _ = move a
+}

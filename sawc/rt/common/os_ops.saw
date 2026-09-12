@@ -52,6 +52,18 @@ extern "C" {
     func __saw_rt_set_nonblocking(fd: Int) -> Int
     func __saw_rt_sin_set_family(buf: UnsafePointer<Int8>)
     func __saw_rt_last_syserror() -> Int
+    // design 272 unit 2 (SL-229): the socket-option seams. The portable option
+    // TAG -> this host's (level, name), `-1` for an option this host lacks; the
+    // per-host SIGPIPE suppression; and the flags every socket send passes.
+    // Same shape as `sin_set_family` above — the divergence lives in net_os.saw
+    // and this file stays OS-independent.
+    func __saw_sockopt_level(option: Int) -> Int
+    func __saw_sockopt_name(option: Int) -> Int
+    func __saw_socket_suppress_sigpipe(fd: Int)
+    func __saw_socket_send_flags() -> Int
+    func setsockopt(fd: Int32, level: Int32, name: Int32,
+                    value: UnsafePointer<Int8>, len: Int32) -> Int32
+    func send(fd: Int32, buf: UnsafePointer<Int8>, len: Int, flags: Int32) -> Int
 }
 
 // The portable SysError tag space (ABI.md). A failing op returns the NEGATED tag.
@@ -89,6 +101,11 @@ static AF_INET: Int32 = 2
 static SOCK_STREAM: Int32 = 1
 static PROTO_DEFAULT: Int32 = 0
 static LISTEN_BACKLOG: Int32 = 16
+// Portable socket-option tags (rt/ABI.md). The host says what each one means
+// (host_*/net_os.saw); this file only ever names the portable number.
+static OPT_NO_DELAY: Int = 1
+static OPT_KEEPALIVE: Int = 2
+static OPT_REUSE_ADDRESS: Int = 3
 static SOCKADDR_IN_LEN: Int32 = 16
 static LOOPBACK_BE: UInt32 = 0x0100007f   // 127.0.0.1, network byte order (LE)
 
@@ -152,13 +169,45 @@ func rt_tcp_listen(port: Int) unsafe -> Int {
 }
 
 // Explicit address, network-order IPv4 bits carried in a platform word.
+//
+// design 272 unit 2: a thin forwarder onto the options-carrying op below, with
+// the RULED defaults — `reuse_address` ON, the backlog this file has always
+// used. Kept rather than rewritten so a runtime provider that implements only
+// the v2 seam set still links, and picks up the new default for free.
 @export("__saw_rt_tcp_listen_on")
 func rt_tcp_listen_on(addr_be: Int, port: Int) unsafe -> Int {
+    rt_tcp_listen_with(addr_be, port, 1, LISTEN_BACKLOG as Int)
+}
+
+// design 272 unit 2 (SL-229): bind + listen with the options a listener can only
+// be given BETWEEN `socket()` and `bind()`.
+//
+// `reuse_address` is why this seam exists at all. `SO_REUSEADDR` has to be set on
+// the socket before it is bound, so it cannot be a setter on the returned
+// listener — the window is already closed by then. It defaults ON one layer up
+// (std.net's `listen`), which is the ruled Go-style behaviour: restarting a
+// server does not lose to the dead process's TIME_WAIT socket.
+//
+// What it does NOT do is make a genuine collision quiet. Two sockets bound to
+// the SAME address and port still refuse the second with `EADDRINUSE`, reuse or
+// no reuse; what reuse permits is binding over the remains of a connection that
+// has already closed.
+@export("__saw_rt_tcp_listen_with")
+func rt_tcp_listen_with(addr_be: Int, port: Int, reuse_address: Int,
+                        backlog: Int) unsafe -> Int {
     let fd = socket(AF_INET, SOCK_STREAM, PROTO_DEFAULT)
     if fd < (0 as Int32) {
         return -__saw_rt_last_syserror()
     }
     let _ = __saw_rt_set_nonblocking(fd as Int)
+    __saw_socket_suppress_sigpipe(fd as Int)
+    if reuse_address != 0 {
+        let r = rt_socket_set_option(fd as Int, OPT_REUSE_ADDRESS, 1)
+        if r < 0 {
+            let _ = close(fd)
+            return r
+        }
+    }
     var sa = ipv4_sockaddr(addr_be as UInt32, port)
     let ap = (&sa) as UnsafePointer<Int8>
     if bind(fd, ap, SOCKADDR_IN_LEN) != (0 as Int32) {
@@ -166,12 +215,36 @@ func rt_tcp_listen_on(addr_be: Int, port: Int) unsafe -> Int {
         let _ = close(fd)
         return -e
     }
-    if listen(fd, LISTEN_BACKLOG) != (0 as Int32) {
+    if listen(fd, backlog as Int32) != (0 as Int32) {
         let e = __saw_rt_last_syserror()
         let _ = close(fd)
         return -e
     }
     fd as Int
+}
+
+// design 272 unit 2: set one socket option, by PORTABLE TAG. Returns 0 or -tag.
+//
+// The value is a C `int` in every option this space carries, which is what lets
+// one seam serve them all; an option needing a different value shape would need
+// its own seam rather than a wider `value` here.
+//
+// An option this host does not have is a REFUSAL (`Invalid`), never a silent
+// no-op: a caller that asked for `no_delay` and got nothing, quietly, would
+// debug the wrong thing for a long time.
+@export("__saw_rt_socket_set_option")
+func rt_socket_set_option(fd: Int, option: Int, value: Int) unsafe -> Int {
+    let level = __saw_sockopt_level(option)
+    let name = __saw_sockopt_name(option)
+    if level < 0 || name < 0 {
+        return 0 - (SysError.Invalid as UInt8) as Int
+    }
+    var v: Int32 = value as Int32
+    if setsockopt(fd as Int32, level as Int32, name as Int32,
+                  (&v) as UnsafePointer<Int8>, 4 as Int32) != (0 as Int32) {
+        return 0 - __saw_rt_last_syserror()
+    }
+    0
 }
 
 // The actual local port a (possibly ephemeral) listen fd is bound to.
@@ -196,6 +269,11 @@ func rt_tcp_accept(listen_fd: Int) unsafe -> Int {
     let c = accept(listen_fd as Int32, ap, lp)
     if c >= (0 as Int32) {
         let _ = __saw_rt_set_nonblocking(c as Int)
+        // design 272 unit 2: an ACCEPTED socket does not inherit the listener's
+        // options, so the hardening is re-applied per connection — this is the
+        // fd a server actually writes to, and the one a client can hang up on.
+        __saw_socket_suppress_sigpipe(c as Int)
+        let _ = rt_socket_set_option(c as Int, OPT_NO_DELAY, 1)
         return c as Int
     }
     return 0 - __saw_rt_last_syserror()
@@ -212,6 +290,12 @@ func rt_tcp_connect_start(addr_be: Int, port: Int) unsafe -> Int {
         return -__saw_rt_last_syserror()
     }
     let _ = __saw_rt_set_nonblocking(fd as Int)
+    // design 272 unit 2: same hardening as the accept path, for the same reason
+    // — a dialled socket is written to and can be hung up on just as an accepted
+    // one can. Set BEFORE `connect`, which is the last moment it is certainly
+    // still ours alone.
+    __saw_socket_suppress_sigpipe(fd as Int)
+    let _ = rt_socket_set_option(fd as Int, OPT_NO_DELAY, 1)
     var sa = ipv4_sockaddr(addr_be as UInt32, port)
     let ap = (&sa) as UnsafePointer<Int8>
     let r = connect(fd, ap, SOCKADDR_IN_LEN)
@@ -259,9 +343,16 @@ func rt_tcp_read(fd: Int, buf: UnsafePointer<Int8>, len: Int) unsafe -> Int {
 }
 
 // Nonblocking write: bytes written (may be < len), or -tag.
+//
+// design 272 unit 2 (D3-3): `send` rather than `write`, so Linux can pass
+// `MSG_NOSIGNAL` and a write to a hung-up peer reports `EPIPE` instead of
+// raising SIGPIPE, whose default action would kill the process. macOS passes 0
+// here — it suppressed SIGPIPE on the socket at creation — and `send(fd, buf,
+// len, 0)` is `write(fd, buf, len)` on a socket, so the change costs that host
+// nothing.
 @export("__saw_rt_tcp_write")
 func rt_tcp_write(fd: Int, buf: UnsafePointer<Int8>, len: Int) unsafe -> Int {
-    let n = write(fd as Int32, buf, len)
+    let n = send(fd as Int32, buf, len, __saw_socket_send_flags() as Int32)
     if n >= 0 {
         return n
     }

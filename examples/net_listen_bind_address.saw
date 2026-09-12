@@ -1,10 +1,31 @@
+// Explicit IPv4 listener binding, and the bind-time options (designs 84, 272
+// unit 2).
+//
+// The conflict row CHANGED with design 272 unit 2, and the reason is the point
+// of the row. It used to hold a WILDCARD listener (0.0.0.0:P) and assert that
+// binding 127.0.0.1:P was refused — an OVERLAP, not a duplicate. With
+// `reuse_address` defaulting ON that bind now SUCCEEDS on macOS (probed: the
+// SECOND socket's SO_REUSEADDR is what decides, so the pre-existing wildcard
+// listener does not protect it), which is the behaviour the ruled default was
+// chosen for rather than a regression.
+//
+// So the row now asserts the thing it was always FOR — "this exact address is
+// already taken is still an honest error" — using an EXACT duplicate, which both
+// kernels refuse with reuse on or off. The wildcard/specific overlap is
+// deliberately NOT asserted here: its Linux semantics differ from BSD's and are
+// unverified from this checkout, and a suite row is the wrong place to pin a
+// behaviour nobody has measured on both hosts.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // default true
 // wildcard true
-// conflict refused
+// exact conflict refused
+// exact conflict refused without reuse
+// no-reuse bind true
+// backlog bind true
 // invalid host
 // invalid port
+// invalid backlog
 
 import std.net.{TcpListener}
 func main() {
@@ -12,10 +33,33 @@ func main() {
     print("default {local.local_port() > 0}")
     let all = try! TcpListener.listen(0, host: "0.0.0.0")
     print("wildcard {all.local_port() > 0}")
-    let conflict = TcpListener.listen(all.local_port(), host: "127.0.0.1")
-    match conflict { case Err(_) -> print("conflict refused"), case Ok(_) -> print("wrong conflict") }
+
+    // An EXACT duplicate: the same address AND port the live listener holds.
+    // Refused whatever reuse says — reuse permits binding over a CLOSED
+    // connection's remains, never over a socket that is still listening.
+    let held = try! TcpListener.listen(0, host: "127.0.0.1")
+    let conflict = TcpListener.listen(held.local_port(), host: "127.0.0.1")
+    match conflict {
+        case Err(_) -> print("exact conflict refused"),
+        case Ok(_) -> print("WRONG: exact conflict allowed")
+    }
+    let conflict_no_reuse = TcpListener.listen(held.local_port(), host: "127.0.0.1",
+                                               reuse_address: false)
+    match conflict_no_reuse {
+        case Err(_) -> print("exact conflict refused without reuse"),
+        case Ok(_) -> print("WRONG: exact conflict allowed without reuse")
+    }
+
+    // The opt-out and the backlog parameter both bind an unused address.
+    let no_reuse = try! TcpListener.listen(0, reuse_address: false)
+    print("no-reuse bind {no_reuse.local_port() > 0}")
+    let deep = try! TcpListener.listen(0, backlog: 128)
+    print("backlog bind {deep.local_port() > 0}")
+
     let bad_host = TcpListener.listen(0, host: "localhost")
     match bad_host { case Err(_) -> print("invalid host"), case Ok(_) -> print("wrong host") }
     let bad_port = TcpListener.listen(-1, host: "0.0.0.0")
     match bad_port { case Err(_) -> print("invalid port"), case Ok(_) -> print("wrong port") }
+    let bad_backlog = TcpListener.listen(0, backlog: 0)
+    match bad_backlog { case Err(_) -> print("invalid backlog"), case Ok(_) -> print("wrong backlog") }
 }

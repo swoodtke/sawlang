@@ -26,6 +26,10 @@
 #include <pthread.h>
 #include <fcntl.h>
 #include <unistd.h>
+/* design 272 unit 2: the socket-option and SIGPIPE-suppression macros. */
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 
 /* ---- DF-113a: no extern C global ---------------------------------------
  * `__saw_rt_write`/`_panic` route through C stdio's `stdout` FILE* (spelled
@@ -225,6 +229,70 @@ long __saw_rt_set_nonblocking(long fd) {
     if (flags < 0) return -1;
     fcntl((int)fd, F_SETFL, flags | O_NONBLOCK);
     return 0;
+}
+
+/* ---- design 272 unit 2 (SL-229): socket options ------------------------
+ * The portable option TAG -> this host's (level, name). Here for the same
+ * reason `__saw_open_flags` is here: these are C MACROS whose values differ by
+ * host, and C is the one language that can read them. Writing the numbers into
+ * the Saw runtime would mean hardcoding 0xffff/0x1022 on one host and 1/9 on
+ * the other and hoping every future platform agrees; asking the headers cannot
+ * drift. `-1` means this host has no such option, which
+ * `__saw_rt_socket_set_option` turns into a refusal rather than a silent no-op.
+ *
+ * Tags are the table in ABI.md: 1 NoDelay, 2 KeepAlive, 3 ReuseAddress.
+ */
+long __saw_sockopt_level(long option) {
+    switch (option) {
+        case 1: return IPPROTO_TCP;
+        case 2: return SOL_SOCKET;
+        case 3: return SOL_SOCKET;
+        default: return -1;
+    }
+}
+
+long __saw_sockopt_name(long option) {
+    switch (option) {
+        case 1: return TCP_NODELAY;
+        case 2: return SO_KEEPALIVE;
+        case 3: return SO_REUSEADDR;
+        default: return -1;
+    }
+}
+
+/* The two halves of ONE contract (design 272 D3-3): a write to a socket whose
+ * peer has gone reports EPIPE and never raises SIGPIPE, whose default action
+ * would kill the process — so a server cannot be killed by a client that hung
+ * up, and the failure arrives as an ordinary Result the handler can answer.
+ *
+ * macOS has SO_NOSIGPIPE on the socket; Linux has MSG_NOSIGNAL on the send.
+ * Both hosts define both functions so rt/common/os_ops.saw calls one name
+ * unconditionally, and each is a no-op on the host that uses the other half.
+ *
+ * PER SOCKET rather than a process-wide SIG_IGN: an ignored disposition is
+ * inherited across execve and rt/common/proc.saw does not reset dispositions
+ * before execvp, so a process-wide ignore would reach every child a Saw program
+ * spawns. Pipes keep their behaviour; only sockets change.
+ *
+ * The setsockopt return is ignored deliberately: this is hardening the runtime
+ * applies to every socket it creates, not something a caller asked for, and a
+ * kernel that refused it still hands back a working socket.
+ */
+void __saw_socket_suppress_sigpipe(long fd) {
+#ifdef SO_NOSIGPIPE
+    int one = 1;
+    (void)setsockopt((int)fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof(one));
+#else
+    (void)fd;
+#endif
+}
+
+long __saw_socket_send_flags(void) {
+#ifdef MSG_NOSIGNAL
+    return MSG_NOSIGNAL;
+#else
+    return 0;
+#endif
 }
 
 /* ---- DF-113b: the blocking-extern offload thread thunk ------------------

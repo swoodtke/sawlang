@@ -45,6 +45,15 @@ RUNTIME_ABI_SYMBOLS = frozenset({
     # Status-carrying network ops (design 117)
     "__saw_rt_tcp_listen",
     "__saw_rt_tcp_listen_on",
+    # design 272 unit 2 (SL-229) — ADDITIVE. `listen_with` carries the options a
+    # listening socket can only be given between `socket()` and `bind()`, so
+    # they cannot be setters on the listener the older seams return;
+    # `socket_set_option` sets the ones a live connection takes, by PORTABLE TAG
+    # (the host maps each to its own level/name, as it already does for errno).
+    # Neither older listen seam is removed or re-signed: `listen_on` now
+    # forwards here with the ruled defaults.
+    "__saw_rt_tcp_listen_with",
+    "__saw_rt_socket_set_option",
     "__saw_rt_tcp_local_port",
     "__saw_rt_tcp_accept",
     "__saw_rt_tcp_connect_start",

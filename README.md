@@ -702,7 +702,10 @@ The standard library lives in `sawc/std/` and includes:
 - **std.net** — `TcpListener` / `TcpStream`, owning and cooperative. `accept`,
   `read`, `read_into` and `connect` each take an optional `timeout: Duration`
   and answer `Timed<T>`, so a server can drop an idle connection instead of
-  waiting for a peer that never speaks.
+  waiting for a peer that never speaks. Socket options are labelled parameters
+  with defaults rather than an options object; `reuse_address` and `no_delay`
+  are on by default, and a write to a peer that has hung up returns a
+  `BrokenPipe` error instead of ending the process.
 - **The filesystem** — `File` (std.file), `Directory` (std.directory), `Path`
   (std.path) and `Env` (std.env), one module each; every fallible operation
   returns a `Result`.

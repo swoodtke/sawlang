@@ -1,0 +1,45 @@
+// XFAIL: SL-273 — a match arm PAYLOAD BINDING is lost when a SUSPENSION
+// precedes the match inside a loop. The compiler exits with `internal compiler
+// error ... Undefined variable: e` instead of compiling this program.
+//
+// The scrutinee here is an ordinary NON-suspending call, deliberately: the
+// first filing blamed the scrutinee and was wrong. The trigger is the pair
+// (a suspension earlier in the loop body, a match arm payload binding after
+// it). Three facts pin the shape, and all three are on the issue: the same
+// match with the suspension AFTER it compiles; the same match outside a loop
+// compiles; and an `if let` payload binding in exactly this position compiles.
+// That last one is the useful discriminator — optional bindings survive the
+// resume-state split and match arm bindings do not.
+//
+// This program is CORRECT Saw. Intended behaviour is the EXPECT block: the
+// loop suspends on a write, `attempt` refuses once `i` passes 1, the arm binds
+// the error and prints it, and the loop breaks. When the bug is fixed this
+// XPASSes and the marker comes off.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// err nope
+
+import std.net.{TcpStream}
+
+func attempt(n: Int) -> Result<Int, String> {
+    if n > 1 { return "nope" }
+    return n
+}
+
+func main() {
+    let (a, b) = TcpStream.pair()
+    let _ = move b
+    var i = 0
+    while i < 4 {
+        let _ = a.write("x")        // the suspension, NOT the scrutinee
+        match attempt(i) {
+            case Ok(_) -> {},
+            case Err(e) -> {
+                print("err {}", e)
+                break
+            }
+        }
+        i = i + 1
+    }
+    let _ = move a
+}

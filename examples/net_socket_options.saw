@@ -1,0 +1,50 @@
+// Socket options on a live connection (design 272 unit 2, SL-229).
+//
+// Both setters return `Result` and both are exercised in both directions, which
+// is the whole contract: an option that could not be set SAYS so rather than
+// doing nothing quietly. The values are not read back — there is no getter in
+// the curated surface and adding one to test the setter would be testing the
+// test — so what this pins is that the portable tag reaches a real `setsockopt`
+// on this host and is accepted. A tag the host did not know would come back
+// `Err(InvalidArgument)` from the runtime's own refusal, which is the failure
+// this would catch.
+//
+// `no_delay` is ON by default on every accepted and dialled connection (the
+// ruled default), so the `false` call here is the one that changes anything.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// no_delay off ok
+// no_delay on ok
+// keepalive on ok
+// keepalive off ok
+// wrote 5 bytes worth
+
+import std.net.{TcpListener, TcpStream}
+
+func main() {
+    let listener = try! TcpListener.listen(0)
+    let client = try! TcpStream.connect("127.0.0.1", listener.local_port())
+    let server = try! listener.accept()
+
+    match client.set_no_delay(false) {
+        case Ok(_) -> print("no_delay off ok"),
+        case Err(e) -> print("no_delay off FAILED {}", e)
+    }
+    match client.set_no_delay(true) {
+        case Ok(_) -> print("no_delay on ok"),
+        case Err(e) -> print("no_delay on FAILED {}", e)
+    }
+    match client.set_keepalive(true) {
+        case Ok(_) -> print("keepalive on ok"),
+        case Err(e) -> print("keepalive on FAILED {}", e)
+    }
+    match client.set_keepalive(false) {
+        case Ok(_) -> print("keepalive off ok"),
+        case Err(e) -> print("keepalive off FAILED {}", e)
+    }
+
+    // The connection still works after all that.
+    try! client.write("hello")
+    let got = try! server.read()
+    print("wrote {} bytes worth", got.len())
+}

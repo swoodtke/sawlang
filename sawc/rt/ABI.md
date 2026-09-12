@@ -284,6 +284,38 @@ Stamp the OS-divergent prefix of a `struct sockaddr_in` at `buf` — the ONLY pa
 whose layout differs by OS. macOS: `{ u8 sin_len=16; u8 sin_family=AF_INET }`;
 Linux: `{ u16 sin_family=AF_INET }` (LE). `AF_INET==2` on both.
 
+### Runtime-INTERNAL socket helpers (design 272 unit 2)
+Not `__saw_rt_*` and not part of the frozen seam set — these are how
+`rt/common/os_ops.saw` stays OS-independent, the same arrangement
+`__saw_epoll_event_size` already uses. A runtime provider supplies them for its
+own host and nothing outside `rt/` may call them.
+
+They live in `shim.c`, for the reason `__saw_open_flags` does: every value here
+is a C MACRO whose number differs by host, and C is the only language in the
+build that can read it. Writing them into the Saw runtime would mean hardcoding
+`SOL_SOCKET` as `0xffff` on one host and `1` on the other and hoping every
+future platform agreed; asking the headers cannot drift.
+
+`__saw_sockopt_level(option) -> word` / `__saw_sockopt_name(option) -> word`
+map a portable option tag to this host's `(level, name)`, or `-1` for an option
+this host lacks.
+
+`__saw_socket_suppress_sigpipe(fd) -> void` and
+`__saw_socket_send_flags() -> word` are the two halves of ONE contract: **a
+write to a socket whose peer has gone reports `EPIPE`; it never raises
+SIGPIPE.** macOS sets `SO_NOSIGPIPE` on the socket and sends with flags `0`;
+Linux has no such option and sends with `MSG_NOSIGNAL`. Every socket the
+runtime creates — listener, accepted connection, dialled connection — gets the
+suppression, and `__saw_rt_tcp_write` passes the flags.
+
+This is deliberately PER SOCKET rather than the process-wide `SIG_IGN` most
+runtimes install at startup. An ignored disposition is inherited across
+`execve`, and `rt/common/proc.saw` does not reset dispositions before `execvp`,
+so a process-wide ignore would be handed to every child a Saw program spawns,
+including shells and pipelines it did not write. Pipes keep their behaviour;
+only sockets change. The user-visible consequence is that a write to a hung-up
+client is an ordinary `Err(IoError)` with kind `BrokenPipe`.
+
 ## Status-carrying network ops (design 117)
 
 Each does its syscall(s) and returns `>= 0` on success/count or `-tag` on failure.
@@ -301,6 +333,39 @@ address (network-order bits in a platform word). Address zero binds all IPv4
 interfaces. The original listen seam delegates here with loopback, preserving
 existing callers. `TcpListener.listen(port, host: "0.0.0.0")` exposes the explicit
 address path; the host must be a dotted IPv4 literal and the port 0..65535.
+
+### `__saw_rt_tcp_listen_with(addr_be: word, port: word, reuse_address: word, backlog: word) -> word`
+**ADDITIVE (design 272 unit 2, SL-229).** The same nonblocking listener and
+error contract, carrying the options a listening socket can only be given
+BETWEEN `socket()` and `bind()` — which is why they cannot be setters on the
+listener the two seams above return: by then the window has closed.
+`reuse_address` non-zero sets `SO_REUSEADDR` before the bind; `backlog` is the
+`listen(2)` queue depth. `__saw_rt_tcp_listen_on` now delegates HERE with
+`reuse_address = 1` and backlog 16 (the value it previously hardcoded), and
+`__saw_rt_tcp_listen` delegates to that with loopback — so no existing seam
+changed signature and a runtime implementing only the older pair still links.
+
+Reuse does not make a genuine collision quiet: two sockets bound to the same
+address AND port still refuse the second with `AddrInUse`. What it permits is
+binding over the remains of a connection that has already closed.
+
+### `__saw_rt_socket_set_option(fd: word, option: word, value: word) -> word`
+**ADDITIVE (design 272 unit 2, SL-229).** Sets one socket option by PORTABLE
+TAG → `0` or `-tag`. The option tag space is the table below; the host maps each
+tag to its own `(level, name)` pair, exactly as it maps its errno numbers to the
+`SysError` space, because the platform constants disagree (`SOL_SOCKET` is
+`0xffff` on macOS and `1` on Linux; `SO_REUSEADDR` is `4` and `2`). `value` is a
+C `int`; an option needing a different value shape would take its own seam.
+
+An option this host does not have returns `-Invalid` rather than succeeding
+quietly — a setting that silently did nothing is the silent degradation the
+never-hide-errors rule forbids.
+
+| Tag | Option        | macOS                      | Linux                    |
+|-----|---------------|----------------------------|--------------------------|
+| 1   | NoDelay       | `IPPROTO_TCP`/`TCP_NODELAY` | `IPPROTO_TCP`/`TCP_NODELAY` |
+| 2   | KeepAlive     | `SOL_SOCKET`/`SO_KEEPALIVE` | `SOL_SOCKET`/`SO_KEEPALIVE` |
+| 3   | ReuseAddress  | `SOL_SOCKET`/`SO_REUSEADDR` | `SOL_SOCKET`/`SO_REUSEADDR` |
 
 ### `__saw_rt_tcp_local_port(fd: word) -> word`
 `getsockname` → the bound local port (resolves an ephemeral 0).

@@ -8474,14 +8474,61 @@ resolution runs on a worker thread and the platform resolver cannot be
 cancelled, so the timeout is checked once resolution returns and then governs
 the dial. Pass a literal address when the whole span must be bounded.
 
-### Explicit IPv4 listener binding
+### Listener binding and socket options
 
-`TcpListener.listen(port)` binds loopback as before.
-`TcpListener.listen(port, host: "0.0.0.0")` binds all IPv4 interfaces; another
-dotted IPv4 literal selects that local address. The explicit-host overload
-accepts ports 0..65535 (0 selects an ephemeral port), performs no DNS lookup,
-and reports invalid text/ports as `IoErrorKind.InvalidArgument`. Ownership,
-nonblocking accept, cancellation and socket-close behavior are unchanged.
+`TcpListener.listen` takes its options as labelled parameters with defaults;
+there is no options object.
+
+```saw-fragment
+public static func listen(port: Int,
+                          host: String = "127.0.0.1",
+                          reuse_address: Bool = true,
+                          backlog: Int = 16) -> Result<TcpListener, IoError>
+```
+
+`port` 0 selects an ephemeral port, read back with `local_port`. `host` takes a
+dotted IPv4 literal — "0.0.0.0" for all IPv4 interfaces — and listening performs
+no DNS lookup. Invalid text, a port outside 0..65535, and a backlog below 1 are
+each `IoErrorKind.InvalidArgument`.
+
+`reuse_address` defaults ON, so restarting a server does not lose to the dead
+process's lingering socket. It does not make a real collision quiet: binding an
+address and port another socket is still listening on fails with
+`AddressInUse` whether reuse is on or off. What reuse permits is binding over
+the remains of a connection that has already closed. Pass
+`reuse_address: false` to require a completely unused address.
+
+Two options apply to a connection rather than a listener, and both return
+`Result` because a refused option must not look like a set one:
+
+```saw-fragment
+public func set_no_delay(&self, on: Bool) -> Result<Void, IoError>
+public func set_keepalive(&self, on: Bool) -> Result<Void, IoError>
+```
+
+`no_delay` is ON by default on every accepted and dialled connection. With
+coalescing on instead, a small reply can sit in the kernel waiting for more data
+to accompany it while the peer waits for the reply, and the pair resolves only
+when a delayed-acknowledgement timer fires. Turn it off for a stream of many
+small writes where throughput matters more than latency. `keepalive` is off by
+default; its probe interval belongs to the system, and for a bound the
+application controls, give the read a `timeout` instead.
+
+The curated set stops there. Receive and send buffer sizes, `linger`,
+`reuse_port` and a raw `setsockopt` escape hatch are all deliberately absent —
+`reuse_port` because the name means different things on Linux and BSD, and the
+rest because nothing has needed them.
+
+### Writes to a closed peer
+
+A write to a socket whose peer has gone reports `IoErrorKind.BrokenPipe`. It
+never raises `SIGPIPE`, whose default action would end the process.
+
+The suppression is per socket — `SO_NOSIGPIPE` on macOS, `MSG_NOSIGNAL` on the
+send on Linux — rather than a process-wide change to the signal's disposition.
+A process-wide change would be inherited by every child the program spawns,
+including shells and pipelines it did not write, so pipes keep their ordinary
+behaviour and only sockets are affected.
 
 
 **The host argument of `connect` is an IPv4 address or a name.** A dotted quad
