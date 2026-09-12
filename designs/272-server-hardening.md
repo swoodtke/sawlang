@@ -332,39 +332,191 @@ server.cancel()              // design 102 wakes the io-parked accept loop
 
 ### The mechanism
 
-Both hosts deliver NATIVELY — no `sigaction` callback, no self-pipe, no
-async-signal-safe handler to audit:
+**The brief sketched natives and the implementation did not use them.** Recorded
+here as a departure with its reason, because the sketch is what a reader of this
+document would otherwise expect. The sketch was: macOS `EVFILT_SIGNAL`, Linux
+`signalfd`, behind two new frozen reactor seams
+(`__saw_rt_reactor_register_signal` / `_unregister_signal`) and a signal tag
+table in `rt/ABI.md`. The SL-228 issue explicitly asked this be checked rather
+than assumed ("whether any `__saw_rt_*` seam addition is needed or the reactor
+side suffices"), and the check came back against the sketch.
 
-* **macOS** — `EVFILT_SIGNAL`, `ident = signo`, `udata = token`, armed
-  `EV_ADD|EV_CLEAR`. The signal's default action must first be disabled
-  (`sigaction` to `SIG_IGN`), because `EVFILT_SIGNAL` observes delivery and does
-  not suppress it.
-* **Linux** — `signalfd`, registered with the reactor as an ordinary read fd,
-  with the signal blocked via `pthread_sigmask` in EVERY thread. "Every thread"
-  includes threads spawned after the watch begins, so `__saw_rt_thread_spawn`
-  and the offload thunk inherit the mask — a `shim.c` change (a new thread
-  inherits its creator's mask, so masking at `watch` time plus masking in the
-  spawn path covers both orders).
+WHAT SHIPPED: the runtime installs a small handler that writes one byte to a
+pipe, and the watch registers that pipe's READ END with the reactor. A parked
+watcher is then an ORDINARY io park and inherits design 76/91/102 wholesale.
+Three reasons it won:
 
-Both are hidden behind ONE portable seam pair, so the host divergence lives
-where design 117 put every other one:
+* **Zero frozen-seam change.** A pipe read end is an ordinary readable
+  descriptor, so `__saw_rt_reactor_register(r, fd, write, token)` already
+  carries it. Both natives need a signal-shaped registration that seam cannot
+  express, so the sketch meant new frozen seams on a contract deliberately hard
+  to change.
+* **One mechanism on both hosts.** `EVFILT_SIGNAL` observes delivery and needs
+  the disposition set to `SIG_IGN`; `signalfd` consumes a BLOCKED signal and
+  needs a mask. That is two implementations wearing one seam, divergent in
+  exactly the corners signals are hard in.
+* **No thread-ordering hazard**, which decided it. `signalfd` requires the
+  signal blocked in EVERY thread, and a thread that already existed when the
+  watch began cannot be made to block it — a process-directed signal delivered
+  there takes the DEFAULT action and kills the process. Masking at
+  `__saw_rt_thread_spawn` covers threads created after the watch; nothing covers
+  the ones before it. A handler runs on whichever thread takes the signal and
+  has no such requirement.
 
-* **New seam** `__saw_rt_reactor_register_signal(r, signo, token) -> word`
-  (0 or `-tag`; registration is fallible, which is why `watch` returns
-  `Result`).
-* **New seam** `__saw_rt_reactor_unregister_signal(r, signo) -> void`.
-* `signo` is a PORTABLE TAG, not a host signal number — the `SysError` /
-  socket-option pattern again, and necessary because the numbers diverge
-  (`SIGUSR1` is 30 on macOS, 10 on Linux).
-* **`rt/ABI.md` CHANGES** — reactor section grows two entries plus a signal tag
-  table. **FLAGGED**; `abidoc` gates it and the edit travels in the same commit.
+The handler is runtime-internal and invisible from Saw. The ruling that forbids
+callbacks is about the surface a program writes against, and no program written
+against this one ever names a handler.
 
-`next()` is an ordinary io park (`io_wait` on the Linux signalfd; on macOS the
-`EVFILT_SIGNAL` knote latches the same `__wake` token), so it inherits
-cancellation, the budget reset, and — for free — unit 1's `next(timeout:)` if we
-want one later. A lone parked watcher keeps `anyio` true, so the
-design-230 quiescent walk never reports a deadlock on "a server waiting for
-SIGTERM", which is exactly right: a signal can still arrive.
+`next()` is an ordinary io park, so it inherits cancellation, the budget reset,
+and — for free — unit 1's `next(timeout:)` if we want one later. A lone parked
+watcher keeps `anyio` true, so the design-230 quiescent walk never reports a
+deadlock on "a server waiting for SIGTERM", which is exactly right: a signal can
+still arrive.
+
+### The concurrency protocol (revision 2, after the SL-228 r1 review)
+
+Review reproduced two P1 races in the first version of the shim. Both are real,
+both were reproduced again here before being fixed, and the protocol below is
+what replaced the original code. The reasoning lives in `rt/shim.c` beside the
+code; this is the design record.
+
+**P1a — the watch transaction was not serialized.** Lazy init, the
+already-watched check, descriptor publication and `sigaction` installation were
+four steps with nothing holding them together, so two threads could both pass
+the check and both return a successful watch for one signal: the single-owner
+contract broken, one pipe unreachable, and a saved "previous" disposition that
+could be Saw's OWN handler — after which dropping either handle restores the
+wrong thing. `volatile sig_atomic_t` makes individual loads and stores well
+defined; it does not make a transaction atomic, which is the confusion the first
+version rested on.
+
+FIX: one `pthread_mutex_t` around the whole transaction, on the watch/unwatch
+side only. The HANDLER never takes it and must never take any lock — it can
+interrupt a thread already inside the mutex (a thread calling `watch` can itself
+be signalled), and a handler blocking on a mutex its own thread holds deadlocks
+immediately.
+
+**P1b — teardown raced an in-flight handler.** Restoring a disposition stops
+FUTURE handler entries and says nothing about a handler already running on
+another thread that has loaded the write descriptor and not yet written. The
+original `unwatch` closed the pipe under it, so the descriptor number was free
+for reuse and the delayed handler wrote its byte into whatever inherited it.
+A mutex cannot fix this: the handler is not inside the mutex and cannot be.
+
+FIX — **nothing a handler can reach is ever reclaimed.** The pipe for a signal
+is created at its FIRST watch and lives for the whole process; `unwatch`
+restores the disposition and drains, and closes NOTHING. The descriptor the
+handler loads is valid forever, so there is no window because there is no
+reclamation. Cost: two descriptors per signal ever watched, at most fourteen for
+a process that watches the whole ruled set, zero for one that watches none.
+
+This is the review's option (a). Option (b) — a generation or refcount the
+handler validates before writing — was rejected on its own terms: a handler that
+checks validity and then writes has a window between the two, which is the same
+time-of-check-to-time-of-use shape in a smaller font. The only way to make (b)
+sound is deferred reclamation, and deferred reclamation with no safe point to
+defer to is (a).
+
+**The generation TAG, which is (b)'s useful half used the other way round.**
+Not-reclaiming makes the late write SAFE; it does not make it ACCURATE. A byte
+from a previous watch sits in a pipe the next watch reads, and mistaking it for
+a fresh delivery would return from `next()` in a shutdown path and cancel a
+server nobody signalled. So each watch bumps a generation, the handler STAMPS
+its byte with the generation it saw, and the DRAIN keeps only bytes matching the
+current one. Note which side validates: the handler merely stamps, because a
+validating handler is back in the TOCTOU race; the reader validates, and the
+reader has no race.
+
+### The tag protocol, revision 4 (after the SL-228 r3 review)
+
+The mutex and the process-lifetime pipes were accepted at r3. The generation tag
+as first written was not, and the two failures the review reproduced are worth
+recording because they are a matched pair — each survives the other's fix.
+
+**r3 failure one — a torn snapshot.** The handler read `watched`, the descriptor
+and the generation as three separate loads. Pause it after it observes
+`watched == 1`, unwatch and rewatch ONCE on another thread, resume: it reads the
+NEW generation and labels its OLD delivery current. Measured `stale deliveries
+accepted=1` after a single rewatch. A wider tag does nothing about this.
+
+**r3 failure two — a recurring tag.** The tag was seven bits, so 128
+unwatch/rewatch cycles while a handler sits paused before its write bring it
+back to equal. Correct snapshot ordering does nothing about this.
+
+**The protocol that covers both: ONE WORD, LOADED ONCE.**
+`__saw_sig_state[signo]` packs the generation in bits 63..1 and the watched flag
+in bit 0. The handler takes a single atomic acquire load and derives both. There
+is no interleaving that can hand it a `watched` from one watch and a generation
+from another, because there is only one read — failure one closed by
+construction rather than by an ordering rule somebody has to keep.
+
+The generation is 63 bits, monotonic, and never reset: `unwatch` clears bit 0
+and leaves the counter. **The bound, stated rather than waved at:** recurrence
+needs 2^63 ≈ 9.2e18 watch/unwatch cycles to COMPLETE while one handler stays
+paused between its snapshot and its write. At one cycle per nanosecond — far
+faster than the two `sigaction` calls a cycle actually costs — that is over 290
+years of uninterrupted rewatching. The tag cannot recur in any execution this
+process can have.
+
+The handler writes the full 63-bit tag as an eight-byte record. POSIX guarantees
+a pipe write of at most `PIPE_BUF` (512 minimum, 4096 on both hosted targets) is
+atomic, so records never interleave and the pipe holds a whole number of them;
+the drain reads into a buffer that is a multiple of the record size, so it never
+splits one.
+
+The write DESCRIPTOR is still read separately, which looks like a second load
+and is sound for a reason worth writing down: it is published exactly once per
+signal, under the mutex, before the first handler for that signal can exist, and
+never changed or closed. A load of a value that is immutable for the process's
+life cannot disagree with anything, and the release/acquire pair orders its
+publication ahead of any `watched` a handler can observe.
+
+### The pins, revision 4
+
+The r3 review also found the r2 pin claimed more than it did — its descriptor
+cell pauses no handler, and its stale cell lets the write complete before
+teardown, so it covers the settled case rather than the in-flight one. Both
+comments now say exactly what their cell does, and the pins are split by what
+they need:
+
+* `tools/signal_race_probe.c` links `sawc/rt/shim.c` **exactly as shipped**.
+  Everything provable without touching the runtime is proved there.
+* `tools/signal_inflight_probe.c` links a **generated** copy —
+  `tools/signal_hook_shim.py` substitutes one marker comment in the real source
+  for a hook call and changes nothing else, and refuses to emit if the marker
+  has moved, so a pin can never end up testing a stale transcription. Pausing a
+  handler mid-body is not possible from outside the code that runs it, which is
+  the whole reason a generated build is worth its cost here and nowhere else.
+
+Its two cells are the r3 reviewer's, and both were confirmed to FAIL against the
+r3 shim (`stale deliveries accepted=1` after one rewatch, and again after 256)
+and pass against this one. **256 is not "a lot"** — it is a multiple of both 128
+and 256, so it recurs against a seven-bit tag and against an eight-bit one; a
+round number like 300 would have discriminated against neither. A control cell
+asserts a genuine current delivery IS still reported, so the two cannot pass by
+rejecting everything.
+
+### Obligation 4 — the rest of the shim, swept
+
+A race found in one transaction is presumed to be a class. Every other
+transaction in `rt/shim.c` was examined for the same shape (unsynchronized
+check-then-act, or reclamation under a concurrent reader):
+
+| Transaction | Verdict | Why |
+|---|---|---|
+| offload thunk vs `__saw_rt_offload_take` | **CLEAR** | The same shape — the thunk publishes `done` with a release store and only THEN writes the pipe, and the Saw drive loop exits on `done`, so `take` can run while the thunk is mid-write. It is safe because `take` calls `__saw_rt_thread_join` FIRST, and the join does not return until the worker has exited, strictly after the write. This is the contrast that explains the signal fix: the offload path has a JOINABLE worker, so it can wait for its in-flight writer. A signal handler has no handle to join, which is why the signal path had to make reclamation impossible instead of waiting |
+| `__saw_environ_get` / `__saw_environ_set` | **CLEAR** | They look like a get/modify/restore transaction over a process global, which would be exactly the shape. They are not: the GET runs in the parent as a read (the merge, `rt/common/proc.saw:184`) and the SET runs in the CHILD after `fork`, in a private address space with one thread (`proc.saw:279`). Nothing is shared, so there is no transaction to serialize |
+| `__saw_rt_thread_detach` | **CLEAR** | Already uses an atomic exchange for precisely this hazard — exactly one of the two parties frees the control block, with no lock and no wait. It is the model the rest should follow |
+| `__saw_rt_lock_acquire` / `_release` | **CLEAR** | A futex lock built on real atomics; a lock implementation, not an unsynchronized transaction |
+| `__saw_rt_set_nonblocking` | **CLEAR** | `F_GETFL` then `F_SETFL` IS a check-then-act on one descriptor's flags, but every caller applies it to a descriptor it has just created and not yet shared, so there is no second party |
+| `__saw_open_flags`, `__saw_ai_*`, `__saw_gai_tag`, `__saw_sockopt_*`, `__saw_socket_send_flags`, `__saw_epoll_*` | **CLEAR** | Pure functions of their arguments; no state at all |
+| `__saw_rt_write` / `__saw_rt_panic` | **CLEAR** | `fwrite`/`fflush` on one `FILE*`; POSIX requires stdio operations to be atomic with respect to each other |
+
+One thing the sweep turned up that is a DIFFERENT class and is filed rather than
+fixed here: `__saw_rt_thread_spawn` discards `pthread_create`'s return value and
+returns an uninitialized `pthread_t` on failure, which every consumer then joins
+as though it were a live thread (**SL-276**). Not a synchronization bug — a
+discarded status — but it was found here and is recorded rather than dropped.
 
 ---
 

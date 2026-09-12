@@ -6,10 +6,10 @@ either a file in this directory or an existing `examples/` test that already
 asserts the same rule at the same position — this table is the record of which,
 and the dedup decisions are meant to be audited from it.
 
-**516 rows: 269 carry a file here, 247 are covered elsewhere** (recounted Sep 12
-when design 272 unit 1 added K93-K97; a multi-file row is still counted by its
-FIRST file, which is why K94's two files add one. Previously, and on the same
-basis: **511 rows: 264 carry a file here, 247 are covered elsewhere**, recounted Aug 25
+**519 rows: 272 carry a file here, 247 are covered elsewhere** (recounted Sep 12
+when design 272 added K93-K97 in unit 1 and K98-K100 in unit 3; a multi-file row
+is still counted by its FIRST file, which is why K94's two files add one.
+Previously, and on the same basis: **511 rows: 264 carry a file here, 247 are covered elsewhere**, recounted Aug 25
 from the table itself — this header has now gone stale twice, so treat the
 table as the record and this line as a cache; a multi-file row is counted by
 its FIRST file). (The audit's 247 plus
@@ -80,7 +80,11 @@ live across them, so the sweep, an MT group and the single-frame drive are three
 files, not one), readiness still beating the deadline, timed and untimed parks
 sharing one poll without either starving the other, and DF-134a's
 no-stranded-registration rule re-asserted at the third loop exit a deadline
-adds.)
+adds; and K98-K100, design 272 unit 3's signal rows — a signal waking a parked
+watcher (and thereby NOT ending the process), a watch scoped to its handle and
+owned by exactly one, and the whole graceful-shutdown pattern: cancellation
+wakes the io-parked worker, its values deinit once, and no registry or atexit
+hook exists anywhere.)
 
 ## How to read it
 
@@ -626,6 +630,9 @@ Claim source: spec 6 *Send and Sync* + *Cooperative tasks*; designs 75, 88, 103,
 | K95 | a deadline-bounded park that becomes READY before its deadline reports the VALUE, and an untimed park is untouched | `K95_ready_before_deadline_reports_the_value.saw` | design 272 unit 1 — the half a bounded poll gets wrong most easily: bounding a wait must not turn readiness into a timeout. The park loop re-issues its syscall FIRST on every wake and consults the clock only after, so bytes arriving in the same instant as the deadline are reported as bytes. A READY handshake forces the park (the SL-208 io_wake precedent — a test whose bytes might already be buffered proves nothing about parking). The second case is the regression half: design 272 gave EVERY frame a deadline field and every io park a deadline check, and this is the line that says an unbounded park is still unbounded |
 | K96 | a timed park and an UNTIMED park in one program each get their own wakeup: neither starves the other, and neither steals the other's | `K96_timed_and_untimed_parks_coexist.saw` | design 272 unit 1. Both fold into the SAME earliest-deadline variable that bounds the one reactor poll every parked frame shares, and only a MIXED program catches either failure at that junction: a short deadline shortening the poll must leave the untimed frame re-parking rather than losing its registration, and an untimed frame's `block indefinitely` must NOT win the fold and erase the timed frame's bound (`-1` means `no bound from me`, never `no bound for anybody`). The output order is forced by the program — the patient reader is fed only after the idle one has reported its timeout — so nothing here rests on timing |
 | K97 | a deadline-bounded park leaves NO reactor registration behind on ANY exit — ready, timeout, or frame release | `K97_timed_park_leaves_no_registration_behind.saw` | design 272 unit 1, inheriting DF-134a's rule: a stranded one-shot registration leaves the reactor holding a token INTO the frame, and design 134 frees the frame box at completion, so the next readiness event writes into freed memory. A timed park added a THIRD way out of the park loop, hence a third place to reintroduce it. A stranded registration is not observable from Saw, so the row asserts the consequence that is: each round times out, drops its socketpair, and the kernel hands the same descriptor numbers to the next round — a surviving arm on that number would collide. Ten rounds, each asserting its own timeout, plus a deinit oracle for the release path that clears the deadline |
+| K98 | a delivered signal wakes a PARKED watcher, and a watched signal's default action does not run | `K98_signal_wakes_a_parked_watcher.saw` | design 272 unit 3 (SL-228). Two guarantees in one program because they are two halves of one fact: watching replaces the disposition, so the signal that would have ENDED the process instead makes a parked task runnable. A regression prints no wrong line — the process dies on the signal and the runner reports THAT, which is the clearest failure available. The park is FORCED, not raced: the watcher announces on a channel that it is entering `next()` and the signal is sent only after that announcement is read, so delivery provably reaches an already-parked task (the SL-208 io_wake precedent). `Signal.send_to_self()` is the oracle — deterministic, needs nothing outside the process, and works in a sandbox where an external signaller would not |
+| K99 | a watch is SCOPED to its handle and SINGLY owned: the disposition is restored when the handle dies, and a second live watch of the same signal is refused | `K99_watch_is_scoped_and_singly_owned.saw` | design 272 unit 3, the ruled double-watch policy and the ownership argument under it — one row rather than two because the refusal is what makes the restore meaningful, and a broadcast policy would have left nobody owning it. Three steps in order: a second watch is `AlreadyExists`; the handle is dropped; watching again SUCCEEDS. The third is load-bearing — a watch that never released its claim passes the first two silently and fails only there. A different signal is watched alongside to show the refusal is per-signal, not a global one-at-a-time |
+| K100 | graceful shutdown rides CANCELLATION and deinits: a parked signal watcher is not reported as a deadlock, and a cancelled worker's values are destroyed exactly once | `K100_shutdown_rides_cancellation.saw` | design 272 unit 3 — the ruled no-exit-registry pattern end to end, and the program the unit exists for. Three things that must hold together: a task parked on a signal while every sibling is io-parked is a CORRECT state that looks exactly like a hang, and the design-230 quiescent walk must not report it (a watcher is an ordinary io park, so `anyio` holds); the signal cancels the worker and cancellation WAKES an io-parked task (design 102 — the worker is on a socket whose peer never writes, so only the cancel can end it); and the worker's owned values deinit as it unwinds, exactly once, with no registry and no atexit hook. The group's Deinit is the synchronization point on purpose: `cancel()` IS the handle's fate (design 242) so it cannot also be joined, and the structured join is what the pattern rests on rather than a way around the fate rule |
 
 ## Visibility and module boundaries
 

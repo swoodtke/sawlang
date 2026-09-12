@@ -1,0 +1,162 @@
+// The signal bridge's concurrency pins (design 272 unit 3, SL-228 reviews r1
+// and r3).
+//
+// Four races were reproduced by review against earlier versions of the shim,
+// and none of their shapes can be written from Saw:
+//
+//   * two threads gated INSIDE the watch transaction, so both pass the
+//     already-watched check before either publishes — the single-owner contract
+//     broken, and a saved "previous" disposition that could be Saw's own
+//     handler (r1);
+//   * a teardown that CLOSES the watch pipe while a handler on another thread
+//     is between its descriptor load and its write, so the byte lands in
+//     whatever unrelated resource inherits the descriptor number (r1);
+//   * a handler paused after it observed `watched`, reading the generation only
+//     AFTER a rewatch and so labelling its old delivery current — one rewatch
+//     was enough (r3);
+//   * a seven-bit generation that came back around after 128 rewatch cycles
+//     while a handler sat paused before its write (r3).
+//
+// So the pins are C, in two files that differ in ONE respect:
+//
+//   * `tools/signal_race_probe.c` links `sawc/rt/shim.c` EXACTLY AS SHIPPED.
+//     Everything provable without touching the runtime is proved there.
+//   * `tools/signal_inflight_probe.c` links a GENERATED copy
+//     (`tools/signal_hook_shim.py` substitutes one marker for a hook call and
+//     changes nothing else), because pausing a handler mid-body is not possible
+//     from outside the code that runs it. The generator refuses to emit if the
+//     marker has moved, so a pin can never test a stale transcription.
+//
+// This test builds and runs both, so they gate in the ordinary suite instead of
+// being files somebody has to remember. Both were verified to FAIL against the
+// shim revision each was written for and pass against the current one; the
+// acquisition cell reproduces the r1 reviewer's own measurement, and the
+// in-flight cells reproduce the r3 reviewer's (`stale deliveries accepted=1`).
+//
+// The repo root is found by walking UP from the working directory to the
+// marker `sawc/rt/shim.c`, because nothing promises the suite runs a binary
+// from any particular place and `#file` carries only the basename.
+// EXPECT: success
+// EXPECT-OUTPUT-CONTAINS: signal race probe: all cells hold
+// EXPECT-OUTPUT-CONTAINS: signal in-flight probe: all cells hold
+// EXPECT-OUTPUT-CONTAINS: pins held
+
+import std.process.{Command}
+import std.path.{Path}
+import std.file.{File}
+import std.directory.{Directory}
+import std.env
+
+// How far up to look before giving up. A worktree is never this deep below the
+// place a test binary runs from.
+static MAX_DEPTH: Int = 16
+
+// The repo root: the nearest ancestor of the working directory holding
+// `sawc/rt/shim.c`. Walking to a marker rather than trusting the working
+// directory is what makes this work whether the suite runs the binary from the
+// repo root, from `.build`, or from anywhere else.
+func find_root() -> Path? {
+    guard let start = env.Env.cwd() else {
+        return None
+    }
+    var here = start
+    var depth = 0
+    while depth < MAX_DEPTH {
+        let marker = here.join("sawc").join("rt").join("shim.c")
+        if File.exists(marker) {
+            return here
+        }
+        guard let up = here.parent() else {
+            return None
+        }
+        here = up
+        depth = depth + 1
+    }
+    None
+}
+
+// Run a command, printing its captured output on failure. Returns the exit code,
+// or -1 if it could not be launched at all.
+func run_capturing(program: String, args: Vector<String>, label: String) -> Int32 {
+    var c = Command(program: program)
+    c.merge_stderr()          // toolchain diagnostics go to stderr
+    var i = 0
+    while i < args.len() {
+        try! c.arg(args.get(i)!)
+        i = i + 1
+    }
+    let result = match c.output() {
+        case Ok(o) -> move o,
+        case Err(e) -> {
+            print("{} FAILED TO LAUNCH: {}", label, e)
+            return -1
+        }
+    }
+    guard let done = move result else {
+        print("{} PRODUCED NO OUTPUT", label)
+        return -1
+    }
+    if done.exit_code != (0 as Int32) {
+        print("{} FAILED (exit {}):", label, done.exit_code)
+    }
+    print("{}", done.stdout)
+    done.exit_code
+}
+
+func main() {
+    guard let root_path = find_root() else {
+        print("COULD NOT LOCATE THE REPO ROOT from the working directory")
+        return
+    }
+    let root = root_path.as_str()
+    let shim = "{root}/sawc/rt/shim.c"
+    // A FRESH checkout (the server's per-patch worktree) has no `.build/` at
+    // all, and the linker does not create parent directories — the r2 gate
+    // failed exactly there. Create both levels; AlreadyExists is fine.
+    let _ = Directory.create(root_path.join(".build"))
+    let _ = Directory.create(root_path.join(".build").join("scratch"))
+
+    // ---- pin 1: the shim exactly as shipped ------------------------------
+    let out1 = "{root}/.build/scratch/signal_race_probe_suite"
+    var build1 = Vector<String>()
+    try! build1.push("-std=c11")
+    try! build1.push("-pthread")
+    try! build1.push("{root}/tools/signal_race_probe.c")
+    try! build1.push(shim)
+    try! build1.push("-o")
+    try! build1.push(out1)
+    if run_capturing("clang", move build1, "BUILD(race probe)") != (0 as Int32) {
+        return
+    }
+    let rc1 = run_capturing(out1, Vector<String>(), "RUN(race probe)")
+
+    // ---- pin 2: a generated hook copy ------------------------------------
+    // The generator is stdlib-only Python, so the interpreter on PATH serves.
+    let hooked = "{root}/.build/scratch/shim_with_scheduling_hook.c"
+    var gen = Vector<String>()
+    try! gen.push("{root}/tools/signal_hook_shim.py")
+    try! gen.push(shim)
+    try! gen.push(hooked)
+    if run_capturing("python3", move gen, "GENERATE(hook shim)") != (0 as Int32) {
+        return
+    }
+
+    let out2 = "{root}/.build/scratch/signal_inflight_probe_suite"
+    var build2 = Vector<String>()
+    try! build2.push("-std=c11")
+    try! build2.push("-pthread")
+    try! build2.push("{root}/tools/signal_inflight_probe.c")
+    try! build2.push(hooked)
+    try! build2.push("-o")
+    try! build2.push(out2)
+    if run_capturing("clang", move build2, "BUILD(in-flight probe)") != (0 as Int32) {
+        return
+    }
+    let rc2 = run_capturing(out2, Vector<String>(), "RUN(in-flight probe)")
+
+    if rc1 == (0 as Int32) && rc2 == (0 as Int32) {
+        print("pins held")
+    } else {
+        print("PINS FAILED (race={} in-flight={})", rc1, rc2)
+    }
+}

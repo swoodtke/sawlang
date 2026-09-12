@@ -68,7 +68,11 @@ def parse_source(source: str, source_path: str, verbose: bool = False):
 # excluded from the freestanding profile. Core + alloc-layer modules (string,
 # vector, map, data, stringbuilder, path) depend only on the runtime seams and
 # remain available freestanding.
-HOSTED_STD_MODULES = {"file", "process", "env", "directory", "time", "net"}
+HOSTED_STD_MODULES = {"file", "process", "env", "directory", "time", "net",
+                      # design 272 unit 3 (SL-228): signals are an OS facility a
+                      # freestanding target does not have, so the module is
+                      # absent there exactly as std.net is.
+                      "signal"}
 
 # ---------------------------------------------------------------------------
 # Prelude discipline (design 82 Part B).
@@ -114,6 +118,9 @@ IMPORT_REQUIRED_STD_MODULES = {
     "file", "directory", "path", "data", "channel", "mutex", "spinlock",
     "slab", "time", "net", "process", "env", "task", "fixedbuf", "cbor",
     "json", "once",
+    # design 272 unit 3 (SL-228). Gated like every other hosted module, and
+    # `Signal` is exactly the kind of common noun a program declares for itself.
+    "signal",
     # design 218 unit 1: the compiler's own frame vocabulary. Public so that
     # generated code is code a user could have written, and gated because
     # nothing in it belongs in an ordinary program's namespace. A leaf may be

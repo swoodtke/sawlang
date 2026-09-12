@@ -295,6 +295,431 @@ long __saw_socket_send_flags(void) {
 #endif
 }
 
+/* ---- design 272 unit 3 (SL-228): signals as reactor-readable events -----
+ *
+ * std.signal's SURFACE is a suspending watch with no callbacks anywhere: a
+ * watch handle whose `next()` parks the task on the reactor exactly like a
+ * socket read. This is the delivery mechanism under it.
+ *
+ * WHY A SELF-PIPE rather than the kqueue/signalfd natives the issue sketched.
+ * The sketch invited this check ("whether any __saw_rt_* seam addition is
+ * needed or the reactor side suffices"), and the answer is that the pipe wins
+ * on three counts that matter more than using the fancier primitive:
+ *
+ *   * ZERO ABI CHANGE. A pipe read end is an ordinary readable descriptor, so
+ *     it registers through the reactor seam that already exists. EVFILT_SIGNAL
+ *     needs a signal-shaped registration the frozen `(fd, write, token)` seam
+ *     cannot express, so the native route means new frozen seams on a contract
+ *     that is deliberately hard to change.
+ *   * ONE IMPLEMENTATION, BOTH HOSTS. kqueue's EVFILT_SIGNAL and Linux's
+ *     signalfd are different enough (one observes delivery and needs the
+ *     disposition set to SIG_IGN, the other consumes a BLOCKED signal and needs
+ *     a mask) that the native route is two mechanisms wearing one seam, tested
+ *     twice and divergent in exactly the corners signals are hard in.
+ *   * NO THREAD-ORDERING HAZARD, which is the decisive one. signalfd requires
+ *     the signal blocked in EVERY thread, and a thread that already existed
+ *     when the watch began cannot be made to block it — a process-directed
+ *     signal delivered to such a thread takes the DEFAULT action and kills the
+ *     process. Masking at `__saw_rt_thread_spawn` covers threads created after
+ *     the watch and nothing covers the ones before it. A handler has no such
+ *     ordering requirement: it runs on whichever thread takes the signal and
+ *     writes the pipe from there.
+ *
+ * The handler is runtime-internal and invisible from Saw — the ruling that
+ * forbids callbacks is about the surface a program writes against, and no
+ * program written against this one ever names a handler.
+ *
+ * ASYNC-SIGNAL-SAFETY: the handler reads three `volatile sig_atomic_t` slots
+ * and does one `write(2)` of one byte. `write` is on POSIX's async-signal-safe
+ * list and a `sig_atomic_t` load is defined in a handler by definition; nothing
+ * else happens in there, and in particular NO LOCK IS TAKEN (see RULE 1 below
+ * for why that is mandatory rather than tidy). A full pipe is ignored on
+ * purpose — the pipe is an EDGE, not a queue, and one pending byte already
+ * means "this signal fired". Non-realtime signals coalesce in the kernel
+ * anyway, so a count was never available to promise.
+ */
+#include <signal.h>
+#include <errno.h>
+
+#ifndef NSIG
+#define NSIG 65
+#endif
+
+/* THE TWO CONCURRENCY RULES, added by SL-228 review r1 which reproduced a
+ * failure of each. Both are properties of this block as a whole, so they are
+ * stated here rather than at one function.
+ *
+ * RULE 1 — THE WATCH TRANSACTION IS SERIALIZED. Initialization, the
+ * already-watched check, descriptor publication and `sigaction` installation
+ * are ONE transaction under `__saw_sig_m`. Unsynchronized, two threads could
+ * both pass the availability check and both return a successful watch for one
+ * signal: the single-owner contract broken, one pipe unreachable, and — worst —
+ * a saved "previous" disposition that is Saw's OWN handler, so dropping either
+ * handle restores the wrong thing. `volatile sig_atomic_t` makes individual
+ * loads and stores well defined; it does not make a transaction atomic, which
+ * is the confusion the first version rested on.
+ *
+ * The HANDLER never takes this lock and must never take any lock: it can
+ * interrupt a thread that is already inside `__saw_sig_m` (a thread calling
+ * `watch` can itself be signalled), and a handler blocking on a mutex its own
+ * thread holds is an immediate deadlock. `sigaction` and `pthread_mutex_*` on
+ * the watch/unwatch side are ordinary calls on ordinary threads, so serializing
+ * them is free of async-signal-safety concerns.
+ *
+ * RULE 2 — NOTHING A HANDLER CAN REACH IS EVER RECLAIMED. The pipe for a signal
+ * is created at its FIRST watch and lives for the whole process; `unwatch`
+ * restores the disposition and drains, and closes NOTHING. This is what makes
+ * the handler-versus-teardown race unlosable rather than merely unlikely.
+ *
+ * Restoring a disposition stops FUTURE handler entries. It says nothing about a
+ * handler already running on another thread that has ALREADY loaded the write
+ * descriptor and not yet written. Close the pipe under it and the descriptor
+ * number is free for reuse; the delayed handler then writes its byte into
+ * whatever unrelated pipe, socket or file inherits that number. A mutex around
+ * watch/unwatch cannot fix this — the handler is not inside the mutex and
+ * cannot be made to be.
+ *
+ * So the descriptor the handler loads is a value that, once published, is valid
+ * FOREVER. There is no window because there is no reclamation. The cost is
+ * bounded and small: two descriptors per signal ever watched, at most seven
+ * signals in the ruled `Signal` set, so fourteen descriptors for a process that
+ * watches every one of them — and zero for a process that watches none.
+ *
+ * RULE 3 — THE HANDLER TAKES EXACTLY ONE SNAPSHOT, AND THE TAG NEVER RECURS.
+ * This is the accuracy half, and revision 3 of this file got it wrong twice in
+ * ways the r3 review reproduced. Both failures are recorded because the shape
+ * of the fix only makes sense against them.
+ *
+ * Not-reclaiming (RULE 2) makes a late write SAFE; it does not make it
+ * ACCURATE. A byte from a previous watch sits in a pipe the NEXT watch is
+ * reading, and mistaking it for a fresh delivery returns from `next()` in a
+ * shutdown path and cancels a server nobody signalled. So a delivery carries a
+ * TAG naming the watch it belongs to, and the drain keeps only current ones.
+ *
+ *   * r3 FAILURE ONE — A TORN SNAPSHOT. The handler read `watched`, the
+ *     descriptor and the generation as three separate loads. Pause it after it
+ *     observes `watched == 1`, unwatch and rewatch once on another thread,
+ *     resume: it then reads the NEW generation and labels its OLD delivery
+ *     current. Measured `stale deliveries accepted=1` after ONE rewatch.
+ *     Widening the tag does not touch this.
+ *   * r3 FAILURE TWO — A RECURRING TAG. The tag was seven bits, so 128
+ *     unwatch/rewatch cycles while a handler sits paused before its write bring
+ *     it back to equal and the stale byte is accepted. Ordering the snapshot
+ *     correctly does not touch this.
+ *
+ * So the protocol is ONE WORD, loaded ONCE. `__saw_sig_state[signo]` packs the
+ * generation in its high 63 bits and the watched flag in bit 0, and the handler
+ * derives BOTH from a single atomic acquire load. There is no interleaving that
+ * can give it a `watched` from one watch and a generation from another, because
+ * there is only one read. That is failure one closed by construction rather
+ * than by ordering discipline somebody has to maintain.
+ *
+ * The generation is 63 bits, MONOTONIC, and never reset — `unwatch` clears bit
+ * 0 and leaves the counter alone. Recurrence therefore needs 2^63 ≈ 9.2e18
+ * watch/unwatch cycles to complete while one handler stays paused between its
+ * snapshot and its write. At one cycle per nanosecond, which no real program
+ * approaches, that is over 290 years of uninterrupted rewatching. That is the
+ * bound, stated rather than waved at: the tag cannot recur in any execution
+ * this process can have.
+ *
+ * The handler writes the FULL 63-bit tag, not a byte of it. POSIX guarantees a
+ * write of at most PIPE_BUF (512 bytes minimum; 4096 on both hosted targets) to
+ * a pipe is atomic, so an eight-byte record never interleaves with another
+ * handler's and the pipe holds a whole number of records. The drain reads into
+ * a buffer that is a multiple of the record size, so it never splits one.
+ *
+ * WHICH SIDE VALIDATES is the last piece and is not interchangeable: the
+ * handler STAMPS and the reader VALIDATES. A handler that checked whether its
+ * tag was still current and then wrote would have a window between the check
+ * and the write — the same time-of-check-to-time-of-use shape in a smaller
+ * font. The reader reads bytes that already exist and judges them against a
+ * word it loads itself; there is nothing for it to race.
+ *
+ * The write DESCRIPTOR is read separately and that is sound, which is worth
+ * stating because it looks like a second load: it is written exactly once per
+ * signal, under the mutex, BEFORE the first handler for that signal can exist,
+ * and is never changed or closed thereafter (RULE 2). A load of a value that is
+ * immutable for the process's life cannot disagree with anything. The
+ * release/acquire pair orders that publication ahead of any `watched` a handler
+ * can observe, so a handler never sees a watch whose descriptor is not there.
+ */
+static pthread_mutex_t __saw_sig_m = PTHREAD_MUTEX_INITIALIZER;
+
+/* THE one word per signal (RULE 3): generation in bits 63..1, watched in bit 0.
+ * Written only under `__saw_sig_m`, with release; read by the handler and the
+ * drain with acquire. A `sig_atomic_t` would not do — it is only guaranteed
+ * wide enough for a small integer, and this has to carry a 63-bit counter. */
+typedef unsigned long long saw_sig_word;
+static saw_sig_word __saw_sig_state[NSIG];
+
+/* The handler loads this word with a plain atomic load, so it must be lock-free
+ * or the handler could take a lock (see RULE 1 on why that is fatal). Checked at
+ * compile time rather than assumed. */
+_Static_assert(sizeof(saw_sig_word) == 8,
+               "the signal state word carries a 63-bit generation plus a flag");
+_Static_assert(__atomic_always_lock_free(sizeof(saw_sig_word), 0),
+               "the signal state word must be lock-free: a signal handler loads it");
+
+#define SAW_SIG_WATCHED 1ULL
+#define SAW_SIG_GEN(w)  ((w) >> 1)
+#define SAW_SIG_WORD(gen, watched) (((saw_sig_word)(gen) << 1) | (watched))
+
+/* The write descriptor. Published ONCE per signal under the mutex, before any
+ * handler for it can exist, and never changed or closed (RULE 2) — so the
+ * handler's separate load of it cannot disagree with its state snapshot. */
+static volatile sig_atomic_t __saw_sig_wr[NSIG];
+/* Touched only under `__saw_sig_m`. */
+static int __saw_sig_rd[NSIG];
+static struct sigaction __saw_sig_old[NSIG];
+static int __saw_sig_init = 0;
+
+/* A no-op in the shipped runtime. `tools/signal_hook_shim.py` rewrites the
+ * marker below into a call to a test hook, so the race pins can pause a REAL
+ * handler at the one point that matters. The marker is an inert comment here;
+ * the generator fails loudly if it ever stops matching, so the pins can never
+ * drift onto a stale copy of this logic. */
+
+static void __saw_sig_handler(int signo) {
+    /* errno is saved and restored: the handler interrupts arbitrary code that
+     * may be between a failing syscall and its errno read, and clobbering it
+     * there would be a bug with no visible cause. */
+    int saved = errno;
+    if (signo > 0 && signo < NSIG) {
+        /* THE ONE LOAD (RULE 3). Everything this delivery needs to know about
+         * the watch it belongs to comes from this single snapshot: whether the
+         * signal is watched at all, and which generation to stamp. Splitting it
+         * is what let an old handler label its delivery with a new watch's
+         * generation. */
+        saw_sig_word snap = __atomic_load_n(&__saw_sig_state[signo], __ATOMIC_ACQUIRE);
+        if (snap & SAW_SIG_WATCHED) {
+            int fd = (int)__saw_sig_wr[signo];
+            if (fd >= 0) {
+                saw_sig_word tag = SAW_SIG_GEN(snap);
+                /* SAW_SIGNAL_TEST_HOOK */
+                /* One atomic record: at eight bytes it is far under PIPE_BUF,
+                 * so it never interleaves with another handler's. */
+                (void)!write(fd, &tag, sizeof(tag));
+            }
+        }
+    }
+    errno = saved;
+}
+
+/* Discard everything currently in signal `s`'s pipe. Caller holds the lock.
+ * Bounded rather than looping to EAGAIN: a pipe holds at most its buffer, and a
+ * handler writing concurrently is precisely the case the generation tag — not
+ * this drain — is responsible for. */
+static void __saw_sig_discard(int s) {
+    int fd = __saw_sig_rd[s];
+    if (fd < 0) return;
+    char buf[256];
+    for (int i = 0; i < 512; i++) {
+        ssize_t n = read(fd, buf, sizeof(buf));
+        if (n <= 0) break;
+    }
+}
+
+/* The PORTABLE signal tag -> this host's number. The numbers are the whole
+ * reason the tag space exists: SIGUSR1 is 30 on macOS and 10 on Linux. Tags are
+ * the table in ABI.md and the `Signal` enum in std/signal.saw. */
+long __saw_signal_number(long tag) {
+    switch (tag) {
+        case 1: return SIGTERM;
+        case 2: return SIGINT;
+        case 3: return SIGHUP;
+        case 4: return SIGQUIT;
+        case 5: return SIGUSR1;
+        case 6: return SIGUSR2;
+#ifdef SIGWINCH
+        case 7: return SIGWINCH;
+#endif
+        default: return -1;
+    }
+}
+
+/* Begin watching `signo`: create the pipe, install the handler, and hand back
+ * the READ end for the caller to register with the reactor. Returns the fd, or
+ * a negative error: -1 for an out-of-range signal, -2 for a second live watch
+ * of the same signal (the ruled double-watch policy — the disposition is
+ * process-global state and a global with two owners is what the refusal
+ * prevents), -3 if the pipe or the handler could not be installed.
+ *
+ * Both pipe ends are non-blocking: the handler must never block a signalled
+ * thread, and the drain side must get EAGAIN rather than hang when it loses a
+ * race to another drain. */
+long __saw_signal_watch(long signo) {
+    int s = (int)signo;
+    if (s <= 0 || s >= NSIG) return -1;
+
+    pthread_mutex_lock(&__saw_sig_m);       /* RULE 1: one transaction */
+
+    if (!__saw_sig_init) {
+        for (int i = 0; i < NSIG; i++) {
+            __saw_sig_wr[i] = -1;
+            __saw_sig_rd[i] = -1;
+            __saw_sig_state[i] = 0;
+        }
+        __saw_sig_init = 1;
+    }
+
+    /* The single-owner check and everything that follows from it happen under
+     * one lock, so two callers cannot both pass it. */
+    saw_sig_word cur = __saw_sig_state[s];
+    if (cur & SAW_SIG_WATCHED) {
+        pthread_mutex_unlock(&__saw_sig_m);
+        return -2;
+    }
+
+    if (__saw_sig_wr[s] < 0) {
+        /* First watch of this signal in this process: create the pipe it will
+         * use for the rest of the process's life. Both ends non-blocking — the
+         * handler must never block a signalled thread, and a drain that loses a
+         * race must get EAGAIN rather than hang. */
+        int fds[2];
+        if (pipe(fds) != 0) {
+            pthread_mutex_unlock(&__saw_sig_m);
+            return -3;
+        }
+        if (fcntl(fds[0], F_SETFL, fcntl(fds[0], F_GETFL, 0) | O_NONBLOCK) < 0 ||
+            fcntl(fds[1], F_SETFL, fcntl(fds[1], F_GETFL, 0) | O_NONBLOCK) < 0) {
+            close(fds[0]); close(fds[1]);
+            pthread_mutex_unlock(&__saw_sig_m);
+            return -3;
+        }
+        __saw_sig_rd[s] = fds[0];
+        __saw_sig_wr[s] = fds[1];       /* published once, valid forever */
+    } else {
+        /* Re-watch: the pipe is the one the previous watch used. Clear whatever
+         * it holds so this watch starts empty. Bytes a still-in-flight handler
+         * writes AFTER this point carry the OLD generation and the drain
+         * discards them — that is the tag's job, not this discard's. */
+        __saw_sig_discard(s);
+    }
+
+    /* PUBLISH BEFORE INSTALLING. The generation advances and the watched bit is
+     * set in one release store, and only then is the handler installed — so the
+     * instant a handler can run it already sees this watch's generation. The
+     * reverse order would drop a delivery that arrived between `sigaction` and
+     * the publish, which is a lost wakeup rather than a stale one.
+     *
+     * MONOTONIC: the counter only ever advances, here, for the process's life.
+     * `unwatch` clears the flag and leaves it alone. That is what makes the
+     * 2^63 recurrence bound a bound and not a wrap. */
+    saw_sig_word gen = SAW_SIG_GEN(__saw_sig_state[s]) + 1;
+    __atomic_store_n(&__saw_sig_state[s], SAW_SIG_WORD(gen, SAW_SIG_WATCHED),
+                     __ATOMIC_RELEASE);
+
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = __saw_sig_handler;
+    sigemptyset(&sa.sa_mask);
+    /* SA_RESTART so watching a signal does not start returning EINTR from every
+     * blocking call elsewhere in the program — the watch is meant to be
+     * invisible to code that is not watching. */
+    sa.sa_flags = SA_RESTART;
+    if (sigaction(s, &sa, &__saw_sig_old[s]) != 0) {
+        /* Roll the flag back, KEEPING the advanced generation: a generation is
+         * spent once it has been published, whether or not the watch took. The
+         * pipe stays allocated for a later watch; it was not the failure. */
+        __atomic_store_n(&__saw_sig_state[s], SAW_SIG_WORD(gen, 0),
+                         __ATOMIC_RELEASE);
+        pthread_mutex_unlock(&__saw_sig_m);
+        return -3;
+    }
+
+    int rd = __saw_sig_rd[s];
+    pthread_mutex_unlock(&__saw_sig_m);
+    return (long)rd;
+}
+
+/* Stop watching `signo`: restore the disposition the watch replaced and leave
+ * the pipe empty for whoever watches next. Idempotent.
+ *
+ * CLOSES NOTHING — see RULE 2 above. A handler already past its descriptor load
+ * on another thread will write one byte into a pipe this process still owns;
+ * that byte carries the OLD generation and the next watch's drain discards it.
+ * Closing here is what let a delayed handler write into an unrelated resource
+ * that inherited the descriptor number. */
+void __saw_signal_unwatch(long signo) {
+    int s = (int)signo;
+    if (s <= 0 || s >= NSIG) return;
+
+    pthread_mutex_lock(&__saw_sig_m);
+    saw_sig_word cur = __saw_sig_state[s];
+    if (!(cur & SAW_SIG_WATCHED)) {
+        pthread_mutex_unlock(&__saw_sig_m);
+        return;
+    }
+    /* Restore FIRST: it is what stops further handler entries. Then clear the
+     * watched bit, KEEPING the generation — the counter is monotonic for the
+     * process's life, and a handler that snapshotted this watch still carries
+     * its generation and will be judged against a later one. */
+    (void)sigaction(s, &__saw_sig_old[s], NULL);
+    __atomic_store_n(&__saw_sig_state[s], SAW_SIG_WORD(SAW_SIG_GEN(cur), 0),
+                     __ATOMIC_RELEASE);
+    __saw_sig_discard(s);
+    pthread_mutex_unlock(&__saw_sig_m);
+}
+
+/* Send `signo` to THIS process (`raise`). Returns 0 or -1. The deterministic
+ * way a test exercises a watch, and the way a program triggers its own shutdown
+ * path. */
+long __saw_signal_raise(long signo) {
+    return raise((int)signo) == 0 ? 0 : -1;
+}
+
+/* Take whatever the handler has written off signal `signo`'s pipe, KEEPING ONLY
+ * the bytes that belong to the current watch. Returns the count of matching
+ * bytes (> 0 = at least one delivery this watch should report), or -1 for
+ * "nothing pending" — which includes having read only stale bytes, so the
+ * caller re-parks instead of reporting a delivery that was not one.
+ *
+ * Takes the SIGNAL rather than a descriptor: validating the generation means
+ * knowing which watch is current, and the signal is the key to that. The
+ * caller's descriptor is still the one it parks on.
+ *
+ * THIS IS THE VALIDATING SIDE of the generation protocol (see RULE 2). A byte
+ * stamped by a handler that was in flight across a teardown carries the
+ * previous generation and is discarded here. The handler never validates,
+ * because a handler that checked and then wrote would have a window between
+ * the two; a reader that reads and then judges has none.
+ *
+ * It is in C rather than Saw for the reason std.net keeps its reads behind
+ * `__saw_rt_tcp_read`: a Saw `extern "C" func read(...)` declaration is
+ * program-GLOBAL, so std declaring one collides with any program that declares
+ * `read` itself — the suite's offload tests declare it `blocking`. Keeping the
+ * syscall here means std.signal declares no libc symbol at all.
+ *
+ * The count is not a delivery count and is never reported as one: non-realtime
+ * signals coalesce in the kernel, so the number of bytes was never something
+ * the API could promise. The caller uses only "> 0". */
+long __saw_signal_drain(long signo) {
+    int s = (int)signo;
+    if (s <= 0 || s >= NSIG) return -1;
+    int fd = __saw_sig_rd[s];
+    if (fd < 0) return -1;
+    /* The reader loads the word itself and judges what it finds against it.
+     * Nothing here races: the bytes already exist, and a handler that writes
+     * during this loop either carries the current tag (a real delivery, counted
+     * now or on the next call) or an older one (discarded). */
+    saw_sig_word want = SAW_SIG_GEN(
+        __atomic_load_n(&__saw_sig_state[s], __ATOMIC_ACQUIRE));
+    long matched = 0;
+    /* A whole number of records, so a read can never split one: every write is
+     * one atomic eight-byte record and this asks for a multiple of eight. */
+    saw_sig_word buf[16];
+    for (;;) {
+        ssize_t n = read(fd, buf, sizeof(buf));
+        if (n <= 0) break;
+        size_t records = (size_t)n / sizeof(saw_sig_word);
+        for (size_t i = 0; i < records; i++) {
+            if (buf[i] == want) matched++;
+        }
+        if ((size_t)n < sizeof(buf)) break;   /* drained what was there */
+    }
+    return matched > 0 ? matched : -1;
+}
+
 /* ---- DF-113b: the blocking-extern offload thread thunk ------------------
  * The offload seams `__saw_rt_offload_start/done/pipe_fd/take` are authored in
  * Saw (sawc/rt/common/offload.saw); this thunk is the ONE piece that must be C

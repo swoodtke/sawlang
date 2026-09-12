@@ -709,6 +709,10 @@ The standard library lives in `sawc/std/` and includes:
 - **The filesystem** — `File` (std.file), `Directory` (std.directory), `Path`
   (std.path) and `Env` (std.env), one module each; every fallible operation
   returns a `Result`.
+- **std.signal** — OS signals as suspending events. `watch(.Terminate)` gives a
+  handle whose `next()` suspends until the signal arrives, so graceful shutdown
+  is a task that waits, cancels the work and lets deinits run. No callbacks and
+  no exit registry.
 - **std.process** — run child processes cooperatively.
 - **std.time** — `Instant` and `unix_timestamp` (hosted). `Duration` needs no
   import because `sleep` takes one.

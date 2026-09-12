@@ -9522,6 +9522,56 @@ Two constraints are enforced, not documented:
 
 Hold it briefly. A waiter burns its core until the lock is free.
 
+### `std.signal`
+
+**Status: implemented (design 272).** `import std.signal`. Hosted only, like
+`std.net`; the freestanding profile rejects the import.
+
+A signal is something a task waits for, not something that interrupts one.
+`SignalWatch.watch(which)` returns a handle whose `next()` suspends until the
+signal is delivered, parking the task on the reactor exactly as a socket read
+does — so cancellation, the fairness budget and the deadlock walk all treat a
+parked watcher as the io park it is.
+
+```saw
+import std.signal.{Signal, SignalWatch}
+import std.net.{TcpListener}
+
+// A shutdown task: wait for SIGTERM, then cancel the work and let it unwind.
+func shutdown(watch: SignalWatch, work: VoidTask) {
+    try! watch.next()
+    work.cancel()
+    let _ = move watch
+}
+```
+
+`Signal` is curated: `Terminate`, `Interrupt`, `Hangup`, `Quit`, `User1`,
+`User2`, `WindowChanged`. `SIGKILL` and `SIGSTOP` are absent because no process
+may intercept them — there is no refusal to report because there is no way to
+spell the request. `SIGPIPE` is absent because sockets never raise it (a write
+to a hung-up peer is an ordinary `BrokenPipe` error) and the process-wide
+disposition is left alone. `SIGCHLD` is absent because `std.process` reaps
+children with `waitpid`, and changing that signal's disposition makes the kernel
+auto-reap and `waitpid` fail.
+
+While a handle is alive the signal's default action does not run; destroying it
+restores whatever disposition the watch replaced. A second live watch of the
+same signal fails with `AlreadyExists`: the disposition is process-global state
+and the handle is what restores it, which is well defined only with one owner.
+Build fan-out from one watch and a `Channel`.
+
+Deliveries coalesce. The OS does not queue ordinary signals, so several arriving
+between two `next()` calls may surface as one, and no count is reported because
+the platform never had one to give.
+
+`Signal.Terminate.send_to_self()` sends a signal to the current process — how a
+program triggers its own shutdown path, and how a test exercises a watch.
+
+There is no exit registry. Cleanup rides cancellation and deinits: a task
+watches the signal, cancels the rest of the work, values are destroyed
+deterministically as tasks unwind, and `main` returns normally.
+`process.exit(code)` remains the escape hatch that runs no cleanup at all.
+
 ### `std.once`
 
 **Status: implemented (design 186).** `import std.once`. `Once<T>` holds a value
@@ -11069,7 +11119,8 @@ need one of the three [import forms](#imports).
 | `std.once` | `Once<T>` | no |
 | `std.data` | `Data` | no |
 | `std.file` / `std.directory` / `std.path` | `File`, `Directory`, `Path` | no |
-| `std.net` | `TcpListener`, `TcpStream`, `IoError` | no |
+| `std.net` | `TcpListener`, `TcpStream`, `IoError`, `Timed<T>` | no |
+| `std.signal` | `Signal`, `SignalWatch` | no |
 | `std.process` / `std.env` | `Command`, `ProcessError`, `Env` | no |
 | `std.duration` | `Duration` | yes |
 | `std.time` | `Instant`, `unix_timestamp` | no |

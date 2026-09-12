@@ -1,0 +1,252 @@
+//! OS signals as suspending events.
+//!
+//! Watching a signal gives you a handle whose `next()` suspends until the
+//! signal arrives, exactly as a socket read suspends until bytes arrive. There
+//! are no callbacks: a signal is something a task waits for, not something that
+//! interrupts one.
+//!
+//! ```saw
+//! import std.signal.{Signal, SignalWatch}
+//!
+//! func shutdown(watch: SignalWatch, work: VoidTask) {
+//!     try! watch.next()        // suspends until SIGTERM arrives
+//!     work.cancel()            // wakes the io-parked worker; it unwinds
+//! }
+//! ```
+//!
+//! Cleanup rides cancellation and deinits, and there is no exit registry to
+//! register with. The pattern is a task that watches the signal, cancels the
+//! rest of the work, and lets values deinit deterministically as the tasks
+//! unwind; `main` then returns normally. `process.exit(code)` remains the
+//! escape hatch that runs no cleanup at all.
+//!
+//! Hosted only, like `std.net`. A freestanding target has no signals to watch.
+
+// std.signal (design 272 unit 3, SL-228).
+//
+// DELIVERY, and why it is not what the issue sketched. The runtime installs a
+// tiny handler that writes one byte to a pipe, and the watch handle registers
+// that pipe's read end with the reactor — so a parked watcher is an ORDINARY
+// io park and inherits everything design 76/91/102 already gives one:
+// precise wakeup, cancellation, the op budget, the deadlock walk's `anyio`.
+//
+// The alternative was kqueue's EVFILT_SIGNAL and Linux's signalfd. Three
+// reasons the pipe won, recorded here because the sketch pointed the other way:
+// it needs NO new frozen ABI seam (a pipe read end is just a readable fd, and
+// the `(fd, write, token)` seam already carries it); it is ONE mechanism on
+// both hosts rather than two wearing one seam; and it has no thread-ordering
+// hazard, where signalfd requires the signal blocked in every thread and cannot
+// retroactively block it in threads that already existed. See the block over
+// `__saw_signal_watch` in rt/shim.c for the full argument.
+//
+// SIGPIPE IS DELIBERATELY NOT A CASE BELOW. Sockets never raise it — the
+// runtime suppresses it per socket (design 272 unit 2) — so a write to a peer
+// that has hung up arrives as `Err(IoError)` with kind `BrokenPipe`, which is
+// an ordinary failure a handler can answer. The process-wide disposition is
+// left alone so pipes and child processes behave exactly as they always did.
+// There is nothing here for a program to watch.
+//
+// SIGCHLD IS NOT A CASE EITHER, and that one is load-bearing rather than tidy:
+// std.process reaps children with `waitpid`, and changing SIGCHLD's disposition
+// makes the kernel auto-reap, after which `waitpid` fails with ECHILD and
+// `Command.run` reports a launch failure for a child that ran perfectly well.
+// Two owners of one disposition is exactly what the double-watch refusal below
+// exists to prevent, and this is that bug with the std library as one owner.
+
+import std.net.{IoError, IoErrorKind}
+
+extern "C" {
+    // The portable signal TAG -> this host's number (rt/shim.c). The numbers
+    // diverge — SIGUSR1 is 30 on macOS and 10 on Linux — so Saw names a tag and
+    // the host says what it means, the same arrangement the socket options and
+    // the SysError space already use.
+    func __saw_signal_number(tag: Int) -> Int
+    // Install the handler + pipe for `signo`; returns the READ end, or a
+    // negative refusal (-1 bad signal, -2 already watched, -3 the pipe or the
+    // handler could not be installed).
+    func __saw_signal_watch(signo: Int) -> Int
+    // Restore the disposition this watch replaced and drop the pipe.
+    func __saw_signal_unwatch(signo: Int)
+    // Send a signal to THIS process.
+    func __saw_signal_raise(signo: Int) -> Int
+    // Take the deliveries belonging to the CURRENT watch off this signal's
+    // pipe: a positive count, or -1 for "nothing pending". Takes the SIGNAL
+    // rather than the descriptor because it also validates the generation tag —
+    // a byte written by a handler that was in flight across a teardown belongs
+    // to the previous watch and is discarded rather than reported as a
+    // delivery (rt/shim.c, RULE 2).
+    //
+    // The read lives on the C side for the reason std.net keeps its own behind
+    // `__saw_rt_tcp_read`: an `extern "C" func read(...)` declaration is
+    // program-GLOBAL, so std declaring one collides with any program that
+    // declares `read` itself — the suite's offload tests declare it `blocking`,
+    // and two declarations of one symbol that disagree are a compile error in
+    // whichever program imports both. Keeping it here means std.signal declares
+    // no libc symbol at all.
+    func __saw_signal_drain(signo: Int) -> Int
+
+    func __saw_rt_op_budget_tick() -> Int
+    func __saw_rt_op_budget_reset()
+}
+
+/// A signal this process can watch.
+///
+/// Curated rather than exhaustive: every case is one a program has a reason to
+/// handle. `SIGKILL` and `SIGSTOP` are absent because the OS does not let any
+/// process intercept them — there is no refusal to report because there is no
+/// way to spell the request.
+public enum Signal {
+    /// `SIGTERM` — a polite request to shut down. What service managers send.
+    case Terminate,
+    /// `SIGINT` — an interactive interrupt, typically Ctrl-C.
+    case Interrupt,
+    /// `SIGHUP` — the controlling terminal went away. Conventionally also
+    /// "reload your configuration" for a long-running service.
+    case Hangup,
+    /// `SIGQUIT` — an interactive quit, typically Ctrl-\.
+    case Quit,
+    /// `SIGUSR1` — no meaning of its own; whatever the program decides.
+    case User1,
+    /// `SIGUSR2` — the second signal with no meaning of its own.
+    case User2,
+    /// `SIGWINCH` — the terminal window changed size.
+    case WindowChanged
+}
+
+// The portable tag the host maps. Kept beside the enum so the two orders cannot
+// drift apart, and matching the table in rt/ABI.md.
+func signal_tag(which: Signal) -> Int {
+    match which {
+        case Terminate -> 1,
+        case Interrupt -> 2,
+        case Hangup -> 3,
+        case Quit -> 4,
+        case User1 -> 5,
+        case User2 -> 6,
+        case WindowChanged -> 7
+    }
+}
+
+func watch_error(reason: Int) -> IoError {
+    if reason == -2 {
+        return IoError.of(syscall: "watch: that signal is already being watched",
+                          kind: IoErrorKind.AlreadyExists)
+    }
+    if reason == -1 {
+        return IoError.of(syscall: "watch: this host has no such signal",
+                          kind: IoErrorKind.InvalidArgument)
+    }
+    IoError.of(syscall: "watch", kind: IoErrorKind.ResourcesExhausted)
+}
+
+/// A live watch on one signal.
+///
+/// While the handle exists, the signal's default action does not run — a
+/// watched `SIGTERM` no longer ends the process. Destroying the handle restores
+/// whatever disposition the watch replaced, so the effect is scoped to the
+/// handle's lifetime rather than to the program's.
+///
+/// `NoCopy`: a signal's disposition is process-global state, and this handle is
+/// the single owner of it.
+public struct SignalWatch {
+    private signo: Int
+    private fd: Int
+}
+
+extension SignalWatch {
+    /// Begins watching `which`, replacing its default action.
+    ///
+    /// Fails with `AlreadyExists` if that signal is already being watched. One
+    /// owner per signal is deliberate: the disposition is process-global, and
+    /// the handle is what restores it, which is only well defined if exactly
+    /// one handle holds it. A program that needs several readers of one signal
+    /// builds that from one watch and a `Channel`.
+    ///
+    /// Fails with `InvalidArgument` if this host has no such signal, and
+    /// `ResourcesExhausted` if the handler or its pipe could not be installed.
+    public static func watch(which: Signal) -> Result<SignalWatch, IoError> {
+        let signo = __saw_signal_number(signal_tag(which))
+        if signo < 0 {
+            return watch_error(-1)
+        }
+        let fd = __saw_signal_watch(signo)
+        if fd < 0 {
+            return watch_error(fd)
+        }
+        return SignalWatch(signo: signo, fd: fd)
+    }
+
+    /// Suspends until the watched signal is delivered.
+    ///
+    /// Returns once at least one delivery has arrived. Deliveries COALESCE: the
+    /// OS does not queue ordinary signals, so three `SIGTERM`s arriving between
+    /// two calls may surface as one, and a count is not reported because the
+    /// platform never had one to give.
+    ///
+    /// Fails with `Interrupted` if the task is cancelled while parked, matching
+    /// every other cooperative wait.
+    public func next(&self) -> Result<Void, IoError> {
+        while {
+            if cancelled() {
+                io_unwait(self.fd, 0)
+                return IoError.of(syscall: "next", kind: IoErrorKind.Interrupted)
+            }
+            let n = __saw_signal_drain(self.signo)
+            if n > 0 {
+                break                          // at least one delivery
+            }
+            // Nothing pending FOR THIS WATCH: either the pipe was empty, or it
+            // held only bytes a handler stamped under a previous watch, which
+            // the drain discarded. Park either way — reporting a stale byte as
+            // a delivery would wake a shutdown task nobody signalled.
+            //
+            // There is no "the pipe is gone" case to handle: the write end is
+            // never closed (rt/shim.c, RULE 2), so a read on it cannot return 0.
+            io_wait(self.fd, 0)
+            __saw_rt_op_budget_reset()
+        }
+        if __saw_rt_op_budget_tick() != 0 {
+            yield_now()
+        }
+        return
+    }
+}
+
+extension SignalWatch: NoCopy {
+    /// Restores the disposition this watch replaced and drops its pipe.
+    public func deinit(&var self) {
+        if self.fd >= 0 {
+            __saw_signal_unwatch(self.signo)
+        }
+    }
+}
+
+extension Signal {
+    /// Sends this signal to the current process.
+    ///
+    /// The way a program triggers its own shutdown path, and the way a test
+    /// exercises a watch without needing anything outside the process. Fails
+    /// with `InvalidArgument` if this host has no such signal.
+    ///
+    /// ```saw
+    /// try! Signal.Terminate.send_to_self()
+    /// ```
+    ///
+    /// A METHOD rather than the free function POSIX would call `raise`, and
+    /// deliberately: a free function is emitted under its bare link symbol
+    /// (SL-274), so a std function named `raise` shadows libc's `raise` for the
+    /// whole program — including for the runtime's own C, which called it and
+    /// recursed into itself until the stack ran out. A method mangles by its
+    /// type and cannot collide.
+    public func send_to_self(&self) -> Result<Void, IoError> {
+        let signo = __saw_signal_number(signal_tag(self))
+        if signo < 0 {
+            return watch_error(-1)
+        }
+        if __saw_signal_raise(signo) != 0 {
+            return IoError.of(syscall: "send_to_self",
+                              kind: IoErrorKind.InvalidArgument)
+        }
+        return
+    }
+}

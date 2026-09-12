@@ -1,0 +1,95 @@
+// Conformance row K100 — graceful shutdown rides CANCELLATION and deinits: a
+// parked signal watcher is not a deadlock, and the values a cancelled worker
+// owns are destroyed deterministically
+//
+// Design 272 unit 3 (SL-228), the ruled "no exit registry" pattern end to end.
+// This is the program the whole unit exists for, and it asserts the three
+// things that have to hold together for it to be the answer:
+//
+//   1. A task parked on a signal while every sibling is parked on io is a
+//      CORRECT state that looks exactly like a hang. The design-230 quiescent
+//      walk must not report it: a signal watcher is an ordinary io park, so
+//      `anyio` is true and nothing is declared deadlocked. A regression here is
+//      a panic, not a wrong line.
+//   2. The signal cancels the worker, and cancellation WAKES an io-parked task
+//      (design 102) — the worker is parked on a socket read whose peer never
+//      writes, so only the cancel can end it.
+//   3. The worker's owned values deinit as it unwinds, EXACTLY ONCE, with no
+//      registry and no atexit hook anywhere. `main` then returns normally.
+//
+// The ordering is forced by the program: the worker announces that it is parked
+// before the signal is sent, so the cancel provably reaches a parked task.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// worker parked
+// shutdown signalled
+// worker unwound
+// deinits=1
+// main returned normally
+
+import std.signal.{Signal, SignalWatch}
+import std.net.{TcpStream}
+import std.channel.{Channel}
+
+static DEINITS: Atomic<Int> = Atomic(0)
+
+struct Connection { id: Int }
+extension Connection: NoCopy {
+    func deinit(&var self) { DEINITS.fetch_add(1) }
+}
+
+// Parks on a socket nobody ever writes to. Only a cancel can end this.
+func worker(s: TcpStream, ready: Channel<Int>) {
+    let _held = Connection(id: 1)
+    print("worker parked")
+    try! ready.send(1)
+    match s.read() {
+        case Ok(_) -> print("WORKER READ — the peer should never have written"),
+        case Err(_) -> print("worker unwound")
+    }
+    // `_held` and `s` deinit here as the task completes.
+}
+
+func shutdown(w: SignalWatch, ready: Channel<Int>) {
+    try! w.next()
+    print("shutdown signalled")
+    try! ready.send(1)
+    let _ = move w
+}
+
+// The group lives in here, so its Deinit — the structured join — is what
+// sequences the worker's unwind ahead of the deinit count below. `cancel()` IS
+// the worker handle's fate (design 242), so it cannot also be joined; the
+// group's teardown is the synchronization point, and using it is the point of
+// the pattern rather than a workaround for the fate rule.
+func serve() {
+    let w = match SignalWatch.watch(Signal.Terminate) {
+        case Ok(x) -> move x,
+        case Err(e) -> {
+            print("WATCH FAILED {}", e)
+            return
+        }
+    }
+    let (a, b) = TcpStream.pair()
+    var group = TaskGroup()
+    let parked = try! Channel<Int>()
+    let signalled = try! Channel<Int>()
+
+    let hw = group.spawn(worker(move a, parked.copy()))
+    let hs = group.spawn(shutdown(move w, signalled.copy()))
+
+    let _ = try! parked.receive()        // the worker is at its park
+    try! Signal.Terminate.send_to_self()
+    let _ = try! signalled.receive()     // the watcher observed it
+
+    hw.cancel()                          // design 102 wakes the io-parked worker
+    hs.join()
+    let _ = move b
+    // `group` deinits here, draining the cancelled worker to completion.
+}
+
+func main() {
+    serve()
+    print("deinits={}", DEINITS.load())
+    print("main returned normally")
+}

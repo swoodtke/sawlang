@@ -2304,6 +2304,28 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   It is decided by elimination, never by watching a task fail to progress —
   design 127's op budget makes a long computation present exactly like a
   permanent wait.
+- Signals (design 272, std.signal, hosted-only): a signal is something a task
+  WAITS FOR, not a callback. `import std.signal.{Signal, SignalWatch}`.
+  ```saw-fragment
+  let w = try! SignalWatch.watch(Signal.Terminate)   // Result; NoCopy handle
+  try! w.next()                       // SUSPENDS until delivered (an io park)
+  try! Signal.Terminate.send_to_self()               // signal this process
+  ```
+  `Signal` is CURATED: Terminate, Interrupt, Hangup, Quit, User1, User2,
+  WindowChanged. SIGKILL/SIGSTOP are absent because no process may intercept
+  them; SIGPIPE because sockets never raise it (unit 2 suppresses it per socket,
+  so a write to a hung-up peer is `Err(BrokenPipe)`); SIGCHLD because
+  std.process reaps with `waitpid` and changing that disposition breaks it.
+  While the handle lives the default action does NOT run — a watched SIGTERM no
+  longer ends the process — and dropping the handle restores the previous
+  disposition. A SECOND live watch of one signal is `Err(AlreadyExists)`: one
+  owner, because the handle is what restores process-global state. Fan out with
+  one watch plus a `Channel`. Deliveries COALESCE and no count is reported.
+  NO EXIT REGISTRY: shutdown is a task that watches, `cancel()`s the work (which
+  wakes io-parked tasks, design 102) and lets deinits run as tasks unwind;
+  `process.exit(code)` is the no-cleanup escape hatch.
+  A lone parked watcher is a CORRECT state that looks like a hang — it is an
+  ordinary io park, so the deadlock walk leaves it alone.
 - Cooperative net (design 84, std.net, hosted-only): use the SAFE OWNING TYPES —
   `TcpListener` and `TcpStream` (both NoCopy, `Deinit` closes the fd exactly once).
   NO raw fds, NO pointers, NO `io_wait` in your code — suspension is hidden INSIDE

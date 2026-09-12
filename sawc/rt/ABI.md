@@ -316,6 +316,87 @@ including shells and pipelines it did not write. Pipes keep their behaviour;
 only sockets change. The user-visible consequence is that a write to a hung-up
 client is an ordinary `Err(IoError)` with kind `BrokenPipe`.
 
+### Runtime-INTERNAL signal helpers (design 272 unit 3)
+Also `shim.c`, also outside the frozen set, for the same reason: signal numbers
+are per-host macros (`SIGUSR1` is 30 on macOS and 10 on Linux).
+
+`__saw_signal_number(tag) -> word` maps a portable tag to this host's number,
+`-1` for a signal this host lacks. The tag space:
+
+| Tag | Signal          | C name     |
+|-----|-----------------|------------|
+| 1   | Terminate       | `SIGTERM`  |
+| 2   | Interrupt       | `SIGINT`   |
+| 3   | Hangup          | `SIGHUP`   |
+| 4   | Quit            | `SIGQUIT`  |
+| 5   | User1           | `SIGUSR1`  |
+| 6   | User2           | `SIGUSR2`  |
+| 7   | WindowChanged   | `SIGWINCH` |
+
+`__saw_signal_watch(signo) -> word` installs a handler and returns the watch
+pipe's READ END, or `-1` (bad signal) / `-2` (already watched) / `-3` (the pipe
+or the handler could not be installed). `__saw_signal_unwatch(signo)` restores
+the disposition and drains. `__saw_signal_raise(signo) -> word` sends the signal
+to this process. `__saw_signal_drain(signo) -> word` takes the deliveries
+belonging to the CURRENT watch off that signal's pipe — a positive count, or
+`-1` for nothing pending.
+
+**Three invariants this family rests on**, each earned by a race a review
+reproduced against an earlier version (the first two at r1, the third at r3):
+
+1. **The watch transaction is serialized.** Initialization, the already-watched
+   check, descriptor publication and `sigaction` installation are one
+   transaction under a mutex. Unsynchronized, two callers could both acquire one
+   signal and each save the other's handler as the "previous" disposition. The
+   HANDLER takes no lock and must not: it can interrupt a thread already inside
+   that mutex.
+2. **Nothing a handler can reach is ever reclaimed.** A signal's pipe is created
+   at its first watch and lives for the process; `unwatch` closes nothing.
+   Restoring a disposition stops future handler entries but not one already past
+   its descriptor load, and closing the pipe under such a handler frees the
+   descriptor number for reuse — the delayed write then lands in an unrelated
+   resource. Costs at most two descriptors per watched signal.
+
+3. **The handler takes exactly ONE snapshot, and the tag never recurs.** A
+   single word per signal packs the generation (bits 63..1) and the watched flag
+   (bit 0); the handler derives both from one atomic acquire load and stamps its
+   record with the generation it saw. The drain validates against the word it
+   loads itself.
+
+   Both halves are load-bearing and neither substitutes for the other. Three
+   separate loads let a handler paused after observing `watched` read a LATER
+   watch's generation and label its old delivery current — one rewatch was
+   enough to show it. A short tag recurs: seven bits came back around after 128
+   watch cycles. One snapshot fixes the first; 63 monotonic bits, never reset,
+   fix the second — recurrence would need 2^63 (~9.2e18) complete watch cycles
+   while one handler stays paused, which at a nanosecond each is over 290 years.
+
+   The handler STAMPS and the reader VALIDATES, never the other way round: a
+   handler that validated before writing would have a window between the two.
+   Records are eight bytes, far under `PIPE_BUF`, so a pipe write is atomic and
+   records never interleave or split.
+
+A runtime provider replacing these must keep all three invariants; they are contract,
+not implementation detail.
+
+**NO REACTOR SEAM WAS ADDED.** The design-272 brief expected one, and the
+mechanism check the SL-228 issue asked for came back the other way: the handler
+writes one byte to a pipe, and a pipe read end is an ordinary readable
+descriptor that `__saw_rt_reactor_register(r, fd, write, token)` already
+carries. The natives the sketch named would each have needed a signal-shaped
+registration the frozen `(fd, write, token)` seam cannot express.
+
+Three reasons the pipe won, recorded because the sketch pointed elsewhere: no
+frozen-seam change; ONE mechanism on both hosts rather than two (kqueue's
+`EVFILT_SIGNAL` observes delivery and needs the disposition set to `SIG_IGN`,
+Linux's `signalfd` consumes a BLOCKED signal and needs a mask — different enough
+to be two implementations wearing one name); and no thread-ordering hazard,
+which is decisive. `signalfd` requires the signal blocked in EVERY thread, and a
+thread that already existed when the watch began cannot be made to block it, so
+a process-directed signal delivered there takes the default action and kills the
+process. A handler runs on whichever thread takes the signal and has no such
+requirement.
+
 ## Status-carrying network ops (design 117)
 
 Each does its syscall(s) and returns `>= 0` on success/count or `-tag` on failure.
