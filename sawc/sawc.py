@@ -2012,6 +2012,31 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
     # codegen still decides, and every decision is checked against the fixpoint
     # on the way past. Stage 3 turns the check into the lookup.
     codegen.mono_registry = mono
+
+    # design 270 (SL-212): THE PRESERVATION AUDIT, off by default.
+    #
+    # Four passes rewrite bodies between the tree the checker judged and this
+    # one, and a decision keyed to an occurrence detaches the moment a pass
+    # replaces the node it names. `typechecker/preservation.py` is the one
+    # funnel that checks it did not; the `transferdecisions` battery lane drives
+    # it over a fixture corpus, and this switch runs the same funnel on EVERY
+    # compile, which is how the whole `examples/` corpus is swept.
+    #
+    # It stays a switch rather than a phase because the mandatory pre-codegen
+    # verifier is unit E (SL-214), which this is the engine for. Nothing is
+    # imported unless the switch is on, so an ordinary compile pays nothing —
+    # which is also what keeps `irdet` and `reemit` looking at the same work.
+    if os.environ.get("SAW_TRANSFER_AUDIT"):
+        from typechecker import preservation
+        report = preservation.audit_preservation(
+            merged_ast, typechecker.transfer_decisions(),
+            typechecker.retain_obligations())
+        print(f"  {preservation.summary(report)}")
+        for finding in report.findings:
+            print(f"  TRANSFER-PRESERVATION: {finding}", file=sys.stderr)
+        if report.findings and os.environ.get("SAW_TRANSFER_AUDIT") == "strict":
+            sys.exit(1)
+
     return codegen, merged_ast
 
 

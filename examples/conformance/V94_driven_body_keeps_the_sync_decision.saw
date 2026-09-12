@@ -1,0 +1,85 @@
+// Conformance row V94 — the coroutine transform executes the decision the
+// checker made: a driven body duplicates and releases exactly as its sync twin
+//
+// Design 270 (SL-212), unit C of SL-209. The transform is the pass that changes
+// a body most: locals become frame fields, reads of them become projections of
+// `self`, and statements are split and re-emitted around every suspension. The
+// checkpoint then DECLINES to re-judge those synthesized reads — a frame read
+// is marked `frame_place_read` and the transfer decision records `deferred`,
+// on the stated ground that the pre-transform tree already answered.
+//
+// That is a real hand-off and it is sound, but nothing pinned its RESULT. This
+// row pins it the only way that cannot drift: the same transfers, written once
+// in a sync function and once in a driven one, with a counting oracle that
+// reports every implicit duplication and every release. The two halves must
+// agree line for line.
+//
+// A double-pay (the deferral re-judged on top of the transform's own
+// bookkeeping) shows up as an extra `copy`; a lost retain shows up as a missing
+// one, which at the owning tier is a second `drop`. Both are visible here and
+// invisible in the exit code, which is why this row exists.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: -- sync
+// EXPECT-OUTPUT: copy 5
+// EXPECT-OUTPUT: copy 5
+// EXPECT-OUTPUT: copied 15
+// EXPECT-OUTPUT: drop 9
+// EXPECT-OUTPUT: moved 9
+// EXPECT-OUTPUT: -- driven
+// EXPECT-OUTPUT: copy 5
+// EXPECT-OUTPUT: copy 5
+// EXPECT-OUTPUT: copied 15
+// EXPECT-OUTPUT: drop 9
+// EXPECT-OUTPUT: moved 9
+// EXPECT-OUTPUT: end
+
+struct Counted { n: Int }
+extension Counted: Copy {
+    func copy(&self) -> Counted { print("copy {}", self.n)  Counted(n: self.n) }
+}
+
+struct Owned { n: Int }
+extension Owned: NoCopy {
+    func deinit(&var self) { print("drop {}", self.n) }
+}
+
+func sink_copy(c: Counted) -> Int { c.n }
+func sink_owned(o: Owned) -> Int { o.n }
+
+// TWO duplications of one Copy-tier binding: each argument reads storage the
+// frame keeps, so each owes its own reference.
+func copied_sync(seed: Counted) -> Int {
+    let x = sink_copy(seed)
+    let y = sink_copy(seed)
+    x + y + seed.n
+}
+
+func copied_driven(seed: Counted) -> Int {
+    let x = sink_copy(seed)
+    __saw_suspend()
+    let y = sink_copy(seed)
+    __saw_suspend()
+    x + y + seed.n
+}
+
+// The owning tier beside it: the frame hands its own reference over, so the
+// value is released exactly once, by the callee.
+func moved_sync(o: Owned) -> Int { sink_owned(move o) }
+
+func moved_driven(o: Owned) -> Int {
+    __saw_suspend()
+    sink_owned(move o)
+}
+
+func main() {
+    print("-- sync")
+    print("copied {}", copied_sync(Counted(n: 5)))
+    print("moved {}", moved_sync(Owned(n: 9)))
+
+    print("-- driven")
+    print("copied {}", __saw_drive(copied_driven(Counted(n: 5))))
+    print("moved {}", __saw_drive(moved_driven(Owned(n: 9))))
+
+    print("end")
+}

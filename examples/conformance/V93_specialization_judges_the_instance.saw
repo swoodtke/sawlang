@@ -1,0 +1,60 @@
+// Conformance row V93 — a generic body's transfer is judged AT THE INSTANCE,
+// never inherited from the template
+//
+// Design 270 (SL-212), unit C of SL-209. The template's own check cannot answer
+// a copy-tier question: `T` is abstract there, so the checkpoint records
+// `deferred` and names the type parameters still owed
+// (design 267's `pending`). The answer exists only per instantiation, and the
+// compiler gets it by RE-DERIVING — `mono_copy.substituting_copy` clones the
+// body with fresh node ids and `materialize_instance` runs the checker over the
+// clone, so each instance files its own decision at its own tier.
+//
+// This row is what makes that visible from outside. A decision carried from the
+// template onto its clones — SL-212's own forbidden shape, "blindly reuse
+// decisions tied to an abstract type or another instance" — would have to give
+// BOTH instantiations one answer, and the two lines below disagree: the `Copy`
+// instantiation duplicates through its hook, the trivial one duplicates
+// bitwise and calls nothing. One template, two answers.
+//
+// THE ORACLE IS THE COPY HOOK (V89's). A hand-written `copy()` inside a `Copy`
+// conformance is called at exactly the transfer sites no source construct
+// names, so each printed line is one implicit duplication, in order. The
+// projection read `w.v` is the duplicating position: partial moves do not
+// exist, so the source keeps its value and the read is a copy at whatever tier
+// the instantiation supplies.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: copy 1
+// EXPECT-OUTPUT: counted 1
+// EXPECT-OUTPUT: trivial 7
+// EXPECT-OUTPUT: copy 2
+// EXPECT-OUTPUT: nested 2
+// EXPECT-OUTPUT: end
+
+struct Counted { n: Int }
+extension Counted: Copy {
+    func copy(&self) -> Counted { print("copy {}", self.n)  Counted(n: self.n) }
+}
+
+struct Held<T> { v: T }
+
+// ONE template. The read `w.v` is a projection out of storage the body does not
+// own, so it is a duplication at every instantiation — and WHICH duplication is
+// the instantiation's question, not the template's.
+func take_held<T: Copy>(w: &Held<T>) -> T { w.v }
+
+func main() {
+    let a = Held<Counted>(v: Counted(n: 1))
+    print("counted {}", take_held(&a).n)
+
+    let b = Held<Int>(v: 7)
+    print("trivial {}", take_held(&b))
+
+    // A second Copy-tier instantiation through a DIFFERENT type argument shape
+    // (`Held<Held<Counted>>`): the outer read duplicates the inner wrapper,
+    // which the automatic tier (design 159) carries through to its member.
+    let c = Held<Held<Counted>>(v: Held<Counted>(v: Counted(n: 2)))
+    print("nested {}", take_held(&c).v.n)
+
+    print("end")
+}

@@ -1,0 +1,87 @@
+// XFAIL: SL-267 — a driven body's NON-ESCAPING closure capture duplicates
+// twice where its sync twin duplicates once. `_materialize_closure_captures`
+// rewrites every implicit capture of a frame-resident local into an explicit
+// `[move __capN_<name>]` capture and materializes that local with an
+// `owning_read` frame read — the ESCAPING closure's discipline, applied
+// unconditionally — so the transform mints a reference the sync lowering of a
+// non-escaping closure never mints. Counts balance (the environment releases at
+// frame death), so this is a duplication too many rather than a leak or a
+// double free. Fixing it changes an observable, so design 270 (SL-212) files it
+// and pins it rather than fixing it: unit C is behaviour-preserving.
+//
+// Conformance row V96 — a closure capture duplicates exactly as its sync twin
+//
+// The guarantee is the epic's own acceptance sentence for unit C: "sync and
+// suspending versions have equivalent ownership behavior". The duplication
+// half of that is what this row states; the release half is V95, which passes.
+//
+// THE ORACLE IS THE COPY HOOK (V89's). A hand-written `copy()` inside a `Copy`
+// conformance is called at exactly the transfer sites no source construct
+// names (design 219), so each printed line is one implicit duplication, in
+// order. The ESCAPING row beside it is the control: there the sync environment
+// already retains, so the two halves agree today and must keep agreeing.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: -- sync
+// EXPECT-OUTPUT: copy 1
+// EXPECT-OUTPUT: nonescaping 1
+// EXPECT-OUTPUT: copy 2
+// EXPECT-OUTPUT: copy 2
+// EXPECT-OUTPUT: escaping 2
+// EXPECT-OUTPUT: -- driven
+// EXPECT-OUTPUT: copy 1
+// EXPECT-OUTPUT: nonescaping 1
+// EXPECT-OUTPUT: copy 2
+// EXPECT-OUTPUT: copy 2
+// EXPECT-OUTPUT: escaping 2
+// EXPECT-OUTPUT: end
+
+struct Counted { n: Int }
+extension Counted: Copy {
+    func copy(&self) -> Counted { print("copy {}", self.n)  Counted(n: self.n) }
+}
+
+func run_int(body: () sync -> Int) -> Int { body() }
+
+// The row that diverges: the closure is passed straight to the call that runs
+// it, so its environment is stack-resident and the capture reads the local
+// where it sits. One duplication — the `let held = seed` above it.
+func nonescaping_sync(seed: Counted) -> Int {
+    let held = seed
+    run_int({ held.n })
+}
+
+func nonescaping_driven(seed: Counted) -> Int {
+    let held = seed
+    __saw_suspend()
+    run_int({ held.n })
+}
+
+// The CONTROL: an escaping closure's environment is a refcounted heap block, so
+// the capture takes its own reference in both lowerings. Two duplications,
+// sync and driven alike — this row agrees today and pins that it keeps doing so
+// when SL-267's fix lands.
+func escaping_sync(seed: Counted) -> Int {
+    let held = seed
+    let f = { held.n }
+    f()
+}
+
+func escaping_driven(seed: Counted) -> Int {
+    let held = seed
+    __saw_suspend()
+    let f = { held.n }
+    f()
+}
+
+func main() {
+    print("-- sync")
+    print("nonescaping {}", nonescaping_sync(Counted(n: 1)))
+    print("escaping {}", escaping_sync(Counted(n: 2)))
+
+    print("-- driven")
+    print("nonescaping {}", __saw_drive(nonescaping_driven(Counted(n: 1))))
+    print("escaping {}", __saw_drive(escaping_driven(Counted(n: 2))))
+
+    print("end")
+}

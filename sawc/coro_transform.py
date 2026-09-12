@@ -1246,7 +1246,7 @@ def _substitute(old, new):
 
 
 def _read_field(name, encoding, line=0, column=0, owning_read=False,
-                move_read=False, saw_type=None):
+                move_read=False, saw_type=None, origin=None):
     """The rewritten read of frame field `name`.
 
     `saw_type` is design 210's half: the type of the LOCAL this read replaces.
@@ -1308,19 +1308,44 @@ def _read_field(name, encoding, line=0, column=0, owning_read=False,
     asking codegen for a retain the checker never saw. A tier-wrong choice
     between the two is a compile error on generated code, which is the whole
     point of the migration.
+    `origin` is design 270's (SL-212) half: THE NODE THIS READ REPLACES, when
+    there is one. This function is two operations wearing one name, and the
+    difference is exactly whether a caller can supply it.
+
+      * A REWRITE — `_rewrite_expr`'s identifier and `move` arms, the receiver
+        path, the `self`-field arm — hands over the pre-transform expression it
+        is replacing. That expression was judged at the transfer checkpoint
+        before the transform ran, so a decision for it exists; stamping
+        `origin_node_id` is the one hop back to it, and it is what lets the
+        post-transform `deferred` record say `coro-frame-rewrite` and name the
+        settlement it is deferring TO.
+      * A SYNTHESIS — `_materialize_closure_captures`'s four arms — builds a
+        read that no pre-transform expression ever was: the transform is
+        materializing an implicit capture, choosing the read's ownership from
+        `_frame_read_policy`. There is no antecedent because there was no
+        earlier transfer, and the record says `coro-frame-synthesis` instead.
+
+    Passing `None` is therefore a CLAIM, not an omission, and the preservation
+    audit reads it as one.
     """
+    def _from(node):
+        """Stamp the antecedent, if this call has one."""
+        if origin is not None and isinstance(node, Expression):
+            node.origin_node_id = getattr(origin, 'node_id', None)
+        return node
+
     if _enc_is_slot(encoding):
-        return _slot_read(_self_field(name, line, column),
-                          "take" if move_read else "value",
-                          saw_type, line=line, column=column)
+        return _from(_slot_read(_self_field(name, line, column),
+                                "take" if move_read else "value",
+                                saw_type, line=line, column=column))
     if encoding == "ref":
         # Census P2, the stage-3 form of design 88's reference field. The read
         # was `self.name[0]` under a `frame_place_read` mark; it is now the
         # handle's own lend, judged like `__recv`'s and like anybody else's
         # `borrows` accessor. A reference binding NEVER owns, so there is no
         # move/borrow distinction to make here — `deref()` serves both.
-        return _unsaferef_deref(_self_field(name, line, column), saw_type,
-                                line=line, column=column)
+        return _from(_unsaferef_deref(_self_field(name, line, column), saw_type,
+                                      line=line, column=column))
 
     # DEFERRED: opt_closure, address-taken, window-move, void-payload,
     # fixed-array — THE legacy read, so every deferred family reaches it and it
@@ -1351,8 +1376,8 @@ def _read_field(name, encoding, line=0, column=0, owning_read=False,
         # this arm). Design 247 took the `__matchN`/`__hoistN` temps off it.
         if owning_read:
             fu.frame_owning_read = True
-        return _answered(fu, saw_type)
-    return _answered(acc, saw_type)
+        return _from(_answered(fu, saw_type))
+    return _from(_answered(acc, saw_type))
 
 
 # The expression kinds whose check CONSULTS THE NAMESPACE — the ones whose
@@ -1661,7 +1686,7 @@ def _rewrite_node(node, encmap):
     and are untouched; only bare Identifier EXPRESSIONS are rewritten."""
     if isinstance(node, Identifier) and node.name in encmap:
         return _read_field(node.name, encmap[node.name], node.line, node.column,
-                           saw_type=node.resolved_type)
+                           saw_type=node.resolved_type, origin=node)
     if isinstance(node, ASTNode):
         for f in structural_fields(node):
             setattr(node, f.name, _rewrite_val(getattr(node, f.name), encmap))
@@ -7594,7 +7619,7 @@ class _FrameBuilder:
             read = _read_field(name, enc, getattr(node, 'line', 0),
                                getattr(node, 'column', 0),
                                move_read=_enc_owns(enc),
-                               saw_type=node.resolved_type)
+                               saw_type=node.resolved_type, origin=node)
             # design 131: `move o!` moved the binding AND projected the payload.
             # The `move` half is what the field read + `__saw_forget` above
             # express; re-apply the `!` so the expression still has the payload's
@@ -7630,7 +7655,7 @@ class _FrameBuilder:
             inner = node.expr
             node.expr = _substitute(inner, _read_field(
                 inner.name, self.encmap[inner.name], inner.line, inner.column,
-                owning_read=True, saw_type=inner.resolved_type))
+                owning_read=True, saw_type=inner.resolved_type, origin=inner))
             return node
         if isinstance(node, Identifier) and node.name in self.encmap:
             enc = self.encmap[node.name]
@@ -7642,10 +7667,10 @@ class _FrameBuilder:
             if self._takes_temp(node.name):
                 return _read_field(node.name, enc, node.line, node.column,
                                    move_read=True,
-                                   saw_type=node.resolved_type)
+                                   saw_type=node.resolved_type, origin=node)
             return _read_field(node.name, enc, node.line,
                                node.column, owning_read=True,
-                               saw_type=node.resolved_type)
+                               saw_type=node.resolved_type, origin=node)
         if isinstance(node, ASTNode):
             for f in structural_fields(node):
                 setattr(node, f.name,

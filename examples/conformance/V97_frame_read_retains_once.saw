@@ -1,0 +1,67 @@
+// Conformance row V97 — a frame read that the transform judges ITSELF retains
+// exactly once
+//
+// Design 270 (SL-212), unit C of SL-209. When a local lives across a
+// suspension it becomes a frame field, and every read of it becomes a
+// projection of `self` that the transform stamps `frame_place_read`. The
+// transfer checkpoint then DECLINES to judge that read — the decision it files
+// is `deferred`, reason "the transform's own bookkeeping settled it on the
+// pre-transform AST" — and codegen's `frame_owning_read` supplies the retain.
+//
+// That is a genuine hand-off between two passes, and it has exactly two failure
+// modes: judge the read twice and the value is retained twice, honour nobody
+// and it is retained not at all. The first leaks; the second is a refcount
+// underflow and a use-after-free. Neither is visible in the exit code, and
+// neither was pinned — the ledger could not even say which of the two answers
+// was in force, because a deferral named nothing.
+//
+// THE ORACLE IS `Arc.strong_count()`, read from inside the callee that received
+// the transfer, so it counts the references live AT the transfer rather than
+// after any temporary has died. Three is the right answer on both paths — the
+// caller's binding, the retain the outer call minted, and the retain `observe`'s
+// own argument minted — and the point of the row is that the DRIVEN path, where
+// the middle one of those three is a frame read nobody re-judges, reaches the
+// same number. `after 1` is the other half: every minted reference is released
+// again, so the binding is back to being the sole owner.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: -- sync
+// EXPECT-OUTPUT: inside 3
+// EXPECT-OUTPUT: after 1
+// EXPECT-OUTPUT: -- driven
+// EXPECT-OUTPUT: inside 3
+// EXPECT-OUTPUT: after 1
+// EXPECT-OUTPUT: end
+
+struct Counted { n: Int }
+
+// The callee OWNS what it was handed, so the count it reads includes the
+// caller's own reference plus the one this transfer minted.
+func observe(a: Arc<Counted>) -> Int { a.strong_count() }
+
+func held_sync(a: Arc<Counted>) -> Int {
+    observe(a)
+}
+
+// The same transfer, with the binding forced into a frame field by the
+// suspension either side of it.
+func held_driven(a: Arc<Counted>) -> Int {
+    __saw_suspend()
+    let seen = observe(a)
+    __saw_suspend()
+    seen
+}
+
+func main() {
+    print("-- sync")
+    let a = try! Arc(value: Counted(n: 1))
+    print("inside {}", held_sync(a))
+    print("after {}", a.strong_count())
+
+    print("-- driven")
+    let b = try! Arc(value: Counted(n: 1))
+    print("inside {}", __saw_drive(held_driven(b)))
+    print("after {}", b.strong_count())
+
+    print("end")
+}

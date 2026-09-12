@@ -3537,7 +3537,7 @@ class TypeUtilsMixin:
             # read and the SOURCE for an `if let` / `??` over a frame field.)
             return
         if source is None or not self._is_aliasing_expr(source):
-            node.payload_needs_copy = False
+            self._stamp_retain(node, 'payload_needs_copy', False)
             return
         # A `borrows` accessor's result is judged by the PLACE rule instead
         # (`place_uses._value_read_ok`), which knows the element type, the
@@ -3557,10 +3557,16 @@ class TypeUtilsMixin:
         # the authority for a place source at every pass, so it takes the mark
         # away as well as declining to add one.
         if self._reads_a_place(source):
-            node.payload_needs_copy = False
+            self._stamp_retain(node, 'payload_needs_copy', False)
             return
         policy = self._payload_read_policy(payload_type)
-        node.payload_needs_copy = (policy == 'retain')
+        # design 270 / the SL-212 r2 review: the site that STAMPS is the site
+        # that RECORDS. This is the funnel design 131 already routes every
+        # payload face through — `o!`, both `??` arms, `if let`, `guard let`,
+        # `while let` — so recording here is what makes the obligation exist
+        # wherever the retain does, rather than only where a decision happens to
+        # carry it.
+        self._stamp_retain(node, 'payload_needs_copy', policy == 'retain')
         if policy == 'nocopy':
             # One policy, two refusals: the tier says "not silently duplicable",
             # and the CONFORMANCE says whether `.copy()` is among the ways out
@@ -4488,6 +4494,28 @@ class TypeUtilsMixin:
         """
         extra_delegates: Tuple = ()
 
+        # design 270 (SL-212): a node the COROUTINE TRANSFORM built or rewrote
+        # carries that fact into whatever arm judges it, so a decision that
+        # differs from the one the pre-transform tree made is a RECORDED
+        # hand-off rather than a silent rewrite. The sharpest case is a `move`
+        # of a frame-resident local: the author's `move x` was decided `move`,
+        # and the frame read that replaces it is decided `take` — the frame
+        # hands its own reference over through the paired `__saw_forget`, so the
+        # value really is a temporary the reader owns. Both answers are right
+        # for their own tree; without the note the second looks like the first
+        # one lost. An arm that names its own discharge (the frame-read
+        # deferral, the §1c skips) wins over this default.
+        transform_note = None
+        if expr is not None and any(
+                getattr(expr, mark, False) for mark in
+                ('frame_place_read', 'frame_move_read', 'frame_owning_read',
+                 'frame_slot_op')):
+            transform_note = (
+                ownership.DISCHARGE_CORO_REWRITE
+                if self.transfer_node_was_judged(
+                    getattr(expr, 'origin_node_id', None))
+                else ownership.DISCHARGE_CORO_SYNTHESIS)
+
         def decide(**kw):
             """File this occurrence's decision. THE local writer.
 
@@ -4496,8 +4524,12 @@ class TypeUtilsMixin:
             result source has already filed. Today that is a `try`'s catch
             handler, judged ahead of the `try`'s own Ok projection;
             `tools/test_transfer_decisions.py` is what keeps the routing true.
+            It is also where the coroutine transform's note is applied, for the
+            same reason: one place, so no arm can drop it.
             """
             kw['delegates'] = tuple(kw.get('delegates', ())) + extra_delegates
+            if transform_note is not None and not kw.get('discharge'):
+                kw['discharge'] = transform_note
             return self._decide_transfer(expr, target_type, context,
                                          line, column, **kw)
 
@@ -4680,6 +4712,7 @@ class TypeUtilsMixin:
                 action=ownership.ACTION_DELEGATED,
                 cleanup=ownership.CLEANUP_NONE,
                 source_type=src_type,
+                discharge=ownership.DISCHARGE_PAYLOAD_READ,
                 reason="a payload read: `_check_payload_read` owns the rule "
                        "and marks the retain on the unwrap (design 131)",
                 is_return=is_return)
@@ -4694,12 +4727,29 @@ class TypeUtilsMixin:
         # guard since design 131; the un-projected path needs it for the same
         # reason, and needed it the moment `Result<T, E>` gained a tier.
         if getattr(expr, 'frame_place_read', False):
+            # design 270 (SL-212): WHICH hand-off this is, said out loud. A
+            # frame read is one of two operations wearing one mark. A REWRITE
+            # replaced a pre-transform read, so an earlier decision exists and
+            # `origin_node_id` — stamped by `_read_field`'s rewrite callers —
+            # is the hop back to it. A SYNTHESIS (the closure-capture
+            # materialization) built a read no pre-transform expression ever
+            # was, so there is nothing to point at and the transform is the
+            # authority. Both used to record the same bare `deferred`, which
+            # made a settled boundary indistinguishable from an unjudged one.
+            rewritten = self.transfer_node_was_judged(
+                getattr(expr, 'origin_node_id', None))
             return decide(
                 action=ownership.ACTION_DEFERRED,
                 cleanup=ownership.CLEANUP_NONE,
                 source_type=src_type,
+                discharge=(ownership.DISCHARGE_CORO_REWRITE if rewritten
+                           else ownership.DISCHARGE_CORO_SYNTHESIS),
                 reason="a coroutine-frame read: the transform's own "
-                       "bookkeeping settled it on the pre-transform AST",
+                       "bookkeeping settled it on the pre-transform AST"
+                       if rewritten else
+                       "a coroutine-frame read the transform SYNTHESIZED: no "
+                       "pre-transform expression was ever here, so the "
+                       "transform is the authority",
                 is_return=is_return)
 
         # PROVENANCE SKIP (design 218c §1c, skip 4) — A TRANSFER OF A BY-VALUE
@@ -4716,6 +4766,8 @@ class TypeUtilsMixin:
                 action=ownership.ACTION_DEFERRED,
                 cleanup=ownership.CLEANUP_NONE,
                 source_type=src_type,
+                discharge=(f"{ownership.DISCHARGE_TIER_REQUIREMENT}:"
+                           f"{self._mono_instance}.{expr.name}"),
                 reason="design 218c §1c skip 4: the TEMPLATE raised the "
                        "requirement and every call site discharged it",
                 is_return=is_return)
@@ -4734,6 +4786,8 @@ class TypeUtilsMixin:
                 action=ownership.ACTION_DEFERRED,
                 cleanup=ownership.CLEANUP_NONE,
                 source_type=src_type,
+                discharge=(f"{ownership.DISCHARGE_TIER_REQUIREMENT}:"
+                           f"{self._mono_instance}.<return>"),
                 reason="design 218c §1c skip 5: the TEMPLATE judged this "
                        "return abstractly and the call sites discharged it",
                 is_return=is_return)
@@ -4802,7 +4856,8 @@ class TypeUtilsMixin:
         # SAY so, or an earlier pass's answer stands. Hence the unconditional
         # assignment here rather than a stamp in the `implicit` arm alone.
         if isinstance(expr, TryExpr):
-            expr.payload_needs_copy = bool(aliasing and tier == 'implicit')
+            self._stamp_retain(expr, 'payload_needs_copy',
+                               bool(aliasing and tier == 'implicit'))
 
         # A DIVERGING SOURCE ACQUIRES NOTHING (SL-210 review). `let x: Int =
         # panic("stop")` has a `Never`-typed initializer: control never reaches
@@ -4887,11 +4942,21 @@ class TypeUtilsMixin:
                 # above, on the Ok path alone — see the note beside the
                 # aliasing question. Stamping the node here as well would
                 # restore the double copy that annotation exists to remove.
-                expr.needs_copy = True
+                self._stamp_retain(expr, 'needs_copy', True)
+            # design 270 / the SL-212 review's P2: name the annotation this
+            # decision needs codegen to see, READ BACK off the node rather than
+            # assumed, so the ledger carries the obligation instead of the
+            # annotation carrying it alone. Clearing the stamp afterwards then
+            # contradicts a record it cannot reach.
             return decide(
                 action=ownership.ACTION_COPY,
                 cleanup=ownership.CLEANUP_RETAIN_SOURCE,
                 tier=tier, source_type=src_type,
+                lowering=('needs_copy'
+                          if getattr(expr, 'needs_copy', False)
+                          else 'payload_needs_copy'
+                          if getattr(expr, 'payload_needs_copy', False)
+                          else None),
                 reason="the silent Copy tier: codegen duplicates through the "
                        "type's own copy operation and the source stays live"
                        + (" — on the Ok path only, at the extraction"
@@ -4907,11 +4972,14 @@ class TypeUtilsMixin:
             # site discharges against its concrete argument.
             self._tier_req_transfer(expr, src_type, line, column,
                                     is_return=is_return)
+            pending = tuple(self._tier_abstract_params_in(src_type))
             return decide(
                 action=ownership.ACTION_DEFERRED,
                 cleanup=ownership.CLEANUP_NONE,
                 tier=tier, source_type=src_type,
-                pending=tuple(self._tier_abstract_params_in(src_type)),
+                pending=pending,
+                discharge=(f"{ownership.DISCHARGE_SPECIALIZATION}:"
+                           f"{','.join(pending) or '?'}"),
                 reason="the tier is a property of the instantiation: design "
                        "219 wave C raises the requirement and every call site "
                        "discharges it",

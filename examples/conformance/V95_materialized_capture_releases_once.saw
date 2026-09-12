@@ -1,0 +1,85 @@
+// Conformance row V95 — a closure capture the coroutine transform MATERIALIZES
+// releases exactly once, and a materialized RECEIVER capture releases nothing
+//
+// Design 270 (SL-212), unit C of SL-209. In a driven body a closure's captures
+// are not the captures the checker saw: the locals have become frame fields, so
+// the transform rewrites each capture into an explicit `let` whose initializer
+// is a frame read, choosing that read's ownership by asking
+// `_frame_read_policy` — a `move_read` plus a paired `__saw_forget` for the
+// move-only tier, a borrow for a receiver (a receiver IS a reference, so there
+// is nothing to transfer and nothing to release).
+//
+// Those reads are SYNTHESIZED: no pre-transform expression was ever there, so
+// unlike a rewritten read they have no earlier decision to defer to. The
+// transform is the author, and this row is the check on its authorship. Design
+// 270 names the family `coro-frame-synthesis` precisely so it cannot be
+// mistaken in the ledger for a boundary nothing judged.
+//
+// THE RELEASE side is what this row pins, sync twin beside driven row. The
+// DUPLICATION side of the same materialization is V96, an XFAIL pin of SL-267:
+// the silently-copyable tier is where the two halves disagree, and stating the
+// release rule here keeps the half that holds from riding on the half that does
+// not.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: -- sync
+// EXPECT-OUTPUT: drop 4
+// EXPECT-OUTPUT: moved 4
+// EXPECT-OUTPUT: borrowed 6
+// EXPECT-OUTPUT: drop 6
+// EXPECT-OUTPUT: -- driven
+// EXPECT-OUTPUT: drop 4
+// EXPECT-OUTPUT: moved 4
+// EXPECT-OUTPUT: borrowed 6
+// EXPECT-OUTPUT: drop 6
+// EXPECT-OUTPUT: end
+
+struct Owned { n: Int }
+extension Owned: NoCopy {
+    func deinit(&var self) { print("drop {}", self.n) }
+}
+
+func run_int(body: () sync -> Int) -> Int { body() }
+
+// The move-only tier: the capture list states the transfer, the frame hands its
+// own reference over through the paired `__saw_forget`, and the environment
+// releases the value once — before the caller's `print` of the result, which is
+// what the output order below records.
+func moved_sync(o: Owned) -> Int {
+    run_int({ [move o] in o.n })
+}
+
+func moved_driven(o: Owned) -> Int {
+    __saw_suspend()
+    run_int({ [move o] in o.n })
+}
+
+// The RECEIVER arm of the same materialization (design 216): a closure in a
+// driven method body naming `self` captures a BORROW, so the value is released
+// exactly once, by its OWNER, after the method returns — never by the
+// environment.
+extension Owned {
+    func borrowed_sync(&self) -> Int {
+        run_int({ self.n })
+    }
+    func borrowed_driven(&self) -> Int {
+        __saw_suspend()
+        run_int({ self.n })
+    }
+}
+
+func main() {
+    print("-- sync")
+    print("moved {}", moved_sync(Owned(n: 4)))
+    let a = Owned(n: 6)
+    print("borrowed {}", a.borrowed_sync())
+    let _ = move a
+
+    print("-- driven")
+    print("moved {}", __saw_drive(moved_driven(Owned(n: 4))))
+    let b = Owned(n: 6)
+    print("borrowed {}", __saw_drive(b.borrowed_driven()))
+    let _ = move b
+
+    print("end")
+}

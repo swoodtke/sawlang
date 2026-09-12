@@ -1,0 +1,114 @@
+// Conformance row V99 — EVERY face of the payload-read family retains exactly
+// once, and each one's retain is an obligation the compiler records
+//
+// Design 270 (SL-212), the r2 review's class closure. Design 131 made a payload
+// read a PLACE whose copy tier decides the read, and routed every spelling
+// through one funnel (`_check_payload_read`). This row is that funnel's
+// behavioural matrix: one `copy` line per face, no more and no less, at the
+// silently-copyable tier where a missing retain is a refcount underflow and a
+// doubled one is a leak.
+//
+// It is also the audit's own corpus. The preservation audit's P1r asks that a
+// retain the checker stamped is still carried by the program handed to codegen,
+// and it takes that obligation from `_stamp_retain` — the single writer every
+// producer routes through — rather than from the annotation it is an obligation
+// ABOUT. Reading it off the annotation is what let a cleared stamp delete its
+// own check: the reviewer cleared one `ForceUnwrap.payload_needs_copy` and the
+// emitted binary stopped performing a `Copy`-tier retain while the audit stayed
+// green. So this file deliberately contains one of EACH producer, and the lane
+// mutates every (node kind, annotation) pair it finds here.
+//
+// THE ORACLE IS THE COPY HOOK (V89's): a hand-written `copy()` inside a `Copy`
+// conformance runs at exactly the transfer sites no source construct names, so
+// each printed line is one implicit duplication, in order.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: copy 1
+// EXPECT-OUTPUT: force 1
+// EXPECT-OUTPUT: copy 2
+// EXPECT-OUTPUT: coalesce 2
+// EXPECT-OUTPUT: copy 3
+// EXPECT-OUTPUT: iflet 3
+// EXPECT-OUTPUT: copy 4
+// EXPECT-OUTPUT: guardlet 4
+// EXPECT-OUTPUT: copy 5
+// EXPECT-OUTPUT: transfer 5
+// EXPECT-OUTPUT: copy 6
+// EXPECT-OUTPUT: tryok 6
+// EXPECT-OUTPUT: end
+
+struct Counted { n: Int }
+extension Counted: Copy {
+    func copy(&self) -> Counted { print("copy {}", self.n)  Counted(n: self.n) }
+}
+
+// A payload-free enum is trivially copyable, which keeps `Holder` on the
+// automatic Copy tier so the faces below differ only in HOW they read a
+// payload, never in what the container's own policy is.
+enum Bad { case Nope }
+
+struct Holder { slot: Counted?, res: Result<Counted, Bad> }
+
+// FACE 1 — `o!`, the force unwrap. The optional is a binding the frame keeps,
+// so the payload read duplicates.
+func force_unwrap(h: &Holder) -> Int {
+    let got = h.slot!
+    got.n
+}
+
+// FACE 2 — the LEFT operand of `??`. Same funnel, same rule: `a ?? b` yields an
+// owned value either way, so the present path extracts a payload out of storage
+// the source keeps.
+func coalesce(h: &Holder) -> Int {
+    let got = h.slot ?? Counted(n: 0)
+    got.n
+}
+
+// FACE 3 — an `if let` binding.
+func if_let(h: &Holder) -> Int {
+    if let got = h.slot { got.n } else { 0 }
+}
+
+// FACE 4 — a `guard let` binding, whose binding belongs to the enclosing scope.
+func guard_let(h: &Holder) -> Int {
+    guard let got = h.slot else { return 0 }
+    got.n
+}
+
+// FACE 5 — the ordinary Copy-tier transfer beside them, which carries its
+// retain on `needs_copy` rather than on `payload_needs_copy`. Both annotations
+// have to be separable, which is why the row holds one of each.
+func plain_transfer(c: &Counted) -> Int {
+    let got = c
+    got.n
+}
+
+// FACE 6 — a `try`'s Ok payload, whose obligation rides `payload_needs_copy` so
+// that it is paid AT THE EXTRACTION and never on the catch handler's path
+// (design 269, V91).
+func try_ok(h: &Holder) -> Int {
+    let got = try! h.res
+    got.n
+}
+
+func main() {
+    let h1 = Holder(slot: Counted(n: 1), res: Counted(n: 0))
+    print("force {}", force_unwrap(&h1))
+
+    let h2 = Holder(slot: Counted(n: 2), res: Counted(n: 0))
+    print("coalesce {}", coalesce(&h2))
+
+    let h3 = Holder(slot: Counted(n: 3), res: Counted(n: 0))
+    print("iflet {}", if_let(&h3))
+
+    let h4 = Holder(slot: Counted(n: 4), res: Counted(n: 0))
+    print("guardlet {}", guard_let(&h4))
+
+    let c5 = Counted(n: 5)
+    print("transfer {}", plain_transfer(&c5))
+
+    let h6 = Holder(slot: Counted(n: 0), res: Counted(n: 6))
+    print("tryok {}", try_ok(&h6))
+
+    print("end")
+}

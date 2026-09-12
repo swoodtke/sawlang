@@ -115,6 +115,49 @@ ACTIONS = (ACTION_TAKE, ACTION_COPY, ACTION_MOVE, ACTION_NONE, ACTION_BORROW,
 
 
 # ---------------------------------------------------------------------------
+# WHAT ANSWERS FOR A DECISION THAT DECLINES TO ANSWER ITSELF (design 270,
+# SL-212). `deferred` used to be a shrug: four different hand-offs wore one
+# action and an auditor could not tell a DISCHARGED deferral from a boundary
+# nothing judged — which is the exact distinction design 267 built the ledger
+# to make, one level up.
+#
+# THE SET IS CLOSED. `preservation.py` rejects a `deferred` decision whose
+# discharge is not one of these, so a new deferral arm cannot be added without
+# saying where its answer lives.
+# ---------------------------------------------------------------------------
+
+#: design 219 wave C: the generic body raised a copy-tier REQUIREMENT and every
+#: call site discharged it against its concrete argument. Spelled
+#: `tier-requirement:<instance display>.<parameter>`; the §1c skips 4 and 5.
+DISCHARGE_TIER_REQUIREMENT = 'tier-requirement'
+#: The template's own abstract arm. The answer is the INSTANCE's, re-derived by
+#: `materialize_instance` over a fresh clone. Spelled
+#: `specialization:<type parameters>`; legal only in a body that is not emitted.
+DISCHARGE_SPECIALIZATION = 'specialization'
+#: A coroutine-frame read that REPLACED a pre-transform read. The pre-transform
+#: tree judged it, and `antecedent` names that occurrence.
+DISCHARGE_CORO_REWRITE = 'coro-frame-rewrite'
+#: A coroutine-frame read the transform AUTHORED — the closure-capture
+#: materialization builds a read no pre-transform expression ever was, so there
+#: is no antecedent to name and the transform is the authority.
+DISCHARGE_CORO_SYNTHESIS = 'coro-frame-synthesis'
+#: design 131's payload rule owns the judgment (`_check_payload_read`), and it
+#: marks the retain on the unwrap rather than at the transfer site.
+DISCHARGE_PAYLOAD_READ = 'payload-read'
+
+DISCHARGES = (DISCHARGE_TIER_REQUIREMENT, DISCHARGE_SPECIALIZATION,
+              DISCHARGE_CORO_REWRITE, DISCHARGE_CORO_SYNTHESIS,
+              DISCHARGE_PAYLOAD_READ)
+
+
+def discharge_kind(discharge: Optional[str]) -> Optional[str]:
+    """The bare kind of a discharge string, dropping any `:detail` suffix."""
+    if not discharge:
+        return None
+    return discharge.split(':', 1)[0]
+
+
+# ---------------------------------------------------------------------------
 # THE CLEANUP-STATE CHANGE a decision requires. Recorded separately from the
 # action because the two are not the same question: the action says what the
 # destination gets, this says what has to happen to the SOURCE's and the
@@ -195,6 +238,52 @@ class TransferDecision:
     reason: str = ''
     is_return: bool = False
     revision: int = 1
+    #: THE NODE THIS DECISION'S SOURCE DESCENDS FROM (design 270, SL-212), or
+    #: None where the source is not a clone and replaced nothing. Read straight
+    #: off `origin_node_id`, so it is an IDENTITY and never a position.
+    #: Position cannot serve: the coroutine transform synthesizes whole frame
+    #: bodies at line 0 column 0 (26 of one measured fixture's 75 decisions),
+    #: where every synthesized node collides with every other.
+    #:
+    #: A NODE ID AND NOT A FULL KEY, which the first cut got wrong. A key pins
+    #: the BOUNDARY as well as the source, and the transform legitimately reuses
+    #: an author's node at a boundary of its own making — a local the author
+    #: bound at `let binding` is read again at the frame's `field assignment`.
+    #: Keying the antecedent on the descendant's own context asked for a
+    #: decision at a boundary that never existed, and P4 fired on a third of the
+    #: coroutine corpus for it. The question this field answers is "which
+    #: occurrence did my source come from", and that is node-level.
+    antecedent: Optional[int] = None
+    #: WHERE THE ANSWER LIVES when this decision declines to give one. Required
+    #: on every `deferred` decision and drawn from the closed set above;
+    #: optional elsewhere, where it records that a pass other than the
+    #: checkpoint had a hand in the judgment.
+    discharge: Optional[str] = None
+    #: THE ANNOTATION THIS DECISION NEEDS CODEGEN TO SEE — the name of the
+    #: attribute the checkpoint OBSERVED set on the source node at the moment it
+    #: decided (`needs_copy`, or `payload_needs_copy` for design 131's
+    #: extraction), or None where the decision asks for no lowering at all.
+    #:
+    #: THE SL-212 REVIEW'S P2 IS WHY IT IS RECORDED RATHER THAN INFERRED. An
+    #: audit that enumerates "nodes whose `payload_needs_copy` is true" takes
+    #: its obligations FROM the annotation, so clearing the annotation deletes
+    #: the obligation from the audit's own input and the loss certifies clean —
+    #: measured: clearing one `payload_needs_copy` on a `try` left the audit
+    #: green while the emitted program stopped performing the checker's copy.
+    #: Naming the attribute HERE puts the obligation in the ledger, where
+    #: erasing the annotation cannot reach it. It also keeps the two stamps
+    #: separable, which an aggregate count cannot be.
+    lowering: Optional[str] = None
+    #: WHEN this decision was last written, from a per-compile counter. Design
+    #: 267's rule is "the last check is the answer", and `revision` says that
+    #: for ONE key; this says it ACROSS keys, which is what a consumer needs
+    #: when a pass MOVES an expression. The coroutine transform does exactly
+    #: that: a `try` bound by a `let` becomes a call argument, so one live node
+    #: ends up carrying a `copy` at `let binding` and a later `take` at `call
+    #: argument`, and only the second is the program's judgment. Reading the
+    #: earlier one as live demanded a retain the program had correctly stopped
+    #: owing — measured on V91, twice.
+    sequence: int = 0
 
     @property
     def duplicates(self) -> bool:
@@ -225,6 +314,99 @@ class OwnershipLedgerMixin:
         # for the same compile and is the only ordering property anything
         # relies on.
         self._transfer_ledger: Dict[TransferKey, TransferDecision] = {}
+        # Source node id -> its occurrence keys. The same table read the other
+        # way, so "was this node ever judged?" is answerable in O(1) — which is
+        # what lets the coroutine-frame arm tell a REWRITE of a judged node from
+        # a read the transform built out of its own scaffolding (design 270).
+        self._transfer_by_node: Dict[int, List[TransferKey]] = {}
+        # Monotonic write counter. See `TransferDecision.sequence`.
+        self._transfer_seq: int = 0
+        # node_id -> the annotation name that node's retain is carried by.
+        # Written only by `_stamp_retain`. See its docstring.
+        self._retain_obligations: Dict[int, str] = {}
+
+    # ------------------------------------------------------------------
+    # The retain obligation.
+    # ------------------------------------------------------------------
+
+    #: The annotations that CARRY a retain into codegen. A value read out of
+    #: storage its owner keeps is duplicated by codegen because one of these is
+    #: set, and by nothing else.
+    RETAIN_ANNOTATIONS = ('needs_copy', 'payload_needs_copy')
+
+    def _stamp_retain(self, node, attribute: str, required: bool) -> None:
+        """Set a retain annotation AND record the obligation it creates.
+
+        THE ONE WRITER of `needs_copy` and `payload_needs_copy`, and the reason
+        it exists is the SL-212 review's finding, generalized to its class
+        (obligation 4).
+
+        THE MECHANISM. An audit that enumerates "nodes whose `needs_copy` is
+        true" takes its obligations FROM the annotation, so clearing the
+        annotation deletes the obligation from the audit's own input and the
+        loss certifies clean. Revision 2 answered that for the ONE arm that
+        records a decision carrying `lowering` — and the reviewer then found the
+        sibling it could not reach: `_check_payload_read` stamps
+        `payload_needs_copy` on an `o!` and the checkpoint files
+        `delegated`/`payload-read` with no obligation at all, so clearing that
+        stamp dropped a real `Copy`-tier retain (`got 7` with no `copy 7`) under
+        a green audit.
+
+        Patching that arm would have been the third patch to one mechanism. The
+        fix is that THE SITE THAT STAMPS IS THE SITE THAT RECORDS: every
+        producer of a retain routes through here, so the obligation exists
+        wherever the stamp does, for every face of design 131's payload family
+        (`o!`, both `??` arms, `if let`, `guard let`, `while let`) and for the
+        ordinary Copy-tier transfer alike. `tools/test_transfer_decisions.py`
+        fails the build on a direct assignment to either annotation anywhere in
+        `sawc/`, which is what keeps the funnel the only writer as the
+        typechecker grows.
+
+        CLEARING IS RECORDED TOO, because design 131's rule is "assign, never
+        accumulate": a later pass that decides no retain is owed must retract
+        the obligation, or the audit would demand a stamp the program correctly
+        stopped carrying.
+        """
+        # BY NAME, never a computed `setattr`: design 126's graft gate reads
+        # attribute writes statically and a computed name is the one shape it
+        # exists to refuse, because an annotation nothing can find by reading is
+        # how a fact goes missing from `dataclasses.fields()` in the first place.
+        # Two names, two branches, and an unknown one is loud.
+        if attribute == 'needs_copy':
+            node.needs_copy = required
+        elif attribute == 'payload_needs_copy':
+            node.payload_needs_copy = required
+        else:
+            raise AssertionError(
+                f"`{attribute}` is not a retain annotation; add it to "
+                f"`RETAIN_ANNOTATIONS` and give it a branch here")
+        node_id = getattr(node, 'node_id', None)
+        if node_id is None:
+            return
+        if required:
+            self._retain_obligations[node_id] = attribute
+        elif self._retain_obligations.get(node_id) == attribute:
+            del self._retain_obligations[node_id]
+
+    def retain_obligations(self) -> Dict[int, str]:
+        """node_id -> the annotation that node's retain must still be carried
+        by. The preservation audit's input for P1r, and deliberately NOT the
+        annotations themselves."""
+        return dict(self._retain_obligations)
+
+    def transfer_node_was_judged(self, node_id: Optional[int]) -> bool:
+        """Has any transfer whose SOURCE is this node already been decided?
+
+        The coroutine transform replaces author nodes and its own earlier
+        scaffolding with the same builder, and only the ledger can tell them
+        apart: an author's node reached the checkpoint before the transform ran,
+        a temp the transform minted never did. Used to choose between the
+        `coro-frame-rewrite` and `coro-frame-synthesis` discharges, so the
+        record states what is true rather than what the caller assumed.
+        """
+        if node_id is None:
+            return False
+        return bool(self._transfer_by_node.get(node_id))
 
     # ------------------------------------------------------------------
     # Recording.
@@ -243,15 +425,25 @@ class OwnershipLedgerMixin:
                          pending: Tuple[str, ...] = (),
                          delegates: Tuple[TransferKey, ...] = (),
                          reason: str = '',
-                         is_return: bool = False) -> TransferDecision:
+                         is_return: bool = False,
+                         discharge: Optional[str] = None,
+                         lowering: Optional[str] = None) -> TransferDecision:
         """Build and file the decision for one transfer occurrence.
 
         THE ONE WRITER. Every exit path of `_check_value_transfer` returns
         through here, which is what makes "an occurrence with no entry was
         never checked" a sound reading of the table.
+
+        `antecedent` is derived HERE rather than passed, because it is a
+        property of the source node and not of the arm that decided: a clone (or
+        a coroutine-frame read) carries `origin_node_id`, and reading it back is
+        the whole of the derivation (design 270).
         """
         key = self._transfer_key(expr, context, line, column)
         previous = self._transfer_ledger.get(key)
+        origin = (getattr(expr, 'origin_node_id', None)
+                  if expr is not None else None)
+        self._transfer_seq += 1
         decision = TransferDecision(
             key=key,
             action=action,
@@ -267,8 +459,14 @@ class OwnershipLedgerMixin:
             reason=reason,
             is_return=is_return,
             revision=(previous.revision + 1) if previous is not None else 1,
+            antecedent=origin,
+            discharge=discharge,
+            lowering=lowering,
+            sequence=self._transfer_seq,
         )
         # ASSIGN, not accumulate — see the module docstring.
+        if key not in self._transfer_ledger and key[0] is not None:
+            self._transfer_by_node.setdefault(key[0], []).append(key)
         self._transfer_ledger[key] = decision
         return decision
 

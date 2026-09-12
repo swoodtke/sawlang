@@ -1,0 +1,62 @@
+// Conformance row V98 — specialization COMPOSED with the coroutine transform:
+// each driven instantiation keeps its own tier answer
+//
+// Design 270 (SL-212), unit C of SL-209. V93 pins that a generic body's
+// transfers are judged at the instance; V94 pins that a driven body executes
+// the decision the checker made. This row is the composition, which is the one
+// neither of them covers: a generic template that is DRIVEN is cloned per
+// instantiation, each clone is re-checked at its own tier, and THEN each clone
+// is rewritten into a frame whose reads the transform judges for itself.
+//
+// Two passes in sequence, each of which could lose the other's answer. A clone
+// that inherited the template's abstract deferral would have no tier at all by
+// the time the transform reached it; a transform that judged every frame read
+// alike would erase the per-instantiation difference the clone had just
+// established. The two lines below disagree, which is what says both survived:
+// the `Copy` instantiation duplicates through its hook, the trivial one
+// duplicates bitwise and calls nothing.
+//
+// Design 70's `coro_generic_driven_both.saw` is the shape — one generic driven
+// at two instantiations, one frame per instantiation — with an ownership oracle
+// added.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: copy 5
+// EXPECT-OUTPUT: copy 5
+// EXPECT-OUTPUT: counted 10
+// EXPECT-OUTPUT: trivial 14
+// EXPECT-OUTPUT: end
+
+struct Counted { n: Int }
+extension Counted: Copy {
+    func copy(&self) -> Counted { print("copy {}", self.n)  Counted(n: self.n) }
+}
+
+struct Held<T> { v: T }
+
+trait Weigh { func weigh(&self) -> Int }
+extension Counted: Weigh { func weigh(&self) -> Int { self.n } }
+extension Int: Weigh { func weigh(&self) -> Int { self } }
+
+// ONE template, DRIVEN at two instantiations. Each read of `w.v` is a
+// projection out of storage the frame keeps, so each is a duplication at
+// whatever tier the instantiation supplies — and the suspensions either side
+// are what put `w` in a frame field, so every one of those reads is a frame
+// read the transform judges itself.
+func weigh_twice<T: Copy + Weigh>(w: Held<T>) -> Int {
+    let a = w.v
+    __saw_suspend()
+    let b = w.v
+    __saw_suspend()
+    a.weigh() + b.weigh()
+}
+
+func main() {
+    let c = Held<Counted>(v: Counted(n: 5))
+    print("counted {}", __saw_drive(weigh_twice(move c)))
+
+    let i = Held<Int>(v: 7)
+    print("trivial {}", __saw_drive(weigh_twice(move i)))
+
+    print("end")
+}

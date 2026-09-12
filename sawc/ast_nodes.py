@@ -832,6 +832,33 @@ class ASTNode:
     line: int = 0
     column: int = 0
     node_id: int = field(default_factory=_next_node_id)
+    #: THE NODE THIS ONE WAS CLONED FROM (design 270, SL-212). `node_id` is
+    #: per-node and deliberately fresh on every copy -- which is what keeps two
+    #: instantiations apart, and is also what detaches a clone from every
+    #: side-table record keyed to its template. This field is the one hop back.
+    #:
+    #: Stamped by the two producers of a cloned node and by nothing else:
+    #: `ASTNode.__deepcopy__` (below) and `mono_copy._copy_node` (the
+    #: substituting copier).
+    #:
+    #: A clone of a clone records the ROOT of its chain, not its immediate
+    #: parent, and the reason is measured rather than stylistic: an instance
+    #: body is cloned from a PRISTINE SNAPSHOT of its template, and the snapshot
+    #: is itself a copy that nothing ever type-checks. Naming the immediate
+    #: parent therefore pointed every instance decision at a node no decision
+    #: exists for — 1 of 2175 links resolved. The root is the nearest node the
+    #: checker actually saw, which is the only antecedent an audit can use.
+    #: (`coro_transform._read_field` OVERWRITES this with the pre-transform node
+    #: it is replacing, which is a node in the checked tree and so a better
+    #: antecedent still; see design 270.)
+    #:
+    #: It is NOT a way to inherit a decision. Design 270's whole argument is
+    #: that a decision holds the tier and the types OF THE BODY IT WAS MADE IN,
+    #: so a clone must be judged afresh; this exists so the preservation audit
+    #: can CHECK that it was, and tell a resolved deferral from a reused one.
+    #: Never read by codegen, never emitted, so `irdet` and `reemit` cannot see
+    #: it.
+    origin_node_id: Optional[int] = annotation(None)
 
     def __deepcopy__(self, memo):
         """Copy the subtree, but give every copied node a FRESH `node_id`.
@@ -845,12 +872,20 @@ class ASTNode:
         clone wins), and in the `_CatchError_<id>` union type name (one
         instantiation's layout silently reused for another). Distinct objects
         get distinct ids -- exactly as distinct addresses did.
+
+        The fresh id is also what DETACHES the copy from anything keyed to the
+        original, which is why `origin_node_id` is stamped in the same two
+        lines: design 270's audit needs the hop back, and the only place that
+        can record it is the copy itself.
         """
         cls = self.__class__
         new = cls.__new__(cls)
         memo[id(self)] = new
         for k, v in self.__dict__.items():
             setattr(new, k, _copy.deepcopy(v, memo))
+        new.origin_node_id = (self.origin_node_id
+                              if self.origin_node_id is not None
+                              else self.node_id)
         new.node_id = _next_node_id()
         return new
 

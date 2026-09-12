@@ -137,6 +137,13 @@ def _copy_node(node, type_map, memo):
     `dataclasses.fields()`; the design-126 AST contract (gated by the `astgraft`
     lane) is what makes those the same set, so ONE walk over `__dict__` does
     both jobs.
+
+    `origin_node_id` is stamped here for the reason `__deepcopy__` stamps it
+    (design 270, SL-212): the fresh `node_id` two lines down is what detaches
+    the clone from every record keyed to its template, and this copy is the only
+    thing that still knows which template that was. The preservation audit reads
+    it to prove the instance body was RE-DERIVED rather than handed the
+    template's abstract answer.
     """
     cls = type(node)
     new = cls.__new__(cls)
@@ -144,6 +151,11 @@ def _copy_node(node, type_map, memo):
     target = new.__dict__
     for key, value in node.__dict__.items():
         target[key] = _copy_value(value, type_map, memo)
+    # The ROOT of the clone chain, not the immediate parent: an instance body is
+    # cloned from a PRISTINE SNAPSHOT that nothing type-checks, so the immediate
+    # parent is a node no decision exists for. See `ASTNode.origin_node_id`.
+    origin = node.__dict__.get('origin_node_id')
+    new.origin_node_id = origin if origin is not None else node.node_id
     new.node_id = _next_node_id()
     if cls is FunctionCall:
         substitute_constructed_type_param(new, type_map)
