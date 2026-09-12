@@ -1,0 +1,83 @@
+// Conformance row V101 — EVERY bounded-generic `copy()` in the family carries
+// the element's tier, not just `Vector.copy` (SL-265, design 271)
+//
+// `Vector.copy` is where SL-265 was found, but the defect was in what
+// `x.copy()` LOWERS TO under a substituted Copy-tier `T` — so every body that
+// spells the same thing under a Copy-family bound had it. The std census names
+// four: `Vector.copy`, `Vector.try_copy`, `Map.copy` and `Map.try_copy`
+// (design 251's conditional conformance, which duplicates keys AND values).
+// A user-level generic is the fifth row because the mechanism was never
+// std-specific — nothing about `sawc/std` was in the lowering decision.
+//
+// `Set` is absent on purpose and not by oversight: `Set<Rec>` is REFUSED at the
+// instantiation, its element gate calling the automatic tier "move-only, not
+// retainable" while the `Map` VALUE gate two rows up accepts the same type
+// (SL-270). So `Set.copy`/`Set.try_copy` cannot reach this class today.
+//
+// Heap strings throughout: a literal is immortal and passes vacuously.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// vector try_copy: alpha-built
+// map copy: key-built value-built
+// map try_copy: key-built value-built
+// user generic: generic-built
+
+struct Rec {
+    text: String
+}
+
+func heap_string(seed: String) -> String {
+    var sb = StringBuilder()
+    try! sb.append(seed)
+    try! sb.append("-built")
+    sb.build()
+}
+
+// The duplicating body a user writes: the bound is design 219's licence for
+// the spelling, and every Copy type satisfies it.
+func duplicate_of<T: ExplicitCopy>(x: &T) -> T { x.copy() }
+
+func vector_try_copy() -> Vector<Rec> {
+    var original = Vector<Rec>()
+    try! original.push(Rec(text: heap_string("alpha")))
+    let duplicate = try! original.try_copy()
+    move duplicate
+}
+
+func map_copy() -> Map<String, Rec> {
+    var original = Map<String, Rec>()
+    let _ = try! original.insert(heap_string("key"), Rec(text: heap_string("value")))
+    let duplicate = original.copy()
+    move duplicate
+}
+
+func map_try_copy() -> Map<String, Rec> {
+    var original = Map<String, Rec>()
+    let _ = try! original.insert(heap_string("key"), Rec(text: heap_string("value")))
+    let duplicate = try! original.try_copy()
+    move duplicate
+}
+
+func user_generic() -> Rec {
+    let original = Rec(text: heap_string("generic"))
+    let duplicate = duplicate_of(&original)
+    move duplicate
+}
+
+func show_map(label: String, m: &Map<String, Rec>) {
+    m.each({ k, v in print("{label}: {k} {v.text}") })
+}
+
+func main() {
+    let v = vector_try_copy()
+    print("vector try_copy: {v[0].text}")
+
+    let a = map_copy()
+    show_map("map copy", &a)
+
+    let b = map_try_copy()
+    show_map("map try_copy", &b)
+
+    let r = user_generic()
+    print("user generic: {r.text}")
+}

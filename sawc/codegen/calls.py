@@ -2056,72 +2056,50 @@ class CallsMixin:
                         struct_name = name
                         break
 
-        # Array `.copy()` (design 33): a fixed array copies per element in index
-        # order. `[trivial; N]` is a bitwise copy of the whole value; an array of
-        # ExplicitCopy/Copy elements calls each element's copy(). The
-        # receiver has no struct_name (it is an LLVM `[N x T]`), so intercept here
-        # before the struct-copy path.
-        if expr.method_name == "copy" and len(expr.arguments) == 0:
-            recv_type = self._expr_type(expr.object)
-            if recv_type is not None and recv_type.kind == TypeKind.ARRAY:
-                return self._emit_array_deep_copy(obj_val, recv_type)
-            # `Optional<T>.copy()` (design 139) — same reason to intercept here:
-            # the receiver is an LLVM `{i1, T}` with no struct_name for the
-            # copy-method dispatch below to mangle.
-            if recv_type is not None and recv_type.kind == TypeKind.OPTIONAL:
-                return self._emit_optional_deep_copy(obj_val, recv_type)
-            # `.copy()` on a TUPLE — intercepted for the same reason: the
-            # receiver is an anonymous LLVM struct with no struct_name, so the
-            # dispatch below would find no copy() and fall through to the
-            # bitwise "auto-Copy" return, aliasing every owned element while the
-            # tuple's drop glue released it twice (DF-151i).
-            if recv_type is not None and recv_type.kind == TypeKind.TUPLE:
-                return self._emit_tuple_deep_copy(obj_val, recv_type)
-            # A declared copying policy on an ENUM derives a payload-deep copy
-            # (design 139). Enums carry no method symbols, so it is emitted
-            # inline here rather than dispatched to.
-            if (recv_type is not None and recv_type.kind == TypeKind.ENUM
-                    and recv_type.enum_name
-                    and self.namespace.declared_copy_tier(recv_type.enum_name)
-                    in ('implicit', 'explicit')):
-                return self._emit_enum_deep_copy(obj_val, recv_type)
-
-        # Auto-Copy: `.copy()` on a trivially-copyable receiver (a primitive, or
-        # a POD struct with no copy() method) lowers to a bitwise copy, i.e. the
-        # value itself. Types with a real copy() method fall through to dispatch.
-        # A receiver that owns a resource (NoCopy / Deinit) but has no copy() is
-        # not Copy: this is where a Vector<File>.copy() monomorphization fails,
-        # with a diagnostic naming the offending element type.
+        # A SOURCE `.copy()` whose receiver owns no emitted `copy` symbol —
+        # a fixed array, a tuple, an `Optional`, an enum (enums carry no method
+        # symbols at all), an escaping closure, a primitive, or an aggregate on
+        # the AUTOMATIC Copy tier (design 159). Every one of those is a copy at
+        # its own tier, and deciding which is `_emit_copy_value`'s job (design
+        # 271 — read its docstring, which names this as an entry point).
+        #
+        # This site used to carry its own arm list: array / optional / tuple /
+        # DECLARED-tier enum / closure, then `return obj_val` for everything
+        # else. The automatic Copy tier matched no arm — it declares nothing, so
+        # no "declares a policy" test sees it — and fell out of that last line as
+        # a BITWISE duplicate whose `String` members were never retained
+        # (SL-265). A receiver with a real `copy` symbol still falls through to
+        # ordinary method dispatch below, which is where a hand-written hook's
+        # own body belongs.
         if expr.method_name == "copy" and len(expr.arguments) == 0:
             copy_mangled = self._mangle_method_name(struct_name, "copy") if struct_name else None
             if copy_mangled is None or copy_mangled not in self.functions:
-                # An escaping closure is Copy (design 73): `.copy()` bumps
-                # the env refcount so the duplicate and the original each release
-                # exactly once (design 77 item 3). This is the element-copy path
-                # `Vector<() -> Int>.copy()` reaches via `buf[i].copy()`; without
-                # the retain the shared env is freed twice (exit 133). The value
-                # bytes are unchanged (the env pointer is aliased) — only the
-                # atomic increment, null-env guarded inside the retain helper.
-                recv_saw_copy = self._expr_type(expr.object)
-                if (recv_saw_copy is not None
-                        and recv_saw_copy.kind == TypeKind.FUNCTION
-                        and isinstance(obj_val.type, ir.LiteralStructType)
-                        and len(obj_val.type.elements) == 3):
-                    env_ptr = self.builder.extract_value(obj_val, 1, name="copy_env")
-                    dtor_ptr = self.builder.extract_value(obj_val, 2, name="copy_dtor")
-                    self._emit_closure_env_retain(env_ptr, dtor_ptr)
-                    return obj_val
-                if struct_name is not None:
-                    conformances = self.namespace.get_conformances(struct_name)
-                    if (self.namespace.names_copy_tier(conformances)
-                            or any(c in ("NoCopy", "ExplicitCopy", "Deinit")
-                                   for c in conformances)):
-                        raise ValueError(
-                            f"cannot copy value of type `{struct_name}`: it is not Copy "
-                            f"(owns a resource and has no copy()); use a copyable element "
-                            f"type or implement Copy/ExplicitCopy"
-                        )
-                return obj_val
+                recv_type = self._expr_type(expr.object)
+                # A receiver that owns a resource and has no copy at any tier is
+                # not duplicable: this is where a `Vector<File>.copy()`
+                # monomorphization fails, naming the offending element type. The
+                # tier is the accurate predicate — the old conformance-name test
+                # also caught every DECLARED ExplicitCopy enum, which is exactly
+                # the shape that legitimately has no symbol.
+                if (recv_type is not None
+                        and self.namespace.copy_tier(recv_type) == 'nocopy'):
+                    raise ValueError(
+                        f"cannot copy value of type `{recv_type}`: it is not Copy "
+                        f"(owns a resource and has no copy()); use a copyable element "
+                        f"type or implement Copy/ExplicitCopy"
+                    )
+                # A STRUCT that DECLARED a copy policy always has an emitted
+                # `copy`; reaching here without one would silently hand the
+                # funnel a body the author wrote and it cannot see.
+                if (recv_type is not None and recv_type.kind == TypeKind.STRUCT
+                        and struct_name is not None
+                        and any(c in ("Copy", "ExplicitCopy")
+                                for c in self.namespace.get_conformances(struct_name))):
+                    raise ValueError(
+                        f"no `copy` symbol for type `{struct_name}`, which declares "
+                        f"a copy policy"
+                    )
+                return self._emit_copy_value(obj_val, recv_type)
 
         # Hashable `.hash(&h)` (design 48): the single lowering point for the
         # streaming hash. A receiver with a real `hash` method (String, or a

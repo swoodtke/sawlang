@@ -308,52 +308,53 @@ class MethodsMixin:
             ], name=f"{field_name}_ptr")
             field_val = self.builder.load(field_ptr, name=field_name)
 
-            # design 139: two field kinds have their copy derived INLINE and so
-            # own no `copy` symbol for the lookup below to find. Both must be
-            # handled before it, because falling through would either raise on a
-            # symbol that cannot exist (an enum) or, worse, silently bitwise-alias
-            # an owning field (an optional, whose conformance name is None, so it
-            # never even reached the check).
-            conf_name = self._get_type_name_for_conformance(field_type) if field_type else None
-            conformances = self.namespace.get_conformances(conf_name) if conf_name else []
+            # Each field duplicates at ITS OWN tier, and which tier that is is
+            # `_emit_copy_value`'s question (design 271 — read its docstring,
+            # which names this as an entry point). This loop used to answer it
+            # itself, with three arms: an enum of DECLARED tier, an optional,
+            # and a field type whose conformances name a copy policy. A field on
+            # the AUTOMATIC Copy tier (design 159 — `struct Inner { text: String }`,
+            # declaring nothing and owing nothing) matched none of them and the
+            # bare load survived as the "copy", so the derived duplicate aliased
+            # the original's `String` and the two releases underflowed its
+            # refcount (SL-265's sibling, reachable with no generic in sight).
+            # Tuple and fixed-array fields had no arm at all and aliased the
+            # same way.
+            #
             # A field annotated with a bare enum name reaches here tagged STRUCT
             # (the parser defaults an unknown capitalized name that way, and not
-            # every path re-resolves it), so retag before asking.
-            enum_field = (self.namespace._normalize_struct_enum(field_type)
-                          if field_type is not None else None)
-            inline_enum_copy = (
-                enum_field is not None
-                and enum_field.kind == TypeKind.ENUM
-                and enum_field.enum_name is not None
-                and self.namespace.declared_copy_tier(enum_field.enum_name)
-                in ('implicit', 'explicit'))
-            if inline_enum_copy:
-                field_val = self._emit_enum_deep_copy(field_val, enum_field)
-            elif field_type is not None and field_type.kind == TypeKind.OPTIONAL:
-                field_val = self._emit_optional_deep_copy(field_val, field_type)
-            # Does this field's type carry its own copy()? (Copy or
-            # ExplicitCopy). If so, invoke it; otherwise the load is a bitwise copy.
-            elif (self.namespace.names_copy_tier(conformances)
-                  or "ExplicitCopy" in conformances):
-                copy_fn = self._field_copy_fn(field_type)
-                if copy_fn is None:
-                    # The field's type declares a copy policy, so it HAS a
-                    # `copy()`; failing to find the symbol would silently emit a
-                    # bitwise alias of an owning field, and both copies would
-                    # then free the same storage. Refuse instead.
-                    # design 192 unit 2: ValueError is codegen's one
-                    # internal-failure convention, and the wrapper supplies the
-                    # "internal compiler error" prefix — so the message says
-                    # only what happened.
-                    raise ValueError(
-                        f"no `copy` symbol for field `{field_name}` of type "
-                        f"`{field_type}` while deriving copy() for "
-                        f"`{struct_name}`")
-                field_val = self.builder.call(
-                    copy_fn,
-                    [self._self_operand(copy_fn, field_val,
-                                        name=f"{field_name}_copy_self")],
-                    name=f"{field_name}_copy")
+            # every path re-resolves it), so retag before handing it over.
+            conf_name = self._get_type_name_for_conformance(field_type) if field_type else None
+            conformances = self.namespace.get_conformances(conf_name) if conf_name else []
+            copy_type = (self.namespace._normalize_struct_enum(field_type)
+                         if field_type is not None else None)
+            if copy_type is not None:
+                # A field type that DECLARED a copy policy HAS a `copy()`, and
+                # a hand-written one is a body the funnel cannot see. Resolve it
+                # here — `_field_copy_fn` fills declared default type arguments,
+                # which the funnel's plain mangling does not (DF-128c) — and
+                # refuse rather than emit a bitwise alias of an owning field.
+                # design 192 unit 2: ValueError is codegen's one internal-failure
+                # convention, and the wrapper supplies the "internal compiler
+                # error" prefix — so the message says only what happened.
+                declares_policy = (
+                    copy_type.kind == TypeKind.STRUCT
+                    and (self.namespace.names_copy_tier(conformances)
+                         or "ExplicitCopy" in conformances))
+                if declares_policy:
+                    copy_fn = self._field_copy_fn(field_type)
+                    if copy_fn is None:
+                        raise ValueError(
+                            f"no `copy` symbol for field `{field_name}` of type "
+                            f"`{field_type}` while deriving copy() for "
+                            f"`{struct_name}`")
+                    field_val = self.builder.call(
+                        copy_fn,
+                        [self._self_operand(copy_fn, field_val,
+                                            name=f"{field_name}_copy_self")],
+                        name=f"{field_name}_copy")
+                else:
+                    field_val = self._emit_copy_value(field_val, copy_type)
 
             result = self.builder.insert_value(result, field_val, i)
 

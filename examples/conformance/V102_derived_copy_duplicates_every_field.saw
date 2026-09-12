@@ -1,0 +1,75 @@
+// Conformance row V102 — a `@synthesize`d memberwise `copy()` duplicates EVERY
+// field at that field's own tier (SL-265's sibling, design 271)
+//
+// The obligation-4 sweep on SL-265: the defect is a copy-lowering decision that
+// had been re-implemented per emission site, so the question was which OTHER
+// sites had re-implemented it. `_generate_derived_copy_body` — the body behind
+// `@synthesize extension T: ExplicitCopy {}` — was the second, and it had more
+// gaps than the first, because its arm list was only three long: a
+// DECLARED-tier enum, an `Optional`, and a field type whose conformances name a
+// copy policy. Everything else survived as the bare load that produced it.
+//
+// Four field kinds therefore aliased instead of duplicating, and NONE of them
+// needs a generic to reach — one `@synthesize` line and a struct literal is the
+// whole program:
+//   - a field on the AUTOMATIC Copy tier (design 159), struct or enum, which
+//     declares nothing and so answers no "declares a policy" test;
+//   - a fixed-ARRAY field and a TUPLE field, which had no arm at all, though
+//     design 139 gives each the strongest tier it holds.
+//
+// Heap strings throughout: a literal is immortal and would pass either way.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// struct field: inner-built
+// enum field: payload-built
+// array field: zero-built one-built
+// tuple field: tuple-built 7
+
+struct Inner { text: String }
+
+enum Payload {
+    case Full(s: String),
+    case Empty
+}
+
+struct Holder {
+    inner: Inner
+    payload: Payload
+    names: [String; 2]
+    pair: (String, Int)
+}
+
+@synthesize
+extension Holder: ExplicitCopy {}
+
+func heap_string(seed: String) -> String {
+    var sb = StringBuilder()
+    try! sb.append(seed)
+    try! sb.append("-built")
+    sb.build()
+}
+
+// Takes the duplicate by value and drops it, so every read afterwards is a read
+// of storage the ORIGINAL must still own outright. A field the derived body
+// aliased instead of duplicating is freed right here.
+func drop_it(h: Holder) -> Int { 0 }
+
+func main() {
+    let original = Holder(
+        inner: Inner(text: heap_string("inner")),
+        payload: Payload.Full(s: heap_string("payload")),
+        names: [heap_string("zero"), heap_string("one")],
+        pair: (heap_string("tuple"), 7),
+    )
+
+    let duplicate = original.copy()
+    let _ = drop_it(move duplicate)
+
+    print("struct field: {original.inner.text}")
+    match original.payload {
+        case Full(s) -> print("enum field: {s}"),
+        case Empty -> print("enum field: EMPTY")
+    }
+    print("array field: {original.names[0]} {original.names[1]}")
+    print("tuple field: {original.pair.0} {original.pair.1}")
+}

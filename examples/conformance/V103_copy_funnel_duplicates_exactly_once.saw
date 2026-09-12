@@ -1,0 +1,101 @@
+// Conformance row V103 — control: routing every copy site through ONE funnel
+// duplicates EXACTLY ONCE, at every tier that already worked (design 271)
+//
+// V80/V84's lesson at the copy-emission sites. SL-265 was a MISSING
+// duplication, and the obvious fix — give the incomplete chains the arm they
+// lacked — carries the opposite risk everywhere those chains already had an
+// answer: an arm that now runs twice, or an emitter swapped for one that
+// retains a second time. A doubled retain LEAKS rather than crashing, so it
+// exits 0 and no output changes; only a count says it did not happen.
+//
+// The rows are the arms design 271 MOVED, not the whole tier list:
+//   - a hand-written `copy()` hook inside a `Copy` conformance, which runs at
+//     exactly the sites the compiler inserts (design 219) and so counts
+//     duplications directly. It is also what pins the funnel's ARM ORDER: the
+//     hook is asked for before the trivially-copyable test, so a POD receiver
+//     whose author wrote a body still runs that body.
+//   - a DECLARED-tier enum element, whose payload-deep copy moved from
+//     `_emit_enum_deep_copy` to the retain glue;
+//   - an `ExplicitCopy` element, whose duplicate must still be an INDEPENDENT
+//     buffer rather than a second owner of one.
+//
+// The escaping-CLOSURE arm moved too, and it is counted in V100 rather than
+// here — through a STRUCT member, which is the only position where a closure
+// env's refcount is observable today. A DIRECT `Vector<closure>` element cannot
+// serve as an oracle at all: the vector never releases its element's env, and
+// a by-value capture does not survive the frame that built the closure. Both
+// are probed with NO copy anywhere in the program, so both are drop/capture
+// defects rather than copy-emission ones, and both are filed as SL-269.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// copy hook
+// copy hook
+// hooked: 2
+// enum payload independent: 1 2
+// vector element independent: 1 2
+
+struct Counted { n: Int }
+
+extension Counted: Copy {
+    func copy(&self) -> Counted {
+        print("copy hook")
+        Counted(n: self.n)
+    }
+}
+
+enum Bag {
+    case Full(v: Vector<Int>),
+    case Empty
+}
+
+@synthesize
+extension Bag: ExplicitCopy {}
+
+func bag_len(b: &Bag) -> Int {
+    match b {
+        case Full(v) -> v.len(),
+        case Empty -> 0
+    }
+}
+
+// The original drops here; only the duplicate comes out, so its payload buffers
+// must be its own.
+func copied_bags() -> Vector<Bag> {
+    var original = Vector<Bag>()
+    var one = Vector<Int>()
+    try! one.push(1)
+    var two = Vector<Int>()
+    try! two.push(1)
+    try! two.push(2)
+    try! original.push(Bag.Full(v: move one))
+    try! original.push(Bag.Full(v: move two))
+    let duplicate = original.copy()
+    move duplicate
+}
+
+func main() {
+    // 1. The hook counts implicit duplications directly: two elements, two
+    //    copies, never four.
+    var hooked = Vector<Counted>()
+    try! hooked.push(Counted(n: 1))
+    try! hooked.push(Counted(n: 2))
+    let hooked_dup = hooked.copy()
+    print("hooked: {hooked_dup.len()}")
+
+    // 2. A declared-tier enum element: the duplicate's payload is its OWN
+    //    buffer, so it survives the original's death intact.
+    let bags_dup = copied_bags()
+    print("enum payload independent: {bag_len(&bags_dup[0])} {bag_len(&bags_dup[1])}")
+
+    // 3. An ExplicitCopy element, the same claim by mutation rather than by
+    //    survival: a push into the duplicate is invisible through the original.
+    var nested = Vector<Vector<Int>>()
+    var row = Vector<Int>()
+    try! row.push(1)
+    try! nested.push(move row)
+    var nested_dup = nested.copy()
+    try! nested_dup[0].push(2)
+    let original_len = nested[0].len()
+    let duplicate_len = nested_dup[0].len()
+    print("vector element independent: {original_len} {duplicate_len}")
+}

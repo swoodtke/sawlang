@@ -3536,19 +3536,7 @@ public func compile_source(source: String) -> Result<Program, ProtoError> {
     // records and the segment arena drop with `lexed` at the end of this call.
     var tokens = Vector<Token>()
     match lex(source) {
-        case Ok(r) -> {
-            // The token stream is cloned out element by element rather than with
-            // `r.tokens.copy()`: a `Vector<T>.copy()` whose element is an
-            // automatic-Copy-tier STRUCT duplicates it bitwise and never retains
-            // its `String` fields (SL-265), which leaves every token's text
-            // dangling once `r` drops. `clone_token` reads the fields, so each
-            // `String` is retained the way every other clone in this file is.
-            var i = 0
-            while i < r.tokens.len() {
-                try! tokens.push(clone_token(&r.tokens[i]))
-                i = i + 1
-            }
-        },
+        case Ok(r) -> { tokens = r.tokens.copy() },
         case Err(e) -> { return problem(e.message, e.line, e.col) }
     }
     var compiler = Compiler(source: source, tokens: move tokens, records: Vector<RecordIR>(), enums: Vector<EnumIR>(),

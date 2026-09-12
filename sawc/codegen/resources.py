@@ -1236,61 +1236,13 @@ class ResourcesMixin:
         if self.type_param_context:
             saw_type = saw_type.substitute(self.type_param_context)
 
-        if saw_type.kind == TypeKind.ARRAY:
-            return self._emit_array_deep_copy(value, saw_type)
-
-        # A tuple copies per element for the same reason an array does: it is a
-        # positional aggregate that owns its parts, and design 139 gives it the
-        # strongest element's tier. This has to land WITH the drop glue above —
-        # a bitwise tuple copy beside a real element drop is one allocation and
-        # two releases, which is the over-release half of DF-151f.
-        if saw_type.kind == TypeKind.TUPLE:
-            return self._emit_tuple_deep_copy(value, saw_type)
-
-        # An escaping closure is Copy (design 73): copying it bumps the
-        # shared heap env's refcount and returns the same (aliased) value. A
-        # null-env / non-owning closure retains as a no-op. Non-escaping closures
-        # are borrows — bitwise, no retain. (The escaping bit is reliable here:
-        # `saw_type` was already substituted through the monomorphization context
-        # above, so a container element type carries it.)
-        if (saw_type.kind == TypeKind.FUNCTION
-                and saw_type.func_is_escaping):
-            if (isinstance(value.type, ir.LiteralStructType)
-                    and len(value.type.elements) == 3):
-                env_ptr = self.builder.extract_value(value, 1, name="copy_env")
-                dtor_ptr = self.builder.extract_value(value, 2, name="copy_dtor")
-                self._emit_closure_env_retain(env_ptr, dtor_ptr)
-            return value
-
-        # A type with its own copy() method (Copy String/Arc/user) — call
-        # it (a cheap refcount bump for String/Arc).
-        type_name = self._type_method_base(saw_type)
-        if type_name is not None:
-            copy_method_name = self._mangle_method_name(type_name, "copy")
-            copy_fn = self.functions.get(copy_method_name)
-            if copy_fn is not None:
-                # `copy` returns Self; its RECEIVER's shape is whatever the
-                # emitted signature says (design 261), read through the funnel.
-                return self.builder.call(
-                    copy_fn,
-                    [self._self_operand(copy_fn, value, name="copy_self")],
-                    name="copy_result")
-
-        # No whole-type copy() method. If this is an aggregate that OWNS
-        # cleanup-needing fields (a struct/enum/optional whose top-level copy class
-        # is NoCopy only because of its owning payload — e.g. `MapSlot<String, V>`
-        # or an `Arc` inside a struct payload), copy it WITH RETAIN recursively
-        # (design 65, L17): reading such a value out of a container it stays in is
-        # a duplication, so each owning field's refcount must be bumped and the
-        # eventual drop of this copy releases them symmetrically. Trivial
-        # aggregates (no owning fields) and genuine leaves fall through to bitwise.
-        if (self._needs_cleanup(saw_type)
-                and saw_type.kind in (TypeKind.STRUCT, TypeKind.ENUM,
-                                      TypeKind.OPTIONAL)):
-            return self._deep_copy_value(value, saw_type)
-
-        # Regular / trivially-copyable types: bitwise copy (the value as-is).
-        return value
+        # Everything below the substitution is `_emit_copy_value`'s, and this is
+        # one of its named entry points (design 271): the transfer site's only
+        # extra job is resolving the type to the active monomorphization, so the
+        # funnel's own arms can look up the concrete struct/enum layout. The arm
+        # list this function used to carry was the SAME list, maintained
+        # separately — the drift that shape invites is what SL-265 was.
+        return self._emit_copy_value(value, saw_type)
 
     def _transfer_type_for(self, value, dest_saw: SawType) -> SawType:
         """The SawType that actually describes `value` at a transfer whose
@@ -1336,13 +1288,52 @@ class ResourcesMixin:
         return self._generate_copy(value, self._transfer_type_for(value, dest_saw))
 
     def _emit_copy_value(self, value, saw_type: SawType):
-        """Produce an independent copy of a single value of `saw_type`.
+        """THE COPY-EMISSION FUNNEL (design 271) — produce an independent copy of
+        a VALUE of `saw_type`, at that type's own copy tier.
 
-        The per-element building block for array `.copy()` / implicit array copy
-        (design 33). Dispatches: nested array -> per-element copy; trivially
-        copyable -> the value as-is (bitwise); a type with a real `copy()` method
-        (Copy/ExplicitCopy, incl. String) -> a call to it. A resource
-        type with no copy path never reaches here (the typechecker gates it).
+        Obligation 1: "duplicate this value" is a rule quantified over every
+        position a duplicate is emitted, so it is ONE chokepoint. ITS ENTRY
+        POINTS, all of them:
+
+        - `_generate_copy` (below) — every transfer site the typechecker marked
+          `needs_copy`, after monomorphization substitution.
+        - `_emit_array_deep_copy` / `_emit_tuple_deep_copy` /
+          `_emit_optional_deep_copy` (below) — the per-element recursions.
+        - `_emit_enum_deep_copy` (above) — the per-payload-field recursion.
+        - `codegen/calls.py`'s `.copy()` method-call interception — a SOURCE
+          `.copy()` whose receiver owns no emitted `copy` symbol.
+        - `codegen/methods.py`'s `_generate_derived_copy_body` — the per-field
+          duplication inside a `@synthesize`d memberwise `copy()`.
+
+        The last two used to carry hand-maintained arm lists of their own, each
+        an incomplete re-implementation of this one, and each fell through to a
+        BITWISE copy for whatever it had no arm for. That is SL-265: an
+        AUTOMATIC Copy-tier aggregate (design 159 — a struct or enum whose
+        members are all trivial/Copy, declaring nothing and owing nothing) owns
+        retainable members and matches no "declares a policy" test, so both
+        chains aliased its `String` fields and the duplicate's drop released
+        storage the original still owned.
+
+        The arms, in order, and why the order is this one:
+
+        1. ARRAY / TUPLE / OPTIONAL — the positional wrappers, each recursing
+           per element so every element copies at ITS own tier (design 139).
+        2. An escaping CLOSURE — Copy over a refcounted heap env (design 73);
+           the value bytes are unchanged, only the env refcount moves.
+        3. A real `copy` SYMBOL (String, Arc, a declared Copy/ExplicitCopy
+           conformance, a hand-written hook) — asked BEFORE the trivial test,
+           because a hand-written `copy()` on a POD receiver is the author's
+           body and must run.
+        4. Trivially copyable — bitwise, nothing owed.
+        5. The design-159 arm: an aggregate with no `copy` of its own that
+           still OWNS cleanup-needing members. `_deep_copy_value` retains each
+           through `_emit_retain_at`, the exact mirror of the drop glue, so the
+           duplicate's eventual drop is balanced.
+        6. A genuine leaf with nothing to retain — bitwise.
+
+        A type that cannot be duplicated at all never reaches here: the
+        typechecker refuses it, and the two call sites above raise before
+        delegating.
         """
         if saw_type.kind == TypeKind.ARRAY:
             return self._emit_array_deep_copy(value, saw_type)
@@ -1350,7 +1341,18 @@ class ResourcesMixin:
             return self._emit_tuple_deep_copy(value, saw_type)
         if saw_type.kind == TypeKind.OPTIONAL:
             return self._emit_optional_deep_copy(value, saw_type)
-        if self.namespace.is_trivially_copyable(saw_type):
+        # An escaping closure is Copy (design 73): duplicating it bumps the
+        # shared heap env's refcount and returns the same (aliased) value, so
+        # the duplicate and the original each release exactly once. A null-env /
+        # non-owning closure retains as a no-op; a NON-escaping closure is a
+        # borrow and is bitwise.
+        if saw_type.kind == TypeKind.FUNCTION:
+            if (saw_type.func_is_escaping
+                    and isinstance(value.type, ir.LiteralStructType)
+                    and len(value.type.elements) == 3):
+                env_ptr = self.builder.extract_value(value, 1, name="copy_env")
+                dtor_ptr = self.builder.extract_value(value, 2, name="copy_dtor")
+                self._emit_closure_env_retain(env_ptr, dtor_ptr)
             return value
         method_base = self._type_method_base(saw_type)
         if method_base is not None:
@@ -1360,12 +1362,12 @@ class ResourcesMixin:
                 return self.builder.call(
                     fn, [self._self_operand(fn, value, name="elem_copy_self")],
                     name="elem_copy")
-        # An aggregate with no copy() of its own but with OWNING fields — the
-        # undeclared Copy tier (design 159). `_generate_copy` has always
-        # had this fallthrough; the per-ELEMENT path did not, so `[p; 3]` on a
-        # `struct P { name: String }` would have splatted one String into three
-        # slots with no retain and released it three times. Same recursive
-        # retain, so an element's later drop is balanced.
+        if self.namespace.is_trivially_copyable(saw_type):
+            return value
+        # An aggregate with no copy() of its own but with OWNING members — the
+        # undeclared Copy tier (design 159). `[p; 3]` on a
+        # `struct P { name: String }` would otherwise splat one String into
+        # three slots with no retain and release it three times.
         if (self._needs_cleanup(saw_type)
                 and saw_type.kind in (TypeKind.STRUCT, TypeKind.ENUM)):
             return self._deep_copy_value(value, saw_type)
