@@ -224,7 +224,16 @@ class StatementsMixin:
         # link of a `a().b().c()` chain) is neither bound nor transferred, so it
         # must be released at statement end too. Register it LAST so it drops
         # FIRST (LIFO), before any receiver temporaries it was built from.
-        if (self._is_owned_temporary(stmt.expression)
+        #
+        # A statement-position `if` / `match` is CONTROL FLOW rather than a
+        # value: the typechecker deliberately leaves it unannotated and
+        # `need_result=False` means codegen built nothing either. Since SL-213
+        # read the producer taxonomy here those nodes answer BRANCHES like any
+        # other, so the value question is asked first — `_expr_type` fails loud
+        # on an unannotated node, which is right everywhere it IS a value.
+        if (value is not None
+                and getattr(stmt.expression, 'resolved_type', None) is not None
+                and self._is_owned_temporary(stmt.expression)
                 and not self.builder.block.is_terminated):
             self._register_stmt_temp(value, self._expr_type(stmt.expression))
 

@@ -1,0 +1,97 @@
+// Conformance row V106 — a WRITTEN `[copy x]` capture duplicates once in a
+// driven body, exactly as in its sync twin
+//
+// THE GUARANTEE is SL-209's acceptance sentence for unit C: "sync and
+// suspending versions have equivalent ownership behavior". This row states the
+// half where the divergence changed the ANSWER rather than only a count.
+//
+// A driven body's frame-resident local cannot be named by a closure directly,
+// so the coroutine transform materializes it as a `let` and points the closure
+// at that local. The materialization ALREADY duplicates — `.copy()` at the
+// ceremony tier, a retain at the silent one — because the local it mints must
+// be an independent owner. The author's own `[copy x]` spec was then left in
+// place on that local and duplicated it a SECOND time. At the silent tier that
+// is an extra retain; at the ceremony tier the user's `copy()` hook RUNS twice,
+// so a hook that is not idempotent makes the driven body compute a value its
+// sync twin does not. SL-267, fixed by SL-213 (unit D of SL-209): the
+// materialized local IS the capture, so the spec that rides it is `move`.
+//
+// THE ORACLE IS A `copy()` THAT BUMPS THE VALUE. A counting hook would have
+// shown two lines and left "is the answer wrong?" open; a bumping one puts the
+// divergence in the RESULT, so the sync and driven rows print the same number
+// or the row fails. The `drop` lines come from V105's guarantee holding at the
+// same time — the duplicate is released once on both sides.
+//
+// INVOCATION COUNT: every closure in THIS row is invoked EXACTLY ONCE. That is
+// stated because it is a real limit and it hid a regression: r1 of this fix
+// removed the second duplication by re-typing the capture's mode to `move`,
+// which for a NON-escaping closure is DF-218h's deferred one-shot hand-off, so
+// a SECOND invocation panicked. Single-invocation cells cannot see that, and
+// this row passed throughout. **V107 is the repeated-invocation row**; the two
+// are complementary and neither is sufficient alone.
+//
+// NOT COVERED HERE: the IMPLICIT capture of a frame-resident local, which still
+// pays one duplication in a driven body and none in its sync twin. That is the
+// other half of SL-267 and stays pinned by V96 (XFAIL), because closing it
+// needs the transform to materialize a NON-OWNING local — a borrow of a frame
+// field that codegen will not cleanup-register — which does not exist today.
+//
+// THE DROP ORDER DIFFERS BETWEEN THE TWIN ROWS, and that is the fix visible in
+// the output rather than a discrepancy. Sync releases the duplicate first
+// (it is the inner binding); in the driven twin the materialized local keeps
+// ownership — the env holds a bare alias, which is what makes the closure
+// reusable — so the frame releases the parameter and the materialized local in
+// its own teardown order. One `copy` and two `drop`s on both sides.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: -- sync
+// EXPECT-OUTPUT: copy 70 -> 71
+// EXPECT-OUTPUT: drop 71
+// EXPECT-OUTPUT: drop 70
+// EXPECT-OUTPUT: body saw 71
+// EXPECT-OUTPUT: -- driven
+// EXPECT-OUTPUT: copy 70 -> 71
+// EXPECT-OUTPUT: drop 70
+// EXPECT-OUTPUT: drop 71
+// EXPECT-OUTPUT: body saw 71
+// EXPECT-OUTPUT: -- sync, silent tier
+// EXPECT-OUTPUT: copy 5
+// EXPECT-OUTPUT: quiet 5
+// EXPECT-OUTPUT: -- driven, silent tier
+// EXPECT-OUTPUT: copy 5
+// EXPECT-OUTPUT: quiet 5
+// EXPECT-OUTPUT: end
+
+struct Dup { n: Int }
+extension Dup: ExplicitCopy {
+    func copy(&self) -> Dup { print("copy {} -> {}", self.n, self.n + 1)  Dup(n: self.n + 1) }
+    func deinit(&var self) { print("drop {}", self.n) }
+}
+
+// The silent tier's twin of the same row: a hand-written `copy()` inside a
+// `Copy` conformance runs at exactly the transfer sites no source construct
+// names (design 219), so one line is one duplication.
+struct Counted { n: Int }
+extension Counted: Copy {
+    func copy(&self) -> Counted { print("copy {}", self.n)  Counted(n: self.n) }
+}
+
+func run_int(body: () sync -> Int) -> Int { body() }
+
+func sync_cap(d: Dup) -> Int   { run_int({ [copy d] in d.n }) }
+func driven_cap(d: Dup) -> Int { __saw_suspend()  run_int({ [copy d] in d.n }) }
+
+func sync_quiet(c: Counted) -> Int   { run_int({ [copy c] in c.n }) }
+func driven_quiet(c: Counted) -> Int { __saw_suspend()  run_int({ [copy c] in c.n }) }
+
+func main() {
+    print("-- sync")
+    print("body saw {}", sync_cap(Dup(n: 70)))
+    print("-- driven")
+    print("body saw {}", __saw_drive(driven_cap(Dup(n: 70))))
+    print("-- sync, silent tier")
+    print("quiet {}", sync_quiet(Counted(n: 5)))
+    print("-- driven, silent tier")
+    print("quiet {}", __saw_drive(driven_quiet(Counted(n: 5))))
+    print("end")
+}

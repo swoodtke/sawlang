@@ -1,0 +1,89 @@
+// Two `[copy d]` captures of one source in one expression, with an `Arc`
+// payload — the MEMORY-SAFETY oracle for SL-213 r2.
+//
+// `copy()` here duplicates an `Arc`, so `strong_count()` IS the number of live
+// duplicates and the bug is readable as a number rather than as a print order.
+// With both captures riding one synthesized local (revision 2 of the SL-267
+// fix), the two heap environments owned the SAME duplicate: the count read 2
+// where it must read 3, both environments released it at teardown, and the
+// second release took the count below what the still-live root holds. A read
+// through the root then came back from freed storage and the program died on
+// `over-release of an Arc (refcount underflow)`, exit 134.
+//
+// The root is declared OUTSIDE the scope that builds the closures precisely so
+// that a premature release is observable rather than merely unbalanced.
+//
+// The guarantee and its full matrix live in
+// `examples/conformance/V108_each_copy_capture_owns_one_duplicate.saw`; this
+// file is the filed repro, kept as its own regression.
+//
+// COUNTS, in order: the root alone is 1. Building `Held` from `root.copy()`
+// makes 2. The driven frame's own `Held` is released at frame teardown, which
+// happens before either closure runs — so while both closures are live the
+// count is the root plus the two duplicates, 3. Dropping the closures returns
+// it to 1.
+//
+// INVOCATION COUNTS: each closure is invoked ONCE, in both twins.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: -- sync
+// EXPECT-OUTPUT: inside 3
+// EXPECT-OUTPUT: inside 3
+// EXPECT-OUTPUT: root while live 3
+// EXPECT-OUTPUT: root after 1
+// EXPECT-OUTPUT: read 7
+// EXPECT-OUTPUT: -- driven
+// EXPECT-OUTPUT: inside 3
+// EXPECT-OUTPUT: inside 3
+// EXPECT-OUTPUT: root while live 3
+// EXPECT-OUTPUT: root after 1
+// EXPECT-OUTPUT: read 7
+// EXPECT-OUTPUT: end
+
+struct Cell { v: Int }
+extension Cell { func get(&self) -> Int { self.v } }
+
+struct Held { a: Arc<Cell> }
+extension Held: ExplicitCopy {
+    func copy(&self) -> Held { Held(a: self.a.copy()) }
+}
+
+func pair_sync(h: Held) -> (() sync -> Int, () sync -> Int) {
+    ({ [copy h] in h.a.strong_count() }, { [copy h] in h.a.strong_count() })
+}
+
+func pair_driven(h: Held) -> (() sync -> Int, () sync -> Int) {
+    __saw_suspend()
+    ({ [copy h] in h.a.strong_count() }, { [copy h] in h.a.strong_count() })
+}
+
+// A scope of its own, so the closures are released where the caller can read
+// the count afterwards.
+func live_sync(root: &Arc<Cell>) {
+    let (f, g) = pair_sync(Held(a: root.copy()))
+    print("inside {}", f())
+    print("inside {}", g())
+    print("root while live {}", root.strong_count())
+}
+
+func live_driven(root: &Arc<Cell>) {
+    let (f, g) = __saw_drive(pair_driven(Held(a: root.copy())))
+    print("inside {}", f())
+    print("inside {}", g())
+    print("root while live {}", root.strong_count())
+}
+
+func main() {
+    let root = try! Arc(value: Cell(v: 7))
+
+    print("-- sync")
+    live_sync(&root)
+    print("root after {}", root.strong_count())
+    print("read {}", root.get())
+
+    print("-- driven")
+    live_driven(&root)
+    print("root after {}", root.strong_count())
+    print("read {}", root.get())
+    print("end")
+}

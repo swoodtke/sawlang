@@ -1,0 +1,98 @@
+// A closure literal NESTED inside another one, both naming a frame-resident
+// local of a driven body.
+//
+// THE MECHANISM. The coroutine transform materializes a captured frame local as
+// a `let` ahead of the closure and RENAMES the closure onto it, because two
+// closures in one block cannot both declare a `let n`. The rename walked the
+// body's identifier nodes — which reaches a nested literal's body, since those
+// are ordinary nodes — but rewrote the capture bookkeeping (`capture_specs`,
+// `captures`, `capture_modes`) of the OUTER literal only. Those lists are plain
+// strings no identifier rewrite can see, so the inner closure went on declaring
+// a capture of `t` while its body read `__cap0_t`, and codegen built an
+// environment with no such binding:
+//
+//     internal compiler error ... (Identifier): Undefined variable: __cap0_t
+//
+// on a program whose sync twin compiles. Found by the SL-213 r2 sweep, where
+// per-literal materialization for an authored `[copy x]` newly routed that
+// capture through the same rename; the all-implicit shape below reached it on
+// its own and was broken independently.
+//
+// INVOCATION COUNTS: every closure here is invoked ONCE.
+//
+// The DUPLICATION rows are the point of the `[copy]` pair: the inner capture
+// duplicates the OUTER closure's duplicate, so two captures owe two duplicates
+// and the bumping `copy()` puts the count in the answer — 20 to 21 to 22.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: -- both implicit, sync
+// EXPECT-OUTPUT: = 30
+// EXPECT-OUTPUT: -- both implicit, driven
+// EXPECT-OUTPUT: = 30
+// EXPECT-OUTPUT: -- outer [copy] over an implicit inner, driven
+// EXPECT-OUTPUT: = 30
+// EXPECT-OUTPUT: -- both [copy], sync
+// EXPECT-OUTPUT: copy 20 -> 21
+// EXPECT-OUTPUT: copy 21 -> 22
+// EXPECT-OUTPUT: drop 22
+// EXPECT-OUTPUT: drop 21
+// EXPECT-OUTPUT: drop 20
+// EXPECT-OUTPUT: = 22
+// EXPECT-OUTPUT: -- both [copy], driven
+// EXPECT-OUTPUT: copy 20 -> 21
+// EXPECT-OUTPUT: copy 21 -> 22
+// EXPECT-OUTPUT: drop 22
+// EXPECT-OUTPUT: drop 20
+// EXPECT-OUTPUT: drop 21
+// EXPECT-OUTPUT: = 22
+// EXPECT-OUTPUT: end
+
+// The silent Copy tier, for the rows whose subject is the rename rather than
+// the duplication: a PLAIN capture of an ExplicitCopy local is refused at both
+// tiers, so the implicit rows cannot use `Dup`.
+struct Tick { n: Int }
+extension Tick: Copy { func copy(&self) -> Tick { Tick(n: self.n) } }
+
+struct Dup { n: Int }
+extension Dup: ExplicitCopy {
+    func copy(&self) -> Dup { print("copy {} -> {}", self.n, self.n + 1)  Dup(n: self.n + 1) }
+    func deinit(&var self) { print("drop {}", self.n) }
+}
+
+func run_tick(body: () sync -> Int) -> Int { body() }
+func run_dup(body: () sync -> Int) -> Int { body() }
+
+func both_implicit_sync(t: Tick) -> Int { run_tick({ run_tick({ t.n }) }) }
+
+func both_implicit_driven(t: Tick) -> Int {
+    __saw_suspend()
+    run_tick({ run_tick({ t.n }) })
+}
+
+func authored_outer_driven(t: Tick) -> Int {
+    __saw_suspend()
+    run_tick({ [copy t] in run_tick({ t.n }) })
+}
+
+func both_copy_sync(d: Dup) -> Int {
+    run_dup({ [copy d] in run_dup({ [copy d] in d.n }) })
+}
+
+func both_copy_driven(d: Dup) -> Int {
+    __saw_suspend()
+    run_dup({ [copy d] in run_dup({ [copy d] in d.n }) })
+}
+
+func main() {
+    print("-- both implicit, sync")
+    print("= {}", both_implicit_sync(Tick(n: 30)))
+    print("-- both implicit, driven")
+    print("= {}", __saw_drive(both_implicit_driven(Tick(n: 30))))
+    print("-- outer [copy] over an implicit inner, driven")
+    print("= {}", __saw_drive(authored_outer_driven(Tick(n: 30))))
+    print("-- both [copy], sync")
+    print("= {}", both_copy_sync(Dup(n: 20)))
+    print("-- both [copy], driven")
+    print("= {}", __saw_drive(both_copy_driven(Dup(n: 20))))
+    print("end")
+}

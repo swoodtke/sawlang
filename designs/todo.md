@@ -40,12 +40,16 @@ is scheduled and in what order is the whole of what they say.
 ## [BACKLOG] — filed, not scheduled
 
 
-- SL-220 — the one of design 267's three unchecked boundaries that is NOT the
-  producer question (entry below, filed Sep 9 by SL-210). SL-218 and SL-219
-  CLOSED Sep 11 by design 269 (SL-211); SL-220 re-probed there and left OPEN
-  with unit D (SL-213) — its producer answer was never wrong, so no
-  classification change can reach it. Still needs the leak oracle its filing
-  names as its own first task
+- SL-275 — FOUR transfer boundaries decide the retain with an inline
+  `isinstance(value, Identifier)` and never consult the checker, so every
+  PROJECTION source duplicates without retaining: `let _ = h.s` SEGFAULTS,
+  a destructuring `let` and a struct-literal field from `t.0`/`arr[i]` both
+  SIGABRT on a refcount underflow, and `x?.y = …` is the fourth site (filed
+  Sep 12 by design 273's census, which stopped at them rather than widening
+  unit D). Live miscompiles of safe code; DF-139a/DF-151h's defect at the four
+  boundaries those fixes did not visit. The issue carries the matrix, the fix
+  shape and the obligations owed (driven twins, rows, the tier axis)
+- SL-281 — a driven `[move x]` capture of an ExplicitCopy frame local runs the author's `copy()` hook, which the sync twin never runs, so the closure reads 21 where sync reads 20 (filed Sep 12 by design 273's r2 multiplicity sweep, which isolated it to a LONE capture before filing; broken on origin/main, byte-identical from both compilers, NOT fixed there). SL-267's mechanism one capture mode over — the materialization's read-policy funnel is selected on the TIER before the MODE is consulted — and blocked on the same "materialize a NON-OWNING local" capability V96's open half needs. The issue carries the repro, the measured twins and the funnel's per-mode sweep
 - DF-308a — a struct construction takes NO positional argument, through a user `init` as through the memberwise literal, so a one-value wrapper is built as `Scalar(value: 34)` and never `Scalar(34)` (entry below, filed Sep 7 by design 245 v1). NOT A DEFECT — the spec rules it deliberate — but it is what makes §4's scalar-literal question cost one label more than design 245 §6 assumed, and the brief's own premise sentence is wrong and wants correcting
 - CONFORMANCE GAP (flagged Sep 5 by design 266 U0's obligation-3 check): the design-70 both-ways refusal — `run<Slow>` suspends so a `sync` caller refuses, `run<Fast>` stays sync — has NO `examples/conformance/` row, though its covering test exists (`examples/errors/sync_generic_instantiation_suspends.saw`, now also 266's acceptance test). The fix is an INDEX.md row naming that test (design 191's "existing test" form); rides the next brief that touches the effect surface, or a docs batch
 - DF-307b — `sizeof<Struct>()` folds in a `static_assert` and refuses at the five earlier const positions, because a struct's ABI layout is built during code generation and the front end declines rather than computing a second opinion (entry below, filed Sep 5 by DF-307a as its own documented boundary; NOT a defect). Costs the wire-struct idiom one restated length; nobody has asked for it. The fix shape is all-or-nothing — a partial one reintroduces the by-position divergence DF-307a removed
@@ -143,16 +147,25 @@ is scheduled and in what order is the whole of what they say.
 ## epic; all three PRE-EXISTING and none fixed there — unit A is
 ## behaviour-preserving and every fix changes which programs compile)
 
-STATUS: SL-218 and SL-219 CLOSED Sep 11 by design 269 (SL-211, unit B) —
-`designs/269-forwarding-taxonomy.md`. Both were table rows once the producer
-question became a total classification with an enumeration gate
+STATUS: ALL THREE CLOSED. SL-218 and SL-219 Sep 11 by design 269 (SL-211, unit
+B) — `designs/269-forwarding-taxonomy.md`. Both were table rows once the
+producer question became a total classification with an enumeration gate
 (`sawc/typechecker/producers.py` + `tools/test_producer_taxonomy.py`); V86 and
-V87 lost their XFAIL markers in that landing, and V88-V90 joined them. SL-220
-is OPEN and moves to unit D (SL-213): design 269 re-probed it on the fixed tree
-and it is unchanged, because its PRODUCER answer was never wrong — the subject
-really is a fresh temporary and the ledger records `take`/`adopt-temporary`
-correctly. What is missing is on the cleanup side, so no change to the
-classification can reach it. The filing's own hypothesis, confirmed by probe.
+V87 lost their XFAIL markers in that landing, and V88-V90 joined them.
+
+SL-220 CLOSED Sep 12 by design 273 (SL-213, unit D) —
+`designs/273-codegen-reads-the-decision.md`. Its producer answer was never
+wrong, so the fix is entirely on the cleanup side, exactly as the filing
+hypothesised and design 269 confirmed by probe: codegen decided "does this
+value need a cleanup registered?" with an isinstance list of eight node
+classes, and every producer off that list leaked. The list is now design 269's
+producer taxonomy. **SL-220 filed two shapes and SIX were leaking** —
+`(move r).x`, a value-`if` receiver, a value-`match` receiver and a `??`
+receiver were unfiled siblings of the same mechanism, which is why the fix
+targets the enumeration and the pin (row V104) is driven by the taxonomy's
+KINDS rather than by the found shapes. The leak oracle the filing owed is a
+printing `deinit` on a NoCopy type plus the two READS controls that must NOT be
+registered.
 
 Brief: `designs/267-ownership-boundary-inventory.md` (§ "The boundaries that
 reach NO funnel"). Evidence, repro programs and the tier spread live in the
@@ -169,7 +182,9 @@ three issues; not restated here.
 - **SL-220** — the OPPOSITE error at the same boundary: a payload extracted from
   a fresh temporary inline is never released (`(try! f()).x` and `f()!.x` both
   leak; the bound spelling is correct). No pin — the program exits 0 with the
-  right output, so the oracle is the issue's own first task.
+  right output, so the oracle is the issue's own first task. CLOSED Sep 12 by
+  design 273, as one of SIX shapes of a single cleanup-registration mechanism;
+  pinned by row V104.
 
 MECHANISM (obligation 4): SL-218 and SL-219 are ONE mechanism in two
 sub-classes — `_is_aliasing_expr` is a node-type test over four classes plus
@@ -183,6 +198,84 @@ side, hypothesised to belong with SL-213 (unit D).
 SEQUENCING: with SL-211 (unit B, the forwarding taxonomy), which is where the
 producer question gets its structural answer. Each fix owes a corpus sweep and
 V62/V65's tier-blindness argument — fence every tier, not only the owning ones.
+
+## SL-213 — unit D of the SL-209 epic: codegen stops re-answering ownership
+## (batched with SL-220, SL-267, SL-268 — the cleanup/registration findings the
+## unit's own mechanism owns)
+
+STATUS: CLOSED Sep 12 — `designs/273-codegen-reads-the-decision.md` (number
+PROVISIONAL). Rows V104-V108. Gates: full suite + freestanding per commit, full
+battery terminal.
+
+The unit's finding is that the epic named the wrong half. Codegen re-derives
+ownership on TWO axes — `_transfer_needs_copy` ("does this transfer owe a
+retain") and `_is_owned_temporary` ("does this value need a cleanup
+registered") — and the second is INVISIBLE from the first, which is where three
+of the four batched issues live. Details in the brief; not restated here.
+
+- **SL-220** CLOSED — six leaking producer shapes, two filed. See the section
+  above.
+- **SL-268** CLOSED — the same class at the capture boundary: `[copy x]` is the
+  one capture mode of three reaching no ownership funnel (design 267's own
+  inventory said so), and a NON-escaping closure's stack env has no destructor
+  to release the duplicate the escaping one's heap env releases. Fixing it
+  exposed that a body's TAIL had no statement context at all, which is the
+  position SL-268's own repro is written at. Row V105, four positions.
+- **SL-267** HALF CLOSED — the half that changes the ANSWER is fixed (the
+  materialization already duplicates, so the author's `[copy]` spec riding the
+  materialized local duplicated twice and a driven body computed 72 where sync
+  computed 71). Rows V106 + V107. **The mode is NOT re-typed**: r1 rewrote
+  `copy` to `move`, which for a non-escaping env is DF-218h's deferred
+  one-shot, so the second invocation panicked — an authored `[copy x]` is
+  REUSABLE and no lowering may move it between those categories. The spec now
+  carries PROVENANCE (`CaptureSpec.materialized`) and codegen skips only the
+  second duplication, deciding ownership from whether the closure escapes.
+  **The materialization is PER SPEC**, and r2 is why: revision 2 left the
+  synthesized local keyed by the SOURCE's name and deduplicated, so two `[copy
+  d]` literals in ONE expression shared one duplicate while both specs claimed
+  it — an undercount non-escaping, a DOUBLE FREE escaping (two heap envs
+  releasing one value; with an `Arc` payload, freed storage read through a live
+  root and a refcount-underflow abort in safe code). A capture belongs to the
+  LITERAL that wrote it, so each `copy` spec gets its own `__capN_` local and is
+  renamed onto it; dedup survives only for the modes that mint nothing. Row
+  V108 plus the three filed repros (`examples/two_copy_captures.saw`,
+  `two_escaping_copies.saw`, `two_copy_arc.saw`).
+  **The counting half STAYS OPEN** and V96 keeps its XFAIL: an implicit capture
+  still pays one duplication a sync twin does not, and closing it needs the
+  transform to materialize a NON-OWNING local — every spelling available today
+  releases it somewhere. The blocker is enumerated on the issue.
+- **THE INVOCATION DIMENSION** (obligation 4, earned by the r1 review): every
+  capture row in the tree invoked its closure ONCE, so "how many times may this
+  body run?" was untested at every mode and a lowering could move a capture
+  between the reusable and one-shot categories unseen. Swept at N=2 across
+  `[copy]`/plain/borrow/`[move]` × escaping/non-escaping × sync/driven; V107
+  is the standing row and both it and V106 now state their invocation counts.
+- **THE MULTIPLICITY DIMENSION** (obligation 4, earned by the r2 review): the
+  same mechanism class one dimension over — every capture row in the tree has
+  exactly ONE `[copy]` literal per statement, so "deduplicated by source name"
+  and "one local per capture" were indistinguishable. Swept at N=2 and N=3
+  across escaping/non-escaping × sync/driven × {tuple, call args, Vector
+  literal, value-`if` arms, `match` arm, `match` scrutinee, nested literals} ×
+  {`copy`+`copy`, `copy`+`move`, `copy`+plain, `copy`+borrow}; V108 is the
+  standing row, and the matrix with per-cell base/r2/fixed evidence is in the
+  brief. Two BASE defects it turned up: **SL-281** (a driven `[move x]` of an
+  ExplicitCopy frame local runs `copy()` and computes a different value from
+  sync — filed, NOT fixed, blocked on V96's capability) and **SL-282** (a nested
+  closure literal naming a frame local is an ICE, `Undefined variable:
+  __cap0_t`, because the capture rename reaches a nested literal's identifiers
+  but not its capture bookkeeping — CLOSED here, because routing `[copy x]`
+  through the rename put that shape on the ICE and the two are one mechanism).
+  Pin: `examples/nested_closure_captures_frame_local.saw`.
+- **THE NAMED TARGET DOES NOT COME OUT.** `_transfer_needs_copy`'s isinstance
+  tail is measured load-bearing: inside a monomorphized generic body the
+  checker files `deferred` (design 219 wave C discharges at the CALL SITES), so
+  the tail is the only answer there — disabling it leaves V32 compiling and
+  silently wrong, its `Arc` oracle reading 6 where it must read 1. What the
+  unit retires is the tail's STALE justification, which named two carve-outs
+  (`self`, inner-block tails) that unit B made the checker's. Removal is gated
+  on wave C's discharge materializing as an annotation — unit E's ground.
+- **SL-275 FILED, NOT FIXED** — the census's sharpest finding, four boundaries
+  bypassing the anchor entirely. [BACKLOG] entry above.
 
 ## DF-308a — a struct construction takes NO POSITIONAL argument, so a one-value
 ## wrapper's constructor always writes its label (filed Sep 7 by design 245 v1;

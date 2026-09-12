@@ -1,0 +1,61 @@
+// Two `[copy d]` captures of one source in one expression, NON-ESCAPING.
+//
+// The SL-213 r2 repro for the undercount face. Both closure literals are
+// arguments of one call, so both environments are stack allocas. Revision 2 of
+// the SL-267 fix put both captures onto ONE synthesized local — the coroutine
+// transform materializes a frame-resident local per SOURCE NAME and skipped the
+// second `let` — and then marked both specs "already duplicated", so codegen
+// skipped both authored copies. One duplicate reached the two closures where
+// the sync twin makes two, so `copy()` ran once and the sum was wrong.
+//
+// The fix is per-SPEC materialization: a capture belongs to the literal that
+// wrote it, so each gets its own local. The guarantee and its full matrix live
+// in `examples/conformance/V108_each_copy_capture_owns_one_duplicate.saw`; this
+// file is the filed repro, kept as its own regression.
+//
+// INVOCATION COUNTS: each closure is invoked ONCE, in both twins.
+//
+// DROP ORDER differs between the twins and is not what this pins: a driven body
+// releases its frame-resident source at frame teardown, ahead of the
+// duplicates. The COUNT is the assertion — two copies, two releases of the
+// duplicate, one of the source.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: -- sync
+// EXPECT-OUTPUT: copy 20 -> 21
+// EXPECT-OUTPUT: copy 20 -> 21
+// EXPECT-OUTPUT: drop 21
+// EXPECT-OUTPUT: drop 21
+// EXPECT-OUTPUT: drop 20
+// EXPECT-OUTPUT: = 42
+// EXPECT-OUTPUT: -- driven
+// EXPECT-OUTPUT: copy 20 -> 21
+// EXPECT-OUTPUT: copy 20 -> 21
+// EXPECT-OUTPUT: drop 20
+// EXPECT-OUTPUT: drop 21
+// EXPECT-OUTPUT: drop 21
+// EXPECT-OUTPUT: = 42
+// EXPECT-OUTPUT: end
+
+struct Dup { n: Int }
+extension Dup: ExplicitCopy {
+    func copy(&self) -> Dup { print("copy {} -> {}", self.n, self.n + 1)  Dup(n: self.n + 1) }
+    func deinit(&var self) { print("drop {}", self.n) }
+}
+
+func both(f: () sync -> Int, g: () sync -> Int) -> Int { f() + g() }
+
+func pair_sync(d: Dup) -> Int { both({ [copy d] in d.n }, { [copy d] in d.n }) }
+
+func pair_driven(d: Dup) -> Int {
+    __saw_suspend()
+    both({ [copy d] in d.n }, { [copy d] in d.n })
+}
+
+func main() {
+    print("-- sync")
+    print("= {}", pair_sync(Dup(n: 20)))
+    print("-- driven")
+    print("= {}", __saw_drive(pair_driven(Dup(n: 20))))
+    print("end")
+}

@@ -18,6 +18,7 @@ from ast_nodes import (SawType, TypeKind, MoveExpr, Identifier, MemberAccess,
                        ArrayIndex, TupleIndex, SelfExpr,
                        FunctionCall, MethodCall, StructInit, EnumInit,
                        TupleLiteral, ArrayLiteral, MapLiteral, SetLiteral,
+                       Expression, ForLoop,
                        PRIMITIVE_EXT_KINDS)
 from .mangle import mangle_type
 
@@ -425,23 +426,109 @@ class ResourcesMixin:
     def _is_owned_temporary(self, expr) -> bool:
         """Whether `expr` produces a fresh, owned value that no binding holds.
 
-        Calls and constructors mint a new value the caller owns: if it is not
-        bound, returned, or transferred onward, nobody will clean it, so it must
-        be registered as a statement-scoped temporary (item 4). An lvalue path
-        (Identifier / self / field / element access) instead *borrows* a value
-        owned by an existing binding, which runs its own cleanup -- registering
-        one of those as a temporary would double-free it.
+        A value nobody holds must be registered as a statement-scoped temporary
+        (item 4), or nothing will ever release it. A value an existing binding
+        DOES hold must not be, or its owner's cleanup and this one both run --
+        a double free. So this is an ownership question with two wrong answers,
+        and it is the PRODUCER question design 269 made total: "does this
+        expression name storage an existing owner keeps, or mint a value the
+        reader owns?"
 
-        An aggregate LITERAL mints a value the same way (DF-151d): every one of
-        them builds its elements through `_gen_transfer_value`, so a `(f(), k)`
-        tuple, an `[s0, s1]` array and a `{k: v}` map each hold references they
-        took themselves -- retained from a binding or moved off one. That makes
-        the literal an owner, not a borrow, and an unclaimed one leaks exactly
-        as an unclaimed call result does.
+        THE ANSWER IS THE CHECKER'S, NOT CODEGEN'S (SL-213, unit D of SL-209).
+        This used to be an isinstance list of eight node classes -- a second,
+        independent opinion with exactly the failure mode design 269 documents:
+        a node that mints a value and is not on the list answers False, and the
+        value leaks. Six shapes did, and they were one mechanism rather than
+        six bugs: `(try! f()).x` and `f()!.x` (SL-220), `(move r).x`, a value
+        `if` / `match` receiver, and a `??` receiver. The list is now
+        `typechecker.producers`, whose gate fails the build when a node class is
+        unclassified, so a new expression form cannot silently leak here.
+
+        The mapping, one line per kind:
+
+          READS     -- storage an existing owner keeps. NOT a temporary; its
+                       binding runs the cleanup.
+          PROJECTS  -- a PART of another expression's storage (`o!`, `try r`, a
+                       forwarding cast). The owner of the operand is the owner
+                       of the part, so recurse -- EXCEPT when the extraction
+                       itself minted a reference, which design 131 records as
+                       `payload_needs_copy` and which makes the payload the
+                       reader's own.
+          REWRAPS   -- the same value under a wider type; recurse to the
+                       operand, which is the value that actually transferred.
+          BRANCHES  -- every arm is a transfer into the merged home (DF-299b),
+                       so the merged value is the reader's whichever arm ran:
+                       a fresh arm hands over a temporary, and an arm that READS
+                       a binding retains at the arm. Both owe a release here.
+          BUILDS    -- a fresh value, including the aggregate LITERALS DF-151d
+                       added: each builds its elements through
+                       `_gen_transfer_value` and so holds references it took
+                       itself.
+          OWN_ARM   -- `move x` RETIRES the source binding, so nobody else will
+                       release the value; `&x` grants no ownership at all.
+
+        Called from the seven positions that consume a value without binding it
+        (obligation 1's named entry points): a member-access object
+        (`structs.py`), a method-call receiver and a field-call receiver
+        (`calls.py`), an expression STATEMENT (`statements.py`), an
+        `if let` / `guard let` scrutinee (`conditionals.py`), and a `match`
+        scrutinee in both its lowerings (`match.py`).
         """
-        return isinstance(expr, (FunctionCall, MethodCall, StructInit, EnumInit,
-                                 TupleLiteral, ArrayLiteral, MapLiteral,
-                                 SetLiteral))
+        # The typechecker/codegen seam is crossed function-locally, as
+        # `typechecker`'s own `from codegen.mangle import ...` calls do. The
+        # module is a pure classification over node-local annotations -- it
+        # holds no state and reads no scope -- so asking it here answers the
+        # same question the checkpoint asked, about the same node.
+        from typechecker import producers
+        from .calls import PreparedValue
+
+        # CODEGEN'S OWN SYNTHESIZED NODES ARE CODEGEN'S TO ANSWER FOR. The
+        # taxonomy's universe is the AUTHORED tree -- `ast_nodes`' `Expression`
+        # subclasses, which is what its gate enumerates -- and codegen declares
+        # `Expression` subclasses of its own that no gate has ever seen. Asking
+        # about one is a question the checker was never posed, so it is answered
+        # here, by name, with its reason; anything else still reaches the
+        # taxonomy and is still LOUD when unclassified, which is the property
+        # design 269 exists to hold.
+        #
+        # `PreparedValue` (design 137) wraps an LLVM value its BUILDER already
+        # owns -- a stack `StringBuilder` for `format(into:)`, a rendered error
+        # -- so its lifetime is that builder's and a release here would be a
+        # second one.
+        if isinstance(expr, PreparedValue):
+            return False
+
+        node = expr
+        depth = 0
+        while node is not None:
+            # A transparency chain is a handful of nodes deep at most; the
+            # bound is a guard against a malformed tree, never a real limit.
+            depth += 1
+            if depth > 64:
+                return False
+            if not isinstance(node, (Expression, ForLoop)):
+                return False
+            kind = producers.producer_kind(node)
+            if kind == producers.READS:
+                return False
+            if kind == producers.PROJECTS:
+                # Design 269's P1: a Copy-tier payload duplicated AT THE
+                # EXTRACTION is a fresh reference this position owns. Without
+                # the stamp the extraction is a borrow of the operand's
+                # storage, so the operand's owner answers.
+                if getattr(node, 'payload_needs_copy', False):
+                    return True
+                node = producers.projected_operand(node)
+                continue
+            if kind == producers.REWRAPS:
+                node = producers.rewrapped_operand(node)
+                continue
+            if kind == producers.OWN_ARM:
+                return isinstance(node, MoveExpr)
+            return True
+        # A wrap around no value at all (design 92's bare `return` in a
+        # `Result<Void, E>` body) transfers nothing and owns nothing.
+        return False
 
     def _register_stmt_temp(self, value, saw_type: SawType):
         """Spill an owned temporary `value` to a slot and register it for LIFO
@@ -1564,7 +1651,46 @@ class ResourcesMixin:
         return self._create_result_ok_for_return(value, res_type)
 
     def _transfer_needs_copy(self, value_expr) -> bool:
-        """Whether transferring `value_expr` into a new owner must copy/retain."""
+        """Whether transferring `value_expr` into a new owner must copy/retain.
+
+        THE CHECKER'S ANSWER COMES FIRST AND IS AUTHORITATIVE. `needs_copy` is
+        written by `_stamp_retain`, the ONE writer of the retain annotations
+        (design 270), and the preservation audit proves the stamp survives
+        every lowering — so when it is there, nothing below is consulted.
+
+        WHAT THE ARMS BELOW ARE FOR, and what they are NOT (SL-213, unit D of
+        SL-209). SL-213's premise was that the shape/tier tail is a second
+        opinion to be retired wholesale. Measured, it is not one thing:
+
+          * the `place_value_read` and `frame_owning_read` arms answer for the
+            two funnels that record NO decision of their own — design 146's
+            place read and design 270 §4c/4d's coroutine frame, where the
+            transform is the stated authority. There is no checker answer to
+            migrate onto, by construction, until unit B/E gives those funnels
+            decisions and design 218's `Slot` migration retires the frame
+            encodings. They stay, and this is the documented reason.
+
+          * the isinstance TAIL is the only answer inside a MONOMORPHIZED
+            GENERIC BODY. The checker files `deferred` there, with
+            `discharge = tier-requirement:<instance>.<param>` — design 219
+            wave C discharges the requirement AT THE CALL SITES, so no
+            `needs_copy` is ever stamped on the instance body's own nodes.
+            Measured before touching it: disabling the tail leaves
+            `V32_copy_bound_is_tier_derived` compiling and SILENTLY WRONG —
+            its `Arc.strong_count()` oracle reads 6 where it must read 1.
+            Retiring it is gated on wave C's discharge materializing as an
+            annotation on the instance body, which is unit E's ground, not
+            this one's.
+
+        WHAT DID CHANGE HERE is the tail's stated justification, which had gone
+        stale and would have misled the next reader into deleting the wrong
+        thing. It used to read "`self` and inner-block tails aren't marked by
+        the checkpoint" — true when it was written, false since unit B (design
+        269): `SelfExpr` joined `PRODUCER_READS` (SL-218) and DF-299b's branch
+        recursion stamps inner-block arm tails, so BOTH of those carve-outs are
+        now the checker's and reach the `needs_copy` arm above. Neither is why
+        the tail still exists.
+        """
         if getattr(value_expr, 'needs_copy', False):
             return True
         # design 146: a place VALUE READ. Reading a place out as a value is
@@ -1600,8 +1726,12 @@ class ResourcesMixin:
         # `__saw_forget` instead).
         if getattr(value_expr, 'frame_owning_read', False):
             return self._frame_read_needs_copy(value_expr)
-        # `self` and inner-block tails aren't marked by the checkpoint; retain
-        # when they alias a Copy value (copy() == cheap retain).
+        # THE GENERIC-INSTANCE ARM (see the docstring). A body checked at an
+        # abstract tier carries no `needs_copy` — design 219 wave C discharges
+        # the requirement at the CALL SITES — so this re-derives the answer
+        # against the instance's CONCRETE type, which `type_param_context`
+        # supplies below. A non-generic transfer that owes a retain was already
+        # answered by the `needs_copy` arm above.
         if isinstance(value_expr, (Identifier, MemberAccess, ArrayIndex,
                                    TupleIndex, SelfExpr)):
             if getattr(value_expr, 'resolved_type', None) is None:

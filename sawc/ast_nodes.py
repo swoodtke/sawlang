@@ -2082,11 +2082,21 @@ class CaptureSpec:
       'plain'    — `name`      today's transfer rules (bitwise / retain / error)
     Borrow captures ('ref'/'ref_var') are legal ONLY in a closure literal passed
     directly to a non-escaping parameter.
+
+    `materialized` is PROVENANCE, not a mode (SL-267): the coroutine transform
+    sets it when it has already performed this capture's duplication while
+    materializing a frame-resident local for the closure to name. The mode stays
+    what the AUTHOR wrote, because the mode is what says whether the capture is
+    reusable — re-typing a `copy` to `move` selects DF-218h's deferred one-shot
+    protocol and makes the second invocation panic. Codegen reads this to skip
+    the SECOND duplication only; it still decides ownership itself, from whether
+    the closure escapes.
     """
     name: str
     mode: str
     line: int = 0
     column: int = 0
+    materialized: bool = False
 
 
 @dataclass

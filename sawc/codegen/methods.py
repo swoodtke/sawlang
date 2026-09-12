@@ -762,7 +762,37 @@ class MethodsMixin:
             # Honor a Copy `needs_copy` annotation on a tail-return final
             # expression (only the function/method body's final_expr is marked
             # by the value-transfer checkpoint, so other blocks are unaffected).
-            result = self._gen_transfer_value(block.final_expr)
+            #
+            # A BODY'S TAIL IS A STATEMENT-SHAPED EXTENT (SL-213). Every other
+            # position that builds an owned temporary sits inside a statement,
+            # whose `_generate_statement` context collects and drains it; a
+            # function/method/closure body whose whole body IS a tail has no
+            # statement at all, so `statement_temps` is None and
+            # `_register_stmt_temp` silently registered nothing. Anything the
+            # tail owned was therefore released by nobody —
+            # `func a(d: Dup) -> Int { run_int({ [copy d] in d.n }) }` is
+            # SL-268's own filed repro, and the same hole swallowed a tail
+            # receiver (`mk(3).n`) at every producer shape.
+            #
+            # Only the OUTERMOST tail opens one: a nested block's tail already
+            # runs inside a statement, finds a live list, and is confined by the
+            # design-94 `temp_mark` below exactly as before.
+            tail_temps = None
+            if self.statement_temps is None:
+                tail_temps = []
+                self.statement_temps = tail_temps
+            try:
+                result = self._gen_transfer_value(block.final_expr)
+            finally:
+                if tail_temps is not None:
+                    self.statement_temps = None
+            # After the value is in hand, never before: the tail's result is
+            # read OUT of these temporaries (a field off a temporary receiver
+            # retains at its own tier first), so releasing them earlier would
+            # free the storage the return value was just taken from.
+            if tail_temps and not self.builder.block.is_terminated:
+                for slot, saw_type in reversed(tail_temps):
+                    self._emit_drop_at(slot, saw_type)
 
         # Drop final_expr statement temps confined to this block (design 94),
         # before the block's own scope-var cleanup (LIFO). Skip when the block

@@ -1,0 +1,60 @@
+// Two `[copy d]` captures of one source in one expression, ESCAPING.
+//
+// The SL-213 r2 repro for the DOUBLE-FREE face, and the sharper of the two: an
+// escaping closure's environment is a refcounted heap block whose destructor
+// releases every capture, so when revision 2 of the SL-267 fix put both
+// captures onto ONE synthesized local, BOTH environments took ownership of the
+// SAME duplicate and each released it at teardown. The driven twin printed one
+// `copy 20 -> 21` and then `drop 21` twice.
+//
+// The fix is per-SPEC materialization: each literal's capture gets its own
+// local, so each heap environment owns a duplicate nothing else does. The
+// guarantee and its full matrix live in
+// `examples/conformance/V108_each_copy_capture_owns_one_duplicate.saw`; this
+// file is the filed repro, kept as its own regression.
+//
+// INVOCATION COUNTS: each closure is invoked ONCE, in both twins.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: -- sync
+// EXPECT-OUTPUT: copy 20 -> 21
+// EXPECT-OUTPUT: copy 20 -> 21
+// EXPECT-OUTPUT: drop 21
+// EXPECT-OUTPUT: drop 21
+// EXPECT-OUTPUT: drop 20
+// EXPECT-OUTPUT: = 42
+// EXPECT-OUTPUT: -- driven
+// EXPECT-OUTPUT: copy 20 -> 21
+// EXPECT-OUTPUT: copy 20 -> 21
+// EXPECT-OUTPUT: drop 21
+// EXPECT-OUTPUT: drop 21
+// EXPECT-OUTPUT: drop 20
+// EXPECT-OUTPUT: = 42
+// EXPECT-OUTPUT: end
+
+struct Dup { n: Int }
+extension Dup: ExplicitCopy {
+    func copy(&self) -> Dup { print("copy {} -> {}", self.n, self.n + 1)  Dup(n: self.n + 1) }
+    func deinit(&var self) { print("drop {}", self.n) }
+}
+
+// The tuple is ONE expression holding both literals, and binding them is what
+// makes each closure escape.
+func pair_sync(d: Dup) -> Int {
+    let (f, g) = ({ [copy d] in d.n }, { [copy d] in d.n })
+    f() + g()
+}
+
+func pair_driven(d: Dup) -> Int {
+    __saw_suspend()
+    let (f, g) = ({ [copy d] in d.n }, { [copy d] in d.n })
+    f() + g()
+}
+
+func main() {
+    print("-- sync")
+    print("= {}", pair_sync(Dup(n: 20)))
+    print("-- driven")
+    print("= {}", __saw_drive(pair_driven(Dup(n: 20))))
+    print("end")
+}

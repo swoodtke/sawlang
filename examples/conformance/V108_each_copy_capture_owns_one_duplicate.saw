@@ -1,0 +1,207 @@
+// Conformance row V108 — every authored `[copy x]` capture owns its OWN
+// duplicate, including when several captures name one source in one expression
+//
+// THE GUARANTEE: the count of duplicates equals the count of `[copy]` captures,
+// and each duplicate has exactly one owner that releases it exactly once. A
+// capture is a property of the CLOSURE LITERAL that wrote it, so two literals
+// naming one source are two captures and owe two duplicates — the number a
+// reader counts off the page, and the number the sync twin makes.
+//
+// WHY THIS ROW EXISTS. V105 and V106 pin the `[copy]` capture at one literal;
+// V107 adds the invocation-count dimension. MULTIPLICITY is the third dimension
+// none of them varied, and the SL-267 fix's first two revisions both broke on
+// it. The transform materializes a frame-resident local as a `let` for the
+// closure to name, and revision 2 recorded "the duplicate already exists" on
+// the SPEC — but the materialization was keyed by the SOURCE's name and
+// deduplicated, so every `[copy d]` in one statement rode ONE synthesized local
+// while every spec claimed its own. Codegen then skipped every authored copy:
+// one duplicate where two were owed. Non-escaping that is an UNDERCOUNT
+// (`copy()` runs once, the sum is wrong); ESCAPING it is a DOUBLE FREE, because
+// both heap environments took ownership of the same value and each released it
+// at teardown — with an `Arc` payload, a read through a still-live root came
+// back from freed storage and the program died on a refcount underflow.
+//
+// So the materialization is PER SPEC: each `[copy]` capture gets its own
+// synthesized local and is renamed onto it, exactly as an implicit capture
+// already was. Deduplication survives only for the modes that mint NOTHING
+// (`[move x]`, `[&x]`, `[x]`), where several literals sharing one binding is
+// correct.
+//
+// THE ORACLES. `copy()` prints and BUMPS, so duplications are counted by value
+// and the sum says how many happened; the printing `deinit` counts releases, so
+// a skipped copy and a double release cannot be confused. Row G swaps in
+// `Arc.strong_count()`, which is the memory-safety oracle: a premature release
+// is visible as a count, and the read after it is the use-after-free.
+//
+// DROP ORDER differs between the twins and that is not this row's subject: a
+// driven body releases its frame-resident source at frame teardown, which lands
+// it before the duplicates rather than after (the same skew V107 records). What
+// this row asserts is the COUNT and the OWNERSHIP.
+//
+// INVOCATION COUNTS: rows A-E and G-H invoke each closure ONCE; row F invokes
+// each of its two closures TWICE, which is V107's dimension crossed with this
+// one — a per-literal duplicate must also still be reusable.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: -- A two literals, non-escaping, sync, 1 call each
+// EXPECT-OUTPUT: copy 20 -> 21
+// EXPECT-OUTPUT: copy 20 -> 21
+// EXPECT-OUTPUT: drop 21
+// EXPECT-OUTPUT: drop 21
+// EXPECT-OUTPUT: drop 20
+// EXPECT-OUTPUT: = 42
+// EXPECT-OUTPUT: -- B two literals, non-escaping, driven, 1 call each
+// EXPECT-OUTPUT: copy 20 -> 21
+// EXPECT-OUTPUT: copy 20 -> 21
+// EXPECT-OUTPUT: drop 20
+// EXPECT-OUTPUT: drop 21
+// EXPECT-OUTPUT: drop 21
+// EXPECT-OUTPUT: = 42
+// EXPECT-OUTPUT: -- C two literals, escaping, sync, 1 call each
+// EXPECT-OUTPUT: copy 30 -> 31
+// EXPECT-OUTPUT: copy 30 -> 31
+// EXPECT-OUTPUT: drop 31
+// EXPECT-OUTPUT: drop 31
+// EXPECT-OUTPUT: drop 30
+// EXPECT-OUTPUT: = 62
+// EXPECT-OUTPUT: -- D two literals, escaping, driven, 1 call each
+// EXPECT-OUTPUT: copy 30 -> 31
+// EXPECT-OUTPUT: copy 30 -> 31
+// EXPECT-OUTPUT: drop 31
+// EXPECT-OUTPUT: drop 31
+// EXPECT-OUTPUT: drop 30
+// EXPECT-OUTPUT: = 62
+// EXPECT-OUTPUT: -- E THREE literals, non-escaping, driven, 1 call each
+// EXPECT-OUTPUT: copy 40 -> 41
+// EXPECT-OUTPUT: copy 40 -> 41
+// EXPECT-OUTPUT: copy 40 -> 41
+// EXPECT-OUTPUT: drop 40
+// EXPECT-OUTPUT: drop 41
+// EXPECT-OUTPUT: drop 41
+// EXPECT-OUTPUT: drop 41
+// EXPECT-OUTPUT: = 123
+// EXPECT-OUTPUT: -- F two literals, escaping, driven, 2 calls each
+// EXPECT-OUTPUT: copy 50 -> 51
+// EXPECT-OUTPUT: copy 50 -> 51
+// EXPECT-OUTPUT: drop 51
+// EXPECT-OUTPUT: drop 51
+// EXPECT-OUTPUT: drop 50
+// EXPECT-OUTPUT: = 204
+// EXPECT-OUTPUT: -- G the Arc oracle, two literals, escaping, driven
+// EXPECT-OUTPUT: inside 3
+// EXPECT-OUTPUT: inside 3
+// EXPECT-OUTPUT: root while live 3
+// EXPECT-OUTPUT: root after 1
+// EXPECT-OUTPUT: read 7
+// EXPECT-OUTPUT: -- H nested literals, driven, 1 call each
+// EXPECT-OUTPUT: copy 60 -> 61
+// EXPECT-OUTPUT: copy 61 -> 62
+// EXPECT-OUTPUT: drop 62
+// EXPECT-OUTPUT: drop 60
+// EXPECT-OUTPUT: drop 61
+// EXPECT-OUTPUT: = 62
+// EXPECT-OUTPUT: end
+
+struct Dup { n: Int }
+extension Dup: ExplicitCopy {
+    func copy(&self) -> Dup { print("copy {} -> {}", self.n, self.n + 1)  Dup(n: self.n + 1) }
+    func deinit(&var self) { print("drop {}", self.n) }
+}
+
+func both(f: () sync -> Int, g: () sync -> Int) -> Int { f() + g() }
+func three(f: () sync -> Int, g: () sync -> Int, h: () sync -> Int) -> Int { f() + g() + h() }
+func run_int(body: () sync -> Int) -> Int { body() }
+
+// A/B — NON-ESCAPING: both literals are arguments of one call, so both
+// environments are stack allocas and each materialized local's own scope
+// cleanup releases its duplicate.
+func a_sync(d: Dup) -> Int { both({ [copy d] in d.n }, { [copy d] in d.n }) }
+func b_driven(d: Dup) -> Int {
+    __saw_suspend()
+    both({ [copy d] in d.n }, { [copy d] in d.n })
+}
+
+// C/D — ESCAPING: both literals sit in one tuple, so each gets a refcounted
+// heap environment that OWNS its duplicate and releases it once at teardown.
+// This is the cell the deduplicated local double-freed.
+func c_sync(d: Dup) -> Int {
+    let (f, g) = ({ [copy d] in d.n }, { [copy d] in d.n })
+    f() + g()
+}
+func d_driven(d: Dup) -> Int {
+    __saw_suspend()
+    let (f, g) = ({ [copy d] in d.n }, { [copy d] in d.n })
+    f() + g()
+}
+
+// E — multiplicity THREE. Two is the smallest number that can collide; three
+// is what says the rule is per literal rather than a special case for pairs.
+func e_driven(d: Dup) -> Int {
+    __saw_suspend()
+    three({ [copy d] in d.n }, { [copy d] in d.n }, { [copy d] in d.n })
+}
+
+// F — V107's dimension crossed with this one: per-literal duplicates must ALSO
+// be reusable, so each closure runs twice and each duplicate is released once.
+func f_driven(d: Dup) -> Int {
+    __saw_suspend()
+    let (f, g) = ({ [copy d] in d.n }, { [copy d] in d.n })
+    f() + f() + g() + g()
+}
+
+// G — the memory-safety oracle. `copy()` here duplicates an `Arc`, so the
+// strong count IS the number of live duplicates: the root plus two. A shared
+// duplicate would read 2 inside, and its double release would take the count
+// below the root's own — which is a use-after-free of storage the root still
+// holds, and then a refcount underflow.
+struct Cell { v: Int }
+extension Cell { func get(&self) -> Int { self.v } }
+
+struct Held { a: Arc<Cell> }
+extension Held: ExplicitCopy {
+    func copy(&self) -> Held { Held(a: self.a.copy()) }
+}
+
+func g_driven(h: Held) -> (() sync -> Int, () sync -> Int) {
+    __saw_suspend()
+    ({ [copy h] in h.a.strong_count() }, { [copy h] in h.a.strong_count() })
+}
+
+func g_scope(root: &Arc<Cell>) {
+    let (f, g) = __saw_drive(g_driven(Held(a: root.copy())))
+    print("inside {}", f())
+    print("inside {}", g())
+    print("root while live {}", root.strong_count())
+}
+
+// H — NESTED literals: the inner `[copy d]` names the OUTER closure's own
+// binding, so it duplicates the duplicate. Two captures, two duplicates, and
+// the rename that gives the outer one its private local has to reach the inner
+// literal's capture bookkeeping as well as its identifiers.
+func h_driven(d: Dup) -> Int {
+    __saw_suspend()
+    run_int({ [copy d] in run_int({ [copy d] in d.n }) })
+}
+
+func main() {
+    print("-- A two literals, non-escaping, sync, 1 call each")
+    print("= {}", a_sync(Dup(n: 20)))
+    print("-- B two literals, non-escaping, driven, 1 call each")
+    print("= {}", __saw_drive(b_driven(Dup(n: 20))))
+    print("-- C two literals, escaping, sync, 1 call each")
+    print("= {}", c_sync(Dup(n: 30)))
+    print("-- D two literals, escaping, driven, 1 call each")
+    print("= {}", __saw_drive(d_driven(Dup(n: 30))))
+    print("-- E THREE literals, non-escaping, driven, 1 call each")
+    print("= {}", __saw_drive(e_driven(Dup(n: 40))))
+    print("-- F two literals, escaping, driven, 2 calls each")
+    print("= {}", __saw_drive(f_driven(Dup(n: 50))))
+    print("-- G the Arc oracle, two literals, escaping, driven")
+    let root = try! Arc(value: Cell(v: 7))
+    g_scope(&root)
+    print("root after {}", root.strong_count())
+    print("read {}", root.get())
+    print("-- H nested literals, driven, 1 call each")
+    print("= {}", __saw_drive(h_driven(Dup(n: 60))))
+    print("end")
+}

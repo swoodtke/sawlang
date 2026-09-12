@@ -355,10 +355,14 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
   caught now and SUSPECT in older builds, where every refused shape above
   compiled: the `self` faces were two `deinit`s per value at exit 0 (a SIGABRT
   at `ExplicitCopy`), the `try` faces were THREE, and the wrapped returns two.
-  ONE neighbouring shape is still open — a payload extracted from a fresh
-  temporary INLINE (`(try! f()).x`, `f()!.x`) LEAKS, the opposite error at the
-  same boundary (SL-220); bind the container first and the extraction is
-  correct.
+  The neighbouring shape at that boundary — a payload extracted from a fresh
+  temporary INLINE (`(try! f()).x`, `f()!.x`) — used to LEAK, the opposite
+  error: nobody released the extracted value. CLOSED Sep 12 by design 273
+  (SL-220), along with four shapes filed with it that leaked the same way and
+  nobody had reported: `(move r).x`, a value `if` or `match` used as a
+  receiver, and a `??` receiver. All of them release exactly once now. Binding
+  the container first was the workaround, and a build where it is still needed
+  predates that date.
 - **A CONVERSION IS WRITTEN EVERYWHERE — there is no position exemption
   (design 205).** A PLAIN transfer takes the same rule the arm takes: a
   lossless widening is free, a narrowing or a same-width sign change is

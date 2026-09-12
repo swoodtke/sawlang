@@ -162,6 +162,13 @@ class ClosuresMixin:
                            and self._needs_cleanup(cap_saw_types[c])])
         deferred_set = set(deferred_moves)
 
+        # SL-267: captures whose duplicate the coroutine transform already made
+        # while materializing a frame-resident local. PROVENANCE, not a mode —
+        # the capture is still a `copy` and is still reusable; what this set
+        # suppresses is the SECOND duplication. See `CaptureSpec.materialized`.
+        materialized_set = {s.name for s in (expr.capture_specs or [])
+                            if s.materialized}
+
         if captures:
             # Build environment struct with captured variables. An escaping
             # closure's heap env leads with the atomic refcount word (design 73).
@@ -506,9 +513,67 @@ class ClosuresMixin:
                     if src_flag is not None:
                         self.builder.store(ir.Constant(ir.IntType(1), 0), src_flag)
                     self.moved_variables.add(cap_name)
+                elif mode == 'copy' and cap_name in materialized_set:
+                    # THE DUPLICATE ALREADY EXISTS (SL-267). The coroutine
+                    # transform materialized this frame-resident local for the
+                    # closure to name, and materializing it WAS the author's
+                    # `copy` — so the only thing left to decide is who owns the
+                    # one duplicate there is. Duplicating again here is the
+                    # second copy, and it is the only thing skipped: the mode
+                    # stays `copy`, so `deferred_moves` above (which keys on
+                    # `move`) never claims this capture and the closure stays
+                    # REUSABLE. That is the r1 regression, and it is why this is
+                    # an arm here rather than a mode rewrite in the transform:
+                    # a `move` capture into a non-escaping env is a one-shot
+                    # hand-off, and an authored `[copy x]` is not one.
+                    if escapes:
+                        # The heap env outlives the materialized local, so it
+                        # must OWN the duplicate — the same transfer the `move`
+                        # arm above performs, reached without the mode. The
+                        # env destructor releases it once, at closure teardown
+                        # rather than per invocation, so a body that runs N
+                        # times still sees one live value.
+                        src_flag = self.drop_flags.get(cap_name)
+                        if src_flag is not None:
+                            self.builder.store(
+                                ir.Constant(ir.IntType(1), 0), src_flag)
+                        self.moved_variables.add(cap_name)
+                    # NON-ESCAPING: the stack env cannot outlive the local, so
+                    # the LOCAL keeps ownership and its own scope cleanup
+                    # releases the duplicate exactly once. The env holds a bare
+                    # alias — nothing is consumed, which is what makes the body
+                    # re-runnable. SL-268's `_register_stmt_temp` must NOT fire
+                    # here for the same reason: the local is already a
+                    # registered owner, and a second registration is a double
+                    # free rather than a leak fix.
+                    self.builder.store(cap_value, field_ptr)
+                    continue
                 elif mode == 'copy' and cap_saw is not None:
                     # Explicit deep copy (ExplicitCopy `.copy()` / Copy retain).
                     cap_value = self._emit_copy_value(cap_value, cap_saw)
+                    if not escapes:
+                        # SL-268. `[copy x]` is the ONE capture mode that mints
+                        # a value into a NON-escaping env, and that env is a
+                        # stack alloca with no teardown — an ESCAPING closure
+                        # releases every capture through `_generate_env_dtor`,
+                        # and there is no such thing here. So the duplicate this
+                        # line just made was adopted by nobody and its `deinit`
+                        # never ran: design 267's inventory named this boundary
+                        # as the one capture mode reaching no ownership funnel,
+                        # and this is that funnel.
+                        #
+                        # The statement is the right extent: a non-escaping
+                        # closure is passed straight to the call that runs it,
+                        # so it cannot outlive the statement that built it. The
+                        # spilled slot and the env field hold one value between
+                        # them and exactly one of them is released.
+                        #
+                        # The other three modes own nothing here and must NOT be
+                        # registered: `plain` takes no retain into a stack env
+                        # (only the escaping arm below retains), `move` is
+                        # DF-218h's deferred transfer that the BODY performs,
+                        # and `ref`/`ref_var` store a pointer.
+                        self._register_stmt_temp(cap_value, cap_saw)
                 elif escapes and cap_saw is not None:
                     # Plain capture into a heap env: retain Copy captures
                     # (no-op for trivial types).

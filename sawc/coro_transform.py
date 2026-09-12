@@ -7882,7 +7882,16 @@ class _FrameBuilder:
         col = getattr(cexpr, 'column', 0)
         if wants_recv:
             self._materialize_receiver_capture(cexpr, line, col)
-        spec_names = {s.name for s in (cexpr.capture_specs or [])}
+        # ONE spec per name within a literal, so the FIRST wins on a duplicate
+        # (the typechecker has already refused a genuine duplicate; this map is
+        # only a lookup). Built BEFORE the loop because the `copy` arm RENAMES
+        # the spec, which would otherwise move the key out from under a later
+        # iteration.
+        specs_by_name = {}
+        for _s in (cexpr.capture_specs or []):
+            _nm = getattr(_s, 'name', None)
+            if _nm is not None and _nm not in specs_by_name:
+                specs_by_name[_nm] = _s
         for name in names:
             # The closure takes ownership of the materialized copy via a `move`
             # capture (design 77 item 4). Crucial for a state-machine `resume`:
@@ -7899,8 +7908,61 @@ class _FrameBuilder:
             # this scope", and the `move` capture had consumed the first one
             # anyway (DF-196e). A user-WRITTEN capture spec (`[move n]`,
             # `[&var n]`) keeps its own name and its own meaning; only the
-            # implicit capture the transform is adding here is renamed.
-            if name in spec_names:
+            # DUPLICATING captures are renamed — the implicit capture the
+            # transform adds here, and, since SL-213 r2, the author's `[copy n]`
+            # (see the arm below for why that one must be per literal too).
+            spec = specs_by_name.get(name)
+            if spec is not None and spec.mode == "copy":
+                # SL-267. THE MATERIALIZATION IS THE AUTHOR'S DUPLICATION, NOT A
+                # FRESH SOURCE FOR A SECOND ONE. When the author wrote
+                # `[copy x]` over a frame-resident local, the read built below
+                # ALREADY produces an independent owner — `.copy()` at the
+                # ceremony tier, a retain at the silent one. Leaving codegen to
+                # honour the spec's `copy` mode as well duplicated the
+                # materialized local a SECOND time, so a driven body ran the
+                # user's `copy()` hook twice where its sync twin ran it once,
+                # and a non-idempotent hook made the driven body COMPUTE A
+                # DIFFERENT VALUE (`[copy d]` at an `ExplicitCopy` whose
+                # `copy()` bumps the field: sync 71, driven 72).
+                #
+                # THE MODE IS NOT RE-TYPED, and the r1 review is why. Rewriting
+                # it to `move` does remove the second duplication, but a `move`
+                # capture into a NON-escaping env is DF-218h's DEFERRED
+                # protocol: the body TAKES the value on its first run and the
+                # occupancy flag panics on the second (`closure body ran twice
+                # on \`move\` capture`, exit 134). An authored `[copy x]` is a
+                # REUSABLE capture — the author asked for a duplicate, not for a
+                # one-shot hand-off — so the mode stays `copy` and the spec
+                # carries PROVENANCE instead: "the duplicate already exists".
+                # Codegen then skips only the duplication and still decides
+                # ownership for itself; see `_generate_closure`'s materialized
+                # arm, which is the one place that reads this.
+                #
+                # THE MATERIALIZATION IS PER SPEC, and the r2 review is why.
+                # Keeping the frame local's own name here put every `[copy x]`
+                # in the STATEMENT onto one synthesized local — the dedup below
+                # skips a `let` whose name is already accumulated — so two
+                # closure literals in ONE expression shared a single duplicate
+                # while both specs said "already duplicated", and codegen
+                # skipped both authored copies. Non-escaping, that is ONE
+                # duplicate where the sync twin makes two; ESCAPING, both heap
+                # envs took ownership of the same value and released it twice
+                # (`drop 21` twice, and an `Arc` payload freed under a live
+                # root). A capture is per CLOSURE LITERAL, so its duplicate is
+                # too: each `copy` spec gets its OWN fresh local and is renamed
+                # onto it, exactly as an implicit capture is, and the count of
+                # duplicates then equals the count of captures at every
+                # multiplicity. The mode still stays `copy` — that is r1's
+                # invariant, and it is independent of this one.
+                local = f"__cap{self._cap_ctr}_{name}"
+                self._cap_ctr += 1
+                _rename_in_closure(cexpr, name, local)
+                spec.materialized = True
+            elif spec is not None:
+                # A user-WRITTEN `[move x]` / `[&x]` / `[&var x]` / `[x]` keeps
+                # its own name and its own meaning; only the duplicating modes
+                # (the `copy` arm above and the implicit capture below) mint a
+                # per-literal local.
                 local = name
             else:
                 local = f"__cap{self._cap_ctr}_{name}"
@@ -7908,6 +7970,13 @@ class _FrameBuilder:
                 _rename_in_closure(cexpr, name, local)
                 cexpr.capture_specs = list(cexpr.capture_specs or []) + [
                     CaptureSpec(name=local, mode="move", line=line, column=col)]
+            # One `let` per synthesized local. Only the NON-duplicating written
+            # specs reach this with a shared name (they keep the frame local's
+            # own), and they mint no value, so several literals naming one
+            # source in one statement legitimately share the binding. A
+            # duplicating capture never lands here: its local is fresh per
+            # literal, which is what keeps one duplicate per capture (SL-213
+            # r2).
             if any(isinstance(ls, LetStatement) and ls.name == local
                    for ls in self._cap_lets):
                 continue
@@ -8898,25 +8967,11 @@ def _replace_self_in_closure(cexpr, local, alloc, mutable, seen=None):
         cexpr.capture_modes.pop('self', None)
 
 
-def _rename_in_closure(cexpr, old, new):
-    """Rename every reference to the enclosing binding `old` inside a closure
-    literal to `new` — its body's identifier reads, a `move` of it, a call to it
-    when it is itself closure-valued, and the typechecker's capture bookkeeping.
-
-    Safe as a flat rename because `_uniquify_bindings` has already made every
-    binding in this body's tree unique by name, so no binding INSIDE the closure
-    can be spelled `old` and shadow it. Used only for the capture the transform
-    materializes for itself (design 196 unit 4)."""
-    def rule(node):
-        if isinstance(node, Identifier) and node.name == old:
-            node.name = new
-        elif isinstance(node, MoveExpr) and node.variable == old:
-            node.variable = new
-        elif isinstance(node, FunctionCall) and node.name == old:
-            node.name = new
-        return node
-
-    map_nodes(cexpr.body, rule)
+def _rename_closure_bookkeeping(cexpr, old, new):
+    """The capture side of `_rename_in_closure` for ONE closure literal — the
+    three lists codegen reads to build an environment (`capture_specs`,
+    `captures`, `capture_modes`). Kept apart from the body rewrite because it
+    has to run for the NESTED literals too; see `_rename_in_closure`."""
     for spec in (cexpr.capture_specs or []):
         if getattr(spec, 'name', None) == old:
             spec.name = new
@@ -8924,6 +8979,43 @@ def _rename_in_closure(cexpr, old, new):
         cexpr.captures = [new if c == old else c for c in cexpr.captures]
     if cexpr.capture_modes and old in cexpr.capture_modes:
         cexpr.capture_modes[new] = cexpr.capture_modes.pop(old)
+
+
+def _rename_in_closure(cexpr, old, new):
+    """Rename every reference to the enclosing binding `old` inside a closure
+    literal to `new` — its body's identifier reads, a `move` of it, a call to it
+    when it is itself closure-valued, and the typechecker's capture bookkeeping,
+    the LATTER FOR EVERY NESTED LITERAL IN THE BODY as well as for this one.
+
+    Safe as a flat rename because `_uniquify_bindings` has already made every
+    binding in this body's tree unique by name, so no binding INSIDE the closure
+    can be spelled `old` and shadow it. Used for the capture the transform
+    materializes for itself (design 196 unit 4) and, since SL-213 r2, for the
+    author's `[copy x]` (which owes a duplicate per literal).
+
+    THE NESTED HALF IS WHY THE BOOKKEEPING IS PART OF THE WALK. The body rewrite
+    reaches a nested closure literal's identifiers — they are ordinary nodes
+    under `cexpr.body` — but the nested literal ALSO carries its own capture
+    lists, which are plain strings no identifier rewrite can see. Renaming only
+    this literal's lists left an inner closure declaring a capture of `t` whose
+    body read `__cap0_t`, and codegen then built an environment with no such
+    binding: `internal compiler error ... Undefined variable: __cap0_t`, on a
+    program whose sync twin compiles. Reachable on its own through the implicit
+    path (a driven `run({ run({ t.n }) })`), so it is not new here — what is new
+    is that an authored `[copy t]` now takes this path too."""
+    def rule(node):
+        if isinstance(node, Identifier) and node.name == old:
+            node.name = new
+        elif isinstance(node, MoveExpr) and node.variable == old:
+            node.variable = new
+        elif isinstance(node, FunctionCall) and node.name == old:
+            node.name = new
+        elif isinstance(node, ClosureExpr):
+            _rename_closure_bookkeeping(node, old, new)
+        return node
+
+    map_nodes(cexpr.body, rule)
+    _rename_closure_bookkeeping(cexpr, old, new)
 
 
 def _zeroed_value(enc, saw_type):

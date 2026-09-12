@@ -11,8 +11,7 @@ Usage:
 
 from llvmlite import ir
 from ast_nodes import (StructInit, MemberAccess, Identifier, EnumInit, TypeKind,
-                       SelfExpr, FunctionCall, MethodCall, TupleLiteral,
-                       ArrayLiteral, MapLiteral, SetLiteral, ArrayIndex)
+                       SelfExpr, ArrayIndex)
 from const_eval import INT_LIMIT_SPECS
 
 
@@ -302,13 +301,17 @@ class StructsMixin:
             pointee = base_ptr.type.pointee
             if isinstance(pointee, ir.PointerType):
                 base_ptr = self.builder.load(base_ptr, name="deref_ptr")
-        elif isinstance(obj, (FunctionCall, MethodCall, StructInit, EnumInit,
-                              TupleLiteral, ArrayLiteral, MapLiteral,
-                              SetLiteral)):
-            # An owned temporary owes `_register_stmt_temp` the whole value, so
-            # it takes the value path where that registration lives.
-            return None
         else:
+            # Anything else takes the VALUE path below, which is where the
+            # ownership machinery lives: an owned temporary owes
+            # `_register_stmt_temp` the whole value, and `_is_owned_temporary`
+            # is what decides whether it is one.
+            #
+            # SL-213: this arm used to restate that predicate's node list
+            # VERBATIM — a second copy of a list that had already gone stale
+            # once. Both spellings answered `None` identically, so the
+            # duplicate bought nothing and could only drift; the one question
+            # is now asked in the one place that owns it.
             return None
 
         if not isinstance(base_ptr.type, ir.PointerType):

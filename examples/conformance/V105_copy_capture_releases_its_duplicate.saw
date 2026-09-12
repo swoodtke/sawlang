@@ -1,0 +1,127 @@
+// Conformance row V105 — a `[copy x]` capture releases the duplicate it minted
+//
+// THE GUARANTEE is V104's, at the capture boundary: a value the compiler mints
+// has an owner that releases it. `[copy x]` is the capture mode that SPELLS a
+// duplication, and design 267's inventory named it as the one mode of three
+// reaching no ownership funnel — `[move x]` goes to `_check_move_expr`, a plain
+// `[x]` to `_check_value_transfer`, and `[copy x]` to an inline type test that
+// records nothing. So nothing owed the duplicate a cleanup.
+//
+// An ESCAPING closure got this right by accident of its lowering: its
+// environment is a refcounted heap block whose destructor releases every
+// capture. A NON-escaping closure keeps its environment on the STACK, where
+// there is no destructor at all — so the duplicate was minted and dropped on
+// the floor. SL-268, fixed by SL-213 (unit D of SL-209).
+//
+// THE ORACLE IS A `copy()` THAT BUMPS THE VALUE, so each duplication is
+// countable BY VALUE rather than by trusting a count: the body reads 11, which
+// only exists if the copy was made, and `drop 11` only runs if something owns
+// it. `copy()` and `deinit` both print, so the two halves cannot be confused.
+//
+// THE FOUR POSITIONS matter because the extent that releases the duplicate is
+// the enclosing STATEMENT, and a function whose whole body is a TAIL has no
+// statement — which is the position SL-268 was filed at, and the one a fix
+// written against a `let` would have missed.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: -- P1 tail
+// EXPECT-OUTPUT: copy 10 -> 11
+// EXPECT-OUTPUT: drop 11
+// EXPECT-OUTPUT: drop 10
+// EXPECT-OUTPUT: = 11
+// EXPECT-OUTPUT: -- P2 let
+// EXPECT-OUTPUT: copy 20 -> 21
+// EXPECT-OUTPUT: drop 21
+// EXPECT-OUTPUT: drop 20
+// EXPECT-OUTPUT: = 21
+// EXPECT-OUTPUT: -- P3 assignment
+// EXPECT-OUTPUT: copy 30 -> 31
+// EXPECT-OUTPUT: drop 31
+// EXPECT-OUTPUT: drop 30
+// EXPECT-OUTPUT: = 31
+// EXPECT-OUTPUT: -- P4 argument
+// EXPECT-OUTPUT: copy 40 -> 41
+// EXPECT-OUTPUT: drop 41
+// EXPECT-OUTPUT: drop 40
+// EXPECT-OUTPUT: = 41
+// EXPECT-OUTPUT: -- C1 escaping control
+// EXPECT-OUTPUT: copy 50 -> 51
+// EXPECT-OUTPUT: drop 51
+// EXPECT-OUTPUT: drop 50
+// EXPECT-OUTPUT: = 51
+// EXPECT-OUTPUT: -- C2 move control, duplicable tier
+// EXPECT-OUTPUT: drop 60
+// EXPECT-OUTPUT: = 60
+// EXPECT-OUTPUT: -- C3 move control, NoCopy
+// EXPECT-OUTPUT: drop res 70
+// EXPECT-OUTPUT: = 70
+// EXPECT-OUTPUT: end
+
+struct Dup { n: Int }
+extension Dup: ExplicitCopy {
+    func copy(&self) -> Dup { print("copy {} -> {}", self.n, self.n + 1)  Dup(n: self.n + 1) }
+    func deinit(&var self) { print("drop {}", self.n) }
+}
+
+struct Res { w: Int }
+extension Res: NoCopy { func deinit(&var self) { print("drop res {}", self.w) } }
+
+func run_int(body: () sync -> Int) -> Int { body() }
+func identity(n: Int) -> Int { n }
+
+// --- the four positions a non-escaping closure can be built in -------------
+
+// P1: the closure call is the function's TAIL — no enclosing statement.
+func p1(d: Dup) -> Int { run_int({ [copy d] in d.n }) }
+
+// P2: a `let` initializer.
+func p2(d: Dup) -> Int {
+    let got = run_int({ [copy d] in d.n })
+    got
+}
+
+// P3: an assignment's right-hand side.
+func p3(d: Dup) -> Int {
+    var acc = 0
+    acc = run_int({ [copy d] in d.n })
+    acc
+}
+
+// P4: an ARGUMENT of another call, itself in tail position.
+func p4(d: Dup) -> Int { identity(run_int({ [copy d] in d.n })) }
+
+// --- the controls ----------------------------------------------------------
+
+// C1: an ESCAPING closure. Its heap environment's destructor already released
+// the duplicate, and must keep doing so — this row is what a fix that
+// registered the cleanup TWICE would break.
+func c1(d: Dup) -> Int {
+    let f = { [copy d] in d.n }
+    f()
+}
+
+// C2: `[move d]` at the SAME tier. A move duplicates nothing, so exactly one
+// value exists and exactly one `drop` may run. DF-218h's deferred transfer
+// owns this one; registering a cleanup for it would be a double free.
+func c2(d: Dup) -> Int { run_int({ [move d] in d.n }) }
+
+// C3: `[move o]` at the NoCopy tier — the same control one tier down.
+func c3(o: Res) -> Int { run_int({ [move o] in o.w }) }
+
+func main() {
+    print("-- P1 tail")
+    print("= {}", p1(Dup(n: 10)))
+    print("-- P2 let")
+    print("= {}", p2(Dup(n: 20)))
+    print("-- P3 assignment")
+    print("= {}", p3(Dup(n: 30)))
+    print("-- P4 argument")
+    print("= {}", p4(Dup(n: 40)))
+    print("-- C1 escaping control")
+    print("= {}", c1(Dup(n: 50)))
+    print("-- C2 move control, duplicable tier")
+    print("= {}", c2(Dup(n: 60)))
+    print("-- C3 move control, NoCopy")
+    print("= {}", c3(Res(w: 70)))
+    print("end")
+}

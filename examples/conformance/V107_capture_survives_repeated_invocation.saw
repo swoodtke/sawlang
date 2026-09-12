@@ -1,0 +1,121 @@
+// Conformance row V107 — a capture that is supposed to be REUSABLE survives
+// repeated invocation, in a driven body as in its sync twin
+//
+// THE GUARANTEE: how many times a closure may run is a property of the CAPTURE
+// MODE the author wrote, not of the lowering that carried it. `[copy x]` asks
+// for a duplicate the closure owns for its lifetime, so the body may run any
+// number of times; `[move x]` into a non-escaping env is DF-218h's deferred
+// hand-off and is one-shot BY DESIGN, with an occupancy panic rather than a
+// corruption. A lowering may not move a capture between those two categories.
+//
+// WHY THIS ROW EXISTS. V106 pins that a driven `[copy x]` duplicates ONCE, and
+// the first fix for that achieved it by re-typing the capture's mode to `move`
+// — which silently moved an authored copy capture into the one-shot category.
+// Every cell in V106 invokes its closure exactly once, so the row passed and
+// the regression reached review. **A single-invocation matrix cannot see a
+// one-shot.** This row is the missing dimension, and the INVOCATION COUNT of
+// every cell is stated below so the gap cannot re-open by omission.
+//
+// TWO ORACLES, because they fail differently. The `copy()` hook counts
+// DUPLICATIONS (a mode wrongly re-typed to `move` shows one copy and then
+// panics; a second duplication shows two). The printing `deinit` counts
+// RELEASES, which is what catches the opposite error — an env that releases
+// per invocation instead of once at teardown would drop twice here and read
+// balanced in a one-call row.
+//
+// THE SUM IS THE THIRD ORACLE and the sharpest: `copy()` BUMPS, so the value
+// the body reads says how many duplications happened. Two calls of a correctly
+// duplicated capture read 12 each = 24. Base (before SL-267) duplicates twice
+// and reads 13 each = 26. A one-shot never reaches the second call at all.
+//
+// INVOCATION COUNTS: every cell here invokes its closure TWICE — A and B the
+// non-escaping `[copy]`, C and D the escaping one, E a plain and a borrow
+// capture in a driven body.
+//
+// THE ONE-SHOT CONTROL IS NOT IN THIS FILE, deliberately: `[move x]` into a
+// non-escaping env must still PANIC on its second run (`closure body ran twice
+// on \`move\` capture`), and a row that aborts cannot share a program with rows
+// that must print after it. It is covered by the existing capture rows and was
+// re-probed by hand for this landing; making the reusable and one-shot
+// categories share a file would mean the file could only ever assert one of
+// them.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: -- A non-escaping [copy], sync, 2 calls
+// EXPECT-OUTPUT: copy 11 -> 12
+// EXPECT-OUTPUT: drop 12
+// EXPECT-OUTPUT: drop 11
+// EXPECT-OUTPUT: = 24
+// EXPECT-OUTPUT: -- B non-escaping [copy], driven, 2 calls
+// EXPECT-OUTPUT: copy 11 -> 12
+// EXPECT-OUTPUT: drop 11
+// EXPECT-OUTPUT: drop 12
+// EXPECT-OUTPUT: = 24
+// EXPECT-OUTPUT: -- C escaping [copy], sync, 2 calls
+// EXPECT-OUTPUT: copy 11 -> 12
+// EXPECT-OUTPUT: drop 12
+// EXPECT-OUTPUT: drop 11
+// EXPECT-OUTPUT: = 24
+// EXPECT-OUTPUT: -- D escaping [copy], driven, 2 calls
+// EXPECT-OUTPUT: copy 11 -> 12
+// EXPECT-OUTPUT: drop 12
+// EXPECT-OUTPUT: drop 11
+// EXPECT-OUTPUT: = 24
+// EXPECT-OUTPUT: -- E plain + borrow captures, driven, 2 calls each
+// EXPECT-OUTPUT: plain 22
+// EXPECT-OUTPUT: borrow 22
+// EXPECT-OUTPUT: end
+
+struct Dup { n: Int }
+extension Dup: ExplicitCopy {
+    func copy(&self) -> Dup { print("copy {} -> {}", self.n, self.n + 1)  Dup(n: self.n + 1) }
+    func deinit(&var self) { print("drop {}", self.n) }
+}
+
+// A plain or borrow capture of an ExplicitCopy local is refused at both tiers
+// (V96's sweep row), so row E runs at the silent Copy tier.
+struct Tick { n: Int }
+extension Tick: Copy {
+    func copy(&self) -> Tick { Tick(n: self.n) }
+}
+
+func run_twice(body: () sync -> Int) -> Int { body() + body() }
+
+// A/B — the row the regression was in: a NON-escaping env, where a `move`
+// re-typing would select the deferred one-shot.
+func a_sync(d: Dup) -> Int   { run_twice({ [copy d] in d.n }) }
+func b_driven(d: Dup) -> Int { __saw_suspend()  run_twice({ [copy d] in d.n }) }
+
+// C/D — the ESCAPING twin. Here the heap env must OWN the duplicate, since the
+// materialized local dies with the frame; it must still release it once at
+// closure teardown rather than once per invocation.
+func c_sync(d: Dup) -> Int {
+    let f = { [copy d] in d.n }
+    f() + f()
+}
+func d_driven(d: Dup) -> Int {
+    __saw_suspend()
+    let f = { [copy d] in d.n }
+    f() + f()
+}
+
+// E — the neighbouring modes that are also supposed to be reusable, driven,
+// two calls each. Neither is touched by SL-267's fix; they are here so the
+// invocation dimension is covered across the mode axis rather than at one cell.
+func e_plain(t: Tick) -> Int  { __saw_suspend()  run_twice({ t.n }) }
+func e_borrow(t: Tick) -> Int { __saw_suspend()  run_twice({ [&t] in t.n }) }
+
+func main() {
+    print("-- A non-escaping [copy], sync, 2 calls")
+    print("= {}", a_sync(Dup(n: 11)))
+    print("-- B non-escaping [copy], driven, 2 calls")
+    print("= {}", __saw_drive(b_driven(Dup(n: 11))))
+    print("-- C escaping [copy], sync, 2 calls")
+    print("= {}", c_sync(Dup(n: 11)))
+    print("-- D escaping [copy], driven, 2 calls")
+    print("= {}", __saw_drive(d_driven(Dup(n: 11))))
+    print("-- E plain + borrow captures, driven, 2 calls each")
+    print("plain {}", __saw_drive(e_plain(Tick(n: 11))))
+    print("borrow {}", __saw_drive(e_borrow(Tick(n: 11))))
+    print("end")
+}
