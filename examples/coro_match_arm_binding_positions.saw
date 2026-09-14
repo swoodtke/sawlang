@@ -1,0 +1,305 @@
+// SL-273 / SL-278 obligation-4 sweep, part 2 of 3: WHERE THE SUSPENSION SITS,
+// and HOW DEEP THE MATCH IS.
+//
+// SL-273's filed matrix read the trigger as "a suspension BEFORE the match",
+// with "after the match" and "the scrutinee suspends" recorded as passing rows.
+// The sweep says otherwise: what decides it is whether the ARM carries a
+// `break`/`continue` for a loop that suspends ANYWHERE, so `after` and
+// `scrutinee-suspends` fail too, and `before` with no early exit passes. The
+// scrutinee row is the sharpest of them — a suspending scrutinee is ANF-hoisted
+// out of the match before the transform looks at it, so the match no longer
+// spans anything and the residency census had nothing to answer.
+//
+// EVERY ROW IS A SYNC/DRIVEN TWIN PAIR AND THE SYNC HALF IS THE ORACLE.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// before-no-exit 6 6
+// after 1 1
+// inside-arm 1 1
+// scrutinee 1 1
+// inner-loop-owns-break 2 2
+// outer-break-past-inner-loop 1 1
+// nested-match 3 3
+
+enum Step { case Value(value: Int), case Done }
+
+func next(i: Int) -> Step {
+    if i > 3 { return Step.Done }
+    Step.Value(value: i)
+}
+
+func slow() { sleep(Duration.ms(1)) }
+
+// ------------------- suspension BEFORE the match, arm takes NO early exit.
+// This row PASSED all along, which is what proves the early exit — not the
+// suspension's position — is the discriminator.
+func before_no_exit_sync() -> Int {
+    var total = 0
+    var i = 0
+    while i < 4 {
+        match next(i) {
+            case Value(n) -> { total += n },
+            case Done -> { }
+        }
+        i += 1
+    }
+    total
+}
+
+func before_no_exit_driven() -> Int {
+    var total = 0
+    var i = 0
+    while i < 4 {
+        slow()
+        match next(i) {
+            case Value(n) -> { total += n },
+            case Done -> { }
+        }
+        i += 1
+    }
+    total
+}
+
+// -------------------------------- suspension AFTER the match, arm `break`s.
+func after_sync() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        match next(i) {
+            case Value(n) -> {
+                if n == 2 { break }
+                total += n
+            },
+            case Done -> { break }
+        }
+        i += 1
+    }
+    total
+}
+
+func after_driven() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        match next(i) {
+            case Value(n) -> {
+                if n == 2 { break }
+                total += n
+            },
+            case Done -> { break }
+        }
+        slow()
+        i += 1
+    }
+    total
+}
+
+// -------------------------- the suspension is INSIDE the arm body (clause 1).
+func inside_arm_sync() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        match next(i) {
+            case Value(n) -> {
+                if n == 2 { break }
+                total += n
+            },
+            case Done -> { break }
+        }
+        i += 1
+    }
+    total
+}
+
+func inside_arm_driven() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        match next(i) {
+            case Value(n) -> {
+                slow()
+                if n == 2 { break }
+                total += n
+            },
+            case Done -> { break }
+        }
+        i += 1
+    }
+    total
+}
+
+// ---------------------- the SCRUTINEE suspends (and is hoisted out of it).
+func next_slow(i: Int) -> Step {
+    sleep(Duration.ms(1))
+    if i > 3 { return Step.Done }
+    Step.Value(value: i)
+}
+
+func scrutinee_sync() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        match next(i) {
+            case Value(n) -> {
+                if n == 2 { break }
+                total += n
+            },
+            case Done -> { break }
+        }
+        i += 1
+    }
+    total
+}
+
+func scrutinee_driven() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        match next_slow(i) {
+            case Value(n) -> {
+                if n == 2 { break }
+                total += n
+            },
+            case Done -> { break }
+        }
+        i += 1
+    }
+    total
+}
+
+// ------- nested loops: the INNER loop owns the break, only the OUTER suspends.
+// Design 127 charges every loop backedge in a suspending body, so the inner
+// loop suspends too and its match is split like any other.
+func inner_loop_sync() -> Int {
+    var total = 0
+    var o = 0
+    while o < 2 {
+        var i = 0
+        while i < 10 {
+            match next(i) {
+                case Value(n) -> {
+                    if n == 2 { break }
+                    total += n
+                },
+                case Done -> { break }
+            }
+            i += 1
+        }
+        o += 1
+    }
+    total
+}
+
+func inner_loop_driven() -> Int {
+    var total = 0
+    var o = 0
+    while o < 2 {
+        slow()
+        var i = 0
+        while i < 10 {
+            match next(i) {
+                case Value(n) -> {
+                    if n == 2 { break }
+                    total += n
+                },
+                case Done -> { break }
+            }
+            i += 1
+        }
+        o += 1
+    }
+    total
+}
+
+// ------ nested loops the other way: the break targets the OUTER loop, with an
+// inner loop sitting beside the match to prove the jump is not captured by it.
+func outer_break_sync() -> Int {
+    var total = 0
+    var o = 0
+    while o < 10 {
+        var j = 0
+        while j < 2 { j += 1 }
+        match next(o) {
+            case Value(n) -> {
+                if n == 2 { break }
+                total += n
+            },
+            case Done -> { break }
+        }
+        o += 1
+    }
+    total
+}
+
+func outer_break_driven() -> Int {
+    var total = 0
+    var o = 0
+    while o < 10 {
+        slow()
+        var j = 0
+        while j < 2 { j += 1 }
+        match next(o) {
+            case Value(n) -> {
+                if n == 2 { break }
+                total += n
+            },
+            case Done -> { break }
+        }
+        o += 1
+    }
+    total
+}
+
+// ----------------------- a match NESTED inside an arm, breaking from within.
+func nested_match_sync() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        match next(i) {
+            case Value(n) -> {
+                match next(n + 1) {
+                    case Value(m) -> {
+                        if m == 3 { break }
+                        total += m
+                    },
+                    case Done -> { break }
+                }
+            },
+            case Done -> { break }
+        }
+        i += 1
+    }
+    total
+}
+
+func nested_match_driven() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        slow()
+        match next(i) {
+            case Value(n) -> {
+                match next(n + 1) {
+                    case Value(m) -> {
+                        if m == 3 { break }
+                        total += m
+                    },
+                    case Done -> { break }
+                }
+            },
+            case Done -> { break }
+        }
+        i += 1
+    }
+    total
+}
+
+func main() {
+    print("before-no-exit {before_no_exit_sync()} {before_no_exit_driven()}")
+    print("after {after_sync()} {after_driven()}")
+    print("inside-arm {inside_arm_sync()} {inside_arm_driven()}")
+    print("scrutinee {scrutinee_sync()} {scrutinee_driven()}")
+    print("inner-loop-owns-break {inner_loop_sync()} {inner_loop_driven()}")
+    print("outer-break-past-inner-loop {outer_break_sync()} {outer_break_driven()}")
+    print("nested-match {nested_match_sync()} {nested_match_driven()}")
+}

@@ -1,0 +1,153 @@
+// SL-273 / SL-278: the DROP half. An arm payload that OWNS its value must be
+// destroyed exactly once, at the same point its sync twin destroys it, on every
+// edge out of the arm — fallthrough, `break` and `continue` alike.
+//
+// The binding crosses into the frame by `move` (`_store_binding_in_slot` asks
+// `Namespace.read_policy`, the one copy-tier oracle), so getting residency
+// wrong here is not only an ICE risk: a field that is written but never
+// released leaks, and one released twice aborts. Named `deinit` tracing with
+// exact counts is what pins it — a `Res` names itself as it dies.
+//
+// THE SYNC RUN IS THE ORACLE and runs first; the driven run must reproduce it
+// line for line.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// -- break, sync
+// saw r0
+// drop r0
+// saw r1
+// drop r1
+// saw r2
+// drop r2
+// total 2
+// -- break, driven
+// saw r0
+// drop r0
+// saw r1
+// drop r1
+// saw r2
+// drop r2
+// total 2
+// -- continue, sync
+// saw r0
+// drop r0
+// saw r1
+// drop r1
+// saw r2
+// drop r2
+// saw r3
+// drop r3
+// total 3
+// -- continue, driven
+// saw r0
+// drop r0
+// saw r1
+// drop r1
+// saw r2
+// drop r2
+// saw r3
+// drop r3
+// total 3
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.name) }
+}
+
+enum Holder { case Full(r: Res), case Empty }
+extension Holder: NoCopy {}
+
+func make_upto2(i: Int) -> Holder {
+    if i > 2 { return Holder.Empty }
+    Holder.Full(r: Res(name: "r{i}"))
+}
+
+func make_upto3(i: Int) -> Holder {
+    if i > 3 { return Holder.Empty }
+    Holder.Full(r: Res(name: "r{i}"))
+}
+
+func slow() { sleep(Duration.ms(1)) }
+
+// ------------------------------------------------------- break out of the arm
+func break_sync() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        match make_upto2(i) {
+            case Full(r) -> {
+                print("saw {}", r.name)
+                if i == 2 { break }
+                total += 1
+            },
+            case Empty -> { break }
+        }
+        i += 1
+    }
+    total
+}
+
+func break_driven() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        slow()
+        match make_upto2(i) {
+            case Full(r) -> {
+                print("saw {}", r.name)
+                if i == 2 { break }
+                total += 1
+            },
+            case Empty -> { break }
+        }
+        i += 1
+    }
+    total
+}
+
+// ---------------------------------------------------- continue out of the arm
+func continue_sync() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        match make_upto3(i) {
+            case Full(r) -> {
+                print("saw {}", r.name)
+                i += 1
+                if r.name == "r1" { continue }
+                total += 1
+            },
+            case Empty -> { break }
+        }
+    }
+    total
+}
+
+func continue_driven() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        slow()
+        match make_upto3(i) {
+            case Full(r) -> {
+                print("saw {}", r.name)
+                i += 1
+                if r.name == "r1" { continue }
+                total += 1
+            },
+            case Empty -> { break }
+        }
+    }
+    total
+}
+
+func main() {
+    print("-- break, sync")
+    print("total {break_sync()}")
+    print("-- break, driven")
+    print("total {break_driven()}")
+    print("-- continue, sync")
+    print("total {continue_sync()}")
+    print("-- continue, driven")
+    print("total {continue_driven()}")
+}

@@ -1,0 +1,65 @@
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot combine a guarded arm with the move-only payload binding `r`
+//
+// SL-283. A guard on ANY arm sends the whole match through the typechecker's
+// general pattern lowering, which tests arms in order and EXTRACTS a candidate
+// arm's payload to run that arm's guard against it. On an OWNING payload that
+// extraction is a transfer, so a guard that FAILS has already consumed the
+// value the next arm binds — and the state split then moves the same payload
+// into its frame slot a second time. The program below double frees: it prints
+// `drop r0` before the arm body has run, reads freed storage, and aborts.
+//
+// Refused rather than miscompiled (the design-101 standing bar). This is NOT
+// the SL-273/SL-278 mechanism — those were the residency census and the split
+// decision disagreeing, and they are fixed; this is the general lowering not
+// sequencing extraction against SELECTION, which the transform is handed
+// already lowered and cannot repair from its side. Until SL-283 closes, the
+// pair is a diagnostic.
+//
+// The refusal is exactly the PAIR. A guarded arm over a COPY-tier payload
+// compiles and runs (`examples/coro_match_arm_binding_patterns.saw` covers
+// four such rows), and an unguarded match over a move-only payload compiles
+// and drops correctly (`examples/coro_match_arm_payload_drops.saw`).
+//
+// When SL-283 closes, `_check_guarded_owning_payload` comes out of
+// `_split_match` and this file becomes an ordinary run test: the sync twin
+// prints `plain r0 / drop r0 / guarded r1 / drop r1 / plain r2 / drop r2 / 1`,
+// and the driven twin owes the same.
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.name) }
+}
+
+enum Holder { case Full(r: Res), case Empty }
+extension Holder: NoCopy {}
+
+func make(i: Int) -> Holder {
+    if i > 2 { return Holder.Empty }
+    Holder.Full(r: Res(name: "r{i}"))
+}
+
+func slow() { sleep(Duration.ms(1)) }
+
+func driven() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        slow()
+        match make(i) {
+            case Full(r) if i == 1 -> { print("guarded {}", r.name) },
+            case Full(r) -> {
+                print("plain {}", r.name)
+                if i == 2 { break }
+                total += 1
+            },
+            case Empty -> { break }
+        }
+        i += 1
+    }
+    total
+}
+
+func main() {
+    print("{driven()}")
+}

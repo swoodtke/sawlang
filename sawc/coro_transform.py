@@ -3791,10 +3791,10 @@ class _FrameBuilder:
     # design 104 item 1: CFG-split `if let`/`guard let` bodies that suspend
     # ------------------------------------------------------------------ #
     def _mark_optional_binding_splits(self):
-        """Find every `if let`/`guard let` that must be CFG-SPLIT and mark it
-        `_coro_split` (so `_collect_frame_locals`, `_collect_calls`, and the CFG
-        walk all treat it as a split point), renaming its binding to a fresh
-        unique frame field.
+        """Find every container that must be CFG-SPLIT and mark it `_coro_split`
+        (so `_collect_frame_locals`, `_collect_calls`, and the CFG walk all treat
+        it as a split point); for an `if let`/`guard let`, also rename its
+        binding to a fresh unique frame field.
 
         THE SPLIT PREDICATE — two clauses, and DF-233a was the second one
         missing:
@@ -3806,15 +3806,23 @@ class _FrameBuilder:
           2. design 96 (DF6): the construct carries a `break`/`continue` for an
              ENCLOSING suspension-spanning loop. Lowered in place it keeps a raw
              `break`/`continue`, which escapes the resume method's `while true`
-             DISPATCH loop instead of the logical loop. `_lower_stmt` already
-             applies this clause to `if`, `match` and `try`/`catch`
-             (`needs_ctrl_split`) — but those three CAN be split on the spot,
-             while an `if let`/`guard let` cannot: its split needs the binding
-             RENAMED to a frame field first, which only happens here. So the
-             clause has to be decided in this pass, and until DF-233a it was
-             not: `while true { if let x = f() { … } else { break } }` in a
+             DISPATCH loop instead of the logical loop. Until DF-233a this
+             clause was not applied to `if let`/`guard let`:
+             `while true { if let x = f() { … } else { break } }` in a
              suspending body hung, and the `guard let`-`break` drain idiom hung
              wherever the guard's own block did not itself span.
+
+        SL-273/SL-278: clause 2 is decided HERE for `if`, `match` and
+        `try`/`catch` too, and stamped on the node. Only a top-down walk knows
+        WHICH loop owns a jump, so `_lower_stmt` — which sees a statement but
+        not the loop nesting above it — cannot be the one authority for it. It
+        used to decide the clause on its own (a local `needs_ctrl_split`) while
+        `_collect_frame_locals` asked the clause-1 question alone, and the two
+        answers disagreed on exactly the clause-2 shapes: a `match` arm's
+        payload binding and a try/catch's `error` got no frame field, yet their
+        bodies were relocated into states that could reach them only through
+        one. Stamping the decision once and reading it through
+        `_FrameBuilder._is_split` is what makes the disagreement unwritable.
 
         The DESCENT is a PLAIN one — the split decision above is per container,
         but "which blocks does this statement own" is not — so it takes
@@ -3853,6 +3861,13 @@ class _FrameBuilder:
                                if st is s)
                     self._prep_ob_split(
                         s, None, block.statements[idx + 1:], block)
+            elif isinstance(ctrl, (IfExpr, MatchExpr, TryCatchExpr)):
+                # SL-273/SL-278: clause 2 for the three containers that CAN be
+                # split on the spot. Clause 1 is `_spans_suspension`, which
+                # `_is_split` asks directly — only this one needs the loop
+                # nesting, so only this one is stamped.
+                if in_spanning_loop and self._has_loop_ctrl(ctrl):
+                    ctrl._coro_split = True
             inner = (self._spans_suspension(ctrl)
                      if isinstance(ctrl, (WhileExpr, ForLoop))
                      else in_spanning_loop)
@@ -4140,7 +4155,11 @@ class _FrameBuilder:
             elif isinstance(ctrl, WhileExpr):
                 walk_block(ctrl.body, force)
             elif isinstance(ctrl, MatchExpr):
-                if self._spans_suspension(ctrl):
+                # SL-273/SL-278: `_is_split`, not `_spans_suspension` — a match
+                # SPLIT for design 96's `break`/`continue` clause relocates its
+                # arm bodies into states just as a spanning one does, and an arm
+                # payload binding reaches a relocated body only through a field.
+                if self._is_split(ctrl):
                     for nm, t in self._match_binding_types(ctrl).items():
                         add(nm, t, ctrl.line, ctrl.column)
                     # DF-196f: a design-63 arm PATTERN that binds the SCRUTINEE
@@ -4168,7 +4187,9 @@ class _FrameBuilder:
                 # from whichever state raised it into the catch's own state, so
                 # the binding is frame-resident exactly like a split `if let`'s
                 # — and everything under it is too (see `walk_block`'s `force`).
-                split = self._splits_try_catch(ctrl)
+                # SL-273/SL-278: `_is_split` — design 96's clause reaches a
+                # try/catch too, and the `error` binding is the field it owes.
+                split = self._is_split(ctrl)
                 if split and ctrl.error_types:
                     add(ctrl.error_binding or "error", ctrl.error_type,
                         ctrl.line, ctrl.column)
@@ -4219,15 +4240,29 @@ class _FrameBuilder:
         return out
 
     def _scrutinee_binding_types(self, pattern, src_type):
-        """`(name, type)` for each arm-pattern leaf that binds THE SCRUTINEE —
-        the catch-all `case v ->`, and a tuple pattern's leaves paired with the
-        scrutinee tuple's element types (DF-196f).
+        """`(name, type)` for each leaf a design-63 arm PATTERN binds, resolved
+        against the SCRUTINEE's type — the catch-all `case v ->`, a tuple
+        pattern's leaves paired with the scrutinee tuple's element types
+        (DF-196f), and an enum pattern's subpatterns paired with the variant's
+        PAYLOAD types.
 
-        Complements `_match_binding_types`, which reads an enum's variant
-        PAYLOAD types and so answers nothing for these. Permissive by design,
-        unlike `_destructure_leaf_types`: a match arm may hold literals, ranges
-        and wildcards beside its bindings, and those bind nothing rather than
-        being an error."""
+        Complements `_match_binding_types`, which reads the arm's legacy
+        `bindings` list off `matched_enum_type`. The two are not
+        interchangeable: the typechecker stamps `matched_enum_type` only for the
+        classic variant switch, and routes a match with a GUARD (or a literal /
+        range / tuple arm) through `_check_match_general`, which stamps
+        `use_general_match` + `matched_scrutinee_type` and leaves
+        `matched_enum_type` None. So a guarded match over an enum used to have
+        its payload bindings answered by NEITHER census, and a split one then
+        lost every arm's payload — `Undefined variable: n` in an arm that
+        carries no guard at all, because ONE arm elsewhere in the match did
+        (SL-273's sweep). Resolving the enum pattern here is what makes the pair
+        exhaustive: whichever lowering the typechecker picked, every binding an
+        arm introduces has a type.
+
+        Permissive by design, unlike `_destructure_leaf_types`: a match arm may
+        hold literals, ranges and wildcards beside its bindings, and those bind
+        nothing rather than being an error."""
         out = []
 
         def walk(pat, t):
@@ -4242,9 +4277,37 @@ class _FrameBuilder:
                 for i, sub in enumerate(pat.elements):
                     walk(sub, elems[i] if (elems is not None
                                            and i < len(elems)) else None)
+                return
+            if isinstance(pat, EnumPattern):
+                for i, sub in enumerate(pat.subpatterns):
+                    walk(sub, self._variant_payload_type(t, pat.variant_name, i))
 
         walk(pattern, src_type)
         return out
+
+    def _variant_payload_type(self, enum_type, variant_name, index):
+        """The type of payload slot `index` of `variant_name` on `enum_type`,
+        with the enum's type arguments substituted — or None when the type is
+        not an enum the typechecker knows, which leaves the binding untyped and
+        therefore not frame-resident (the permissive rule above)."""
+        if enum_type is None or self._tc is None:
+            return None
+        name = getattr(enum_type, 'enum_name', None)
+        if not name:
+            return None
+        einfo = self._tc.get_enum_info(name, from_type=enum_type)
+        if einfo is None or variant_name not in einfo.variants:
+            return None
+        vps = einfo.variants[variant_name]
+        if index >= len(vps):
+            return None
+        ptype = vps[index][1]
+        if einfo.type_params and getattr(enum_type, 'type_args', None):
+            mapping = {tp.name: ta for tp, ta
+                       in zip(einfo.type_params, enum_type.type_args)}
+            if mapping:
+                ptype = ptype.substitute(mapping)
+        return ptype
 
     def _pattern_binding_names(self, pattern):
         """Every binding name a design-63 `MatchArm.pattern` introduces — see
@@ -4354,21 +4417,58 @@ class _FrameBuilder:
         scan(node)
         return found[0]
 
-    def _splits_try_catch(self, e):
-        """True when a `try { … } catch { … }` BLOCK has to become STATES rather
-        than lower in place (design 196 unit 3).
+    def _is_split(self, ctrl):
+        """THE SPLIT AUTHORITY for the three containers with a TWO-CLAUSE split
+        predicate — `if`, `match`, `try { } catch { }` (obligation 1's funnel).
 
-        The catch arm is a resume target reachable from every `try` in the try
-        body, so the moment ANY of it spans a suspension the catch has to be a
-        state of its own: a suspension in the middle of the try body means the
-        error edge leaves one state and lands in another, which no arrangement
-        of basic blocks inside a single `if __state == N` region can express.
-        Either side spanning is enough — a suspending catch body needs its own
-        states just as much, and the try body's error edges then point at them.
+        A container is CFG-split when EITHER clause fires:
 
-        A try/catch with no suspension anywhere lowers in place exactly as
-        before: one region, codegen's own catch context, nothing changed."""
-        return self._spans_suspension(e)
+          1. it SPANS a suspension, so its blocks are resume targets by
+             construction; or
+          2. design 96 (DF6): it carries a `break`/`continue` for an ENCLOSING
+             suspension-spanning loop, so the jump has to be routed to that
+             loop's exit/header STATE instead of lowering in place.
+
+        Clause 2 needs to know which loop owns the jump, which only the
+        top-down walk in `_mark_ob_block` knows — so that pass DECIDES it and
+        stamps `_coro_split` on the node, and every consumer reads the stamp
+        here rather than re-deriving it. THE ENTRY POINTS, all of them:
+
+          * `_lower_stmt`          — picks `_split_if` / `_split_match` /
+                                     `_split_try_catch` over in-place lowering;
+          * `_collect_frame_locals`— grants the container's own bindings (a
+                                     `match` arm payload, a design-63 scrutinee
+                                     pattern, a try/catch's `error`) their
+                                     FRAME FIELDS;
+          * `_collect_calls`       — descends a split try/catch so a suspending
+                                     call inside it is embedded, not rejected.
+
+        SL-273/SL-278 were the two faces of those first two entry points
+        DISAGREEING. The lowering asked "spans OR clause 2" and the residency
+        pass asked "spans" alone, so every clause-2 split relocated its arm
+        bodies into their own states while the bindings those bodies read got
+        no field — and a binding a container's HEADER introduces exists nowhere
+        else, so codegen reported `Undefined variable: e` on a correct program.
+        (A plain `let` in a relocated block was never affected: it is DECLARED
+        where it stands, whichever state that turns out to be.)
+
+        `if let` / `guard let` are NOT on this list and never had the bug: their
+        split REQUIRES the binding to be renamed to a fresh frame field first,
+        which only `_prep_ob_split` does, so `_coro_split` is the whole truth
+        for them and there is no second predicate to drift from. They read the
+        flag directly.
+
+        Clause 1 for a `try { } catch { } ` (design 196 unit 3) reads "EITHER
+        side spans": the catch arm is a resume target reachable from every `try`
+        in the try body, so the moment any of it spans, the error edge leaves
+        one state and lands in another — which no arrangement of basic blocks
+        inside a single `if __state == N` region can express. That is exactly
+        `_spans_suspension` over the whole node, which is what this returns. A
+        try/catch with no suspension anywhere and no jump out of the enclosing
+        loop lowers in place exactly as before: one region, codegen's own catch
+        context, nothing changed."""
+        return (getattr(ctrl, '_coro_split', False)
+                or self._spans_suspension(ctrl))
 
     def _check_try_catch_splittable(self, e):
         """Refuse — cleanly, at the user's `try` — a split try/catch whose caught
@@ -4672,7 +4772,7 @@ class _FrameBuilder:
                         visit_block(arm.body)
             elif isinstance(s, ForLoop):
                 visit_block(s.body)
-            elif isinstance(ctrl, TryCatchExpr) and self._splits_try_catch(ctrl):
+            elif isinstance(ctrl, TryCatchExpr) and self._is_split(ctrl):
                 self._check_try_catch_splittable(ctrl)
                 visit_block(ctrl.try_block)
                 visit_block(ctrl.catch_block)
@@ -5547,6 +5647,11 @@ class _FrameBuilder:
         # been stored. Releasing it here instead would clear the very local a
         # tail `move r` is handing back.
         self._scope_stack = []
+        # SL-273's sweep: names that ARE frame fields but are bound as ORDINARY
+        # LOCALS at the position being rewritten, so the identifier rewrite must
+        # leave them alone. Non-empty only while `_split_match` rewrites an arm
+        # GUARD — see `_rewrite_guard`.
+        self._rewrite_mask = set()
         self._push_scope(self._block_scope_names(func.body))
 
         self._lower_stmts(func.body.statements, loop_ctx=None)
@@ -6300,12 +6405,13 @@ class _FrameBuilder:
             return
 
         ctrl = s.expression if isinstance(s, ExpressionStatement) else s
-        # design 96 (DF6): an if/match that carries a `break`/`continue` for the
-        # enclosing spanning loop must be SPLIT even if it does not itself span a
-        # suspension — otherwise the jump lowers in place and escapes the resume
-        # dispatch loop (a `while` / `for` introduces its OWN loop scope, so its
-        # inner break targets itself and needs no split for our sake).
-        needs_ctrl_split = loop_ctx is not None and self._has_loop_ctrl(ctrl)
+        # SL-273/SL-278: which containers are CFG-split is `_is_split`'s answer
+        # and nothing else's — see that method. Design 96 (DF6)'s clause (an
+        # if/match/try carrying a `break`/`continue` for the enclosing spanning
+        # loop must be split even when it does not itself span) is decided in
+        # `_mark_ob_block`, which is the walk that knows which loop owns the
+        # jump, and read back off the node here. Deciding it locally is what put
+        # this dispatch and the frame-residency census out of step.
         # design 104 item 1: an `if let`/`guard let` whose body spans a suspension
         # was CFG-split (marked in `_mark_optional_binding_splits`).
         if isinstance(ctrl, IfLetExpr) and getattr(ctrl, '_coro_split', False):
@@ -6314,8 +6420,7 @@ class _FrameBuilder:
         if isinstance(s, GuardLetStatement) and getattr(s, '_coro_split', False):
             self._split_guard_let(s, loop_ctx)
             return
-        if isinstance(ctrl, IfExpr) and (self._spans_suspension(ctrl)
-                                         or needs_ctrl_split):
+        if isinstance(ctrl, IfExpr) and self._is_split(ctrl):
             self._split_if(ctrl, loop_ctx)
             return
         if isinstance(ctrl, WhileExpr) and self._spans_suspension(ctrl):
@@ -6324,12 +6429,10 @@ class _FrameBuilder:
         if isinstance(s, ForLoop) and self._spans_suspension(s):
             self._split_for(s, loop_ctx)
             return
-        if isinstance(ctrl, MatchExpr) and (self._spans_suspension(ctrl)
-                                            or needs_ctrl_split):
+        if isinstance(ctrl, MatchExpr) and self._is_split(ctrl):
             self._split_match(ctrl, loop_ctx)
             return
-        if isinstance(ctrl, TryCatchExpr) and (self._splits_try_catch(ctrl)
-                                               or needs_ctrl_split):
+        if isinstance(ctrl, TryCatchExpr) and self._is_split(ctrl):
             self._split_try_catch(ctrl, loop_ctx)
             return
 
@@ -6606,7 +6709,91 @@ class _FrameBuilder:
         self._goto(header)
         self.cur = exit_b
 
+    def _rewrite_guard(self, guard, arm_binds):
+        """The frame-aware rewrite of a split `match` arm's GUARD.
+
+        A guard runs during DISPATCH, in the arm of the regenerated match, and
+        it is the one expression in a split match with TWO kinds of name in it:
+
+          * the arm's OWN payload bindings, which the dispatch arm binds as
+            ordinary locals and which `_store_binding_in_slot` has not yet moved
+            into their fields — those must stay written as they are;
+          * every OTHER frame-resident name the guard reads — a local of the
+            enclosing scope, a parameter, a loop variable — which no longer
+            exists as a local at all and has to be read off the frame.
+
+        `_split_match` used to carry the guard through UNREWRITTEN, on the
+        reasoning that a guard reads "these bindings" (the arm's own). A guard
+        may read anything in scope, so `case Full(r) if i == 1` in a driven loop
+        died with `Undefined variable: i` — `i` being the loop's own counter,
+        long since a frame field (SL-273's sweep found it). Masking exactly the
+        arm's bindings and rewriting the rest is what makes both kinds right at
+        once.
+
+        A guard is a pure test, so it registers no `forgets`: a `move` in one
+        would be a value consumed on a path that may not be taken. One appearing
+        here is refused rather than silently mispaired."""
+        if guard is None:
+            return None
+        forgets = []
+        saved = self._rewrite_mask
+        self._rewrite_mask = saved | set(arm_binds)
+        try:
+            out = self._rewrite_expr(guard, forgets)
+        finally:
+            self._rewrite_mask = saved
+        if forgets:
+            raise self._error(
+                f"coroutine transform: `move` in a `match` arm GUARD of a "
+                f"suspension-spanning `match` in `{self.name}` is not supported",
+                guard)
+        return out
+
+    def _check_guarded_owning_payload(self, e):
+        """Refuse — cleanly, at the guard — a split `match` that has BOTH a
+        guarded arm and an arm binding that OWNS its payload (SL-283).
+
+        A guard sends the whole match through the typechecker's general pattern
+        lowering (`_check_match_general`), which tests arms in order and
+        extracts a candidate arm's payload to run its guard against. On an
+        OWNING payload that extraction is a transfer, so a guard that FAILS has
+        already consumed the value the next arm is about to bind — and the
+        dispatch/state split then moves the same payload into its frame slot a
+        second time. The result is a double free at exit (`drop r0` before the
+        arm body has run, then again after it), with the arm body reading freed
+        storage in between.
+
+        That is a defect in how the general lowering sequences extraction
+        against arm SELECTION, not in the residency/split agreement SL-273 and
+        SL-278 were about, and it is not repairable from this side: the
+        transform is handed arms that have already been lowered. Refused rather
+        than miscompiled — the design-101 standing bar, and the same call
+        `_check_try_catch_splittable` makes one construct over.
+
+        The COPY tiers are unaffected and stay legal: a retained or trivial
+        payload is not consumed by the extraction, so a failed guard leaves
+        nothing behind. An unguarded match over an owning payload is untouched
+        too; it is the pair that is refused."""
+        if not any(arm.guard is not None for arm in e.arms):
+            return
+        for arm in e.arms:
+            seen = set()
+            for bname in (list(arm.bindings)
+                          + self._pattern_binding_names(arm.pattern)):
+                if bname == "_" or bname not in self.encmap or bname in seen:
+                    continue
+                seen.add(bname)
+                if self._slot_store_consumes(bname):
+                    raise self._error(
+                        f"coroutine transform: a suspension-spanning `match` in "
+                        f"`{self.name}` cannot combine a guarded arm with the "
+                        f"move-only payload binding `{bname}`; drop the guard "
+                        f"and test inside the arm body, or match on a copyable "
+                        f"projection of the payload",
+                        arm)
+
     def _split_match(self, e, loop_ctx):
+        self._check_guarded_owning_payload(e)
         forgets = []
         cap_lets, scrut = self._rewrite_hosting(e.matched_expr, forgets)
         if forgets:
@@ -6671,7 +6858,8 @@ class _FrameBuilder:
             new_arms.append(MatchArm(
                 variant_name=arm.variant_name, bindings=list(arm.bindings),
                 body=Block(statements=dispatch, final_expr=None),
-                pattern=arm.pattern, guard=arm.guard))
+                pattern=arm.pattern,
+                guard=self._rewrite_guard(arm.guard, _seen_binds)))
         self._emit([ExpressionStatement(expression=MatchExpr(
             matched_expr=scrut, arms=new_arms))])
         self._blocks[self.cur].append(ContinueStatement())
@@ -7663,7 +7851,9 @@ class _FrameBuilder:
             return _unsaferef_deref(
                 _self_field("__recv", node.line, node.column),
                 node.resolved_type, line=node.line, column=node.column)
-        if isinstance(node, MoveExpr) and node.path is None and node.variable in self.encmap:
+        if (isinstance(node, MoveExpr) and node.path is None
+                and node.variable in self.encmap
+                and node.variable not in self._rewrite_mask):
             name = node.variable
             enc = self.encmap[name]
             # Census D1: on a migrated field the `move` IS `take()`, which
@@ -7714,7 +7904,8 @@ class _FrameBuilder:
                 inner.name, self.encmap[inner.name], inner.line, inner.column,
                 owning_read=True, saw_type=inner.resolved_type, origin=inner))
             return node
-        if isinstance(node, Identifier) and node.name in self.encmap:
+        if (isinstance(node, Identifier) and node.name in self.encmap
+                and node.name not in self._rewrite_mask):
             enc = self.encmap[node.name]
             # Census T1-T4 (design 218 stage 2): the transform's own single-use
             # temps are CONSUMED at their one read, so a migrated one reads as

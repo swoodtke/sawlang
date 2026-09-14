@@ -1,0 +1,276 @@
+// SL-273 / SL-278 obligation-4 sweep, part 1 of 3: THE LOOP-SHAPE ROWS.
+//
+// A match arm's payload binding must survive the CFG split whatever loop
+// encloses it and whichever early exit the arm takes. Every row here failed
+// with `internal compiler error ... Undefined variable: n` before the residency
+// census and the split decision were made to read one authority
+// (`_FrameBuilder._is_split`); the two faces that were FILED are only the
+// `while`+`break` row.
+//
+// EVERY ROW IS A SYNC/DRIVEN TWIN PAIR AND THE SYNC HALF IS THE ORACLE: the two
+// numbers on each line must agree, and they must be the numbers below.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// while-break 1 1
+// while-continue 4 4
+// bare-while-break 1 1
+// for-break 1 1
+// for-continue 4 4
+// whilelet-break 1 1
+// whilelet-continue 4 4
+
+enum Step { case Value(value: Int), case Done }
+
+func next(i: Int) -> Step {
+    if i > 3 { return Step.Done }
+    Step.Value(value: i)
+}
+
+func pull(i: Int) -> Int? {
+    if i > 4 { return None }
+    return i
+}
+
+// The suspension is one level DOWN — an ordinary helper of ours, not a std
+// method — which is a row of its own: the transform must see through the call.
+func slow() { sleep(Duration.ms(1)) }
+
+// ---------------------------------------------------------- while + break
+func while_break_sync() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        match next(i) {
+            case Value(n) -> {
+                if n == 2 { break }
+                total += n
+            },
+            case Done -> { break }
+        }
+        i += 1
+    }
+    total
+}
+
+func while_break_driven() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        slow()
+        match next(i) {
+            case Value(n) -> {
+                if n == 2 { break }
+                total += n
+            },
+            case Done -> { break }
+        }
+        i += 1
+    }
+    total
+}
+
+// ------------------------------------------------------- while + continue
+func while_continue_sync() -> Int {
+    var total = 0
+    var i = 0
+    while i < 6 {
+        i += 1
+        match next(i - 1) {
+            case Value(n) -> {
+                if n == 2 { continue }
+                total += n
+            },
+            case Done -> { }
+        }
+    }
+    total
+}
+
+func while_continue_driven() -> Int {
+    var total = 0
+    var i = 0
+    while i < 6 {
+        slow()
+        i += 1
+        match next(i - 1) {
+            case Value(n) -> {
+                if n == 2 { continue }
+                total += n
+            },
+            case Done -> { }
+        }
+    }
+    total
+}
+
+// -------------------------------------------- conditionless while + break
+func bare_while_break_sync() -> Int {
+    var total = 0
+    var i = 0
+    while {
+        match next(i) {
+            case Value(n) -> {
+                if n == 2 { break }
+                total += n
+            },
+            case Done -> { break }
+        }
+        i += 1
+    }
+    total
+}
+
+func bare_while_break_driven() -> Int {
+    var total = 0
+    var i = 0
+    while {
+        slow()
+        match next(i) {
+            case Value(n) -> {
+                if n == 2 { break }
+                total += n
+            },
+            case Done -> { break }
+        }
+        i += 1
+    }
+    total
+}
+
+// ------------------------------------------------------------ for + break
+func for_break_sync() -> Int {
+    var total = 0
+    for i in 0..10 {
+        match next(i) {
+            case Value(n) -> {
+                if n == 2 { break }
+                total += n
+            },
+            case Done -> { break }
+        }
+    }
+    total
+}
+
+func for_break_driven() -> Int {
+    var total = 0
+    for i in 0..10 {
+        slow()
+        match next(i) {
+            case Value(n) -> {
+                if n == 2 { break }
+                total += n
+            },
+            case Done -> { break }
+        }
+    }
+    total
+}
+
+// --------------------------------------------------------- for + continue
+func for_continue_sync() -> Int {
+    var total = 0
+    for i in 0..6 {
+        match next(i) {
+            case Value(n) -> {
+                if n == 2 { continue }
+                total += n
+            },
+            case Done -> { }
+        }
+    }
+    total
+}
+
+func for_continue_driven() -> Int {
+    var total = 0
+    for i in 0..6 {
+        slow()
+        match next(i) {
+            case Value(n) -> {
+                if n == 2 { continue }
+                total += n
+            },
+            case Done -> { }
+        }
+    }
+    total
+}
+
+// ------------------------------------------------------ while let + break
+func whilelet_break_sync() -> Int {
+    var total = 0
+    var i = 0
+    while let k = pull(i) {
+        i += 1
+        match next(k) {
+            case Value(n) -> {
+                if n == 2 { break }
+                total += n
+            },
+            case Done -> { break }
+        }
+    }
+    total
+}
+
+func whilelet_break_driven() -> Int {
+    var total = 0
+    var i = 0
+    while let k = pull(i) {
+        slow()
+        i += 1
+        match next(k) {
+            case Value(n) -> {
+                if n == 2 { break }
+                total += n
+            },
+            case Done -> { break }
+        }
+    }
+    total
+}
+
+// --------------------------------------------------- while let + continue
+func whilelet_continue_sync() -> Int {
+    var total = 0
+    var i = 0
+    while let k = pull(i) {
+        i += 1
+        match next(k) {
+            case Value(n) -> {
+                if n == 2 { continue }
+                total += n
+            },
+            case Done -> { }
+        }
+    }
+    total
+}
+
+func whilelet_continue_driven() -> Int {
+    var total = 0
+    var i = 0
+    while let k = pull(i) {
+        slow()
+        i += 1
+        match next(k) {
+            case Value(n) -> {
+                if n == 2 { continue }
+                total += n
+            },
+            case Done -> { }
+        }
+    }
+    total
+}
+
+func main() {
+    print("while-break {while_break_sync()} {while_break_driven()}")
+    print("while-continue {while_continue_sync()} {while_continue_driven()}")
+    print("bare-while-break {bare_while_break_sync()} {bare_while_break_driven()}")
+    print("for-break {for_break_sync()} {for_break_driven()}")
+    print("for-continue {for_continue_sync()} {for_continue_driven()}")
+    print("whilelet-break {whilelet_break_sync()} {whilelet_break_driven()}")
+    print("whilelet-continue {whilelet_continue_sync()} {whilelet_continue_driven()}")
+}

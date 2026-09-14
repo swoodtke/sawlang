@@ -3706,17 +3706,43 @@ class StatementsMixin:
                      "with the function type you mean"
             )
 
+    def _check_while_condition(self, node: WhileExpr):
+        """Type-check a `while`'s CONDITION and report what it moved (SL-262).
+
+        Returns `(pre_cond, head_moves)`: the move state from before the
+        condition ran, and the ids of the bindings the condition itself
+        consumed. `_check_loop_body` takes both — see its docstring — so that a
+        move written in the head is judged against the LOOP's liveness exactly
+        as one written in the body is.
+
+        THE ONE PLACE that knows a `while` condition re-evaluates, and the only
+        caller of `_check_expression` on one; both `_check_while_expr` and
+        `_check_while_expr_as_expression` go through it, which is what keeps the
+        statement and expression spellings of one loop from answering
+        differently. The sibling heads need nothing added here: a `while let`
+        scrutinee already lives inside the body (design 233 lowers the loop to a
+        conditionless `while` over an `if let`, so `_check_loop_body`'s window
+        covers it and always did), and a `for` loop's iterable is evaluated
+        ONCE, before the first iteration, so a move there is straight-line code
+        and stays legal.
+        """
+        pre_cond = self._snapshot_moves()
+        if node.condition is None:
+            return pre_cond, set()
+        cond_type = self._check_expression(node.condition)
+        if cond_type and cond_type.kind != TypeKind.BOOL:
+            self._error(
+                ErrorKind.TYPE_MISMATCH,
+                f"while condition must be Bool, got `{cond_type}`",
+                node.line, node.column
+            )
+        head_moves = {k for k in self.moved_bindings if k not in pre_cond}
+        return pre_cond, head_moves
+
     def _check_while_expr(self, stmt: WhileExpr):
         """Check a while loop used as a statement (no return value expected)."""
         # If condition is present, it must be a Bool
-        if stmt.condition:
-            cond_type = self._check_expression(stmt.condition)
-            if cond_type and cond_type.kind != TypeKind.BOOL:
-                self._error(
-                    ErrorKind.TYPE_MISMATCH,
-                    f"while condition must be Bool, got `{cond_type}`",
-                    stmt.line, stmt.column
-                )
+        pre_cond, head_moves = self._check_while_condition(stmt)
 
         # A statement-position loop yields no value, but it still has to know
         # whether anything BREAKS out of it: design 177 makes a conditionless
@@ -3728,7 +3754,8 @@ class StatementsMixin:
         is_infinite = stmt.condition is None
         self.loop_break_info.append((None, is_infinite, False))
         self.loop_depth += 1
-        self._check_loop_body(stmt.body, self.current_scope)
+        self._check_loop_body(stmt.body, self.current_scope,
+                              carried_entry=pre_cond, head_moves=head_moves)
         self.loop_depth -= 1
         _, _, has_break = self.loop_break_info.pop()
         stmt.diverges = is_infinite and not has_break
@@ -3754,14 +3781,7 @@ class StatementsMixin:
             )
             return None
         # If condition is present, it must be a Bool
-        if expr.condition:
-            cond_type = self._check_expression(expr.condition)
-            if cond_type and cond_type.kind != TypeKind.BOOL:
-                self._error(
-                    ErrorKind.TYPE_MISMATCH,
-                    f"while condition must be Bool, got `{cond_type}`",
-                    expr.line, expr.column
-                )
+        pre_cond, head_moves = self._check_while_condition(expr)
 
         is_infinite = expr.condition is None
 
@@ -3771,7 +3791,8 @@ class StatementsMixin:
 
         # Check body with increased loop depth
         self.loop_depth += 1
-        self._check_loop_body(expr.body, self.current_scope)
+        self._check_loop_body(expr.body, self.current_scope,
+                              carried_entry=pre_cond, head_moves=head_moves)
         self.loop_depth -= 1
 
         # Pop loop info and determine return type

@@ -16,6 +16,7 @@ from ast_nodes import (
     Program, StaticDecl, SawType, TypeKind, Visibility, has_synthesize,
     effective_field_visibility,
     Block, ReturnStatement, BreakStatement, ContinueStatement, IfExpr, WhileExpr,
+    ForLoop, ASTNode, Argument, structural_fields,
     IntLiteral, FloatLiteral, BoolLiteral, UnaryOp, ArrayLiteral, StructInit,
     FunctionCall, ExpressionStatement, SourceLocationLiteral, expr_diverges,
     ext_param_aliases, PRIMITIVE_EXT_KINDS
@@ -199,6 +200,126 @@ class RegistrationMixin:
             return True
         return False
 
+    def _loop_body_reaches_back_edge(self, body: Block) -> bool:
+        """Can control leave `body` by the loop's BACK EDGE — the edge that
+        re-evaluates the head (SL-262)?
+
+        Asked of ONE thing only: a move written in a `while` CONDITION. That
+        check exists because the condition runs again, so where the back edge is
+        unreachable it has nothing to say and must not fire — `while
+        consume(move r) { return 3 }` evaluates its condition exactly once and
+        destroys `r` exactly once, which is what SL-234's own regression cell
+        pins.
+
+        This is reachability, not value flow-sensitivity, and it is stated in
+        the vocabulary the move dataflow already uses: `_block_has_early_exit`
+        is the "cannot fall through" predicate design 15 rule 6 merges branches
+        with. ONE correction is needed on top of it — that predicate counts a
+        `continue` as an exit, and a `continue` is precisely a jump TO the back
+        edge — so a `continue` belonging to this loop means the head does
+        re-evaluate however the rest of the body ends. A nested `while`/`for`
+        captures its own, so the scan does not descend into one.
+
+        Deliberately NOT extended to a move in the loop BODY: that check is
+        older, its conservatism is the checker's established philosophy (a body
+        move is refused even when the body always `break`s), and widening it
+        would change answers this brief did not set out to change. The
+        asymmetry is recorded in
+        `examples/conformance/V110_loop_head_moves_that_stay_legal.saw`.
+        """
+        if self._body_continues_to_this_loop(body):
+            return True
+        if self._block_has_early_exit(body):
+            return False
+        # `_block_has_early_exit` walks `block.statements` and asks `_diverges`
+        # of the tail, and an `if`/`else` whose branches both exit is neither:
+        # the parser parks a block's last expression in `final_expr`, and a
+        # `return`/`break` inside a branch is a STATEMENT, not a `Never`-typed
+        # expression. So `while c { if x { return 1 } else { break } }` reads as
+        # falling through. Answered HERE rather than by widening the shared
+        # predicate, which the branch merge (design 15 rule 6) also reads — this
+        # is the one caller that needs it, and a local answer changes no
+        # existing judgement.
+        tail = body.final_expr
+        if (isinstance(tail, IfExpr) and tail.else_branch is not None
+                and self._block_has_early_exit(tail.then_branch)
+                and self._block_has_early_exit(tail.else_branch)):
+            return False
+        return True
+
+    def _body_continues_to_this_loop(self, node) -> bool:
+        """True if `node` holds a `continue` targeting the loop whose body it
+        is — one not captured by a nested `while`/`for` inside it.
+
+        A nested loop captures the `continue`s written in its BODY. It does not
+        automatically capture the ones written in its HEAD, because a head is
+        evaluated in the ENCLOSING loop's control context — and which loop a
+        head's `continue` binds to turns out NOT to be uniform, so this walk
+        follows what the compiler actually does rather than what the shape
+        suggests. Probed, each cell a program whose output distinguishes the two
+        answers (SL-262 review r1):
+
+          * a nested `for`'s ITERABLE — targets the OUTER loop. `while … { n +=
+            1; for i in 0..(if n == 1 { continue } else { 2 }) { … }; … }` skips
+            the rest of the OUTER body on the continue and keeps iterating it.
+            So the iterable IS scanned, in this loop's context.
+          * a nested `while`'s CONDITION — targets the INNER loop. The same
+            shape SPINS FOREVER: the `continue` jumps to the inner loop's own
+            head, which re-evaluates the condition and hits it again. Its
+            `break` twin confirms the binding from the other side (it leaves the
+            INNER loop and the outer one keeps going). So a `while` is skipped
+            WHOLE, condition included.
+          * a nested `while let`'s SCRUTINEE — same as the `while` condition,
+            and for the same reason: design 233 lowers `while let` to a
+            conditionless `while` over an `if let`, so the scrutinee is already
+            inside that loop's body. Skipped with it.
+
+        This asymmetry is the bug review r1 found: skipping a `for`'s iterable
+        made `_loop_body_reaches_back_edge` answer "no back edge" for a body
+        that ends in `break`, which disabled the condition-move check and let an
+        unsound program through — one `Res` destroyed three times at exit 0.
+        `examples/errors/move_in_a_while_condition_nested_loop_header.saw` is
+        the fixture; its contrast half is the inner-BODY continue, which must
+        stay excluded.
+
+        A `continue` inside a CLOSURE body is not special-cased: writing one is
+        an internal compiler error today (SL-286), so no program that compiles
+        can reach the question, and counting it only ever adds a refusal to a
+        program that cannot build either way.
+        """
+        found = [False]
+
+        def scan(n):
+            if found[0]:
+                return
+            if isinstance(n, ContinueStatement):
+                found[0] = True
+                return
+            if isinstance(n, ForLoop):
+                # The ITERABLE is evaluated in THIS loop's context (probed
+                # above); the body belongs to the nested loop.
+                scan_val(n.iterable)
+                return
+            if isinstance(n, WhileExpr):
+                return          # head AND body bind to the nested loop
+            if isinstance(n, ASTNode):
+                for f in structural_fields(n):
+                    scan_val(getattr(n, f.name))
+
+        def scan_val(v):
+            if found[0]:
+                return
+            if isinstance(v, (list, tuple)):
+                for x in v:
+                    scan_val(x)
+            elif isinstance(v, Argument):
+                scan_val(v.value)
+            elif isinstance(v, ASTNode):
+                scan(v)
+
+        scan(node)
+        return found[0]
+
     def _diverges(self, expr) -> bool:
         """True if evaluating `expr` never falls through.
 
@@ -212,7 +333,8 @@ class RegistrationMixin:
         """
         return expr_diverges(expr)
 
-    def _check_loop_body(self, body: Block, outer_scope):
+    def _check_loop_body(self, body: Block, outer_scope,
+                         carried_entry=None, head_moves=None):
         """Check a loop body with may-repeat move semantics (design 15 rule 7).
 
         Conservative (shipped) rule: a binding declared OUTSIDE the loop that is
@@ -226,8 +348,21 @@ class RegistrationMixin:
         the scope BEFORE the loop variable is bound, so moving the freshly-bound
         loop variable each iteration is not flagged). After the loop the move
         state is reset to the pre-loop state, since the loop may run zero times.
+
+        SL-262: a `while` CONDITION is on the back edge too, so it is part of
+        this window and not straight-line code before it. The caller checks the
+        condition first and then hands in `carried_entry` — the move state from
+        BEFORE the condition — which is what this scan measures "new in the
+        loop" against; `head_moves` names the bindings the condition itself
+        moved, so the diagnostic can say where. Everything else is unchanged,
+        `entry_moves` included: it is snapshotted AFTER the condition and is
+        what the post-loop state is restored to, because a condition runs at
+        least once whether or not the body ever does. A `for` loop's iterable is
+        evaluated ONCE and passes neither argument.
         """
         entry_moves = self._snapshot_moves()
+        carried = entry_moves if carried_entry is None else carried_entry
+        head = head_moves or set()
         entry_borrows = {id(b) for b in self._task_borrows}
         outer_ids = set()
         scope = outer_scope
@@ -241,9 +376,21 @@ class RegistrationMixin:
         # tail expression is discarded unconditionally.
         self._check_result_discard(body.final_expr)
 
+        # SL-262: a condition move only re-runs if the BACK EDGE is reachable.
+        # See `_loop_body_reaches_back_edge`. Asked HERE, after the body has
+        # been checked, because `_diverges` reads flags (a `while`'s design-177
+        # divergence, a call's `Never` return) that checking the block is what
+        # stamps — every other caller of `_block_has_early_exit` observes the
+        # same order. With the back edge unreachable the head's moves are
+        # simply not loop-carried, so they fall back to the pre-loop state and
+        # are judged wherever the ordinary rules judge them.
+        if head and not self._loop_body_reaches_back_edge(body):
+            head = set()
+            carried = entry_moves
+
         for key, (var_info, name, move_line, move_col, provisional) in list(
                 self.moved_bindings.items()):
-            if key in entry_moves:
+            if key in carried:
                 continue  # already moved before the loop -- caught elsewhere
             if key in outer_ids:
                 if provisional:
@@ -253,6 +400,30 @@ class RegistrationMixin:
                     # duplicate rather than a move.
                     self._tier_req_second_use(var_info, name, move_line,
                                               move_line)
+                    continue
+                # SL-262: one mistake, one diagnostic — see
+                # `_reported_loop_carried_moves`.
+                seen_key = (key, move_line, move_col)
+                if seen_key in self._reported_loop_carried_moves:
+                    continue
+                self._reported_loop_carried_moves.add(seen_key)
+                if key in head:
+                    # SL-262: the move is in the loop's own CONDITION, which
+                    # re-evaluates on the back edge — so the second evaluation
+                    # reads a binding the first one consumed. Unfixed, this was
+                    # silent: the value was destroyed once per iteration at
+                    # exit 0 in a sync body, and the driven twin aborted in the
+                    # frame (`Slot.take: slot is empty`).
+                    self._error(
+                        ErrorKind.USE_AFTER_MOVE,
+                        f"use of moved variable `{name}` across loop iterations",
+                        move_line, move_col,
+                        hint="this move is in the loop's CONDITION, which "
+                             "re-evaluates on every iteration, so the second "
+                             "evaluation reads a binding the first one consumed; "
+                             "reassign it before the loop body ends, move a fresh "
+                             "value, or lift the move out of the loop"
+                    )
                     continue
                 self._error(
                     ErrorKind.USE_AFTER_MOVE,

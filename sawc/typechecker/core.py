@@ -636,6 +636,14 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # duplicate if something does. The move dataflow decides — see
         # `typechecker/tierreq.py`.
         self.moved_bindings: Dict[int, Tuple['VariableInfo', str, int, int, bool]] = {}
+        # SL-262: `(binding_id, move_line, move_column)` for every loop-carried
+        # move already reported. NESTED loops each run the scan, and a move in
+        # an inner loop's CONDITION is genuinely carried by both — it is still
+        # moved when the OUTER body ends too — so one mistake would otherwise be
+        # two identical diagnostics at one caret. The first one, from the
+        # innermost loop that carries it, is the one that names the loop the
+        # author has to change.
+        self._reported_loop_carried_moves: set = set()
         # design 219 wave C: the tier-requirement accumulator for the
         # declaration whose body is being checked, the declaration it belongs
         # to, and the call sites owing a discharge (resolved at finalize).

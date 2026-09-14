@@ -1,0 +1,328 @@
+// SL-273 / SL-278 obligation-4 sweep, part 3 of 3: THE PATTERN ROWS — every
+// shape a split match's arm can use to introduce a binding.
+//
+// Two censuses answer "what type does this binding hold", and a split match
+// needs BOTH to be exhaustive: `_match_binding_types` reads an arm's legacy
+// `bindings` off `matched_enum_type`, and `_scrutinee_binding_types` resolves a
+// design-63 `pattern`. The GUARD rows are why that matters. A guard anywhere in
+// a match sends the whole thing through the typechecker's general pattern
+// lowering, which stamps `matched_scrutinee_type` and leaves `matched_enum_type`
+// unset — so the first census answered nothing and EVERY arm lost its payload,
+// guarded or not, on a plain spanning match with no `break` in sight. The
+// second census resolves enum patterns now, which is what closes that.
+//
+// The guard rows carry a second fix with them: a guard runs during DISPATCH and
+// may read ANY name in scope, not just the arm's own bindings, so it is rewritten
+// with exactly those bindings masked. `case Value(n) if i == 1` used to die with
+// `Undefined variable: i` — `i` being the loop counter, long since a frame field.
+//
+// EVERY ROW IS A SYNC/DRIVEN TWIN PAIR AND THE SYNC HALF IS THE ORACLE.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// guard-break 1 1
+// guard-spanning-arm 1 1
+// guard-shared-name 1 1
+// guard-reads-frame-local 6 6
+// catchall-scrutinee 110 110
+// tuple-pattern 3 3
+// two-payloads 3 3
+// generic-payload 102 102
+
+enum Step { case Value(value: Int), case Done }
+
+func next(i: Int) -> Step {
+    if i > 3 { return Step.Done }
+    Step.Value(value: i)
+}
+
+func slow() { sleep(Duration.ms(1)) }
+
+// ------------------------------------------- a guarded arm that `break`s out
+func guard_break_sync() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        match next(i) {
+            case Value(n) if n == 2 -> { break },
+            case Value(n) -> { total += n },
+            case Done -> { break }
+        }
+        i += 1
+    }
+    total
+}
+
+func guard_break_driven() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        slow()
+        match next(i) {
+            case Value(n) if n == 2 -> { break },
+            case Value(n) -> { total += n },
+            case Done -> { break }
+        }
+        i += 1
+    }
+    total
+}
+
+// ------- a guarded match whose OTHER arm spans a suspension: no `break` here,
+// so this row is pure clause 1 and was broken by the census gap alone.
+func guard_spanning_sync() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        match next(i) {
+            case Value(g) if g == 2 -> { return total },
+            case Value(n) -> { total += n },
+            case Done -> { return total }
+        }
+        i += 1
+    }
+    total
+}
+
+func guard_spanning_driven() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        match next(i) {
+            case Value(g) if g == 2 -> { return total },
+            case Value(n) -> { slow()  total += n },
+            case Done -> { return total }
+        }
+        i += 1
+    }
+    total
+}
+
+// ------------- two arms of one match sharing a binding NAME, one of them guarded
+func guard_shared_sync() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        match next(i) {
+            case Value(n) if n == 2 -> { return total },
+            case Value(n) -> { total += n },
+            case Done -> { return total }
+        }
+        i += 1
+    }
+    total
+}
+
+func guard_shared_driven() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        match next(i) {
+            case Value(n) if n == 2 -> { return total },
+            case Value(n) -> { slow()  total += n },
+            case Done -> { return total }
+        }
+        i += 1
+    }
+    total
+}
+
+// -------------- a guard that reads a FRAME-RESIDENT local, not its own binding
+func guard_frame_local_sync() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        match next(i) {
+            case Value(n) if i > 0 -> {
+                if n == 3 { break }
+                total += n * 2
+            },
+            case Value(n) -> { total += n },
+            case Done -> { break }
+        }
+        i += 1
+    }
+    total
+}
+
+func guard_frame_local_driven() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        slow()
+        match next(i) {
+            case Value(n) if i > 0 -> {
+                if n == 3 { break }
+                total += n * 2
+            },
+            case Value(n) -> { total += n },
+            case Done -> { break }
+        }
+        i += 1
+    }
+    total
+}
+
+// ------------------- a catch-all pattern binding THE SCRUTINEE (not a payload)
+func catchall_sync() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        match i * 10 {
+            case 0 -> { total += 100 },
+            case v -> {
+                if v >= 20 { break }
+                total += v
+            }
+        }
+        i += 1
+    }
+    total
+}
+
+func catchall_driven() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        slow()
+        match i * 10 {
+            case 0 -> { total += 100 },
+            case v -> {
+                if v >= 20 { break }
+                total += v
+            }
+        }
+        i += 1
+    }
+    total
+}
+
+// ------------------------------------ a TUPLE pattern over a tuple scrutinee
+func pair(i: Int) -> (Int, Int) { (i, i * 2) }
+
+func tuple_sync() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        match pair(i) {
+            case (0, b) -> { total += b },
+            case (a, b) -> {
+                if a >= 2 { break }
+                total += a + b
+            }
+        }
+        i += 1
+    }
+    total
+}
+
+func tuple_driven() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        slow()
+        match pair(i) {
+            case (0, b) -> { total += b },
+            case (a, b) -> {
+                if a >= 2 { break }
+                total += a + b
+            }
+        }
+        i += 1
+    }
+    total
+}
+
+// ------------------------------------------- an arm binding TWO payload names
+enum Pair2 { case Two(a: Int, b: Int), case None2 }
+
+func mk(i: Int) -> Pair2 {
+    if i > 3 { return Pair2.None2 }
+    Pair2.Two(a: i, b: i * 2)
+}
+
+func two_payload_sync() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        match mk(i) {
+            case Two(a, b) -> {
+                if a == 2 { break }
+                total += a + b
+            },
+            case None2 -> { break }
+        }
+        i += 1
+    }
+    total
+}
+
+func two_payload_driven() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        slow()
+        match mk(i) {
+            case Two(a, b) -> {
+                if a == 2 { break }
+                total += a + b
+            },
+            case None2 -> { break }
+        }
+        i += 1
+    }
+    total
+}
+
+// ---------------- a GENERIC enum's payload, so the census substitutes its args
+enum Slotted<T> { case Held(v: T), case Vacant }
+
+func fetch(i: Int) -> Slotted<String> {
+    if i > 2 { return Slotted<String>.Vacant }
+    Slotted<String>.Held(v: "s{i}")
+}
+
+func generic_sync() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        match fetch(i) {
+            case Held(v) if v == "s1" -> { total += 100 },
+            case Held(v) -> {
+                if v == "s2" { break }
+                total += v.len()
+            },
+            case Vacant -> { break }
+        }
+        i += 1
+    }
+    total
+}
+
+func generic_driven() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        slow()
+        match fetch(i) {
+            case Held(v) if v == "s1" -> { total += 100 },
+            case Held(v) -> {
+                if v == "s2" { break }
+                total += v.len()
+            },
+            case Vacant -> { break }
+        }
+        i += 1
+    }
+    total
+}
+
+func main() {
+    print("guard-break {guard_break_sync()} {guard_break_driven()}")
+    print("guard-spanning-arm {guard_spanning_sync()} {guard_spanning_driven()}")
+    print("guard-shared-name {guard_shared_sync()} {guard_shared_driven()}")
+    print("guard-reads-frame-local {guard_frame_local_sync()} {guard_frame_local_driven()}")
+    print("catchall-scrutinee {catchall_sync()} {catchall_driven()}")
+    print("tuple-pattern {tuple_sync()} {tuple_driven()}")
+    print("two-payloads {two_payload_sync()} {two_payload_driven()}")
+    print("generic-payload {generic_sync()} {generic_driven()}")
+}

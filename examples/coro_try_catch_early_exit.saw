@@ -1,0 +1,111 @@
+// SL-273 / SL-278's SIBLING CONTAINER, found by their obligation-4 sweep and
+// named by neither issue.
+//
+// A `try { } catch { }` is the third construct the transform CFG-splits for
+// design 96 DF6's reason — a `break`/`continue` out of an enclosing suspending
+// loop — and it has a binding of its own: the caught `error`. Its residency was
+// decided by the spanning question alone, exactly as a match arm payload's was,
+// so a try/catch carrying an early exit was split into states with no field for
+// the error to travel in:
+//
+//     error: struct `__Frame_driven` has no field `error`
+//
+// on a correct program. It reads `_FrameBuilder._is_split` now, with `match`.
+//
+// BOTH ROWS ARE SYNC/DRIVEN TWIN PAIRS AND THE SYNC HALF IS THE ORACLE.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// break-in-try 1 1
+// -- break-in-catch, sync
+// err nope
+// total 3
+// -- break-in-catch, driven
+// err nope
+// total 3
+
+func might(i: Int) -> Result<Int, String> {
+    if i > 2 { return "nope" }
+    return i
+}
+
+func slow() { sleep(Duration.ms(1)) }
+
+// --------------------------- the `break` is in the TRY body; `error` is bound
+// in the catch and never reached on this path, which is the point: residency is
+// owed because the binding EXISTS, not because a path happens to read it.
+func break_in_try_sync() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        try {
+            let v = try might(i)
+            if v == 2 { break }
+            total += v
+        } catch {
+            print("err {}", error)
+            break
+        }
+        i += 1
+    }
+    total
+}
+
+func break_in_try_driven() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        slow()
+        try {
+            let v = try might(i)
+            if v == 2 { break }
+            total += v
+        } catch {
+            print("err {}", error)
+            break
+        }
+        i += 1
+    }
+    total
+}
+
+// -------------------------- the `break` is in the CATCH body, which is reached
+func break_in_catch_sync() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        try {
+            let v = try might(i)
+            total += v
+        } catch {
+            print("err {}", error)
+            break
+        }
+        i += 1
+    }
+    total
+}
+
+func break_in_catch_driven() -> Int {
+    var total = 0
+    var i = 0
+    while i < 10 {
+        slow()
+        try {
+            let v = try might(i)
+            total += v
+        } catch {
+            print("err {}", error)
+            break
+        }
+        i += 1
+    }
+    total
+}
+
+func main() {
+    print("break-in-try {break_in_try_sync()} {break_in_try_driven()}")
+    print("-- break-in-catch, sync")
+    print("total {break_in_catch_sync()}")
+    print("-- break-in-catch, driven")
+    print("total {break_in_catch_driven()}")
+}

@@ -1,0 +1,178 @@
+// SL-262: the BACK-EDGE predicate the condition-move check is gated on.
+//
+// The check exists because a `while` condition RE-EVALUATES. Where the body
+// cannot reach the back edge, it does not, and the check must stay quiet — this
+// is the shape SL-234's own regression cell is written in
+// (`while consume_bool(move r) { return 3 }`), and refusing it would have been
+// this brief breaking a test it was not about.
+//
+// Reachability, not value flow-sensitivity: `_block_has_early_exit` is the
+// "cannot fall through" predicate design 15 rule 6 already merges move branches
+// with. It needs exactly one correction here — it counts a `continue` as an
+// exit, while a `continue` is a jump TO the back edge — and one local
+// refinement, for an `if`/`else` body whose branches both exit, which the
+// parser parks in the block's tail where that predicate does not look.
+//
+// WHICH JUMPS A NESTED LOOP CAPTURES is the other half, and review r1 found it
+// wrong. A nested loop captures the jumps in its BODY; a HEAD is evaluated in
+// the ENCLOSING loop's control context. Probed rather than assumed, because the
+// answer is NOT uniform:
+//
+//   * a nested `for`'s ITERABLE targets the OUTER loop — so it is scanned, and
+//     a `continue` there re-arms the check. That was the P1: skipping it read
+//     an unsound program as having no back edge. The refusals are in
+//     `examples/errors/move_in_a_while_condition_nested_loop_header.saw`.
+//   * a nested `while`'s CONDITION and a `while let`'s SCRUTINEE bind to the
+//     INNER loop — a `continue` there jumps to that loop's own head and
+//     re-evaluates it, which spins forever; its `break` twin leaves the inner
+//     loop and lets the outer one carry on. So a `while` is skipped WHOLE, and
+//     the two cells below are the accept side of that.
+//
+// EVERY VALUE HERE IS DESTROYED EXACTLY ONCE, and the named `deinit` trace is
+// what says so. The refusal side is
+// `examples/errors/move_in_a_while_condition_positions.saw`; the asymmetry with
+// a BODY move is `examples/errors/use_after_move_loop_body_always_breaks.saw`.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// drop returns
+// always-returns 3
+// drop breaks
+// always-breaks 1
+// drop both-diverge
+// if-else-both-diverge 0
+// drop nested-continue
+// continue-captured-by-nested-loop 2
+// drop inner-body
+// inner-body-continue-only 2
+// drop nested-while-cond
+// nested-while-condition-continue 1
+// drop nested-while-let
+// nested-while-let-scrutinee-continue 1
+// drop doubly-nested
+// doubly-nested-for-iterable 10
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.name) }
+}
+
+func consume_bool(r: Res) -> Bool { true }
+func src(k: Int) -> Int? { if k > 0 { return k } return None }
+
+// The body always RETURNS: one condition evaluation, one destruction.
+func always_returns() -> Int {
+    var r = Res(name: "returns")
+    while consume_bool(move r) { return 3 }
+    0
+}
+
+// The body always BREAKS.
+func always_breaks() -> Int {
+    var r = Res(name: "breaks")
+    var n = 0
+    while consume_bool(move r) {
+        n = n + 1
+        break
+    }
+    n
+}
+
+// An `if`/`else` body whose branches BOTH exit. It sits in the block's tail, so
+// the shared predicate does not see it and the local refinement does.
+func if_else_both_diverge() -> Int {
+    var r = Res(name: "both-diverge")
+    var n = 0
+    while consume_bool(move r) {
+        if n > 0 { return 1 } else { break }
+    }
+    n
+}
+
+// A `continue` inside a NESTED loop belongs to that loop, not to this one, so
+// it does not re-arm the check — the outer body still always breaks.
+func continue_captured_by_nested_loop() -> Int {
+    var r = Res(name: "nested-continue")
+    var n = 0
+    while consume_bool(move r) {
+        var j = 0
+        while j < 3 {
+            j = j + 1
+            if j == 1 { continue }
+            n = n + 1
+        }
+        break
+    }
+    n
+}
+
+// THE CONTRAST HALF of review r1's P1: a nested `for` whose continue is in its
+// BODY captures it, so the outer body still always breaks and the move stays
+// legal. The refusal fixture's `reviewer_repro` is this shape with the continue
+// moved into the ITERABLE — that one word is the whole difference.
+func inner_body_continue_only() -> Int {
+    var r = Res(name: "inner-body")
+    var n = 0
+    while consume_bool(move r) {
+        for i in 0..3 {
+            if i == 1 { continue }
+            n = n + 1
+        }
+        break
+    }
+    n
+}
+
+// A nested `while`'s CONDITION binds its jumps to the INNER loop (probed), so a
+// `continue` there does not re-arm the check. The condition is false here, so
+// the inner loop never runs and control reaches the outer `break`.
+func nested_while_condition_continue() -> Int {
+    var r = Res(name: "nested-while-cond")
+    var n = 0
+    while consume_bool(move r) {
+        n = n + 1
+        while (if n > 99 { continue } else { false }) { n = n + 100 }
+        break
+    }
+    n
+}
+
+// A `while let`'s SCRUTINEE is the same case: design 233 lowers the loop to a
+// conditionless `while` over an `if let`, so the scrutinee is already inside
+// that loop's body.
+func nested_while_let_scrutinee_continue() -> Int {
+    var r = Res(name: "nested-while-let")
+    var n = 0
+    while consume_bool(move r) {
+        n = n + 1
+        while let v = (if n > 99 { continue } else { src(0) }) { n = n + 100 }
+        break
+    }
+    n
+}
+
+// A `for` iterable nested inside ANOTHER for's body belongs to that inner for,
+// not to this `while` — so the scan must not descend through a nested loop's
+// body to reach it.
+func doubly_nested_for_iterable() -> Int {
+    var r = Res(name: "doubly-nested")
+    var n = 0
+    while consume_bool(move r) {
+        for a in 0..2 {
+            for b in 0..(if a == 0 { continue } else { 1 }) { n = n + 10 }
+        }
+        break
+    }
+    n
+}
+
+func main() {
+    print("always-returns {always_returns()}")
+    print("always-breaks {always_breaks()}")
+    print("if-else-both-diverge {if_else_both_diverge()}")
+    print("continue-captured-by-nested-loop {continue_captured_by_nested_loop()}")
+    print("inner-body-continue-only {inner_body_continue_only()}")
+    print("nested-while-condition-continue {nested_while_condition_continue()}")
+    print("nested-while-let-scrutinee-continue {nested_while_let_scrutinee_continue()}")
+    print("doubly-nested-for-iterable {doubly_nested_for_iterable()}")
+}

@@ -1343,6 +1343,12 @@ class IfExpr(Expression):
     condition: Expression
     then_branch: 'Block'
     else_branch: Optional['Block'] = None
+    # SL-273/SL-278: the coroutine transform must CFG-SPLIT this `if` because it
+    # carries a `break`/`continue` for an enclosing suspension-spanning loop
+    # (design 96 DF6's clause). Stamped by `_mark_ob_block`, read through
+    # `_FrameBuilder._is_split` — see that method for why the decision is
+    # recorded on the node rather than recomputed per consumer.
+    _coro_split: bool = annotation(False)
 
 
 @dataclass
@@ -1737,6 +1743,13 @@ class TryCatchExpr(Expression):
     # its members (design 126 R1).
     error_type: Optional['SawType'] = annotation(None)
     error_types: Optional[List['SawType']] = annotation(None)
+    # SL-273/SL-278: the coroutine transform must CFG-SPLIT this try/catch
+    # because it carries a `break`/`continue` for an enclosing
+    # suspension-spanning loop (design 96 DF6's clause). Stamped by
+    # `_mark_ob_block`, read through `_FrameBuilder._is_split` — which is what
+    # keeps the `error` binding's FRAME FIELD and the split decision in
+    # agreement.
+    _coro_split: bool = annotation(False)
 
 
 @dataclass
@@ -2039,6 +2052,12 @@ class MatchExpr(Expression):
     # `matched_scrutinee_type` carries the scrutinee's type.
     use_general_match: bool = annotation(False)
     matched_scrutinee_type: Optional['SawType'] = annotation(None)
+    # SL-273/SL-278: the coroutine transform must CFG-SPLIT this `match` because
+    # it carries a `break`/`continue` for an enclosing suspension-spanning loop
+    # (design 96 DF6's clause). Stamped by `_mark_ob_block`, read through
+    # `_FrameBuilder._is_split` — which is what keeps the arm PAYLOAD BINDINGS'
+    # frame fields and the split decision in agreement.
+    _coro_split: bool = annotation(False)
 
 
 @dataclass

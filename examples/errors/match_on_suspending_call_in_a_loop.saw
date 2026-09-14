@@ -1,20 +1,22 @@
-// XFAIL: SL-273 — a match arm PAYLOAD BINDING is lost when a SUSPENSION
-// precedes the match inside a loop. The compiler exits with `internal compiler
-// error ... Undefined variable: e` instead of compiling this program.
+// SL-273's minimal repro, kept as the regression test for it.
 //
-// The scrutinee here is an ordinary NON-suspending call, deliberately: the
-// first filing blamed the scrutinee and was wrong. The trigger is the pair
-// (a suspension earlier in the loop body, a match arm payload binding after
-// it). Three facts pin the shape, and all three are on the issue: the same
-// match with the suspension AFTER it compiles; the same match outside a loop
-// compiles; and an `if let` payload binding in exactly this position compiles.
-// That last one is the useful discriminator — optional bindings survive the
-// resume-state split and match arm bindings do not.
+// A match arm PAYLOAD BINDING used to be lost when the arm carried a `break`
+// for a loop that suspends: `internal compiler error ... Undefined variable: e`
+// on a correct program. The scrutinee here is an ordinary NON-suspending call,
+// deliberately — the first filing blamed the scrutinee and was wrong.
 //
-// This program is CORRECT Saw. Intended behaviour is the EXPECT block: the
-// loop suspends on a write, `attempt` refuses once `i` passes 1, the arm binds
-// the error and prints it, and the loop breaks. When the bug is fixed this
-// XPASSes and the marker comes off.
+// What actually decided it: the coroutine transform CFG-SPLITS a match either
+// because it spans a suspension OR because it carries a `break`/`continue` for
+// an enclosing suspending loop (design 96 DF6), while the frame-residency
+// census granted fields on the FIRST reason alone. A split relocates the arm
+// bodies into their own resume states, and an arm's payload binding — which
+// exists only in the dispatch — could reach one only through a field it had not
+// been given. `if let` never fell the same way because its split decision and
+// its residency both read the one `_coro_split` stamp; `_FrameBuilder._is_split`
+// is now that single authority for `if` / `match` / `try`-`catch` too.
+//
+// The loop suspends on a write, `attempt` refuses once `i` passes 1, the arm
+// binds the error and prints it, and the loop breaks.
 // EXPECT: success
 // EXPECT-OUTPUT:
 // err nope

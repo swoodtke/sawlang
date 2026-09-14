@@ -1,0 +1,98 @@
+// Conformance row V110 — control for V109: the loop-head moves that are SOUND
+// stay legal, and each is sound for a reason the rule can state
+//
+// SL-262. V109's refusal is about RE-EVALUATION, so it must not reach a head
+// that runs once, nor a condition whose binding the body revives before the
+// back edge. Without this row the guarantee could be delivered by a rule that
+// simply refuses every `move` near a loop.
+//
+// Four shapes, and the reason each is sound:
+//
+//   * a `while` condition whose BODY REASSIGNS the binding — the second
+//     evaluation reads the value the first iteration installed, so nothing is
+//     consumed twice. This is the same revival `_check_loop_body` has always
+//     accepted for a move in the body; the condition joining that window is
+//     what makes one rule cover both.
+//   * a `while` condition whose body cannot reach the BACK EDGE — the head runs
+//     exactly once, so the rule has nothing to say. Reachability, asked with
+//     `_block_has_early_exit`, which is the predicate design 15 rule 6 already
+//     merges branches with; a `continue` belonging to this loop IS a jump to
+//     the back edge and so re-arms the check. WHICH continues belong to it is
+//     not the syntactic question it looks like: a nested loop captures the ones
+//     in its BODY, but a nested `for`'s ITERABLE is evaluated in the enclosing
+//     loop's context and targets IT (review r1's P1 — skipping it accepted a
+//     program that destroyed one value three times), while a nested `while`'s
+//     condition and a `while let`'s scrutinee bind INWARD. Probed, not assumed;
+//     `move_in_a_while_condition_back_edge.saw` carries both answers.
+//   * a `for` loop's ITERABLE — evaluated once, before the first iteration,
+//     which is why it is straight-line code and passes neither `carried_entry`
+//     nor `head_moves`.
+//   * an `if` CONDITION — not a loop head at all, and never re-entered.
+//
+// The back-edge carve-out is HEAD-ONLY and deliberately asymmetric: a move in
+// the loop's BODY is still refused even when the body always `break`s. That
+// conservatism is older than this rule and is the checker's established
+// philosophy; widening it would change answers SL-262 did not set out to
+// change. `examples/move_in_a_while_condition_back_edge.saw` holds the
+// predicate's own matrix, that asymmetry included.
+//
+// The `deinit` trace is the oracle: each named value must die exactly once, and
+// `fresh` dies once per iteration because each iteration built its own.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// drop revived-old
+// drop fresh
+// drop fresh
+// drop fresh
+// reassigned 3
+// drop counted
+// for-iterable 2
+// drop tested
+// if-cond 1
+
+struct Res { name: String }
+extension Res: NoCopy {
+    func deinit(&var self) { print("drop {}", self.name) }
+}
+
+func consume_bool(r: Res) -> Bool { true }
+func consume_int(r: Res) -> Int { 2 }
+
+// A move in the condition, revived by the body before the back edge.
+func reassigned() -> Int {
+    var r = Res(name: "revived-old")
+    var n = 0
+    while consume_bool(move r) {
+        r = Res(name: "fresh")
+        n = n + 1
+        if n > 2 { break }
+    }
+    n
+}
+
+// A move in a `for` loop's iterable: evaluated ONCE.
+func for_iterable() -> Int {
+    var r = Res(name: "counted")
+    var n = 0
+    for i in 0..consume_int(move r) {
+        n = n + 1
+    }
+    n
+}
+
+// A move in an `if` condition: no back edge exists.
+func if_cond() -> Int {
+    var r = Res(name: "tested")
+    var n = 0
+    if consume_bool(move r) {
+        n = n + 1
+    }
+    n
+}
+
+func main() {
+    print("reassigned {reassigned()}")
+    print("for-iterable {for_iterable()}")
+    print("if-cond {if_cond()}")
+}
