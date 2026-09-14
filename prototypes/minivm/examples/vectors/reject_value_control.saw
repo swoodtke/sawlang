@@ -1,0 +1,3 @@
+func main() {
+    let v = if true { Vector<Int>() } else { Vector<Int>() }
+}

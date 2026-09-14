@@ -1,0 +1,12 @@
+func index() -> Int { print("index")
+0 }
+func value() -> Int { print("value")
+9 }
+
+func main() {
+    var v = Vector<Int>()
+    try! v.push(7)
+    print(v[index()])
+    try! v.push(value())
+    print(v.len())
+}

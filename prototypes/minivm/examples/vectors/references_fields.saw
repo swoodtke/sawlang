@@ -1,0 +1,21 @@
+struct Holder { values: Vector<String> }
+extension Holder: NoCopy {}
+
+func add(values: &var Vector<String>, value: String) {
+    try! values.push(value: value)
+}
+
+func count(values: &Vector<String>) -> Int { values.len() }
+
+func fill(holder: &var Holder) {
+    add(&var holder.values, "left")
+    add(&var holder.values, "right")
+}
+
+func main() {
+    var holder = Holder(values: Vector<String>())
+    fill(&var holder)
+    print(count(&holder.values))
+    print(holder.values[0])
+    print(holder.values[1])
+}

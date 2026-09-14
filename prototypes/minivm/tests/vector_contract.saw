@@ -1,0 +1,153 @@
+import src.model.*
+import src.verify.*
+
+func op(kind: Op, dst: Int, a: Int, b: Int, immediate: Int) -> Instruction {
+    var result = instruction(kind)
+    result.dst = dst
+    result.a = a
+    result.b = b
+    result.immediate = immediate
+    move result
+}
+
+func valid(p: &Program) -> Bool {
+    try verify(&p) catch { return false }
+    true
+}
+
+func program() -> Program {
+    var records = Vector<RecordIR>()
+    try! records.push(RecordIR(name: "AllocError", field_names: ["size", "align"],
+        field_types: [ValueType.I64, ValueType.I64], line: 1, col: 1))
+    try! records.push(RecordIR(name: "Item", field_names: ["name", "suffix"],
+        field_types: [ValueType.String, ValueType.Optional(0)], line: 1, col: 1))
+    try! records.push(RecordIR(name: "Other", field_names: ["name", "suffix"],
+        field_types: [ValueType.String, ValueType.Optional(0)], line: 1, col: 1))
+    var sums = Vector<SumIR>()
+    try! sums.push(SumIR(kind: SumKind.Optional, payload: ValueType.String, error: ValueType.Void))
+    try! sums.push(SumIR(kind: SumKind.Optional, payload: ValueType.Record(1), error: ValueType.Void))
+    try! sums.push(SumIR(kind: SumKind.Result, payload: ValueType.Void, error: ValueType.Record(0)))
+    try! sums.push(SumIR(kind: SumKind.Optional, payload: ValueType.Record(2), error: ValueType.Void))
+    try! sums.push(SumIR(kind: SumKind.Result, payload: ValueType.Void, error: ValueType.Record(2)))
+    try! sums.push(SumIR(kind: SumKind.Result, payload: ValueType.Vector(0), error: ValueType.Record(0)))
+    var vectors = Vector<VectorIR>()
+    try! vectors.push(VectorIR(element: ValueType.Record(1)))
+    try! vectors.push(VectorIR(element: ValueType.I64))
+    var refs = Vector<ReferenceIR>()
+    try! refs.push(ReferenceIR(target: ValueType.Vector(0), mutable: true))
+    try! refs.push(ReferenceIR(target: ValueType.Vector(0), mutable: false))
+    try! refs.push(ReferenceIR(target: ValueType.Vector(1), mutable: true))
+    let slots: Vector<ValueType> = [ValueType.Vector(0), ValueType.Vector(0),
+        ValueType.Ref(0), ValueType.Ref(1), ValueType.I64,
+        ValueType.String, ValueType.Bool, ValueType.String,
+        ValueType.Bool, ValueType.I64, ValueType.I64,
+        ValueType.Bool, ValueType.String, ValueType.Bool, ValueType.String,
+        ValueType.I64, ValueType.Vector(1), ValueType.Ref(2)]
+    var code = Vector<Instruction>()
+    try! code.push(op(Op.VectorNew, 0, -1, -1, 0))
+    try! code.push(op(Op.Addr, 2, 0, -1, 0))
+    try! code.push(op(Op.Addr, 3, 0, -1, 0))
+    try! code.push(op(Op.VectorPush, 8, 2, 5, 2))
+    try! code.push(op(Op.VectorLen, 15, 3, -1, 0))
+    try! code.push(op(Op.VectorIndex, 5, 3, 4, 0))
+    try! code.push(op(Op.VectorGet, 11, 3, 4, 1))
+    try! code.push(op(Op.MoveVector, 1, 0, -1, 0))
+    try! code.push(op(Op.Drop, -1, 0, -1, 0))
+    try! code.push(op(Op.Drop, -1, 1, -1, 0))
+    try! code.push(instruction(Op.Return))
+    var functions = Vector<FuncIR>()
+    try! functions.push(FuncIR(name: "main", params: Vector<ValueType>(), result: ValueType.Void,
+        slots: move slots, code: move code))
+    Program(strings: Vector<String>(), records: move records, references: move refs,
+        sums: move sums, enums: Vector<EnumIR>(), functions: move functions,
+        main_index: 0, alloc_error_record: 0, builder_fail_after: -1,
+        vectors: move vectors, vector_fail_after: -1)
+}
+
+func main() {
+    let p = program()
+    assert(valid(&p), "all vector instructions and owning Copy element")
+    var changed = p.copy()
+    changed.functions[0].code[0].dst = 5
+    assert(not valid(&changed), "New destination must be Vector")
+    changed = p.copy()
+    changed.functions[0].code[0].a = 0
+    assert(not valid(&changed), "New unused operands checked")
+    changed = p.copy()
+    changed.functions[0].code[3].a = 3
+    assert(not valid(&changed), "push requires mutable reference")
+    changed = p.copy()
+    changed.functions[0].code[3].b = 4
+    assert(not valid(&changed), "push element layout checked")
+    changed = p.copy()
+    changed.functions[0].code[3].b = Int.max
+    assert(not valid(&changed), "push input range cannot overflow")
+    changed = p.copy()
+    changed.functions[0].code[3].dst = Int.max
+    assert(not valid(&changed), "push output range cannot overflow")
+    changed = p.copy()
+    changed.functions[0].code[3].immediate = 4
+    assert(not valid(&changed), "push needs nominal AllocError")
+    changed = p.copy()
+    changed.functions[0].code[3].immediate = 5
+    assert(not valid(&changed), "push success must be Void")
+    changed = p.copy()
+    changed.functions[0].code[4].dst = 5
+    assert(not valid(&changed), "len returns Int")
+    changed = p.copy()
+    changed.functions[0].code[4].a = 0
+    assert(not valid(&changed), "len uses reference")
+    changed = p.copy()
+    changed.functions[0].code[5].b = 8
+    assert(not valid(&changed), "index must be Int")
+    changed = p.copy()
+    changed.functions[0].code[5].dst = 15
+    assert(not valid(&changed), "index requires full element destination")
+    changed = p.copy()
+    changed.functions[0].code[6].immediate = 3
+    assert(not valid(&changed), "get Optional payload identity checked despite equal layouts")
+    changed = p.copy()
+    changed.functions[0].code[6].immediate = Int.max
+    assert(not valid(&changed), "get descriptor bounded")
+    changed = p.copy()
+    changed.functions[0].code[6].dst = 12
+    assert(not valid(&changed), "get requires tag and full payload")
+    changed = p.copy()
+    changed.functions[0].code[7].dst = 0
+    assert(not valid(&changed), "self move forbidden")
+    changed = p.copy()
+    changed.functions[0].code[7].dst = 16
+    assert(not valid(&changed), "move requires same Vector descriptor")
+    changed = p.copy()
+    changed.functions[0].code[7].op = Op.Copy
+    assert(not valid(&changed), "Vector copy forbidden")
+    changed = p.copy()
+    changed.functions[0].code[7] = op(Op.LoadRef, 0, 2, -1, 0)
+    assert(not valid(&changed), "Vector load by value forbidden")
+    changed = p.copy()
+    changed.functions[0].code[7] = op(Op.StoreRef, -1, 2, 0, 0)
+    assert(not valid(&changed), "Vector store by value forbidden")
+    changed = p.copy()
+    changed.vectors[1].element = ValueType.Vector(0)
+    assert(not valid(&changed), "nested Vector elements excluded")
+    changed = p.copy()
+    changed.vectors[1].element = ValueType.Builder
+    assert(not valid(&changed), "Builder element excluded")
+    changed = p.copy()
+    changed.vectors[1].element = ValueType.Void
+    assert(not valid(&changed), "Void element excluded")
+    changed = p.copy()
+    changed.records[2].field_types[0] = ValueType.Vector(0)
+    changed.vectors[1].element = ValueType.Record(2)
+    assert(not valid(&changed), "Vector nested in element record excluded")
+    changed = p.copy()
+    changed.vector_fail_after = -2
+    assert(not valid(&changed), "failure counter checked")
+    changed = p.copy()
+    changed.references[2].target = ValueType.Vector(Int.max)
+    assert(not valid(&changed), "invalid descriptor in reference checked")
+    changed = p.copy()
+    changed.functions[0].code[3].target = 0
+    assert(not valid(&changed), "unused instruction metadata checked")
+    print("vector verifier contract passed")
+}

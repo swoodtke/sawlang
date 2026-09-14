@@ -1,0 +1,2 @@
+func main() { let a = Vector<Int>()
+let b = a }

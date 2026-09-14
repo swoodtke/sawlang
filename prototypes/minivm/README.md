@@ -66,8 +66,9 @@ shift counts. See [M1_NUMBERS.md](M1_NUMBERS.md) for the precise numeric contrac
 Newlines separate statements. Omit the result annotation for Void functions;
 `main()` must take no arguments and return Void. Value-returning functions need
 a value on every continuing path, supplied by an explicit return or final expression.
-There are no imports, collections, user-defined generics, or concurrency in the
-accepted subset. `Result<T,E>` is a compiler-known fixed generic type.
+There are no imports, general collections, user-defined generics, or concurrency
+in the accepted subset. `Result<T,E>` and `Vector<T>` are compiler-known fixed
+generic types.
 Semicolons remain unsupported. Boolean `&&`/`||` short-circuit, mutable integers
 and fields support `+=`/`-=`/`*=`/`/=`/`%=`, and module `static` integer/Bool
 constants accept literal and numeric-limit initializers. See
@@ -132,6 +133,20 @@ fields. Builders cannot yet be copied, reassigned, returned by value or stored
 in aggregates. Append preserves previous snapshots and leaves content unchanged
 on allocation failure. See [M14_STRING_BUILDER.md](M14_STRING_BUILDER.md).
 
+`Vector<T>` supports empty construction, `len`, `push`, `get`, checked read-only
+indexing, and shared/mutable reference forwarding. Elements may be non-Void,
+non-reference Copy values, including records and Optional/Result values that own
+Strings; nested vectors and other noncopyable elements are rejected. Vectors are
+unique owning values: whole local moves, vector-containing aggregate construction
+and by-value results are supported, while implicit copies, by-value parameters,
+reassignment, statics, indexed writes and escaping element references remain
+outside this slice. Push failure preserves the vector and its input, and get or
+index returns an owned element snapshot. See [M15_VECTORS.md](M15_VECTORS.md).
+Move tracking is conservative across branches, and moving an outer local inside
+a loop is rejected. Empty `NoCopy` markers are accepted only on records that
+contain vectors; general explicit copy policies and vector-valued control-flow
+joins remain unsupported.
+
 The VM defaults to a shared budget of 1,000,000 instructions and a maximum call
 depth of 128. Override the budget with `run FILE --budget N`. These limits apply
 only to VM execution; native code uses the host call stack and has no budget.
@@ -144,8 +159,10 @@ python prototypes/minivm/test_minivm.py --binary .build/minivm/minivm
 
 The harness compares VM execution and clang-compiled IR with explicit expected
 outputs and statuses, checks rejected programs, and exercises VM limits. It
-uses temporary files and 30-second execution timeouts. The first fourteen milestones
-cover 394 cases, including native execution at both `-O0` and `-O2`.
+uses temporary files and 30-second execution timeouts. Native execution is
+checked at both `-O0` and `-O2`. The first fifteen milestones cover 424 cases;
+the Vector section covers 30, with 13 shared-subset cases also checked against
+Python sawc using `--section vectors --sawc sawc/sawc.py`.
 
 Independent representation checks live in `tests/numeric_contract.saw`,
 `tests/record_contract.saw`, `tests/enum_contract.saw`,
@@ -153,14 +170,15 @@ Independent representation checks live in `tests/numeric_contract.saw`,
 `tests/string_contract.saw`, `tests/owning_record_contract.saw`,
 `tests/optional_contract.saw`, `tests/result_contract.saw`,
 `tests/uint_parse_contract.saw`, `tests/scalar_contract.saw`,
-`tests/builder_contract.saw`, `tests/builder_vm_contract.saw`, and
-`tests/builder_source_contract.saw`; build and run them
+`tests/builder_contract.saw`, `tests/builder_vm_contract.saw`,
+`tests/builder_source_contract.saw`, `tests/vector_contract.saw`,
+`tests/vector_vm_contract.saw`, and `tests/vector_source_contract.saw`; build and run them
 with the Python compiler.
 Use `--section numbers`, `--section records`, `--section control`, or
 `--section enums`, `--section values`, `--section references`, or
 `--section receivers`, `--section strings`, `--section owning_records` or
 `--section optionals`, `--section results`, `--section unsigned_parse`, or
-`--section scalars`, or `--section builders` for an isolated
+`--section scalars`, `--section builders`, or `--section vectors` for an isolated
 integration gate.
 
 To run the initial SL-260 shared-subset differential as well:

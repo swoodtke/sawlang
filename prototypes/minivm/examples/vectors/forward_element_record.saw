@@ -1,0 +1,9 @@
+struct Holder { rows: Vector<Row> }
+extension Holder: NoCopy {}
+struct Row { text: String, suffix: String? }
+
+func main() {
+    var holder = Holder(rows: Vector<Row>())
+    try! holder.rows.push(Row(text: "forward", suffix: None))
+    print(holder.rows[0].text)
+}

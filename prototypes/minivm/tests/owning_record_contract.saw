@@ -68,7 +68,7 @@ func base_program() -> Program {
         slots: move slots, code: move code))
     try! funcs.push(FuncIR(name: "echo", params: move params, result: ValueType.Record(0),
         slots: move echo_slots, code: move echo_code))
-    Program(alloc_error_record: -1, builder_fail_after: -1,
+    Program(alloc_error_record: -1, builder_fail_after: -1, vectors: Vector<VectorIR>(), vector_fail_after: -1,
         strings: move strings, references: move refs, enums: Vector<EnumIR>(),
             sums: Vector<SumIR>(),
         records: move records, functions: move funcs, main_index: 0)

@@ -92,7 +92,7 @@ func result_program() -> Program {
     try! functions.push(FuncIR(name: "echo", params: move echo_params, result: ValueType.Result(2),
         slots: move echo_slots, code: move echo_code))
     let strings: Vector<String> = ["A", "B", "C", "payload"]
-    Program(alloc_error_record: -1, builder_fail_after: -1,
+    Program(alloc_error_record: -1, builder_fail_after: -1, vectors: Vector<VectorIR>(), vector_fail_after: -1,
         strings: move strings, references: move references, enums: Vector<EnumIR>(),
         records: move records, sums: move sums, functions: move functions, main_index: 0)
 }
@@ -104,7 +104,7 @@ func panic_program() -> Program {
     var functions = Vector<FuncIR>()
     try! functions.push(FuncIR(name: "main", params: Vector<ValueType>(), result: ValueType.Void,
         slots: Vector<ValueType>(), code: move code))
-    Program(alloc_error_record: p.alloc_error_record, builder_fail_after: p.builder_fail_after,
+    Program(alloc_error_record: p.alloc_error_record, builder_fail_after: p.builder_fail_after, vectors: p.vectors.copy(), vector_fail_after: p.vector_fail_after,
         strings: p.strings.copy(), references: p.references.copy(), enums: p.enums.copy(),
         records: p.records.copy(), sums: p.sums.copy(), functions: move functions, main_index: 0)
 }

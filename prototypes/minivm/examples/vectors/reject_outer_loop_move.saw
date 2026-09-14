@@ -1,0 +1,4 @@
+func main() { let v = Vector<Int>()
+var once = true
+while once { let x = move v
+once = false } }

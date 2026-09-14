@@ -1,0 +1,270 @@
+import src.model.*
+import src.verify.*
+import src.vm.*
+import src.llvm
+import std.env.{Env}
+
+func slot(slots: &var Vector<ValueType>, t: ValueType) -> Int {
+    let index = slots.len()
+    try! slots.push(t)
+    index
+}
+
+func emit(code: &var Vector<Instruction>, kind: Op, dst: Int, a: Int, b: Int, immediate: Int) {
+    var i = instruction(kind)
+    i.dst = dst
+    i.a = a
+    i.b = b
+    i.immediate = immediate
+    try! code.push(move i)
+}
+
+func check_word(code: &var Vector<Instruction>, slots: &var Vector<ValueType>, actual: Int,
+                expected: Int, t: ValueType) {
+    let expected_slot = slot(&var slots, t)
+    emit(&var code, Op.Const, expected_slot, -1, -1, expected)
+    let equal = slot(&var slots, ValueType.Bool)
+    emit(&var code, Op.Eq, equal, actual, expected_slot, 0)
+    var branch = instruction(Op.Branch)
+    branch.a = equal
+    branch.target = code.len() + 2
+    try! code.push(move branch)
+    try! code.push(instruction(Op.Panic))
+}
+
+func check_string(code: &var Vector<Instruction>, slots: &var Vector<ValueType>,
+                  strings: &var Vector<String>, actual: Int, expected: String) {
+    let pool = strings.len()
+    try! strings.push(expected)
+    let expected_slot = slot(&var slots, ValueType.String)
+    emit(&var code, Op.StringConst, expected_slot, -1, -1, pool)
+    let equal = slot(&var slots, ValueType.Bool)
+    emit(&var code, Op.Eq, equal, actual, expected_slot, 0)
+    var branch = instruction(Op.Branch)
+    branch.a = equal
+    branch.target = code.len() + 2
+    try! code.push(move branch)
+    try! code.push(instruction(Op.Panic))
+}
+
+func contract_program() -> Program {
+    var strings = Vector<String>()
+    try! strings.push("old")
+    try! strings.push("new")
+    try! strings.push("r0")
+    try! strings.push("r1")
+    try! strings.push("some")
+    var vectors = Vector<VectorIR>()
+    try! vectors.push(VectorIR(element: ValueType.I64))
+    try! vectors.push(VectorIR(element: ValueType.String))
+    try! vectors.push(VectorIR(element: ValueType.Record(1)))
+    var references = Vector<ReferenceIR>()
+    try! references.push(ReferenceIR(target: ValueType.Vector(0), mutable: true))
+    try! references.push(ReferenceIR(target: ValueType.Vector(0), mutable: false))
+    try! references.push(ReferenceIR(target: ValueType.Vector(1), mutable: true))
+    try! references.push(ReferenceIR(target: ValueType.Vector(1), mutable: false))
+    try! references.push(ReferenceIR(target: ValueType.Vector(2), mutable: true))
+    try! references.push(ReferenceIR(target: ValueType.Vector(2), mutable: false))
+    let field_names: Vector<String> = ["size", "align"]
+    let field_types: Vector<ValueType> = [ValueType.I64, ValueType.I64]
+    var records = Vector<RecordIR>()
+    try! records.push(RecordIR(name: "AllocError", field_names: move field_names,
+        field_types: move field_types, line: 0, col: 0))
+    let item_names: Vector<String> = ["name", "suffix"]
+    let item_types: Vector<ValueType> = [ValueType.String, ValueType.Optional(1)]
+    try! records.push(RecordIR(name: "Item", field_names: move item_names,
+        field_types: move item_types, line: 0, col: 0))
+    var sums = Vector<SumIR>()
+    try! sums.push(SumIR(kind: SumKind.Optional, payload: ValueType.I64, error: ValueType.Void))
+    try! sums.push(SumIR(kind: SumKind.Optional, payload: ValueType.String, error: ValueType.Void))
+    try! sums.push(SumIR(kind: SumKind.Result, payload: ValueType.Void,
+        error: ValueType.Record(0)))
+    try! sums.push(SumIR(kind: SumKind.Optional, payload: ValueType.Record(1), error: ValueType.Void))
+
+    var slots = Vector<ValueType>()
+    var code = Vector<Instruction>()
+    let ints = slot(&var slots, ValueType.Vector(0))
+    let ints_mut = slot(&var slots, ValueType.Ref(0))
+    let ints_shared = slot(&var slots, ValueType.Ref(1))
+    emit(&var code, Op.VectorNew, ints, -1, -1, 0)
+    emit(&var code, Op.Addr, ints_mut, ints, -1, 0)
+    emit(&var code, Op.Addr, ints_shared, ints, -1, 0)
+    let length = slot(&var slots, ValueType.I64)
+    emit(&var code, Op.VectorLen, length, ints_shared, -1, 0)
+    check_word(&var code, &var slots, length, 0, ValueType.I64)
+
+    let seven = slot(&var slots, ValueType.I64)
+    emit(&var code, Op.Const, seven, -1, -1, 7)
+    let first_push = slot(&var slots, ValueType.Bool)
+    let _ = slot(&var slots, ValueType.I64)
+    let _ = slot(&var slots, ValueType.I64)
+    emit(&var code, Op.VectorPush, first_push, ints_mut, seven, 2)
+    check_word(&var code, &var slots, first_push, 1, ValueType.Bool)
+    let zero = slot(&var slots, ValueType.I64)
+    emit(&var code, Op.Const, zero, -1, -1, 0)
+    let indexed = slot(&var slots, ValueType.I64)
+    emit(&var code, Op.VectorIndex, indexed, ints_shared, zero, 0)
+    check_word(&var code, &var slots, indexed, 7, ValueType.I64)
+
+    let miss_index = slot(&var slots, ValueType.I64)
+    emit(&var code, Op.Const, miss_index, -1, -1, -1)
+    let miss_tag = slot(&var slots, ValueType.Bool)
+    let miss_payload = slot(&var slots, ValueType.I64)
+    emit(&var code, Op.Const, miss_payload, -1, -1, 99)
+    emit(&var code, Op.VectorGet, miss_tag, ints_shared, miss_index, 0)
+    check_word(&var code, &var slots, miss_tag, 0, ValueType.Bool)
+    check_word(&var code, &var slots, miss_payload, 0, ValueType.I64)
+
+    let eight = slot(&var slots, ValueType.I64)
+    emit(&var code, Op.Const, eight, -1, -1, 8)
+    let failed_push = slot(&var slots, ValueType.Bool)
+    let failed_size = slot(&var slots, ValueType.I64)
+    let failed_align = slot(&var slots, ValueType.I64)
+    emit(&var code, Op.VectorPush, failed_push, ints_mut, eight, 2)
+    check_word(&var code, &var slots, failed_push, 0, ValueType.Bool)
+    check_word(&var code, &var slots, failed_size, 16, ValueType.I64)
+    check_word(&var code, &var slots, failed_align, 8, ValueType.I64)
+    emit(&var code, Op.VectorLen, length, ints_shared, -1, 0)
+    check_word(&var code, &var slots, length, 1, ValueType.I64)
+
+    let nine = slot(&var slots, ValueType.I64)
+    emit(&var code, Op.Const, nine, -1, -1, 9)
+    let recovered = slot(&var slots, ValueType.Bool)
+    let _ = slot(&var slots, ValueType.I64)
+    let _ = slot(&var slots, ValueType.I64)
+    emit(&var code, Op.VectorPush, recovered, ints_mut, nine, 2)
+    check_word(&var code, &var slots, recovered, 1, ValueType.Bool)
+    check_word(&var code, &var slots, indexed, 7, ValueType.I64)
+
+    let moved = slot(&var slots, ValueType.Vector(0))
+    emit(&var code, Op.MoveVector, moved, ints, -1, 0)
+    let inactive = slot(&var slots, ValueType.Vector(0))
+    emit(&var code, Op.MoveVector, inactive, ints, -1, 0)
+    emit(&var code, Op.Drop, -1, ints, -1, 0)
+    emit(&var code, Op.Drop, -1, inactive, -1, 0)
+    emit(&var code, Op.Drop, -1, moved, -1, 0)
+
+    let texts = slot(&var slots, ValueType.Vector(1))
+    let texts_mut = slot(&var slots, ValueType.Ref(2))
+    let texts_shared = slot(&var slots, ValueType.Ref(3))
+    emit(&var code, Op.VectorNew, texts, -1, -1, 0)
+    emit(&var code, Op.Addr, texts_mut, texts, -1, 0)
+    emit(&var code, Op.Addr, texts_shared, texts, -1, 0)
+    let old_text = slot(&var slots, ValueType.String)
+    emit(&var code, Op.StringConst, old_text, -1, -1, 0)
+    let text_push = slot(&var slots, ValueType.Bool)
+    let _ = slot(&var slots, ValueType.I64)
+    let _ = slot(&var slots, ValueType.I64)
+    emit(&var code, Op.VectorPush, text_push, texts_mut, old_text, 2)
+    let text_snapshot = slot(&var slots, ValueType.String)
+    emit(&var code, Op.VectorIndex, text_snapshot, texts_shared, zero, 0)
+    let new_text = slot(&var slots, ValueType.String)
+    emit(&var code, Op.StringConst, new_text, -1, -1, 1)
+    emit(&var code, Op.VectorPush, text_push, texts_mut, new_text, 2)
+    check_string(&var code, &var slots, &var strings, text_snapshot, "old")
+    let stale_payload = slot(&var slots, ValueType.String)
+    emit(&var code, Op.StringConst, stale_payload, -1, -1, 1)
+    let text_miss = slot(&var slots, ValueType.Bool)
+    let cleared_payload = slot(&var slots, ValueType.String)
+    emit(&var code, Op.Copy, cleared_payload, stale_payload, -1, 0)
+    emit(&var code, Op.VectorGet, text_miss, texts_shared, miss_index, 1)
+    check_word(&var code, &var slots, text_miss, 0, ValueType.Bool)
+    emit(&var code, Op.Drop, -1, texts, -1, 0)
+    check_string(&var code, &var slots, &var strings, text_snapshot, "old")
+
+    let items = slot(&var slots, ValueType.Vector(2))
+    let items_mut = slot(&var slots, ValueType.Ref(4))
+    let items_shared = slot(&var slots, ValueType.Ref(5))
+    emit(&var code, Op.VectorNew, items, -1, -1, 0)
+    emit(&var code, Op.Addr, items_mut, items, -1, 0)
+    emit(&var code, Op.Addr, items_shared, items, -1, 0)
+    let r0 = slot(&var slots, ValueType.String)
+    emit(&var code, Op.StringConst, r0, -1, -1, 2)
+    let none_tag = slot(&var slots, ValueType.Bool)
+    let none_string = slot(&var slots, ValueType.String)
+    emit(&var code, Op.Const, none_tag, -1, -1, 0)
+    let item_push = slot(&var slots, ValueType.Bool)
+    let _ = slot(&var slots, ValueType.I64)
+    let _ = slot(&var slots, ValueType.I64)
+    emit(&var code, Op.VectorPush, item_push, items_mut, r0, 2)
+    check_word(&var code, &var slots, item_push, 1, ValueType.Bool)
+    let indexed_name = slot(&var slots, ValueType.String)
+    let indexed_suffix_tag = slot(&var slots, ValueType.Bool)
+    let indexed_suffix = slot(&var slots, ValueType.String)
+    emit(&var code, Op.VectorIndex, indexed_name, items_shared, zero, 0)
+    check_string(&var code, &var slots, &var strings, indexed_name, "r0")
+    check_word(&var code, &var slots, indexed_suffix_tag, 0, ValueType.Bool)
+
+    let r1 = slot(&var slots, ValueType.String)
+    emit(&var code, Op.StringConst, r1, -1, -1, 3)
+    let some_tag = slot(&var slots, ValueType.Bool)
+    emit(&var code, Op.Const, some_tag, -1, -1, 1)
+    let some_string = slot(&var slots, ValueType.String)
+    emit(&var code, Op.StringConst, some_string, -1, -1, 4)
+    emit(&var code, Op.VectorPush, item_push, items_mut, r1, 2)
+    let one = slot(&var slots, ValueType.I64)
+    emit(&var code, Op.Const, one, -1, -1, 1)
+    let got_tag = slot(&var slots, ValueType.Bool)
+    let got_name = slot(&var slots, ValueType.String)
+    let got_suffix_tag = slot(&var slots, ValueType.Bool)
+    let got_suffix = slot(&var slots, ValueType.String)
+    emit(&var code, Op.VectorGet, got_tag, items_shared, one, 3)
+    check_word(&var code, &var slots, got_tag, 1, ValueType.Bool)
+    check_string(&var code, &var slots, &var strings, got_name, "r1")
+    check_word(&var code, &var slots, got_suffix_tag, 1, ValueType.Bool)
+    check_string(&var code, &var slots, &var strings, got_suffix, "some")
+    emit(&var code, Op.Drop, -1, items, -1, 0)
+    check_string(&var code, &var slots, &var strings, indexed_name, "r0")
+    check_string(&var code, &var slots, &var strings, got_suffix, "some")
+
+    let returned = slot(&var slots, ValueType.Vector(0))
+    emit(&var code, Op.VectorNew, returned, -1, -1, 0)
+    var call = instruction(Op.Call)
+    call.dst = returned
+    call.target = 1
+    try! code.push(move call)
+    let returned_ref = slot(&var slots, ValueType.Ref(1))
+    emit(&var code, Op.Addr, returned_ref, returned, -1, 0)
+    emit(&var code, Op.VectorLen, length, returned_ref, -1, 0)
+    check_word(&var code, &var slots, length, 1, ValueType.I64)
+    emit(&var code, Op.VectorIndex, indexed, returned_ref, zero, 0)
+    check_word(&var code, &var slots, indexed, 42, ValueType.I64)
+    emit(&var code, Op.Drop, -1, returned, -1, 0)
+    try! code.push(instruction(Op.Return))
+
+    var made_slots = Vector<ValueType>()
+    let made = slot(&var made_slots, ValueType.Vector(0))
+    let made_mut = slot(&var made_slots, ValueType.Ref(0))
+    let forty_two = slot(&var made_slots, ValueType.I64)
+    let made_result = slot(&var made_slots, ValueType.Bool)
+    let _ = slot(&var made_slots, ValueType.I64)
+    let _ = slot(&var made_slots, ValueType.I64)
+    var made_code = Vector<Instruction>()
+    emit(&var made_code, Op.VectorNew, made, -1, -1, 0)
+    emit(&var made_code, Op.Addr, made_mut, made, -1, 0)
+    emit(&var made_code, Op.Const, forty_two, -1, -1, 42)
+    emit(&var made_code, Op.VectorPush, made_result, made_mut, forty_two, 2)
+    emit(&var made_code, Op.Return, -1, made, -1, 0)
+
+    var functions = Vector<FuncIR>()
+    try! functions.push(FuncIR(name: "main", params: Vector<ValueType>(), result: ValueType.Void,
+        slots: move slots, code: move code))
+    try! functions.push(FuncIR(name: "make", params: Vector<ValueType>(), result: ValueType.Vector(0),
+        slots: move made_slots, code: move made_code))
+    let program = Program(strings: move strings, references: move references, enums: Vector<EnumIR>(),
+        records: move records, sums: move sums, functions: move functions, main_index: 0,
+        alloc_error_record: 0, builder_fail_after: -1, vectors: move vectors, vector_fail_after: 1)
+    try! verify(&program)
+    move program
+}
+
+func main() {
+    let program = contract_program()
+    let args = try! Env.args()
+    if args.len() == 2 && args[1] == "emit-llvm" {
+        print(try! llvm.emit_llvm(&program))
+        return
+    }
+    try! execute(&program, 5000)
+    print("vector VM contract passed")
+}

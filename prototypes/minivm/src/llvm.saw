@@ -1,6 +1,7 @@
 import src.model.*
 import src.string_runtime.*
 import src.builder_runtime.*
+import src.vector_runtime.*
 import src.uint_parse_runtime.*
 
 func put(out: &var StringBuilder, text: String) {
@@ -32,7 +33,7 @@ func emit_aggregate_type(out: &var StringBuilder, layout: &Vector<ValueType>) {
     var word_index = 0
     while word_index < layout.len() {
         if word_index > 0 { put(&var out, ", ") }
-        put(&var out, if string_type(layout[word_index]) { "ptr" } else { "i64" })
+        put(&var out, if string_type(layout[word_index]) || vector_type(layout[word_index]) { "ptr" } else { "i64" })
         word_index = word_index + 1
     }
     put(&var out, " \}")
@@ -48,7 +49,7 @@ func emit_value_type(out: &var StringBuilder, records: &Vector<RecordIR>, sums: 
         put(&var out, "i64")
         return
     }
-    if string_type(t) {
+    if string_type(t) || vector_type(t) {
         put(&var out, "ptr")
         return
     }
@@ -110,6 +111,80 @@ func assign_string_temp(out: &var StringBuilder, instruction_index: Int,
     temp_name(&var out, instruction_index, "old{slot}")
     put(&var out, ")\n")
     store_ref_temp(&var out, instruction_index, suffix, slot)
+}
+
+func vector_helper_name(out: &var StringBuilder, prefix: String, descriptor: Int) {
+    put(&var out, "@minivm_vector_")
+    put(&var out, prefix)
+    put_int(&var out, descriptor)
+}
+
+func emit_vector_helpers(out: &var StringBuilder, program: &Program) -> Result<Void, ProtoError> {
+    var descriptor = 0
+    while descriptor < program.vectors.len() {
+        let element = program.vectors[descriptor].element
+        let layout = try value_layout(&program.records, &program.sums, element)
+        let width = layout.len()
+        put(&var out, "define internal void ")
+        vector_helper_name(&var out, "drop_", descriptor)
+        put(&var out, "(ptr %header) \{\nentry:\n  %null = icmp eq ptr %header, null\n  br i1 %null, label %done, label %start\nstart:\n  %len = call i64 @minivm_vector_len(ptr %header, i64 ")
+        put_int(&var out, width)
+        put(&var out, ")\n  %datap = getelementptr i8, ptr %header, i64 8\n  %data = load ptr, ptr %datap\n  br label %loop\nloop:\n  %i = phi i64 [0, %start], [%next, %body]\n  %more = icmp ult i64 %i, %len\n  br i1 %more, label %body, label %free\nbody:\n  %base = mul i64 %i, ")
+        put_int(&var out, width)
+        put(&var out, "\n")
+        var word = 0
+        while word < width {
+            if string_type(layout[word]) {
+                put(&var out, "  %at")
+                put_int(&var out, word)
+                put(&var out, " = add i64 %base, ")
+                put_int(&var out, word)
+                put(&var out, "\n  %ptr")
+                put_int(&var out, word)
+                put(&var out, " = getelementptr i64, ptr %data, i64 %at")
+                put_int(&var out, word)
+                put(&var out, "\n  %value")
+                put_int(&var out, word)
+                put(&var out, " = load ptr, ptr %ptr")
+                put_int(&var out, word)
+                put(&var out, "\n  call void @minivm_string_release(ptr %value")
+                put_int(&var out, word)
+                put(&var out, ")\n")
+            }
+            word += 1
+        }
+        put(&var out, "  %next = add i64 %i, 1\n  br label %loop\nfree:\n  call void @minivm_vector_free_header(ptr %header)\n  br label %done\ndone:\n  ret void\n\}\n\n")
+
+        put(&var out, "define internal \{i64, i64, i64\} ")
+        vector_helper_name(&var out, "push_", descriptor)
+        put(&var out, "(ptr %header, ptr %incoming) \{\nentry:\n  %prepared = call \{i64, ptr, i64\} @minivm_vector_prepare_push(ptr %header, i64 ")
+        put_int(&var out, width)
+        put(&var out, ")\n  %ok = extractvalue \{i64, ptr, i64\} %prepared, 0\n  %new_data = extractvalue \{i64, ptr, i64\} %prepared, 1\n  %bytes = extractvalue \{i64, ptr, i64\} %prepared, 2\n  %success = icmp ne i64 %ok, 0\n  br i1 %success, label %install, label %failure\ninstall:\n  %len = load i64, ptr %header\n  %base = mul i64 %len, ")
+        put_int(&var out, width)
+        put(&var out, "\n")
+        word = 0
+        while word < width {
+            if string_type(layout[word]) {
+                put(&var out, "  %incomingp")
+                put_int(&var out, word)
+                put(&var out, " = getelementptr i64, ptr %incoming, i64 ")
+                put_int(&var out, word)
+                put(&var out, "\n  %incomingv")
+                put_int(&var out, word)
+                put(&var out, " = load ptr, ptr %incomingp")
+                put_int(&var out, word)
+                put(&var out, "\n  call void @minivm_string_retain(ptr %incomingv")
+                put_int(&var out, word)
+                put(&var out, ")\n")
+            }
+            word += 1
+        }
+        put(&var out, "  %tail = getelementptr i64, ptr %new_data, i64 %base\n  call ptr @memcpy(ptr %tail, ptr %incoming, i64 ")
+        put_int(&var out, width * 8)
+        put(&var out, ")\n  call void @minivm_vector_commit_push(ptr %header, ptr %new_data)\n  ret \{i64, i64, i64\} \{i64 1, i64 0, i64 0\}\nfailure:\n  %err0 = insertvalue \{i64, i64, i64\} undef, i64 0, 0\n  %err1 = insertvalue \{i64, i64, i64\} %err0, i64 %bytes, 1\n  %err2 = insertvalue \{i64, i64, i64\} %err1, i64 8, 2\n  ret \{i64, i64, i64\} %err2\n\}\n\n")
+        descriptor += 1
+    }
+    return
 }
 
 func put_hex_byte(out: &var StringBuilder, byte: Int) {
@@ -439,6 +514,33 @@ func emit_builder_append(out: &var StringBuilder, function: &FuncIR,
     next_block(&var out, instruction_index)
 }
 
+func vector_descriptor(t: ValueType) -> Int {
+    match t { case Vector(index) -> index, case _ -> -1 }
+}
+
+func emit_vector_element_copy(out: &var StringBuilder, instruction_index: Int,
+                              source_suffix: String, dst: Int,
+                              layout: &Vector<ValueType>) {
+    var word = 0
+    while word < layout.len() {
+        put(&var out, "  ")
+        temp_name(&var out, instruction_index, "elementp{word}")
+        put(&var out, " = getelementptr i64, ptr ")
+        temp_name(&var out, instruction_index, source_suffix)
+        put(&var out, ", i64 ")
+        put_int(&var out, word)
+        put(&var out, "\n  ")
+        temp_name(&var out, instruction_index, "element{word}")
+        put(&var out, if string_type(layout[word]) { " = load ptr, ptr " } else { " = load i64, ptr " })
+        temp_name(&var out, instruction_index, "elementp{word}")
+        put(&var out, "\n")
+        if string_type(layout[word]) {
+            assign_string_temp(&var out, instruction_index, "element{word}", dst + word, true)
+        } else { store_temp(&var out, instruction_index, "element{word}", dst + word) }
+        word += 1
+    }
+}
+
 func emit_instruction(out: &var StringBuilder, program: &Program,
                       function: &FuncIR, instruction_index: Int,
                       inst: &Instruction) -> Result<Void, ProtoError> {
@@ -761,6 +863,15 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
             put(&var out, ")\n")
             if string_type(callee.result) {
                 assign_string_temp(&var out, instruction_index, "call", inst.dst, false)
+            } else if vector_type(callee.result) {
+                put(&var out, "  ")
+                load_ref_slot(&var out, instruction_index, "oldcallvector", inst.dst)
+                put(&var out, "  call void ")
+                vector_helper_name(&var out, "drop_", vector_descriptor(callee.result))
+                put(&var out, "(ptr ")
+                temp_name(&var out, instruction_index, "oldcallvector")
+                put(&var out, ")\n")
+                store_ref_temp(&var out, instruction_index, "call", inst.dst)
             } else if scalar_type(callee.result) {
                 store_temp(&var out, instruction_index, "call", inst.dst)
             } else if callee.result != ValueType.Void {
@@ -777,6 +888,15 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
                     put(&var out, "\n")
                     if string_type(result_layout[result_index]) {
                         assign_string_temp(&var out, instruction_index, "result{result_index}", inst.dst + result_index, false)
+                    } else if vector_type(result_layout[result_index]) {
+                        put(&var out, "  ")
+                        load_ref_slot(&var out, instruction_index, "oldresultvector{result_index}", inst.dst + result_index)
+                        put(&var out, "  call void ")
+                        vector_helper_name(&var out, "drop_", vector_descriptor(result_layout[result_index]))
+                        put(&var out, "(ptr ")
+                        temp_name(&var out, instruction_index, "oldresultvector{result_index}")
+                        put(&var out, ")\n")
+                        store_ref_temp(&var out, instruction_index, "result{result_index}", inst.dst + result_index)
                     } else {
                         store_temp(&var out, instruction_index, "result{result_index}", inst.dst + result_index)
                     }
@@ -888,10 +1008,179 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
             emit_builder_append(&var out, &function, instruction_index, &inst,
                                 "minivm_builder_append_scalar")
         },
+        case VectorNew -> {
+            let descriptor = vector_descriptor(function.slots[inst.dst])
+            put(&var out, "  ")
+            load_ref_slot(&var out, instruction_index, "oldvector", inst.dst)
+            put(&var out, "  call void ")
+            vector_helper_name(&var out, "drop_", descriptor)
+            put(&var out, "(ptr ")
+            temp_name(&var out, instruction_index, "oldvector")
+            put(&var out, ")\n  ")
+            temp_name(&var out, instruction_index, "newvector")
+            put(&var out, " = call ptr @minivm_vector_new()\n")
+            store_ref_temp(&var out, instruction_index, "newvector", inst.dst)
+            next_block(&var out, instruction_index)
+        },
+        case VectorLen -> {
+            let target = try reference_target(&program.references, function.slots[inst.a])
+            let descriptor = vector_descriptor(target)
+            let layout = try value_layout(&program.records, &program.sums,
+                                          try vector_element(&program.vectors, target))
+            put(&var out, "  ")
+            load_ref_slot(&var out, instruction_index, "vectorref", inst.a)
+            put(&var out, "  ")
+            temp_name(&var out, instruction_index, "vector")
+            put(&var out, " = load ptr, ptr ")
+            temp_name(&var out, instruction_index, "vectorref")
+            put(&var out, "\n  ")
+            temp_name(&var out, instruction_index, "length")
+            put(&var out, " = call i64 @minivm_vector_len(ptr ")
+            temp_name(&var out, instruction_index, "vector")
+            put(&var out, ", i64 ")
+            put_int(&var out, layout.len())
+            put(&var out, ")\n")
+            store_temp(&var out, instruction_index, "length", inst.dst)
+            next_block(&var out, instruction_index)
+        },
+        case VectorIndex -> {
+            let target = try reference_target(&program.references, function.slots[inst.a])
+            let layout = try value_layout(&program.records, &program.sums,
+                                          try vector_element(&program.vectors, target))
+            put(&var out, "  ")
+            load_ref_slot(&var out, instruction_index, "vectorref", inst.a)
+            put(&var out, "  ")
+            temp_name(&var out, instruction_index, "vector")
+            put(&var out, " = load ptr, ptr ")
+            temp_name(&var out, instruction_index, "vectorref")
+            put(&var out, "\n  ")
+            load_slot(&var out, instruction_index, "index", inst.b)
+            put(&var out, "  ")
+            temp_name(&var out, instruction_index, "elementptr")
+            put(&var out, " = call ptr @minivm_vector_get_ptr(ptr ")
+            temp_name(&var out, instruction_index, "vector")
+            put(&var out, ", i64 ")
+            temp_name(&var out, instruction_index, "index")
+            put(&var out, ", i64 ")
+            put_int(&var out, layout.len())
+            put(&var out, ", i1 true)\n")
+            emit_vector_element_copy(&var out, instruction_index, "elementptr", inst.dst, &layout)
+            next_block(&var out, instruction_index)
+        },
+        case VectorGet -> {
+            let target = try reference_target(&program.references, function.slots[inst.a])
+            let layout = try value_layout(&program.records, &program.sums,
+                                          try vector_element(&program.vectors, target))
+            put(&var out, "  ")
+            load_ref_slot(&var out, instruction_index, "vectorref", inst.a)
+            put(&var out, "  ")
+            temp_name(&var out, instruction_index, "vector")
+            put(&var out, " = load ptr, ptr ")
+            temp_name(&var out, instruction_index, "vectorref")
+            put(&var out, "\n  ")
+            load_slot(&var out, instruction_index, "index", inst.b)
+            put(&var out, "  ")
+            temp_name(&var out, instruction_index, "elementptr")
+            put(&var out, " = call ptr @minivm_vector_get_ptr(ptr ")
+            temp_name(&var out, instruction_index, "vector")
+            put(&var out, ", i64 ")
+            temp_name(&var out, instruction_index, "index")
+            put(&var out, ", i64 ")
+            put_int(&var out, layout.len())
+            put(&var out, ", i1 false)\n  ")
+            temp_name(&var out, instruction_index, "found")
+            put(&var out, " = icmp ne ptr ")
+            temp_name(&var out, instruction_index, "elementptr")
+            put(&var out, ", null\n  br i1 ")
+            temp_name(&var out, instruction_index, "found")
+            put(&var out, ", label %i")
+            put_int(&var out, instruction_index)
+            put(&var out, ".found, label %i")
+            put_int(&var out, instruction_index)
+            put(&var out, ".missing\n\ni")
+            put_int(&var out, instruction_index)
+            put(&var out, ".found:\n  store i64 1, ptr ")
+            slot_name(&var out, inst.dst)
+            put(&var out, "\n")
+            emit_vector_element_copy(&var out, instruction_index, "elementptr", inst.dst + 1, &layout)
+            next_block(&var out, instruction_index)
+            put(&var out, "\ni")
+            put_int(&var out, instruction_index)
+            put(&var out, ".missing:\n  store i64 0, ptr ")
+            slot_name(&var out, inst.dst)
+            put(&var out, "\n")
+            var word = 0
+            while word < layout.len() {
+                if string_type(layout[word]) {
+                    put(&var out, "  ")
+                    load_ref_slot(&var out, instruction_index, "missold{word}", inst.dst + 1 + word)
+                    put(&var out, "  call void @minivm_string_release(ptr ")
+                    temp_name(&var out, instruction_index, "missold{word}")
+                    put(&var out, ")\n  store ptr null, ptr ")
+                } else { put(&var out, "  store i64 0, ptr ") }
+                slot_name(&var out, inst.dst + 1 + word)
+                put(&var out, "\n")
+                word += 1
+            }
+            next_block(&var out, instruction_index)
+        },
+        case VectorPush -> {
+            let target = try reference_target(&program.references, function.slots[inst.a])
+            let descriptor = vector_descriptor(target)
+            put(&var out, "  ")
+            load_ref_slot(&var out, instruction_index, "vectorref", inst.a)
+            put(&var out, "  ")
+            temp_name(&var out, instruction_index, "vector")
+            put(&var out, " = load ptr, ptr ")
+            temp_name(&var out, instruction_index, "vectorref")
+            put(&var out, "\n  ")
+            temp_name(&var out, instruction_index, "push")
+            put(&var out, " = call \{i64, i64, i64\} ")
+            vector_helper_name(&var out, "push_", descriptor)
+            put(&var out, "(ptr ")
+            temp_name(&var out, instruction_index, "vector")
+            put(&var out, ", ptr ")
+            slot_name(&var out, inst.b)
+            put(&var out, ")\n")
+            var word = 0
+            while word < 3 {
+                put(&var out, "  ")
+                temp_name(&var out, instruction_index, "pushword{word}")
+                put(&var out, " = extractvalue \{i64, i64, i64\} ")
+                temp_name(&var out, instruction_index, "push")
+                put(&var out, ", ")
+                put_int(&var out, word)
+                put(&var out, "\n")
+                store_temp(&var out, instruction_index, "pushword{word}", inst.dst + word)
+                word += 1
+            }
+            next_block(&var out, instruction_index)
+        },
+        case MoveVector -> {
+            let descriptor = vector_descriptor(function.slots[inst.a])
+            put(&var out, "  ")
+            load_ref_slot(&var out, instruction_index, "moved", inst.a)
+            put(&var out, "  ")
+            load_ref_slot(&var out, instruction_index, "moveold", inst.dst)
+            put(&var out, "  call void ")
+            vector_helper_name(&var out, "drop_", descriptor)
+            put(&var out, "(ptr ")
+            temp_name(&var out, instruction_index, "moveold")
+            put(&var out, ")\n")
+            store_ref_temp(&var out, instruction_index, "moved", inst.dst)
+            put(&var out, "  store ptr null, ptr ")
+            slot_name(&var out, inst.a)
+            put(&var out, "\n")
+            next_block(&var out, instruction_index)
+        },
         case Drop -> {
             put(&var out, "  ")
             load_ref_slot(&var out, instruction_index, "value", inst.a)
-            put(&var out, "  call void @minivm_string_release(ptr ")
+            if vector_type(function.slots[inst.a]) {
+                put(&var out, "  call void ")
+                vector_helper_name(&var out, "drop_", vector_descriptor(function.slots[inst.a]))
+                put(&var out, "(ptr ")
+            } else { put(&var out, "  call void @minivm_string_release(ptr ") }
             temp_name(&var out, instruction_index, "value")
             put(&var out, ")\n  store ptr null, ptr ")
             slot_name(&var out, inst.a)
@@ -939,6 +1228,12 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
                 put(&var out, "  call void @minivm_string_retain(ptr ")
                 temp_name(&var out, instruction_index, "ret")
                 put(&var out, ")\n")
+            } else if vector_type(function.result) {
+                put(&var out, "  ")
+                load_ref_slot(&var out, instruction_index, "ret", inst.a)
+                put(&var out, "  store ptr null, ptr ")
+                slot_name(&var out, inst.a)
+                put(&var out, "\n")
             } else if function.result != ValueType.Void && not scalar_type(function.result) {
                 let result_layout = try value_layout(&program.records, &program.sums, function.result)
                 var result_index = 0
@@ -949,6 +1244,11 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
                         put(&var out, "  call void @minivm_string_retain(ptr ")
                         temp_name(&var out, instruction_index, "retword{result_index}")
                         put(&var out, ")\n")
+                    } else if vector_type(result_layout[result_index]) {
+                        load_ref_slot(&var out, instruction_index, "retword{result_index}", inst.a + result_index)
+                        put(&var out, "  store ptr null, ptr ")
+                        slot_name(&var out, inst.a + result_index)
+                        put(&var out, "\n")
                     } else { load_slot(&var out, instruction_index, "retword{result_index}", inst.a + result_index) }
                     result_index += 1
                 }
@@ -958,7 +1258,11 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
                 if owning_type(function.slots[cleanup]) {
                     put(&var out, "  ")
                     load_ref_slot(&var out, instruction_index, "cleanup{cleanup}", cleanup)
-                    put(&var out, "  call void @minivm_string_release(ptr ")
+                    if vector_type(function.slots[cleanup]) {
+                        put(&var out, "  call void ")
+                        vector_helper_name(&var out, "drop_", vector_descriptor(function.slots[cleanup]))
+                        put(&var out, "(ptr ")
+                    } else { put(&var out, "  call void @minivm_string_release(ptr ") }
                     temp_name(&var out, instruction_index, "cleanup{cleanup}")
                     put(&var out, ")\n  store ptr null, ptr ")
                     slot_name(&var out, cleanup)
@@ -969,6 +1273,10 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
             if inst.a < 0 {
                 put(&var out, "  ret void\n")
             } else if string_type(function.result) {
+                put(&var out, "  ret ptr ")
+                temp_name(&var out, instruction_index, "ret")
+                put(&var out, "\n")
+            } else if vector_type(function.result) {
                 put(&var out, "  ret ptr ")
                 temp_name(&var out, instruction_index, "ret")
                 put(&var out, "\n")
@@ -989,7 +1297,7 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
                     put(&var out, " ")
                     if result_index == 0 { put(&var out, "undef") }
                     else { temp_name(&var out, instruction_index, "retagg{result_index - 1}") }
-                    put(&var out, if string_type(result_layout[result_index]) { ", ptr " } else { ", i64 " })
+                    put(&var out, if string_type(result_layout[result_index]) || vector_type(result_layout[result_index]) { ", ptr " } else { ", i64 " })
                     temp_name(&var out, instruction_index, "retword{result_index}")
                     put(&var out, ", ")
                     put_int(&var out, result_index)
@@ -1127,6 +1435,8 @@ public func emit_llvm(program: &Program) -> Result<String, ProtoError> {
     put(&var out, "declare \{i64, i1\} @llvm.umul.with.overflow.i64(i64, i64)\n\n")
     emit_string_runtime(&var out)
     emit_builder_runtime(&var out, program.builder_fail_after)
+    emit_vector_runtime(&var out, program.vector_fail_after)
+    try emit_vector_helpers(&var out, &program)
     emit_uint_parser(&var out)
     put(&var out, "define internal void @minivm_overflow() \{\nentry:\n  call i32 @puts(ptr @.overflow)\n  call void @exit(i32 1)\n  unreachable\n\}\n\n")
     put(&var out, "define internal void @minivm_divzero() \{\nentry:\n  call i32 @puts(ptr @.divzero)\n  call void @exit(i32 1)\n  unreachable\n\}\n\n")
@@ -1141,6 +1451,6 @@ public func emit_llvm(program: &Program) -> Result<String, ProtoError> {
     }
     put(&var out, "define i32 @main() \{\nentry:\n  call void @f")
     put_int(&var out, program.main_index)
-    put(&var out, "()\n  call void @minivm_string_check_live()\n  ret i32 0\n\}\n")
+    put(&var out, "()\n  call void @minivm_string_check_live()\n  call void @minivm_vector_check_live()\n  ret i32 0\n\}\n")
     out.build()
 }

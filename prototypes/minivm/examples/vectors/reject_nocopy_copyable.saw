@@ -1,0 +1,3 @@
+struct Plain { n: Int }
+extension Plain: NoCopy {}
+func main() {}

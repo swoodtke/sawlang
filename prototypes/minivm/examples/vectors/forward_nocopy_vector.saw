@@ -1,0 +1,8 @@
+extension Holder: NoCopy {}
+struct Holder { values: Vector<Int> }
+
+func main() {
+    var holder = Holder(values: Vector<Int>())
+    try! holder.values.push(42)
+    print(holder.values[0])
+}

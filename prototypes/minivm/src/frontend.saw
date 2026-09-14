@@ -31,6 +31,8 @@ struct Binding {
     slot: Int
     mutable: Bool
     depth: Int
+    active: Bool
+    loop_depth: Int
 }
 
 struct Place {
@@ -94,7 +96,7 @@ func type_name(t: ValueType) -> String {
         case U8 -> "UInt8", case U16 -> "UInt16", case U32 -> "UInt32", case U64 -> "UInt",
         case Byte -> "Byte", case Bool -> "Bool", case String -> "String", case Builder -> "StringBuilder", case Void -> "Void",
         case Record(_) -> "record", case Enum(_) -> "enum", case Ref(_) -> "reference",
-        case Optional(_) -> "Optional", case Result(_) -> "Result"
+        case Optional(_) -> "Optional", case Result(_) -> "Result", case Vector(_) -> "Vector"
     }
 }
 
@@ -133,6 +135,12 @@ struct Compiler {
     enums: Vector<EnumIR>
     references: Vector<ReferenceIR>
     sums: Vector<SumIR>
+    vectors: Vector<VectorIR>
+    vector_lines: Vector<Int>
+    vector_cols: Vector<Int>
+    nocopy_records: Vector<Int>
+    nocopy_lines: Vector<Int>
+    nocopy_cols: Vector<Int>
     strings: Vector<String>
     statics: Vector<StaticBinding>
     signatures: Vector<Signature>
@@ -151,6 +159,7 @@ struct Compiler {
     scalar_record: Int
     invalid_scalar_record: Int
     alloc_error_record: Int
+    loop_depth: Int
 }
 extension Compiler: NoCopy {}
 
@@ -211,7 +220,7 @@ extension Compiler {
             if reference_type(target) { return problem("references to references are not supported", amp.line, amp.col) }
             var supported = scalar_type(target)
             match target { case Record(_) -> { supported = true }, case _ -> {} }
-            if target == ValueType.String || target == ValueType.Builder { supported = true }
+            if target == ValueType.String || target == ValueType.Builder || vector_type(target) { supported = true }
             match target { case Optional(_) -> { supported = true }, case _ -> {} }
             match target { case Result(_) -> { supported = true }, case _ -> {} }
             if not supported { return problem("only data references are supported", amp.line, amp.col) }
@@ -233,6 +242,15 @@ extension Compiler {
                 return problem("StringBuilder cannot be stored in Result", t.line, t.col)
             }
             ty = self.intern_result(success, error)
+        }
+        else if t.value == "Vector" {
+            let _ = try self.expect(TokenKind.Lt, "Vector requires exactly one type argument")
+            let element = try self.parse_type_inner(type_depth + 1)
+            let _ = try self.expect(TokenKind.Gt, "Vector requires exactly one type argument")
+            if element == ValueType.Void || reference_type(element) || element == ValueType.Builder || vector_type(element) {
+                return problem("Vector elements must be non-Void Copy values", t.line, t.col)
+            }
+            ty = self.intern_vector(element, t.line, t.col)
         }
         else if t.value == "Void" { ty = ValueType.Void }
         else if t.value == "Bool" { ty = ValueType.Bool }
@@ -302,6 +320,66 @@ extension Compiler {
         ValueType.Ref(self.references.len() - 1)
     }
 
+    func intern_vector(&var self, element: ValueType, line: Int, col: Int) -> ValueType {
+        var i = 0
+        while i < self.vectors.len() {
+            if self.vectors[i].element == element { return ValueType.Vector(i) }
+            i += 1
+        }
+        try! self.vectors.push(VectorIR(element: element))
+        try! self.vector_lines.push(line)
+        try! self.vector_cols.push(col)
+        ValueType.Vector(self.vectors.len() - 1)
+    }
+
+    func validate_vector_elements(&self) -> Result<Void, ProtoError> {
+        var i = 0
+        while i < self.vectors.len() {
+            if not copyable_type(&self.records, &self.sums, self.vectors[i].element) {
+                return problem("Vector elements must be non-Void Copy values", self.vector_lines[i], self.vector_cols[i])
+            }
+            i += 1
+        }
+        return
+    }
+
+    func validate_nocopy_markers(&self) -> Result<Void, ProtoError> {
+        var i = 0
+        while i < self.nocopy_records.len() {
+            if copyable_type(&self.records, &self.sums, ValueType.Record(self.nocopy_records[i])) {
+                return problem("NoCopy marker requires a vector-containing record", self.nocopy_lines[i], self.nocopy_cols[i])
+            }
+            i += 1
+        }
+        return
+    }
+
+    func vector_containing_type(&self, ty: ValueType) -> Bool {
+        let layout = try value_layout(&self.records, &self.sums, ty) catch { return false }
+        var i = 0
+        while i < layout.len() {
+            if vector_type(layout[i]) { return true }
+            i += 1
+        }
+        false
+    }
+
+    func validate_signature_vectors(&self) -> Result<Void, ProtoError> {
+        var i = 0
+        while i < self.signatures.len() {
+            var p = 0
+            while p < self.signatures[i].params.len() {
+                let ty = self.signatures[i].params[p]
+                if not reference_type(ty) && self.vector_containing_type(ty) {
+                    return problem("vector-containing parameters must be references", self.signatures[i].line, self.signatures[i].col)
+                }
+                p += 1
+            }
+            i += 1
+        }
+        return
+    }
+
     func intern_string(&var self, value: String) -> Int {
         var i = 0
         while i < self.strings.len() {
@@ -361,12 +439,16 @@ extension Compiler {
                 }
                 "Result"
             },
+            case Vector(index) -> {
+                if index >= 0 && index < self.vectors.len() { return "Vector<{self.display_type(self.vectors[index].element)}>" }
+                "Vector"
+            },
             case _ -> type_name(ty)
         }
     }
 
     func reserved_type_name(&self, name: String) -> Bool {
-        if name == "Bool" || name == "String" || name == "StringBuilder" || name == "Void" || name == "Scalar" || name == "InvalidScalar" || name == "AllocError" { return true }
+        if name == "Bool" || name == "String" || name == "StringBuilder" || name == "Vector" || name == "Void" || name == "Scalar" || name == "InvalidScalar" || name == "AllocError" { return true }
         if let _ = named_integer_type(name) { return true }
         false
     }
@@ -445,6 +527,7 @@ extension Compiler {
     func scan_extension(&var self) -> Result<Void, ProtoError> {
         let extension_token = self.take()
         let target = try self.expect(TokenKind.Ident, "expected extension target")
+        if target.value == "Vector" { return problem("builtin type `Vector` cannot be extended", target.line, target.col) }
         let owner = self.record_index(target.value)
         if target.value == "StringBuilder" || target.value == "AllocError" {
             return problem("builtin type `{target.value}` cannot be extended", target.line, target.col)
@@ -453,7 +536,18 @@ extension Compiler {
         if owner == self.scalar_record || owner == self.invalid_scalar_record {
             return problem("builtin record `{target.value}` cannot be extended", target.line, target.col)
         }
-        if self.at(TokenKind.Colon) { return self.fail("traits are not supported") }
+        if self.at(TokenKind.Colon) {
+            let _ = self.take()
+            let marker = try self.expect(TokenKind.Ident, "expected NoCopy marker")
+            if marker.value != "NoCopy" { return problem("traits are not supported", marker.line, marker.col) }
+            try! self.nocopy_records.push(owner)
+            try! self.nocopy_lines.push(target.line)
+            try! self.nocopy_cols.push(target.col)
+            let _ = try self.expect(TokenKind.LBrace, "NoCopy marker requires an empty body")
+            self.skip_newlines()
+            let _ = try self.expect(TokenKind.RBrace, "NoCopy marker requires an empty body")
+            return
+        }
         if not self.at(TokenKind.LBrace) {
             return problem("generic extensions are not supported", extension_token.line, extension_token.col)
         }
@@ -496,6 +590,7 @@ extension Compiler {
                     let pt = try self.parse_type()
                     if pt == ValueType.Void { return problem("parameter cannot have Void type", pn.line, pn.col) }
                     if pt == ValueType.Builder { return problem("StringBuilder parameters must be references", pn.line, pn.col) }
+                    if not reference_type(pt) && self.vector_containing_type(pt) { return problem("vector-containing parameters must be references", pn.line, pn.col) }
                     try! pnames.push(pn.value)
                     try! ptypes.push(pt)
                     self.skip_newlines()
@@ -561,6 +656,7 @@ extension Compiler {
             if name.value == "print" {
                 return problem("`print` is reserved by the prototype", name.line, name.col)
             }
+            if name.value == "Vector" { return problem("function name `Vector` is reserved", name.line, name.col) }
             if self.signature_index(name.value) >= 0 {
                 return problem("duplicate function `{name.value}`", name.line, name.col)
             }
@@ -594,6 +690,7 @@ extension Compiler {
                     let pt = try self.parse_type()
                     if pt == ValueType.Void { return problem("parameter cannot have Void type", pn.line, pn.col) }
                     if pt == ValueType.Builder { return problem("StringBuilder parameters must be references", pn.line, pn.col) }
+                    if not reference_type(pt) && self.vector_containing_type(pt) { return problem("vector-containing parameters must be references", pn.line, pn.col) }
                     try! pnames.push(pn.value)
                     try! ptypes.push(pt)
                     self.skip_newlines()
@@ -831,14 +928,14 @@ extension Compiler {
             let temporary = try self.new_value(ty)
             var word = 0
             while word < layout.len() {
-                let snapshot_copy = self.emit_at(Op.Copy, t.line, t.col)
+                let snapshot_copy = self.emit_at(if vector_type(layout[word]) { Op.MoveVector } else { Op.Copy }, t.line, t.col)
                 self.code[snapshot_copy].dst = temporary + word
                 self.code[snapshot_copy].a = src + word
                 word += 1
             }
             word = 0
             while word < layout.len() {
-                let destination_copy = self.emit_at(Op.Copy, t.line, t.col)
+                let destination_copy = self.emit_at(if vector_type(layout[word]) { Op.MoveVector } else { Op.Copy }, t.line, t.col)
                 self.code[destination_copy].dst = dst + word
                 self.code[destination_copy].a = temporary + word
                 word += 1
@@ -847,7 +944,7 @@ extension Compiler {
         }
         var i = 0
         while i < layout.len() {
-            let at = self.emit_at(Op.Copy, t.line, t.col)
+            let at = self.emit_at(if vector_type(layout[i]) { Op.MoveVector } else { Op.Copy }, t.line, t.col)
             self.code[at].dst = dst + i
             self.code[at].a = src + i
             i += 1
@@ -964,6 +1061,9 @@ extension Compiler {
     func read_place(&var self, place: Place, t: &Token) -> Result<ExprValue, ProtoError> {
         try self.check_read(place.root, &t)
         if place.ty == ValueType.Builder { return problem("StringBuilder values cannot be copied", t.line, t.col) }
+        if not copyable_type(&self.records, &self.sums, place.ty) {
+            return problem("cannot implicitly copy noncopyable value; use `move`", t.line, t.col)
+        }
         if place.indirect {
             let dst = try self.new_value(place.ty)
             let at = self.emit_at(Op.LoadRef, t.line, t.col)
@@ -996,7 +1096,8 @@ extension Compiler {
             }
         }
         try! self.bindings.push(Binding(name: name.value, ty: ty, slot: slot,
-                                        mutable: mutable, depth: self.depth))
+                                        mutable: mutable, depth: self.depth, active: true,
+                                        loop_depth: self.loop_depth))
         return
     }
 
@@ -1058,7 +1159,7 @@ extension Compiler {
         let layout = try value_layout(&self.records, &self.sums, target)
         var i = 0
         while i < layout.len() {
-            if layout[i] == ValueType.String {
+            if owning_type(layout[i]) {
                 let drop = self.emit_at(Op.Drop, t.line, t.col)
                 self.code[drop].a = dst + i
             } else {
@@ -1111,7 +1212,7 @@ extension Compiler {
         let layout = try value_layout(&self.records, &self.sums, target)
         var i = 0
         while i < layout.len() {
-            if layout[i] == ValueType.String {
+            if owning_type(layout[i]) {
                 let drop = self.emit_at(Op.Drop, t.line, t.col)
                 self.code[drop].a = dst + i
             } else {
@@ -1137,7 +1238,7 @@ extension Compiler {
         let layout = try value_layout(&self.records, &self.sums, target)
         var i = 0
         while i < layout.len() {
-            if layout[i] == ValueType.String {
+            if owning_type(layout[i]) {
                 let drop = self.emit_at(Op.Drop, t.line, t.col)
                 self.code[drop].a = dst + i
             } else {
@@ -1275,6 +1376,29 @@ extension Compiler {
 
     func parse_atom(&var self) -> Result<ExprValue, ProtoError> {
         if self.depth > 128 { return self.fail("expression nesting limit exceeded") }
+        if self.at(TokenKind.Move_) {
+            let move_token = self.take()
+            let name = try self.expect(TokenKind.Ident, "move requires a whole local")
+            if self.at(TokenKind.Dot) || self.at(TokenKind.LBracket) {
+                return problem("move requires a whole local", move_token.line, move_token.col)
+            }
+            let bi = self.binding_index(name.value)
+            if bi < 0 { return problem("unknown local `{name.value}`", name.line, name.col) }
+            if not self.bindings[bi].active { return problem("use of moved value `{name.value}`", name.line, name.col) }
+            if reference_type(self.bindings[bi].ty) { return problem("cannot move through a reference", move_token.line, move_token.col) }
+            if copyable_type(&self.records, &self.sums, self.bindings[bi].ty) || self.bindings[bi].ty == ValueType.Builder {
+                return problem("move is supported only for vector-containing locals", move_token.line, move_token.col)
+            }
+            if self.loop_depth > self.bindings[bi].loop_depth {
+                return problem("cannot move a local declared outside the current loop", move_token.line, move_token.col)
+            }
+            try self.check_read(bi, &move_token)
+            try self.check_write(bi, &move_token)
+            let dst = try self.new_value(self.bindings[bi].ty)
+            try self.emit_copy_value(dst, self.bindings[bi].slot, self.bindings[bi].ty, &move_token)
+            self.bindings[bi].active = false
+            return expr_value(self.bindings[bi].ty, dst, false)
+        }
         if self.at(TokenKind.If) { return self.parse_if_value(ValueType.Void, false) }
         if self.at(TokenKind.Match) { return self.parse_match_value(ValueType.Void, false) }
         if self.at(TokenKind.NoneKw) {
@@ -1344,6 +1468,14 @@ extension Compiler {
         if result_constructor {
             return self.parse_result_constructor()
         }
+        var vector_constructor = false
+        if self.at(TokenKind.Ident) && constructor_token.value == "Vector" && self.pos + 1 < self.tokens.len() {
+            vector_constructor = self.tokens[self.pos + 1].kind == TokenKind.Lt
+        }
+        if vector_constructor {
+            let vector_ty = try self.parse_type()
+            return self.parse_vector_constructor(vector_ty, constructor_token)
+        }
         if self.at(TokenKind.Ident) || self.at(TokenKind.SelfKw) {
             let candidate = self.token()
             if self.binding_index(candidate.value) >= 0 {
@@ -1357,6 +1489,7 @@ extension Compiler {
                         return self.parse_string_intrinsic(receiver, method)
                     }
                     if place.ty == ValueType.Builder { return self.parse_builder_method(place, method) }
+                    if vector_type(place.ty) { return self.parse_vector_method(place, method) }
                     let owner = match place.ty { case Record(index) -> index, case _ -> -1 }
                     if owner < 0 { return problem("method receiver must be a record place", dot.line, dot.col) }
                     if owner == self.scalar_record {
@@ -1378,6 +1511,9 @@ extension Compiler {
                     let mi = self.method_index(owner, method.value)
                     if mi < 0 { return problem("record `{self.records[owner].name}` has no method `{method.value}`", method.line, method.col) }
                     return self.parse_method_call(place, method, mi)
+                }
+                if vector_type(place.ty) && self.at(TokenKind.LBracket) {
+                    return self.parse_vector_index(place, candidate)
                 }
                 return self.read_place(place, &candidate)
             }
@@ -1504,6 +1640,7 @@ extension Compiler {
             if self.static_index(name.value) >= 0 { return problem("cannot assign to immutable static `{name.value}`", name.line, name.col) }
             return problem("unknown local `{name.value}`", name.line, name.col)
         }
+        if not self.bindings[bi].active { return problem("use of moved value `{name.value}`", name.line, name.col) }
         var place = Place(ty: self.bindings[bi].ty, slot: self.bindings[bi].slot,
                           mutable: self.bindings[bi].mutable, indirect: false, root: bi,
                           ref_ty: ValueType.Void)
@@ -1648,6 +1785,127 @@ extension Compiler {
         match result_ty { case Result(index) -> { self.code[at].immediate = index }, case _ -> {} }
         self.restore_borrows(saved_borrows)
         expr_value(result_ty, dst, true)
+    }
+
+    func vector_reference(&var self, receiver: Place, mutable: Bool,
+                          name: &Token) -> Result<Int, ProtoError> {
+        if mutable && not receiver.mutable { return problem("cannot call a mutating method on an immutable receiver", name.line, name.col) }
+        try self.register_borrow(&receiver, mutable, &name)
+        let ref_ty = self.intern_reference(receiver.ty, mutable)
+        let slot = self.new_slot(ref_ty)
+        if receiver.indirect {
+            if not reference_transfer(&self.references, receiver.ref_ty, ref_ty) { return problem("receiver reference mutability does not match method", name.line, name.col) }
+            let copy = self.emit_at(Op.Copy, name.line, name.col)
+            self.code[copy].dst = slot
+            self.code[copy].a = receiver.slot
+        } else {
+            let addr = self.emit_at(Op.Addr, name.line, name.col)
+            self.code[addr].dst = slot
+            self.code[addr].a = receiver.slot
+        }
+        slot
+    }
+
+    func parse_vector_constructor(&var self, ty: ValueType,
+                                  anchor: Token) -> Result<ExprValue, ProtoError> {
+        if not vector_type(ty) { return problem("Vector constructor requires a non-optional Vector type", anchor.line, anchor.col) }
+        let _ = try self.expect(TokenKind.LParen, "expected `(` after Vector type")
+        self.depth += 1
+        self.paren_depth += 1
+        self.skip_newlines()
+        if not self.at(TokenKind.RParen) { return problem("Vector constructor accepts no arguments", anchor.line, anchor.col) }
+        let _ = self.take()
+        self.paren_depth -= 1
+        self.depth -= 1
+        let dst = self.new_slot(ty)
+        let at = self.emit_at(Op.VectorNew, anchor.line, anchor.col)
+        self.code[at].dst = dst
+        expr_value(ty, dst, true)
+    }
+
+    func parse_vector_method(&var self, receiver: Place,
+                             name: Token) -> Result<ExprValue, ProtoError> {
+        if name.value != "len" && name.value != "push" && name.value != "get" {
+            return problem("Vector has no method `{name.value}`", name.line, name.col)
+        }
+        let saved = self.active_borrows.len()
+        let mutable = name.value == "push"
+        let receiver_slot = try self.vector_reference(receiver, mutable, &name)
+        let _ = try self.expect(TokenKind.LParen, "expected `(` after Vector method")
+        self.depth += 1
+        self.paren_depth += 1
+        self.skip_newlines()
+        if name.value == "len" {
+            if not self.at(TokenKind.RParen) { return problem("Vector.len accepts no arguments", name.line, name.col) }
+            let _ = self.take()
+            self.paren_depth -= 1
+            self.depth -= 1
+            let dst = self.new_slot(ValueType.I64)
+            let at = self.emit_at(Op.VectorLen, name.line, name.col)
+            self.code[at].dst = dst
+            self.code[at].a = receiver_slot
+            self.restore_borrows(saved)
+            return expr_value(ValueType.I64, dst, true)
+        }
+        let parameter = if name.value == "push" { "value" } else { "index" }
+        if self.at(TokenKind.RParen) { return problem("Vector.{name.value} requires exactly one argument", name.line, name.col) }
+        if self.at(TokenKind.Ident) && self.pos + 1 < self.tokens.len() && self.tokens[self.pos + 1].kind == TokenKind.Colon {
+            let label = self.take()
+            let _ = self.take()
+            if label.value != parameter { return problem("argument label `{label.value}` does not match parameter `{parameter}`", label.line, label.col) }
+            self.expr_space()
+        }
+        let expected = if name.value == "push" { try vector_element(&self.vectors, receiver.ty) } else { ValueType.I64 }
+        var argument = try self.parse_expected_expr(expected)
+        if argument.always_returns { return problem("all-returning control flow cannot be used as an operand", name.line, name.col) }
+        argument = try self.snapshot(argument, &name)
+        self.skip_newlines()
+        if self.at(TokenKind.Comma) { return problem("Vector.{name.value} requires exactly one argument", name.line, name.col) }
+        let _ = try self.expect(TokenKind.RParen, "Vector method requires exactly one argument")
+        self.paren_depth -= 1
+        self.depth -= 1
+        if name.value == "push" {
+            let result_ty = self.builder_result_type()
+            let dst = try self.new_value(result_ty)
+            let at = self.emit_at(Op.VectorPush, name.line, name.col)
+            self.code[at].dst = dst
+            self.code[at].a = receiver_slot
+            self.code[at].b = argument.slot
+            match result_ty { case Result(index) -> { self.code[at].immediate = index }, case _ -> {} }
+            self.restore_borrows(saved)
+            return expr_value(result_ty, dst, true)
+        }
+        let element = try vector_element(&self.vectors, receiver.ty)
+        let result_ty = self.intern_optional(element)
+        let dst = try self.new_value(result_ty)
+        let at = self.emit_at(Op.VectorGet, name.line, name.col)
+        self.code[at].dst = dst
+        self.code[at].a = receiver_slot
+        self.code[at].b = argument.slot
+        match result_ty { case Optional(index) -> { self.code[at].immediate = index }, case _ -> {} }
+        self.restore_borrows(saved)
+        expr_value(result_ty, dst, true)
+    }
+
+    func parse_vector_index(&var self, receiver: Place,
+                            anchor: Token) -> Result<ExprValue, ProtoError> {
+        let saved = self.active_borrows.len()
+        let receiver_slot = try self.vector_reference(receiver, false, &anchor)
+        let _ = try self.expect(TokenKind.LBracket, "expected `[` for Vector index")
+        self.depth += 1
+        var index = try self.parse_expected_expr(ValueType.I64)
+        if index.always_returns { return problem("all-returning control flow cannot be used as an operand", anchor.line, anchor.col) }
+        index = try self.snapshot(index, &anchor)
+        let _ = try self.expect(TokenKind.RBracket, "expected `]` after Vector index")
+        self.depth -= 1
+        let element = try vector_element(&self.vectors, receiver.ty)
+        let dst = try self.new_value(element)
+        let at = self.emit_at(Op.VectorIndex, anchor.line, anchor.col)
+        self.code[at].dst = dst
+        self.code[at].a = receiver_slot
+        self.code[at].b = index.slot
+        self.restore_borrows(saved)
+        expr_value(element, dst, false)
     }
 
     func parse_primary(&var self) -> Result<ExprValue, ProtoError> {
@@ -2849,7 +3107,8 @@ extension Compiler {
         try self.emit_copy_value(dst, subject.slot + offset, payload, &name)
         self.scope_depth -= 1
         try! self.bindings.push(Binding(name: name.value, ty: payload, slot: dst,
-                                        mutable: mutable, depth: self.depth + 1))
+                                        mutable: mutable, depth: self.depth + 1,
+                                        active: true, loop_depth: self.loop_depth))
         return
     }
 
@@ -2908,6 +3167,12 @@ extension Compiler {
             if has_expected { target = expected }
         }
         else { target = try self.merge_control_type(&then_value.value, &else_value.value, expected, has_expected, &it) }
+        if target == ValueType.Builder {
+            return problem("StringBuilder values cannot be copied", it.line, it.col)
+        }
+        if not copyable_type(&self.records, &self.sums, target) {
+            return problem("vector-containing value control flow is not supported", it.line, it.col)
+        }
         let dst = try self.new_value(target)
         var joins = Vector<Int>()
         if then_exit >= 0 { try self.append_value_exit(then_exit, then_value.value, target, dst, &it, &var joins) }
@@ -2965,6 +3230,12 @@ extension Compiler {
         if then_value.always_returns { target = if has_expected { expected } else { else_value.value.ty } }
         else if else_value.always_returns { target = if has_expected { expected } else { then_value.value.ty } }
         else { target = try self.merge_control_type(&then_value.value, &else_value.value, expected, has_expected, &it) }
+        if target == ValueType.Builder {
+            return problem("StringBuilder values cannot be copied", it.line, it.col)
+        }
+        if not copyable_type(&self.records, &self.sums, target) {
+            return problem("vector-containing value control flow is not supported", it.line, it.col)
+        }
         let dst = try self.new_value(target)
         var joins = Vector<Int>()
         if then_exit >= 0 { try self.append_value_exit(then_exit, then_value.value, target, dst, &it, &var joins) }
@@ -3180,6 +3451,12 @@ extension Compiler {
             if candidate >= 0 { target = values[candidate].ty }
             else if saw_typed { return problem("control-flow branches have incompatible types", mt.line, mt.col) }
         }
+        if target == ValueType.Builder {
+            return problem("StringBuilder values cannot be copied", mt.line, mt.col)
+        }
+        if not copyable_type(&self.records, &self.sums, target) {
+            return problem("vector-containing value control flow is not supported", mt.line, mt.col)
+        }
         let dst = try self.new_value(target)
         var joins = Vector<Int>()
         n = 0
@@ -3311,6 +3588,12 @@ extension Compiler {
             }
             if candidate >= 0 { target = values[candidate].ty }
             else if saw_typed { return problem("control-flow branches have incompatible types", mt.line, mt.col) }
+        }
+        if target == ValueType.Builder {
+            return problem("StringBuilder values cannot be copied", mt.line, mt.col)
+        }
+        if not copyable_type(&self.records, &self.sums, target) {
+            return problem("vector-containing value control flow is not supported", mt.line, mt.col)
         }
         let dst = try self.new_value(target)
         var joins = Vector<Int>()
@@ -3659,7 +3942,9 @@ extension Compiler {
             self.code[branch].a = cond.slot
             let exit = self.emit_at(Op.Jump, t.line, t.col)
             self.code[branch].target = self.code.len()
+            self.loop_depth += 1
             let _ = try self.parse_block()
+            self.loop_depth -= 1
             let back = self.emit_at(Op.Jump, t.line, t.col)
             self.code[back].target = cond_start
             self.code[exit].target = self.code.len()
@@ -3699,6 +3984,7 @@ extension Compiler {
             let place = parsed.1
             let assign = self.take()
             if place.ty == ValueType.Builder { return problem("StringBuilder values cannot be assigned", assign.line, assign.col) }
+            if not copyable_type(&self.records, &self.sums, place.ty) { return problem("vector-containing values cannot be assigned", assign.line, assign.col) }
             if not place.mutable {
                 if place.indirect { return problem("cannot assign through a shared reference", name.line, name.col) }
                 return problem("cannot assign to immutable local `{name.value}`", name.line, name.col)
@@ -3742,6 +4028,7 @@ extension Compiler {
         self.scope_depth = 0
         self.expr_depth = 0
         self.paren_depth = 0
+        self.loop_depth = 0
         self.bindings = Vector<Binding>()
         self.active_borrows = Vector<Borrow>()
         self.pending_writes = Vector<Int>()
@@ -3799,6 +4086,9 @@ extension Compiler {
                     let c = self.emit_at(Op.StringConst, self.signatures[index].line, self.signatures[index].col)
                     self.code[c].dst = slot + word
                     self.code[c].immediate = self.intern_string("")
+                } else if vector_type(layout[word]) {
+                    let c = self.emit_at(Op.Drop, self.signatures[index].line, self.signatures[index].col)
+                    self.code[c].a = slot + word
                 } else {
                 let c = self.emit_at(Op.Const, self.signatures[index].line, self.signatures[index].col)
                 self.code[c].dst = slot + word
@@ -3848,18 +4138,25 @@ public func compile_source(source: String) -> Result<Program, ProtoError> {
     try! records.push(RecordIR(name: "AllocError", field_names: move alloc_fields,
                                field_types: move alloc_types, line: 0, col: 0))
     var compiler = Compiler(source: source, tokens: move tokens, records: move records, enums: Vector<EnumIR>(),
-                            references: Vector<ReferenceIR>(), sums: Vector<SumIR>(), strings: Vector<String>(), statics: Vector<StaticBinding>(),
+                            references: Vector<ReferenceIR>(), sums: Vector<SumIR>(), vectors: Vector<VectorIR>(),
+                            vector_lines: Vector<Int>(), vector_cols: Vector<Int>(), strings: Vector<String>(), statics: Vector<StaticBinding>(),
+                            nocopy_records: Vector<Int>(), nocopy_lines: Vector<Int>(), nocopy_cols: Vector<Int>(),
                             signatures: Vector<Signature>(), pos: 0, depth: 0, scope_depth: 0,
                             expr_depth: 0, paren_depth: 0,
                             bindings: Vector<Binding>(), active_borrows: Vector<Borrow>(), pending_writes: Vector<Int>(),
                             string_slots: Vector<StringSlot>(),
                             slots: Vector<ValueType>(),
                             code: Vector<Instruction>(), current_result: ValueType.Void,
-                            scalar_record: 0, invalid_scalar_record: 1, alloc_error_record: 2)
+                            scalar_record: 0, invalid_scalar_record: 1, alloc_error_record: 2,
+                            loop_depth: 0)
     try compiler.collect_record_names()
     try compiler.scan_signatures()
+    try compiler.validate_nocopy_markers()
+    try compiler.validate_vector_elements()
+    try compiler.validate_signature_vectors()
     try validate_records(&compiler.records, &compiler.sums)
     try validate_sums(&compiler.records, &compiler.sums)
+    try validate_vectors(&compiler.records, &compiler.sums, &compiler.vectors)
     try validate_enums(&compiler.enums)
     var functions = Vector<FuncIR>()
     var main_index = -1
@@ -3870,8 +4167,10 @@ public func compile_source(source: String) -> Result<Program, ProtoError> {
         try! functions.push(move f)
         i += 1
     }
+    try compiler.validate_vector_elements()
     Program(enums: compiler.enums.copy(), records: compiler.records.copy(), references: compiler.references.copy(), sums: compiler.sums.copy(),
             strings: compiler.strings.copy(),
             functions: move functions, main_index: main_index,
-            alloc_error_record: compiler.alloc_error_record, builder_fail_after: -1)
+            alloc_error_record: compiler.alloc_error_record, builder_fail_after: -1,
+            vectors: compiler.vectors.copy(), vector_fail_after: -1)
 }

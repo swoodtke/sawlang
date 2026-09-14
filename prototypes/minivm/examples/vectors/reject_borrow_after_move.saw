@@ -1,0 +1,3 @@
+func main() { var a = Vector<Int>()
+let b = move a
+print(a.len()) }

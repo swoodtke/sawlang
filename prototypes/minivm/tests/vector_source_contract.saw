@@ -1,0 +1,25 @@
+import src.model.*
+import src.frontend.*
+import src.verify.*
+import src.vm.*
+import src.llvm
+import std.env.{Env}
+
+// Exercises source lowering across failed/successful calls, owning Result and
+// record payloads, explicit moves and inactive branch cleanup. Expected lines:
+// 24, 8, bundle, first, suffix, first, 1.
+func source_text() -> String {
+    "struct Row \{ text: String, suffix: String? \}\nstruct Bundle \{ rows: Vector<Row>, label: String \}\nextension Bundle: NoCopy \{\}\nfunc produce() -> Result<Bundle, AllocError> \{\n    if false \{\n        var unused = Vector<Row>()\n        try unused.push(Row(text: \"never\", suffix: None))\n    \}\n    var rows = Vector<Row>()\n    try rows.push(Row(text: \"first\", suffix: \"suffix\"))\n    Bundle(rows: move rows, label: \"bundle\")\n\}\nfunc main() \{\n    match produce() \{\n        case Ok(value) -> \{ print(\"unexpected success\") \},\n        case Err(error) -> \{ print(error.size)\nprint(error.align) \}\n    \}\n    let bundle = try! produce()\n    print(bundle.label)\n    let item = bundle.rows[0]\n    print(item.text)\n    if let suffix = item.suffix \{ print(suffix) \}\n    var moved = move bundle\n    print(item.text)\n    print(moved.rows.len())\n\}\n"
+}
+
+func main() {
+    var program = try! compile_source(source_text())
+    program.vector_fail_after = 0
+    try! verify(&program)
+    let args = try! Env.args()
+    if args.len() == 2 && args[1] == "emit-llvm" {
+        print(try! llvm.emit_llvm(&program))
+        return
+    }
+    try! execute(&program, 10000)
+}

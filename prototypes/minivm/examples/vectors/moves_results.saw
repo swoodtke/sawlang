@@ -1,0 +1,24 @@
+struct Pack { values: Vector<String>, label: String }
+extension Pack: NoCopy {}
+
+func make() -> Result<Vector<String>, AllocError> {
+    var values = Vector<String>()
+    try values.push("one")
+    move values
+}
+
+func pack() -> Pack {
+    var values = Vector<String>()
+    try! values.push("x")
+    try! values.push("y")
+    Pack(values: move values, label: "two")
+}
+
+func main() {
+    var values = try! make()
+    print(values[0])
+    var p = pack()
+    print(p.values.len())
+    print(p.values[0])
+    print(p.values[1])
+}

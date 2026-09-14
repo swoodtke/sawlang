@@ -1,0 +1,3 @@
+struct Box { values: Vector<Int> }
+extension Box: NoCopy { func bad(&self) {} }
+func main() {}

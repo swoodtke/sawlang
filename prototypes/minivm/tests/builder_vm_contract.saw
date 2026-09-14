@@ -180,7 +180,7 @@ func contract_program() -> Program {
         result: ValueType.Void, slots: move append_slots, code: move append_code))
     let program = Program(strings: move strings, references: move refs, enums: Vector<EnumIR>(),
         records: move records, sums: move sums, functions: move functions,
-        main_index: 0, alloc_error_record: 0, builder_fail_after: 1)
+        main_index: 0, alloc_error_record: 0, builder_fail_after: 1, vectors: Vector<VectorIR>(), vector_fail_after: -1)
     try! verify(&program)
     move program
 }

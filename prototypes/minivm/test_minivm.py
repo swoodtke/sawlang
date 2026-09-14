@@ -39,6 +39,15 @@ class RejectCase:
 
 
 RUN_CASES = (
+    RunCase("vectors/basic", "3\n10\n30\n20\nnone\nnone\n", section="vectors", compare_sawc=True),
+    RunCase("vectors/strings_records", "old\nnew\na\nb\n", section="vectors", compare_sawc=True),
+    RunCase("vectors/references_fields", "2\nleft\nright\n", section="vectors", compare_sawc=True),
+    RunCase("vectors/moves_results", "one\n2\nx\ny\n", section="vectors", compare_sawc=True),
+    RunCase("vectors/evaluation_once", "index\n7\nvalue\n2\n", section="vectors", compare_sawc=True),
+    RunCase("vectors/forward_element_record", "forward\n", section="vectors", compare_sawc=True),
+    RunCase("vectors/forward_nocopy_vector", "42\n", section="vectors"),
+    RunCase("vectors/index_negative", "runtime error: vector index out of bounds\n", 1, "vectors"),
+    RunCase("vectors/index_at_end", "runtime error: vector index out of bounds\n", 1, "vectors"),
     RunCase("builders/snapshots", "\na\nab\na\nab\nother\n", section="builders", compare_sawc=True),
     RunCase("builders/append_values", "120\n0\n255\n45\n57\n50\n50\n51\n51\n55\n50\n48\n51\n54\n56\n53\n52\n55\n55\n53\n56\n48\n56\n48\n127\n194\n128\n223\n191\n224\n160\n128\n237\n159\n191\n238\n128\n128\n239\n191\n191\n244\n143\n191\n191\n", section="builders", compare_sawc=True),
     RunCase("builders/references", "start-mut\nstart-mut-shared\n", section="builders", compare_sawc=True),
@@ -239,6 +248,27 @@ RUN_CASES = (
 )
 
 REJECT_CASES = (
+    RejectCase("vectors/reject_implicit_copy", "cannot implicitly copy noncopyable value", "vectors", True),
+    RejectCase("vectors/reject_double_move", "use of moved value", "vectors", True),
+    RejectCase("vectors/reject_borrow_after_move", "use of moved value", "vectors", True),
+    RejectCase("vectors/reject_move_field", "move requires a whole local", "vectors"),
+    RejectCase("vectors/reject_move_reference", "cannot move through a reference", "vectors"),
+    RejectCase("vectors/reject_vector_element", "Vector elements must be non-Void Copy values", "vectors"),
+    RejectCase("vectors/reject_builder_element", "Vector elements must be non-Void Copy values", "vectors"),
+    RejectCase("vectors/reject_noncopy_record_element", "Vector elements must be non-Void Copy values", "vectors"),
+    RejectCase("vectors/reject_value_parameter", "vector-containing parameters must be references", "vectors"),
+    RejectCase("vectors/reject_assignment", "vector-containing values cannot be assigned", "vectors"),
+    RejectCase("vectors/reject_outer_loop_move", "cannot move a local declared outside the current loop", "vectors"),
+    RejectCase("vectors/reject_nocopy_copyable", "NoCopy marker requires a vector-containing record", "vectors"),
+    RejectCase("vectors/reject_forward_nocopy_copyable", "NoCopy marker requires a vector-containing record", "vectors"),
+    RejectCase("vectors/reject_nocopy_body", "NoCopy marker requires an empty body", "vectors"),
+    RejectCase("vectors/reject_constructor_arity", "Vector constructor accepts no arguments", "vectors", True),
+    RejectCase("vectors/reject_push_type", "cannot implicitly convert", "vectors", True),
+    RejectCase("vectors/reject_push_label", "argument label", "vectors", True),
+    RejectCase("vectors/reject_get_label", "argument label", "vectors"),
+    RejectCase("vectors/reject_index_type", "cannot implicitly convert", "vectors", True),
+    RejectCase("vectors/reject_value_control", "vector-containing value control flow is not supported", "vectors"),
+    RejectCase("vectors/reject_optional_constructor", "Vector constructor requires a non-optional Vector type", "vectors"),
     RejectCase("builders/reject_copy", "StringBuilder values cannot be copied", "builders", True),
     RejectCase("builders/reject_assignment", "StringBuilder values cannot be assigned", "builders"),
     RejectCase("builders/reject_value_parameter", "StringBuilder parameters must be references", "builders"),
@@ -567,7 +597,7 @@ def main() -> int:
     parser.add_argument("--sawc-python", default=sys.executable,
                         help="Python interpreter with sawc dependencies (default: this interpreter)")
     parser.add_argument(
-        "--section", choices=("all", "core", "numbers", "records", "control", "enums", "values", "references", "receivers", "strings", "owning_records", "optionals", "results", "unsigned_parse", "scalars", "builders"), default="all",
+        "--section", choices=("all", "core", "numbers", "records", "control", "enums", "values", "references", "receivers", "strings", "owning_records", "optionals", "results", "unsigned_parse", "scalars", "builders", "vectors"), default="all",
         help="run all cases or one isolated test section",
     )
     args = parser.parse_args()

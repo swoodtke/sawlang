@@ -1,0 +1,1 @@
+func main() { let v = Vector<StringBuilder>() }

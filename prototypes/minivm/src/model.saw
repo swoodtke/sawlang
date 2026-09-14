@@ -2,7 +2,7 @@ public enum ValueType {
     case I8, case I16, case I32, case I64,
     case U8, case U16, case U32, case U64, case Byte,
     case Bool, case Void, case String, case Builder, case Record(index: Int), case Enum(index: Int), case Ref(index: Int),
-    case Optional(index: Int), case Result(index: Int)
+    case Optional(index: Int), case Result(index: Int), case Vector(index: Int)
 }
 @synthesize
 extension ValueType: Equatable {}
@@ -16,6 +16,7 @@ public enum Op {
     case StringConst, case StringLen, case StringByteAt, case StringSlice, case StringToUInt,
     case BuilderNew, case BuilderBuild, case BuilderAppendString, case BuilderAppendByte,
     case BuilderAppendInt, case BuilderAppendScalar, case Drop,
+    case VectorNew, case VectorLen, case VectorIndex, case VectorGet, case VectorPush, case MoveVector,
     case BitAnd, case BitOr, case BitXor, case BitNot, case Shl, case Shr
 }
 @synthesize
@@ -141,7 +142,15 @@ public struct Program {
     public main_index: Int
     public alloc_error_record: Int
     public builder_fail_after: Int
+    public vectors: Vector<VectorIR>
+    public vector_fail_after: Int
 }
+
+public struct VectorIR {
+    public element: ValueType
+}
+@synthesize
+extension VectorIR: ExplicitCopy {}
 
 public struct ReferenceIR {
     public target: ValueType
@@ -191,7 +200,42 @@ public func printable_type(t: ValueType) -> Bool {
 
 public func string_type(t: ValueType) -> Bool { t == ValueType.String }
 public func builder_type(t: ValueType) -> Bool { t == ValueType.Builder }
-public func owning_type(t: ValueType) -> Bool { string_type(t) || builder_type(t) }
+public func vector_type(t: ValueType) -> Bool {
+    match t { case Vector(_) -> true, case _ -> false }
+}
+public func owning_type(t: ValueType) -> Bool { string_type(t) || builder_type(t) || vector_type(t) }
+
+public func vector_element(vectors: &Vector<VectorIR>, t: ValueType) -> Result<ValueType, ProtoError> {
+    match t {
+        case Vector(index) -> {
+            if index < 0 || index >= vectors.len() { return problem("invalid vector type index", 0, 0) }
+            return vectors[index].element
+        },
+        case _ -> { return problem("expected vector type", 0, 0) }
+    }
+}
+
+public func copyable_type(records: &Vector<RecordIR>, sums: &Vector<SumIR>, t: ValueType) -> Bool {
+    if t == ValueType.Void || reference_type(t) || builder_type(t) { return false }
+    let layout = try value_layout(&records, &sums, t) catch { return false }
+    var word = 0
+    while word < layout.len() {
+        if vector_type(layout[word]) || builder_type(layout[word]) { return false }
+        word += 1
+    }
+    true
+}
+
+public func validate_vectors(records: &Vector<RecordIR>, sums: &Vector<SumIR>, vectors: &Vector<VectorIR>) -> Result<Void, ProtoError> {
+    var index = 0
+    while index < vectors.len() {
+        if not copyable_type(&records, &sums, vectors[index].element) {
+            return problem("Vector elements must be non-Void Copy values", 0, 0)
+        }
+        index += 1
+    }
+    return
+}
 
 public func scalar_type(t: ValueType) -> Bool {
     match t {
@@ -277,7 +321,7 @@ public func reference_transfer(refs: &Vector<ReferenceIR>, source: ValueType, ta
 public func validate_references(refs: &Vector<ReferenceIR>) -> Result<Void, ProtoError> {
     var n = 0
     while n < refs.len() {
-        if not scalar_type(refs[n].target) && not string_type(refs[n].target) && not builder_type(refs[n].target) {
+        if not scalar_type(refs[n].target) && not owning_type(refs[n].target) {
             match refs[n].target {
                 case Record(_) -> {},
                 case Optional(_) -> {},
@@ -318,7 +362,7 @@ func append_layout(records: &Vector<RecordIR>, sums: &Vector<SumIR>, t: ValueTyp
                    record_path: &var Vector<Int>, sum_path: &var Vector<Int>, depth: Int,
                    words: &var Vector<ValueType>) -> Result<Void, ProtoError> {
     if builder_type(t) { return problem("StringBuilder cannot be stored in an aggregate", 0, 0) }
-    if scalar_type(t) || string_type(t) {
+    if scalar_type(t) || string_type(t) || vector_type(t) {
         if words.len() >= 256 { return problem("record layout exceeds 256 words", 0, 0) }
         try! words.push(t)
         return
@@ -392,7 +436,7 @@ func append_layout(records: &Vector<RecordIR>, sums: &Vector<SumIR>, t: ValueTyp
 
 public func value_layout(records: &Vector<RecordIR>, sums: &Vector<SumIR>, t: ValueType) -> Result<Vector<ValueType>, ProtoError> {
     var words = Vector<ValueType>()
-    if reference_type(t) || string_type(t) || builder_type(t) {
+    if reference_type(t) || owning_type(t) {
         try! words.push(t)
         return move words
     }

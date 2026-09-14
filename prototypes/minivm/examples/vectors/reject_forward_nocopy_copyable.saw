@@ -1,0 +1,4 @@
+extension Plain: NoCopy {}
+struct Plain { value: Int }
+
+func main() {}

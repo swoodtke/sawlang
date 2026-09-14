@@ -1,0 +1,3 @@
+func main() { var v = Vector<Int>()
+try! v.push(1)
+print(v[1]) }

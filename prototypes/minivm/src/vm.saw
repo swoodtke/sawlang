@@ -5,6 +5,8 @@ static MAX_CALL_DEPTH: Int = 128
 struct CallResult { values: Vector<Int> }
 extension CallResult: NoCopy {}
 struct StringEntry { value: String, refs: Int }
+struct VectorEntry { descriptor: Int, alive: Bool, words: Vector<Int>, length: Int }
+extension VectorEntry: NoCopy {}
 func runtime_error(message: String) -> ProtoError { problem(message, 0, 0) }
 func overflow_error() -> ProtoError { runtime_error("runtime error: integer overflow") }
 
@@ -157,6 +159,108 @@ func string_assign(cells: &var Vector<Int>, dst: Int, source: Int,
     return
 }
 
+func vector_entry(heap: &Vector<VectorEntry>, handle: Int, descriptor: Int) -> Result<Int, ProtoError> {
+    if handle <= 0 { return runtime_error("runtime error: invalid vector handle") }
+    let index = handle - 1
+    if index >= heap.len() || not heap[index].alive || heap[index].descriptor != descriptor {
+        return runtime_error("runtime error: invalid vector handle")
+    }
+    index
+}
+
+func vector_descriptor(t: ValueType) -> Result<Int, ProtoError> {
+    match t {
+        case Vector(descriptor) -> { return descriptor },
+        case _ -> { return runtime_error("runtime error: invalid vector handle") }
+    }
+}
+
+func vector_allocate(heap: &var Vector<VectorEntry>, descriptor: Int) -> Int {
+    var index = 0
+    while index < heap.len() {
+        if not heap[index].alive {
+            heap[index].descriptor = descriptor
+            heap[index].alive = true
+            heap[index].words = Vector<Int>()
+            heap[index].length = 0
+            return index + 1
+        }
+        index += 1
+    }
+    try! heap.push(VectorEntry(descriptor: descriptor, alive: true,
+        words: Vector<Int>(), length: 0))
+    heap.len()
+}
+
+func vector_release(program: &Program, vectors: &var Vector<VectorEntry>,
+                    strings: &var Vector<StringEntry>, handle: Int,
+                    descriptor: Int) -> Result<Void, ProtoError> {
+    if handle == 0 { return }
+    let index = try vector_entry(&vectors, handle, descriptor)
+    let element = try vector_element(&program.vectors, ValueType.Vector(descriptor))
+    let layout = try value_layout(&program.records, &program.sums, element)
+    if layout.len() <= 0 { return runtime_error("runtime error: invalid vector handle") }
+    var word = 0
+    while word < vectors[index].words.len() {
+        if string_type(layout[word % layout.len()]) {
+            try string_release(&var strings, vectors[index].words[word])
+        }
+        word += 1
+    }
+    vectors[index].words = Vector<Int>()
+    vectors[index].length = 0
+    vectors[index].alive = false
+    return
+}
+
+func vector_assign_element(program: &Program, cells: &var Vector<Int>, dst: Int,
+                           source: &Vector<Int>, source_start: Int, element: ValueType,
+                           strings: &var Vector<StringEntry>) -> Result<Void, ProtoError> {
+    let layout = try value_layout(&program.records, &program.sums, element)
+    var word = 0
+    while word < layout.len() {
+        if string_type(layout[word]) {
+            let handle = source[source_start + word]
+            if handle != 0 {
+                let index = try string_entry(&strings, handle)
+                if strings[index].refs == Int.max { return runtime_error("runtime error: string allocation failed") }
+            }
+        }
+        word += 1
+    }
+    word = 0
+    while word < layout.len() {
+        if string_type(layout[word]) { try string_retain(&var strings, source[source_start + word]) }
+        word += 1
+    }
+    word = 0
+    while word < layout.len() {
+        if string_type(layout[word]) {
+            try string_assign(&var cells, dst + word, source[source_start + word], &var strings, false)
+        } else { cells[dst + word] = source[source_start + word] }
+        word += 1
+    }
+    return
+}
+
+func vector_clear_element(program: &Program, cells: &var Vector<Int>, dst: Int,
+                          element: ValueType, strings: &var Vector<StringEntry>) -> Result<Void, ProtoError> {
+    let layout = try value_layout(&program.records, &program.sums, element)
+    var word = 0
+    while word < layout.len() {
+        if string_type(layout[word]) { try string_assign(&var cells, dst + word, 0, &var strings, false) }
+        else { cells[dst + word] = 0 }
+        word += 1
+    }
+    return
+}
+
+func vector_result(cells: &var Vector<Int>, dst: Int, success: Bool, size: Int) {
+    cells[dst] = if success { 1 } else { 0 }
+    cells[dst + 1] = if success { 0 } else { size }
+    cells[dst + 2] = if success { 0 } else { 8 }
+}
+
 func checked_binary(a: Int, b: Int, t: ValueType, op: Op) -> Result<Int, ProtoError> {
     if integer_signed(t) {
         let lo = integer_min(t)
@@ -242,8 +346,10 @@ func valid_reference(cells: &Vector<Int>, address: Int, width: Int) -> Bool {
 }
 
 func run_function(program: &Program, function_index: Int, arguments: &Vector<Int>,
-                  cells: &var Vector<Int>, heap: &var Vector<StringEntry>, remaining: &var Int,
-                  fail_after: &var Int, depth: Int) -> Result<CallResult, ProtoError> {
+                  cells: &var Vector<Int>, heap: &var Vector<StringEntry>,
+                  vector_heap: &var Vector<VectorEntry>, remaining: &var Int,
+                  fail_after: &var Int, vector_fail_after: &var Int,
+                  depth: Int) -> Result<CallResult, ProtoError> {
     if depth > MAX_CALL_DEPTH { return runtime_error("runtime error: call depth exceeded") }
     let function = program.functions[function_index].copy()
     let base = cells.len()
@@ -396,11 +502,17 @@ func run_function(program: &Program, function_index: Int, arguments: &Vector<Int
                     try! args.push(cells[base + inst.args[i]])
                     i = i + 1
                 }
-                let result = try run_function(&program, inst.target, &args, &var cells, &var heap, &var remaining, &var fail_after, depth + 1)
+                let result = try run_function(&program, inst.target, &args, &var cells, &var heap,
+                    &var vector_heap, &var remaining, &var fail_after, &var vector_fail_after, depth + 1)
                 var result_index = 0
                 while result_index < result.values.len() {
                     if string_type(function.slots[inst.dst + result_index]) {
                         try string_assign(&var cells, base + inst.dst + result_index, result.values[result_index], &var heap, false)
+                    } else if vector_type(function.slots[inst.dst + result_index]) {
+                        let descriptor = try vector_descriptor(function.slots[inst.dst + result_index])
+                        try vector_release(&program, &var vector_heap, &var heap,
+                            cells[base + inst.dst + result_index], descriptor)
+                        cells[base + inst.dst + result_index] = result.values[result_index]
                     } else { cells[base + inst.dst + result_index] = result.values[result_index] }
                     result_index = result_index + 1
                 }
@@ -466,11 +578,168 @@ func run_function(program: &Program, function_index: Int, arguments: &Vector<Int
             case BuilderAppendScalar -> {
                 try builder_append(inst.op, &var cells, base, inst.dst, inst.a, inst.b, &var heap, &var fail_after)
             },
-            case Drop -> {
-                if builder_type(function.slots[inst.a]) && cells[base + inst.a] != 0 {
-                    let _ = try builder_entry(&heap, cells[base + inst.a])
+            case VectorNew -> {
+                match function.slots[inst.dst] {
+                    case Vector(descriptor) -> {
+                        try vector_release(&program, &var vector_heap, &var heap, cells[base + inst.dst], descriptor)
+                        cells[base + inst.dst] = vector_allocate(&var vector_heap, descriptor)
+                    },
+                    case _ -> { return runtime_error("runtime error: invalid vector handle") }
                 }
-                try string_release(&var heap, cells[base + inst.a])
+            },
+            case VectorLen -> {
+                let address = cells[base + inst.a]
+                if not valid_reference(&cells, address, 1) { return runtime_error("runtime error: invalid reference") }
+                match try reference_target(&program.references, function.slots[inst.a]) {
+                    case Vector(descriptor) -> {
+                        let index = try vector_entry(&vector_heap, cells[address], descriptor)
+                        cells[base + inst.dst] = vector_heap[index].length
+                    },
+                    case _ -> { return runtime_error("runtime error: invalid vector handle") }
+                }
+            },
+            case VectorIndex -> {
+                let address = cells[base + inst.a]
+                if not valid_reference(&cells, address, 1) { return runtime_error("runtime error: invalid reference") }
+                match try reference_target(&program.references, function.slots[inst.a]) {
+                    case Vector(descriptor) -> {
+                        let index = try vector_entry(&vector_heap, cells[address], descriptor)
+                        let at = cells[base + inst.b]
+                        if at < 0 || at >= vector_heap[index].length {
+                            return runtime_error("runtime error: vector index out of bounds")
+                        }
+                        let element = try vector_element(&program.vectors, ValueType.Vector(descriptor))
+                        let layout = try value_layout(&program.records, &program.sums, element)
+                        try vector_assign_element(&program, &var cells, base + inst.dst,
+                            &vector_heap[index].words, at * layout.len(), element, &var heap)
+                    },
+                    case _ -> { return runtime_error("runtime error: invalid vector handle") }
+                }
+            },
+            case VectorGet -> {
+                let address = cells[base + inst.a]
+                if not valid_reference(&cells, address, 1) { return runtime_error("runtime error: invalid reference") }
+                match try reference_target(&program.references, function.slots[inst.a]) {
+                    case Vector(descriptor) -> {
+                        let index = try vector_entry(&vector_heap, cells[address], descriptor)
+                        let element = try vector_element(&program.vectors, ValueType.Vector(descriptor))
+                        let at = cells[base + inst.b]
+                        if at < 0 || at >= vector_heap[index].length {
+                            cells[base + inst.dst] = 0
+                            try vector_clear_element(&program, &var cells, base + inst.dst + 1, element, &var heap)
+                        } else {
+                            cells[base + inst.dst] = 1
+                            let layout = try value_layout(&program.records, &program.sums, element)
+                            try vector_assign_element(&program, &var cells, base + inst.dst + 1,
+                                &vector_heap[index].words, at * layout.len(), element, &var heap)
+                        }
+                    },
+                    case _ -> { return runtime_error("runtime error: invalid vector handle") }
+                }
+            },
+            case VectorPush -> {
+                let address = cells[base + inst.a]
+                if not valid_reference(&cells, address, 1) { return runtime_error("runtime error: invalid reference") }
+                match try reference_target(&program.references, function.slots[inst.a]) {
+                    case Vector(descriptor) -> {
+                        let index = try vector_entry(&vector_heap, cells[address], descriptor)
+                        let element = try vector_element(&program.vectors, ValueType.Vector(descriptor))
+                        let layout = try value_layout(&program.records, &program.sums, element)
+                        let length = vector_heap[index].length
+                        if length < 0 || layout.len() <= 0 || length == Int.max || length + 1 > Int.max / layout.len() || (length + 1) * layout.len() > Int.max / 8 {
+                            return runtime_error("runtime error: vector length overflow")
+                        }
+                        let requested = (length + 1) * layout.len() * 8
+                        var incoming = Vector<Int>()
+                        var word = 0
+                        var staging_failed = false
+                        while word < layout.len() {
+                            match incoming.push(cells[base + inst.b + word]) {
+                                case Ok(_) -> {}, case Err(_) -> { staging_failed = true }
+                            }
+                            if staging_failed { break }
+                            word += 1
+                        }
+                        if staging_failed {
+                            vector_result(&var cells, base + inst.dst, false, requested)
+                            pc += 1
+                            continue
+                        }
+                        if vector_fail_after == 0 {
+                            vector_fail_after = -1
+                            vector_result(&var cells, base + inst.dst, false, requested)
+                            pc += 1
+                            continue
+                        }
+                        var staged = Vector<Int>()
+                        word = 0
+                        while word < vector_heap[index].words.len() {
+                            match staged.push(vector_heap[index].words[word]) {
+                                case Ok(_) -> {}, case Err(_) -> { staging_failed = true }
+                            }
+                            if staging_failed { break }
+                            word += 1
+                        }
+                        word = 0
+                        while not staging_failed && word < layout.len() {
+                            match staged.push(incoming[word]) {
+                                case Ok(_) -> {}, case Err(_) -> { staging_failed = true }
+                            }
+                            word += 1
+                        }
+                        if staging_failed {
+                            vector_result(&var cells, base + inst.dst, false, requested)
+                            pc += 1
+                            continue
+                        }
+                        word = 0
+                        while word < layout.len() {
+                            if string_type(layout[word]) {
+                                let handle = incoming[word]
+                                if handle != 0 {
+                                    let string_index = try string_entry(&heap, handle)
+                                    if heap[string_index].refs == Int.max {
+                                        return runtime_error("runtime error: string allocation failed")
+                                    }
+                                }
+                            }
+                            word += 1
+                        }
+                        word = 0
+                        while word < layout.len() {
+                            if string_type(layout[word]) { try string_retain(&var heap, incoming[word]) }
+                            word += 1
+                        }
+                        vector_heap[index].words = move staged
+                        vector_heap[index].length = length + 1
+                        if vector_fail_after > 0 { vector_fail_after -= 1 }
+                        vector_result(&var cells, base + inst.dst, true, 0)
+                    },
+                    case _ -> { return runtime_error("runtime error: invalid vector handle") }
+                }
+            },
+            case MoveVector -> {
+                let descriptor = try vector_descriptor(function.slots[inst.dst])
+                if cells[base + inst.a] != 0 {
+                    let _ = try vector_entry(&vector_heap, cells[base + inst.a], descriptor)
+                }
+                try vector_release(&program, &var vector_heap, &var heap,
+                    cells[base + inst.dst], descriptor)
+                cells[base + inst.dst] = cells[base + inst.a]
+                cells[base + inst.a] = 0
+            },
+            case Drop -> {
+                let drop_type = function.slots[inst.a]
+                if vector_type(drop_type) {
+                    let descriptor = try vector_descriptor(drop_type)
+                    try vector_release(&program, &var vector_heap, &var heap,
+                        cells[base + inst.a], descriptor)
+                } else {
+                    if builder_type(drop_type) && cells[base + inst.a] != 0 {
+                        let _ = try builder_entry(&heap, cells[base + inst.a])
+                    }
+                    try string_release(&var heap, cells[base + inst.a])
+                }
                 cells[base + inst.a] = 0
             },
             case Panic -> { return runtime_error("runtime error: try! failed") },
@@ -481,12 +750,17 @@ func run_function(program: &Program, function_index: Int, arguments: &Vector<Int
                 while result_index < layout.len() {
                     if string_type(layout[result_index]) { try string_retain(&var heap, cells[base + inst.a + result_index]) }
                     try! values.push(cells[base + inst.a + result_index])
+                    if vector_type(layout[result_index]) { cells[base + inst.a + result_index] = 0 }
                     result_index = result_index + 1
                 }
                 var slot = 0
                 while slot < function.slots.len() {
                     if owning_type(function.slots[slot]) {
-                        try string_release(&var heap, cells[base + slot])
+                        if vector_type(function.slots[slot]) {
+                            let descriptor = try vector_descriptor(function.slots[slot])
+                            try vector_release(&program, &var vector_heap, &var heap,
+                                cells[base + slot], descriptor)
+                        } else { try string_release(&var heap, cells[base + slot]) }
                         cells[base + slot] = 0
                     }
                     slot += 1
@@ -503,13 +777,21 @@ func run_function(program: &Program, function_index: Int, arguments: &Vector<Int
 public func execute(program: &Program, budget: Int) -> Result<Void, ProtoError> {
     var remaining = budget
     var fail_after = program.builder_fail_after
+    var vector_fail_after = program.vector_fail_after
     let arguments = Vector<Int>()
     var cells = Vector<Int>()
     var heap = Vector<StringEntry>()
-    let _ = try run_function(&program, program.main_index, &arguments, &var cells, &var heap, &var remaining, &var fail_after, 1)
+    var vector_heap = Vector<VectorEntry>()
+    let _ = try run_function(&program, program.main_index, &arguments, &var cells, &var heap,
+        &var vector_heap, &var remaining, &var fail_after, &var vector_fail_after, 1)
     var index = 0
     while index < heap.len() {
         if heap[index].refs != 0 { return runtime_error("runtime error: live string allocation") }
+        index += 1
+    }
+    index = 0
+    while index < vector_heap.len() {
+        if vector_heap[index].alive { return runtime_error("runtime error: live vector allocation") }
         index += 1
     }
     return

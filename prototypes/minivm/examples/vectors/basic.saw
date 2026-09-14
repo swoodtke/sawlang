@@ -1,0 +1,12 @@
+func main() {
+    var v = Vector<Int>()
+    try! v.push(value: 10)
+    try! v.push(20)
+    try! v.push(value: 30)
+    print(v.len())
+    print(v[0])
+    print(v[2])
+    if let x = v.get(index: 1) { print(x) }
+    if let x = v.get(-1) { print(x) } else { print("none") }
+    if let x = v.get(3) { print(x) } else { print("none") }
+}

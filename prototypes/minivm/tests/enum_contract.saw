@@ -67,7 +67,7 @@ func base_program() -> Program {
     try! functions.push(FuncIR(name: "identity", params: move identity_params,
         result: ValueType.Enum(0), slots: move identity_slots,
         code: move identity_code))
-    Program(alloc_error_record: -1, builder_fail_after: -1,
+    Program(alloc_error_record: -1, builder_fail_after: -1, vectors: Vector<VectorIR>(), vector_fail_after: -1,
         strings: Vector<String>(), references: Vector<ReferenceIR>(), enums: move enums, records: move records, sums: Vector<SumIR>(),
             functions: move functions, main_index: 0)
 }

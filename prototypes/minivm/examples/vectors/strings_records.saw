@@ -1,0 +1,16 @@
+enum Kind { case Word, case Number }
+struct Item { kind: Kind, value: String, line: Int, col: Int, suffix: String? }
+
+func main() {
+    var strings = Vector<String>()
+    try! strings.push("old")
+    let snapshot = strings[0]
+    try! strings.push("new")
+    print(snapshot)
+    print(strings[1])
+    var items = Vector<Item>()
+    try! items.push(Item(kind: Kind.Word, value: "a", line: 1, col: 2, suffix: None))
+    try! items.push(Item(kind: Kind.Number, value: "b", line: 3, col: 4, suffix: "!"))
+    print(items[0].value)
+    if let item = items.get(1) { print(item.value) }
+}

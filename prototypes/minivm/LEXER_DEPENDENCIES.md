@@ -1,7 +1,7 @@
 # Lexer dependency inventory
 
-Scope: the source to admit is `selfhost/lexer/src/lib.saw` (1,215 lines at the
-`5af086c4` baseline). This inventory is intentionally narrower than general Saw
+Scope: the source to admit is `selfhost/lexer/src/lib.saw` (1,328 lines in the
+current checkout). This inventory is intentionally narrower than general Saw
 support. A feature is included only when that file uses it, or when it is an
 unavoidable implementation dependency of one of the public std operations it
 calls. This inventory was taken at the 43-case Int32/Bool baseline. M1 now supplies
@@ -25,7 +25,10 @@ checked unsigned parsing and the unchanged literal_fits helper (346 cases).
 M13 adds checked nominal `Scalar` construction and code-point readout, with
 opaque `InvalidScalar` results. M14 adds local `StringBuilder`, all four append
 overloads, snapshots and reference forwarding, including unchanged `char_str`
-and `escape_text` extracts. Next is `Vector`. The lexer has
+and `escape_text` extracts. M15 adds bounded owning `Vector<T>` construction,
+push/get/index/len, references, whole-local moves and vector-containing results.
+Known remaining whole-lexer gaps are `StringBuilder.clear()` and the `break` in
+`Lexer.tokenize`; both belong to SL-259. The lexer has
 no imports, so its first whole-file test can combine the unchanged library with
 a small wrapper without implementing general module loading.
 The dependency groups below are an inventory, not the implementation commit order;
@@ -49,18 +52,18 @@ the numbered milestone designs define each isolated slice.
   `LexResult` at `lib.saw:262-318` (design 268 added `StringSegment` and the
   payload-free enum `SegmentKind` at `lib.saw:236`, and gave `Token` its
   `seg_start`/`seg_count` fields), plus private `Lexer` at
-  `lib.saw:598-604`. Construction uses
+  `lib.saw:637-643`. Construction uses
   order-independent named fields, field reads, and mutable field assignment
-  through `&var self` (`advance`, `lib.saw:576-586`). Visibility must parse and
+  through `&var self` (`advance`, `lib.saw:654-664`). Visibility must parse and
   type-check; cross-module consumers need the four public models and their public
   fields. Private fields and custom initializers are unnecessary here.
 - `extension LexResult: NoCopy {}` (`lib.saw:320`) and `extension Lexer { ... }`
-  (`lib.saw:567-1189`). The former must suppress implicit copying; the latter
+  (`lib.saw:645-1318`). The former must suppress implicit copying; the latter
   supplies instance methods with `&self` and `&var self` receivers. Traits in
   general and extension dispatch across arbitrary types are outside this slice.
 - Public and private free functions, expression-bodied functions, implicit tail
   returns, explicit `return`, and named arguments (all struct construction and
-  `Scalar(value: cp)` at `lib.saw:699`). Default arguments, closures, overload
+  `Scalar(value: cp)` at `lib.saw:778`). Default arguments, closures, overload
   declarations in user code, and function values are unused.
 
 ### Types, operators, and conversions
@@ -73,7 +76,7 @@ the numbered milestone designs define each isolated slice.
   `max` constants and casts. No source floating-point arithmetic is needed even
   though the lexer emits `FloatLit` tokens.
 - Static primitive constants `UInt8.max`, `UInt16.max`, and `UInt32.max`, then
-  widening casts `as UInt` (`literal_fits`, `lib.saw:539-553`). `UInt.max` and
+  widening casts `as UInt` (`literal_fits`, `lib.saw:617-625`). `UInt.max` and
   `Int.max` are not directly used by this source.
 - Checked widening `s.byte_at(i) as Int` (`lib.saw:89`) and constructor/cast chain
   `Byte(UInt8.from(truncating: u))` (`lib.saw:95-97`). This requires static method
@@ -86,7 +89,7 @@ the numbered milestone designs define each isolated slice.
   compiler need not implement interpolation to compile this file: apparent
   braces in its diagnostic strings are escaped. Runtime string equality is used
   both by `==` in `keyword_kind`'s string `match` and explicitly by
-  `name_str.equals(...)` at `lib.saw:931-932`.
+  `name_str.equals(...)` at `lib.saw:1043-1044`.
 
 ### Ownership, references, generics, and fallibility
 
@@ -125,8 +128,9 @@ the numbered milestone designs define each isolated slice.
 ### Control flow and syntax sugar
 
 - `if`/`else if` statements, value-producing `if` expressions (`lib.saw:650,
-  780, 845-846`), `while`, and early `return`. `for`, `break`, `continue`, and
-  `guard` do not occur in this lexer.
+  780, 845-846`), `while`, early `return`, and `break` from the tokenization
+  loop (`lib.saw:1090`). `for`, `continue`, and `guard` do not occur in this
+  lexer. The prototype still needs the `break` slice tracked by SL-259.
 - Exhaustive `match` over strings with literal cases and `_`
   (`keyword_kind`, `lib.saw:289-326`), and over payload-free enum values with
   both qualified and unqualified case patterns (`kind_name`, `lib.saw:330-438`).
@@ -148,7 +152,7 @@ compile their full implementations.
   including embedded NUL. `String.byte_at(&self, index: Int) -> Byte`
   (`:75`): unsigned byte, bounds checked. `substring(&self, start: Int, end: Int)
   -> String` (`:426`): copied half-open byte range, bounds checked. `is_empty()`
-  is used at `lib.saw:855,927` and can be intrinsic or derived from `len == 0`.
+  is used at `lib.saw:964,1039` and can be intrinsic or derived from `len == 0`.
   `equals(&self, other: String) -> Bool` (`:360`) and `==` need byte-content
   equality. `to_uint(&self, radix: Int) -> UInt?` (`:677`) must accept bases
   2/8/10/16 and return `None` on invalid digits or overflow past 64 bits. The
@@ -157,21 +161,29 @@ compile their full implementations.
 - `StringBuilder()` (`sawc/std/stringbuilder.saw:58`),
   `append(&var self, String)` (`:146`), `append(..., Int)` (`:191`),
   `append(..., Byte)` (`:254`), `append(..., Scalar)` (`:348`), and
-  `build(&self) -> String` (`:414`). Appends preserve raw bytes; integer append
+  `build(&self) -> String` (`:414`), and `clear(&var self)` (`:394`). Appends preserve raw bytes; integer append
   is decimal; scalar append is valid UTF-8; build returns independent string
   contents and may leave the builder reusable. All append overloads return
   `Result<Void, AllocError>`, but lexer paths deliberately use `try!`. Capacity,
   fixed mode, allocator traits, `UnsafeSend`/`UnsafeSync`, raw pointers, memcpy,
   and growth algorithms in the std implementation are transitive implementation
-  details and should not become source-language prerequisites.
-- `Vector<T>()`, `len(&self) -> Int`, indexed shared read, and
+  details and should not become source-language prerequisites. M14 implements
+  every listed operation except `clear`; the lexer calls it at `lib.saw:844`,
+  and SL-259 tracks that remaining intrinsic.
+- `Vector<T>()`, `len(&self) -> Int`, `get(&self, index: Int) -> T?`, indexed
+  shared read, and
   `push(&var self, value: T) -> Result<Void, AllocError>` are used throughout;
-  production declarations are `sawc/std/vector.saw:43,67,93,231`. Required
-  instantiations are `Vector<Token>` and `Vector<DocComment>`. Bounds-checked
-  indexing appears only for token lookback (`lib.saw:985`). `pop`, iteration,
+  production declarations are `sawc/std/vector.saw:67,93,138,231`. Required
+  instantiations are `Vector<Token>`, `Vector<DocComment>`, and
+  `Vector<StringSegment>`. `get` reads string segments while formatting
+  (`lib.saw:553`); bounds-checked indexing appears for token lookback
+  (`lib.saw:1102`). `pop`, iteration,
   reserve, copy, custom allocators, and mutable indexing are unused by this
-  lexer. The std type's allocator parameter/default and pointer implementation
-  are therefore avoidable if the mini-VM provides an opaque monomorphic vector.
+  lexer. M15 supplies this bounded intrinsic surface with unique ownership and
+  Copy elements. The Python compiler currently also accepts the wrong
+  `get(value:)` label; SL-285 tracks that production compiler defect.
+  The std type's allocator parameter/default and pointer implementation remain
+  outside the prototype.
 - `Scalar(value: Int) -> Result<Scalar, InvalidScalar>`
   (`sawc/std/scalar.saw:64,85`) and builder append encode one already-validated
   scalar. The lexer independently rejects out-of-range and surrogate code points
@@ -204,16 +216,17 @@ precise rejection. Keep all earlier milestone tests green at every gate.
 4. **Optional/Result control flow — complete through M11.** `T?`, fixed
    `Result<T,E>`, `None`, implicit injection, `if let`, `try`, and `try!` are
    covered with owning String payloads, propagation, and trap behavior.
-5. **Opaque builder and vector generics.** Expose only the contracts listed
-   above and implement correct ownership for `Vector<Token>` /
-   `Vector<DocComment>`. Test growth, indexing bounds, push of structs containing
+5. **Opaque builder and vector generics — complete through M15.** The prototype
+   exposes the bounded builder/vector contracts above, except `clear`, and implements ownership for
+   `Vector<Token>`, `Vector<DocComment>` and `Vector<StringSegment>`. The gates
+   cover growth, get/index bounds, push of structs containing
    `String?`, builder overload selection, build independence, and Unicode scalar
    UTF-8 output. Reject unsupported generic types/operations explicitly.
-6. **Lexer syntax completion.** Add string and enum `match`, if-expressions,
+6. **Lexer syntax completion.** String and enum `match`, if-expressions,
    public declarations, `NoCopy`, compound assignments, tail expressions, and
-   `_` discards. Compile focused extracts of `keyword_kind`, `kind_name`,
-   `literal_fits`, and `Lexer.advance`; compare their outputs to hand-written
-   oracles.
+   `_` discards are present, and focused extracts cover `keyword_kind`,
+   `kind_name`, `literal_fits`, and `Lexer.advance`. SL-259 still owes
+   `StringBuilder.clear()` and `break` before the unchanged lexer compiles.
 7. **Whole-module compile and differential lexing.** Compile the unchanged
    `selfhost/lexer/src/lib.saw`, call `lex` (one entry point since design 268,
    returning tokens + doc trivia + string segments), and compare canonical
