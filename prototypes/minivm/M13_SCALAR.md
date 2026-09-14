@@ -63,5 +63,5 @@ The marked shared-subset fixtures also run against Python sawc with `--sawc`.
 returned words against literal expectations, including inactive zeros and the
 exact rejected input at both signed extremes. It runs the checks in the VM;
 its `emit-llvm` mode emits the same checks for native validation. Build it with
-the Python compiler and module paths `src=prototypes/minivm/src` and
-`sawlex=selfhost/lexer`.
+the Python compiler and `--module-path sawlex=selfhost/lexer`; the package's
+`src` modules resolve locally.

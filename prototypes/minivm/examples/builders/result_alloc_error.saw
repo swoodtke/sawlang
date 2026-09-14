@@ -1,0 +1,15 @@
+func main() {
+    var b = StringBuilder()
+    let result = b.append(s: "ok")
+    match result {
+        case Ok -> { print("ok") },
+        case Err(error) -> {
+            print(error.size)
+            print(error.align)
+        }
+    }
+    let original = AllocError(size: 3, align: 8)
+    let copied = original
+    print(copied.size)
+    print(copied.align)
+}

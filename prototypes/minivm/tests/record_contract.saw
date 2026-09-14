@@ -47,7 +47,8 @@ func call_program(records: &Vector<RecordIR>) -> Program {
         slots: slots.copy(), code: move main_code))
     try! functions.push(FuncIR(name: "identity", params: move params, result: ValueType.Record(0),
         slots: move slots, code: move callee_code))
-    Program(strings: Vector<String>(), references: Vector<ReferenceIR>(), enums: Vector<EnumIR>(), records: records.copy(), sums: Vector<SumIR>(), functions: move functions, main_index: 0)
+    Program(alloc_error_record: -1, builder_fail_after: -1,
+        strings: Vector<String>(), references: Vector<ReferenceIR>(), enums: Vector<EnumIR>(), records: records.copy(), sums: Vector<SumIR>(), functions: move functions, main_index: 0)
 }
 
 func main() {

@@ -1,0 +1,197 @@
+import src.model.*
+import src.verify.*
+import src.vm.*
+import src.llvm
+import std.env.{Env}
+
+func emit(code: &var Vector<Instruction>, kind: Op, dst: Int, a: Int, b: Int, immediate: Int) {
+    var i = instruction(kind)
+    i.dst = dst
+    i.a = a
+    i.b = b
+    i.immediate = immediate
+    try! code.push(move i)
+}
+
+func check_word(code: &var Vector<Instruction>, slots: &var Vector<ValueType>, actual: Int,
+                expected: Int, t: ValueType) {
+    let expected_slot = slots.len()
+    try! slots.push(t)
+    emit(&var code, Op.Const, expected_slot, -1, -1, expected)
+    let equal_slot = slots.len()
+    try! slots.push(ValueType.Bool)
+    emit(&var code, Op.Eq, equal_slot, actual, expected_slot, 0)
+    var branch = instruction(Op.Branch)
+    branch.a = equal_slot
+    branch.target = code.len() + 2
+    try! code.push(move branch)
+    try! code.push(instruction(Op.Panic))
+}
+
+func check_string(code: &var Vector<Instruction>, slots: &var Vector<ValueType>,
+                  strings: &var Vector<String>, actual: Int, expected: String) {
+    let pool_index = strings.len()
+    try! strings.push(expected)
+    let expected_slot = slots.len()
+    try! slots.push(ValueType.String)
+    emit(&var code, Op.StringConst, expected_slot, -1, -1, pool_index)
+    let equal_slot = slots.len()
+    try! slots.push(ValueType.Bool)
+    emit(&var code, Op.Eq, equal_slot, actual, expected_slot, 0)
+    var branch = instruction(Op.Branch)
+    branch.a = equal_slot
+    branch.target = code.len() + 2
+    try! code.push(move branch)
+    try! code.push(instruction(Op.Panic))
+}
+
+func contract_program() -> Program {
+    var strings = Vector<String>()
+    try! strings.push("a")
+    try! strings.push("b")
+    try! strings.push("c")
+    var refs = Vector<ReferenceIR>()
+    try! refs.push(ReferenceIR(target: ValueType.Builder, mutable: true))
+    let fields: Vector<String> = ["size", "align"]
+    let field_types: Vector<ValueType> = [ValueType.I64, ValueType.I64]
+    var records = Vector<RecordIR>()
+    try! records.push(RecordIR(name: "AllocError", field_names: move fields,
+        field_types: move field_types, line: 0, col: 0))
+    var sums = Vector<SumIR>()
+    try! sums.push(SumIR(kind: SumKind.Result, payload: ValueType.Void,
+        error: ValueType.Record(0)))
+
+    var slots: Vector<ValueType> = [ValueType.Builder, ValueType.Ref(0),
+        ValueType.String, ValueType.Bool, ValueType.I64, ValueType.I64,
+        ValueType.String, ValueType.String, ValueType.Bool, ValueType.I64, ValueType.I64,
+        ValueType.String, ValueType.String, ValueType.Bool, ValueType.I64, ValueType.I64,
+        ValueType.String, ValueType.Builder]
+    var code = Vector<Instruction>()
+    emit(&var code, Op.BuilderNew, 0, -1, -1, 0)
+    emit(&var code, Op.Addr, 1, 0, -1, 0)
+    emit(&var code, Op.StringConst, 2, -1, -1, 0)
+    emit(&var code, Op.BuilderAppendString, 3, 1, 2, 0)
+    check_word(&var code, &var slots, 3, 1, ValueType.Bool)
+    emit(&var code, Op.BuilderBuild, 6, 1, -1, 0)
+    check_string(&var code, &var slots, &var strings, 6, "a")
+
+    let empty_pool = strings.len()
+    try! strings.push("")
+    let empty_slot = slots.len()
+    try! slots.push(ValueType.String)
+    emit(&var code, Op.StringConst, empty_slot, -1, -1, empty_pool)
+    let empty_result = slots.len()
+    try! slots.push(ValueType.Bool)
+    try! slots.push(ValueType.I64)
+    try! slots.push(ValueType.I64)
+    emit(&var code, Op.BuilderAppendString, empty_result, 1, empty_slot, 0)
+    check_word(&var code, &var slots, empty_result, 1, ValueType.Bool)
+
+    emit(&var code, Op.StringConst, 7, -1, -1, 1)
+    emit(&var code, Op.BuilderAppendString, 8, 1, 7, 0)
+    check_word(&var code, &var slots, 8, 0, ValueType.Bool)
+    check_word(&var code, &var slots, 9, 18, ValueType.I64)
+    check_word(&var code, &var slots, 10, 8, ValueType.I64)
+    emit(&var code, Op.BuilderBuild, 11, 1, -1, 0)
+    check_string(&var code, &var slots, &var strings, 11, "a")
+
+    emit(&var code, Op.StringConst, 12, -1, -1, 2)
+    emit(&var code, Op.BuilderAppendString, 13, 1, 12, 0)
+    check_word(&var code, &var slots, 13, 1, ValueType.Bool)
+    check_word(&var code, &var slots, 14, 0, ValueType.I64)
+    check_word(&var code, &var slots, 15, 0, ValueType.I64)
+    emit(&var code, Op.BuilderBuild, 16, 1, -1, 0)
+    check_string(&var code, &var slots, &var strings, 16, "ac")
+    check_string(&var code, &var slots, &var strings, 6, "a")
+
+    let byte_slot = slots.len()
+    try! slots.push(ValueType.Byte)
+    emit(&var code, Op.Const, byte_slot, -1, -1, 255)
+    let byte_result = slots.len()
+    try! slots.push(ValueType.Bool)
+    try! slots.push(ValueType.I64)
+    try! slots.push(ValueType.I64)
+    emit(&var code, Op.BuilderAppendByte, byte_result, 1, byte_slot, 0)
+    check_word(&var code, &var slots, byte_result, 1, ValueType.Bool)
+
+    let int_slot = slots.len()
+    try! slots.push(ValueType.I64)
+    emit(&var code, Op.Const, int_slot, -1, -1, Int.min)
+    let int_result = slots.len()
+    try! slots.push(ValueType.Bool)
+    try! slots.push(ValueType.I64)
+    try! slots.push(ValueType.I64)
+    emit(&var code, Op.BuilderAppendInt, int_result, 1, int_slot, 0)
+    check_word(&var code, &var slots, int_result, 1, ValueType.Bool)
+
+    let scalar_slot = slots.len()
+    try! slots.push(ValueType.I64)
+    emit(&var code, Op.Const, scalar_slot, -1, -1, 0x1F600)
+    let scalar_result = slots.len()
+    try! slots.push(ValueType.Bool)
+    try! slots.push(ValueType.I64)
+    try! slots.push(ValueType.I64)
+    emit(&var code, Op.BuilderAppendScalar, scalar_result, 1, scalar_slot, 0)
+    check_word(&var code, &var slots, scalar_result, 1, ValueType.Bool)
+
+    let final_slot = slots.len()
+    try! slots.push(ValueType.String)
+    emit(&var code, Op.BuilderBuild, final_slot, 1, -1, 0)
+    var expected = StringBuilder()
+    try! expected.append("ac")
+    try! expected.append(Byte(255))
+    try! expected.append(Int.min)
+    try! expected.append(try! Scalar(value: 0x1F600))
+    check_string(&var code, &var slots, &var strings, final_slot, expected.build())
+
+    let forwarded_text = slots.len()
+    try! slots.push(ValueType.String)
+    let forwarded_pool = strings.len()
+    try! strings.push("z")
+    emit(&var code, Op.StringConst, forwarded_text, -1, -1, forwarded_pool)
+    var call = instruction(Op.Call)
+    call.target = 1
+    try! call.args.push(1)
+    try! call.args.push(forwarded_text)
+    try! code.push(move call)
+    let forwarded_snapshot = slots.len()
+    try! slots.push(ValueType.String)
+    emit(&var code, Op.BuilderBuild, forwarded_snapshot, 1, -1, 0)
+    var forwarded_expected = StringBuilder()
+    try! forwarded_expected.append(expected.build())
+    try! forwarded_expected.append("z")
+    check_string(&var code, &var slots, &var strings, forwarded_snapshot, forwarded_expected.build())
+    emit(&var code, Op.Drop, -1, 0, -1, 0)
+    emit(&var code, Op.Drop, -1, 0, -1, 0)
+    emit(&var code, Op.Drop, -1, 17, -1, 0)
+    try! code.push(instruction(Op.Return))
+
+    var functions = Vector<FuncIR>()
+    try! functions.push(FuncIR(name: "main", params: Vector<ValueType>(),
+        result: ValueType.Void, slots: move slots, code: move code))
+    var append_slots: Vector<ValueType> = [ValueType.Ref(0), ValueType.String,
+        ValueType.Bool, ValueType.I64, ValueType.I64]
+    var append_code = Vector<Instruction>()
+    emit(&var append_code, Op.BuilderAppendString, 2, 0, 1, 0)
+    check_word(&var append_code, &var append_slots, 2, 1, ValueType.Bool)
+    try! append_code.push(instruction(Op.Return))
+    let append_params: Vector<ValueType> = [ValueType.Ref(0), ValueType.String]
+    try! functions.push(FuncIR(name: "append_forwarded", params: move append_params,
+        result: ValueType.Void, slots: move append_slots, code: move append_code))
+    let program = Program(strings: move strings, references: move refs, enums: Vector<EnumIR>(),
+        records: move records, sums: move sums, functions: move functions,
+        main_index: 0, alloc_error_record: 0, builder_fail_after: 1)
+    try! verify(&program)
+    move program
+}
+
+func main() {
+    let program = contract_program()
+    let args = try! Env.args()
+    if args.len() == 2 && args[1] == "emit-llvm" {
+        print(try! llvm.emit_llvm(&program))
+        return
+    }
+    try! execute(&program, 1000)
+    print("builder VM contract passed")
+}

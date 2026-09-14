@@ -1,0 +1,2 @@
+extension StringBuilder { func extra(&self) {} }
+func main() {}

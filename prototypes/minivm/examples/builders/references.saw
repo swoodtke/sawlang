@@ -1,0 +1,20 @@
+func mutate(b: &var StringBuilder) {
+    try! b.append(s: "-mut")
+}
+
+func forward(b: &var StringBuilder) {
+    mutate(&var b)
+}
+
+func observe(b: &StringBuilder) {
+    print(b.build())
+}
+
+func main() {
+    var b = StringBuilder()
+    try! b.append(s: "start")
+    forward(&var b)
+    observe(&b)
+    try! b.append(s: "-shared")
+    observe(&b)
+}

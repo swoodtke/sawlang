@@ -1,5 +1,6 @@
 import src.model.*
 import src.string_runtime.*
+import src.builder_runtime.*
 import src.uint_parse_runtime.*
 
 func put(out: &var StringBuilder, text: String) {
@@ -402,6 +403,39 @@ func emit_division(out: &var StringBuilder, instruction_index: Int,
     temp_name(&var out, instruction_index, "b")
     put(&var out, "\n")
     store_temp(&var out, instruction_index, "v", inst.dst)
+    next_block(&var out, instruction_index)
+}
+
+func emit_builder_append(out: &var StringBuilder, function: &FuncIR,
+                         instruction_index: Int, inst: &Instruction,
+                         runtime_name: String) {
+    put(&var out, "  ")
+    load_ref_slot(&var out, instruction_index, "builder", inst.a)
+    put(&var out, "  ")
+    let pointer_argument = string_type(function.slots[inst.b])
+    if pointer_argument { load_ref_slot(&var out, instruction_index, "argument", inst.b) }
+    else { load_slot(&var out, instruction_index, "argument", inst.b) }
+    put(&var out, "  ")
+    temp_name(&var out, instruction_index, "append")
+    put(&var out, " = call \{i64, i64, i64\} @")
+    put(&var out, runtime_name)
+    put(&var out, "(ptr ")
+    temp_name(&var out, instruction_index, "builder")
+    put(&var out, if pointer_argument { ", ptr " } else { ", i64 " })
+    temp_name(&var out, instruction_index, "argument")
+    put(&var out, ")\n")
+    var word = 0
+    while word < 3 {
+        put(&var out, "  ")
+        temp_name(&var out, instruction_index, "appendword{word}")
+        put(&var out, " = extractvalue \{i64, i64, i64\} ")
+        temp_name(&var out, instruction_index, "append")
+        put(&var out, ", ")
+        put_int(&var out, word)
+        put(&var out, "\n")
+        store_temp(&var out, instruction_index, "appendword{word}", inst.dst + word)
+        word += 1
+    }
     next_block(&var out, instruction_index)
 }
 
@@ -820,6 +854,40 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
             store_temp(&var out, instruction_index, "value", inst.dst + 1)
             next_block(&var out, instruction_index)
         },
+        case BuilderNew -> {
+            put(&var out, "  ")
+            temp_name(&var out, instruction_index, "newbuilder")
+            put(&var out, " = call ptr @minivm_builder_new()\n")
+            assign_string_temp(&var out, instruction_index, "newbuilder", inst.dst, false)
+            next_block(&var out, instruction_index)
+        },
+        case BuilderBuild -> {
+            put(&var out, "  ")
+            load_ref_slot(&var out, instruction_index, "builder", inst.a)
+            put(&var out, "  ")
+            temp_name(&var out, instruction_index, "snapshot")
+            put(&var out, " = call ptr @minivm_builder_build(ptr ")
+            temp_name(&var out, instruction_index, "builder")
+            put(&var out, ")\n")
+            assign_string_temp(&var out, instruction_index, "snapshot", inst.dst, false)
+            next_block(&var out, instruction_index)
+        },
+        case BuilderAppendString -> {
+            emit_builder_append(&var out, &function, instruction_index, &inst,
+                                "minivm_builder_append_string")
+        },
+        case BuilderAppendByte -> {
+            emit_builder_append(&var out, &function, instruction_index, &inst,
+                                "minivm_builder_append_byte")
+        },
+        case BuilderAppendInt -> {
+            emit_builder_append(&var out, &function, instruction_index, &inst,
+                                "minivm_builder_append_int")
+        },
+        case BuilderAppendScalar -> {
+            emit_builder_append(&var out, &function, instruction_index, &inst,
+                                "minivm_builder_append_scalar")
+        },
         case Drop -> {
             put(&var out, "  ")
             load_ref_slot(&var out, instruction_index, "value", inst.a)
@@ -887,7 +955,7 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
             }
             var cleanup = 0
             while cleanup < function.slots.len() {
-                if string_type(function.slots[cleanup]) {
+                if owning_type(function.slots[cleanup]) {
                     put(&var out, "  ")
                     load_ref_slot(&var out, instruction_index, "cleanup{cleanup}", cleanup)
                     put(&var out, "  call void @minivm_string_release(ptr ")
@@ -993,7 +1061,7 @@ func emit_function(out: &var StringBuilder, program: &Program,
     }
     slot_index = 0
     while slot_index < function.slots.len() {
-        if string_type(function.slots[slot_index]) {
+        if owning_type(function.slots[slot_index]) {
             put(&var out, "  store ptr null, ptr ")
             slot_name(&var out, slot_index)
             put(&var out, "\n")
@@ -1058,6 +1126,7 @@ public func emit_llvm(program: &Program) -> Result<String, ProtoError> {
     put(&var out, "declare \{i64, i1\} @llvm.usub.with.overflow.i64(i64, i64)\n")
     put(&var out, "declare \{i64, i1\} @llvm.umul.with.overflow.i64(i64, i64)\n\n")
     emit_string_runtime(&var out)
+    emit_builder_runtime(&var out, program.builder_fail_after)
     emit_uint_parser(&var out)
     put(&var out, "define internal void @minivm_overflow() \{\nentry:\n  call i32 @puts(ptr @.overflow)\n  call void @exit(i32 1)\n  unreachable\n\}\n\n")
     put(&var out, "define internal void @minivm_divzero() \{\nentry:\n  call i32 @puts(ptr @.divzero)\n  call void @exit(i32 1)\n  unreachable\n\}\n\n")

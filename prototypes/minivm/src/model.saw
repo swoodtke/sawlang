@@ -1,7 +1,7 @@
 public enum ValueType {
     case I8, case I16, case I32, case I64,
     case U8, case U16, case U32, case U64, case Byte,
-    case Bool, case Void, case String, case Record(index: Int), case Enum(index: Int), case Ref(index: Int),
+    case Bool, case Void, case String, case Builder, case Record(index: Int), case Enum(index: Int), case Ref(index: Int),
     case Optional(index: Int), case Result(index: Int)
 }
 @synthesize
@@ -13,7 +13,9 @@ public enum Op {
     case Jump, case Branch, case Call, case Print, case Return, case Panic,
     case Cast, case Truncate, case WrapAdd, case WrapSub, case WrapMul,
     case Addr, case LoadRef, case StoreRef, case RefField,
-    case StringConst, case StringLen, case StringByteAt, case StringSlice, case StringToUInt, case Drop,
+    case StringConst, case StringLen, case StringByteAt, case StringSlice, case StringToUInt,
+    case BuilderNew, case BuilderBuild, case BuilderAppendString, case BuilderAppendByte,
+    case BuilderAppendInt, case BuilderAppendScalar, case Drop,
     case BitAnd, case BitOr, case BitXor, case BitNot, case Shl, case Shr
 }
 @synthesize
@@ -137,6 +139,8 @@ public struct Program {
     public sums: Vector<SumIR>
     public functions: Vector<FuncIR>
     public main_index: Int
+    public alloc_error_record: Int
+    public builder_fail_after: Int
 }
 
 public struct ReferenceIR {
@@ -186,6 +190,8 @@ public func printable_type(t: ValueType) -> Bool {
 }
 
 public func string_type(t: ValueType) -> Bool { t == ValueType.String }
+public func builder_type(t: ValueType) -> Bool { t == ValueType.Builder }
+public func owning_type(t: ValueType) -> Bool { string_type(t) || builder_type(t) }
 
 public func scalar_type(t: ValueType) -> Bool {
     match t {
@@ -271,7 +277,7 @@ public func reference_transfer(refs: &Vector<ReferenceIR>, source: ValueType, ta
 public func validate_references(refs: &Vector<ReferenceIR>) -> Result<Void, ProtoError> {
     var n = 0
     while n < refs.len() {
-        if not scalar_type(refs[n].target) && not string_type(refs[n].target) {
+        if not scalar_type(refs[n].target) && not string_type(refs[n].target) && not builder_type(refs[n].target) {
             match refs[n].target {
                 case Record(_) -> {},
                 case Optional(_) -> {},
@@ -311,6 +317,7 @@ public func validate_enums(enums: &Vector<EnumIR>) -> Result<Void, ProtoError> {
 func append_layout(records: &Vector<RecordIR>, sums: &Vector<SumIR>, t: ValueType,
                    record_path: &var Vector<Int>, sum_path: &var Vector<Int>, depth: Int,
                    words: &var Vector<ValueType>) -> Result<Void, ProtoError> {
+    if builder_type(t) { return problem("StringBuilder cannot be stored in an aggregate", 0, 0) }
     if scalar_type(t) || string_type(t) {
         if words.len() >= 256 { return problem("record layout exceeds 256 words", 0, 0) }
         try! words.push(t)
@@ -385,7 +392,7 @@ func append_layout(records: &Vector<RecordIR>, sums: &Vector<SumIR>, t: ValueTyp
 
 public func value_layout(records: &Vector<RecordIR>, sums: &Vector<SumIR>, t: ValueType) -> Result<Vector<ValueType>, ProtoError> {
     var words = Vector<ValueType>()
-    if reference_type(t) || string_type(t) {
+    if reference_type(t) || string_type(t) || builder_type(t) {
         try! words.push(t)
         return move words
     }

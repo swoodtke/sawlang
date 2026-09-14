@@ -56,7 +56,8 @@ func base_program() -> Program {
     try! functions.push(FuncIR(name: "echo", params: move echo_params, result: ValueType.Optional(0),
         slots: move echo_slots, code: move echo_code))
     let strings: Vector<String> = ["some"]
-    Program(strings: move strings, references: move references, enums: Vector<EnumIR>(),
+    Program(alloc_error_record: -1, builder_fail_after: -1,
+        strings: move strings, references: move references, enums: Vector<EnumIR>(),
         records: move records, sums: move sums, functions: move functions, main_index: 0)
 }
 

@@ -1,0 +1,16 @@
+func main() {
+    var b = StringBuilder()
+    print(b.build())
+    try! b.append(s: "a")
+    let first = b.build()
+    print(first)
+    try! b.append(s: "b")
+    let second = b.build()
+    print(second)
+    print(first)
+    try! b.append(s: "!")
+    print(second)
+    var other: StringBuilder = StringBuilder()
+    try! other.append(s: "other")
+    print(other.build())
+}

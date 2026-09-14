@@ -125,6 +125,13 @@ either type. `InvalidScalar` cases and formatting are intentionally deferred;
 Result matching can currently observe and forward only the opaque error value.
 See [M13_SCALAR.md](M13_SCALAR.md).
 
+Local `StringBuilder()` values support String, Byte, Int and Scalar append,
+shared `build()` snapshots, and shared/mutable reference forwarding. Append
+returns `Result<Void, AllocError>`; `AllocError` has public Int `size` and `align`
+fields. Builders cannot yet be copied, reassigned, returned by value or stored
+in aggregates. Append preserves previous snapshots and leaves content unchanged
+on allocation failure. See [M14_STRING_BUILDER.md](M14_STRING_BUILDER.md).
+
 The VM defaults to a shared budget of 1,000,000 instructions and a maximum call
 depth of 128. Override the budget with `run FILE --budget N`. These limits apply
 only to VM execution; native code uses the host call stack and has no budget.
@@ -137,21 +144,23 @@ python prototypes/minivm/test_minivm.py --binary .build/minivm/minivm
 
 The harness compares VM execution and clang-compiled IR with explicit expected
 outputs and statuses, checks rejected programs, and exercises VM limits. It
-uses temporary files and 30-second execution timeouts. The first thirteen milestones
-cover 369 cases, including native execution at both `-O0` and `-O2`.
+uses temporary files and 30-second execution timeouts. The first fourteen milestones
+cover 394 cases, including native execution at both `-O0` and `-O2`.
 
 Independent representation checks live in `tests/numeric_contract.saw`,
 `tests/record_contract.saw`, `tests/enum_contract.saw`,
 `tests/reference_contract.saw`, `tests/receiver_contract.saw`,
 `tests/string_contract.saw`, `tests/owning_record_contract.saw`,
 `tests/optional_contract.saw`, `tests/result_contract.saw`,
-`tests/uint_parse_contract.saw`, and `tests/scalar_contract.saw`; build and run them
+`tests/uint_parse_contract.saw`, `tests/scalar_contract.saw`,
+`tests/builder_contract.saw`, `tests/builder_vm_contract.saw`, and
+`tests/builder_source_contract.saw`; build and run them
 with the Python compiler.
 Use `--section numbers`, `--section records`, `--section control`, or
 `--section enums`, `--section values`, `--section references`, or
 `--section receivers`, `--section strings`, `--section owning_records` or
 `--section optionals`, `--section results`, `--section unsigned_parse`, or
-`--section scalars` for an isolated
+`--section scalars`, or `--section builders` for an isolated
 integration gate.
 
 To run the initial SL-260 shared-subset differential as well:

@@ -1,0 +1,58 @@
+static B_TAB: Int = 9
+static B_NL: Int = 10
+static B_CR: Int = 13
+static B_SPACE: Int = 32
+static B_BACKSLASH: Int = 92
+static B_DEL: Int = 127
+
+func ubyte(s: &String, i: Int) -> Int {
+    if i < 0 || i >= s.len() {
+        return -1
+    }
+    s.byte_at(i) as Int
+}
+
+func to_byte(u: Int) -> Byte {
+    Byte(UInt8.from(truncating: u))
+}
+
+func hex_digit(n: Int) -> String { "0123456789abcdef".substring(n, n + 1) }
+
+func char_str(u: Int) -> String {
+    var sb = StringBuilder()
+    try! sb.append(to_byte(u))
+    sb.build()
+}
+
+public func escape_text(s: String) -> String {
+    var out = StringBuilder()
+    let n = s.len()
+    var i = 0
+    while i < n {
+        let u = ubyte(&s, i)
+        if u == B_BACKSLASH { try! out.append("\\\\") }
+        else if u == B_NL { try! out.append("\\n") }
+        else if u == B_TAB { try! out.append("\\t") }
+        else if u == B_CR { try! out.append("\\r") }
+        else if u == 0 { try! out.append("\\0") }
+        else if u < B_SPACE || u == B_DEL {
+            try! out.append("\\x")
+            try! out.append(hex_digit(u / 16))
+            try! out.append(hex_digit(u % 16))
+        }
+        else { try! out.append(to_byte(u)) }
+        i = i + 1
+    }
+    out.build()
+}
+
+func main() {
+    print(char_str(65).byte_at(0))
+    print(char_str(255).byte_at(0))
+    var raw = StringBuilder()
+    try! raw.append("A\\\\\n\t\r\0")
+    try! raw.append(to_byte(1))
+    try! raw.append(to_byte(127))
+    try! raw.append("é")
+    print(escape_text(raw.build()))
+}

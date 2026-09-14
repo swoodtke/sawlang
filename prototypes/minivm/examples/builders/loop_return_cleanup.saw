@@ -1,0 +1,19 @@
+func early(flag: Bool) -> String {
+    var b = StringBuilder()
+    try! b.append(s: "early")
+    if flag { return b.build() }
+    "late"
+}
+
+func main() {
+    var out = StringBuilder()
+    var i = 0
+    while i < 5 {
+        var part = StringBuilder()
+        try! part.append(value: i)
+        try! out.append(s: part.build())
+        i += 1
+    }
+    print(out.build())
+    print(early(true))
+}

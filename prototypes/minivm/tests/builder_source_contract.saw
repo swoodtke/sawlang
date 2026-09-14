@@ -1,0 +1,24 @@
+import src.model.*
+import src.frontend.*
+import src.verify.*
+import src.vm.*
+import src.llvm
+import std.env.{Env}
+
+func contract_program() -> Program {
+    let source = "func make(text: String) -> Result<String, AllocError> \{\n    if false \{\n        var dormant = StringBuilder()\n        try dormant.append(\"never\")\n    \}\n    var builder = StringBuilder()\n    try builder.append(text)\n    builder.build()\n\}\n\nfunc main() \{\n    match make(\"first\") \{\n        case Ok(_) -> \{ print(\"unexpected success\") \},\n        case Err(error) -> \{\n            print(error.size)\n            print(error.align)\n        \}\n    \}\n    match make(\"ok\") \{\n        case Ok(value) -> \{ print(value) \},\n        case Err(_) -> \{ print(\"unexpected failure\") \}\n    \}\n\}\n"
+    var program = try! compile_source(source)
+    program.builder_fail_after = 0
+    try! verify(&program)
+    move program
+}
+
+func main() {
+    let program = contract_program()
+    let args = try! Env.args()
+    if args.len() == 2 && args[1] == "emit-llvm" {
+        print(try! llvm.emit_llvm(&program))
+        return
+    }
+    try! execute(&program, 1000)
+}

@@ -1,0 +1,2 @@
+func take(b: StringBuilder?) {}
+func main() {}

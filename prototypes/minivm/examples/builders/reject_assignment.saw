@@ -1,0 +1,3 @@
+func main() { var a = StringBuilder()
+var b = StringBuilder()
+a = b }

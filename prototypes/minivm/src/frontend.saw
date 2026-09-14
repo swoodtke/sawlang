@@ -92,7 +92,7 @@ func type_name(t: ValueType) -> String {
     match t {
         case I8 -> "Int8", case I16 -> "Int16", case I32 -> "Int32", case I64 -> "Int",
         case U8 -> "UInt8", case U16 -> "UInt16", case U32 -> "UInt32", case U64 -> "UInt",
-        case Byte -> "Byte", case Bool -> "Bool", case String -> "String", case Void -> "Void",
+        case Byte -> "Byte", case Bool -> "Bool", case String -> "String", case Builder -> "StringBuilder", case Void -> "Void",
         case Record(_) -> "record", case Enum(_) -> "enum", case Ref(_) -> "reference",
         case Optional(_) -> "Optional", case Result(_) -> "Result"
     }
@@ -150,6 +150,7 @@ struct Compiler {
     current_result: ValueType
     scalar_record: Int
     invalid_scalar_record: Int
+    alloc_error_record: Int
 }
 extension Compiler: NoCopy {}
 
@@ -210,7 +211,7 @@ extension Compiler {
             if reference_type(target) { return problem("references to references are not supported", amp.line, amp.col) }
             var supported = scalar_type(target)
             match target { case Record(_) -> { supported = true }, case _ -> {} }
-            if target == ValueType.String { supported = true }
+            if target == ValueType.String || target == ValueType.Builder { supported = true }
             match target { case Optional(_) -> { supported = true }, case _ -> {} }
             match target { case Result(_) -> { supported = true }, case _ -> {} }
             if not supported { return problem("only data references are supported", amp.line, amp.col) }
@@ -228,11 +229,15 @@ extension Compiler {
             if reference_type(success) || reference_type(error) {
                 return problem("Result reference payloads are not supported", t.line, t.col)
             }
+            if success == ValueType.Builder || error == ValueType.Builder {
+                return problem("StringBuilder cannot be stored in Result", t.line, t.col)
+            }
             ty = self.intern_result(success, error)
         }
         else if t.value == "Void" { ty = ValueType.Void }
         else if t.value == "Bool" { ty = ValueType.Bool }
         else if t.value == "String" { ty = ValueType.String }
+        else if t.value == "StringBuilder" { ty = ValueType.Builder }
         else if let integer = named_integer_type(t.value) { ty = integer }
         else {
             let ri = self.record_index(t.value)
@@ -252,6 +257,7 @@ extension Compiler {
                 if nesting >= 128 { return problem("Optional nesting limit exceeded", suffix.line, suffix.col) }
                 if ty == ValueType.Void { return problem("Optional<Void> is not supported", suffix.line, suffix.col) }
                 if reference_type(ty) { return problem("Optional reference payloads are not supported", suffix.line, suffix.col) }
+                if ty == ValueType.Builder { return problem("StringBuilder cannot be stored in Optional", suffix.line, suffix.col) }
                 ty = self.intern_optional(ty)
                 nesting += 1
                 n += 1
@@ -360,7 +366,7 @@ extension Compiler {
     }
 
     func reserved_type_name(&self, name: String) -> Bool {
-        if name == "Bool" || name == "String" || name == "Void" || name == "Scalar" || name == "InvalidScalar" { return true }
+        if name == "Bool" || name == "String" || name == "StringBuilder" || name == "Void" || name == "Scalar" || name == "InvalidScalar" || name == "AllocError" { return true }
         if let _ = named_integer_type(name) { return true }
         false
     }
@@ -440,6 +446,9 @@ extension Compiler {
         let extension_token = self.take()
         let target = try self.expect(TokenKind.Ident, "expected extension target")
         let owner = self.record_index(target.value)
+        if target.value == "StringBuilder" || target.value == "AllocError" {
+            return problem("builtin type `{target.value}` cannot be extended", target.line, target.col)
+        }
         if owner < 0 { return problem("extension target must be a known record", target.line, target.col) }
         if owner == self.scalar_record || owner == self.invalid_scalar_record {
             return problem("builtin record `{target.value}` cannot be extended", target.line, target.col)
@@ -486,6 +495,7 @@ extension Compiler {
                     let _ = try self.expect(TokenKind.Colon, "expected `:` after parameter name")
                     let pt = try self.parse_type()
                     if pt == ValueType.Void { return problem("parameter cannot have Void type", pn.line, pn.col) }
+                    if pt == ValueType.Builder { return problem("StringBuilder parameters must be references", pn.line, pn.col) }
                     try! pnames.push(pn.value)
                     try! ptypes.push(pt)
                     self.skip_newlines()
@@ -501,6 +511,7 @@ extension Compiler {
                 let _ = self.take()
                 result = try self.parse_type()
                 if reference_type(result) { return problem("reference results are not supported", method.line, method.col) }
+                if result == ValueType.Builder { return problem("StringBuilder cannot be returned by value", method.line, method.col) }
             }
             let _ = try self.expect(TokenKind.LBrace, "expected method body")
             let start = self.pos
@@ -582,6 +593,7 @@ extension Compiler {
                     self.skip_newlines()
                     let pt = try self.parse_type()
                     if pt == ValueType.Void { return problem("parameter cannot have Void type", pn.line, pn.col) }
+                    if pt == ValueType.Builder { return problem("StringBuilder parameters must be references", pn.line, pn.col) }
                     try! pnames.push(pn.value)
                     try! ptypes.push(pt)
                     self.skip_newlines()
@@ -597,6 +609,7 @@ extension Compiler {
                 let _ = self.take()
                 result = try self.parse_type()
                 if reference_type(result) { return problem("reference results are not supported", name.line, name.col) }
+                if result == ValueType.Builder { return problem("StringBuilder cannot be returned by value", name.line, name.col) }
             }
             let _ = try self.expect(TokenKind.LBrace, "expected function body")
             let start = self.pos
@@ -745,6 +758,7 @@ extension Compiler {
             let ty = try self.parse_type()
             if ty == ValueType.Void { return problem("record field cannot have Void type", field.line, field.col) }
             if reference_type(ty) { return problem("reference record fields are not supported", field.line, field.col) }
+            if ty == ValueType.Builder { return problem("StringBuilder cannot be stored in a record", field.line, field.col) }
             try! names.push(field.value)
             try! types.push(ty)
             if self.at(TokenKind.Comma) {
@@ -793,7 +807,7 @@ extension Compiler {
     func new_slot(&var self, ty: ValueType) -> Int {
         let n = self.slots.len()
         try! self.slots.push(ty)
-        if ty == ValueType.String { try! self.string_slots.push(StringSlot(slot: n, depth: self.scope_depth)) }
+        if owning_type(ty) { try! self.string_slots.push(StringSlot(slot: n, depth: self.scope_depth)) }
         n
     }
 
@@ -811,6 +825,7 @@ extension Compiler {
     func emit_copy_value(&var self, dst: Int, src: Int, ty: ValueType,
                          t: &Token) -> Result<Void, ProtoError> {
         if dst == src { return }
+        if ty == ValueType.Builder { return problem("StringBuilder values cannot be copied", t.line, t.col) }
         let layout = try value_layout(&self.records, &self.sums, ty)
         if layout.len() > 1 {
             let temporary = try self.new_value(ty)
@@ -842,6 +857,7 @@ extension Compiler {
 
     func snapshot(&var self, value: ExprValue, t: &Token) -> Result<ExprValue, ProtoError> {
         if value.ty == ValueType.Void { return value }
+        if value.ty == ValueType.Builder { return problem("StringBuilder values cannot be copied", t.line, t.col) }
         let dst = try self.new_value(value.ty)
         try self.emit_copy_value(dst, value.slot, value.ty, &t)
         expr_value(value.ty, dst, value.call)
@@ -947,6 +963,7 @@ extension Compiler {
 
     func read_place(&var self, place: Place, t: &Token) -> Result<ExprValue, ProtoError> {
         try self.check_read(place.root, &t)
+        if place.ty == ValueType.Builder { return problem("StringBuilder values cannot be copied", t.line, t.col) }
         if place.indirect {
             let dst = try self.new_value(place.ty)
             let at = self.emit_at(Op.LoadRef, t.line, t.col)
@@ -959,6 +976,7 @@ extension Compiler {
 
     func store_place(&var self, place: Place, value: ExprValue,
                      t: &Token) -> Result<Void, ProtoError> {
+        if place.ty == ValueType.Builder { return problem("StringBuilder values cannot be assigned", t.line, t.col) }
         if place.indirect {
             let at = self.emit_at(Op.StoreRef, t.line, t.col)
             self.code[at].a = place.slot
@@ -1156,6 +1174,9 @@ extension Compiler {
     }
 
     func transfer(&var self, v: ExprValue, target: ValueType, t: &Token) -> Result<ExprValue, ProtoError> {
+        if v.ty == ValueType.Builder || target == ValueType.Builder {
+            return problem("StringBuilder values cannot be copied", t.line, t.col)
+        }
         if v.none_literal {
             match target {
                 case Optional(_) -> { return self.initialize_optional_none(target, &t) },
@@ -1335,6 +1356,7 @@ extension Compiler {
                         let receiver = try self.read_place(place, &candidate)
                         return self.parse_string_intrinsic(receiver, method)
                     }
+                    if place.ty == ValueType.Builder { return self.parse_builder_method(place, method) }
                     let owner = match place.ty { case Record(index) -> index, case _ -> -1 }
                     if owner < 0 { return problem("method receiver must be a record place", dot.line, dot.col) }
                     if owner == self.scalar_record {
@@ -1362,6 +1384,7 @@ extension Compiler {
         }
         if self.at(TokenKind.Ident) {
             let name = self.take()
+            if name.value == "StringBuilder" && self.at(TokenKind.LParen) { return self.parse_builder_constructor(name) }
             let ei = self.enum_index(name.value)
             if ei >= 0 && self.at(TokenKind.Dot) {
                 let _ = self.take()
@@ -1520,6 +1543,111 @@ extension Compiler {
             }
         }
         (name, place)
+    }
+
+    func builder_result_type(&var self) -> ValueType {
+        self.intern_result(ValueType.Void, ValueType.Record(self.alloc_error_record))
+    }
+
+    func parse_builder_constructor(&var self, name: Token) -> Result<ExprValue, ProtoError> {
+        let _ = try self.expect(TokenKind.LParen, "expected `(` after StringBuilder")
+        self.depth += 1
+        self.paren_depth += 1
+        self.skip_newlines()
+        if not self.at(TokenKind.RParen) { return problem("StringBuilder constructor accepts no arguments", name.line, name.col) }
+        let _ = self.take()
+        self.paren_depth -= 1
+        self.depth -= 1
+        let dst = self.new_slot(ValueType.Builder)
+        let at = self.emit_at(Op.BuilderNew, name.line, name.col)
+        self.code[at].dst = dst
+        expr_value(ValueType.Builder, dst, true)
+    }
+
+    func parse_builder_method(&var self, receiver: Place, name: Token) -> Result<ExprValue, ProtoError> {
+        let saved_borrows = self.active_borrows.len()
+        let mutable = name.value == "append"
+        if name.value != "append" && name.value != "build" { return problem("StringBuilder has no method `{name.value}`", name.line, name.col) }
+        if mutable && not receiver.mutable { return problem("cannot call a mutating method on an immutable receiver", name.line, name.col) }
+        try self.register_borrow(&receiver, mutable, &name)
+        let ref_ty = self.intern_reference(ValueType.Builder, mutable)
+        let receiver_slot = self.new_slot(ref_ty)
+        if receiver.indirect {
+            if not reference_transfer(&self.references, receiver.ref_ty, ref_ty) { return problem("receiver reference mutability does not match method", name.line, name.col) }
+            let copy = self.emit_at(Op.Copy, name.line, name.col)
+            self.code[copy].dst = receiver_slot
+            self.code[copy].a = receiver.slot
+        } else {
+            let addr = self.emit_at(Op.Addr, name.line, name.col)
+            self.code[addr].dst = receiver_slot
+            self.code[addr].a = receiver.slot
+        }
+        let _ = try self.expect(TokenKind.LParen, "expected `(` after StringBuilder method")
+        self.depth += 1
+        self.paren_depth += 1
+        self.skip_newlines()
+        if name.value == "build" {
+            if not self.at(TokenKind.RParen) { return problem("StringBuilder.build accepts no arguments", name.line, name.col) }
+            let _ = self.take()
+            self.paren_depth -= 1
+            self.depth -= 1
+            let dst = self.new_slot(ValueType.String)
+            let at = self.emit_at(Op.BuilderBuild, name.line, name.col)
+            self.code[at].dst = dst
+            self.code[at].a = receiver_slot
+            self.restore_borrows(saved_borrows)
+            return expr_value(ValueType.String, dst, true)
+        }
+        if self.at(TokenKind.RParen) { return problem("StringBuilder.append requires exactly one argument", name.line, name.col) }
+        var supplied_label: String? = None
+        var label_token = name
+        if self.at(TokenKind.Ident) && self.pos + 1 < self.tokens.len() && self.tokens[self.pos + 1].kind == TokenKind.Colon {
+            label_token = self.take()
+            supplied_label = Some(label_token.value)
+            let _ = self.take()
+            self.expr_space()
+        }
+        var argument = try self.parse_expr()
+        if argument.always_returns { return problem("all-returning control flow cannot be used as an operand", name.line, name.col) }
+        var expected_label = ""
+        var op = Op.BuilderAppendString
+        if argument.ty == ValueType.String { expected_label = "s" }
+        else if argument.ty == ValueType.Byte {
+            expected_label = "b"
+            op = Op.BuilderAppendByte
+        }
+        else if argument.ty == ValueType.I64 {
+            expected_label = "value"
+            op = Op.BuilderAppendInt
+        }
+        else {
+            match argument.ty {
+                case Record(index) -> {
+                    if index != self.scalar_record { return problem("StringBuilder.append argument must be String, Byte, Int, or Scalar", name.line, name.col) }
+                    expected_label = "scalar"
+                    op = Op.BuilderAppendScalar
+                },
+                case _ -> { return problem("StringBuilder.append argument must be String, Byte, Int, or Scalar", name.line, name.col) }
+            }
+        }
+        if let label = supplied_label {
+            if label != expected_label { return problem("argument label `{label}` does not match parameter `{expected_label}`", label_token.line, label_token.col) }
+        }
+        argument = try self.snapshot(argument, &name)
+        self.skip_newlines()
+        if self.at(TokenKind.Comma) { return problem("StringBuilder.append requires exactly one argument", name.line, name.col) }
+        let _ = try self.expect(TokenKind.RParen, "StringBuilder.append requires exactly one argument")
+        self.paren_depth -= 1
+        self.depth -= 1
+        let result_ty = self.builder_result_type()
+        let dst = try self.new_value(result_ty)
+        let at = self.emit_at(op, name.line, name.col)
+        self.code[at].dst = dst
+        self.code[at].a = receiver_slot
+        self.code[at].b = argument.slot
+        match result_ty { case Result(index) -> { self.code[at].immediate = index }, case _ -> {} }
+        self.restore_borrows(saved_borrows)
+        expr_value(result_ty, dst, true)
     }
 
     func parse_primary(&var self) -> Result<ExprValue, ProtoError> {
@@ -3447,12 +3575,20 @@ extension Compiler {
                 if reference_type(local_type) { return problem("reference locals are not supported", name.line, name.col) }
             }
             let _ = try self.expect(TokenKind.Assign, "local declarations require an initializer")
-            var value = if let ty = annotated { try self.parse_expected_expr(ty) } else { try self.parse_expr() }
+            var value = if let ty = annotated {
+                if ty == ValueType.Builder { try self.parse_expr() } else { try self.parse_expected_expr(ty) }
+            } else { try self.parse_expr() }
             if value.always_returns { return problem("all-returning control flow cannot be used as an operand", name.line, name.col) }
             if value.none_literal { return problem("None requires an expected Optional type", name.line, name.col) }
             if value.ty == ValueType.Void { return problem("cannot initialize a local with Void", name.line, name.col) }
             if reference_type(value.ty) { return problem("reference locals are not supported", name.line, name.col) }
-            if let _ = annotated {} else { value = try self.transfer(value, value.ty, &name) }
+            if let ty = annotated {
+                if value.ty != ty { return problem("cannot implicitly convert {self.display_type(value.ty)} to {self.display_type(ty)}", name.line, name.col) }
+            } else if value.ty != ValueType.Builder { value = try self.transfer(value, value.ty, &name) }
+            if value.ty == ValueType.Builder {
+                try self.declare(name, value.ty, value.slot, kw.kind == TokenKind.Var)
+                return false
+            }
             let dst = try self.new_value(value.ty)
             try self.emit_copy_value(dst, value.slot, value.ty, &name)
             try self.declare(name, value.ty, dst, kw.kind == TokenKind.Var)
@@ -3562,6 +3698,7 @@ extension Compiler {
             let name = parsed.0
             let place = parsed.1
             let assign = self.take()
+            if place.ty == ValueType.Builder { return problem("StringBuilder values cannot be assigned", assign.line, assign.col) }
             if not place.mutable {
                 if place.indirect { return problem("cannot assign through a shared reference", name.line, name.col) }
                 return problem("cannot assign to immutable local `{name.value}`", name.line, name.col)
@@ -3706,6 +3843,10 @@ public func compile_source(source: String) -> Result<Program, ProtoError> {
     let invalid_types: Vector<ValueType> = [ValueType.I64, ValueType.I64]
     try! records.push(RecordIR(name: "InvalidScalar", field_names: move invalid_fields,
                                field_types: move invalid_types, line: 0, col: 0))
+    let alloc_fields: Vector<String> = ["size", "align"]
+    let alloc_types: Vector<ValueType> = [ValueType.I64, ValueType.I64]
+    try! records.push(RecordIR(name: "AllocError", field_names: move alloc_fields,
+                               field_types: move alloc_types, line: 0, col: 0))
     var compiler = Compiler(source: source, tokens: move tokens, records: move records, enums: Vector<EnumIR>(),
                             references: Vector<ReferenceIR>(), sums: Vector<SumIR>(), strings: Vector<String>(), statics: Vector<StaticBinding>(),
                             signatures: Vector<Signature>(), pos: 0, depth: 0, scope_depth: 0,
@@ -3714,7 +3855,7 @@ public func compile_source(source: String) -> Result<Program, ProtoError> {
                             string_slots: Vector<StringSlot>(),
                             slots: Vector<ValueType>(),
                             code: Vector<Instruction>(), current_result: ValueType.Void,
-                            scalar_record: 0, invalid_scalar_record: 1)
+                            scalar_record: 0, invalid_scalar_record: 1, alloc_error_record: 2)
     try compiler.collect_record_names()
     try compiler.scan_signatures()
     try validate_records(&compiler.records, &compiler.sums)
@@ -3731,5 +3872,6 @@ public func compile_source(source: String) -> Result<Program, ProtoError> {
     }
     Program(enums: compiler.enums.copy(), records: compiler.records.copy(), references: compiler.references.copy(), sums: compiler.sums.copy(),
             strings: compiler.strings.copy(),
-            functions: move functions, main_index: main_index)
+            functions: move functions, main_index: main_index,
+            alloc_error_record: compiler.alloc_error_record, builder_fail_after: -1)
 }

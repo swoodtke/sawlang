@@ -1,0 +1,2 @@
+func main() { var b = StringBuilder()
+try! b.append() }

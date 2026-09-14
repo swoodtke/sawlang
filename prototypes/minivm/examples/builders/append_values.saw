@@ -1,0 +1,27 @@
+func byte_oracle(s: String) {
+    var i = 0
+    while i < s.len() {
+        print(s.byte_at(index: i))
+        i += 1
+    }
+}
+
+func main() {
+    var b = StringBuilder()
+    try! b.append(s: "x\0")
+    try! b.append(b: Byte(0xFFu8))
+    try! b.append(value: Int.min)
+    try! b.append(value: 0)
+    byte_oracle(b.build())
+
+    var scalars = StringBuilder()
+    try! scalars.append(scalar: try! Scalar(value: 0x7F))
+    try! scalars.append(scalar: try! Scalar(value: 0x80))
+    try! scalars.append(scalar: try! Scalar(value: 0x7FF))
+    try! scalars.append(scalar: try! Scalar(value: 0x800))
+    try! scalars.append(scalar: try! Scalar(value: 0xD7FF))
+    try! scalars.append(scalar: try! Scalar(value: 0xE000))
+    try! scalars.append(scalar: try! Scalar(value: 0xFFFF))
+    try! scalars.append(scalar: try! Scalar(value: 0x10FFFF))
+    byte_oracle(scalars.build())
+}

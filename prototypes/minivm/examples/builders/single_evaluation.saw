@@ -1,0 +1,10 @@
+func argument() -> String {
+    print("arg")
+    "one"
+}
+
+func main() {
+    var b = StringBuilder()
+    try! b.append(s: argument())
+    print(b.build())
+}

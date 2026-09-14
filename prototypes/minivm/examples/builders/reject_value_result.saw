@@ -1,0 +1,2 @@
+func make() -> StringBuilder { StringBuilder() }
+func main() {}

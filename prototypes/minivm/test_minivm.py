@@ -39,6 +39,13 @@ class RejectCase:
 
 
 RUN_CASES = (
+    RunCase("builders/snapshots", "\na\nab\na\nab\nother\n", section="builders", compare_sawc=True),
+    RunCase("builders/append_values", "120\n0\n255\n45\n57\n50\n50\n51\n51\n55\n50\n48\n51\n54\n56\n53\n52\n55\n55\n53\n56\n48\n56\n48\n127\n194\n128\n223\n191\n224\n160\n128\n237\n159\n191\n238\n128\n128\n239\n191\n191\n244\n143\n191\n191\n", section="builders", compare_sawc=True),
+    RunCase("builders/references", "start-mut\nstart-mut-shared\n", section="builders", compare_sawc=True),
+    RunCase("builders/single_evaluation", "arg\none\n", section="builders", compare_sawc=True),
+    RunCase("builders/loop_return_cleanup", "01234\nearly\n", section="builders", compare_sawc=True),
+    RunCase("builders/result_alloc_error", "ok\n3\n8\n", section="builders"),
+    RunCase("builders/lexer_helpers", "65\n255\nA" + "\\" * 4 + r"\n\t\r\0\x01\x7f" + "é\n", section="builders", compare_sawc=True),
     RunCase("scalars/boundaries", "0\n127\n128\n2047\n2048\n55295\n57344\n65535\n65536\n1114111\n", section="scalars", compare_sawc=True),
     RunCase("scalars/invalid", "invalid\n" * 6, section="scalars", compare_sawc=True),
     RunCase("scalars/composition", "1\n1\n1114111\n1\n1114111\nerror\n", section="scalars", compare_sawc=True),
@@ -232,6 +239,24 @@ RUN_CASES = (
 )
 
 REJECT_CASES = (
+    RejectCase("builders/reject_copy", "StringBuilder values cannot be copied", "builders", True),
+    RejectCase("builders/reject_assignment", "StringBuilder values cannot be assigned", "builders"),
+    RejectCase("builders/reject_value_parameter", "StringBuilder parameters must be references", "builders"),
+    RejectCase("builders/reject_value_result", "StringBuilder cannot be returned by value", "builders"),
+    RejectCase("builders/reject_record_field", "StringBuilder cannot be stored in a record", "builders"),
+    RejectCase("builders/reject_optional", "StringBuilder cannot be stored in Optional", "builders"),
+    RejectCase("builders/reject_result", "StringBuilder cannot be stored in Result", "builders"),
+    RejectCase("builders/reject_static", "static type must be an integer or Bool", "builders", True),
+    RejectCase("builders/reject_extension", "cannot be extended", "builders"),
+    RejectCase("builders/reject_constructor_arity", "constructor accepts no arguments", "builders", True),
+    RejectCase("builders/reject_temporary_receiver", "method calls require a named place receiver", "builders"),
+    RejectCase("builders/reject_shared_append", "cannot call a mutating method on an immutable receiver", "builders", True),
+    RejectCase("builders/reject_append_label", "argument label", "builders", True),
+    RejectCase("builders/reject_append_type", "argument must be String, Byte, Int, or Scalar", "builders", True),
+    RejectCase("builders/reject_append_arity", "requires exactly one argument", "builders", True),
+    RejectCase("builders/reject_nested_receiver", "overlapping arguments cannot include a mutable borrow", "builders"),
+    RejectCase("builders/reject_builtin_alloc_error", "reserved", "builders", True),
+    RejectCase("builders/reject_value_control", "StringBuilder values cannot be copied", "builders"),
     RejectCase("scalars/reject_raw_scalar", "argument label must be `value`", "scalars"),
     RejectCase("scalars/reject_raw_invalid", "cannot be constructed directly", "scalars"),
     RejectCase("scalars/reject_field_read", "fields are private", "scalars"),
@@ -542,7 +567,7 @@ def main() -> int:
     parser.add_argument("--sawc-python", default=sys.executable,
                         help="Python interpreter with sawc dependencies (default: this interpreter)")
     parser.add_argument(
-        "--section", choices=("all", "core", "numbers", "records", "control", "enums", "values", "references", "receivers", "strings", "owning_records", "optionals", "results", "unsigned_parse", "scalars"), default="all",
+        "--section", choices=("all", "core", "numbers", "records", "control", "enums", "values", "references", "receivers", "strings", "owning_records", "optionals", "results", "unsigned_parse", "scalars", "builders"), default="all",
         help="run all cases or one isolated test section",
     )
     args = parser.parse_args()

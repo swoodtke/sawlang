@@ -47,6 +47,108 @@ func string_allocate(heap: &var Vector<StringEntry>, value: String) -> Result<In
     heap.len()
 }
 
+func builder_entry(heap: &Vector<StringEntry>, handle: Int) -> Result<Int, ProtoError> {
+    if handle <= 0 { return runtime_error("runtime error: invalid builder handle") }
+    let index = handle - 1
+    if index >= heap.len() || heap[index].refs <= 0 {
+        return runtime_error("runtime error: invalid builder handle")
+    }
+    index
+}
+
+func builder_result(cells: &var Vector<Int>, dst: Int, success: Bool, size: Int) {
+    cells[dst] = if success { 1 } else { 0 }
+    cells[dst + 1] = if success { 0 } else { size }
+    cells[dst + 2] = if success { 0 } else { 8 }
+}
+
+func decimal_length(value: Int) -> Int {
+    if value == 0 { return 1 }
+    var magnitude = UInt.from(truncating: value)
+    var length = 0
+    if value < 0 {
+        magnitude = (~magnitude) &+ 1
+        length = 1
+    }
+    while magnitude != 0 {
+        magnitude = magnitude / 10
+        length += 1
+    }
+    length
+}
+
+func builder_append(op: Op, cells: &var Vector<Int>, base: Int, dst: Int,
+                    builder_ref: Int, operand: Int,
+                    heap: &var Vector<StringEntry>, fail_after: &var Int) -> Result<Void, ProtoError> {
+    let address = cells[base + builder_ref]
+    if not valid_reference(&cells, address, 1) { return runtime_error("runtime error: invalid reference") }
+    let old_index = try builder_entry(&heap, cells[address])
+    let old_value = heap[old_index].value
+    var suffix_length = 0
+    var string_operand = ""
+    if op == Op.BuilderAppendString {
+        let source_index = try string_entry(&heap, cells[base + operand])
+        string_operand = heap[source_index].value
+        suffix_length = string_operand.len()
+        if suffix_length == 0 {
+            builder_result(&var cells, base + dst, true, 0)
+            return
+        }
+    } else if op == Op.BuilderAppendByte {
+        suffix_length = 1
+    } else if op == Op.BuilderAppendScalar {
+        let scalar = cells[base + operand]
+        if scalar < 0 || scalar > 0x10FFFF || (scalar >= 0xD800 && scalar <= 0xDFFF) {
+            return runtime_error("runtime error: invalid scalar")
+        }
+        if scalar <= 0x7F { suffix_length = 1 }
+        else if scalar <= 0x7FF { suffix_length = 2 }
+        else if scalar <= 0xFFFF { suffix_length = 3 }
+        else { suffix_length = 4 }
+    } else {
+        suffix_length = decimal_length(cells[base + operand])
+    }
+    let maximum_content = Int.max - 16
+    if suffix_length > maximum_content || old_value.len() > maximum_content - suffix_length {
+        return runtime_error("runtime error: builder length overflow")
+    }
+    let requested = old_value.len() + suffix_length + 16
+    if fail_after == 0 {
+        fail_after = -1
+        builder_result(&var cells, base + dst, false, requested)
+        return
+    }
+    var replacement = StringBuilder()
+    match replacement.append(old_value) {
+        case Err(_) -> {
+            builder_result(&var cells, base + dst, false, requested)
+            return
+        },
+        case Ok(_) -> {}
+    }
+    let appended = if op == Op.BuilderAppendByte {
+        replacement.append(Byte(UInt8.from(truncating: cells[base + operand])))
+    } else if op == Op.BuilderAppendScalar {
+        replacement.append(try! Scalar(value: cells[base + operand]))
+    } else if op == Op.BuilderAppendInt {
+        replacement.append(cells[base + operand])
+    } else {
+        replacement.append(string_operand)
+    }
+    match appended {
+        case Err(_) -> {
+            builder_result(&var cells, base + dst, false, requested)
+            return
+        },
+        case Ok(_) -> {}
+    }
+    let handle = try string_allocate(&var heap, replacement.build())
+    try string_assign(&var cells, address, handle, &var heap, false)
+    if fail_after > 0 { fail_after -= 1 }
+    builder_result(&var cells, base + dst, true, 0)
+    return
+}
+
 func string_assign(cells: &var Vector<Int>, dst: Int, source: Int,
                    heap: &var Vector<StringEntry>, retain: Bool) -> Result<Void, ProtoError> {
     if retain { try string_retain(&var heap, source) }
@@ -141,7 +243,7 @@ func valid_reference(cells: &Vector<Int>, address: Int, width: Int) -> Bool {
 
 func run_function(program: &Program, function_index: Int, arguments: &Vector<Int>,
                   cells: &var Vector<Int>, heap: &var Vector<StringEntry>, remaining: &var Int,
-                  depth: Int) -> Result<CallResult, ProtoError> {
+                  fail_after: &var Int, depth: Int) -> Result<CallResult, ProtoError> {
     if depth > MAX_CALL_DEPTH { return runtime_error("runtime error: call depth exceeded") }
     let function = program.functions[function_index].copy()
     let base = cells.len()
@@ -294,7 +396,7 @@ func run_function(program: &Program, function_index: Int, arguments: &Vector<Int
                     try! args.push(cells[base + inst.args[i]])
                     i = i + 1
                 }
-                let result = try run_function(&program, inst.target, &args, &var cells, &var heap, &var remaining, depth + 1)
+                let result = try run_function(&program, inst.target, &args, &var cells, &var heap, &var remaining, &var fail_after, depth + 1)
                 var result_index = 0
                 while result_index < result.values.len() {
                     if string_type(function.slots[inst.dst + result_index]) {
@@ -342,7 +444,32 @@ func run_function(program: &Program, function_index: Int, arguments: &Vector<Int
                 cells[base + inst.dst] = 1
                 cells[base + inst.dst + 1] = Int.from(truncating: value)
             },
+            case BuilderNew -> {
+                let handle = try string_allocate(&var heap, "")
+                try string_assign(&var cells, base + inst.dst, handle, &var heap, false)
+            },
+            case BuilderBuild -> {
+                let address = cells[base + inst.a]
+                if not valid_reference(&cells, address, 1) { return runtime_error("runtime error: invalid reference") }
+                let _ = try builder_entry(&heap, cells[address])
+                try string_assign(&var cells, base + inst.dst, cells[address], &var heap, true)
+            },
+            case BuilderAppendString -> {
+                try builder_append(inst.op, &var cells, base, inst.dst, inst.a, inst.b, &var heap, &var fail_after)
+            },
+            case BuilderAppendByte -> {
+                try builder_append(inst.op, &var cells, base, inst.dst, inst.a, inst.b, &var heap, &var fail_after)
+            },
+            case BuilderAppendInt -> {
+                try builder_append(inst.op, &var cells, base, inst.dst, inst.a, inst.b, &var heap, &var fail_after)
+            },
+            case BuilderAppendScalar -> {
+                try builder_append(inst.op, &var cells, base, inst.dst, inst.a, inst.b, &var heap, &var fail_after)
+            },
             case Drop -> {
+                if builder_type(function.slots[inst.a]) && cells[base + inst.a] != 0 {
+                    let _ = try builder_entry(&heap, cells[base + inst.a])
+                }
                 try string_release(&var heap, cells[base + inst.a])
                 cells[base + inst.a] = 0
             },
@@ -358,7 +485,7 @@ func run_function(program: &Program, function_index: Int, arguments: &Vector<Int
                 }
                 var slot = 0
                 while slot < function.slots.len() {
-                    if string_type(function.slots[slot]) {
+                    if owning_type(function.slots[slot]) {
                         try string_release(&var heap, cells[base + slot])
                         cells[base + slot] = 0
                     }
@@ -375,10 +502,11 @@ func run_function(program: &Program, function_index: Int, arguments: &Vector<Int
 
 public func execute(program: &Program, budget: Int) -> Result<Void, ProtoError> {
     var remaining = budget
+    var fail_after = program.builder_fail_after
     let arguments = Vector<Int>()
     var cells = Vector<Int>()
     var heap = Vector<StringEntry>()
-    let _ = try run_function(&program, program.main_index, &arguments, &var cells, &var heap, &var remaining, 1)
+    let _ = try run_function(&program, program.main_index, &arguments, &var cells, &var heap, &var remaining, &var fail_after, 1)
     var index = 0
     while index < heap.len() {
         if heap[index].refs != 0 { return runtime_error("runtime error: live string allocation") }

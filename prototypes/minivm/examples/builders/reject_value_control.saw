@@ -1,0 +1,3 @@
+func main() {
+    let b = if true { StringBuilder() } else { StringBuilder() }
+}

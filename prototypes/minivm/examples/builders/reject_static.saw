@@ -1,0 +1,2 @@
+static BUILDER: StringBuilder = StringBuilder()
+func main() {}

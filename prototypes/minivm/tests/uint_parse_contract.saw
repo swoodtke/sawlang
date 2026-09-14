@@ -77,7 +77,8 @@ func direct_program() -> Program {
     var functions = Vector<FuncIR>()
     try! functions.push(FuncIR(name: "main", params: Vector<ValueType>(), result: ValueType.Void,
         slots: move slots, code: move code))
-    Program(strings: move strings, references: Vector<ReferenceIR>(), enums: Vector<EnumIR>(),
+    Program(alloc_error_record: -1, builder_fail_after: -1,
+        strings: move strings, references: Vector<ReferenceIR>(), enums: Vector<EnumIR>(),
         records: Vector<RecordIR>(), sums: Vector<SumIR>(), functions: move functions, main_index: 0)
 }
 

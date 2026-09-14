@@ -1,0 +1,2 @@
+func main() { var a = StringBuilder()
+let b = a }

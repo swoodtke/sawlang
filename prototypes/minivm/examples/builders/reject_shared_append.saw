@@ -1,0 +1,3 @@
+func append_shared(b: &StringBuilder) { try! b.append(s: "x") }
+func main() { var b = StringBuilder()
+append_shared(&b) }
