@@ -1,0 +1,2 @@
+static Scalar: Int = 0
+func main() {}

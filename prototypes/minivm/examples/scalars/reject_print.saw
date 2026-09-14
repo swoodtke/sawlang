@@ -1,0 +1,1 @@
+func main() { print(try! Scalar(value: 65)) }

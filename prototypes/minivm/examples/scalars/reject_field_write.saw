@@ -1,0 +1,4 @@
+func main() {
+    var scalar = try! Scalar(value: 65)
+    scalar.raw = 66
+}

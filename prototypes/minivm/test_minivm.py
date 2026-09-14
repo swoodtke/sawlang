@@ -39,6 +39,10 @@ class RejectCase:
 
 
 RUN_CASES = (
+    RunCase("scalars/boundaries", "0\n127\n128\n2047\n2048\n55295\n57344\n65535\n65536\n1114111\n", section="scalars", compare_sawc=True),
+    RunCase("scalars/invalid", "invalid\n" * 6, section="scalars", compare_sawc=True),
+    RunCase("scalars/composition", "1\n1\n1114111\n1\n1114111\nerror\n", section="scalars", compare_sawc=True),
+    RunCase("scalars/record_identity_control", "7\n9\n", section="scalars"),
     RunCase("unsigned_parse/radices", "42\n" * 7 + "1295\n42\n42\n43323\n11\nnone\nnone\n0\n0\n", section="unsigned_parse", compare_sawc=True),
     RunCase("unsigned_parse/boundaries", "9223372036854775808\n18446744073709551614\n18446744073709551615\nnone\n18446744073709551614\n18446744073709551615\nnone\n18446744073709551615\nnone\n18446744073709551615\nnone\n18446744073709551615\nnone\n18446744073709551615\n", section="unsigned_parse", compare_sawc=True),
     RunCase("unsigned_parse/invalid", "none\n" * 21, section="unsigned_parse", compare_sawc=True),
@@ -228,6 +232,25 @@ RUN_CASES = (
 )
 
 REJECT_CASES = (
+    RejectCase("scalars/reject_raw_scalar", "argument label must be `value`", "scalars"),
+    RejectCase("scalars/reject_raw_invalid", "cannot be constructed directly", "scalars"),
+    RejectCase("scalars/reject_field_read", "fields are private", "scalars"),
+    RejectCase("scalars/reject_field_write", "fields are private", "scalars"),
+    RejectCase("scalars/reject_label", "argument label must be `value`", "scalars"),
+    RejectCase("scalars/reject_arity", "exactly one argument", "scalars"),
+    RejectCase("scalars/reject_cast", "requires integer source and target", "scalars"),
+    RejectCase("scalars/reject_scalar_struct", "reserved", "scalars"),
+    RejectCase("scalars/reject_invalid_enum", "reserved", "scalars"),
+    RejectCase("scalars/reject_scalar_static", "reserved", "scalars"),
+    RejectCase("scalars/reject_invalid_function", "conflicts with a record name", "scalars"),
+    RejectCase("scalars/reject_scalar_extension", "cannot be extended", "scalars"),
+    RejectCase("scalars/reject_temporary_value", "method calls require a named place receiver", "scalars"),
+    RejectCase("scalars/reject_nominal_conversion", "cannot implicitly convert", "scalars"),
+    RejectCase("scalars/reject_int_assignment", "cannot implicitly convert", "scalars"),
+    RejectCase("scalars/reject_invalid_extension", "cannot be extended", "scalars"),
+    RejectCase("scalars/reject_invalid_field", "fields are private", "scalars"),
+    RejectCase("scalars/reject_print", "cannot print a record value", "scalars"),
+    RejectCase("scalars/reject_arithmetic", "arithmetic requires integer operands", "scalars"),
     RejectCase("unsigned_parse/reject_radix_type", "argument must be Int", "unsigned_parse", True),
     RejectCase("unsigned_parse/reject_arity", "wrong number of arguments", "unsigned_parse", True),
     RejectCase("unsigned_parse/reject_label", "does not match parameter", "unsigned_parse", True),
@@ -519,7 +542,7 @@ def main() -> int:
     parser.add_argument("--sawc-python", default=sys.executable,
                         help="Python interpreter with sawc dependencies (default: this interpreter)")
     parser.add_argument(
-        "--section", choices=("all", "core", "numbers", "records", "control", "enums", "values", "references", "receivers", "strings", "owning_records", "optionals", "results", "unsigned_parse"), default="all",
+        "--section", choices=("all", "core", "numbers", "records", "control", "enums", "values", "references", "receivers", "strings", "owning_records", "optionals", "results", "unsigned_parse", "scalars"), default="all",
         help="run all cases or one isolated test section",
     )
     args = parser.parse_args()

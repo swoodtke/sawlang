@@ -1,0 +1,15 @@
+func show(value: Int) {
+    match Scalar(value: value) {
+        case Ok(_) -> { print("valid") },
+        case Err(_) -> { print("invalid") }
+    }
+}
+
+func main() {
+    show(-1)
+    show(Int.min)
+    show(0xD800)
+    show(0xDFFF)
+    show(0x110000)
+    show(Int.max)
+}

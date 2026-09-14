@@ -117,6 +117,14 @@ byte strings in bases 2 through 36 and an optional leading plus. Invalid input
 and overflow return None. Full unsigned 64-bit values are preserved; see
 [M12_UNSIGNED_PARSE.md](M12_UNSIGNED_PARSE.md).
 
+`Scalar(value: Int)` validates a Unicode code point and returns
+`Result<Scalar, InvalidScalar>`. `Scalar.value()` exposes the code point on a
+named place. Both builtin records are nominal and opaque: source cannot use
+their private representation fields, construct `InvalidScalar`, or extend
+either type. `InvalidScalar` cases and formatting are intentionally deferred;
+Result matching can currently observe and forward only the opaque error value.
+See [M13_SCALAR.md](M13_SCALAR.md).
+
 The VM defaults to a shared budget of 1,000,000 instructions and a maximum call
 depth of 128. Override the budget with `run FILE --budget N`. These limits apply
 only to VM execution; native code uses the host call stack and has no budget.
@@ -129,20 +137,21 @@ python prototypes/minivm/test_minivm.py --binary .build/minivm/minivm
 
 The harness compares VM execution and clang-compiled IR with explicit expected
 outputs and statuses, checks rejected programs, and exercises VM limits. It
-uses temporary files and 30-second execution timeouts. The first twelve milestones
-cover 346 cases, including native execution at both `-O0` and `-O2`.
+uses temporary files and 30-second execution timeouts. The first thirteen milestones
+cover 369 cases, including native execution at both `-O0` and `-O2`.
 
 Independent representation checks live in `tests/numeric_contract.saw`,
 `tests/record_contract.saw`, `tests/enum_contract.saw`,
 `tests/reference_contract.saw`, `tests/receiver_contract.saw`,
 `tests/string_contract.saw`, `tests/owning_record_contract.saw`,
-`tests/optional_contract.saw`, `tests/result_contract.saw`, and
-`tests/uint_parse_contract.saw`; build and run them
+`tests/optional_contract.saw`, `tests/result_contract.saw`,
+`tests/uint_parse_contract.saw`, and `tests/scalar_contract.saw`; build and run them
 with the Python compiler.
 Use `--section numbers`, `--section records`, `--section control`, or
 `--section enums`, `--section values`, `--section references`, or
 `--section receivers`, `--section strings`, `--section owning_records` or
-`--section optionals`, `--section results`, or `--section unsigned_parse` for an isolated
+`--section optionals`, `--section results`, `--section unsigned_parse`, or
+`--section scalars` for an isolated
 integration gate.
 
 To run the initial SL-260 shared-subset differential as well:

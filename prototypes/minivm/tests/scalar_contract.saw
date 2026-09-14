@@ -1,0 +1,89 @@
+import src.frontend.*
+import src.model.*
+import src.verify.*
+import src.vm.*
+import src.llvm
+import std.env.{Env}
+
+func checked_word(code: &var Vector<Instruction>, slots: &var Vector<ValueType>, actual: Int, expected: Int) {
+    let constant_slot = slots.len()
+    let expected_type = slots[actual]
+    try! slots.push(expected_type)
+    var constant = instruction(Op.Const)
+    constant.dst = constant_slot
+    constant.immediate = expected
+    try! code.push(move constant)
+    let equal_slot = slots.len()
+    try! slots.push(ValueType.Bool)
+    var equal = instruction(Op.Eq)
+    equal.dst = equal_slot
+    equal.a = actual
+    equal.b = constant_slot
+    try! code.push(move equal)
+    var branch = instruction(Op.Branch)
+    branch.a = equal_slot
+    branch.target = code.len() + 2
+    try! code.push(move branch)
+    try! code.push(instruction(Op.Panic))
+}
+
+func checked_call(code: &var Vector<Instruction>, slots: &var Vector<ValueType>, target: Int,
+                  tag: Int, scalar: Int, cause: Int, original: Int) {
+    let dst = slots.len()
+    try! slots.push(ValueType.Bool)
+    try! slots.push(ValueType.I64)
+    try! slots.push(ValueType.I64)
+    try! slots.push(ValueType.I64)
+    var call = instruction(Op.Call)
+    call.target = target
+    call.dst = dst
+    try! code.push(move call)
+    checked_word(&var code, &var slots, dst, tag)
+    checked_word(&var code, &var slots, dst + 1, scalar)
+    checked_word(&var code, &var slots, dst + 2, cause)
+    checked_word(&var code, &var slots, dst + 3, original)
+}
+
+func function_index(p: &Program, name: String) -> Int {
+    var i = 0
+    while i < p.functions.len() {
+        if p.functions[i].name == name { return i }
+        i += 1
+    }
+    -1
+}
+
+func contract_program() -> Program {
+    let source = "func good() -> Result<Scalar, InvalidScalar> \{ Scalar(value: 65) \}\nfunc negative() -> Result<Scalar, InvalidScalar> \{ Scalar(value: Int.min) \}\nfunc surrogate() -> Result<Scalar, InvalidScalar> \{ Scalar(value: 0xD800) \}\nfunc above() -> Result<Scalar, InvalidScalar> \{ Scalar(value: 0x110000) \}\nfunc maximum() -> Result<Scalar, InvalidScalar> \{ Scalar(value: Int.max) \}\nfunc main() \{\}\n"
+    var program = try! compile_source(source)
+    assert(program.records.len() >= 2, "builtin records installed")
+    assert(program.records[0].name == "Scalar" && program.records[1].name == "InvalidScalar", "stable builtin identities")
+    assert(program.records[0].field_names[0] == "$scalar.raw" && program.records[1].field_names[0] == "$invalid-scalar.cause", "private fields are unspellable")
+    let scalar_result = program.functions[function_index(&program, "good")].result
+    let layout = try! value_layout(&program.records, &program.sums, scalar_result)
+    assert(layout.len() == 4 && layout[0] == ValueType.Bool && layout[1] == ValueType.I64 && layout[2] == ValueType.I64 && layout[3] == ValueType.I64, "Scalar Result layout")
+    let main_index = program.main_index
+    var slots = Vector<ValueType>()
+    var code = Vector<Instruction>()
+    checked_call(&var code, &var slots, function_index(&program, "good"), 1, 65, 0, 0)
+    checked_call(&var code, &var slots, function_index(&program, "negative"), 0, 0, 0, Int.min)
+    checked_call(&var code, &var slots, function_index(&program, "surrogate"), 0, 0, 1, 0xD800)
+    checked_call(&var code, &var slots, function_index(&program, "above"), 0, 0, 0, 0x110000)
+    checked_call(&var code, &var slots, function_index(&program, "maximum"), 0, 0, 0, Int.max)
+    try! code.push(instruction(Op.Return))
+    program.functions[main_index].slots = move slots
+    program.functions[main_index].code = move code
+    try! verify(&program)
+    move program
+}
+
+func main() {
+    let program = contract_program()
+    let args = try! Env.args()
+    if args.len() == 2 && args[1] == "emit-llvm" {
+        print(try! llvm.emit_llvm(&program))
+        return
+    }
+    try! execute(&program, 5000)
+    print("scalar contract passed")
+}

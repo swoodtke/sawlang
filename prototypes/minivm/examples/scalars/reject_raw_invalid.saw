@@ -1,0 +1,1 @@
+func main() { let _ = InvalidScalar(value: 65) }

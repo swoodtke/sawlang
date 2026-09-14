@@ -22,7 +22,8 @@ conditional binding, including the unchanged Token/tok extraction (307 cases).
 M11 adds fixed `Result<T,E>` construction and matching plus `try`/`try!`
 propagation, including owning payloads and Void success (336 cases). M12 adds
 checked unsigned parsing and the unchanged literal_fits helper (346 cases).
-Next are `Scalar`, `StringBuilder`, and `Vector`. The lexer has
+M13 adds checked nominal `Scalar` construction and code-point readout, with
+opaque `InvalidScalar` results. Next are `StringBuilder` and `Vector`. The lexer has
 no imports, so its first whole-file test can combine the unchanged library with
 a small wrapper without implementing general module loading.
 The dependency groups below are an inventory, not the implementation commit order;

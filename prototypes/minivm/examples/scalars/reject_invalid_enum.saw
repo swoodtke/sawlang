@@ -1,0 +1,2 @@
+enum InvalidScalar { case Bad }
+func main() {}

@@ -1,0 +1,3 @@
+struct Fake { raw: Int }
+func take(value: Scalar) {}
+func main() { take(Fake(raw: 65)) }

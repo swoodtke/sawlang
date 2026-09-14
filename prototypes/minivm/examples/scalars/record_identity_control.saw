@@ -1,0 +1,7 @@
+struct UserScalar { raw: Int }
+func main() {
+    var value = UserScalar(raw: 7)
+    print(value.raw)
+    value.raw = 9
+    print(value.raw)
+}

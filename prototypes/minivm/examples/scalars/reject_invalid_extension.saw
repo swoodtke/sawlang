@@ -1,0 +1,2 @@
+extension InvalidScalar { func other(&self) -> Int { 0 } }
+func main() {}

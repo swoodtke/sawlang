@@ -1,0 +1,4 @@
+func main() {
+    let scalar = try! Scalar(value: 65)
+    print(scalar.raw)
+}

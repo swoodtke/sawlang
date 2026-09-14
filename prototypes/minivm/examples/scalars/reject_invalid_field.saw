@@ -1,0 +1,2 @@
+func inspect(value: InvalidScalar) { print(value.cause) }
+func main() {}

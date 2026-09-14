@@ -1,0 +1,1 @@
+func main() { let _ = Scalar(value: 65, value: 66) }

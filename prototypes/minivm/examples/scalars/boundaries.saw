@@ -1,0 +1,19 @@
+func show(value: Int) {
+    match Scalar(value: value) {
+        case Ok(scalar) -> { print(scalar.value()) },
+        case Err(_) -> { print("invalid") }
+    }
+}
+
+func main() {
+    show(0)
+    show(0x7F)
+    show(0x80)
+    show(0x7FF)
+    show(0x800)
+    show(0xD7FF)
+    show(0xE000)
+    show(0xFFFF)
+    show(0x10000)
+    show(0x10FFFF)
+}

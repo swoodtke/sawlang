@@ -1,6 +1,6 @@
 # M13: checked Scalar construction
 
-Planned after unsigned parsing, before StringBuilder. The lexer uses only
+Implemented after unsigned parsing, before StringBuilder. The lexer uses only
 `try! Scalar(value: cp)` and passes the result to StringBuilder.append. This
 slice must distinguish Scalar from Int and prevent source-level fabrication
 of an invalid code point. It is not the complete std Scalar or enum surface.
@@ -51,3 +51,17 @@ error cause and original input since that projection is not a source API yet.
 
 Next, StringBuilder.append(Scalar) will encode exactly 1–4 UTF-8 bytes from a
 validated Scalar. That integration gets its own byte-boundary tests.
+
+## Validation
+
+The `scalars` section of `test_minivm.py` covers construction boundaries,
+invalid inputs, nominal typing, copying, references and opaque representation
+restrictions through the VM and emitted native code at `-O0` and `-O2`.
+The marked shared-subset fixtures also run against Python sawc with `--sawc`.
+
+`tests/scalar_contract.saw` compiles source constructors and checks their
+returned words against literal expectations, including inactive zeros and the
+exact rejected input at both signed extremes. It runs the checks in the VM;
+its `emit-llvm` mode emits the same checks for native validation. Build it with
+the Python compiler and module paths `src=prototypes/minivm/src` and
+`sawlex=selfhost/lexer`.

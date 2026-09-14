@@ -1,0 +1,32 @@
+struct Holder { scalar: Scalar }
+struct Outer { holder: Holder }
+func next(count: &var Int) -> Int {
+    count += 1
+    count
+}
+func observe(s: &Scalar) -> Int { s.value() }
+func replace(s: &var Scalar, n: Int) { s = try! Scalar(value: n) }
+func make(n: Int) -> Result<Scalar, InvalidScalar> { Scalar(value: n) }
+func main() {
+    var count = 0
+    let first = try! Scalar(value: next(&var count))
+    print(count)
+    print(first.value())
+    var outer = Outer(holder: Holder(scalar: first))
+    replace(&var outer.holder.scalar, 0x10FFFF)
+    print(observe(&outer.holder.scalar))
+    print(first.value())
+    let optional: Scalar? = outer.holder.scalar
+    if let scalar = optional { print(scalar.value()) }
+    match make(-1) {
+        case Ok(_) -> { print("wrong") },
+        case Err(error) -> {
+            let copied = error
+            let forwarded = Result<Scalar, InvalidScalar>.Err(error: copied)
+            match forwarded {
+                case Ok(_) -> { print("wrong") },
+                case Err(_) -> { print("error") }
+            }
+        }
+    }
+}

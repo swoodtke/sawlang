@@ -148,6 +148,8 @@ struct Compiler {
     slots: Vector<ValueType>
     code: Vector<Instruction>
     current_result: ValueType
+    scalar_record: Int
+    invalid_scalar_record: Int
 }
 extension Compiler: NoCopy {}
 
@@ -358,7 +360,7 @@ extension Compiler {
     }
 
     func reserved_type_name(&self, name: String) -> Bool {
-        if name == "Bool" || name == "String" || name == "Void" { return true }
+        if name == "Bool" || name == "String" || name == "Void" || name == "Scalar" || name == "InvalidScalar" { return true }
         if let _ = named_integer_type(name) { return true }
         false
     }
@@ -439,6 +441,9 @@ extension Compiler {
         let target = try self.expect(TokenKind.Ident, "expected extension target")
         let owner = self.record_index(target.value)
         if owner < 0 { return problem("extension target must be a known record", target.line, target.col) }
+        if owner == self.scalar_record || owner == self.invalid_scalar_record {
+            return problem("builtin record `{target.value}` cannot be extended", target.line, target.col)
+        }
         if self.at(TokenKind.Colon) { return self.fail("traits are not supported") }
         if not self.at(TokenKind.LBrace) {
             return problem("generic extensions are not supported", extension_token.line, extension_token.col)
@@ -1332,6 +1337,22 @@ extension Compiler {
                     }
                     let owner = match place.ty { case Record(index) -> index, case _ -> -1 }
                     if owner < 0 { return problem("method receiver must be a record place", dot.line, dot.col) }
+                    if owner == self.scalar_record {
+                        if method.value != "value" {
+                            return problem("Scalar has no method `{method.value}`", method.line, method.col)
+                        }
+                        let _ = try self.expect(TokenKind.LParen, "expected `(` after Scalar.value")
+                        self.skip_newlines()
+                        if not self.at(TokenKind.RParen) {
+                            return problem("Scalar.value accepts no arguments", method.line, method.col)
+                        }
+                        let _ = self.take()
+                        let raw = try self.read_place(place, &candidate)
+                        return expr_value(ValueType.I64, raw.slot, false)
+                    }
+                    if owner == self.invalid_scalar_record {
+                        return problem("InvalidScalar has no source methods", method.line, method.col)
+                    }
                     let mi = self.method_index(owner, method.value)
                     if mi < 0 { return problem("record `{self.records[owner].name}` has no method `{method.value}`", method.line, method.col) }
                     return self.parse_method_call(place, method, mi)
@@ -1355,7 +1376,13 @@ extension Compiler {
                 return expr_value(ty, dst, false)
             }
             let ri = self.record_index(name.value)
-            if ri >= 0 && self.at(TokenKind.LParen) { return self.parse_record_constructor(name, ri) }
+            if ri == self.scalar_record && self.at(TokenKind.LParen) { return self.parse_scalar_constructor(name) }
+            if ri >= 0 && self.at(TokenKind.LParen) {
+                if ri == self.invalid_scalar_record {
+                    return problem("InvalidScalar cannot be constructed directly", name.line, name.col)
+                }
+                return self.parse_record_constructor(name, ri)
+            }
             if let ty = named_integer_type(name.value) {
                 if self.at(TokenKind.Dot) { return self.parse_integer_member(name, ty) }
                 if self.at(TokenKind.LParen) && ty == ValueType.Byte { return self.parse_byte(name) }
@@ -1469,6 +1496,9 @@ extension Compiler {
             let field = try self.expect(TokenKind.Ident, "expected record field after `.`")
             match place.ty {
                 case Record(ri) -> {
+                    if ri == self.scalar_record || ri == self.invalid_scalar_record {
+                        return problem("builtin record fields are private", field.line, field.col)
+                    }
                     let fi = self.field_index(ri, field.value)
                     if fi < 0 { return problem("record `{self.records[ri].name}` has no field `{field.value}`", field.line, field.col) }
                     let field_type = self.records[ri].field_types[fi]
@@ -1509,6 +1539,9 @@ extension Compiler {
             }
             match value.ty {
                 case Record(ri) -> {
+                    if ri == self.scalar_record || ri == self.invalid_scalar_record {
+                        return problem("builtin record fields are private", field.line, field.col)
+                    }
                     let fi = self.field_index(ri, field.value)
                     if fi < 0 { return problem("record `{self.records[ri].name}` has no field `{field.value}`", field.line, field.col) }
                     let offset = try record_field_offset(&self.records, &self.sums, ri, fi)
@@ -1635,6 +1668,131 @@ extension Compiler {
             return self.binary(receiver, other, Op.Eq, ValueType.Bool, &name)
         }
         problem("unknown String intrinsic `{name.value}`", name.line, name.col)
+    }
+
+    func parse_scalar_constructor(&var self, name: Token) -> Result<ExprValue, ProtoError> {
+        let _ = self.take()
+        self.depth += 1
+        self.paren_depth += 1
+        self.skip_newlines()
+        if self.at(TokenKind.RParen) {
+            return problem("Scalar requires exactly one `value` argument", name.line, name.col)
+        }
+        let label = try self.expect(TokenKind.Ident, "Scalar argument label must be `value`")
+        if label.value != "value" {
+            return problem("Scalar argument label must be `value`", label.line, label.col)
+        }
+        let _ = try self.expect(TokenKind.Colon, "expected `:` after Scalar argument label")
+        self.expr_space()
+        var input = try self.parse_expected_expr(ValueType.I64)
+        if input.always_returns {
+            return problem("all-returning control flow cannot be used as an operand", label.line, label.col)
+        }
+        input = try self.snapshot(input, &label)
+        self.skip_newlines()
+        if self.at(TokenKind.Comma) {
+            return problem("Scalar accepts exactly one argument", name.line, name.col)
+        }
+        let _ = try self.expect(TokenKind.RParen, "expected `)` after Scalar value")
+        self.paren_depth -= 1
+        self.depth -= 1
+
+        let result_ty = self.intern_result(ValueType.Record(self.scalar_record),
+                                           ValueType.Record(self.invalid_scalar_record))
+        let dst = try self.new_value(result_ty)
+        var word = 0
+        while word < 4 {
+            let zero = self.emit_at(Op.Const, name.line, name.col)
+            self.code[zero].dst = dst + word
+            self.code[zero].immediate = 0
+            word += 1
+        }
+
+        let zero_slot = self.new_slot(ValueType.I64)
+        let zero_const = self.emit_at(Op.Const, name.line, name.col)
+        self.code[zero_const].dst = zero_slot
+        let negative = self.new_slot(ValueType.Bool)
+        let negative_cmp = self.emit_at(Op.Lt, name.line, name.col)
+        self.code[negative_cmp].dst = negative
+        self.code[negative_cmp].a = input.slot
+        self.code[negative_cmp].b = zero_slot
+        let negative_branch = self.emit_at(Op.Branch, name.line, name.col)
+        self.code[negative_branch].a = negative
+        let skip_negative = self.emit_at(Op.Jump, name.line, name.col)
+        self.code[negative_branch].target = self.code.len()
+        let negative_value = self.emit_at(Op.Copy, name.line, name.col)
+        self.code[negative_value].dst = dst + 3
+        self.code[negative_value].a = input.slot
+        let negative_done = self.emit_at(Op.Jump, name.line, name.col)
+
+        self.code[skip_negative].target = self.code.len()
+        let maximum_slot = self.new_slot(ValueType.I64)
+        let maximum_const = self.emit_at(Op.Const, name.line, name.col)
+        self.code[maximum_const].dst = maximum_slot
+        self.code[maximum_const].immediate = 0x10FFFF
+        let above = self.new_slot(ValueType.Bool)
+        let above_cmp = self.emit_at(Op.Gt, name.line, name.col)
+        self.code[above_cmp].dst = above
+        self.code[above_cmp].a = input.slot
+        self.code[above_cmp].b = maximum_slot
+        let above_branch = self.emit_at(Op.Branch, name.line, name.col)
+        self.code[above_branch].a = above
+        let skip_above = self.emit_at(Op.Jump, name.line, name.col)
+        self.code[above_branch].target = self.code.len()
+        let above_value = self.emit_at(Op.Copy, name.line, name.col)
+        self.code[above_value].dst = dst + 3
+        self.code[above_value].a = input.slot
+        let above_done = self.emit_at(Op.Jump, name.line, name.col)
+
+        self.code[skip_above].target = self.code.len()
+        let low_slot = self.new_slot(ValueType.I64)
+        let low_const = self.emit_at(Op.Const, name.line, name.col)
+        self.code[low_const].dst = low_slot
+        self.code[low_const].immediate = 0xD800
+        let at_least_low = self.new_slot(ValueType.Bool)
+        let low_cmp = self.emit_at(Op.Ge, name.line, name.col)
+        self.code[low_cmp].dst = at_least_low
+        self.code[low_cmp].a = input.slot
+        self.code[low_cmp].b = low_slot
+        let low_branch = self.emit_at(Op.Branch, name.line, name.col)
+        self.code[low_branch].a = at_least_low
+        let skip_surrogate_check = self.emit_at(Op.Jump, name.line, name.col)
+        self.code[low_branch].target = self.code.len()
+        let high_slot = self.new_slot(ValueType.I64)
+        let high_const = self.emit_at(Op.Const, name.line, name.col)
+        self.code[high_const].dst = high_slot
+        self.code[high_const].immediate = 0xDFFF
+        let at_most_high = self.new_slot(ValueType.Bool)
+        let high_cmp = self.emit_at(Op.Le, name.line, name.col)
+        self.code[high_cmp].dst = at_most_high
+        self.code[high_cmp].a = input.slot
+        self.code[high_cmp].b = high_slot
+        let surrogate_branch = self.emit_at(Op.Branch, name.line, name.col)
+        self.code[surrogate_branch].a = at_most_high
+        let skip_surrogate = self.emit_at(Op.Jump, name.line, name.col)
+        self.code[surrogate_branch].target = self.code.len()
+        let cause = self.emit_at(Op.Const, name.line, name.col)
+        self.code[cause].dst = dst + 2
+        self.code[cause].immediate = 1
+        let surrogate_value = self.emit_at(Op.Copy, name.line, name.col)
+        self.code[surrogate_value].dst = dst + 3
+        self.code[surrogate_value].a = input.slot
+        let surrogate_done = self.emit_at(Op.Jump, name.line, name.col)
+
+        let success = self.code.len()
+        self.code[skip_surrogate_check].target = success
+        self.code[skip_surrogate].target = success
+        let tag = self.emit_at(Op.Const, name.line, name.col)
+        self.code[tag].dst = dst
+        self.code[tag].immediate = 1
+        let scalar = self.emit_at(Op.Copy, name.line, name.col)
+        self.code[scalar].dst = dst + 1
+        self.code[scalar].a = input.slot
+        let end = self.code.len()
+        self.code[negative_done].target = end
+        self.code[above_done].target = end
+        self.code[surrogate_done].target = end
+        expr_value(result_ty, dst, false)
     }
 
     func parse_record_constructor(&var self, name: Token, ri: Int) -> Result<ExprValue, ProtoError> {
@@ -3539,14 +3697,24 @@ public func compile_source(source: String) -> Result<Program, ProtoError> {
         case Ok(r) -> { tokens = r.tokens.copy() },
         case Err(e) -> { return problem(e.message, e.line, e.col) }
     }
-    var compiler = Compiler(source: source, tokens: move tokens, records: Vector<RecordIR>(), enums: Vector<EnumIR>(),
+    var records = Vector<RecordIR>()
+    let scalar_fields: Vector<String> = ["$scalar.raw"]
+    let scalar_types: Vector<ValueType> = [ValueType.I64]
+    try! records.push(RecordIR(name: "Scalar", field_names: move scalar_fields,
+                               field_types: move scalar_types, line: 0, col: 0))
+    let invalid_fields: Vector<String> = ["$invalid-scalar.cause", "$invalid-scalar.original"]
+    let invalid_types: Vector<ValueType> = [ValueType.I64, ValueType.I64]
+    try! records.push(RecordIR(name: "InvalidScalar", field_names: move invalid_fields,
+                               field_types: move invalid_types, line: 0, col: 0))
+    var compiler = Compiler(source: source, tokens: move tokens, records: move records, enums: Vector<EnumIR>(),
                             references: Vector<ReferenceIR>(), sums: Vector<SumIR>(), strings: Vector<String>(), statics: Vector<StaticBinding>(),
                             signatures: Vector<Signature>(), pos: 0, depth: 0, scope_depth: 0,
                             expr_depth: 0, paren_depth: 0,
                             bindings: Vector<Binding>(), active_borrows: Vector<Borrow>(), pending_writes: Vector<Int>(),
                             string_slots: Vector<StringSlot>(),
                             slots: Vector<ValueType>(),
-                            code: Vector<Instruction>(), current_result: ValueType.Void)
+                            code: Vector<Instruction>(), current_result: ValueType.Void,
+                            scalar_record: 0, invalid_scalar_record: 1)
     try compiler.collect_record_names()
     try compiler.scan_signatures()
     try validate_records(&compiler.records, &compiler.sums)
