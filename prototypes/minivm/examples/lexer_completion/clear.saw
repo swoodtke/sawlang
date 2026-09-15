@@ -1,0 +1,13 @@
+func main() {
+    var out = StringBuilder()
+    try! out.append("old")
+    let snapshot = out.build()
+    out.clear()
+    print(out.build())
+    try! out.append("new")
+    print(snapshot)
+    print(out.build())
+    out.clear()
+    out.clear()
+    print(out.build())
+}

@@ -1,0 +1,140 @@
+import src.model.*
+import src.verify.*
+import src.vm.*
+import src.llvm
+import std.env.{Env}
+
+func emit(code: &var Vector<Instruction>, kind: Op, dst: Int, a: Int, b: Int, immediate: Int) {
+    var i = instruction(kind)
+    i.dst = dst
+    i.a = a
+    i.b = b
+    i.immediate = immediate
+    try! code.push(move i)
+}
+
+func check_word(code: &var Vector<Instruction>, slots: &var Vector<ValueType>, actual: Int,
+                expected: Int, t: ValueType) {
+    let expected_slot = slots.len()
+    try! slots.push(t)
+    emit(&var code, Op.Const, expected_slot, -1, -1, expected)
+    let equal = slots.len()
+    try! slots.push(ValueType.Bool)
+    emit(&var code, Op.Eq, equal, actual, expected_slot, 0)
+    var branch = instruction(Op.Branch)
+    branch.a = equal
+    branch.target = code.len() + 2
+    try! code.push(move branch)
+    try! code.push(instruction(Op.Panic))
+}
+
+func check_string(code: &var Vector<Instruction>, slots: &var Vector<ValueType>,
+                  strings: &var Vector<String>, actual: Int, expected: String) {
+    let pool = strings.len()
+    try! strings.push(expected)
+    let expected_slot = slots.len()
+    try! slots.push(ValueType.String)
+    emit(&var code, Op.StringConst, expected_slot, -1, -1, pool)
+    let equal = slots.len()
+    try! slots.push(ValueType.Bool)
+    emit(&var code, Op.Eq, equal, actual, expected_slot, 0)
+    var branch = instruction(Op.Branch)
+    branch.a = equal
+    branch.target = code.len() + 2
+    try! code.push(move branch)
+    try! code.push(instruction(Op.Panic))
+}
+
+func contract_program() -> Program {
+    var strings: Vector<String> = ["a", "b", "c"]
+    var references = Vector<ReferenceIR>()
+    try! references.push(ReferenceIR(target: ValueType.Builder, mutable: true))
+    try! references.push(ReferenceIR(target: ValueType.Builder, mutable: false))
+    let names: Vector<String> = ["size", "align"]
+    let fields: Vector<ValueType> = [ValueType.I64, ValueType.I64]
+    var records = Vector<RecordIR>()
+    try! records.push(RecordIR(name: "AllocError", field_names: move names,
+        field_types: move fields, line: 0, col: 0))
+    var sums = Vector<SumIR>()
+    try! sums.push(SumIR(kind: SumKind.Result, payload: ValueType.Void,
+        error: ValueType.Record(0)))
+    var slots: Vector<ValueType> = [ValueType.Builder, ValueType.Ref(0), ValueType.Ref(1),
+        ValueType.String, ValueType.Bool, ValueType.I64, ValueType.I64, ValueType.String,
+        ValueType.String, ValueType.Bool, ValueType.I64, ValueType.I64, ValueType.String,
+        ValueType.String, ValueType.Bool, ValueType.I64, ValueType.I64, ValueType.String]
+    var code = Vector<Instruction>()
+    emit(&var code, Op.BuilderNew, 0, -1, -1, 0)
+    emit(&var code, Op.Addr, 1, 0, -1, 0)
+    emit(&var code, Op.BuilderClear, -1, 1, -1, 0)
+    emit(&var code, Op.BuilderClear, -1, 1, -1, 0)
+    emit(&var code, Op.Addr, 2, 0, -1, 0)
+    emit(&var code, Op.BuilderBuild, 7, 2, -1, 0)
+    check_string(&var code, &var slots, &var strings, 7, "")
+
+    emit(&var code, Op.StringConst, 3, -1, -1, 0)
+    emit(&var code, Op.BuilderAppendString, 4, 1, 3, 0)
+    check_word(&var code, &var slots, 4, 1, ValueType.Bool)
+    emit(&var code, Op.BuilderBuild, 7, 2, -1, 0)
+    check_string(&var code, &var slots, &var strings, 7, "a")
+    emit(&var code, Op.BuilderClear, -1, 1, -1, 0)
+    emit(&var code, Op.BuilderBuild, 8, 2, -1, 0)
+    check_string(&var code, &var slots, &var strings, 8, "")
+    check_string(&var code, &var slots, &var strings, 7, "a")
+
+    emit(&var code, Op.StringConst, 8, -1, -1, 1)
+    emit(&var code, Op.BuilderAppendString, 9, 1, 8, 0)
+    check_word(&var code, &var slots, 9, 0, ValueType.Bool)
+    check_word(&var code, &var slots, 10, 17, ValueType.I64)
+    check_word(&var code, &var slots, 11, 8, ValueType.I64)
+    emit(&var code, Op.BuilderClear, -1, 1, -1, 0)
+    emit(&var code, Op.BuilderClear, -1, 1, -1, 0)
+
+    emit(&var code, Op.StringConst, 13, -1, -1, 2)
+    emit(&var code, Op.BuilderAppendString, 14, 1, 13, 0)
+    check_word(&var code, &var slots, 14, 1, ValueType.Bool)
+    emit(&var code, Op.BuilderBuild, 17, 2, -1, 0)
+    check_string(&var code, &var slots, &var strings, 17, "c")
+    try! code.push(instruction(Op.Return))
+    var functions = Vector<FuncIR>()
+    try! functions.push(FuncIR(name: "main", params: Vector<ValueType>(), result: ValueType.Void,
+        slots: move slots, code: move code))
+    Program(strings: move strings, references: move references, enums: Vector<EnumIR>(),
+        records: move records, sums: move sums, functions: move functions, main_index: 0,
+        alloc_error_record: 0, builder_fail_after: 1, vectors: Vector<VectorIR>(),
+        vector_fail_after: -1)
+}
+
+func valid(program: &Program) -> Bool {
+    try verify(&program) catch { return false }
+    true
+}
+
+func main() {
+    let program = contract_program()
+    assert(valid(&program), "BuilderClear valid shape")
+    var bad = program.copy()
+    bad.functions[0].code[2].dst = 0
+    assert(not valid(&bad), "BuilderClear rejects destination")
+    bad = program.copy()
+    bad.functions[0].code[2].a = 2
+    assert(not valid(&bad), "BuilderClear requires mutable reference")
+    bad = program.copy()
+    bad.functions[0].code[2].b = 3
+    assert(not valid(&bad), "BuilderClear rejects operand")
+    bad = program.copy()
+    bad.functions[0].code[2].immediate = 1
+    assert(not valid(&bad), "BuilderClear rejects immediate")
+    bad = program.copy()
+    bad.functions[0].code[2].target = 0
+    assert(not valid(&bad), "BuilderClear rejects target")
+    bad = program.copy()
+    try! bad.functions[0].code[2].args.push(3)
+    assert(not valid(&bad), "BuilderClear rejects arguments")
+    let args = try! Env.args()
+    if args.len() == 2 && args[1] == "emit-llvm" {
+        print(try! llvm.emit_llvm(&program))
+        return
+    }
+    try! execute(&program, 5000)
+    print("builder clear contract passed")
+}

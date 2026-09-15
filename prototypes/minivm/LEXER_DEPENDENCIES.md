@@ -27,8 +27,10 @@ opaque `InvalidScalar` results. M14 adds local `StringBuilder`, all four append
 overloads, snapshots and reference forwarding, including unchanged `char_str`
 and `escape_text` extracts. M15 adds bounded owning `Vector<T>` construction,
 push/get/index/len, references, whole-local moves and vector-containing results.
-Known remaining whole-lexer gaps are `StringBuilder.clear()` and the `break` in
-`Lexer.tokenize`; both belong to SL-259. The lexer has
+M16 adds `StringBuilder.clear()`, bare `break`, statement-match expression arms
+and repeatable nonbinding `let _` declarations, found by compiling the complete
+unchanged source. SL-259's `test_lexer.py` compares complete lexer records across
+the VM, native engines and a sawc-built copy, with independent goldens. The lexer has
 no imports, so its first whole-file test can combine the unchanged library with
 a small wrapper without implementing general module loading.
 The dependency groups below are an inventory, not the implementation commit order;
@@ -130,7 +132,7 @@ the numbered milestone designs define each isolated slice.
 - `if`/`else if` statements, value-producing `if` expressions (`lib.saw:650,
   780, 845-846`), `while`, early `return`, and `break` from the tokenization
   loop (`lib.saw:1090`). `for`, `continue`, and `guard` do not occur in this
-  lexer. The prototype still needs the `break` slice tracked by SL-259.
+  lexer. M16 implements the bare statement `break` used here.
 - Exhaustive `match` over strings with literal cases and `_`
   (`keyword_kind`, `lib.saw:289-326`), and over payload-free enum values with
   both qualified and unqualified case patterns (`kind_name`, `lib.saw:330-438`).
@@ -168,8 +170,7 @@ compile their full implementations.
   fixed mode, allocator traits, `UnsafeSend`/`UnsafeSync`, raw pointers, memcpy,
   and growth algorithms in the std implementation are transitive implementation
   details and should not become source-language prerequisites. M14 implements
-  every listed operation except `clear`; the lexer calls it at `lib.saw:844`,
-  and SL-259 tracks that remaining intrinsic.
+  the append/build operations; M16 implements `clear`, called at `lib.saw:844`.
 - `Vector<T>()`, `len(&self) -> Int`, `get(&self, index: Int) -> T?`, indexed
   shared read, and
   `push(&var self, value: T) -> Result<Void, AllocError>` are used throughout;
@@ -216,8 +217,8 @@ precise rejection. Keep all earlier milestone tests green at every gate.
 4. **Optional/Result control flow — complete through M11.** `T?`, fixed
    `Result<T,E>`, `None`, implicit injection, `if let`, `try`, and `try!` are
    covered with owning String payloads, propagation, and trap behavior.
-5. **Opaque builder and vector generics — complete through M15.** The prototype
-   exposes the bounded builder/vector contracts above, except `clear`, and implements ownership for
+5. **Opaque builder and vector generics — complete through M16.** The prototype
+   exposes the bounded builder/vector contracts above and implements ownership for
    `Vector<Token>`, `Vector<DocComment>` and `Vector<StringSegment>`. The gates
    cover growth, get/index bounds, push of structs containing
    `String?`, builder overload selection, build independence, and Unicode scalar
@@ -225,8 +226,8 @@ precise rejection. Keep all earlier milestone tests green at every gate.
 6. **Lexer syntax completion.** String and enum `match`, if-expressions,
    public declarations, `NoCopy`, compound assignments, tail expressions, and
    `_` discards are present, and focused extracts cover `keyword_kind`,
-   `kind_name`, `literal_fits`, and `Lexer.advance`. SL-259 still owes
-   `StringBuilder.clear()` and `break` before the unchanged lexer compiles.
+   `kind_name`, `literal_fits`, and `Lexer.advance`. M16 supplies the remaining
+   clear/break, expression-arm and discard-declaration slices used by the source.
 7. **Whole-module compile and differential lexing.** Compile the unchanged
    `selfhost/lexer/src/lib.saw`, call `lex` (one entry point since design 268,
    returning tokens + doc trivia + string segments), and compare canonical

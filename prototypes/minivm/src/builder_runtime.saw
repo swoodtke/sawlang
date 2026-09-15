@@ -16,6 +16,7 @@ public func emit_builder_runtime(out: &var StringBuilder, fail_after: Int) {
 
     builder_ir(&var out, "define internal ptr @minivm_builder_new() \{\nentry:\n  %empty = call ptr @minivm_string_new(ptr null, i64 0)\n  ret ptr %empty\n\}\n\n")
     builder_ir(&var out, "define internal ptr @minivm_builder_build(ptr %slot) \{\nentry:\n  %slot_null = icmp eq ptr %slot, null\n  br i1 %slot_null, label %bad, label %load\nload:\n  %value = load ptr, ptr %slot\n  %value_null = icmp eq ptr %value, null\n  br i1 %value_null, label %bad, label %ok\nbad:\n  call void @minivm_builder_bad_handle()\n  unreachable\nok:\n  call void @minivm_string_retain(ptr %value)\n  ret ptr %value\n\}\n\n")
+    builder_ir(&var out, "define internal void @minivm_builder_clear(ptr %slot) \{\nentry:\n  %slot_null = icmp eq ptr %slot, null\n  br i1 %slot_null, label %bad, label %load\nload:\n  %old = load ptr, ptr %slot\n  %old_null = icmp eq ptr %old, null\n  br i1 %old_null, label %bad, label %clear\nbad:\n  call void @minivm_builder_bad_handle()\n  unreachable\nclear:\n  %empty = call ptr @minivm_string_new(ptr null, i64 0)\n  store ptr %empty, ptr %slot\n  call void @minivm_string_release(ptr %old)\n  ret void\n\}\n\n")
 
     // The only recoverable allocator in the native builder path.  It installs
     // replacement content after both copies complete, preserving the old value

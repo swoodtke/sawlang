@@ -15,7 +15,7 @@ public enum Op {
     case Addr, case LoadRef, case StoreRef, case RefField,
     case StringConst, case StringLen, case StringByteAt, case StringSlice, case StringToUInt,
     case BuilderNew, case BuilderBuild, case BuilderAppendString, case BuilderAppendByte,
-    case BuilderAppendInt, case BuilderAppendScalar, case Drop,
+    case BuilderAppendInt, case BuilderAppendScalar, case BuilderClear, case Drop,
     case VectorNew, case VectorLen, case VectorIndex, case VectorGet, case VectorPush, case MoveVector,
     case BitAnd, case BitOr, case BitXor, case BitNot, case Shl, case Shr
 }

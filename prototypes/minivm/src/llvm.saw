@@ -1008,6 +1008,14 @@ func emit_instruction(out: &var StringBuilder, program: &Program,
             emit_builder_append(&var out, &function, instruction_index, &inst,
                                 "minivm_builder_append_scalar")
         },
+        case BuilderClear -> {
+            put(&var out, "  ")
+            load_ref_slot(&var out, instruction_index, "builder", inst.a)
+            put(&var out, "  call void @minivm_builder_clear(ptr ")
+            temp_name(&var out, instruction_index, "builder")
+            put(&var out, ")\n")
+            next_block(&var out, instruction_index)
+        },
         case VectorNew -> {
             let descriptor = vector_descriptor(function.slots[inst.dst])
             put(&var out, "  ")

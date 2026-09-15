@@ -1,0 +1,22 @@
+func main() {
+    var outer = StringBuilder()
+    try! outer.append("kept")
+    var i = 0
+    while i < 4 {
+        var inner = StringBuilder()
+        try! inner.append("drop")
+        if i == 2 { break }
+        var j = 0
+        while j < 3 {
+            let nested = "nested"
+            if j == 1 { break }
+            j += 1
+        }
+        i += 1
+    }
+    print(i)
+    print(outer.build())
+    var zero = 0
+    while false { zero += 1 }
+    print(zero)
+}

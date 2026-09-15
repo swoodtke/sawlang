@@ -1,0 +1,19 @@
+func made() -> String { "owned" }
+func noop() {}
+
+func main() {
+    let _ = made()
+    let _ = 1
+    let _ = 2
+    let _ = noop()
+    let _: Void = noop()
+    var kept = Vector<Int>()
+    try! kept.push(9)
+    var gone = Vector<Int>()
+    try! gone.push(4)
+    let _ = move gone
+    var out = StringBuilder()
+    let _ = out.append("ok")
+    print(kept[0])
+    print(out.build())
+}

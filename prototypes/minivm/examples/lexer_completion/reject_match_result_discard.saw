@@ -1,0 +1,8 @@
+enum Choice { case First }
+
+func main() {
+    var out = StringBuilder()
+    match Choice.First {
+        case First -> out.append("lost")
+    }
+}

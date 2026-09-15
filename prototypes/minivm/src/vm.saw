@@ -578,6 +578,13 @@ func run_function(program: &Program, function_index: Int, arguments: &Vector<Int
             case BuilderAppendScalar -> {
                 try builder_append(inst.op, &var cells, base, inst.dst, inst.a, inst.b, &var heap, &var fail_after)
             },
+            case BuilderClear -> {
+                let address = cells[base + inst.a]
+                if not valid_reference(&cells, address, 1) { return runtime_error("runtime error: invalid reference") }
+                let _ = try builder_entry(&heap, cells[address])
+                let empty = try string_allocate(&var heap, "")
+                try string_assign(&var cells, address, empty, &var heap, false)
+            },
             case VectorNew -> {
                 match function.slots[inst.dst] {
                     case Vector(descriptor) -> {

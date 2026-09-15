@@ -160,6 +160,9 @@ struct Compiler {
     invalid_scalar_record: Int
     alloc_error_record: Int
     loop_depth: Int
+    loop_breaks: Vector<Int>
+    loop_break_starts: Vector<Int>
+    loop_scope_depths: Vector<Int>
 }
 extension Compiler: NoCopy {}
 
@@ -1058,6 +1061,17 @@ extension Compiler {
         }
     }
 
+    func cleanup_loop_body(&var self, minimum_depth: Int, t: &Token) {
+        var i = 0
+        while i < self.string_slots.len() {
+            if self.string_slots[i].depth >= minimum_depth {
+                let at = self.emit_at(Op.Drop, t.line, t.col)
+                self.code[at].a = self.string_slots[i].slot
+            }
+            i += 1
+        }
+    }
+
     func read_place(&var self, place: Place, t: &Token) -> Result<ExprValue, ProtoError> {
         try self.check_read(place.root, &t)
         if place.ty == ValueType.Builder { return problem("StringBuilder values cannot be copied", t.line, t.col) }
@@ -1703,8 +1717,8 @@ extension Compiler {
 
     func parse_builder_method(&var self, receiver: Place, name: Token) -> Result<ExprValue, ProtoError> {
         let saved_borrows = self.active_borrows.len()
-        let mutable = name.value == "append"
-        if name.value != "append" && name.value != "build" { return problem("StringBuilder has no method `{name.value}`", name.line, name.col) }
+        let mutable = name.value == "append" || name.value == "clear"
+        if name.value != "append" && name.value != "build" && name.value != "clear" { return problem("StringBuilder has no method `{name.value}`", name.line, name.col) }
         if mutable && not receiver.mutable { return problem("cannot call a mutating method on an immutable receiver", name.line, name.col) }
         try self.register_borrow(&receiver, mutable, &name)
         let ref_ty = self.intern_reference(ValueType.Builder, mutable)
@@ -1723,11 +1737,17 @@ extension Compiler {
         self.depth += 1
         self.paren_depth += 1
         self.skip_newlines()
-        if name.value == "build" {
-            if not self.at(TokenKind.RParen) { return problem("StringBuilder.build accepts no arguments", name.line, name.col) }
+        if name.value == "build" || name.value == "clear" {
+            if not self.at(TokenKind.RParen) { return problem("StringBuilder.{name.value} accepts no arguments", name.line, name.col) }
             let _ = self.take()
             self.paren_depth -= 1
             self.depth -= 1
+            if name.value == "clear" {
+                let at = self.emit_at(Op.BuilderClear, name.line, name.col)
+                self.code[at].a = receiver_slot
+                self.restore_borrows(saved_borrows)
+                return expr_value(ValueType.Void, -1, true)
+            }
             let dst = self.new_slot(ValueType.String)
             let at = self.emit_at(Op.BuilderBuild, name.line, name.col)
             self.code[at].dst = dst
@@ -3631,6 +3651,22 @@ extension Compiler {
         returns
     }
 
+    func parse_match_expression_arm(&var self) -> Result<Bool, ProtoError> {
+        if self.depth >= 128 { return self.fail("expression nesting limit exceeded") }
+        self.depth += 1
+        self.scope_depth += 1
+        let start = self.token()
+        let value = try self.parse_expr()
+        if not value.call || value.ty != ValueType.Void {
+            return problem("only Void function calls may be expression statements", start.line, start.col)
+        }
+        self.cleanup_scope(-1, -1, &start)
+        self.leave_scope()
+        self.scope_depth -= 1
+        self.depth -= 1
+        false
+    }
+
     func parse_match_statement(&var self) -> Result<Bool, ProtoError> {
         let mt = self.take()
         var subject = try self.parse_expr()
@@ -3716,8 +3752,13 @@ extension Compiler {
                 self.code[branch].target = self.code.len()
             } else { pending_false = -1 }
             let _ = try self.expect(TokenKind.Arrow, "expected `->` after match pattern")
-            let _ = try self.expect(TokenKind.LBrace, "match arms require statement blocks")
-            let returns = try self.parse_block()
+            var returns = false
+            if self.at(TokenKind.LBrace) {
+                let _ = self.take()
+                returns = try self.parse_block()
+            } else {
+                returns = try self.parse_match_expression_arm()
+            }
             if not returns {
                 all_return = false
                 let join = self.emit_at(Op.Jump, ct.line, ct.col)
@@ -3810,11 +3851,16 @@ extension Compiler {
                 self.code[branch].target = self.code.len()
             } else { pending_false = -1 }
             let _ = try self.expect(TokenKind.Arrow, "expected `->` after match pattern")
-            let _ = try self.expect(TokenKind.LBrace, "match arms require statement blocks")
             if variant >= 0 && payload != ValueType.Void {
                 try self.stage_payload_binding(binding, false, &subject, payload, offset)
             }
-            let returns = try self.parse_block()
+            var returns = false
+            if self.at(TokenKind.LBrace) {
+                let _ = self.take()
+                returns = try self.parse_block()
+            } else {
+                returns = try self.parse_match_expression_arm()
+            }
             if not returns {
                 all_return = false
                 let join = self.emit_at(Op.Jump, mt.line, mt.col)
@@ -3844,30 +3890,63 @@ extension Compiler {
     func parse_statement(&var self) -> Result<Bool, ProtoError> {
         let statement_token = self.token()
         if self.at(TokenKind.Semicolon) { return self.fail("semicolons are not supported") }
+        if self.at(TokenKind.Continue) {
+            let t = self.take()
+            return problem("continue is not supported", t.line, t.col)
+        }
+        if self.at(TokenKind.Break) {
+            let t = self.take()
+            if self.loop_break_starts.len() == 0 {
+                return problem("break is only allowed inside a while loop", t.line, t.col)
+            }
+            if not self.at(TokenKind.Newline) && not self.at(TokenKind.RBrace) {
+                return problem("break with a value is not supported", t.line, t.col)
+            }
+            let context = self.loop_break_starts.len() - 1
+            self.cleanup_loop_body(self.loop_scope_depths[context], &t)
+            try! self.loop_breaks.push(self.emit_at(Op.Jump, t.line, t.col))
+            return false
+        }
         if self.at(TokenKind.Match) { return self.parse_match_statement() }
         if self.at(TokenKind.Let) || self.at(TokenKind.Var) {
             let kw = self.take()
             let name = try self.expect(TokenKind.Ident, "expected local name")
+            if kw.kind == TokenKind.Var && name.value == "_" {
+                return problem("`var _` is not allowed because `_` is a discard binding", name.line, name.col)
+            }
             var annotated: ValueType? = None
             if self.at(TokenKind.Colon) {
                 let _ = self.take()
                 annotated = Some(try self.parse_type())
             }
             if let local_type = annotated {
-                if local_type == ValueType.Void { return problem("local cannot have Void type", name.line, name.col) }
+                if local_type == ValueType.Void && name.value != "_" { return problem("local cannot have Void type", name.line, name.col) }
                 if reference_type(local_type) { return problem("reference locals are not supported", name.line, name.col) }
             }
             let _ = try self.expect(TokenKind.Assign, "local declarations require an initializer")
+            let discard_slots_start = self.string_slots.len()
             var value = if let ty = annotated {
                 if ty == ValueType.Builder { try self.parse_expr() } else { try self.parse_expected_expr(ty) }
             } else { try self.parse_expr() }
             if value.always_returns { return problem("all-returning control flow cannot be used as an operand", name.line, name.col) }
             if value.none_literal { return problem("None requires an expected Optional type", name.line, name.col) }
-            if value.ty == ValueType.Void { return problem("cannot initialize a local with Void", name.line, name.col) }
+            if value.ty == ValueType.Void && name.value != "_" { return problem("cannot initialize a local with Void", name.line, name.col) }
             if reference_type(value.ty) { return problem("reference locals are not supported", name.line, name.col) }
             if let ty = annotated {
                 if value.ty != ty { return problem("cannot implicitly convert {self.display_type(value.ty)} to {self.display_type(ty)}", name.line, name.col) }
-            } else if value.ty != ValueType.Builder { value = try self.transfer(value, value.ty, &name) }
+            } else if name.value != "_" && value.ty != ValueType.Builder {
+                value = try self.transfer(value, value.ty, &name)
+            }
+            if name.value == "_" {
+                var i = discard_slots_start
+                while i < self.string_slots.len() {
+                    let drop = self.emit_at(Op.Drop, name.line, name.col)
+                    self.code[drop].a = self.string_slots[i].slot
+                    i += 1
+                }
+                while self.string_slots.len() > discard_slots_start { let _ = self.string_slots.pop() }
+                return false
+            }
             if value.ty == ValueType.Builder {
                 try self.declare(name, value.ty, value.slot, kw.kind == TokenKind.Var)
                 return false
@@ -3943,11 +4022,23 @@ extension Compiler {
             let exit = self.emit_at(Op.Jump, t.line, t.col)
             self.code[branch].target = self.code.len()
             self.loop_depth += 1
+            try! self.loop_break_starts.push(self.loop_breaks.len())
+            try! self.loop_scope_depths.push(self.scope_depth + 1)
             let _ = try self.parse_block()
+            let break_start = self.loop_break_starts[self.loop_break_starts.len() - 1]
             self.loop_depth -= 1
             let back = self.emit_at(Op.Jump, t.line, t.col)
             self.code[back].target = cond_start
-            self.code[exit].target = self.code.len()
+            let loop_exit = self.code.len()
+            self.code[exit].target = loop_exit
+            var bi = break_start
+            while bi < self.loop_breaks.len() {
+                self.code[self.loop_breaks[bi]].target = loop_exit
+                bi += 1
+            }
+            while self.loop_breaks.len() > break_start { let _ = self.loop_breaks.pop() }
+            let _ = self.loop_break_starts.pop()
+            let _ = self.loop_scope_depths.pop()
             return false
         }
         if self.at(TokenKind.LBrace) {
@@ -4029,6 +4120,9 @@ extension Compiler {
         self.expr_depth = 0
         self.paren_depth = 0
         self.loop_depth = 0
+        self.loop_breaks = Vector<Int>()
+        self.loop_break_starts = Vector<Int>()
+        self.loop_scope_depths = Vector<Int>()
         self.bindings = Vector<Binding>()
         self.active_borrows = Vector<Borrow>()
         self.pending_writes = Vector<Int>()
@@ -4148,7 +4242,8 @@ public func compile_source(source: String) -> Result<Program, ProtoError> {
                             slots: Vector<ValueType>(),
                             code: Vector<Instruction>(), current_result: ValueType.Void,
                             scalar_record: 0, invalid_scalar_record: 1, alloc_error_record: 2,
-                            loop_depth: 0)
+                            loop_depth: 0, loop_breaks: Vector<Int>(), loop_break_starts: Vector<Int>(),
+                            loop_scope_depths: Vector<Int>())
     try compiler.collect_record_names()
     try compiler.scan_signatures()
     try compiler.validate_nocopy_markers()

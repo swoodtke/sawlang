@@ -1,0 +1,5 @@
+func find(flag: Bool) -> Int {
+    while flag { break }
+}
+
+func main() { print(find(false)) }

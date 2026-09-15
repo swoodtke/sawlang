@@ -1,0 +1,26 @@
+enum Choice { case First, case Second }
+
+func answer(ok: Bool) -> Result<Int, String> {
+    if ok { return 7 }
+    return "bad"
+}
+
+func made() -> String { "owned" }
+func show(s: String) { print(s) }
+func show_int(value: Int) { print(value) }
+
+func main() {
+    let choice = Choice.First
+    match choice {
+        case First -> show(made()),
+        case Second -> show("second")
+    }
+    match "x" {
+        case "x" -> show("string"),
+        case _ -> show("other")
+    }
+    match answer(true) {
+        case Ok(value) -> show_int(value),
+        case Err(error) -> show(error)
+    }
+}

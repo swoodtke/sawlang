@@ -39,6 +39,11 @@ class RejectCase:
 
 
 RUN_CASES = (
+    RunCase("lexer_completion/clear", "\nold\nnew\n\n", section="lexer_completion", compare_sawc=True),
+    RunCase("lexer_completion/breaks", "2\nkept\n0\n", section="lexer_completion", compare_sawc=True),
+    RunCase("lexer_completion/break_then_return", "3\n", section="lexer_completion", compare_sawc=True),
+    RunCase("lexer_completion/match_expression_arms", "owned\nstring\n7\n", section="lexer_completion", compare_sawc=True),
+    RunCase("lexer_completion/discard_bindings", "9\nok\n", section="lexer_completion", compare_sawc=True),
     RunCase("vectors/basic", "3\n10\n30\n20\nnone\nnone\n", section="vectors", compare_sawc=True),
     RunCase("vectors/strings_records", "old\nnew\na\nb\n", section="vectors", compare_sawc=True),
     RunCase("vectors/references_fields", "2\nleft\nright\n", section="vectors", compare_sawc=True),
@@ -248,6 +253,16 @@ RUN_CASES = (
 )
 
 REJECT_CASES = (
+    RejectCase("lexer_completion/reject_break_outside", "break is only allowed inside a while loop", "lexer_completion", True),
+    RejectCase("lexer_completion/reject_break_not_return", "may reach its end without returning a value", "lexer_completion", True),
+    RejectCase("lexer_completion/reject_break_value", "break with a value is not supported", "lexer_completion"),
+    RejectCase("lexer_completion/reject_continue", "continue is not supported", "lexer_completion"),
+    RejectCase("lexer_completion/reject_clear_arity", "StringBuilder.clear accepts no arguments", "lexer_completion", True),
+    RejectCase("lexer_completion/reject_clear_shared", "cannot call a mutating method on an immutable receiver", "lexer_completion", True),
+    RejectCase("lexer_completion/reject_match_result_discard", "only Void function calls may be expression statements", "lexer_completion", True),
+    RejectCase("lexer_completion/reject_var_discard", "var _", "lexer_completion", True),
+    RejectCase("lexer_completion/reject_discard_read", "unknown name `_`", "lexer_completion", True),
+    RejectCase("lexer_completion/reject_discard_annotation", "cannot implicitly convert String to Int", "lexer_completion", True),
     RejectCase("vectors/reject_implicit_copy", "cannot implicitly copy noncopyable value", "vectors", True),
     RejectCase("vectors/reject_double_move", "use of moved value", "vectors", True),
     RejectCase("vectors/reject_borrow_after_move", "use of moved value", "vectors", True),
@@ -597,7 +612,7 @@ def main() -> int:
     parser.add_argument("--sawc-python", default=sys.executable,
                         help="Python interpreter with sawc dependencies (default: this interpreter)")
     parser.add_argument(
-        "--section", choices=("all", "core", "numbers", "records", "control", "enums", "values", "references", "receivers", "strings", "owning_records", "optionals", "results", "unsigned_parse", "scalars", "builders", "vectors"), default="all",
+        "--section", choices=("all", "core", "numbers", "records", "control", "enums", "values", "references", "receivers", "strings", "owning_records", "optionals", "results", "unsigned_parse", "scalars", "builders", "vectors", "lexer_completion"), default="all",
         help="run all cases or one isolated test section",
     )
     args = parser.parse_args()

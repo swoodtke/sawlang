@@ -1,0 +1,4 @@
+func main() {
+    let _ = 7
+    print(_)
+}

@@ -8,6 +8,10 @@ The existing Python compiler builds the prototype executable. Once built, it
 parses, checks, lowers, interprets, and emits IR without invoking Python. It
 cannot yet compile its own source.
 
+[COMPATIBILITY.md](COMPATIBILITY.md) tracks known semantic differences,
+unsupported features and implementation limits, with the work required toward
+full Saw support. In particular, Vector snapshot reads are not borrowing places.
+
 ## Build and try it
 
 From the repository root, using a Python environment with Saw's dependencies:
@@ -109,8 +113,8 @@ scope. Coalescing, chaining and force unwrap remain unsupported. See
 Fixed `Result<T,E>` types support unambiguous payload wrapping, explicit qualified
 Ok/Err constructors, payload matches, and `try` / `try!`. Error propagation
 returns immediately with full ownership cleanup. Result<Void,E> success uses a
-bare return. Statement match arms require blocks; value arms may be expressions
-or blocks. Forced errors print `runtime error: try! failed`; cause formatting
+bare return. Statement match arms accept blocks or Void call expressions;
+value arms may be expressions or blocks. Forced errors print `runtime error: try! failed`; cause formatting
 and catch blocks remain unsupported. See [M11_RESULTS.md](M11_RESULTS.md).
 
 `String.to_uint()` and `String.to_uint(radix:)` return `UInt?`, accepting whole
@@ -127,7 +131,7 @@ Result matching can currently observe and forward only the opaque error value.
 See [M13_SCALAR.md](M13_SCALAR.md).
 
 Local `StringBuilder()` values support String, Byte, Int and Scalar append,
-shared `build()` snapshots, and shared/mutable reference forwarding. Append
+shared `build()` snapshots, `clear()`, and shared/mutable reference forwarding. Append
 returns `Result<Void, AllocError>`; `AllocError` has public Int `size` and `align`
 fields. Builders cannot yet be copied, reassigned, returned by value or stored
 in aggregates. Append preserves previous snapshots and leaves content unchanged
@@ -147,6 +151,11 @@ a loop is rejected. Empty `NoCopy` markers are accepted only on records that
 contain vectors; general explicit copy policies and vector-valued control-flow
 joins remain unsupported.
 
+Conditional while bodies support bare statement `break`, including nested
+loops and owning-value cleanup. Value-bearing breaks, continue and loop values
+remain unsupported. Repeated `let _ = ...` declarations discard a result without
+creating a binding. See [M16_LEXER_ACCEPTANCE.md](M16_LEXER_ACCEPTANCE.md).
+
 The VM defaults to a shared budget of 1,000,000 instructions and a maximum call
 depth of 128. Override the budget with `run FILE --budget N`. These limits apply
 only to VM execution; native code uses the host call stack and has no budget.
@@ -160,7 +169,7 @@ python prototypes/minivm/test_minivm.py --binary .build/minivm/minivm
 The harness compares VM execution and clang-compiled IR with explicit expected
 outputs and statuses, checks rejected programs, and exercises VM limits. It
 uses temporary files and 30-second execution timeouts. Native execution is
-checked at both `-O0` and `-O2`. The first fifteen milestones cover 424 cases;
+checked at both `-O0` and `-O2`. The first sixteen milestones cover 439 cases;
 the Vector section covers 30, with 13 shared-subset cases also checked against
 Python sawc using `--section vectors --sawc sawc/sawc.py`.
 
@@ -172,14 +181,34 @@ Independent representation checks live in `tests/numeric_contract.saw`,
 `tests/uint_parse_contract.saw`, `tests/scalar_contract.saw`,
 `tests/builder_contract.saw`, `tests/builder_vm_contract.saw`,
 `tests/builder_source_contract.saw`, `tests/vector_contract.saw`,
-`tests/vector_vm_contract.saw`, and `tests/vector_source_contract.saw`; build and run them
+`tests/vector_vm_contract.saw`, `tests/vector_source_contract.saw`, and
+`tests/builder_clear_contract.saw`; build and run them
 with the Python compiler.
 Use `--section numbers`, `--section records`, `--section control`, or
 `--section enums`, `--section values`, `--section references`, or
 `--section receivers`, `--section strings`, `--section owning_records` or
 `--section optionals`, `--section results`, `--section unsigned_parse`, or
-`--section scalars`, `--section builders`, or `--section vectors` for an isolated
+`--section scalars`, `--section builders`, `--section vectors`, or
+`--section lexer_completion` for an isolated
 integration gate.
+
+The whole-lexer gate concatenates the unchanged `selfhost/lexer/src/lib.saw`
+with a generated driver and compares complete token/doc/segment/error records
+across the VM, native O0/O2/ASan and Python-sawc-built source:
+
+```sh
+python prototypes/minivm/test_lexer.py --binary .build/minivm/minivm \
+  --timeout 300 --compile-timeout 600
+```
+
+Use `--case-prefix golden-` for the five exact hand-authored golden cases, or
+`--large --large-limit 100` to add tracked-source inputs. The default corpus
+includes lexer tests, the lexer source itself and explicit lexical edge cases;
+lexing a test file is distinct from exercising the input strings inside it.
+Failure artifacts remain under `.build/scratch/lexer-*`. Passing this gate means
+the complete lexer runs under the prototype, not that full Saw is supported.
+M16 validation passed 39 default inputs and 100 additional tracked files through
+all five engine modes, plus 15 focused completion cases (13 compared with sawc).
 
 To run the initial SL-260 shared-subset differential as well:
 
