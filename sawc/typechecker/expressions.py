@@ -13777,7 +13777,21 @@ class ExpressionsMixin:
         # forced to be call arguments (checked below) and never escape. `spawn`
         # is the exception: it is a call argument yet the task outlives the call,
         # so the spawn handler passes force_escape=True.
-        expr.escapes = force_escape or (
+        # SL-269: THE SLOT DECIDES, not the syntactic position. "Is this a call
+        # argument?" answers "does the callee run it before returning?" only for
+        # a callee that does not STORE it, and a container's insert does exactly
+        # that: `v.push({ [a] in a })` is a call argument whose value outlives
+        # the call by design. `target_escaping` is that question asked of the
+        # PARAMETER — it is already computed above, for the borrow-capture gate,
+        # off the same `escaping` bit `_stamp_escaping_roles` writes on every
+        # stored position — and reading it here is what makes the two agree.
+        #
+        # Left unread, a closure pushed into a `Vector` kept a STACK
+        # environment: its by-value captures died with the frame that built it
+        # (`41 42 43` came back as `41 <garbage> <garbage>` at exit 0), and a
+        # stack env has no destructor, so the captures it owned were never
+        # released either. Both faces of SL-269 are this one bit.
+        expr.escapes = force_escape or target_escaping or (
             (not as_call_argument) and (not has_reference_params))
         # design 135: an escaping closure with captures heap-allocates its
         # refcounted environment (design 73), and the literal says nothing about

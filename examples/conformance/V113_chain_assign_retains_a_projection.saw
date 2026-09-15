@@ -1,0 +1,127 @@
+// Conformance row V113 — `x?.y = <projection>` retains the value it stores
+//
+// THE GUARANTEE: a chained assignment writes the payload field in place. The
+// old field value is released and the new one is stored, so the write owes a
+// retain for exactly the same reason a `let` initializer does — and a
+// PROJECTION source always stays live, since its container keeps owning it.
+//
+// `_generate_optional_chain_assign` decided that retain from an inline
+// `isinstance(expr.value, Identifier)` test (SL-275). Net across the write, an
+// `Arc` field lost one reference per assignment from a projection: the release
+// happened, the retain did not, and the program aborted at teardown with
+// `over-release of an Arc (refcount underflow)`.
+//
+// THIS IS THE SITE SL-275 FILED WITHOUT A LIVE REPRO. The census that found the
+// other three saw it fail on a HEAD baseline and NOT on the SL-213 branch, and
+// filed it anyway because the code shape was identical and the site consulted
+// no checker answer — so it was unfenced whichever way that one probe went. It
+// was re-probed on this branch before the fix: a heap-String oracle still
+// showed nothing (exit 0, right text), and the `Arc` count below showed the
+// missing retain immediately. A value-shaped oracle cannot see a reference that
+// was never taken; that is the whole reason this row counts.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: -- sync
+// EXPECT-OUTPUT: identifier 3 -> 3
+// EXPECT-OUTPUT: member 5 -> 5
+// EXPECT-OUTPUT: tuple 7 -> 7
+// EXPECT-OUTPUT: array 10 -> 10
+// EXPECT-OUTPUT: trivial 41
+// EXPECT-OUTPUT: none-skips 11 -> 11
+// EXPECT-OUTPUT: live 11
+// EXPECT-OUTPUT: -- driven
+// EXPECT-OUTPUT: identifier 3 -> 3
+// EXPECT-OUTPUT: member 5 -> 5
+// EXPECT-OUTPUT: live 5
+// EXPECT-OUTPUT: end
+
+struct Res { id: Int }
+
+struct Cell { a: Arc<Res> }
+@synthesize
+extension Cell: Copy {}
+
+struct Holder { a: Arc<Res> }
+@synthesize
+extension Holder: Copy {}
+
+struct Pair { t: (Arc<Res>, Int) }
+@synthesize
+extension Pair: Copy {}
+
+struct Counter { n: Int }
+
+func sync_rows(base: &Arc<Res>) {
+    // CONTROL: a bare binding. Correct before SL-275; unchanged by it.
+    let ident = base.copy()
+    var c1: Cell? = Cell(a: base.copy())
+    let before_i = base.strong_count()
+    c1?.a = ident
+    print("identifier {} -> {}", before_i, base.strong_count())
+
+    // A struct FIELD.
+    let h = Holder(a: base.copy())
+    var c2: Cell? = Cell(a: base.copy())
+    let before_m = base.strong_count()
+    c2?.a = h.a
+    print("member {} -> {}", before_m, base.strong_count())
+
+    // A TUPLE element.
+    let p = Pair(t: (base.copy(), 0))
+    var c3: Cell? = Cell(a: base.copy())
+    let before_t = base.strong_count()
+    c3?.a = p.t.0
+    print("tuple {} -> {}", before_t, base.strong_count())
+
+    // An INDEXED element of a fixed array.
+    let arr: [Arc<Res>; 2] = [base.copy(), base.copy()]
+    var c4: Cell? = Cell(a: base.copy())
+    let before_a = base.strong_count()
+    c4?.a = arr[0]
+    print("array {} -> {}", before_a, base.strong_count())
+
+    // TRIVIAL tier: nothing owed.
+    let t = (41, 0)
+    var c5: Counter? = Counter(n: 0)
+    c5?.n = t.0
+    print("trivial {}", c5!.n)
+
+    // A None HEAD writes nothing and evaluates no RHS, so it takes no
+    // reference either — the short-circuit must not leak one (design 111).
+    let h2 = Holder(a: base.copy())
+    var c6: Cell? = None
+    let before_n = base.strong_count()
+    c6?.a = h2.a
+    print("none-skips {} -> {}", before_n, base.strong_count())
+
+    print("live {}", base.strong_count())
+}
+
+func driven_rows(base: &Arc<Res>) {
+    __saw_suspend()
+
+    let ident = base.copy()
+    var c1: Cell? = Cell(a: base.copy())
+    __saw_suspend()
+    let before_i = base.strong_count()
+    c1?.a = ident
+    print("identifier {} -> {}", before_i, base.strong_count())
+
+    let h = Holder(a: base.copy())
+    var c2: Cell? = Cell(a: base.copy())
+    __saw_suspend()
+    let before_m = base.strong_count()
+    c2?.a = h.a
+    print("member {} -> {}", before_m, base.strong_count())
+
+    print("live {}", base.strong_count())
+}
+
+func main() {
+    let base = try! Arc(value: Res(id: 1))
+    print("-- sync")
+    sync_rows(&base)
+    print("-- driven")
+    __saw_drive(driven_rows(&base))
+    print("end")
+}

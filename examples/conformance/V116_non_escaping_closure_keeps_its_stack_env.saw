@@ -1,0 +1,60 @@
+// Conformance row V116 — control: a closure the callee RUNS keeps its cheap
+// stack environment, and allocates nothing
+//
+// THE GUARANTEE, stated as design 135 states it: an escaping closure that
+// captures something heap-allocates a refcounted environment, and a closure
+// passed straight to the call that runs it does NOT — it keeps a stack env,
+// which is what makes `v.each({ ... })`, `shared.lock({ ... })` and every other
+// std visitor free.
+//
+// This row is the negative half of V115 and it exists because SL-269's fix
+// moves the escape decision from "is this a call argument?" to "does the SLOT
+// store it?". The failure mode of getting that wrong in the other direction is
+// invisible at run time — every program still computes the right answer — and
+// shows up only as an allocation nobody asked for, on the path where a kernel
+// or a panic handler cannot afford one. `--no-hidden-alloc` is the oracle
+// precisely because it is a COMPILE-TIME question about the classification,
+// with no stack layout and no refcount in it.
+//
+// The file compiles CLEAN under the flag. Every closure below captures
+// something and is passed straight to the call that runs it, so not one of them
+// may be classified escaping. Its mirror — a capturing closure at a slot that
+// stores it, which must now be REFUSED under the same flag — is
+// `errors/no_hidden_alloc_closure_pushed_into_a_vector.saw`.
+//
+// COMPILE-FLAGS: --no-hidden-alloc
+// EXPECT: success
+// EXPECT-OUTPUT: run-now 15
+// EXPECT-OUTPUT: each 60
+// EXPECT-OUTPUT: fold 70
+// EXPECT-OUTPUT: map-sum 120
+// EXPECT-OUTPUT: borrow-capture 11
+
+func run_now(f: () sync -> Int) -> Int { f() }
+
+func main() {
+    // A plain by-value capture, passed straight to the call that runs it.
+    let base = 10
+    print("run-now {}", run_now({ base + 5 }))
+
+    // std's visitors: `body` is non-escaping by declaration, so a capturing
+    // closure at one of them stays on the stack.
+    var v: Vector<Int> = [10, 20, 30]
+    var total = 0
+    v.each({ [&var total] n in total = total + n })
+    print("each {}", total)
+
+    let bonus = 10
+    print("fold {}", v.fold(0, { [bonus] acc, n in acc + n }) + bonus)
+
+    var doubled = 0
+    v.each({ [&var doubled] n in doubled = doubled + n * 2 })
+    print("map-sum {}", doubled)
+
+    // A BORROW capture is legal only in a non-escaping position, so its mere
+    // acceptance is a second witness that this slot is classified non-escaping
+    // — the borrow gate and the escape analysis read the same bit.
+    var counter = 10
+    let _ = run_now({ [&var counter] in counter = counter + 1  counter })
+    print("borrow-capture {}", counter)
+}

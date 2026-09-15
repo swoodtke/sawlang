@@ -101,12 +101,20 @@ class StatementsMixin:
     def visit_DestructuringLet(self, stmt):
         """`let (a, b) = pair` / `var (x, y) = point` (design 63 T1d).
 
-        Evaluate the source once and bind each component. When the source is a
-        bare Identifier (copy semantics — Copy/POD), each owning
-        component is retained via `_generate_copy` since the source stays live;
-        a `move` source (or a fresh tuple) transfers without a retain."""
+        Evaluate the source once and bind each component. Whether the source
+        stays live — and therefore whether each owning component is retained via
+        `_generate_copy` — is the shared transfer oracle's answer; a `move`
+        source (or a fresh tuple) transfers without a retain.
+
+        SL-275: the question used to be asked inline as "is the source a bare
+        Identifier?", which agreed with the checker on `let (a, b) = pair` and
+        disagreed on every PROJECTION source. `let (a, b) = h.pair` bound both
+        components as bitwise aliases of storage `h` still owned, so the
+        bindings' scope-exit releases ran against the container's references and
+        the program aborted with `over-release of a String reference (refcount
+        underflow)`."""
         value = self._generate_expression(stmt.value)
-        is_copy_source = isinstance(stmt.value, Identifier)
+        is_copy_source = self._transfer_site_needs_copy(stmt.value)
         src_type = self._expr_type(stmt.value)
         self._destructure_bind(stmt.pattern, value, src_type,
                                stmt.mutable, is_copy_source)
@@ -152,10 +160,26 @@ class StatementsMixin:
         appends every owning `_` leaf's `(value, SawType)` to `discards`, in
         declaration order, for the caller to drop in reverse."""
         if isinstance(pattern, WildcardPattern):
-            # Per-position `_`: the component is dropped by the caller's flush
-            # (owning components are released so the discard consumes exactly
-            # once).
-            if saw_type is not None and self._needs_cleanup(saw_type):
+            # Per-position `_`: the component is dropped by the caller's flush,
+            # so the discard consumes exactly once — but ONLY when the source
+            # handed its ownership over.
+            #
+            # `copy` is the same source-ownership answer the named arm below
+            # reads, and it has to be read here too: a COPIED source (a
+            # projection, whose container keeps owning it) hands over nothing,
+            # so there is no reference for this position to consume. Dropping
+            # the raw projected component there releases a reference the
+            # destructure never acquired — `let (kept, _) = p.t` walked an
+            # `Arc` down 3 -> 2 -> 1 on successive calls and then read 7 out of
+            # freed storage, with the container still live.
+            #
+            # The neighbouring lowering already had this rule and this walk did
+            # not: `if let _ = opt` asks `_optional_source_hands_over` before it
+            # drops (`conditionals.py`), which is the same question under
+            # another name. A copied source therefore acquires nothing and
+            # releases nothing here; a fresh or `move`d one still drops exactly
+            # once.
+            if (not copy) and saw_type is not None and self._needs_cleanup(saw_type):
                 discards.append((value, saw_type))
             return
         if isinstance(pattern, BindingPattern):
@@ -192,8 +216,19 @@ class StatementsMixin:
         # both the retain below and the drop registered after it are glue over
         # this same value, so both must be driven by the same type (DF-151c).
         var_type = self._transfer_type_for(value, var_type)
-        if (var_type and isinstance(stmt.value, Identifier)
-                and not isinstance(stmt.value, MoveExpr)):
+        # A discard is a TRANSFER into a home that dies at the end of this
+        # statement, so it takes the same copy decision as every other transfer
+        # site — `_transfer_site_needs_copy`, the shared oracle.
+        #
+        # SL-275: this used to ask only "is the RHS a bare Identifier?". That
+        # retained a whole-binding read (`let _ = s`) and bitwise-aliased every
+        # PROJECTION — `let _ = h.s`, `let _ = t.0`, `let _ = arr[i]` — so the
+        # drop registered below released storage the SOURCE still owned, and the
+        # source then read empty (`let _ = h.s` printed nothing and SEGFAULTED).
+        # The oracle answers the Identifier row identically at every owning tier
+        # (probed: String, Arc, an automatic-Copy struct, `String?`, an owning
+        # tuple), so nothing about the row that worked changed.
+        if var_type and self._transfer_site_needs_copy(stmt.value):
             value = self._generate_copy(value, var_type)
         if (var_type and self._needs_cleanup(var_type)
                 and not self.builder.block.is_terminated):

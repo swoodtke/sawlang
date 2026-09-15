@@ -1,0 +1,128 @@
+// Conformance row V111 — `let _ = <projection>` retains per the copy tier
+//
+// THE GUARANTEE: a discard is a TRANSFER into a home that dies at the end of
+// its statement. Reading a PROJECTION — a struct field, a tuple element, an
+// indexed element — reads storage the container keeps owning, so the discard
+// must take its own reference; without one the discard's drop releases the
+// SOURCE's reference and the source is left pointing at freed storage.
+//
+// It did not. `_generate_discard_let` decided the retain from an inline
+// `isinstance(value, Identifier)` test of its own, never consulting the
+// checker's stamped `needs_copy` — so it agreed with the checker on a bare
+// binding and disagreed on every projection (SL-275, the DF-139a/DF-151h defect
+// re-instantiated at a boundary those fixes did not visit). Pre-fix,
+// `let _ = h.s` on a heap String printed EMPTY and then SEGFAULTED (exit 139),
+// and the `Arc` rows below read one reference LOWER after the discard than
+// before it.
+//
+// THE ORACLE IS `Arc.strong_count()`, because the failure is a MISSING retain
+// and a missing retain is invisible in a value — the bytes stay right until
+// somebody frees them. A heap String would also show it (design 271's recorded
+// gotcha: a string LITERAL is immortal and passes vacuously), but a count says
+// WHICH way the balance went, and the opposite error — a DOUBLED retain — leaks
+// silently at exit 0 and shows up in nothing else.
+//
+// Every Copy-tier row is net ZERO across the discard: the retain the transfer
+// owes and the release its dying home performs are the same reference. The
+// trivial row owes nothing, and the `move` row transfers rather than
+// duplicating — pinned by a printing `deinit`, which must run exactly once.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: -- sync
+// EXPECT-OUTPUT: identifier 2 -> 2
+// EXPECT-OUTPUT: member 3 -> 3
+// EXPECT-OUTPUT: tuple 4 -> 4
+// EXPECT-OUTPUT: array 6 -> 6
+// EXPECT-OUTPUT: trivial 41
+// EXPECT-OUTPUT: move-once 7
+// EXPECT-OUTPUT: drop 7
+// EXPECT-OUTPUT: -- driven
+// EXPECT-OUTPUT: identifier 2 -> 2
+// EXPECT-OUTPUT: member 3 -> 3
+// EXPECT-OUTPUT: tuple 4 -> 4
+// EXPECT-OUTPUT: live 4 4 4
+// EXPECT-OUTPUT: end
+
+struct Res { id: Int }
+
+struct Holder { a: Arc<Res> }
+@synthesize
+extension Holder: Copy {}
+
+struct Pair { t: (Arc<Res>, Int) }
+@synthesize
+extension Pair: Copy {}
+
+struct Owned { w: Int }
+extension Owned: NoCopy { func deinit(&var self) { print("drop {}", self.w) } }
+
+func sync_rows(base: &Arc<Res>) {
+    // CONTROL: a bare binding. The row the inline shape test already got right,
+    // and the one the migration must not change.
+    let ident = base.copy()
+    let before_i = base.strong_count()
+    let _ = ident
+    print("identifier {} -> {}", before_i, base.strong_count())
+
+    // A struct FIELD.
+    let h = Holder(a: base.copy())
+    let before_m = base.strong_count()
+    let _ = h.a
+    print("member {} -> {}", before_m, base.strong_count())
+
+    // A TUPLE element.
+    let p = Pair(t: (base.copy(), 0))
+    let before_t = base.strong_count()
+    let _ = p.t.0
+    print("tuple {} -> {}", before_t, base.strong_count())
+
+    // An INDEXED element of a fixed array.
+    let arr: [Arc<Res>; 2] = [base.copy(), base.copy()]
+    let before_a = base.strong_count()
+    let _ = arr[0]
+    print("array {} -> {}", before_a, base.strong_count())
+
+    // TRIVIAL tier: nothing is owed, and the source keeps its value.
+    let t = (41, 0)
+    let _ = t.0
+    print("trivial {}", t.0)
+
+    // A `move` TRANSFERS rather than duplicating: exactly one drop, and it is
+    // the discard's — which is why `drop 7` prints before the sync rows end.
+    let o = Owned(w: 7)
+    print("move-once {}", o.w)
+    let _ = move o
+}
+
+func driven_rows(base: &Arc<Res>) {
+    __saw_suspend()
+
+    let ident = base.copy()
+    let before_i = base.strong_count()
+    let _ = ident
+    print("identifier {} -> {}", before_i, base.strong_count())
+
+    let h = Holder(a: base.copy())
+    __saw_suspend()
+    let before_m = base.strong_count()
+    let _ = h.a
+    print("member {} -> {}", before_m, base.strong_count())
+
+    let p = Pair(t: (base.copy(), 0))
+    __saw_suspend()
+    let before_t = base.strong_count()
+    let _ = p.t.0
+    print("tuple {} -> {}", before_t, base.strong_count())
+
+    print("live {} {} {}", base.strong_count(), h.a.strong_count(),
+          p.t.0.strong_count())
+}
+
+func main() {
+    let base = try! Arc(value: Res(id: 1))
+    print("-- sync")
+    sync_rows(&base)
+    print("-- driven")
+    __saw_drive(driven_rows(&base))
+    print("end")
+}

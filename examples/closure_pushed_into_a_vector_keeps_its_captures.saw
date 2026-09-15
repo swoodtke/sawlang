@@ -1,0 +1,49 @@
+// SL-269 face 1, as reported: a by-value capture in a closure pushed into a
+// `Vector` survives the function that built it.
+//
+// The escape analysis classified a closure literal as non-escaping whenever it
+// was a call ARGUMENT, so `v.push({ [a] in a })` kept a STACK environment and
+// the vector outlived it. Reading the closures back printed `41 6159428032
+// 4303424292` — exit 0, silent. The same three closures built in `main`, where
+// no frame boundary is crossed, printed `41 42 43`, which is what pinned the
+// frame as the variable.
+//
+// This is the user-visible face; the GUARANTEE is pinned by conformance row
+// V115, on an ownership oracle, because reading a dead frame is undefined and a
+// value oracle passes or fails with the stack layout. Both are kept: this one
+// is the shape a reader will search for.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: built elsewhere: 41 42 43
+// EXPECT-OUTPUT: built in main:   41 42 43
+
+func copied() -> Vector<() sync -> Int> {
+    let a = 41
+    let b = 42
+    let c = 43
+    var original = Vector<() sync -> Int>()
+    try! original.push({ [a] in a })
+    try! original.push({ [b] in b })
+    try! original.push({ [c] in c })
+    move original
+}
+
+func main() {
+    let v = copied()
+    let g0 = v[0]
+    let g1 = v[1]
+    let g2 = v[2]
+    print("built elsewhere: {} {} {}", g0(), g1(), g2())
+
+    let x = 41
+    let y = 42
+    let z = 43
+    var here = Vector<() sync -> Int>()
+    try! here.push({ [x] in x })
+    try! here.push({ [y] in y })
+    try! here.push({ [z] in z })
+    let h0 = here[0]
+    let h1 = here[1]
+    let h2 = here[2]
+    print("built in main:   {} {} {}", h0(), h1(), h2())
+}

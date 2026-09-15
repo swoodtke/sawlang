@@ -1,16 +1,39 @@
 // Owning closures stored in a Vector drop when the Vector drops (design 71):
 // each element carries its own env destructor, released exactly once at Vector
 // teardown (in the container's element order).
+//
+// SL-269 CORRECTED THIS TEST'S EXPECTATION, which contradicted the rule stated
+// one line above it. It used to expect `deinit 2` then `deinit 1`, and passed —
+// but not for either reason the header gives. The closures were classified
+// NON-escaping (they are call arguments to `push`), so `[move a]` was a
+// DEFERRED move: the env held a pointer to the local instead of taking it, the
+// Vector's teardown released NOTHING, and the two `deinit`s that showed up were
+// main's own scope exit dropping `a` and `b` in reverse declaration order,
+// after the Vector was already gone. The count was right, which is all the old
+// expectation checked, and reverse-declaration order happens to be the reverse
+// of element order at two elements — so the test agreed with a program that did
+// neither of the things it claims to test.
+//
+// The `sink` below is what makes the difference visible rather than incidental:
+// the Vector dies in the middle of `main`, so WHEN the envs are released is on
+// the page. Pre-fix this printed `vector is gone` / `main ends` / `deinit 2` /
+// `deinit 1`; the deinits now bracket correctly, before the Vector is gone, in
+// element order.
+//
 // EXPECT: success
 // EXPECT-OUTPUT:
 // pushed
-// deinit 2
 // deinit 1
+// deinit 2
+// vector is gone
+// main ends
 
 struct Res { v: Int }
 extension Res: NoCopy {
     func deinit(&var self) { print("deinit {self.v}") }
 }
+
+func sink(fs: Vector<() -> Int>) -> Int { fs.len() }
 
 func main() {
     let a = Res(v: 1)
@@ -19,5 +42,8 @@ func main() {
     try! fs.push({ [move a] in a.v })
     try! fs.push({ [move b] in b.v })
     print("pushed")
-    // fs drops -> each closure element's env destructor runs once
+    // The Vector dies HERE, and takes both element envs with it.
+    let _ = sink(move fs)
+    print("vector is gone")
+    print("main ends")
 }

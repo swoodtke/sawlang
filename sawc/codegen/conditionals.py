@@ -290,7 +290,14 @@ class ConditionalsMixin:
         # bindings, which register into the branch scope pushed above.
         pattern_names = []
         if expr.pattern is not None:
-            self._destructure_bind(expr.pattern, inner_val, inner_saw, expr.mutable, False)
+            # The source-ownership answer is the `_` arm's own question (see the
+            # `guard let` twin): a scrutinee that KEEPS its payload lends each
+            # leaf rather than handing it over, so every owning leaf retains and
+            # a `_` leaf consumes nothing. A hardcoded `False` here asserted the
+            # opposite at every scrutinee.
+            keeps = not self._optional_source_hands_over(expr.optional_expr)
+            self._destructure_bind(expr.pattern, inner_val, inner_saw,
+                                   expr.mutable, keeps)
             pattern_names = self._pattern_binding_names(expr.pattern)
         elif expr.name == "_":
             # Design 111 rider: `if let _ = opt` binds nothing. Drop the unwrapped
@@ -574,9 +581,18 @@ class ConditionalsMixin:
                      and opt_type.inner_type else None)
 
         # Tuple pattern (design 63): destructure the unwrapped tuple into its
-        # bindings (bind by value; components stay owned by the source optional).
+        # bindings. The source-ownership answer is the one the `_` arm below
+        # already asks — whether the scrutinee HANDED its payload over (a
+        # `move`, or a fresh temporary nobody else holds) or KEEPS it (a local,
+        # a field, a place read). This used to pass a hardcoded `False`, which
+        # asserts "the source handed over" at every scrutinee, contradicting the
+        # comment that stood right here; over a scrutinee that keeps its payload
+        # the leaves then bound as bitwise aliases and the branch's scope exit
+        # released references the scrutinee still owned.
         if stmt.pattern is not None:
-            self._destructure_bind(stmt.pattern, inner_val, inner_saw, stmt.mutable, False)
+            keeps = not self._optional_source_hands_over(stmt.optional_expr)
+            self._destructure_bind(stmt.pattern, inner_val, inner_saw,
+                                   stmt.mutable, keeps)
             return
 
         # Design 111 rider: `guard let _ = opt else { ... }` binds nothing. Drop the

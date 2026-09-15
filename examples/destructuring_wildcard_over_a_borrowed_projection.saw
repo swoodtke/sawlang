@@ -1,0 +1,58 @@
+// A `_` leaf of a destructuring `let` consumes a reference ONLY when the source
+// handed one over.
+//
+// The reviewer's repro for the SL-275 follow-up. `visit_DestructuringLet` was
+// fixed to pass the shared transfer oracle's source-ownership answer, and
+// `_destructure_walk` honoured it for `BindingPattern` while the
+// `WildcardPattern` arm queued the RAW projected component for an
+// unconditional drop. Over a borrowed projection that component is still owned
+// by its container, so the discard released a reference the destructure never
+// acquired — the named leaf's retain and the wildcard's spurious release
+// cancelled out, which is why the count below looked plausible.
+//
+// COUNTS, derived rather than observed: `base` is one reference, and `Pair`
+// holds two more, so `before` is 3. `let (kept, _) = p.t` reads a projection
+// the container keeps owning, so `kept` takes its OWN reference (4) and the `_`
+// leaf takes none and releases none. All three readings are the same `Arc`, so
+// `after` is `4 4 4`. Pre-fix it printed `after 3 3 3`.
+//
+// The single-shot shape understates it: each repetition leaked one release, so
+// a loop over the same borrowed projection walked the count DOWN (3, 2, 1) and
+// then read 7 out of freed storage with the container still live. The `repeat`
+// row is that shape — three calls that each destructure the same projection and
+// let their bindings die at the call's scope exit. It reads 5 inside every call
+// (`base` 1 + `Pair` 2 + main's `kept` 1 + the call's own `kept` 1) and the
+// value must be the SAME all three times; pre-fix it walked 4, 3, 2.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: before 3
+// EXPECT-OUTPUT: after 4 4 4
+// EXPECT-OUTPUT: repeat 5 5 5
+// EXPECT-OUTPUT: end 4
+
+struct Res { id: Int }
+struct Pair { t: (Arc<Res>, Arc<Res>) }
+@synthesize
+extension Pair: Copy {}
+
+// Each call destructures the SAME borrowed projection and lets its bindings die
+// at the call's scope exit, so a leaked release shows up as a count that walks.
+func round(p: &Pair) -> Int {
+    let (kept, _) = p.t
+    kept.strong_count()
+}
+
+func main() {
+    let base = try! Arc(value: Res(id: 1))
+    let p = Pair(t: (base.copy(), base.copy()))
+    print("before {}", base.strong_count())
+    let (kept, _) = p.t
+    print("after {} {} {}", base.strong_count(), kept.strong_count(),
+          p.t.1.strong_count())
+
+    let r1 = round(&p)
+    let r2 = round(&p)
+    let r3 = round(&p)
+    print("repeat {} {} {}", r1, r2, r3)
+    print("end {}", p.t.0.strong_count())
+}

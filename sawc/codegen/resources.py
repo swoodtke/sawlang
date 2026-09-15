@@ -1843,16 +1843,27 @@ class ResourcesMixin:
                                TypeKind.OPTIONAL, TypeKind.TUPLE))
 
     def _needs_copy_for_struct_init(self, value_expr, field_type: SawType) -> bool:
-        """Check if a value expression needs copy() called during struct initialization.
+        """Whether a memberwise struct literal's field initializer must
+        copy/retain the value it reads.
 
-        We need to call copy() when:
-        1. The field type implements Copy
-        2. The value comes from an existing variable (Identifier) or field access (MemberAccess)
+        TWO QUESTIONS, and only the first one is this site's own. The DESTINATION
+        question — does a field of this type owe a retain at all — is the tier
+        gate below, and it is what distinguishes this boundary from every other
+        transfer site. The SOURCE question — does this expression read storage
+        somebody else keeps owning — is the shared oracle's
+        (`_transfer_site_needs_copy` -> `_transfer_needs_copy`), which reads the
+        checker's stamped `needs_copy` first and re-derives only what codegen
+        owns.
 
-        We don't need copy() for:
-        - Fresh struct/enum construction (new values don't need copying)
-        - Literals (they don't have existing ownership)
-        - Move expressions (ownership is transferred)
+        The two arms the oracle absorbed when SL-275 routed this site through it,
+        recorded because each was earned by a bug:
+        - a `move` source transfers ownership and copies nothing (the oracle's
+          isinstance tail does not list `MoveExpr`, so it answers False);
+        - design 124's frame-field read (`self.name!`) initializing a field is
+          the same duplication a `MemberAccess` source is — without the retain a
+          `Wrap(s: s)` built in a driven body aliased the frame's `s`, which
+          eager teardown then freed. The oracle's `frame_owning_read` arm is the
+          same `_frame_read_needs_copy` call this site used to make itself.
         """
         # A field type is copy-on-init when it implements Copy — OR when
         # it is an aggregate with no whole-type copy() that still OWNS
@@ -1869,29 +1880,25 @@ class ResourcesMixin:
                 behavior != "no_copy" and self._needs_cleanup(field_type)):
             return False
 
-        # Check if the value comes from an existing binding that needs copying
-
-        if isinstance(value_expr, MoveExpr):
-            # Move expressions transfer ownership, no copy needed
-            return False
-
-        # design 124: a frame-field read (`self.name!`) initializing a struct
-        # field is the same duplication a `MemberAccess` source is — see
-        # `_transfer_needs_copy`. Without this a `Wrap(s: s)` built in a driven
-        # body aliased the frame's `s`, which eager teardown then freed.
-        if getattr(value_expr, 'frame_owning_read', False):
-            return self._frame_read_needs_copy(value_expr)
-
-        if isinstance(value_expr, Identifier):
-            # Identifier refers to an existing variable - needs copy
-            return True
-
-        if isinstance(value_expr, MemberAccess):
-            # Member access (e.g., self.field) - needs copy
-            return True
-
-        # Fresh construction (struct init, enum init, literals) doesn't need copy
-        return False
+        # THE SOURCE QUESTION IS THE SHARED ORACLE'S (SL-275). It used to be an
+        # inline node-type list — `Identifier` or `MemberAccess` needs a copy,
+        # anything else does not — which AGREES with the checker on a bare
+        # binding and DISAGREES on every other PROJECTION: a tuple element
+        # (`t.0`) and an indexed element (`arr[i]`) read storage their container
+        # keeps and therefore owe a retain, and both were simply absent from the
+        # list, so `Wrap(s: t.0)` stored a non-retaining alias that the source's
+        # own scope-exit release then freed under the built struct.
+        # `SelfExpr` was the third gap and the one that was LIVE in std:
+        # `StringBytes(s: self, ...)` promises in its own comment that the
+        # iterator holds its own retain, and emitted none — so an iterator built
+        # on a temporary receiver read a released payload and `heap(1).bytes()`
+        # summed to 0, silently, at exit 0.
+        #
+        # What stays here is the FIELD-type tier gate above: this site asks a
+        # question the other transfer sites do not — whether the DESTINATION
+        # field owes a retain at all — and only then asks the shared oracle
+        # about the source.
+        return self._transfer_site_needs_copy(value_expr)
 
     def _register_cleanup(self, var_name: str, saw_type: SawType):
         """Register a MOVABLE binding (let, param, if-let/guard binding) for

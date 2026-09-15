@@ -1,0 +1,176 @@
+// Conformance row V114 — a memberwise struct literal's FIELD retains its
+// projection source, `self` included
+//
+// THE GUARANTEE: a struct literal field is a transfer into storage the built
+// value owns. Reading a PROJECTION — a field, a tuple element, an indexed
+// element — or reading the RECEIVER (`self`) leaves the source live, so the
+// field owes its own reference.
+//
+// `_needs_copy_for_struct_init` asked the DESTINATION question correctly (does
+// a field of this type owe a retain at all) and then answered the SOURCE
+// question from an inline node-type list holding `MoveExpr`, `Identifier` and
+// `MemberAccess` (SL-275). `TupleIndex`, `ArrayIndex` and `SelfExpr` were
+// simply absent, which is why the `member` row below was correct on the same
+// program where the tuple and array rows read freed storage.
+//
+// THE `self` ROW WAS LIVE IN std, AND SILENT. `String.bytes()` is written
+// `StringBytes(s: self, index: 0, length: self.len())`, and its own comment
+// promises that "the iterator holds its OWN retain on the String" so an
+// iterator outliving a temporary receiver keeps the bytes alive. No retain was
+// emitted. Pre-fix, `heap(1).bytes()` summed its bytes to 0 instead of 169 —
+// exit 0, no diagnostic, a wrong answer read out of a released payload — and
+// `scalars()` did the same. That row is the reason this boundary is a
+// conformance row rather than a regression test: `self` joined the checker's
+// producer reads at SL-218 and the stamp was there to be read the whole time.
+//
+// THE ORACLE IS `Arc.strong_count()` for the projection rows (a missing retain
+// is invisible in a value — see V110) and the std iterator's own SUM for the
+// `self` row, which is what a user would actually observe.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: -- sync
+// EXPECT-OUTPUT: identifier 2 -> 3
+// EXPECT-OUTPUT: member 4 -> 5
+// EXPECT-OUTPUT: tuple 6 -> 7
+// EXPECT-OUTPUT: array 9 -> 10
+// EXPECT-OUTPUT: trivial 41
+// EXPECT-OUTPUT: self 11
+// EXPECT-OUTPUT: bytes 169
+// EXPECT-OUTPUT: scalars 170
+// EXPECT-OUTPUT: move-once 7
+// EXPECT-OUTPUT: live 11 11 11 11 11
+// EXPECT-OUTPUT: held 7
+// EXPECT-OUTPUT: drop 7
+// EXPECT-OUTPUT: -- driven
+// EXPECT-OUTPUT: identifier 2 -> 3
+// EXPECT-OUTPUT: member 4 -> 5
+// EXPECT-OUTPUT: tuple 6 -> 7
+// EXPECT-OUTPUT: live 7
+// EXPECT-OUTPUT: keep 7 7 7
+// EXPECT-OUTPUT: end
+
+struct Res { id: Int }
+
+struct Holder { a: Arc<Res> }
+@synthesize
+extension Holder: Copy {}
+
+struct Wrap { a: Arc<Res> }
+@synthesize
+extension Wrap: Copy {}
+
+struct Pair { t: (Arc<Res>, Int) }
+@synthesize
+extension Pair: Copy {}
+
+struct Count { n: Int }
+
+struct Owned { w: Int }
+extension Owned: NoCopy { func deinit(&var self) { print("drop {}", self.w) } }
+
+struct Box2 { held: Owned }
+extension Box2: NoCopy {}
+
+// The `self` row in user code: a method building a struct that stores its own
+// receiver. This is std's `StringBytes(s: self, ...)` shape, written out.
+struct Keeper { a: Arc<Res> }
+@synthesize
+extension Keeper: Copy {}
+
+extension Holder {
+    func keep(&self) -> Keeper { Keeper(a: self.a) }
+}
+
+func heap(n: Int) -> String { "x{n}" }
+
+func sync_rows(base: &Arc<Res>) {
+    // CONTROL: a bare binding.
+    let ident = base.copy()
+    let before_i = base.strong_count()
+    let w0 = Wrap(a: ident)
+    print("identifier {} -> {}", before_i, base.strong_count())
+
+    // CONTROL: a struct FIELD — the one projection the node list held, correct
+    // on the same program where the two below were not.
+    let h = Holder(a: base.copy())
+    let before_m = base.strong_count()
+    let w1 = Wrap(a: h.a)
+    print("member {} -> {}", before_m, base.strong_count())
+
+    // A TUPLE element.
+    let p = Pair(t: (base.copy(), 0))
+    let before_t = base.strong_count()
+    let w2 = Wrap(a: p.t.0)
+    print("tuple {} -> {}", before_t, base.strong_count())
+
+    // An INDEXED element of a fixed array.
+    let arr: [Arc<Res>; 2] = [base.copy(), base.copy()]
+    let before_a = base.strong_count()
+    let w3 = Wrap(a: arr[0])
+    print("array {} -> {}", before_a, base.strong_count())
+
+    // TRIVIAL tier: nothing owed.
+    let t = (41, 0)
+    let c = Count(n: t.0)
+    print("trivial {}", c.n)
+
+    // `self` AS A FIELD SOURCE. The receiver is a borrow of storage the caller
+    // owns, so the built value owes its own reference.
+    let k = Holder(a: base.copy()).keep()
+    print("self {}", k.a.strong_count())
+
+    // The std face of that row, observed the way a user meets it: the iterator
+    // outlives the temporary receiver it was built from.
+    var it = heap(1).bytes()
+    var total = 0
+    while let b = it.next() { total = total + (b as Int) }
+    print("bytes {}", total)
+
+    var sc = heap(2).scalars()
+    var stotal = 0
+    while let s = sc.next() { stotal = stotal + s.value() }
+    print("scalars {}", stotal)
+
+    // A `move` source TRANSFERS into the field: exactly one drop.
+    let o = Owned(w: 7)
+    print("move-once {}", o.w)
+    let b2 = Box2(held: move o)
+    print("live {} {} {} {} {}", base.strong_count(), w0.a.strong_count(),
+          w1.a.strong_count(), w2.a.strong_count(), w3.a.strong_count())
+    print("held {}", b2.held.w)
+}
+
+func driven_rows(base: &Arc<Res>) {
+    __saw_suspend()
+
+    let ident = base.copy()
+    __saw_suspend()
+    let before_i = base.strong_count()
+    let w0 = Wrap(a: ident)
+    print("identifier {} -> {}", before_i, base.strong_count())
+
+    let h = Holder(a: base.copy())
+    __saw_suspend()
+    let before_m = base.strong_count()
+    let w1 = Wrap(a: h.a)
+    print("member {} -> {}", before_m, base.strong_count())
+
+    let p = Pair(t: (base.copy(), 0))
+    __saw_suspend()
+    let before_t = base.strong_count()
+    let w2 = Wrap(a: p.t.0)
+    print("tuple {} -> {}", before_t, base.strong_count())
+
+    print("live {}", base.strong_count())
+    print("keep {} {} {}", w0.a.strong_count(), w1.a.strong_count(),
+          w2.a.strong_count())
+}
+
+func main() {
+    let base = try! Arc(value: Res(id: 1))
+    print("-- sync")
+    sync_rows(&base)
+    print("-- driven")
+    __saw_drive(driven_rows(&base))
+    print("end")
+}

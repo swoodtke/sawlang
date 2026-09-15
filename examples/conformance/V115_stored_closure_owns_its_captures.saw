@@ -1,0 +1,181 @@
+// Conformance row V115 — a closure that OUTLIVES the frame that built it owns
+// its captures, whichever position stores it
+//
+// THE GUARANTEE: an escaping closure's environment is a refcounted heap block
+// (design 73) and its by-value captures are transferred INTO it. So a closure
+// held past the frame that built it keeps reading its own captures, and the
+// last owner's drop releases each of them exactly once.
+//
+// The escape analysis decided this from the closure's SYNTACTIC POSITION:
+//
+//     expr.escapes = force_escape or (
+//         (not as_call_argument) and (not has_reference_params))
+//
+// "Is it a call argument?" answers "does the callee run it before returning?"
+// only for a callee that does not STORE it — and a container's insert stores it
+// by definition. So `v.push({ [a] in a })` kept a STACK environment: the
+// captures died with the building frame, and a stack env has no destructor, so
+// the ones it owned were never released either. Both faces of SL-269 are that
+// one bit. The checker already knew better — `target_escaping`, read off the
+// `escaping` bit `_stamp_escaping_roles` writes on every stored position, was
+// computed 445 lines above for the borrow-capture gate and simply never
+// consulted here.
+//
+// THE ORACLE IS OWNERSHIP, NOT VALUE. The symptom users meet is a closure
+// reading a dead frame (`41 42 43` coming back as `41 6159428032
+// 4303424292`), but reading a dead frame is UNDEFINED: the same program prints
+// the right answer when the stack happens not to be reused, which is exactly
+// what happened to a first draft of this matrix. So each cell measures the
+// `Arc` count WHILE the holder is alive and again after it dies. `2` then `1`
+// is the guarantee: the env owns its capture for the holder's whole life and
+// releases it exactly once at the end. `1` then `1` is the bug — the capture
+// was released at the BUILDING frame's scope exit, leaving the holder carrying
+// an environment that points at freed storage.
+//
+// THE THREE BROKEN POSITIONS are all "a call argument whose slot stores it":
+// `Vector.push`, `Map.insert`, and a user function with an `escaping`
+// parameter. Every other storage position was already correct because its
+// closure literal is not a call argument, and they are here as the controls
+// that make the fix a migration rather than a widening.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: vector live=2 dead=1
+// EXPECT-OUTPUT: map live=2 dead=1
+// EXPECT-OUTPUT: escaping-param live=2 dead=1
+// EXPECT-OUTPUT: struct-in-vector live=2 dead=1
+// EXPECT-OUTPUT: returned live=2 held=2
+// EXPECT-OUTPUT: struct-field live=3 held=3
+// EXPECT-OUTPUT: array live=4 held=4
+// EXPECT-OUTPUT: tuple live=5 held=5
+// EXPECT-OUTPUT: result live=6 held=6
+// EXPECT-OUTPUT: end 6
+
+struct Res { id: Int }
+
+struct Watched { probe: () sync -> Int }
+@synthesize
+extension Watched: Copy {}
+
+// The third broken position: a user function whose parameter SAYS `escaping`,
+// which is the existing variance rule's spelling for "I will store this".
+func stash(into: &var Vector<() sync -> Int>, f: () sync escaping -> Int) {
+    try! into.push(f)
+}
+
+func sink_vector(v: Vector<() sync -> Int>) -> Int { v.len() }
+func sink_map(m: Map<Int, () sync -> Int>) -> Int { m.len() }
+func sink_watched(v: Vector<Watched>) -> Int { v.len() }
+func run_it(f: () sync -> Int) -> Int { f() }
+
+// --- the three positions that were broken ---------------------------------
+
+func b_vector(shared: &Arc<Res>) -> Vector<() sync -> Int> {
+    let held = shared.copy()
+    var v = Vector<() sync -> Int>()
+    try! v.push({ [move held] in 7 })
+    move v
+}
+
+func b_map(shared: &Arc<Res>) -> Map<Int, () sync -> Int> {
+    let held = shared.copy()
+    var m = Map<Int, () sync -> Int>()
+    try! m.insert(0, { [move held] in 7 })
+    move m
+}
+
+func b_escaping_param(shared: &Arc<Res>) -> Vector<() sync -> Int> {
+    let held = shared.copy()
+    var v = Vector<() sync -> Int>()
+    stash(&var v, { [move held] in 7 })
+    move v
+}
+
+// --- the controls: already correct, and must stay so ------------------------
+
+func b_struct_in_vector(shared: &Arc<Res>) -> Vector<Watched> {
+    let held = shared.copy()
+    var v = Vector<Watched>()
+    try! v.push(Watched(probe: { [move held] in 7 }))
+    move v
+}
+
+func b_returned(shared: &Arc<Res>) -> () sync -> Int {
+    let held = shared.copy()
+    { [move held] in 7 }
+}
+
+func b_struct_field(shared: &Arc<Res>) -> Watched {
+    let held = shared.copy()
+    Watched(probe: { [move held] in 7 })
+}
+
+func b_array(shared: &Arc<Res>) -> [() sync -> Int; 1] {
+    let held = shared.copy()
+    [({ [move held] in 7 })]
+}
+
+func b_tuple(shared: &Arc<Res>) -> (() sync -> Int, Int) {
+    let held = shared.copy()
+    (({ [move held] in 7 }), 0)
+}
+
+func b_result(shared: &Arc<Res>) -> Result<() sync -> Int, Res> {
+    let held = shared.copy()
+    { [move held] in 7 }
+}
+
+func main() {
+    let shared = try! Arc(value: Res(id: 1))
+
+    var v = b_vector(&shared)
+    let v_live = shared.strong_count()
+    let _ = sink_vector(move v)
+    print("vector live={} dead={}", v_live, shared.strong_count())
+
+    var m = b_map(&shared)
+    let m_live = shared.strong_count()
+    let _ = sink_map(move m)
+    print("map live={} dead={}", m_live, shared.strong_count())
+
+    var vc = b_escaping_param(&shared)
+    let c_live = shared.strong_count()
+    let _ = sink_vector(move vc)
+    print("escaping-param live={} dead={}", c_live, shared.strong_count())
+
+    var sv = b_struct_in_vector(&shared)
+    let s_live = shared.strong_count()
+    let _ = sink_watched(move sv)
+    print("struct-in-vector live={} dead={}", s_live, shared.strong_count())
+
+    // The remaining controls are HELD rather than dropped, so their counts
+    // stack — each one keeps its reference, which is the point.
+    let r = b_returned(&shared)
+    let r_live = shared.strong_count()
+    let _ = run_it(r)
+    print("returned live={} held={}", r_live, shared.strong_count())
+
+    let w = b_struct_field(&shared)
+    let w_live = shared.strong_count()
+    let wp = w.probe
+    let _ = run_it(wp)
+    print("struct-field live={} held={}", w_live, shared.strong_count())
+
+    let arr = b_array(&shared)
+    let a_live = shared.strong_count()
+    let ap = arr[0]
+    let _ = run_it(ap)
+    print("array live={} held={}", a_live, shared.strong_count())
+
+    let t = b_tuple(&shared)
+    let t_live = shared.strong_count()
+    let tp = t.0
+    let _ = run_it(tp)
+    print("tuple live={} held={}", t_live, shared.strong_count())
+
+    let rr = try! b_result(&shared)
+    let rr_live = shared.strong_count()
+    let _ = run_it(rr)
+    print("result live={} held={}", rr_live, shared.strong_count())
+
+    print("end {}", shared.strong_count())
+}

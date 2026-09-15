@@ -1,0 +1,279 @@
+// Conformance row V112 — a destructuring pattern's EVERY leaf answers to the
+// source's ownership: a named leaf retains, a `_` leaf consumes nothing
+//
+// THE GUARANTEE: a destructuring pattern binds each component of its source,
+// and each leaf is released at the end of whatever owns it. When the source
+// stays live — which a PROJECTION always does, since its container keeps owning
+// it — every owning NAMED leaf owes a retain, and every `_` leaf owes NOTHING:
+// there is no reference for it to consume. When the source hands ownership over
+// (a fresh temporary, a `move`), the named leaves take ownership and the `_`
+// leaves drop exactly once.
+//
+// TWO DEFECTS, ONE MECHANISM — "the source-ownership answer is not consulted":
+//
+//   * `visit_DestructuringLet` asked it inline as
+//     `isinstance(stmt.value, Identifier)` (SL-275) — right for
+//     `let (a, b) = pair`, wrong for `let (a, b) = h.pair`, where the components
+//     bound as bitwise aliases and teardown aborted with `over-release of a
+//     String reference (refcount underflow)`.
+//   * `_destructure_walk` then honoured the corrected answer for
+//     `BindingPattern` and IGNORED it for `WildcardPattern`, queueing the raw
+//     projected component for an unconditional drop. The named leaf's retain
+//     and the wildcard's spurious release cancelled, so `let (kept, _) = p.t`
+//     looked plausible at one call and walked the count DOWN on repetition
+//     (3, 2, 1) before reading freed storage with the container still live.
+//   * The same answer was hardcoded `False` at the OTHER TWO ENTRY POINTS of
+//     the funnel — the tuple-pattern arms of `if let` and `guard let`
+//     (`conditionals.py`) — which asserts "the source handed over" at every
+//     scrutinee. Over one that KEEPS its payload the leaves aliased and the
+//     branch's scope exit released the scrutinee's own references.
+//
+// So the rule is quantified over LEAF KIND x SOURCE KIND x ENTRY POINT, and
+// this row is that matrix. The earlier version of this file exercised named
+// leaves only, which is exactly how the wildcard arm stayed broken under a row
+// whose title claims every component.
+//
+// THE ORACLE IS `Arc.strong_count()` — see V111 for why a value-shaped oracle
+// cannot see a reference that was never acquired, nor one released twice. The
+// two-element source is deliberate: the rule is per COMPONENT, so a fix that
+// retained the source once rather than each leaf would pass a one-element row.
+//
+// DRIVEN COUNTERPARTS are carried for every leaf kind. They were already
+// correct before either fix — the transform's own lowering reaches the shared
+// oracle — so they are the regression fence rather than the catch, which is the
+// same shape SL-275's four boundaries showed.
+//
+// READING THE `move` ROW: `drop 32` precedes `W8 move-once 31` because a `_`
+// leaf's release is flushed at the END OF ITS OWN STATEMENT (DF-218y's
+// reverse-declaration discard order), before the next line runs; `drop 31` is
+// the named leaf at its scope exit. Exactly one drop each is the claim.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: -- sync named
+// EXPECT-OUTPUT: identifier 3 -> 5
+// EXPECT-OUTPUT: member 7 -> 9
+// EXPECT-OUTPUT: trivial 11 12
+// EXPECT-OUTPUT: move-once 21 22
+// EXPECT-OUTPUT: keep 9 9 9 9 21 22
+// EXPECT-OUTPUT: drop 22
+// EXPECT-OUTPUT: drop 21
+// EXPECT-OUTPUT: -- sync wildcard
+// EXPECT-OUTPUT: W1 named+wildcard  borrowed 6 -> 7
+// EXPECT-OUTPUT: W2 all-wildcard    borrowed 7 -> 7
+// EXPECT-OUTPUT: W3 nested-wildcard borrowed 7 -> 8
+// EXPECT-OUTPUT: W4 named+wildcard  fresh    8 -> 9
+// EXPECT-OUTPUT: W5 all-wildcard    fresh    9 -> 9
+// EXPECT-OUTPUT: W6 nested-wildcard fresh    9 -> 10
+// EXPECT-OUTPUT: W7 all-named       borrowed 10 -> 12
+// EXPECT-OUTPUT: drop 32
+// EXPECT-OUTPUT: W8 move-once 31
+// EXPECT-OUTPUT: hold 12 12 12 12 12 12
+// EXPECT-OUTPUT: drop 31
+// EXPECT-OUTPUT: -- entry points
+// EXPECT-OUTPUT: E1 if-let all-named    inside 5 after 3
+// EXPECT-OUTPUT: E2 if-let named+wild   inside 4 after 3
+// EXPECT-OUTPUT: E3 guard-let all-named inside 5 after 3
+// EXPECT-OUTPUT: E4 if-let fresh        inside 4 after 3
+// EXPECT-OUTPUT: -- driven
+// EXPECT-OUTPUT: identifier 3 -> 5
+// EXPECT-OUTPUT: member 7 -> 9
+// EXPECT-OUTPUT: D1 named+wildcard  borrowed 12 -> 13
+// EXPECT-OUTPUT: D2 all-wildcard    borrowed 13 -> 13
+// EXPECT-OUTPUT: D3 nested-wildcard borrowed 13 -> 14
+// EXPECT-OUTPUT: D4 named+wildcard  fresh    14 -> 15
+// EXPECT-OUTPUT: keep 15 15 15 15
+// EXPECT-OUTPUT: hold 15 15 15
+// EXPECT-OUTPUT: end
+
+struct Res { id: Int }
+
+struct Pair { t: (Arc<Res>, Arc<Res>) }
+@synthesize
+extension Pair: Copy {}
+
+struct Nest { t: ((Arc<Res>, Arc<Res>), Arc<Res>) }
+@synthesize
+extension Nest: Copy {}
+
+struct Holder { p: (Arc<Res>, Arc<Res>)? }
+@synthesize
+extension Holder: Copy {}
+
+struct Flat { t: (Int, Int) }
+
+struct Owned { w: Int }
+extension Owned: NoCopy { func deinit(&var self) { print("drop {}", self.w) } }
+
+// --- named leaves, the rows this row carried from the start -----------------
+
+func sync_rows(base: &Arc<Res>) {
+    // CONTROL: a bare binding. Already correct before SL-275, and the row the
+    // migration must leave untouched.
+    let src = (base.copy(), base.copy())
+    let before_i = base.strong_count()
+    let (a, b) = src
+    print("identifier {} -> {}", before_i, base.strong_count())
+
+    // A struct FIELD holding the tuple. Both components owe a retain.
+    let p = Pair(t: (base.copy(), base.copy()))
+    let before_m = base.strong_count()
+    let (c, d) = p.t
+    print("member {} -> {}", before_m, base.strong_count())
+
+    // TRIVIAL tier: nothing owed, values preserved.
+    let f = Flat(t: (11, 12))
+    let (x, y) = f.t
+    print("trivial {} {}", x, y)
+
+    // A `move` source TRANSFERS: one drop per component, reverse declaration
+    // order, and none of them doubled.
+    let mp = (Owned(w: 21), Owned(w: 22))
+    print("move-once {} {}", mp.0.w, mp.1.w)
+    let (m, n) = move mp
+
+    print("keep {} {} {} {} {} {}", a.strong_count(), b.strong_count(),
+          c.strong_count(), d.strong_count(), m.w, n.w)
+}
+
+// --- `_` LEAVES, the arm the earlier version of this row never exercised ----
+
+func wildcard_rows(base: &Arc<Res>) {
+    let p = Pair(t: (base.copy(), base.copy()))
+    let n = Nest(t: ((base.copy(), base.copy()), base.copy()))
+
+    // BORROWED: the container keeps owning every component, so a `_` leaf must
+    // acquire nothing and release nothing.
+    let w1 = base.strong_count()
+    let (k1, _) = p.t
+    print("W1 named+wildcard  borrowed {} -> {}", w1, base.strong_count())
+
+    let w2 = base.strong_count()
+    let (_, _) = p.t
+    print("W2 all-wildcard    borrowed {} -> {}", w2, base.strong_count())
+
+    // A `_` leaf AT DEPTH, reached through a nested tuple pattern — the
+    // recursion carries the same answer down.
+    let w3 = base.strong_count()
+    let ((k3, _), _) = n.t
+    print("W3 nested-wildcard borrowed {} -> {}", w3, base.strong_count())
+
+    // FRESH: the destructure owns every component, so a `_` leaf drops once.
+    let w4 = base.strong_count()
+    let (k4, _) = (base.copy(), base.copy())
+    print("W4 named+wildcard  fresh    {} -> {}", w4, base.strong_count())
+
+    let w5 = base.strong_count()
+    let (_, _) = (base.copy(), base.copy())
+    print("W5 all-wildcard    fresh    {} -> {}", w5, base.strong_count())
+
+    let w6 = base.strong_count()
+    let ((k6, _), _) = ((base.copy(), base.copy()), base.copy())
+    print("W6 nested-wildcard fresh    {} -> {}", w6, base.strong_count())
+
+    // CONTROL: all-named over the same borrowed projection — the arm that was
+    // already correct, beside the ones that were not.
+    let w7 = base.strong_count()
+    let (k7a, k7b) = p.t
+    print("W7 all-named       borrowed {} -> {}", w7, base.strong_count())
+
+    // A `move` source with a `_` leaf: the discarded component is released
+    // exactly once, pinned by a printing `deinit` rather than by a count.
+    let mp = (Owned(w: 31), Owned(w: 32))
+    let (m8, _) = move mp
+    print("W8 move-once {}", m8.w)
+
+    print("hold {} {} {} {} {} {}", k1.strong_count(), k3.strong_count(),
+          k4.strong_count(), k6.strong_count(), k7a.strong_count(),
+          k7b.strong_count())
+}
+
+// --- the OTHER TWO ENTRY POINTS of the same funnel --------------------------
+
+func guard_form(h: &Holder, base: &Arc<Res>) -> Int {
+    guard let (a, b) = h.p else { return 0 }
+    a.strong_count() + b.strong_count()
+}
+
+func fresh_pair(base: &Arc<Res>) -> (Arc<Res>, Arc<Res>)? {
+    (base.copy(), base.copy())
+}
+
+func entry_point_rows(base: &Arc<Res>) {
+    let h = Holder(p: (base.copy(), base.copy()))
+
+    // A FIELD scrutinee KEEPS its payload, so both leaves retain inside the
+    // branch and the branch releases exactly what it took.
+    var e1 = 0
+    if let (a, b) = h.p { e1 = base.strong_count() }
+    print("E1 if-let all-named    inside {} after {}", e1, base.strong_count())
+
+    // ... and a `_` leaf there takes nothing, so only the named one shows.
+    var e2 = 0
+    if let (a, _) = h.p { e2 = base.strong_count() }
+    print("E2 if-let named+wild   inside {} after {}", e2, base.strong_count())
+
+    // The `guard let` twin, whose binding belongs to the ENCLOSING scope.
+    let e3 = guard_form(&h, &base)
+    print("E3 guard-let all-named inside {} after {}", e3 / 2,
+          base.strong_count())
+
+    // A FRESH scrutinee hands its payload over: the named leaf owns it and the
+    // `_` leaf drops it, so the branch is net zero.
+    var e4 = 0
+    if let (a, _) = fresh_pair(&base) { e4 = base.strong_count() }
+    print("E4 if-let fresh        inside {} after {}", e4, base.strong_count())
+}
+
+func driven_rows(base: &Arc<Res>) {
+    __saw_suspend()
+
+    let src = (base.copy(), base.copy())
+    __saw_suspend()
+    let before_i = base.strong_count()
+    let (a, b) = src
+    print("identifier {} -> {}", before_i, base.strong_count())
+
+    let p = Pair(t: (base.copy(), base.copy()))
+    __saw_suspend()
+    let before_m = base.strong_count()
+    let (c, d) = p.t
+    print("member {} -> {}", before_m, base.strong_count())
+
+    let n = Nest(t: ((base.copy(), base.copy()), base.copy()))
+    __saw_suspend()
+
+    let d1 = base.strong_count()
+    let (k1, _) = p.t
+    print("D1 named+wildcard  borrowed {} -> {}", d1, base.strong_count())
+
+    __saw_suspend()
+    let d2 = base.strong_count()
+    let (_, _) = p.t
+    print("D2 all-wildcard    borrowed {} -> {}", d2, base.strong_count())
+
+    let d3 = base.strong_count()
+    let ((k3, _), _) = n.t
+    print("D3 nested-wildcard borrowed {} -> {}", d3, base.strong_count())
+
+    let d4 = base.strong_count()
+    let (k4, _) = (base.copy(), base.copy())
+    print("D4 named+wildcard  fresh    {} -> {}", d4, base.strong_count())
+
+    print("keep {} {} {} {}", a.strong_count(), b.strong_count(),
+          c.strong_count(), d.strong_count())
+    print("hold {} {} {}", k1.strong_count(), k3.strong_count(),
+          k4.strong_count())
+}
+
+func main() {
+    let base = try! Arc(value: Res(id: 1))
+    print("-- sync named")
+    sync_rows(&base)
+    print("-- sync wildcard")
+    wildcard_rows(&base)
+    print("-- entry points")
+    entry_point_rows(&base)
+    print("-- driven")
+    __saw_drive(driven_rows(&base))
+    print("end")
+}

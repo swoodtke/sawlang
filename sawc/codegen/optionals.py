@@ -624,7 +624,15 @@ class OptionalsMixin:
                 value = self._generate_expression(expr.value)
                 if field_saw is not None and self._needs_cleanup(field_saw):
                     self._emit_drop_at(field_ptr, field_saw)
-                if field_saw is not None and isinstance(expr.value, Identifier):
+                # The RHS is a TRANSFER into the payload field, so the retain is
+                # the shared oracle's decision (SL-275). Asked inline as "is the
+                # RHS a bare Identifier?" this site retained `x?.y = s` and
+                # aliased `x?.y = h.s` / `x?.y = t.0` / `x?.y = arr[i]`: the old
+                # field value is released just above, the new one was stored
+                # without a retain, and the net effect on an `Arc` source was one
+                # reference lost per assignment, ending in `over-release of an
+                # Arc (refcount underflow)` at teardown.
+                if field_saw is not None and self._transfer_site_needs_copy(expr.value):
                     value = self._generate_copy_for_dest(value, field_saw)
                 expected_field_type = field_ptr.type.pointee
                 value = self._fit_optional_slot(value, expected_field_type)
