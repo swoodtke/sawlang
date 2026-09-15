@@ -1,0 +1,34 @@
+// XFAIL: SL-280 a suspension reached through a MODULE-PRIVATE free function of
+// an IMPORTED module is silently dropped — no frame is built for the helper, so
+// the transform lowers it as a plain call. The `public` twin beside it works,
+// which is the whole diagnosis: `coro_transform.py`'s `imported_free_fns` table
+// is keyed by the UNMANGLED name while the effect graph keys a free function by
+// `mangled_symbol or name`, and design 249 gives only a module-PRIVATE free
+// function a `$m$<module>` mangled symbol. The edge key therefore never matches
+// the table, the splice declines the callee, and nothing is said.
+//
+// This is the compile-time face of the SL-280 wedge. The runtime face is worse:
+// when the dropped suspension is a std.net park rather than a `yield_now`, the
+// park lowers through the out-of-frame codegen fallback in `codegen/calls.py`,
+// which registers the fd and then BLOCKS THE OS THREAD — and that thread is the
+// cooperative executor's, so the whole process stops until the fd is ready.
+//
+// `__saw_drive_steps` counts Pending resumes, so it reports whether the
+// suspension SURVIVED rather than whether the answer is right: the value is 2
+// either way, and only the step counts tell the two apart.
+//
+// EXPECT: success
+// COMPILE-FLAGS: --module-path sl280mod={TESTDIR}/modules/sl280mod
+// EXPECT-OUTPUT:
+// private 1
+// public 1
+
+import sl280mod.{via_private, via_public}
+
+func through_private() -> Int { via_private(1) }
+func through_public() -> Int { via_public(1) }
+
+func main() {
+    print("private {}", __saw_drive_steps(through_private()))
+    print("public {}", __saw_drive_steps(through_public()))
+}

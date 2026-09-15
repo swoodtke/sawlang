@@ -1,0 +1,30 @@
+// Fixture for `coro_imported_private_helper_suspends.saw` (SL-280).
+//
+// Two byte-identical entry points reaching one `yield_now()` through one more
+// frame in THIS module. They differ in a single word: `helper_public` is
+// `public`, `helper_private` is not. Design 249 stamps a module-private free
+// function's `mangled_symbol` with a `$m$<module>` tag and leaves a `public`
+// one bare, and the coroutine transform's imported-callee table is keyed by the
+// UNMANGLED name — so only the private edge is missed.
+
+import std.task.{yield_now}
+
+func helper_private(n: Int) -> Int {
+    yield_now()
+    n + 1
+}
+
+public func helper_public(n: Int) -> Int {
+    yield_now()
+    n + 1
+}
+
+/// Reaches the suspension through a MODULE-PRIVATE helper of this module.
+public func via_private(n: Int) -> Int {
+    helper_private(n)
+}
+
+/// The control: the same shape through a `public` helper of this module.
+public func via_public(n: Int) -> Int {
+    helper_public(n)
+}
