@@ -1,0 +1,36 @@
+func dump_canonical_bytes(label: String, value: String) {
+    print(label)
+    print(value.len())
+    var i = 0
+    while i < value.len() {
+        print(value.byte_at(i) as Int)
+        i += 1
+    }
+}
+
+func dump_canonical_error(kind: String, error: AstError) {
+    print(kind)
+    print("LINE")
+    print(error.line)
+    print("COL")
+    print(error.col)
+    dump_canonical_bytes("MESSAGE", error.message)
+}
+
+func dump_canonical_case(case_id: Int, source: String) {
+    print("CASE")
+    print(case_id)
+    match parse_ast(source) {
+        case Err(error) -> { dump_canonical_error("PARSE-ERROR", error) },
+        case Ok(tree) -> {
+            match canonical_ast(&tree) {
+                case Err(error) -> { dump_canonical_error("RENDER-ERROR", error) },
+                case Ok(value) -> {
+                    print("OK")
+                    dump_canonical_bytes("CANONICAL", value)
+                }
+            }
+        }
+    }
+    print("END-CASE")
+}

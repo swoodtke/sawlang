@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "empty-program",
+      "source": "",
+      "canonical": "Program {\n}",
+      "python_oracle": true
+    },
+    {
+      "name": "empty-function",
+      "source": "func empty() {}\n",
+      "canonical": "Program {\n  functions: [\n    Function empty() -> Void {\n    }\n  ]\n}",
+      "python_oracle": true
+    },
+    {
+      "name": "explicit-void-and-bare-return",
+      "source": "func stop() -> Void {\n return\n}\n",
+      "canonical": "Program {\n  functions: [\n    Function stop() -> Void {\n      ReturnStatement (void)\n    }\n  ]\n}",
+      "python_oracle": true
+    },
+    {
+      "name": "parameters-bindings-return",
+      "source": "func choose(left: Mystery, right: Bool) -> Unknown {\n let x: Int = 1_2u8\n var flag = true\n flag\n return left\n}\n",
+      "canonical": "Program {\n  functions: [\n    Function choose(left: Mystery, right: Bool) -> Unknown {\n      LetStatement let x: Int =\n        IntLiteral(12) : Int\n      LetStatement var flag =\n        BoolLiteral(True) : Bool\n      ExpressionStatement\n        Identifier(flag)\n      ReturnStatement\n        Identifier(left)\n    }\n  ]\n}",
+      "python_oracle": true
+    },
+    {
+      "name": "operators",
+      "source": "func ops() -> Bool { not false || 1 + 2 * 3 == 7 }\n",
+      "canonical": "Program {\n  functions: [\n    Function ops() -> Bool {\n      final_expr:\n        BinaryOp(||)\n          left:\n            UnaryOp(not)\n              BoolLiteral(False) : Bool\n          right:\n            BinaryOp(==)\n              left:\n                BinaryOp(+)\n                  left:\n                    IntLiteral(1) : Int\n                  right:\n                    BinaryOp(*)\n                      left:\n                        IntLiteral(2) : Int\n                      right:\n                        IntLiteral(3) : Int\n              right:\n                IntLiteral(7) : Int\n    }\n  ]\n}",
+      "python_oracle": true
+    },
+    {
+      "name": "identifier-call",
+      "source": "func use() -> Int { add(1, value) }\n",
+      "canonical": "Program {\n  functions: [\n    Function use() -> Int {\n      final_expr:\n        FunctionCall add()\n          arg[0]: \n            IntLiteral(1) : Int\n          arg[1]: \n            Identifier(value)\n    }\n  ]\n}",
+      "python_oracle": true
+    },
+    {
+      "name": "multiline-trailing-call",
+      "source": "func use(\n value: Int,\n) -> Int {\n add(\n  value,\n  2,\n )\n}\n",
+      "canonical": "Program {\n  functions: [\n    Function use(value: Int) -> Int {\n      final_expr:\n        FunctionCall add()\n          arg[0]: \n            Identifier(value)\n          arg[1]: \n            IntLiteral(2) : Int\n    }\n  ]\n}",
+      "python_oracle": true
+    },
+    {
+      "name": "grouped-identifier-callee",
+      "source": "func use() -> Int { (f)(1) }\n",
+      "canonical": "Program {\n  functions: [\n    Function use() -> Int {\n      final_expr:\n        FunctionCall f()\n          arg[0]: \n            IntLiteral(1) : Int\n    }\n  ]\n}",
+      "python_oracle": false
+    },
+    {
+      "name": "integer-radices-and-maximum",
+      "source": "func zero() -> Int { 0 }\nfunc leading() -> Int { 0007 }\nfunc byte() -> Int { 255u8 }\nfunc decimal() -> Int { 18446744073709551615u64 }\nfunc hex() -> Int { 0xffu16 }\nfunc maxhex() -> Int { 0XFFFF_FFFF_FFFF_FFFFu64 }\nfunc octal() -> Int { 0o77 }\nfunc binary() -> Int { 0b1010 }\nfunc maxbinary() -> Int { 0b1111111111111111111111111111111111111111111111111111111111111111u64 }\n",
+      "canonical": "Program {\n  functions: [\n    Function zero() -> Int {\n      final_expr:\n        IntLiteral(0) : Int\n    }\n    Function leading() -> Int {\n      final_expr:\n        IntLiteral(7) : Int\n    }\n    Function byte() -> Int {\n      final_expr:\n        IntLiteral(255) : Int\n    }\n    Function decimal() -> Int {\n      final_expr:\n        IntLiteral(18446744073709551615) : Int\n    }\n    Function hex() -> Int {\n      final_expr:\n        IntLiteral(255) : Int\n    }\n    Function maxhex() -> Int {\n      final_expr:\n        IntLiteral(18446744073709551615) : Int\n    }\n    Function octal() -> Int {\n      final_expr:\n        IntLiteral(63) : Int\n    }\n    Function binary() -> Int {\n      final_expr:\n        IntLiteral(10) : Int\n    }\n    Function maxbinary() -> Int {\n      final_expr:\n        IntLiteral(18446744073709551615) : Int\n    }\n  ]\n}",
+      "python_oracle": true
+    },
+    {
+      "name": "string-controls",
+      "source": "func text() -> String { \"quote: \\\" slash: \\\\ line\\nzero\\0é\" }\n",
+      "canonical": "Program {\n  functions: [\n    Function text() -> String {\n      final_expr:\n        StringLiteral(\"quote: \\\" slash: \\ line\nzero\u0000é\") : String\n    }\n  ]\n}",
+      "python_oracle": true
+    },
+    {
+      "name": "general-callee-refusal",
+      "source": "func use() -> Int { factory()(1) }\n",
+      "render_error": {
+        "line": 1,
+        "col": 21,
+        "message": "canonical FunctionCall requires an Identifier callee"
+      },
+      "python_oracle": false
+    }
+  ]
+}
