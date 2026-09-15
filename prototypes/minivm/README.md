@@ -8,6 +8,11 @@ The existing Python compiler builds the prototype executable. Once built, it
 parses, checks, lowers, interprets, and emits IR without invoking Python. It
 cannot yet compile its own source.
 
+The next bootstrap step is the separate [syntax parser](../parser/README.md).
+M18 generates an arena/index AST for a small function/expression subset using
+this VM as one execution engine. It has its own focused tests; integrating AST
+semantic analysis and lowering into this compiler is later work.
+
 [COMPATIBILITY.md](COMPATIBILITY.md) tracks known semantic differences,
 unsupported features and implementation limits, with the work required toward
 full Saw support. In particular, Vector snapshot reads are not borrowing places.

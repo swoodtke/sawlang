@@ -1,0 +1,158 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "empty-program",
+      "source": "",
+      "tree": {"kind": "Program", "text": "", "line": 1, "col": 1, "start_token": 0, "end_token": 0, "children": []}
+    },
+    {
+      "name": "empty-function",
+      "source": "func empty() {}\n",
+      "tree": {"kind": "Program", "text": "", "start_token": 0, "end_token": 7, "children": [
+        {"kind": "Function", "text": "empty", "line": 1, "col": 1, "start_token": 0, "end_token": 6, "children": [
+          {"kind": "NamedType", "text": "Void", "line": 1, "col": 14, "start_token": 4, "end_token": 4, "children": []},
+          {"kind": "Block", "text": "", "line": 1, "col": 14, "start_token": 4, "end_token": 6, "children": []}
+        ]}
+      ]}
+    },
+    {
+      "name": "parameters-and-return",
+      "source": "func choose(left: Mystery, right: Bool) -> Unknown {\n    return left\n}\n",
+      "tree": {"kind": "Program", "text": "", "start_token": 0, "end_token": 20, "children": [
+        {"kind": "Function", "text": "choose", "line": 1, "col": 1, "start_token": 0, "end_token": 19, "children": [
+          {"kind": "Parameter", "text": "left", "line": 1, "col": 13, "start_token": 3, "end_token": 6, "children": [
+            {"kind": "NamedType", "text": "Mystery", "line": 1, "col": 19, "start_token": 5, "end_token": 6, "children": []}
+          ]},
+          {"kind": "Parameter", "text": "right", "line": 1, "col": 28, "start_token": 7, "end_token": 10, "children": [
+            {"kind": "NamedType", "text": "Bool", "line": 1, "col": 35, "start_token": 9, "end_token": 10, "children": []}
+          ]},
+          {"kind": "NamedType", "text": "Unknown", "line": 1, "col": 44, "start_token": 12, "end_token": 13, "children": []},
+          {"kind": "Block", "text": "", "line": 1, "col": 52, "start_token": 13, "end_token": 19, "children": [
+            {"kind": "Return", "text": "", "line": 2, "col": 5, "start_token": 15, "end_token": 17, "children": [
+              {"kind": "Identifier", "text": "left", "line": 2, "col": 12, "start_token": 16, "end_token": 17, "children": []}
+            ]}
+          ]}
+        ]}
+      ]}
+    },
+    {
+      "name": "bindings-statements-tail",
+      "source": "func work() -> Int {\n let x: Nope = 1_2u8\n var y = x\n ping(y)\n y\n}\n",
+      "tree": {"kind": "Program", "text": "", "children": [
+        {"kind": "Function", "text": "work", "children": [
+          {"kind": "NamedType", "text": "Int", "children": []},
+          {"kind": "Block", "text": "", "children": [
+            {"kind": "Let", "text": "x", "children": [
+              {"kind": "NamedType", "text": "Nope", "children": []},
+              {"kind": "IntegerLiteral", "text": "12u8", "children": []}
+            ]},
+            {"kind": "Var", "text": "y", "children": [
+              {"kind": "Identifier", "text": "x", "children": []}
+            ]},
+            {"kind": "ExpressionStatement", "text": "", "children": [
+              {"kind": "Call", "text": "", "children": [
+                {"kind": "Identifier", "text": "ping", "children": []},
+                {"kind": "Identifier", "text": "y", "children": []}
+              ]}
+            ]},
+            {"kind": "FinalExpression", "text": "", "children": [
+              {"kind": "Identifier", "text": "y", "children": []}
+            ]}
+          ]}
+        ]}
+      ]}
+    },
+    {
+      "name": "precedence-and-associativity",
+      "source": "func p() -> Bool { 1 + 2 * 3 - 4 == 5 < 6 || false && true }\n",
+      "tree": {"kind": "Program", "text": "", "children": [
+        {"kind": "Function", "text": "p", "children": [
+          {"kind": "NamedType", "text": "Bool", "children": []},
+          {"kind": "Block", "text": "", "children": [
+            {"kind": "FinalExpression", "text": "", "children": [
+              {"kind": "Binary", "text": "||", "line": 1, "col": 43, "children": [
+                {"kind": "Binary", "text": "<", "line": 1, "col": 39, "children": [
+                  {"kind": "Binary", "text": "==", "line": 1, "col": 34, "children": [
+                    {"kind": "Binary", "text": "-", "line": 1, "col": 30, "children": [
+                      {"kind": "Binary", "text": "+", "line": 1, "col": 22, "children": [
+                        {"kind": "IntegerLiteral", "text": "1", "children": []},
+                        {"kind": "Binary", "text": "*", "line": 1, "col": 26, "children": [
+                          {"kind": "IntegerLiteral", "text": "2", "children": []},
+                          {"kind": "IntegerLiteral", "text": "3", "children": []}
+                        ]}
+                      ]},
+                      {"kind": "IntegerLiteral", "text": "4", "children": []}
+                    ]},
+                    {"kind": "IntegerLiteral", "text": "5", "children": []}
+                  ]},
+                  {"kind": "IntegerLiteral", "text": "6", "children": []}
+                ]},
+                {"kind": "Binary", "text": "&&", "line": 1, "col": 52, "children": [
+                  {"kind": "BooleanLiteral", "text": "false", "children": []},
+                  {"kind": "BooleanLiteral", "text": "true", "children": []}
+                ]}
+              ]}
+            ]}
+          ]}
+        ]}
+      ]}
+    },
+    {
+      "name": "unary-parentheses-calls",
+      "source": "func u() -> Int { -(f(1, g(2)) + not false) }\n",
+      "tree": {"kind": "Program", "text": "", "children": [
+        {"kind": "Function", "text": "u", "children": [
+          {"kind": "NamedType", "text": "Int", "children": []},
+          {"kind": "Block", "text": "", "children": [
+            {"kind": "FinalExpression", "text": "", "children": [
+              {"kind": "Unary", "text": "-", "children": [
+                {"kind": "Binary", "text": "+", "children": [
+                  {"kind": "Call", "text": "", "children": [
+                    {"kind": "Identifier", "text": "f", "children": []},
+                    {"kind": "IntegerLiteral", "text": "1", "children": []},
+                    {"kind": "Call", "text": "", "children": [
+                      {"kind": "Identifier", "text": "g", "children": []},
+                      {"kind": "IntegerLiteral", "text": "2", "children": []}
+                    ]}
+                  ]},
+                  {"kind": "Unary", "text": "not", "children": [
+                    {"kind": "BooleanLiteral", "text": "false", "children": []}
+                  ]}
+                ]}
+              ]}
+            ]}
+          ]}
+        ]}
+      ]}
+    },
+    {
+      "name": "syntactic-type-mismatch",
+      "source": "func wrong() -> Int { true }\n",
+      "tree": {"kind": "Program", "text": "", "children": [
+        {"kind": "Function", "text": "wrong", "children": [
+          {"kind": "NamedType", "text": "Int", "children": []},
+          {"kind": "Block", "text": "", "children": [
+            {"kind": "FinalExpression", "text": "", "children": [
+              {"kind": "BooleanLiteral", "text": "true", "children": []}
+            ]}
+          ]}
+        ]}
+      ]}
+    },
+    {
+      "name": "unicode-string-and-comments",
+      "source": "// lead\nfunc text() -> String {\n (\n  \"hé🙂\\nline\"\n )\n}\n",
+      "tree": {"kind": "Program", "text": "", "children": [
+        {"kind": "Function", "text": "text", "children": [
+          {"kind": "NamedType", "text": "String", "children": []},
+          {"kind": "Block", "text": "", "children": [
+            {"kind": "FinalExpression", "text": "", "children": [
+              {"kind": "StringLiteral", "text": "hé🙂\nline", "children": []}
+            ]}
+          ]}
+        ]}
+      ]}
+    }
+  ]
+}

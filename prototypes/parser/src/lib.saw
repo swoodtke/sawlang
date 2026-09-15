@@ -1,0 +1,728 @@
+// M18's syntax-only parser. This file is assembled after sawlex's lib.saw.
+
+static AST_MAX_NESTING: Int = 256
+
+public enum AstKind {
+    case Program, case Function, case Parameter, case NamedType, case Block,
+    case Let, case Var, case Return, case ExpressionStatement,
+    case FinalExpression, case Identifier, case IntegerLiteral,
+    case StringLiteral, case BooleanLiteral, case Unary, case Binary, case Call
+}
+
+public func ast_kind_name(kind: AstKind) -> String {
+    match kind {
+        case Program -> "Program", case Function -> "Function",
+        case Parameter -> "Parameter", case NamedType -> "NamedType",
+        case Block -> "Block", case Let -> "Let", case Var -> "Var",
+        case Return -> "Return", case ExpressionStatement -> "ExpressionStatement",
+        case FinalExpression -> "FinalExpression", case Identifier -> "Identifier",
+        case IntegerLiteral -> "IntegerLiteral", case StringLiteral -> "StringLiteral",
+        case BooleanLiteral -> "BooleanLiteral", case Unary -> "Unary",
+        case Binary -> "Binary", case Call -> "Call"
+    }
+}
+
+public struct AstNode {
+    public kind: AstKind
+    public text: String
+    public first_child: Int
+    public child_count: Int
+    public start_token: Int
+    public end_token: Int
+    public line: Int
+    public col: Int
+}
+
+public struct AstTree {
+    public nodes: Vector<AstNode>
+    public children: Vector<Int>
+    public root: Int
+}
+extension AstTree: NoCopy {}
+
+public struct AstError {
+    public message: String
+    public line: Int
+    public col: Int
+}
+
+struct AstValueEntry { node: Int, prev: Int, start_token: Int, end_token: Int }
+enum AstOperator {
+    case Add, case Subtract, case Multiply, case Divide, case Remainder,
+    case Less, case LessEqual, case Greater, case GreaterEqual,
+    case Equal, case NotEqual, case And, case Or, case Negate, case Not,
+    case GroupMarker, case CallMarker, case Invalid
+}
+struct AstOpEntry {
+    operator: AstOperator
+    precedence: Int
+    token: Int
+    base_value: Int
+    frame: Int
+    callee: Int
+    callee_start: Int
+    prev: Int
+}
+struct AstPendingArg { frame: Int, node: Int }
+struct AstReduction { value_top: Int, operator_top: Int }
+
+struct AstParser {
+    tokens: Vector<Token>
+    nodes: Vector<AstNode>
+    children: Vector<Int>
+    values: Vector<AstValueEntry>
+    operators: Vector<AstOpEntry>
+    pending_args: Vector<AstPendingArg>
+    pos: Int
+    failed: Bool
+    error_message: String
+    error_line: Int
+    error_col: Int
+    next_frame: Int
+    expression_nesting: Int
+}
+
+extension AstParser {
+    func token(&self) -> Token { self.tokens[self.pos] }
+
+    func fail(&var self, message: String) {
+        if not self.failed {
+            let t = self.token()
+            self.failed = true
+            self.error_message = message
+            self.error_line = t.line
+            self.error_col = t.col
+        }
+    }
+
+    func skip_newlines(&var self) {
+        while self.token().kind == TokenKind.Newline { self.pos += 1 }
+    }
+
+    func is_assignment_kind(&self, kind: TokenKind) -> Bool {
+        match kind {
+            case Assign -> true, case PlusAssign -> true, case MinusAssign -> true,
+            case StarAssign -> true, case SlashAssign -> true, case PercentAssign -> true,
+            case AmpAssign -> true, case PipeAssign -> true, case CaretAssign -> true,
+            case ShlAssign -> true, case ShrAssign -> true, case _ -> false
+        }
+    }
+
+    func reject_unsupported_expression(&var self, kind: TokenKind) -> Bool {
+        if kind == TokenKind.InterpString { self.fail("string interpolation is not supported") }
+        else if kind == TokenKind.FloatLit { self.fail("float literals are not supported") }
+        else if kind == TokenKind.Colon { self.fail("labelled calls are not supported") }
+        else if kind == TokenKind.Dot { self.fail("member access is not supported") }
+        else if kind == TokenKind.LBracket { self.fail("index access is not supported") }
+        else if self.is_assignment_kind(kind) {
+            self.fail("assignment expressions are not supported")
+        }
+        else if kind == TokenKind.Semicolon { self.fail("semicolons are not supported") }
+        else if kind == TokenKind.Exclaim { self.fail("postfix '!' is not supported") }
+        else if kind == TokenKind.If || kind == TokenKind.Match || kind == TokenKind.While {
+            self.fail("control expressions are not supported")
+        } else { return false }
+        true
+    }
+
+    func add_node(&var self, kind: AstKind, text: String, start: Int, end: Int,
+                  line: Int, col: Int, kids: &Vector<Int>) -> Int {
+        let first = self.children.len()
+        var i = 0
+        while i < kids.len() {
+            try! self.children.push(kids[i])
+            i += 1
+        }
+        let id = self.nodes.len()
+        try! self.nodes.push(AstNode(kind: kind, text: text,
+            first_child: first, child_count: kids.len(), start_token: start,
+            end_token: end, line: line, col: col))
+        id
+    }
+
+    func leaf(&var self, kind: AstKind, text: String, at: Int) -> Int {
+        let t = self.tokens[at]
+        let none = Vector<Int>()
+        self.add_node(kind, text, at, at + 1, t.line, t.col, &none)
+    }
+
+    func push_value(&var self, node: Int, prev: Int) -> Int {
+        let value = self.nodes[node]
+        self.push_enveloped_value(node, prev, value.start_token, value.end_token)
+    }
+
+    func push_enveloped_value(&var self, node: Int, prev: Int,
+                              start_token: Int, end_token: Int) -> Int {
+        let id = self.values.len()
+        try! self.values.push(AstValueEntry(node: node, prev: prev,
+            start_token: start_token, end_token: end_token))
+        id
+    }
+
+    func push_op(&var self, op: AstOpEntry) -> Int {
+        let id = self.operators.len()
+        try! self.operators.push(op)
+        id
+    }
+
+    func operator_text(&self, op: AstOperator) -> String {
+        match op {
+            case Add -> "+", case Subtract -> "-", case Multiply -> "*",
+            case Divide -> "/", case Remainder -> "%", case Less -> "<",
+            case LessEqual -> "<=", case Greater -> ">", case GreaterEqual -> ">=",
+            case Equal -> "==", case NotEqual -> "!=", case And -> "&&",
+            case Or -> "||", case Negate -> "-", case Not -> "not",
+            case _ -> ""
+        }
+    }
+
+    func binary_operator(&self, kind: TokenKind) -> AstOperator {
+        match kind {
+            case Plus -> AstOperator.Add, case Minus -> AstOperator.Subtract,
+            case Star -> AstOperator.Multiply, case Slash -> AstOperator.Divide,
+            case Percent -> AstOperator.Remainder, case Lt -> AstOperator.Less,
+            case Lte -> AstOperator.LessEqual, case Gt -> AstOperator.Greater,
+            case Gte -> AstOperator.GreaterEqual, case Eq -> AstOperator.Equal,
+            case Neq -> AstOperator.NotEqual, case And -> AstOperator.And,
+            case Or -> AstOperator.Or, case _ -> AstOperator.Invalid
+        }
+    }
+
+    func precedence(&self, op: AstOperator) -> Int {
+        match op {
+            case Or -> 1, case And -> 2,
+            case Less -> 3, case LessEqual -> 3, case Greater -> 3,
+            case GreaterEqual -> 3, case Equal -> 3, case NotEqual -> 3,
+            case Add -> 5, case Subtract -> 5,
+            case Multiply -> 6, case Divide -> 6, case Remainder -> 6,
+            case Negate -> 7, case Not -> 7, case _ -> 0
+        }
+    }
+
+    func reduce_one(&var self, value_top: Int, op_top: Int) -> AstReduction {
+        let op = self.operators[op_top]
+        if op.operator == AstOperator.Negate || op.operator == AstOperator.Not {
+            if value_top < 0 {
+                self.fail("expected expression")
+                return AstReduction(value_top: value_top, operator_top: op.prev)
+            }
+            let value = self.values[value_top]
+            var kids = Vector<Int>()
+            try! kids.push(value.node)
+            let tok = self.tokens[op.token]
+            let text = self.operator_text(op.operator)
+            let id = self.add_node(AstKind.Unary, text,
+                op.token, value.end_token, tok.line, tok.col, &kids)
+            self.expression_nesting -= 1
+            return AstReduction(value_top: self.push_value(id, value.prev), operator_top: op.prev)
+        }
+        if value_top < 0 {
+            self.fail("expected expression around binary operator")
+            return AstReduction(value_top: value_top, operator_top: op.prev)
+        }
+        let right_entry = self.values[value_top]
+        if right_entry.prev < 0 {
+            self.fail("expected expression around binary operator")
+            return AstReduction(value_top: value_top, operator_top: op.prev)
+        }
+        let left_entry = self.values[right_entry.prev]
+        var kids = Vector<Int>()
+        try! kids.push(left_entry.node)
+        try! kids.push(right_entry.node)
+        let operator_token = self.tokens[op.token]
+        let text = self.operator_text(op.operator)
+        let id = self.add_node(AstKind.Binary, text,
+            left_entry.start_token, right_entry.end_token,
+            operator_token.line, operator_token.col, &kids)
+        AstReduction(value_top: self.push_value(id, left_entry.prev), operator_top: op.prev)
+    }
+
+    func reduce_until(&var self, value_top: Int, op_top: Int,
+                      min_precedence: Int) -> AstReduction {
+        var vt = value_top
+        var ot = op_top
+        while ot >= 0 {
+            let op = self.operators[ot]
+            if op.operator == AstOperator.GroupMarker || op.operator == AstOperator.CallMarker || op.precedence < min_precedence { break }
+            let reduced = self.reduce_one(vt, ot)
+            vt = reduced.value_top
+            ot = reduced.operator_top
+            if self.failed { break }
+        }
+        AstReduction(value_top: vt, operator_top: ot)
+    }
+
+    func record_argument(&var self, marker: AstOpEntry, value_top: Int) -> Bool {
+        if value_top < 0 || self.values[value_top].prev != marker.base_value {
+            self.fail("expected one call argument")
+            return false
+        }
+        let value_node = self.values[value_top].node
+        try! self.pending_args.push(AstPendingArg(frame: marker.frame,
+                                                  node: value_node))
+        true
+    }
+
+    // Iterative shunting-yard parsing keeps the source-level 256 nesting
+    // contract independent of the mini-VM's function call stack.
+    func parse_expression(&var self) -> Int {
+        var value_top = -1
+        var op_top = -1
+        var expecting = true
+        var open_delimiters = 0
+        self.expression_nesting = 0
+        while not self.failed {
+            let t = self.token()
+            let at = self.pos
+            var handled = false
+            if t.kind == TokenKind.Newline {
+                if open_delimiters > 0 {
+                    self.pos += 1
+                    handled = true
+                } else { break }
+            }
+            if not handled && expecting {
+                if t.kind == TokenKind.Minus || t.kind == TokenKind.Not_ {
+                    self.expression_nesting += 1
+                    if self.expression_nesting > AST_MAX_NESTING {
+                        self.fail("expression nesting exceeds 256")
+                        break
+                    }
+                    let unary = if t.kind == TokenKind.Minus { AstOperator.Negate } else { AstOperator.Not }
+                    op_top = self.push_op(AstOpEntry(operator: unary, precedence: 7,
+                        token: at, base_value: -1, frame: -1, callee: -1,
+                        callee_start: -1, prev: op_top))
+                    self.pos += 1
+                    handled = true
+                }
+                if not handled && t.kind == TokenKind.LParen {
+                    self.expression_nesting += 1
+                    open_delimiters += 1
+                    if self.expression_nesting > AST_MAX_NESTING {
+                        self.fail("expression nesting exceeds 256")
+                        break
+                    }
+                    op_top = self.push_op(AstOpEntry(operator: AstOperator.GroupMarker, precedence: 0,
+                        token: at, base_value: value_top, frame: -1, callee: -1,
+                        callee_start: -1, prev: op_top))
+                    self.pos += 1
+                    handled = true
+                }
+                if not handled {
+                var node = -1
+                if t.kind == TokenKind.Ident { node = self.leaf(AstKind.Identifier, t.value, at) }
+                else if t.kind == TokenKind.IntLit {
+                    var spelling = t.value
+                    if let suffix = t.suffix {
+                        var text = StringBuilder()
+                        try! text.append(spelling)
+                        try! text.append(suffix)
+                        spelling = text.build()
+                    }
+                    node = self.leaf(AstKind.IntegerLiteral, spelling, at)
+                }
+                else if t.kind == TokenKind.StringLit { node = self.leaf(AstKind.StringLiteral, t.value, at) }
+                else if t.kind == TokenKind.BoolLit || t.kind == TokenKind.True_ || t.kind == TokenKind.False_ {
+                    node = self.leaf(AstKind.BooleanLiteral, t.value, at)
+                }
+                else {
+                    if not self.reject_unsupported_expression(t.kind) {
+                        self.fail("expected expression")
+                    }
+                    break
+                }
+                value_top = self.push_value(node, value_top)
+                self.pos += 1
+                expecting = false
+                handled = true
+                }
+            }
+
+            if not handled && t.kind == TokenKind.LParen {
+                self.expression_nesting += 1
+                open_delimiters += 1
+                if self.expression_nesting > AST_MAX_NESTING {
+                    self.fail("expression nesting exceeds 256")
+                    break
+                }
+                let callee_entry = self.values[value_top]
+                let frame = self.next_frame
+                self.next_frame += 1
+                value_top = callee_entry.prev
+                op_top = self.push_op(AstOpEntry(operator: AstOperator.CallMarker, precedence: 0,
+                    token: at, base_value: value_top, frame: frame,
+                    callee: callee_entry.node, callee_start: callee_entry.start_token,
+                    prev: op_top))
+                self.pos += 1
+                self.skip_newlines()
+                if self.token().kind == TokenKind.RParen {
+                    let close = self.pos
+                    self.pos += 1
+                    let marker = self.operators[op_top]
+                    var kids = Vector<Int>()
+                    try! kids.push(marker.callee)
+                    let callee = self.nodes[marker.callee]
+                    let id = self.add_node(AstKind.Call, "", marker.callee_start,
+                        close + 1, callee.line, callee.col, &kids)
+                    op_top = marker.prev
+                    value_top = self.push_value(id, marker.base_value)
+                    self.expression_nesting -= 1
+                    open_delimiters -= 1
+                    expecting = false
+                } else { expecting = true }
+                handled = true
+            }
+
+            let binary = self.binary_operator(t.kind)
+            if not handled && binary != AstOperator.Invalid {
+                let binary_precedence = self.precedence(binary)
+                let reduced = self.reduce_until(value_top, op_top, binary_precedence)
+                value_top = reduced.value_top
+                op_top = reduced.operator_top
+                op_top = self.push_op(AstOpEntry(operator: binary,
+                    precedence: binary_precedence, token: at,
+                    base_value: -1, frame: -1, callee: -1, callee_start: -1,
+                    prev: op_top))
+                self.pos += 1
+                self.skip_newlines()
+                expecting = true
+                handled = true
+            }
+
+            if not handled && (t.kind == TokenKind.Comma || t.kind == TokenKind.RParen) {
+                let reduced = self.reduce_until(value_top, op_top, 0)
+                value_top = reduced.value_top
+                op_top = reduced.operator_top
+                if op_top < 0 { break }
+                let marker = self.operators[op_top]
+                if t.kind == TokenKind.Comma {
+                    if marker.operator != AstOperator.CallMarker {
+                        self.fail("comma is only supported in calls")
+                        break
+                    }
+                    if not self.record_argument(marker, value_top) { break }
+                    value_top = marker.base_value
+                    expecting = true
+                    self.pos += 1
+                    self.skip_newlines()
+                    if self.token().kind == TokenKind.RParen {
+                        var kids = Vector<Int>()
+                        try! kids.push(marker.callee)
+                        var i = 0
+                        while i < self.pending_args.len() {
+                            let arg = self.pending_args[i]
+                            if arg.frame == marker.frame { try! kids.push(arg.node) }
+                            i += 1
+                        }
+                        let callee = self.nodes[marker.callee]
+                        let call_end = self.pos + 1
+                        let id = self.add_node(AstKind.Call, "", marker.callee_start,
+                            call_end, callee.line, callee.col, &kids)
+                        value_top = self.push_value(id, marker.base_value)
+                        op_top = marker.prev
+                        self.expression_nesting -= 1
+                        open_delimiters -= 1
+                        self.pos += 1
+                        expecting = false
+                    }
+                    handled = true
+                }
+                if not handled && marker.operator == AstOperator.GroupMarker {
+                    if value_top < 0 || self.values[value_top].prev != marker.base_value {
+                        self.fail("expected one parenthesized expression")
+                        break
+                    }
+                    let grouped = self.values[value_top]
+                    let grouped_end = self.pos + 1
+                    value_top = self.push_enveloped_value(grouped.node, marker.base_value,
+                        marker.token, grouped_end)
+                    op_top = marker.prev
+                    self.expression_nesting -= 1
+                    open_delimiters -= 1
+                    self.pos += 1
+                    expecting = false
+                    handled = true
+                }
+                if not handled && marker.operator == AstOperator.CallMarker {
+                    if not expecting {
+                        if not self.record_argument(marker, value_top) { break }
+                    } else {
+                        self.fail("expected call argument")
+                        break
+                    }
+                    var kids = Vector<Int>()
+                    try! kids.push(marker.callee)
+                    var i = 0
+                    while i < self.pending_args.len() {
+                        let arg = self.pending_args[i]
+                        if arg.frame == marker.frame { try! kids.push(arg.node) }
+                        i += 1
+                    }
+                    let callee = self.nodes[marker.callee]
+                    let call_end = self.pos + 1
+                    let id = self.add_node(AstKind.Call, "", marker.callee_start,
+                        call_end, callee.line, callee.col, &kids)
+                    value_top = self.push_value(id, marker.base_value)
+                    op_top = marker.prev
+                    self.expression_nesting -= 1
+                    open_delimiters -= 1
+                    self.pos += 1
+                    expecting = false
+                    handled = true
+                }
+            }
+            if not handled {
+                let _ = self.reject_unsupported_expression(t.kind)
+                break
+            }
+        }
+        if expecting {
+            self.fail("expected expression")
+            return -1
+        }
+        let reduced = self.reduce_until(value_top, op_top, 0)
+        value_top = reduced.value_top
+        op_top = reduced.operator_top
+        if op_top >= 0 {
+            self.fail("expected closing parenthesis")
+            return -1
+        }
+        if value_top < 0 || self.values[value_top].prev >= 0 {
+            self.fail("malformed expression")
+            return -1
+        }
+        self.values[value_top].node
+    }
+
+    func expect(&var self, kind: TokenKind, message: String) -> Bool {
+        if self.token().kind != kind {
+            self.fail(message)
+            return false
+        }
+        self.pos += 1
+        true
+    }
+
+    func parse_named_type(&var self) -> Int {
+        let at = self.pos
+        if self.token().kind != TokenKind.Ident {
+            self.fail("expected named type")
+            return -1
+        }
+        let text = self.token().value
+        self.pos += 1
+        self.leaf(AstKind.NamedType, text, at)
+    }
+
+    func parse_binding(&var self, kind: AstKind) -> Int {
+        let start = self.pos
+        let anchor = self.token()
+        self.pos += 1
+        if self.token().kind != TokenKind.Ident {
+            self.fail("expected binding name")
+            return -1
+        }
+        let name = self.token().value
+        self.pos += 1
+        var kids = Vector<Int>()
+        if self.token().kind == TokenKind.Colon {
+            self.pos += 1
+            try! kids.push(self.parse_named_type())
+        }
+        if not self.expect(TokenKind.Assign, "expected '=' in binding") { return -1 }
+        try! kids.push(self.parse_expression())
+        let end = self.pos
+        self.add_node(kind, name, start, end, anchor.line, anchor.col, &kids)
+    }
+
+    func finish_statement(&var self) -> Bool {
+        if self.token().kind == TokenKind.Newline {
+            self.skip_newlines()
+            return true
+        }
+        if self.token().kind == TokenKind.RBrace { return true }
+        self.fail("expected statement boundary")
+        false
+    }
+
+    func parse_block(&var self) -> Int {
+        let start = self.pos
+        let anchor = self.token()
+        if not self.expect(TokenKind.LBrace, "expected function body") { return -1 }
+        self.skip_newlines()
+        var kids = Vector<Int>()
+        while not self.failed && self.token().kind != TokenKind.RBrace {
+            let t = self.token()
+            if t.kind == TokenKind.Let || t.kind == TokenKind.Var {
+                let kind = if t.kind == TokenKind.Let { AstKind.Let } else { AstKind.Var }
+                let node = self.parse_binding(kind)
+                if not self.finish_statement() { break }
+                try! kids.push(node)
+            } else if t.kind == TokenKind.Return {
+                let ret_start = self.pos
+                self.pos += 1
+                var ret_kids = Vector<Int>()
+                var has_return_value = true
+                if self.token().kind == TokenKind.Newline { has_return_value = false }
+                if self.token().kind == TokenKind.RBrace { has_return_value = false }
+                if self.token().kind == TokenKind.Eof { has_return_value = false }
+                if has_return_value {
+                    try! ret_kids.push(self.parse_expression())
+                }
+                let ret_end = self.pos
+                let node = self.add_node(AstKind.Return, "", ret_start, ret_end,
+                    t.line, t.col, &ret_kids)
+                if not self.finish_statement() { break }
+                try! kids.push(node)
+            } else {
+                let expr_start = self.pos
+                let expr = self.parse_expression()
+                if self.failed { break }
+                let expr_end = self.pos
+                var expr_kids = Vector<Int>()
+                try! expr_kids.push(expr)
+                if self.token().kind != TokenKind.Newline && self.token().kind != TokenKind.RBrace {
+                    self.fail("expected newline or '}' after expression")
+                    break
+                }
+                if self.token().kind == TokenKind.Newline { self.skip_newlines() }
+                if self.token().kind == TokenKind.RBrace {
+                    let node = self.add_node(AstKind.FinalExpression, "", expr_start,
+                        expr_end, t.line, t.col, &expr_kids)
+                    try! kids.push(node)
+                    break
+                }
+                let node = self.add_node(AstKind.ExpressionStatement, "", expr_start,
+                    expr_end, t.line, t.col, &expr_kids)
+                try! kids.push(node)
+            }
+        }
+        let close = self.pos
+        if not self.expect(TokenKind.RBrace, "expected '}'") { return -1 }
+        self.add_node(AstKind.Block, "", start, close + 1, anchor.line, anchor.col, &kids)
+    }
+
+    func parse_function(&var self) -> Int {
+        let start = self.pos
+        let anchor = self.token()
+        self.pos += 1
+        if self.token().kind != TokenKind.Ident {
+            self.fail("expected function name")
+            return -1
+        }
+        let name = self.token().value
+        self.pos += 1
+        if not self.expect(TokenKind.LParen, "expected '('") { return -1 }
+        self.skip_newlines()
+        var kids = Vector<Int>()
+        if self.token().kind != TokenKind.RParen {
+            while not self.failed {
+                let pstart = self.pos
+                let p = self.token()
+                if p.kind != TokenKind.Ident {
+                    self.fail("expected parameter name")
+                    break
+                }
+                let pname = p.value
+                self.pos += 1
+                self.skip_newlines()
+                if not self.expect(TokenKind.Colon, "expected ':' after parameter name") { break }
+                self.skip_newlines()
+                let ty = self.parse_named_type()
+                var pkids = Vector<Int>()
+                try! pkids.push(ty)
+                let parameter_end = self.pos
+                let parameter = self.add_node(AstKind.Parameter, pname, pstart,
+                    parameter_end, p.line, p.col, &pkids)
+                try! kids.push(parameter)
+                self.skip_newlines()
+                if self.token().kind != TokenKind.Comma { break }
+                self.pos += 1
+                self.skip_newlines()
+                if self.token().kind == TokenKind.RParen { break }
+            }
+        }
+        if not self.expect(TokenKind.RParen, "expected ')' after parameters") { return -1 }
+        if self.token().kind == TokenKind.Arrow {
+            self.pos += 1
+            try! kids.push(self.parse_named_type())
+            self.skip_newlines()
+        } else {
+            self.skip_newlines()
+            let empty = Vector<Int>()
+            let body = self.token()
+            let body_position = self.pos
+            let void_type = self.add_node(AstKind.NamedType, "Void", body_position,
+                body_position, body.line, body.col, &empty)
+            try! kids.push(void_type)
+        }
+        try! kids.push(self.parse_block())
+        let end = self.pos
+        self.add_node(AstKind.Function, name, start, end,
+            anchor.line, anchor.col, &kids)
+    }
+
+    func parse_program(&var self) -> Int {
+        self.skip_newlines()
+        var kids = Vector<Int>()
+        while not self.failed && self.token().kind != TokenKind.Eof {
+            if self.token().kind != TokenKind.Func {
+                self.fail("only function declarations are supported")
+                break
+            }
+            try! kids.push(self.parse_function())
+            self.skip_newlines()
+        }
+        if self.failed { return -1 }
+        let end = self.pos
+        self.add_node(AstKind.Program, "", 0, end, 1, 1, &kids)
+    }
+}
+extension AstParser: NoCopy {}
+
+public func parse_ast(source: String) -> Result<AstTree, AstError> {
+    match lex(source) {
+        case Err(error) -> {
+            return AstError(message: error.message, line: error.line, col: error.col)
+        },
+        case Ok(lexed) -> {
+            // Documentation trivia has no M18 AST representation. Refuse it at
+            // its lexer-provided anchor instead of silently discarding source.
+            if lexed.docs.len() > 0 {
+                let doc = lexed.docs[0]
+                return AstError(message: "documentation comments are not supported",
+                                line: doc.line, col: doc.col)
+            }
+            var tokens = Vector<Token>()
+            var token_index = 0
+            while token_index < lexed.tokens.len() {
+                try! tokens.push(lexed.tokens[token_index])
+                token_index += 1
+            }
+            var parser = AstParser(tokens: move tokens,
+                nodes: Vector<AstNode>(), children: Vector<Int>(),
+                values: Vector<AstValueEntry>(), operators: Vector<AstOpEntry>(),
+                pending_args: Vector<AstPendingArg>(), pos: 0, failed: false,
+                error_message: "", error_line: 1, error_col: 1, next_frame: 0,
+                expression_nesting: 0)
+            let root = parser.parse_program()
+            if parser.failed {
+                return AstError(message: parser.error_message,
+                                line: parser.error_line, col: parser.error_col)
+            }
+            var nodes = Vector<AstNode>()
+            var node_index = 0
+            while node_index < parser.nodes.len() {
+                try! nodes.push(parser.nodes[node_index])
+                node_index += 1
+            }
+            var children = Vector<Int>()
+            var child_index = 0
+            while child_index < parser.children.len() {
+                try! children.push(parser.children[child_index])
+                child_index += 1
+            }
+            return AstTree(nodes: move nodes, children: move children, root: root)
+        }
+    }
+}

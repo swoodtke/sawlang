@@ -1,0 +1,92 @@
+func dump_ast_bytes(label: String, value: String) {
+    print(label)
+    print(value.len())
+    var i = 0
+    while i < value.len() {
+        print(value.byte_at(i) as Int)
+        i += 1
+    }
+}
+
+func dump_ast_kind(kind: AstKind) {
+    match kind {
+        case Program -> { print("Program") },
+        case Function -> { print("Function") },
+        case Parameter -> { print("Parameter") },
+        case NamedType -> { print("NamedType") },
+        case Block -> { print("Block") },
+        case Let -> { print("Let") },
+        case Var -> { print("Var") },
+        case Return -> { print("Return") },
+        case ExpressionStatement -> { print("ExpressionStatement") },
+        case FinalExpression -> { print("FinalExpression") },
+        case Identifier -> { print("Identifier") },
+        case IntegerLiteral -> { print("IntegerLiteral") },
+        case StringLiteral -> { print("StringLiteral") },
+        case BooleanLiteral -> { print("BooleanLiteral") },
+        case Unary -> { print("Unary") },
+        case Binary -> { print("Binary") },
+        case Call -> { print("Call") }
+    }
+}
+
+func dump_ast_case(case_id: Int, source: String) {
+    print("CASE")
+    print(case_id)
+    var token_count = 0
+    match lex(source) {
+        case Ok(lexed) -> { token_count = lexed.tokens.len() },
+        case Err(_) -> {}
+    }
+    print("TOKEN-COUNT")
+    print(token_count)
+    match parse_ast(source) {
+        case Ok(tree) -> {
+            print("OK")
+            print("ROOT")
+            print(tree.root)
+            print("NODES")
+            print(tree.nodes.len())
+            var i = 0
+            while i < tree.nodes.len() {
+                let node = tree.nodes[i]
+                print("NODE")
+                print("INDEX")
+                print(i)
+                print("KIND")
+                dump_ast_kind(node.kind)
+                dump_ast_bytes("TEXT", node.text)
+                print("FIRST-CHILD")
+                print(node.first_child)
+                print("CHILD-COUNT")
+                print(node.child_count)
+                print("START-TOKEN")
+                print(node.start_token)
+                print("END-TOKEN")
+                print(node.end_token)
+                print("LINE")
+                print(node.line)
+                print("COL")
+                print(node.col)
+                i += 1
+            }
+            print("CHILDREN")
+            print(tree.children.len())
+            i = 0
+            while i < tree.children.len() {
+                print("CHILD")
+                print(tree.children[i])
+                i += 1
+            }
+        },
+        case Err(error) -> {
+            print("ERROR")
+            print("LINE")
+            print(error.line)
+            print("COL")
+            print(error.col)
+            dump_ast_bytes("MESSAGE", error.message)
+        }
+    }
+    print("END-CASE")
+}
