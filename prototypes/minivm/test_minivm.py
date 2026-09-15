@@ -68,7 +68,6 @@ RUN_CASES = (
     RunCase("unsigned_parse/boundaries", "9223372036854775808\n18446744073709551614\n18446744073709551615\nnone\n18446744073709551614\n18446744073709551615\nnone\n18446744073709551615\nnone\n18446744073709551615\nnone\n18446744073709551615\nnone\n18446744073709551615\n", section="unsigned_parse", compare_sawc=True),
     RunCase("unsigned_parse/invalid", "none\n" * 21, section="unsigned_parse", compare_sawc=True),
     RunCase("unsigned_parse/receivers", "123\n42\n123\n", section="unsigned_parse", compare_sawc=True),
-    RunCase("unsigned_parse/receiver_snapshot", "255\nbad\n", section="unsigned_parse", compare_sawc=True),
     RunCase("unsigned_parse/literal_fits", "true\nfalse\n" * 7 + "false\nfalse\n", section="unsigned_parse", compare_sawc=True),
     RunCase("results/review_composition", "hello\n7\n0\nkept\n5\nbad\n", section="results"),
     RunCase("results/construction_wrapping", "7\nbad\n255\n9\n9\n11\nexplicit\n", section="results"),
@@ -106,7 +105,8 @@ RUN_CASES = (
     RunCase("strings/brace_marker_provenance", "1\n123\n2\n1\n123\n1\n125\n2\n1\n125\n", section="strings"),
     RunCase("strings/copies_calls_results", "alpha\nalpha\nbeta\nbeta\nright\n", section="strings"),
     RunCase("strings/references", "before\nbefore\nafter\nafter\n", section="strings"),
-    RunCase("strings/receiver_snapshot_order", "true\nafter\n", section="strings"),
+    RunCase("strings/receiver_borrow_controls", "true\ntrue\n3\n97\n1\ntrue\n3\ntrue\ntrue\ntrue\ntrue\ntrue\n", section="strings", compare_sawc=True),
+    RunCase("strings/receiver_self_assignment", "bcd\nbcd\nchanged\n", section="strings", compare_sawc=True),
     RunCase("strings/temporary_intrinsics", "3\ntrue\nell\n2\n1\n195\n", section="strings"),
     RunCase("strings/repeated_allocations", "final\n500\n", section="strings"),
     RunCase("strings/recursive_results", "cdef\n4\n", section="strings"),
@@ -253,6 +253,13 @@ RUN_CASES = (
 )
 
 REJECT_CASES = (
+    RejectCase("strings/receiver_snapshot_order", "overlapping arguments cannot include a mutable borrow", "strings", True),
+    RejectCase("strings/reject_receiver_byte_at_parenthesized", "overlapping arguments cannot include a mutable borrow", "strings", True),
+    RejectCase("strings/reject_receiver_parenthesized_record_field", "overlapping arguments cannot include a mutable borrow", "strings", True),
+    RejectCase("strings/reject_receiver_substring_nested_field", "overlapping arguments cannot include a mutable borrow", "strings", True),
+    RejectCase("strings/reject_receiver_equals_reference", "overlapping arguments cannot include a mutable borrow", "strings", True),
+    RejectCase("strings/reject_receiver_self_assignment_argument", "cannot borrow an assignment destination while evaluating its right-hand side", "strings", True),
+    RejectCase("unsigned_parse/receiver_snapshot", "overlapping arguments cannot include a mutable borrow", "unsigned_parse", True),
     RejectCase("lexer_completion/reject_break_outside", "break is only allowed inside a while loop", "lexer_completion", True),
     RejectCase("lexer_completion/reject_break_not_return", "may reach its end without returning a value", "lexer_completion", True),
     RejectCase("lexer_completion/reject_break_value", "break with a value is not supported", "lexer_completion"),
@@ -558,12 +565,7 @@ def test_vm_limit(binary: Path, name: str, budget: int, message: str) -> list[st
     return check_result(name, result, message + "\n", 1)
 
 
-SAWC_KNOWN_DIVERGENCES = {
-    # SL-260: the M8/M12 snapshot contract currently accepts a nested mutation
-    # that Saw's receiver borrowing rules reject. Require this exact diagnostic;
-    # disappearance or any different failure is a gate failure, not a silent skip.
-    "unsigned_parse/receiver_snapshot": "exclusive access violation",
-}
+SAWC_KNOWN_DIVERGENCES = {}
 
 
 def test_sawc_case(python: str, sawc: Path, case: RunCase | RejectCase,

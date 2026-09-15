@@ -1,0 +1,9 @@
+func replace(value: &var String) -> Int {
+    value = "changed"
+    1
+}
+
+func main() {
+    var text = "abcd"
+    text = text.substring(0, replace(&var text))
+}

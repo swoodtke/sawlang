@@ -71,6 +71,9 @@ struct ExprValue {
     literal_negative: Bool
     always_returns: Bool
     none_literal: Bool
+    // Root provenance belongs only to expressions that still denote a named
+    // source place. Retained staging copies preserve it; fresh producers use -1.
+    source_root: Int
 }
 
 struct BlockValue {
@@ -81,7 +84,8 @@ struct BlockValue {
 
 func expr_value(ty: ValueType, slot: Int, call: Bool) -> ExprValue {
     ExprValue(ty: ty, slot: slot, call: call, literal: false,
-              literal_value: 0, literal_negative: false, always_returns: false, none_literal: false)
+              literal_value: 0, literal_negative: false, always_returns: false, none_literal: false,
+              source_root: -1)
 }
 
 func returning_value() -> ExprValue {
@@ -762,7 +766,8 @@ extension Compiler {
         bits = integer_normalize(bits, source)
         if bare {
             let probe = ExprValue(ty: source, slot: -1, call: false, literal: true,
-                                  literal_value: magnitude, literal_negative: negative, always_returns: false, none_literal: false)
+                                  literal_value: magnitude, literal_negative: negative, always_returns: false, none_literal: false,
+                                  source_root: -1)
             if not self.literal_fits_target(&probe, target) {
                 return problem("integer literal does not fit {type_name(target)}", t.line, t.col)
             }
@@ -960,7 +965,9 @@ extension Compiler {
         if value.ty == ValueType.Builder { return problem("StringBuilder values cannot be copied", t.line, t.col) }
         let dst = try self.new_value(value.ty)
         try self.emit_copy_value(dst, value.slot, value.ty, &t)
-        expr_value(value.ty, dst, value.call)
+        var result = expr_value(value.ty, dst, value.call)
+        result.source_root = value.source_root
+        result
     }
 
     func emit(&var self, ins: Instruction) -> Int {
@@ -1008,10 +1015,10 @@ extension Compiler {
     }
 
     func register_borrow(&var self, place: &Place, mutable: Bool,
-                         t: &Token) -> Result<Void, ProtoError> {
+                         t: &Token, allow_pending_shared: Bool = false) -> Result<Void, ProtoError> {
         var pending = 0
         while pending < self.pending_writes.len() {
-            if self.pending_writes[pending] == place.root {
+            if self.pending_writes[pending] == place.root && not (allow_pending_shared && not mutable) {
                 return problem("cannot borrow an assignment destination while evaluating its right-hand side", t.line, t.col)
             }
             pending += 1
@@ -1083,9 +1090,13 @@ extension Compiler {
             let at = self.emit_at(Op.LoadRef, t.line, t.col)
             self.code[at].dst = dst
             self.code[at].a = place.slot
-            return expr_value(place.ty, dst, false)
+            var value = expr_value(place.ty, dst, false)
+            value.source_root = place.root
+            return value
         }
-        self.snapshot(expr_value(place.ty, place.slot, false), &t)
+        var value = expr_value(place.ty, place.slot, false)
+        value.source_root = place.root
+        self.snapshot(value, &t)
     }
 
     func store_place(&var self, place: Place, value: ExprValue,
@@ -1165,7 +1176,8 @@ extension Compiler {
             }
         }
         ExprValue(ty: target, slot: v.slot, call: false, literal: true,
-                  literal_value: v.literal_value, literal_negative: v.literal_negative, always_returns: false, none_literal: false)
+                  literal_value: v.literal_value, literal_negative: v.literal_negative, always_returns: false, none_literal: false,
+                  source_root: v.source_root)
     }
 
     func initialize_optional_none(&var self, target: ValueType, t: &Token) -> Result<ExprValue, ProtoError> {
@@ -1452,7 +1464,8 @@ extension Compiler {
             self.code[at].dst = dst
             self.code[at].immediate = integer_normalize(Int.from(truncating: magnitude), ty)
             return ExprValue(ty: ty, slot: dst, call: false, literal: bare,
-                             literal_value: magnitude, literal_negative: false, always_returns: false, none_literal: false)
+                             literal_value: magnitude, literal_negative: false, always_returns: false, none_literal: false,
+                             source_root: -1)
         }
         if self.at(TokenKind.True_) || self.at(TokenKind.False_) {
             let t = self.take()
@@ -1951,7 +1964,9 @@ extension Compiler {
                     let fi = self.field_index(ri, field.value)
                     if fi < 0 { return problem("record `{self.records[ri].name}` has no field `{field.value}`", field.line, field.col) }
                     let offset = try record_field_offset(&self.records, &self.sums, ri, fi)
+                    let source_root = value.source_root
                     value = expr_value(self.records[ri].field_types[fi], value.slot + offset, false)
+                    value.source_root = source_root
                 },
                 case _ -> { return problem("field access requires a record value", dot.line, dot.col) }
             }
@@ -1981,6 +1996,20 @@ extension Compiler {
 
     func parse_string_intrinsic(&var self, receiver: ExprValue,
                                 name: Token) -> Result<ExprValue, ProtoError> {
+        let saved_borrows = self.active_borrows.len()
+        if receiver.source_root >= 0 {
+            let source = Place(ty: ValueType.String, slot: receiver.slot, mutable: false,
+                               indirect: false, root: receiver.source_root,
+                               ref_ty: ValueType.Void)
+            try self.register_borrow(&source, false, &name, true)
+        }
+        let result = try self.parse_string_intrinsic_body(receiver, name)
+        self.restore_borrows(saved_borrows)
+        result
+    }
+
+    func parse_string_intrinsic_body(&var self, receiver: ExprValue,
+                                     name: Token) -> Result<ExprValue, ProtoError> {
         let _ = try self.expect(TokenKind.LParen, "expected `(` after String intrinsic")
         self.depth += 1
         self.paren_depth += 1
@@ -2561,7 +2590,8 @@ extension Compiler {
                 self.code[at].dst = dst
                 self.code[at].immediate = bits
                 let value = ExprValue(ty: ty, slot: dst, call: false, literal: bare,
-                                      literal_value: magnitude, literal_negative: true, always_returns: false, none_literal: false)
+                                      literal_value: magnitude, literal_negative: true, always_returns: false, none_literal: false,
+                                      source_root: -1)
                 return value
             }
             let v = try self.parse_unary()

@@ -1,5 +1,4 @@
-// M12 preserves M8 receiver snapshot semantics. SL-260 records the existing
-// prototype exclusivity gap: Python sawc rejects this overlapping borrow.
+// The receiver remains shared-borrowed while the radix argument is evaluated.
 func radix(value: &var String) -> Int {
     value = "bad"
     return 16

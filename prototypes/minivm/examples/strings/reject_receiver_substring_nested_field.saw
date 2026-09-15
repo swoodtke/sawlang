@@ -1,0 +1,12 @@
+struct Inner { text: String }
+struct Pair { left: Inner, right: String }
+
+func replace(pair: &var Pair) -> Int {
+    pair.right = "changed"
+    1
+}
+
+func main() {
+    var pair = Pair(left: Inner(text: "abc"), right: "other")
+    print((pair.left.text).substring(0, replace(&var pair)))
+}

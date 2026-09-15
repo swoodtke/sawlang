@@ -1,0 +1,2319 @@
+{
+  "version": 1,
+  "fixtures": [
+    {
+      "id": "run:lexer_completion/clear",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:lexer_completion/breaks",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:lexer_completion/break_then_return",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:lexer_completion/match_expression_arms",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:lexer_completion/discard_bindings",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:vectors/basic",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:vectors/strings_records",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:vectors/references_fields",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:vectors/moves_results",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:vectors/evaluation_once",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:vectors/forward_element_record",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:vectors/forward_nocopy_vector",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:vectors/index_negative",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:vectors/index_at_end",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:builders/snapshots",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:builders/append_values",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:builders/references",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:builders/single_evaluation",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:builders/loop_return_cleanup",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:builders/result_alloc_error",
+      "classification": "subset_exclusion",
+      "reason": "M11 subset exclusion: the prototype accepts bare Ok patterns for Result<Void, E>"
+    },
+    {
+      "id": "run:builders/lexer_helpers",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:scalars/boundaries",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:scalars/invalid",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:scalars/composition",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:scalars/record_identity_control",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:unsigned_parse/radices",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:unsigned_parse/boundaries",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:unsigned_parse/invalid",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:unsigned_parse/receivers",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:unsigned_parse/literal_fits",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:results/review_composition",
+      "classification": "known_difference",
+      "reason": "production misses contextual Result wrapping through assignment",
+      "issue": "SL-291",
+      "prototype": "accept",
+      "sawc": "reject",
+      "evidence": "cannot assign `trouble`",
+      "expected_errors": 1
+    },
+    {
+      "id": "run:results/construction_wrapping",
+      "classification": "known_difference",
+      "reason": "production does not pass an annotated Result destination into value-if arms",
+      "issue": "SL-292",
+      "prototype": "accept",
+      "sawc": "reject",
+      "evidence": "branches have incompatible types",
+      "expected_errors": 2
+    },
+    {
+      "id": "run:results/nested_optional",
+      "classification": "known_difference",
+      "reason": "production shadowing rule rejects a pattern binding accepted by the prototype",
+      "issue": "SL-289",
+      "prototype": "accept",
+      "sawc": "reject",
+      "evidence": "shadows the binding declared",
+      "expected_errors": 1
+    },
+    {
+      "id": "run:results/same_type_explicit",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:results/void_success",
+      "classification": "subset_exclusion",
+      "reason": "M11 subset exclusion: the prototype accepts bare Ok patterns for Result<Void, E>"
+    },
+    {
+      "id": "run:results/match_snapshot_ownership",
+      "classification": "known_difference",
+      "reason": "production misses contextual Result wrapping through assignment",
+      "issue": "SL-291",
+      "prototype": "accept",
+      "sawc": "reject",
+      "evidence": "cannot assign `string`",
+      "expected_errors": 1
+    },
+    {
+      "id": "run:results/try_propagation",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:results/try_nested_success",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:results/try_panic",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:results/loop_cleanup",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:results/value_match_control",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:results/value_match_widening",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:results/try_void",
+      "classification": "subset_exclusion",
+      "reason": "M11 subset exclusion: the prototype accepts bare Ok patterns for Result<Void, E>"
+    },
+    {
+      "id": "run:optionals/review_nested_context",
+      "classification": "known_difference",
+      "reason": "prototype recursively wraps an already-Optional value; production should reject but currently ICEs",
+      "issue": "SL-290",
+      "prototype": "accept",
+      "sawc": "internal_error",
+      "evidence": "type of #1 arg mismatch"
+    },
+    {
+      "id": "run:optionals/basic_numeric",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:optionals/nested_semantics",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:optionals/contextual_calls_arms",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:optionals/string_record_payload",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:optionals/references_methods",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:optionals/binding_snapshot_shadow",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:optionals/value_binding_subject_once",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:optionals/early_return_loop_cleanup",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:optionals/token_tok_extract",
+      "classification": "subset_exclusion",
+      "reason": "Prototype single-file subset omits production public-API visibility validation"
+    },
+    {
+      "id": "run:owning_records/copy_replace_nested",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:owning_records/references_methods_abi",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:owning_records/value_control_cleanup",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:owning_records/loop_cleanup",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:owning_records/string_match",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:owning_records/string_match_snapshot",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:owning_records/keyword_suffix_extract",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:owning_records/lexer_advance_extract",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:strings/literals_escapes",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:strings/intrinsics",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:strings/brace_marker_provenance",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:strings/copies_calls_results",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:strings/references",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:strings/receiver_borrow_controls",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:strings/receiver_self_assignment",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:strings/temporary_intrinsics",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:strings/repeated_allocations",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:strings/recursive_results",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:strings/value_if_nested_cleanup",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:strings/value_if_early_return_cleanup",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:strings/value_if_loop_cleanup",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:strings/index_negative",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:strings/index_at_end",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:strings/index_huge",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:strings/range_negative",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:strings/range_reversed",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:strings/range_past_end",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:strings/range_huge",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:receivers/whole_record_reference",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:receivers/nested_forwarding",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:receivers/mixed_abi",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:receivers/recursive_growth",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:receivers/methods_basic",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:receivers/methods_lookup_labels",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:receivers/nested_method_forward",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:receivers/lexer_advance",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:references/read_mutate_compound",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:references/scalar_kinds",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:references/direct_record_fields",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:references/shared_aliases",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:references/forwarding_growth",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:references/mutable_to_shared",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:references/value_before_borrow",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:references/mixed_record_reference",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:references/assignment_rhs_nonborrow",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:references/nested_borrow_release",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:enums/nested_control",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:control/static_literals",
+      "classification": "subset_exclusion",
+      "reason": "M1 subset allows lossless fixed-width widening where production requires an explicit conversion"
+    },
+    {
+      "id": "run:control/logical_loops",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:control/compound_rem_overflow",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:numbers/unary_cast_order",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:numbers/unary_cast_range",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:numbers/unary_cast_widen",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:numbers/complement_after_cast",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:numbers/review_literals",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:numbers/review_unsigned",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:numbers/overflow_u64_mul",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:numbers/overflow_u64_sub",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:numbers/shift_large_unsigned",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:arithmetic",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:comparisons",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:precedence",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:scopes",
+      "classification": "known_difference",
+      "reason": "prototype permits shadowing without deriving the initializer from the outer binding",
+      "issue": "SL-289",
+      "prototype": "accept",
+      "sawc": "reject",
+      "evidence": "shadows the binding declared",
+      "expected_errors": 1
+    },
+    {
+      "id": "run:loop",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:forward_call",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:recursion",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:evaluation_order",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:void_return",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:if_returns",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:factorial",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:unreachable",
+      "classification": "known_difference",
+      "reason": "production incorrectly treats dead code after an unconditional return as the function body value",
+      "issue": "SL-295",
+      "prototype": "accept",
+      "sawc": "reject",
+      "evidence": "should return `int32` but returns `void`",
+      "expected_errors": 1
+    },
+    {
+      "id": "run:multiline_parens",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:copy_independence",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:shadow_initializer",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:empty_blocks",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:bool_forward",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:mutual_recursion",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:multiline_forms",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:overflow_add",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:overflow_sub",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:overflow_mul",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:overflow_neg",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:overflow_div",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:div_zero",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:rem_zero",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:numbers/types_and_bounds",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:numbers/literals_and_aliases",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:numbers/u64_calls",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:numbers/contextual",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:numbers/lossless_widening",
+      "classification": "subset_exclusion",
+      "reason": "M1 subset allows lossless fixed-width widening where production requires an explicit conversion"
+    },
+    {
+      "id": "run:numbers/casts",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:numbers/truncation",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:numbers/byte",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:numbers/wrapping",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:numbers/bits_and_shifts",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:numbers/overflow_i64_add",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:numbers/overflow_i64_sub",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:numbers/overflow_i64_mul",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:numbers/overflow_i8_add",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:numbers/overflow_i16_sub",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:numbers/overflow_i8_mul",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:numbers/overflow_u64_add",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:numbers/overflow_u16_sub",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:numbers/overflow_u32_mul",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:numbers/overflow_neg_i64",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:numbers/overflow_neg_i8",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:numbers/overflow_div_i64",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:numbers/overflow_rem_i64",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:numbers/overflow_rem_i32",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:numbers/cast_negative_unsigned",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:numbers/cast_too_large",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:numbers/cast_unsigned_signed",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:numbers/shift_negative",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:numbers/shift_width",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:records/basic_reordered",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:records/evaluation_order",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:records/copy_and_assignment",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:records/nested_mutation",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:records/call_return_mixed",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:records/one_word_result",
+      "classification": "subset_exclusion",
+      "reason": "Single-file prototype has no production prelude Box name collision"
+    },
+    {
+      "id": "run:records/forward_and_numeric",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:records/width_256",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:control/truth_tables",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:control/precedence",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:control/short_circuit_markers",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:control/short_circuit_traps",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:control/compound_locals",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:control/compound_nested_fields",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:control/statics",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:control/compound_overflow",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:control/compound_div_zero",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Diagnostics: prototype-specific runtime trap text/status is outside exact compiler-output agreement"
+    },
+    {
+      "id": "run:enums/values_copy_equality",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:enums/calls_returns_forward",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:enums/record_fields",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:enums/match_unqualified",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:enums/match_qualified",
+      "classification": "subset_exclusion",
+      "reason": "M4 prototype extension accepts qualified enum patterns; production requires bare variant names"
+    },
+    {
+      "id": "run:enums/match_wildcard",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:enums/subject_once",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:enums/all_arms_return",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:enums/lexer_token_kind",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:values/scalar_bool_tails",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:values/if_nested",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:values/else_if",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:values/match_arms",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:values/record_enum_values",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:values/contexts",
+      "classification": "subset_exclusion",
+      "reason": "M5/COMPATIBILITY Value inference: prototype contextualizes an unselected sibling bare literal beyond the shared subset"
+    },
+    {
+      "id": "run:values/evaluation_order",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:values/match_subject_once",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:values/returns_and_scope",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:values/u64_context",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:values/lexer_hex_value",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:values/inference_order_widening",
+      "classification": "subset_exclusion",
+      "reason": "M5/COMPATIBILITY Value inference: prototype contextualizes an unselected sibling bare literal beyond the shared subset"
+    },
+    {
+      "id": "run:values/review_grid",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:values/review_context",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:values/review_composition",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:values/statement_else_if",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:values/value_block_void_then_tail",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "run:values/parenthesized_argument_block",
+      "classification": "agreement",
+      "reason": "same-source accepted behavior is within the implemented shared subset"
+    },
+    {
+      "id": "reject:strings/receiver_snapshot_order",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:strings/reject_receiver_byte_at_parenthesized",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:strings/reject_receiver_parenthesized_record_field",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:strings/reject_receiver_substring_nested_field",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:strings/reject_receiver_equals_reference",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:strings/reject_receiver_self_assignment_argument",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:unsigned_parse/receiver_snapshot",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:lexer_completion/reject_break_outside",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:lexer_completion/reject_break_not_return",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:lexer_completion/reject_break_value",
+      "classification": "subset_exclusion",
+      "reason": "M16 subset exclusion: loop values are outside the prototype"
+    },
+    {
+      "id": "reject:lexer_completion/reject_continue",
+      "classification": "subset_exclusion",
+      "reason": "M16 subset exclusion: continue is outside the prototype"
+    },
+    {
+      "id": "reject:lexer_completion/reject_clear_arity",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:lexer_completion/reject_clear_shared",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:lexer_completion/reject_match_result_discard",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:lexer_completion/reject_var_discard",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:lexer_completion/reject_discard_read",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:lexer_completion/reject_discard_annotation",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:vectors/reject_implicit_copy",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:vectors/reject_double_move",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:vectors/reject_borrow_after_move",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:vectors/reject_move_field",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Whole-value transfers/Vector policy: this is an explicit M15 bounded-subset restriction"
+    },
+    {
+      "id": "reject:vectors/reject_move_reference",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:vectors/reject_vector_element",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Whole-value transfers/Vector policy: this is an explicit M15 bounded-subset restriction"
+    },
+    {
+      "id": "reject:vectors/reject_builder_element",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Whole-value transfers/Vector policy: this is an explicit M15 bounded-subset restriction"
+    },
+    {
+      "id": "reject:vectors/reject_noncopy_record_element",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Whole-value transfers/Vector policy: this is an explicit M15 bounded-subset restriction"
+    },
+    {
+      "id": "reject:vectors/reject_value_parameter",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Whole-value transfers/Vector policy: this is an explicit M15 bounded-subset restriction"
+    },
+    {
+      "id": "reject:vectors/reject_assignment",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Whole-value transfers/Vector policy: this is an explicit M15 bounded-subset restriction"
+    },
+    {
+      "id": "reject:vectors/reject_outer_loop_move",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Whole-value transfers/Vector policy: this is an explicit M15 bounded-subset restriction"
+    },
+    {
+      "id": "reject:vectors/reject_nocopy_copyable",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Whole-value transfers/Vector policy: this is an explicit M15 bounded-subset restriction"
+    },
+    {
+      "id": "reject:vectors/reject_forward_nocopy_copyable",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Whole-value transfers/Vector policy: this is an explicit M15 bounded-subset restriction"
+    },
+    {
+      "id": "reject:vectors/reject_nocopy_body",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:vectors/reject_constructor_arity",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:vectors/reject_push_type",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:vectors/reject_push_label",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:vectors/reject_get_label",
+      "classification": "known_difference",
+      "reason": "Python sawc incorrectly ignores the named borrowing accessor label",
+      "issue": "SL-285",
+      "prototype": "reject",
+      "sawc": "accept",
+      "evidence": "accepted with no output",
+      "expected_exit": 0,
+      "expected_stdout": "",
+      "expected_stderr": ""
+    },
+    {
+      "id": "reject:vectors/reject_index_type",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:vectors/reject_value_control",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Whole-value transfers/Vector policy: this is an explicit M15 bounded-subset restriction"
+    },
+    {
+      "id": "reject:vectors/reject_optional_constructor",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Whole-value transfers/Vector policy: this is an explicit M15 bounded-subset restriction"
+    },
+    {
+      "id": "reject:builders/reject_copy",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:builders/reject_assignment",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:builders/reject_value_parameter",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY StringBuilder ownership: this storage or transfer form is outside M14"
+    },
+    {
+      "id": "reject:builders/reject_value_result",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY StringBuilder ownership: this storage or transfer form is outside M14"
+    },
+    {
+      "id": "reject:builders/reject_record_field",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY StringBuilder ownership: this storage or transfer form is outside M14"
+    },
+    {
+      "id": "reject:builders/reject_optional",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY StringBuilder ownership: this storage or transfer form is outside M14"
+    },
+    {
+      "id": "reject:builders/reject_result",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY StringBuilder ownership: this storage or transfer form is outside M14"
+    },
+    {
+      "id": "reject:builders/reject_static",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY StringBuilder ownership: this storage or transfer form is outside M14"
+    },
+    {
+      "id": "reject:builders/reject_extension",
+      "classification": "subset_exclusion",
+      "reason": "M14 subset exclusion: Builder extension methods are outside the prototype surface"
+    },
+    {
+      "id": "reject:builders/reject_constructor_arity",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:builders/reject_temporary_receiver",
+      "classification": "subset_exclusion",
+      "reason": "M14 subset exclusion: temporary Builder receivers are outside the prototype ownership model"
+    },
+    {
+      "id": "reject:builders/reject_shared_append",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:builders/reject_append_label",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:builders/reject_append_type",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:builders/reject_append_arity",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:builders/reject_nested_receiver",
+      "classification": "subset_exclusion",
+      "reason": "M14 subset exclusion: nested Builder receiver places are outside the prototype ownership model"
+    },
+    {
+      "id": "reject:builders/reject_builtin_alloc_error",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:builders/reject_value_control",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY StringBuilder ownership: this storage or transfer form is outside M14"
+    },
+    {
+      "id": "reject:scalars/reject_raw_scalar",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:scalars/reject_raw_invalid",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:scalars/reject_field_read",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:scalars/reject_field_write",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:scalars/reject_label",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:scalars/reject_arity",
+      "classification": "known_difference",
+      "reason": "production collapses duplicate Scalar constructor labels into a set",
+      "issue": "SL-297",
+      "prototype": "reject",
+      "sawc": "accept",
+      "evidence": "exact accepted runtime outcome",
+      "expected_exit": 0,
+      "expected_stdout": "",
+      "expected_stderr": ""
+    },
+    {
+      "id": "reject:scalars/reject_cast",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:scalars/reject_scalar_struct",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:scalars/reject_invalid_enum",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:scalars/reject_scalar_static",
+      "classification": "subset_exclusion",
+      "reason": "M13 subset exclusion: Scalar construction/use is restricted to the prototype intrinsic surface"
+    },
+    {
+      "id": "reject:scalars/reject_invalid_function",
+      "classification": "subset_exclusion",
+      "reason": "M13 subset exclusion: Scalar construction/use is restricted to the prototype intrinsic surface"
+    },
+    {
+      "id": "reject:scalars/reject_scalar_extension",
+      "classification": "subset_exclusion",
+      "reason": "M13 subset exclusion: Scalar construction/use is restricted to the prototype intrinsic surface"
+    },
+    {
+      "id": "reject:scalars/reject_temporary_value",
+      "classification": "subset_exclusion",
+      "reason": "M13 subset exclusion: Scalar construction/use is restricted to the prototype intrinsic surface"
+    },
+    {
+      "id": "reject:scalars/reject_nominal_conversion",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:scalars/reject_int_assignment",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:scalars/reject_invalid_extension",
+      "classification": "subset_exclusion",
+      "reason": "M13 subset exclusion: Scalar construction/use is restricted to the prototype intrinsic surface"
+    },
+    {
+      "id": "reject:scalars/reject_invalid_field",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:scalars/reject_print",
+      "classification": "subset_exclusion",
+      "reason": "M13 subset exclusion: Scalar construction/use is restricted to the prototype intrinsic surface"
+    },
+    {
+      "id": "reject:scalars/reject_arithmetic",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:unsigned_parse/reject_radix_type",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:unsigned_parse/reject_arity",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:unsigned_parse/reject_label",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:unsigned_parse/reject_result_type",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:results/reject_ambiguous_same_type",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:results/reject_ambiguous_literal",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:results/reject_none_non_optional",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:results/reject_void_return_none",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:results/reject_void_error",
+      "classification": "subset_exclusion",
+      "reason": "M11 subset exclusion: Result error type Void is outside the prototype representation"
+    },
+    {
+      "id": "reject:results/reject_type_arity",
+      "classification": "known_difference",
+      "reason": "production raises an internal error instead of diagnosing invalid Result type arity",
+      "issue": "SL-296",
+      "prototype": "reject",
+      "sawc": "internal_error",
+      "evidence": "unbound type parameter: e"
+    },
+    {
+      "id": "reject:results/reject_reference_payload",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:results/reject_constructor_label",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:results/reject_constructor_arity",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:results/reject_void_constructor",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:results/reject_match_duplicate",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:results/reject_match_missing",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:results/reject_match_payload_arity",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:results/reject_try_non_result",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:results/reject_try_context",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:results/reject_try_error_type",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:optionals/reject_uncontextualized_none",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:optionals/reject_if_let_non_optional",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:optionals/reject_binding_scope",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:optionals/reject_coalescing",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Optional operations: coalescing is outside the prototype subset"
+    },
+    {
+      "id": "reject:optionals/reject_chaining",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Optional operations: optional chaining is outside the prototype subset"
+    },
+    {
+      "id": "reject:optionals/reject_force_unwrap",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Optional operations: force unwrap is outside the prototype subset"
+    },
+    {
+      "id": "reject:optionals/reject_optional_void",
+      "classification": "subset_exclusion",
+      "reason": "M10 subset exclusion: Optional<Void> is outside the prototype representation"
+    },
+    {
+      "id": "reject:optionals/reject_value_binding_missing_tail",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:optionals/reject_numeric_range",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:owning_records/reject_string_match_duplicate",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:owning_records/reject_string_match_non_string",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:owning_records/reject_string_match_interpolation",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:owning_records/reject_string_match_no_wildcard",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:strings/reject_interpolation",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Strings: source interpolation is outside the prototype subset"
+    },
+    {
+      "id": "reject:strings/reject_arithmetic",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:strings/reject_cast",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:strings/reject_static",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Static storage: owning String statics are outside the prototype subset"
+    },
+    {
+      "id": "reject:strings/reject_unknown_intrinsic",
+      "classification": "subset_exclusion",
+      "reason": "M8 closed intrinsic surface omits production String.starts_with"
+    },
+    {
+      "id": "reject:strings/reject_intrinsic_label",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:strings/reject_intrinsic_arity",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:strings/reject_intrinsic_type",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:receivers/reject_write_shared_record",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:receivers/reject_immutable_record_borrow",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:receivers/reject_immutable_receiver",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:receivers/reject_receiver_argument_overlap",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:receivers/reject_pending_write_receiver",
+      "classification": "subset_exclusion",
+      "reason": "M7 subset exclusion: pending-write receiver expressions are outside the prototype borrowing model"
+    },
+    {
+      "id": "reject:receivers/reject_wrong_label",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:receivers/reject_method_arity",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:receivers/reject_method_type",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:receivers/reject_temporary_receiver",
+      "classification": "subset_exclusion",
+      "reason": "M7 subset exclusion: user-method temporary receivers are outside the prototype subset"
+    },
+    {
+      "id": "reject:receivers/reject_unknown_extension",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:receivers/reject_enum_extension",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Enums: enum extensions are outside the prototype subset"
+    },
+    {
+      "id": "reject:receivers/reject_trait_extension",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Generics and traits: trait extensions are outside the prototype subset"
+    },
+    {
+      "id": "reject:receivers/reject_static_method",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Records: static methods are outside the prototype subset"
+    },
+    {
+      "id": "reject:receivers/reject_value_receiver",
+      "classification": "subset_exclusion",
+      "reason": "M7 subset exclusion: consuming value receivers are outside the prototype subset"
+    },
+    {
+      "id": "reject:receivers/reject_duplicate_method",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:receivers/reject_method_reference_result",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:references/reject_alias_mutable_shared",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:references/reject_alias_two_fields",
+      "classification": "subset_exclusion",
+      "reason": "M6 subset exclusion: the prototype conservatively rejects simultaneous field borrows"
+    },
+    {
+      "id": "reject:references/reject_later_read",
+      "classification": "known_difference",
+      "reason": "production permits a plain value read while an exclusive &var borrow is live",
+      "issue": "SL-294",
+      "prototype": "reject",
+      "sawc": "accept",
+      "evidence": "exact accepted runtime outcome",
+      "expected_exit": 0,
+      "expected_stdout": "",
+      "expected_stderr": ""
+    },
+    {
+      "id": "reject:references/reject_later_write",
+      "classification": "known_difference",
+      "reason": "production permits an inline assignment while a shared borrow is live",
+      "issue": "SL-294",
+      "prototype": "reject",
+      "sawc": "accept",
+      "evidence": "exact accepted runtime outcome",
+      "expected_exit": 0,
+      "expected_stdout": "",
+      "expected_stderr": ""
+    },
+    {
+      "id": "reject:references/reject_missing_ampersand",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:references/reject_missing_var",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:references/reject_value_address",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:references/reject_wrong_referent",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:references/reject_immutable_borrow",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:references/reject_shared_to_mutable",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:references/reject_mutate_shared",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:references/reject_reference_local",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:references/reject_reference_field",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:references/reject_reference_result",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:references/reject_reference_static",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:references/reject_nested_reference",
+      "classification": "subset_exclusion",
+      "reason": "M6 subset exclusion: nested reference types are outside the prototype"
+    },
+    {
+      "id": "reject:references/reject_outer_borrow_preserved",
+      "classification": "known_difference",
+      "reason": "production fails to preserve an outer borrow across a nested call",
+      "issue": "SL-294",
+      "prototype": "reject",
+      "sawc": "accept",
+      "evidence": "exact accepted runtime outcome",
+      "expected_exit": 0,
+      "expected_stdout": "",
+      "expected_stderr": ""
+    },
+    {
+      "id": "reject:references/reject_spaced_nested_reference",
+      "classification": "subset_exclusion",
+      "reason": "M6 subset exclusion: nested reference types are outside the prototype"
+    },
+    {
+      "id": "reject:references/compound_lhs_snapshot",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:references/reject_assignment_rhs_shared",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:references/reject_assignment_rhs_mutable",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:references/reject_compound_rhs_borrow",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:references/reject_nested_assignment_rhs_borrow",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:enums/reject_empty",
+      "classification": "subset_exclusion",
+      "reason": "M4 subset exclusion: empty enums are outside the prototype representation"
+    },
+    {
+      "id": "reject:enums/reject_record_collision",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:enums/reject_static_enum",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:control/reject_static_negative_range",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:control/reject_static_typed_narrowing",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:control/reject_static_function_collision",
+      "classification": "subset_exclusion",
+      "reason": "Prototype uses one declaration namespace where production permits this static/function name pair"
+    },
+    {
+      "id": "reject:records/reject_builtin_name",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:records/reject_record_equality",
+      "classification": "subset_exclusion",
+      "reason": "M2 subset exclusion: record equality is outside the prototype"
+    },
+    {
+      "id": "reject:records/reject_record_print",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:records/reject_empty_record",
+      "classification": "subset_exclusion",
+      "reason": "M2 subset exclusion: empty user records are outside the prototype record representation"
+    },
+    {
+      "id": "reject:numbers/reject_byte_literal",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:numbers/reject_uncontextual_u64",
+      "classification": "known_difference",
+      "reason": "production skips platform Int range checking for an uncontextual literal",
+      "issue": "SL-299",
+      "prototype": "reject",
+      "sawc": "accept",
+      "evidence": "exact accepted runtime outcome",
+      "expected_exit": 0,
+      "expected_stdout": "-1\n",
+      "expected_stderr": ""
+    },
+    {
+      "id": "reject:numbers/reject_spaced_shift",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:reject_type",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:reject_mutability",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:reject_arity",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:reject_unknown",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:reject_duplicate",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:reject_missing_return",
+      "classification": "known_difference",
+      "reason": "production treats a conditional return as covering every function path",
+      "issue": "SL-298",
+      "prototype": "reject",
+      "sawc": "accept",
+      "evidence": "exact accepted runtime outcome",
+      "expected_exit": 0,
+      "expected_stdout": "1\n",
+      "expected_stderr": ""
+    },
+    {
+      "id": "reject:reject_semicolon",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:reject_bool_arithmetic",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:reject_import",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Modules: imports are outside the single-file prototype subset"
+    },
+    {
+      "id": "reject:reject_scope_leak",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:reject_unary_depth",
+      "classification": "subset_exclusion",
+      "reason": "Prototype has a bounded expression-depth guard outside production semantics"
+    },
+    {
+      "id": "reject:reject_reserved_print",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:reject_truncated",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:reject_large_literal",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:numbers/reject_typed_narrowing",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:numbers/reject_typed_narrowing_assignment",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:numbers/reject_typed_narrowing_argument",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:numbers/reject_typed_narrowing_return",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:numbers/reject_mixed_binary",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:numbers/reject_bool_cast",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:numbers/reject_literal_range",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:records/reject_nominal",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:records/reject_immutable_field",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:records/reject_parameter_field",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:records/reject_missing_label",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:records/reject_duplicate_label",
+      "classification": "known_difference",
+      "reason": "production collapses duplicate record-constructor labels into a set",
+      "issue": "SL-297",
+      "prototype": "reject",
+      "sawc": "accept",
+      "evidence": "exact accepted runtime outcome",
+      "expected_exit": 0,
+      "expected_stdout": "",
+      "expected_stderr": ""
+    },
+    {
+      "id": "reject:records/reject_unknown_label",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:records/reject_wrong_field_type",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:records/reject_direct_cycle",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:records/reject_indirect_cycle",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:records/reject_width_257",
+      "classification": "subset_exclusion",
+      "reason": "Prototype has a bounded flattened-record width outside production semantics"
+    },
+    {
+      "id": "reject:records/reject_duplicate_record",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:records/reject_duplicate_field",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:control/reject_skipped_rhs_type",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:control/reject_immutable_compound",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:control/reject_mixed_compound",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:control/reject_duplicate_static",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:control/reject_assigned_static",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:control/reject_dynamic_static",
+      "classification": "subset_exclusion",
+      "reason": "Prototype has a stricter static-initializer expression subset"
+    },
+    {
+      "id": "reject:enums/reject_duplicate_enum",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:enums/reject_duplicate_case",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:enums/reject_missing_match_case",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:enums/reject_duplicate_arm",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:enums/reject_arm_after_wildcard",
+      "classification": "subset_exclusion",
+      "reason": "Prototype diagnoses unreachable match arms beyond production's accepted surface"
+    },
+    {
+      "id": "reject:enums/reject_wrong_qualifier",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:enums/reject_mixed_equality",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:enums/reject_mixed_transfer",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:enums/reject_cast",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:enums/reject_print",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:enums/reject_payload",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Enums: user payload enums are outside the prototype subset"
+    },
+    {
+      "id": "reject:enums/reject_arithmetic",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:values/reject_missing_else",
+      "classification": "subset_exclusion",
+      "reason": "Prototype requires else in value-position conditionals more broadly than production"
+    },
+    {
+      "id": "reject:values/reject_missing_tail",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:values/reject_mismatched_branches",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:values/reject_unselected_range",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:values/reject_incomplete_match",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:values/reject_non_tail_expression",
+      "classification": "subset_exclusion",
+      "reason": "Prototype applies a stricter block value-position rule"
+    },
+    {
+      "id": "reject:values/reject_arm_scope_leak",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:values/reject_record_branches",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:values/reject_enum_branches",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:values/reject_match_missing_tail",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:values/reject_numeric_no_common",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    },
+    {
+      "id": "reject:values/reject_all_returning_operand",
+      "classification": "subset_exclusion",
+      "reason": "COMPATIBILITY Value inference: all-returning nested operands are outside the prototype subset"
+    },
+    {
+      "id": "reject:values/reject_deep_else_if",
+      "classification": "subset_exclusion",
+      "reason": "Prototype has a bounded nested value-conditional depth"
+    },
+    {
+      "id": "reject:values/reject_extra_call_argument",
+      "classification": "agreement",
+      "reason": "same-source rejection expresses a shared language rule"
+    }
+  ]
+}

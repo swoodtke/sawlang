@@ -98,6 +98,13 @@ methods also accept temporary receivers. String statics, interpolation
 and concatenation remain unsupported. Both engines retain/release owning slots
 and check for live allocations after successful execution; see
 [M8_OWNED_STRINGS.md](M8_OWNED_STRINGS.md).
+M17 holds a shared root borrow of a named String receiver while evaluating
+intrinsic arguments, including through fields, references and parentheses.
+Mutating the receiver through an argument is rejected. Fresh call, constructor
+and value-control results have their own values, and a completed substring call
+releases its borrow before a chained call begins. A staged String receiver can
+read its own assignment destination, so `text = text.substring(...)` works;
+argument-side mutation remains rejected. See [COMPATIBILITY.md](COMPATIBILITY.md).
 
 Nested records can own String fields, including through references, methods and
 aggregate calls/returns. String matches support literal patterns and a required
@@ -172,6 +179,8 @@ uses temporary files and 30-second execution timeouts. Native execution is
 checked at both `-O0` and `-O2`. The first sixteen milestones cover 439 cases;
 the Vector section covers 30, with 13 shared-subset cases also checked against
 Python sawc using `--section vectors --sawc sawc/sawc.py`.
+M17 brings the full regression gate to 446 cases: 444 registered source fixtures
+and two VM resource-limit checks.
 
 Independent representation checks live in `tests/numeric_contract.saw`,
 `tests/record_contract.saw`, `tests/enum_contract.saw`,
@@ -210,20 +219,32 @@ the complete lexer runs under the prototype, not that full Saw is supported.
 M16 validation passed 39 default inputs and 100 additional tracked files through
 all five engine modes, plus 15 focused completion cases (13 compared with sawc).
 
-To run the initial SL-260 shared-subset differential as well:
+Run the M17 shared-subset differential guard separately:
 
 ```sh
-python prototypes/minivm/test_minivm.py --binary .build/minivm/minivm \
-  --section unsigned_parse --sawc sawc/sawc.py
+python prototypes/minivm/test_differential.py --validate-only
+python prototypes/minivm/tests/test_differential.py
+python prototypes/minivm/test_differential.py --binary .build/minivm/minivm \
+  --sawc sawc/sawc.py
 ```
 
 Use a Python environment containing sawc's dependencies, or pass
 `--sawc-python /path/to/python`. Compiler invocations have a separate 180-second
-timeout. The initial lane covers nine agreement cases and one explicitly
-checked known divergence: String receiver snapshot evaluation permits an
-overlapping borrow that Saw rejects. SL-260 tracks this existing M8/M12 gap;
-the diagnostic-checked ledger lives in `test_minivm.py`. This is initial coverage,
-not a claim of parity across the entire accepted subset.
+timeout. The explicit `differential_manifest.json` classifies every registered
+source fixture as agreement, an issue-linked known difference, or a documented
+subset exclusion. Missing and stale entries fail validation. Agreement rows
+compare acceptance and fixed runtime oracles on the same source; a known
+difference changing outcome also fails so its ledger entry must be reconciled.
+SL-289 tracks unrelated shadowing; the former String receiver overlap is now an
+agreement rejection. The M5 sibling-literal inference and runtime trap formatting
+boundaries remain explicit exclusions. See [M17_SHARED_SUBSET.md](M17_SHARED_SUBSET.md)
+for the contract and [COMPATIBILITY.md](COMPATIBILITY.md) for remaining language
+work. This guard supplements the full prototype and whole-lexer gates.
+Use `--section strings` or `--filter receiver` to narrow the comparison, and
+`--artifacts PATH` to retain command logs and generated programs. Failed runs
+retain their artifacts by default. Known differences require an open issue in
+the checkout's local tracker state; a missing or closed issue fails validation.
+Known internal compiler errors are reported separately from clean rejections.
 
 See [DESIGN.md](DESIGN.md) and [M1_NUMBERS.md](M1_NUMBERS.md) for the instruction
 schema and semantics. [LEXER_DEPENDENCIES.md](LEXER_DEPENDENCIES.md) tracks the

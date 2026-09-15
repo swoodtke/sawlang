@@ -1,0 +1,11 @@
+struct ReceiverParenBox { text: String }
+
+func replace(box: &var ReceiverParenBox) -> String {
+    box.text = "after"
+    "before"
+}
+
+func main() {
+    var box = ReceiverParenBox(text: "before")
+    print(((box)).text.equals(replace(&var box)))
+}

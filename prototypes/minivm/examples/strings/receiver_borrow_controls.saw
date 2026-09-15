@@ -1,0 +1,36 @@
+struct ReceiverTextBox { text: String }
+enum Choice { case Left, case Right }
+
+func read(value: &String) -> String { value }
+
+func replace(value: &var String) -> String {
+    value = "changed"
+    "abc"
+}
+
+func next(value: &var Int) -> Int {
+    value += 1
+    0
+}
+
+func main() {
+    var text = "abc"
+    var other = "old"
+    var calls = 0
+    print(text.equals(read(&text)))
+    print(text.equals(replace(&var other)))
+    print(text.len())
+    print(text.byte_at(next(&var calls)) as Int)
+    print(calls)
+    print(text.substring(0, text.len()).equals("abc"))
+    print((text.substring(0, 2)).substring(0, 1).len() + 2)
+    print(text.substring(0, text.len()).equals(replace(&var text)))
+    text = "abc"
+    print(read(&text).equals(replace(&var text)))
+    text = "abc"
+    print(ReceiverTextBox(text: text).text.equals(replace(&var text)))
+    text = "abc"
+    print((if true { text } else { text }).equals(replace(&var text)))
+    text = "abc"
+    print((match Choice.Left { case Left -> text, case Right -> text }).equals(replace(&var text)))
+}

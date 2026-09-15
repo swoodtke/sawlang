@@ -1,0 +1,13 @@
+func replace(value: &var String) -> String {
+    value = "after"
+    "before"
+}
+
+func compare(value: &var String) -> Bool {
+    value.equals(replace(&var value))
+}
+
+func main() {
+    var text = "before"
+    print(compare(&var text))
+}

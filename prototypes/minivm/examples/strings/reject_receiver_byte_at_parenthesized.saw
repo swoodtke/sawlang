@@ -1,0 +1,9 @@
+func replace(value: &var String) -> Int {
+    value = "after"
+    0
+}
+
+func main() {
+    var text = "before"
+    print((text).byte_at(replace(&var text)))
+}
