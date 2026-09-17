@@ -3,7 +3,8 @@
 This is the AST-generation step after the mini-VM lexer milestone: a parser
 written in Saw, using the unchanged selfhost lexer, with syntax stored in an
 index arena. The design is [M18_AST.md](../minivm/M18_AST.md); work is tracked
-by SL-301 under the SL-300 parser epic.
+by SL-301 under the SL-300 parser epic. M20 (SL-303) adds name assignment;
+its design is [M20_PARSER_ASSIGNMENTS.md](../minivm/M20_PARSER_ASSIGNMENTS.md).
 
 The parser preserves syntax without resolving names, checking types, or emitting
 instructions. A program with an unknown variable or incompatible return type
@@ -11,6 +12,11 @@ can therefore parse successfully. Unsupported syntax produces a located error.
 
 The first milestone covers functions, typed named parameters, named return
 types, local bindings, returns, expression statements and final expressions.
+M20 also accepts assignment statements to names (`=`, `+=`, `-=`, `*=`, `/=`,
+`%=`), including grouped names. Assignments remain statements when last in a
+block. They are not legal inside another expression. Undefined names, immutable
+bindings, and incompatible operands remain later semantic questions. Bitwise
+compound assignment and member/index writes are not yet supported.
 Expressions include names, integer/plain-string/boolean literals, parentheses,
 positional calls, unary minus/not, arithmetic, comparison/equality and logical
 operators. Generics, control flow, closures, member/index access, labelled calls,
@@ -78,9 +84,10 @@ selects a focused set; the default runs the complete milestone gate. Python
 checks independently authored expected trees and arena invariants. It is not
 yet comparing these trees against Python's parser output.
 
-The M18 gate covers 52 cases across all five engines, including depth 256/257
-for groups, unary operators, calls and mixed nesting. Eight Python harness
-tests exercise record decoding, invalid arena handling and failure artifacts.
+The M20 arena gate covers 88 cases across all five engines, including depth
+256/257 for groups, unary operators, calls, mixed nesting, and assignment
+targets/values. Harness tests exercise record decoding, invalid arena handling,
+assignment child order/operators, and failure artifacts.
 Use `--artifacts PATH` to keep successful-run dumps and generated source/IR;
 failed runs retain their artifacts automatically.
 
@@ -99,12 +106,12 @@ python prototypes/parser/test_canonical.py --binary .build/minivm/minivm
 python -m unittest discover -s prototypes/parser/tests -p 'test_*.py'
 ```
 
-The renderer gate passed 15 cases across VM, LLVM O0/O2, ASan and production
-sawc, with identical complete output. Nine cases also matched Python's
-parse-only oracle. Four depth/long-chain cases and two grouped/general-callee
-cases have independently authored expectations; they do not count as Python
-agreement. A separate arena VM run checks structural invariants. The combined
-Python harness suite contains 35 passing tests.
+The M20 renderer gate passes 27 cases across VM, LLVM O0/O2, ASan and production
+sawc, with identical complete output. Seventeen cases also match Python's
+parse-only oracle. Depth, long-chain, and grouped/general-callee cases use
+independently authored expectations where Python agreement is not established.
+A separate arena VM run checks structural invariants. The combined Python
+harness suite contains 42 passing tests.
 
 The [inventory report](examples_inventory.md) and [snapshot](examples_inventory.json)
 cover all tracked examples, including nested directories. The snapshot records
@@ -129,9 +136,14 @@ batches. It can measure a changed corpus before the snapshot is updated; its
 source hashes additionally detect edits during the run. Snapshot freshness is
 a separate submission gate, not a frozen filename allowlist.
 
-The first sweep passed all 58 candidates (36 top-level, 22 nested), including
-29 semantic-negative programs. Of 2,696 tracked examples, 2,536 have unsupported
-syntax, 95 produce Python parse errors, and 7 remain unresolved. Those groups
+M19's first sweep passed all 58 candidates (36 top-level, 22 nested), including
+29 semantic-negative programs. M20's inventory has 64 candidates (37 top-level,
+27 nested), including 35 semantic negatives, out of the same 2,696 examples.
+It identifies 2,537 unsupported files and 95 Python parse errors, with no
+unresolved classifications. All 64 candidates pass the canonical VM/Python
+comparison. The seven M19 ambiguities were known unsupported
+`StaticAssert` statements and `ForLoop` expressions missing from the audit's
+node sets; they are now classified by syntax evidence. The unsupported and error groups
 have not established parser parity and are not counted as agreement. Candidates
 are selected independently of the prototype result; a refusal or mismatch
 fails the comparison rather than changing the classification.

@@ -6,7 +6,8 @@ public enum AstKind {
     case Program, case Function, case Parameter, case NamedType, case Block,
     case Let, case Var, case Return, case ExpressionStatement,
     case FinalExpression, case Identifier, case IntegerLiteral,
-    case StringLiteral, case BooleanLiteral, case Unary, case Binary, case Call
+    case StringLiteral, case BooleanLiteral, case Unary, case Binary, case Call,
+    case Assign, case CompoundAssign
 }
 
 public func ast_kind_name(kind: AstKind) -> String {
@@ -18,7 +19,8 @@ public func ast_kind_name(kind: AstKind) -> String {
         case FinalExpression -> "FinalExpression", case Identifier -> "Identifier",
         case IntegerLiteral -> "IntegerLiteral", case StringLiteral -> "StringLiteral",
         case BooleanLiteral -> "BooleanLiteral", case Unary -> "Unary",
-        case Binary -> "Binary", case Call -> "Call"
+        case Binary -> "Binary", case Call -> "Call",
+        case Assign -> "Assign", case CompoundAssign -> "CompoundAssign"
     }
 }
 
@@ -265,7 +267,9 @@ extension AstParser {
 
     // Iterative shunting-yard parsing keeps the source-level 256 nesting
     // contract independent of the mini-VM's function call stack.
-    func parse_expression(&var self) -> Int {
+    // Only the statement-head entry may stop before an assignment operator.
+    // Arguments, groups, binding initializers and assignment values cannot.
+    func parse_expression(&var self, assignment_head: Bool) -> Int {
         var value_top = -1
         var op_top = -1
         var expecting = true
@@ -472,6 +476,7 @@ extension AstParser {
                 }
             }
             if not handled {
+                if assignment_head && open_delimiters == 0 && self.is_assignment_kind(t.kind) { break }
                 let _ = self.reject_unsupported_expression(t.kind)
                 break
             }
@@ -530,7 +535,7 @@ extension AstParser {
             try! kids.push(self.parse_named_type())
         }
         if not self.expect(TokenKind.Assign, "expected '=' in binding") { return -1 }
-        try! kids.push(self.parse_expression())
+        try! kids.push(self.parse_expression(false))
         let end = self.pos
         self.add_node(kind, name, start, end, anchor.line, anchor.col, &kids)
     }
@@ -543,6 +548,34 @@ extension AstParser {
         if self.token().kind == TokenKind.RBrace { return true }
         self.fail("expected statement boundary")
         false
+    }
+
+    func parse_assignment(&var self, target: Int, start: Int) -> Int {
+        let operator = self.token()
+        var text = ""
+        if operator.kind == TokenKind.PlusAssign { text = "+" }
+        else if operator.kind == TokenKind.MinusAssign { text = "-" }
+        else if operator.kind == TokenKind.StarAssign { text = "*" }
+        else if operator.kind == TokenKind.SlashAssign { text = "/" }
+        else if operator.kind == TokenKind.PercentAssign { text = "%" }
+        else if operator.kind != TokenKind.Assign {
+            self.fail("bitwise compound assignments are not supported")
+            return -1
+        }
+        let target_node = self.nodes[target]
+        if target_node.kind != AstKind.Identifier {
+            self.fail("expected name assignment target")
+            return -1
+        }
+        self.pos += 1
+        let value = self.parse_expression(false)
+        if self.failed { return -1 }
+        var kids = Vector<Int>()
+        try! kids.push(target)
+        try! kids.push(value)
+        let kind = if operator.kind == TokenKind.Assign { AstKind.Assign } else { AstKind.CompoundAssign }
+        let end = self.pos
+        self.add_node(kind, text, start, end, target_node.line, target_node.col, &kids)
     }
 
     func parse_block(&var self) -> Int {
@@ -567,7 +600,7 @@ extension AstParser {
                 if self.token().kind == TokenKind.RBrace { has_return_value = false }
                 if self.token().kind == TokenKind.Eof { has_return_value = false }
                 if has_return_value {
-                    try! ret_kids.push(self.parse_expression())
+                    try! ret_kids.push(self.parse_expression(false))
                 }
                 let ret_end = self.pos
                 let node = self.add_node(AstKind.Return, "", ret_start, ret_end,
@@ -576,25 +609,32 @@ extension AstParser {
                 try! kids.push(node)
             } else {
                 let expr_start = self.pos
-                let expr = self.parse_expression()
+                let expr = self.parse_expression(true)
                 if self.failed { break }
-                let expr_end = self.pos
-                var expr_kids = Vector<Int>()
-                try! expr_kids.push(expr)
-                if self.token().kind != TokenKind.Newline && self.token().kind != TokenKind.RBrace {
-                    self.fail("expected newline or '}' after expression")
-                    break
-                }
-                if self.token().kind == TokenKind.Newline { self.skip_newlines() }
-                if self.token().kind == TokenKind.RBrace {
-                    let node = self.add_node(AstKind.FinalExpression, "", expr_start,
+                if self.is_assignment_kind(self.token().kind) {
+                    let assignment = self.parse_assignment(expr, expr_start)
+                    if self.failed { break }
+                    if not self.finish_statement() { break }
+                    try! kids.push(assignment)
+                } else {
+                    let expr_end = self.pos
+                    var expr_kids = Vector<Int>()
+                    try! expr_kids.push(expr)
+                    if self.token().kind != TokenKind.Newline && self.token().kind != TokenKind.RBrace {
+                        self.fail("expected newline or '}' after expression")
+                        break
+                    }
+                    if self.token().kind == TokenKind.Newline { self.skip_newlines() }
+                    if self.token().kind == TokenKind.RBrace {
+                        let node = self.add_node(AstKind.FinalExpression, "", expr_start,
+                            expr_end, t.line, t.col, &expr_kids)
+                        try! kids.push(node)
+                        break
+                    }
+                    let node = self.add_node(AstKind.ExpressionStatement, "", expr_start,
                         expr_end, t.line, t.col, &expr_kids)
                     try! kids.push(node)
-                    break
                 }
-                let node = self.add_node(AstKind.ExpressionStatement, "", expr_start,
-                    expr_end, t.line, t.col, &expr_kids)
-                try! kids.push(node)
             }
         }
         let close = self.pos

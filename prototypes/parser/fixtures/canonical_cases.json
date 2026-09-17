@@ -70,6 +70,61 @@
         "message": "canonical FunctionCall requires an Identifier callee"
       },
       "python_oracle": false
+    },
+    {
+      "name": "assignment-plain",
+      "source": "func f() { (x) = g(1 + 2) }\n",
+      "canonical": "Program {\n  functions: [\n    Function f() -> Void {\n      AssignStatement\n        target:\n          Identifier(x)\n        value:\n          FunctionCall g()\n            arg[0]: \n              BinaryOp(+)\n                left:\n                  IntLiteral(1) : Int\n                right:\n                  IntLiteral(2) : Int\n    }\n  ]\n}",
+      "python_oracle": true
+    },
+    {
+      "name": "assignment-plus",
+      "source": "func f() { (x) += g(1 + 2) }\n",
+      "canonical": "Program {\n  functions: [\n    Function f() -> Void {\n      CompoundAssignStatement +\n        target:\n          Identifier(x)\n        value:\n          FunctionCall g()\n            arg[0]: \n              BinaryOp(+)\n                left:\n                  IntLiteral(1) : Int\n                right:\n                  IntLiteral(2) : Int\n    }\n  ]\n}",
+      "python_oracle": true
+    },
+    {
+      "name": "assignment-minus",
+      "source": "func f() { (x) -= g(1 + 2) }\n",
+      "canonical": "Program {\n  functions: [\n    Function f() -> Void {\n      CompoundAssignStatement -\n        target:\n          Identifier(x)\n        value:\n          FunctionCall g()\n            arg[0]: \n              BinaryOp(+)\n                left:\n                  IntLiteral(1) : Int\n                right:\n                  IntLiteral(2) : Int\n    }\n  ]\n}",
+      "python_oracle": true
+    },
+    {
+      "name": "assignment-star",
+      "source": "func f() { (x) *= g(1 + 2) }\n",
+      "canonical": "Program {\n  functions: [\n    Function f() -> Void {\n      CompoundAssignStatement *\n        target:\n          Identifier(x)\n        value:\n          FunctionCall g()\n            arg[0]: \n              BinaryOp(+)\n                left:\n                  IntLiteral(1) : Int\n                right:\n                  IntLiteral(2) : Int\n    }\n  ]\n}",
+      "python_oracle": true
+    },
+    {
+      "name": "assignment-slash",
+      "source": "func f() { (x) /= g(1 + 2) }\n",
+      "canonical": "Program {\n  functions: [\n    Function f() -> Void {\n      CompoundAssignStatement /\n        target:\n          Identifier(x)\n        value:\n          FunctionCall g()\n            arg[0]: \n              BinaryOp(+)\n                left:\n                  IntLiteral(1) : Int\n                right:\n                  IntLiteral(2) : Int\n    }\n  ]\n}",
+      "python_oracle": true
+    },
+    {
+      "name": "assignment-percent",
+      "source": "func f() { (x) %= g(1 + 2) }\n",
+      "canonical": "Program {\n  functions: [\n    Function f() -> Void {\n      CompoundAssignStatement %\n        target:\n          Identifier(x)\n        value:\n          FunctionCall g()\n            arg[0]: \n              BinaryOp(+)\n                left:\n                  IntLiteral(1) : Int\n                right:\n                  IntLiteral(2) : Int\n    }\n  ]\n}",
+      "python_oracle": true
+    },
+    {
+      "name": "assignment-sequence-and-tail",
+      "source": "func f() { var x = 1\n x = 2\n x += 3\n x }\n",
+      "canonical": "Program {\n  functions: [\n    Function f() -> Void {\n      LetStatement var x =\n        IntLiteral(1) : Int\n      AssignStatement\n        target:\n          Identifier(x)\n        value:\n          IntLiteral(2) : Int\n      CompoundAssignStatement +\n        target:\n          Identifier(x)\n        value:\n          IntLiteral(3) : Int\n      final_expr:\n        Identifier(x)\n    }\n  ]\n}",
+      "python_oracle": true
+    },
+    {
+      "name": "assignment-semantic-negative",
+      "source": "func f() { let x = 1\n x = \"hé\\0\\nend\"\n unknown += false }\n",
+      "canonical": "Program {\n  functions: [\n    Function f() -> Void {\n      LetStatement let x =\n        IntLiteral(1) : Int\n      AssignStatement\n        target:\n          Identifier(x)\n        value:\n          StringLiteral(\"hé\u0000\nend\") : String\n      CompoundAssignStatement +\n        target:\n          Identifier(unknown)\n        value:\n          BoolLiteral(False) : Bool\n    }\n  ]\n}",
+      "python_oracle": true
+    },
+    {
+      "name": "assignment-multiline-rhs",
+      "source": "func f() { x = g(\n 1,\n) +\n 2\n}\n",
+      "canonical": "Program {\n  functions: [\n    Function f() -> Void {\n      AssignStatement\n        target:\n          Identifier(x)\n        value:\n          BinaryOp(+)\n            left:\n              FunctionCall g()\n                arg[0]: \n                  IntLiteral(1) : Int\n            right:\n              IntLiteral(2) : Int\n    }\n  ]\n}",
+      "python_oracle_exclusion": "SL-83: the Python parser rejects a newline after a binary operator",
+      "python_oracle": false
     }
   ]
 }

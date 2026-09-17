@@ -57,6 +57,26 @@ class DecoderTests(unittest.TestCase):
         self.assertTrue(any("append offset" in failure for failure in failures))
         self.assertTrue(any("Program span" in failure for failure in failures))
 
+    def test_malformed_child_runs_do_not_confuse_assignment_invariants(self):
+        nodes = [
+            test_parser.Node("Identifier", "x", 0, 0, 0, 1, 1, 1),
+            test_parser.Node("Assign", "", -1, 2, 0, 1, 1, 1),
+            test_parser.Node("Program", "", 0, 1, 0, 1, 1, 1),
+        ]
+        failures = test_parser.validate_tree(test_parser.Tree(2, nodes, [1]))
+        self.assertTrue(any("child run is outside" in failure for failure in failures))
+        self.assertFalse(any("non-name target" in failure for failure in failures))
+
+    def test_assignment_invariants_check_order_operator_and_arity(self):
+        nodes = [
+            test_parser.Node("IntegerLiteral", "1", 0, 0, 0, 1, 1, 1),
+            test_parser.Node("Identifier", "x", 0, 0, 0, 1, 1, 1),
+            test_parser.Node("CompoundAssign", "&", 0, 2, 0, 1, 1, 1),
+        ]
+        failures = test_parser.validate_tree(test_parser.Tree(2, nodes, [0, 1]))
+        self.assertTrue(any("non-name target" in failure for failure in failures))
+        self.assertTrue(any("invalid operator" in failure for failure in failures))
+
     def test_manifest_has_unique_names_and_independent_trees(self):
         cases = test_parser.fixture_cases()
         self.assertEqual(len({case.name for case in cases}), len(cases))

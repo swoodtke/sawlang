@@ -134,7 +134,7 @@ def generated_cases() -> list[Case]:
         Case("error-labelled-call", b"func f() { g(value: 1) }", error=(1, 19, "label")),
         Case("error-member", b"func f() { value.field }", error=(1, 17, "member")),
         Case("error-index", b"func f() { value[0] }", error=(1, 17, "index")),
-        Case("error-assignment", b"func f() { value = 1 }", error=(1, 18, "assignment")),
+        Case("error-assignment-in-binding", b"func f() { let x = value = 1 }", error=(1, 26, "assignment")),
         Case("error-semicolon", b"func f() { value; }", error=(1, 17, "semicolon")),
         Case("error-control", b"func f() { if true { 1 } else { 2 } }", error=(1, 12, "control")),
         Case("error-declaration", b"struct Nope {}", error=(1, 1, "function")),
@@ -184,7 +184,85 @@ def generated_cases() -> list[Case]:
                            node("FinalExpression", children=[node("Unary", "-", [node("IntegerLiteral", "2")])])])),
         Case("many-shallow-unaries", ("func f() -> Int { " + " + ".join("-1" for _ in range(300)) + " }\n").encode()),
     ]
-    return [Case("arena-growth", f"func growth() -> Int {{\n{growth_lines} 95\n}}\n".encode())] + syntax_controls + errors
+    return [Case("arena-growth", f"func growth() -> Int {{\n{growth_lines} 95\n}}\n".encode())] + syntax_controls + errors + assignment_cases()
+
+
+def assignment_cases() -> list[Case]:
+    def node(kind, text="", children=None, **anchors):
+        return {"kind": kind, "text": text, "children": children or [], **anchors}
+
+    def program(statements):
+        return node("Program", children=[node("Function", "f", [
+            node("NamedType", "Void"), node("Block", children=statements)])])
+
+    cases = []
+    operator_names = {"=": "plain", "+=": "plus", "-=": "minus", "*=": "star",
+                      "/=": "slash", "%=": "percent"}
+    for op in operator_names:
+        kind = "Assign" if op == "=" else "CompoundAssign"
+        cases.append(Case("assignment-" + operator_names[op],
+                          f"func f() {{ (x) {op} g(1 + 2) }}\n".encode(),
+                          tree=program([node(kind, "" if op == "=" else op[0], [
+                              node("Identifier", "x", start_token=6, end_token=7, line=1, col=13),
+                              node("Call", children=[node("Identifier", "g"),
+                                   node("Binary", "+", [node("IntegerLiteral", "1"),
+                                                        node("IntegerLiteral", "2")])])],
+                              start_token=5, end_token=15, line=1, col=13)])))
+    cases.append(Case("assignment-before-tail",
+                      b"func f() { var x = 1\n x = 2\n x += 3\n x }\n",
+                      tree=program([
+                          node("Var", "x", [node("IntegerLiteral", "1")]),
+                          node("Assign", children=[node("Identifier", "x"), node("IntegerLiteral", "2")]),
+                          node("CompoundAssign", "+", [node("Identifier", "x"), node("IntegerLiteral", "3")]),
+                          node("FinalExpression", children=[node("Identifier", "x")])])) )
+    # Locate each error at the source token that first makes this subset invalid.
+    for name, source, marker, message in [
+        ("chain", "func f() { x = y = 2 }", "= 2", "assignment"),
+        ("compound-chain", "func f() { x += y = 2 }", "= 2", "assignment"),
+        ("group", "func f() { (x = 1) }", "= 1", "assignment"),
+        ("argument", "func f() { g(x = 1) }", "= 1", "assignment"),
+        ("return", "func f() { return x = 1 }", "= 1", "assignment"),
+        ("literal-target", "func f() { 1 = 2 }", "= 2", "target"),
+        ("binary-target", "func f() { x + y = 2 }", "= 2", "target"),
+        ("call-target", "func f() { g() += 2 }", "+= 2", "target"),
+        ("missing-value", "func f() { x = }", "}", "expression"),
+        ("missing-target", "func f() { = 1 }", "= 1", "assignment"),
+        ("member", "func f() { x.a = 1 }", ".a", "member"),
+        ("index", "func f() { x[0] = 1 }", "[0]", "index"),
+        ("boundary", "func f() { x = 1 y = 2 }", "y =", "boundary"),
+    ]:
+        cases.append(Case("error-assignment-" + name, source.encode(),
+                          error=(1, source.index(marker) + 1, message)))
+    for op, name in (("&=", "and"), ("|=", "or"), ("^=", "xor"),
+                     ("<<=", "shift-left"), (">>=", "shift-right")):
+        cases.append(Case("error-assignment-bitwise-" + name,
+                          f"func f() {{ x {op} 1 }}".encode(), error=(1, 14, "bitwise")))
+    for op, name in operator_names.items():
+        source = f"func f() {{ x {op}\n1 }}"
+        cases.append(Case("error-assignment-newline-" + name, source.encode(),
+                          error=(1, source.index("\n") + 1, "expression")))
+    for depth in (256, 257):
+        prefix = "func f() { x = "
+        source = prefix + "(" * depth + "1" + ")" * depth + " }"
+        expected = program([node("Assign", children=[node("Identifier", "x"), node("IntegerLiteral", "1")])])
+        cases.append(Case(f"assignment-depth-{depth}", source.encode(),
+                          tree=expected if depth == 256 else None,
+                          error=(1, len(prefix) + 257, "nesting") if depth == 257 else None))
+        target_prefix = "func f() { "
+        target = "(" * depth + "x" + ")" * depth
+        target_source = target_prefix + target + " = 1 }"
+        target_tree = program([node("Assign", children=[
+            node("Identifier", "x", start_token=5 + depth, end_token=6 + depth,
+                 line=1, col=len(target_prefix) + depth + 1),
+            node("IntegerLiteral", "1")], start_token=5,
+            end_token=8 + 2 * depth, line=1, col=len(target_prefix) + depth + 1)])
+        cases.append(Case(f"assignment-target-depth-{depth}", target_source.encode(),
+                          tree=target_tree if depth == 256 else None,
+                          error=(1, len(target_prefix) + 257, "nesting") if depth == 257 else None))
+    long_rhs = " + ".join("1" for _ in range(300))
+    cases.append(Case("assignment-long-shallow-rhs",
+                      f"func f() {{ x = {long_rhs} }}\n".encode()))
+    return cases
 
 
 def depth_cases() -> list[Case]:
@@ -336,14 +414,14 @@ def validate_tree(tree: Tree, source: bytes | None = None,
     referenced: set[int] = set()
     owned_child_slots: set[int] = set()
     source_lines = source.decode("utf-8", errors="replace").splitlines() if source is not None else []
-    empty_text_kinds = {"Program", "Block", "Return", "ExpressionStatement", "FinalExpression", "Call"}
+    empty_text_kinds = {"Program", "Block", "Return", "ExpressionStatement", "FinalExpression", "Call", "Assign"}
     named_kinds = {"Function", "Parameter", "NamedType", "Let", "Var", "Identifier",
                    "IntegerLiteral", "BooleanLiteral"}
     fixed_arity = {"Program": None, "Function": None, "Parameter": 1, "NamedType": 0,
                    "Block": None, "Let": None, "Var": None, "Return": None,
                    "ExpressionStatement": 1, "FinalExpression": 1, "Identifier": 0,
                    "IntegerLiteral": 0, "StringLiteral": 0, "BooleanLiteral": 0,
-                   "Unary": 1, "Binary": 2, "Call": None}
+                   "Unary": 1, "Binary": 2, "Call": None, "Assign": 2, "CompoundAssign": 2}
     expected_first_child = 0
     for node_id, node in enumerate(tree.nodes):
         if node.first_child != expected_first_child:
@@ -397,10 +475,17 @@ def validate_tree(tree: Tree, source: bytes | None = None,
     if owned_child_slots != set(range(len(tree.children))):
         failures.append("children arena contains an unowned slot")
     for node_id, node in enumerate(tree.nodes):
+        if (node.first_child < 0 or node.child_count < 0 or
+                node.first_child + node.child_count > len(tree.children)):
+            continue
         child_ids = tree.children[node.first_child:node.first_child + node.child_count]
         if any(not (0 <= child < len(tree.nodes)) for child in child_ids):
             continue
         child_kinds = [tree.nodes[child].kind for child in child_ids]
+        if node.kind in ("Assign", "CompoundAssign") and (not child_kinds or child_kinds[0] != "Identifier"):
+            failures.append(f"node {node_id} assignment has a non-name target")
+        if node.kind == "CompoundAssign" and node.text not in {"+", "-", "*", "/", "%"}:
+            failures.append(f"node {node_id} compound assignment has an invalid operator")
         if node.kind == "Program" and any(kind != "Function" for kind in child_kinds):
             failures.append(f"node {node_id} Program contains a non-Function")
         if node.kind == "Function" and (len(child_kinds) < 2 or child_kinds[-2:] != ["NamedType", "Block"]
@@ -411,7 +496,7 @@ def validate_tree(tree: Tree, source: bytes | None = None,
         if node.kind in ("Let", "Var") and len(child_kinds) == 2 and child_kinds[0] != "NamedType":
             failures.append(f"node {node_id} typed binding does not start with NamedType")
         if node.kind == "Block" and any(kind not in (
-                "Let", "Var", "Return", "ExpressionStatement", "FinalExpression") for kind in child_kinds):
+                "Let", "Var", "Return", "ExpressionStatement", "FinalExpression", "Assign", "CompoundAssign") for kind in child_kinds):
             failures.append(f"node {node_id} Block contains an invalid child")
         if node.kind == "Block" and (child_kinds.count("FinalExpression") > 1 or
                                      ("FinalExpression" in child_kinds and child_kinds[-1] != "FinalExpression")):
@@ -424,6 +509,9 @@ def validate_tree(tree: Tree, source: bytes | None = None,
             continue
         reachable.add(node_id)
         node = tree.nodes[node_id]
+        if (node.first_child < 0 or node.child_count < 0 or
+                node.first_child + node.child_count > len(tree.children)):
+            continue
         pending.extend(tree.children[node.first_child:node.first_child + node.child_count])
     if len(reachable) != len(tree.nodes):
         failures.append(f"{len(tree.nodes) - len(reachable)} unreachable node(s)")

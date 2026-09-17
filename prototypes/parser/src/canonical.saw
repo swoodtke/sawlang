@@ -231,6 +231,24 @@ public func canonical_ast(tree: &AstTree) -> Result<String, AstError> {
                 let initializer = tree.children[node.first_child + node.child_count - 1]
                 top = canonical_push(&var actions, CanonicalActionKind.RenderNode,
                                      initializer, action.indent + 1, "", top)
+            } else if node.kind == AstKind.Assign || node.kind == AstKind.CompoundAssign {
+                var header = StringBuilder()
+                if node.kind == AstKind.Assign { try! header.append("AssignStatement") }
+                else {
+                    try! header.append("CompoundAssignStatement ")
+                    try! header.append(node.text)
+                }
+                canonical_line(&var out, &var has_line, action.indent, header.build())
+                let target = tree.children[node.first_child]
+                let value = tree.children[node.first_child + 1]
+                top = canonical_push(&var actions, CanonicalActionKind.RenderNode,
+                                     value, action.indent + 2, "", top)
+                top = canonical_push(&var actions, CanonicalActionKind.EmitLine,
+                                     -1, action.indent + 1, "value:", top)
+                top = canonical_push(&var actions, CanonicalActionKind.RenderNode,
+                                     target, action.indent + 2, "", top)
+                top = canonical_push(&var actions, CanonicalActionKind.EmitLine,
+                                     -1, action.indent + 1, "target:", top)
             } else if node.kind == AstKind.Return {
                 if node.child_count == 0 {
                     canonical_line(&var out, &var has_line, action.indent,

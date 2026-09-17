@@ -40,12 +40,70 @@ class InventoryTests(unittest.TestCase):
         self.assertEqual(row["classification"], "unsupported")
         self.assertIn("visibility_modifier", {item["name"] for item in row["features"]})
 
-    def test_initializer_equals_is_admitted_but_assignment_ast_is_not(self):
+    def test_initializer_and_name_assignment_are_admitted(self):
         row = self.classify(b"func f() { let x = 1\n var y = x }\n")
         self.assertEqual(row["classification"], "candidate")
         assigned = self.classify(b"func f() { let x = 1\n x = 2 }\n")
-        self.assertEqual(assigned["classification"], "unsupported")
-        self.assertIn("statement", {item["name"] for item in assigned["features"]})
+        self.assertEqual(assigned["classification"], "candidate")
+
+    def test_arithmetic_assignment_family_and_rhs_audit(self):
+        for op in ("=", "+=", "-=", "*=", "/=", "%="):
+            with self.subTest(op=op):
+                source = f"// EXPECT: error\nfunc f() {{ (unknown) {op} g(1 + 2) }}\n".encode()
+                row = self.classify(source)
+                self.assertEqual(row["classification"], "candidate")
+                self.assertTrue(row["semantic_expect"]["negative"])
+                excluded = self.classify(f"func f() {{ x {op} object.field }}\n".encode())
+                self.assertEqual(excluded["classification"], "unsupported")
+        for source in (b"func f() { x &= 1 }", b"func f() { x.a = 1 }",
+                       b"func f() { x[0] += 1 }"):
+            self.assertEqual(self.classify(source)["classification"], "unsupported")
+
+    def test_source_audit_only_admits_the_selected_assignment_tokens(self):
+        Lexer, _, _ = COMPILER
+        admitted = Lexer("x = 1\nx += 1\nx %= 1\n").tokenize()
+        unsupported, unresolved = inventory.source_features(admitted, [])
+        self.assertEqual((unsupported, unresolved), ([], []))
+
+        excluded = Lexer("x &= 1\nx |= 1\nx ^= 1\nx <<= 1\nx >>= 1\n").tokenize()
+        unsupported, unresolved = inventory.source_features(excluded, [])
+        self.assertFalse(unresolved)
+        self.assertEqual({item.evidence for item in unsupported},
+                         {"AMP_ASSIGN", "PIPE_ASSIGN", "CARET_ASSIGN",
+                          "SHL_ASSIGN", "SHR_ASSIGN"})
+
+    def test_static_assert_statement_is_known_unsupported(self):
+        row = self.classify(b'func f() { static_assert(true, "ok") }')
+        self.assertEqual(row["classification"], "unsupported")
+        self.assertIn(("statement", "StaticAssert"),
+                      {(item["name"], item["evidence"]) for item in row["features"]})
+
+    def test_for_loop_in_value_position_is_known_unsupported(self):
+        row = self.classify(b"func f() { let value = for i in 0..3 { break i } }")
+        self.assertEqual(row["classification"], "unsupported")
+        self.assertIn(("expression", "ForLoop"),
+                      {(item["name"], item["evidence"]) for item in row["features"]})
+
+    def test_all_m19_unresolved_rows_now_have_known_schema_evidence(self):
+        data = inventory.decode_snapshot(json.loads(
+            (REPO / "prototypes/parser/examples_inventory.json").read_text()))
+        rows = {row["path"]: row for row in data["examples"]}
+        expected = {
+            "examples/const_generic_default_and_arith.saw": ("statement", "StaticAssert"),
+            "examples/interior_cell_user_type.saw": ("statement", "StaticAssert"),
+            "examples/static_assert_backed_enum.saw": ("statement", "StaticAssert"),
+            "examples/static_assert_pass.saw": ("statement", "StaticAssert"),
+            "examples/static_assert_statement_fail_error.saw": ("statement", "StaticAssert"),
+            "examples/for_loop_expr.saw": ("expression", "ForLoop"),
+            "examples/range_inclusive_basics.saw": ("expression", "ForLoop"),
+        }
+        for path, evidence in expected.items():
+            with self.subTest(path=path):
+                row = rows[path]
+                self.assertEqual(row["classification"], "unsupported")
+                self.assertIn(evidence,
+                              {(item["name"], item["evidence"])
+                               for item in row["features"]})
 
     def test_sl73_postfix_shape_stays_unresolved(self):
         row = self.classify(b"func f() { (g)(1) }\n")

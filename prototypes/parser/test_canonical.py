@@ -82,6 +82,14 @@ def program_with_expression(name: str, expression: list[str]) -> bytes:
     return "\n".join(lines).encode()
 
 
+def program_with_assignment(name: str, value: list[str], operator: str = "") -> bytes:
+    statement = "AssignStatement" if not operator else f"CompoundAssignStatement {operator}"
+    lines = ["Program {", "  functions: [", f"    Function {name}() -> Void {{",
+             f"      {statement}", "        target:", "          Identifier(x)",
+             "        value:", *indent(value, 5), "    }", "  ]", "}"]
+    return "\n".join(lines).encode()
+
+
 def generated_cases() -> list[CanonCase]:
     unary = ["IntLiteral(1) : Int"]
     for _ in range(256):
@@ -93,6 +101,10 @@ def generated_cases() -> list[CanonCase]:
     for value in range(1, 301):
         chain = ["BinaryOp(+)", "  left:", *indent(chain, 2), "  right:",
                  f"    IntLiteral({value}) : Int"]
+    assignment_chain = ["IntLiteral(0) : Int"]
+    for value in range(1, 301):
+        assignment_chain = ["BinaryOp(+)", "  left:", *indent(assignment_chain, 2),
+                            "  right:", f"    IntLiteral({value}) : Int"]
     return [
         CanonCase("authored-depth-groups-256",
                   ("func groups() -> Int { " + "(" * 256 + "1" + ")" * 256 + " }\n").encode(),
@@ -106,6 +118,19 @@ def generated_cases() -> list[CanonCase]:
         CanonCase("authored-long-left-chain",
                   ("func chain() -> Int { " + " + ".join(str(i) for i in range(301)) + " }\n").encode(),
                   program_with_expression("chain", chain), python_oracle=False),
+        CanonCase("authored-assignment-target-groups-256",
+                  ("func target() { " + "(" * 256 + "x" + ")" * 256 + " = 1 }\n").encode(),
+                  program_with_assignment("target", ["IntLiteral(1) : Int"]),
+                  python_oracle=False),
+        CanonCase("authored-assignment-rhs-groups-256",
+                  ("func rhs() { x = " + "(" * 256 + "1" + ")" * 256 + " }\n").encode(),
+                  program_with_assignment("rhs", ["IntLiteral(1) : Int"]),
+                  python_oracle=False),
+        CanonCase("authored-assignment-long-shallow-rhs",
+                  ("func assigned_chain() { x = " +
+                   " + ".join(str(i) for i in range(301)) + " }\n").encode(),
+                  program_with_assignment("assigned_chain", assignment_chain),
+                  python_oracle=False),
     ]
 
 

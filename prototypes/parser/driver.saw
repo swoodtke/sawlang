@@ -26,7 +26,9 @@ func dump_ast_kind(kind: AstKind) {
         case BooleanLiteral -> { print("BooleanLiteral") },
         case Unary -> { print("Unary") },
         case Binary -> { print("Binary") },
-        case Call -> { print("Call") }
+        case Call -> { print("Call") },
+        case Assign -> { print("Assign") },
+        case CompoundAssign -> { print("CompoundAssign") }
     }
 }
 
