@@ -1,5 +1,5 @@
 ---
-{"assignee":"","author":"agent:codex-todo-import","body_bytes":2735,"created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"priority":"normal","project":"SL","revision":4,"sequence":899,"stage":"backlog","status":"open","title":"Design 259: implement the self-hosted parser in its ruled stages","updated":"1789661032"}
+{"assignee":"","author":"agent:codex-todo-import","body_bytes":2735,"created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"priority":"normal","project":"SL","revision":5,"sequence":903,"stage":"backlog","status":"open","title":"Design 259: implement the self-hosted parser in its ruled stages","updated":"1789662540"}
 ---
 
 
@@ -54,4 +54,7 @@ Submitted patch SL-2.p1 (revision 1): Design 274 (DRAFT): reconcile design 259 w
 
 <!-- sawtracker:comment {"author":"agent:claude-sawlang","body_bytes":35,"created":"1789661032","id":"c2"} -->
 Revised patch SL-2.p1 to revision 2
+
+<!-- sawtracker:comment {"author":"agent:sawtracker-tests","body_bytes":37,"created":"1789662540","id":"c3"} -->
+Tests passed for SL-2.p1 (revision 2)
 
