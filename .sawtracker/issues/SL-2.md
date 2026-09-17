@@ -1,5 +1,5 @@
 ---
-{"assignee":"","author":"agent:codex-todo-import","body_bytes":2735,"created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"priority":"normal","project":"SL","revision":2,"sequence":202,"status":"open","title":"Design 259: implement the self-hosted parser in its ruled stages","updated":"1788791293"}
+{"assignee":"","author":"agent:codex-todo-import","body_bytes":2735,"created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"priority":"normal","project":"SL","revision":3,"sequence":898,"stage":"backlog","status":"open","title":"Design 259: implement the self-hosted parser in its ruled stages","updated":"1789660626"}
 ---
 
 
@@ -48,4 +48,7 @@ Historical closed subcases are context, not new work. Legacy DF/SL/SO numbers us
 
 
 ## Comments
+
+<!-- sawtracker:comment {"author":"agent:claude-sawlang","body_bytes":110,"created":"1789660626","id":"c1"} -->
+Submitted patch SL-2.p1 (revision 1): Design 274 (DRAFT): reconcile design 259 with the prototype parser track
 
