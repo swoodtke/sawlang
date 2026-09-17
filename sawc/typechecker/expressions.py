@@ -4761,9 +4761,19 @@ class ExpressionsMixin:
                         mangled = self._effect_queue_fn_mono(tmpl, resolved_args)
                         self._effect_record_driven(mangled, mode)
                         inner.name = mangled
+                        # SL-280: the call now NAMES the instantiation, so the
+                        # template's symbol is stale data. Clearing it keeps
+                        # `callee_frame_key(inner)` — which the drive-site
+                        # rewrite and the transform's root lookup both ask —
+                        # equal to the root recorded one line up.
+                        inner.resolved_symbol = None
                         inner.type_args = None
                 else:
-                    self._effect_record_driven(inner.name, mode)
+                    # SL-280: the driven root is recorded under the frame key,
+                    # not the written name, so `funcs_by_name` (keyed the same
+                    # way) finds the body a `$m$`/`$M$`/`$OL$` tag renamed.
+                    from frame_keys import callee_frame_key
+                    self._effect_record_driven(callee_frame_key(inner), mode)
             if expr.name == "__saw_drive_steps":
                 return SawType(TypeKind.INT)
             return inner_type if inner_type is not None else SawType(TypeKind.VOID)
@@ -10041,7 +10051,9 @@ class ExpressionsMixin:
                 "the task never completes and `join` on its handle could never "
                 "return", result_type, expr.line, expr.column):
             return None
-        spawn_name = getattr(inner, 'resolved_symbol', None) or inner.name
+        # SL-280: the spawn root's frame key, through the one funnel.
+        from frame_keys import callee_frame_key
+        spawn_name = callee_frame_key(inner)
         if getattr(inner, 'type_args', None):
             resolved_args = [self._resolve_type(a) for a in inner.type_args]
             if not all(self._is_concrete_type(a) for a in resolved_args):
@@ -10052,6 +10064,9 @@ class ExpressionsMixin:
                 return None
             spawn_name = self._effect_queue_fn_mono(spawn_name, resolved_args)
             inner.name = spawn_name
+            # SL-280: see the drive-site twin — the call names the
+            # instantiation now, so the template's symbol must not outlive it.
+            inner.resolved_symbol = None
             inner.type_args = None
         return (spawn_name, result_type, inner)
 

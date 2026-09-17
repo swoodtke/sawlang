@@ -428,7 +428,13 @@ class EffectsMixin:
         # distinct stamped codegen symbol; key its suspend node on that so each
         # overload has its OWN effect node (a sync and a non-sync overload of the
         # same name must not merge into one node).
-        key = ("fn", getattr(func, 'mangled_symbol', None) or func.name)
+        #
+        # SL-280: through `callee_frame_key`, the ONE answer to "what key names
+        # this callee's frame?". The coroutine transform's tables and call-site
+        # classifiers ask it too, so a node here and an edge there and a body
+        # over in `funcs_by_name` are all filed under one string.
+        from frame_keys import callee_frame_key
+        key = ("fn", callee_frame_key(func))
         node = self._suspend_nodes.get(key)
         if node is None:
             from ast_nodes import is_exported
@@ -582,7 +588,11 @@ class EffectsMixin:
             # leaf, which is exactly the "extern promises promptness" rule.
             # Overloading (design 55): edge to the RESOLVED overload's node,
             # which is keyed by its stamped symbol (matches _effect_enter_function).
-            key_name = getattr(func_info, "mangled_name", "") or name
+            # SL-280: both ends go through `callee_frame_key`, so the edge and
+            # the node cannot drift apart the way the edge and the transform's
+            # `imported_free_fns` table did.
+            from frame_keys import callee_frame_key
+            key_name = callee_frame_key(func_info, name=name)
             self._effect_add_edge(("fn", key_name), f"`{name}`", line)
 
     def _effect_call_method(self, method_info, short: str, line: int):

@@ -151,6 +151,7 @@ from ast_nodes import (
 )
 from type_identity import type_identity as _type_identity
 from typechecker.effects import _first_pristine
+from frame_keys import callee_frame_key
 from ast_walk import (child_nodes, control_blocks, control_heads, map_nodes,
                       pattern_binding_names)
 
@@ -2142,7 +2143,12 @@ class _FrameBuilder:
                                           reference_mutable=False)
                                   if self.has_recv else None)
         else:
-            self.name = func.name
+            # SL-280: a free function's frame is named by its FRAME KEY, not by
+            # its written name. Two functions of one name — an entry-module
+            # `helper` and an imported module's private `helper$m$dep` spliced
+            # in beside it — are two frames, and `__Frame_helper` for both would
+            # be one LLVM symbol carrying two state machines.
+            self.name = callee_frame_key(func)
             self.recv_type = None
             self.recv_ptr_type = None
             self.recv_pointee = None
@@ -2823,7 +2829,11 @@ class _FrameBuilder:
         if isinstance(expr, FunctionCall):
             if getattr(expr, 'type_args', None):
                 return False
-            return (expr.name in self._suspends
+            # SL-280: `self._suspends` holds FRAME KEYS (it is `set(closure)`),
+            # so the membership test asks `callee_frame_key`, never the written
+            # name. A tagged callee read as its bare name is a suspension
+            # answered False — which is a park lowered in place.
+            return (callee_frame_key(expr) in self._suspends
                     or self._is_blocking_extern(expr.name))
         if isinstance(expr, MethodCall):
             return (getattr(expr, 'is_chan_recv', False)
@@ -4376,7 +4386,8 @@ class _FrameBuilder:
             if found[0]:
                 return
             if isinstance(n, FunctionCall) and (
-                    n.name in _SUSPEND_CALLS or n.name in self._suspends):
+                    n.name in _SUSPEND_CALLS
+                    or callee_frame_key(n) in self._suspends):   # SL-280
                 found[0] = True
                 return
             # design 103 (A6): a blocking-extern call is a suspension point (the
@@ -5157,7 +5168,15 @@ class _FrameBuilder:
             # frame is a method frame (`__recv` points at the receiver's storage);
             # its key is `{struct}_{method}`, matching `_FrameBuilder.name`.
             return self._classify_method_call(stmt, target, is_ret)
-        if fc.name not in self._suspends:
+        # SL-280: the callee is named by its FRAME KEY at both ends — the
+        # membership test below and the `callee` this returns, which
+        # `_callee_fb` resolves against `fbs`. Reading `fc.name` here made the
+        # classifier disagree with the closure walk: a private imported helper
+        # was invisible to it, and an entry-module function that merely SHARED
+        # a name with the real callee was embedded in its place (a silently
+        # wrong answer, not just a dropped suspension).
+        key = callee_frame_key(fc)
+        if key not in self._suspends:
             return None
         if getattr(fc, 'type_args', None):
             # design 70 (A5): a TOP driven/spawned generic is monomorphized before
@@ -5168,7 +5187,7 @@ class _FrameBuilder:
                 f"coroutine transform: a nested suspending call to a generic "
                 f"function `{fc.name}` inside `{self.name}` is not yet supported "
                 f"(design 70 A5-rest)", fc)
-        return {'callee': fc.name, 'args': list(fc.arguments),
+        return {'callee': key, 'args': list(fc.arguments),
                 'plan': getattr(fc, 'arg_plan', None), 'target': target,
                 'ret': is_ret, 'line': getattr(fc, 'line', 0) or 0}
 
@@ -5210,7 +5229,7 @@ class _FrameBuilder:
         # `FunctionCall` (callee keyed by name, no `__recv`). Only when the
         # callee is in the driven closure (`self._suspends`); a non-suspending
         # cross-module free call stays a plain module call for codegen.
-        mfree = getattr(mc, 'module_free_call', None)
+        mfree = callee_frame_key(mc)   # SL-280: the funnel, not a raw read
         if mfree is not None and mfree in self._suspends:
             if getattr(mc, 'type_args', None):
                 # Mirror `_classify_call`'s generic-nested refusal (design 70).
@@ -5339,8 +5358,12 @@ class _FrameBuilder:
         parses as a `MethodCall` but must be treated as a suspending free-call
         everywhere a same-module `FunctionCall` to a driven callee is — every
         suspension-detection site below, so the split/embed and the rejections
-        see it, never a plain lowering (the SL-208 wedge)."""
-        mfree = getattr(mc, 'module_free_call', None)
+        see it, never a plain lowering (the SL-208 wedge).
+
+        SL-280: the key comes from `callee_frame_key`, which is also what says
+        a `MethodCall` is a genuine METHOD (it answers None) — so this and the
+        classifier cannot drift on which calls are free calls."""
+        mfree = callee_frame_key(mc)
         return mfree is not None and mfree in self._suspends
 
     def _method_call_suspends(self, mc):
@@ -5529,7 +5552,8 @@ class _FrameBuilder:
             if isinstance(n, ClosureExpr):
                 in_closure = True
             if isinstance(n, FunctionCall) and (
-                    n.name in self._suspends or n.name in _SUSPEND_CALLS):
+                    callee_frame_key(n) in self._suspends      # SL-280
+                    or n.name in _SUSPEND_CALLS):
                 found.append(("fn", n))
             # design 103 (A6): a blocking-extern call in a position the offload
             # desugar cannot occupy (buried in a larger expression, a `try!`, an
@@ -9317,13 +9341,16 @@ def _default_expr_suspends(expr, tc):
         if n is None:
             return False
         if isinstance(n, FunctionCall):
-            if _fn_suspends(getattr(n, 'resolved_symbol', None) or n.name):
+            # SL-280: `callee_frame_key` is the one composer of both spellings
+            # this used to inline (`resolved_symbol or name` here, and
+            # `module_free_call` below).
+            if _fn_suspends(callee_frame_key(n)):
                 return True
         elif isinstance(n, MethodCall):
             if (getattr(n, 'is_yield_intrinsic', False)
                     or getattr(n, 'is_chan_recv', False)):
                 return True
-            if _fn_suspends(getattr(n, 'module_free_call', None)):
+            if _fn_suspends(callee_frame_key(n)):
                 return True
             if _suspending_method_target(n, tc).suspends:
                 return True
@@ -10455,9 +10482,12 @@ def _rewrite_drive_sites(node, roots, params_of, tc, src_file=None):
                                   inner, params_of(key), inner.method_name,
                                   tc, src_file)])
             return node
-        node.name = prefix + inner.name
+        # SL-280: the driver is named after the callee's FRAME KEY, matching
+        # `_FrameBuilder.name` and the root `_effect_record_driven` recorded.
+        key = callee_frame_key(inner)
+        node.name = prefix + key
         node.arguments = [_ref_arg_to_ptr(a) for a in _arity_arguments(
-            inner, params_of(inner.name), inner.name, tc, src_file)]
+            inner, params_of(key), inner.name, tc, src_file)]
         return node
     if isinstance(node, ASTNode):
         # A drive site is rewritten IN PLACE (the `FunctionCall` keeps its
@@ -10545,7 +10575,10 @@ def _find_method(program, struct_name, method_name, method_symbol=None):
 
 
 def _called_function_names(decl, out):
-    """Every free-function name `decl`'s body CALLS, added to `out`."""
+    """Every free-function FRAME KEY `decl`'s body CALLS, added to `out`.
+
+    SL-280: keys, not written names — `removed`/`consumed` are frame keys, and
+    the two sets are intersected."""
     body = getattr(decl, 'body', None)
     if body is None:
         return out
@@ -10557,7 +10590,7 @@ def _called_function_names(decl, out):
             continue
         seen.add(id(node))
         if isinstance(node, FunctionCall):
-            out.add(node.name)
+            out.add(callee_frame_key(node))
         stack.extend(_all_child_nodes(node))
     return out
 
@@ -10631,8 +10664,9 @@ def _consume_templates_naming_removed(program, removed, readded,
     consumed = set(removed) - set(readded)
     if not consumed:
         return
-    templates = {f.name: f for f in program.functions
-                 if getattr(f, 'type_params', None) and f.name not in removed}
+    templates = {callee_frame_key(f): f for f in program.functions   # SL-280
+                 if getattr(f, 'type_params', None)
+                 and callee_frame_key(f) not in removed}
     changed = True
     while changed:
         changed = False
@@ -10668,7 +10702,7 @@ def _names_the_survivors_call(program, removed, extra_decls):
     promoted call site ends up)."""
     live = set()
     for f in program.functions:
-        if f.name not in removed:
+        if callee_frame_key(f) not in removed:   # SL-280
             _called_function_names(f, live)
     for decl in extra_decls:
         _called_function_names(decl, live)
@@ -11047,7 +11081,13 @@ def _promote_nested_generic_methods(program, funcs_by_name, seed_names, all_exts
             if clone is not None and getattr(clone, 'body', None) is not None:
                 enqueue(clone.body)
         for fc in _iter_function_calls(body):
-            callee = funcs_by_name.get(fc.name)
+            # SL-280: `funcs_by_name` is keyed by FRAME KEY, so the free-fn
+            # descent asks for one. Reading `fc.name` stopped this walk dead at
+            # any callee registration had stamped a symbol on (`$m$`/`$M$`/an
+            # overload signature) — and a suspending generic METHOD call below
+            # such a callee then got no instantiation, which is DF-218m's
+            # silent plain-call lowering with a new way in.
+            callee = funcs_by_name.get(callee_frame_key(fc))
             if callee is not None and getattr(callee, 'body', None) is not None:
                 enqueue(callee.body)
 
@@ -11107,7 +11147,13 @@ def transform_program(program, typechecker, imported_ast=None):
     # frame and differ only in where the group comes from.
     bg_spawn_roots = set(
         getattr(typechecker, "_background_spawn_roots", set()) or set())
-    funcs_by_name = {f.name: f for f in program.functions}
+    # SL-280: keyed by FRAME KEY, which is what the effect graph's edges, the
+    # driven/spawned roots and every call-site classifier name a callee by. It
+    # was `f.name`, and a free function whose registration stamped a symbol
+    # (design 249's `$m$`/`$M$` tags, design 55's `$OL$`) was then filed under a
+    # name no edge ever used — so its body was never found, no frame was built,
+    # and the suspension inside it was dropped in silence.
+    funcs_by_name = {callee_frame_key(f): f for f in program.functions}
     # design 84: a nested suspending method may be defined in an IMPORTED module
     # (std.net's TcpStream.read / TcpListener.accept), not the entry module. The
     # transform is otherwise entry-module-only, but a NON-generic method frame is
@@ -11388,28 +11434,89 @@ def transform_program(program, typechecker, imported_ast=None):
     # an infinite spin, DF-203b. Unit 2 made the effect FIXPOINT answer this
     # correctly too; the two routes agree now rather than one covering for the
     # other, which is the point of asking each its own question.
-    structurally_susp_fns = set()
-    for _fname, _f in funcs_by_name.items():
-        if getattr(_f, 'type_params', None):
-            continue
-        if _scan_method_callees(_f.body) or _body_has_chan_recv(_f.body):
-            structurally_susp_fns.add(_fname)
-    _susp_changed = True
-    while _susp_changed:
-        _susp_changed = False
-        for _key, _nd in nodes.items():
-            if not (isinstance(_key, tuple) and _key[0] == "fn"):
-                continue
-            _fname = _key[1]
-            if _fname in structurally_susp_fns or _fname not in funcs_by_name:
-                continue
-            for _e in _nd.edges:
+    # SL-280: this used to be a SET, computed once over `funcs_by_name` — the
+    # ENTRY module — and finished before the closure walk started. Both halves
+    # of that were wrong for a cross-module callee. Bodies are spliced into
+    # `funcs_by_name` DURING the walk (`_splice_imported_free_fn`), so an
+    # imported helper was not in the table when the set was built and could
+    # never be added to it afterwards; and the seed only ever ranged over entry
+    # bodies anyway. An imported helper whose only suspension is a buried std
+    # method call — `read_chunk(stream, secs)` calling `stream.read()`, the
+    # exact shape of the wedge — was therefore invisible to design 96's fallback
+    # no matter what the keying did. A second, independent gate on the same
+    # edge.
+    #
+    # It is a QUESTION now, answered on demand against BOTH body tables, so
+    # there is no phase to be on the wrong side of. Memoized, so the whole walk
+    # still costs one pass over the nodes and edges it reaches.
+    _struct_susp_cache = {}
+
+    def _structurally_suspends(key):
+        """Does the free function `key` suspend, STRUCTURALLY, in a way the
+        effect fixpoint cannot see?
+
+        A std method's effect node is absent from this graph (the same gap
+        `_scan_method_callees` works around), so a call edge to one never
+        propagates `suspends`. A free function whose only suspension source is
+        a buried suspending method call — or a channel receive, which embeds
+        nothing and suspends absolutely (design 206) — is therefore left
+        `suspends=False`, and the edge-follow below would SKIP it: its caller
+        would emit a plain blocking call and the buried park would wedge the
+        whole thread (the design-96 hang at nesting depth >= 2).
+
+        Structural, and transitive through free-fn -> free-fn call edges. Only
+        ADDS genuinely-suspending functions (`_scan_method_callees` never
+        yields a non-suspending method), so there is no over-inclusion; a
+        function the fixpoint already marks is followed via `t.suspends`
+        instead and never reaches here.
+
+        Bodies are looked up in `funcs_by_name` FIRST (the entry module, plus
+        whatever the walk has already spliced) and then in `imported_free_fns`
+        — a body that has not been spliced yet still has to be able to answer,
+        which is the phase ordering this closes.
+        """
+        return _struct_susp_probe(key, set())[1]
+
+    def _struct_susp_probe(key, visiting):
+        """`_structurally_suspends`'s recursion. Returns (cacheable, answer).
+
+        A recursive call graph makes a plain memo unsound: breaking a cycle
+        answers False for the in-progress key, and a node that only saw that
+        provisional False would cache a False the outer frame then contradicts.
+        So an answer computed under a broken cycle is used and NOT stored. True
+        is always storable — the property is monotone, and nothing that reaches
+        a suspension can later stop reaching it."""
+        if key in _struct_susp_cache:
+            return True, _struct_susp_cache[key]
+        if key in visiting:
+            # A cycle contributes nothing on its own: if any member really
+            # suspends, that member's own body is what says so.
+            return False, False
+        fn = funcs_by_name.get(key)
+        if fn is None:
+            fn = imported_free_fns.get(key)
+        if fn is None or getattr(fn, 'type_params', None):
+            _struct_susp_cache[key] = False
+            return True, False
+        visiting.add(key)
+        cacheable = True
+        answer = bool(_scan_method_callees(fn.body)
+                      or _body_has_chan_recv(fn.body))
+        if not answer:
+            node = nodes.get(("fn", key))
+            for _e in (node.edges if node is not None else ()):
                 _tgt = _e.target
-                if (isinstance(_tgt, tuple) and _tgt[0] == "fn"
-                        and _tgt[1] in structurally_susp_fns):
-                    structurally_susp_fns.add(_fname)
-                    _susp_changed = True
+                if not (isinstance(_tgt, tuple) and _tgt[0] == "fn"):
+                    continue
+                _ok, _sub = _struct_susp_probe(_tgt[1], visiting)
+                cacheable = cacheable and _ok
+                if _sub:
+                    answer = True
                     break
+        visiting.discard(key)
+        if answer or cacheable:
+            _struct_susp_cache[key] = answer
+        return (answer or cacheable), answer
 
     # SL-208 / DF-300e: imported (cross-module) FREE functions, by codegen name.
     # A same-module free callee lives in `funcs_by_name` (the entry module); a
@@ -11421,11 +11528,52 @@ def transform_program(program, typechecker, imported_ast=None):
     # `methods_by_id`) and a generic INSTANCE is (`_promote_nested_generic_calls`)
     # — so a cross-module suspending free callee gets a frame and is embedded +
     # driven, instead of lowering as a plain call whose park no-ops / wedges the
-    # reactor (the SL-208 wedge). Entry names win, so shadow them out here.
+    # reactor (the SL-208 wedge). An entry body of the same key wins, so shadow
+    # it out here.
+    #
+    # SL-280: keyed by FRAME KEY — the same string the graph's edges carry and
+    # `funcs_by_name` files entry bodies under. It was `_f.name`, and design 249
+    # tags a module-PRIVATE free function `helper$m$dep` while leaving a `public`
+    # one bare, so `e.target[1]` was `helper$m$dep` and the table held `helper`:
+    # the test below never matched, the splice was declined, and the edge fell
+    # off the end of the walk with nothing said.
+    #
+    # The shadow-out now compares KEYS too, which matters in both directions: an
+    # entry `helper` no longer hides a dependency's tagged `helper$m$dep` (they
+    # are two functions and the walk needs both), and the entry body still wins
+    # wherever the two really are one key.
     imported_free_fns = {}
     for _f in (getattr(imported_ast, 'functions', None) or []):
-        if _f.name not in funcs_by_name and _f.name not in imported_free_fns:
-            imported_free_fns[_f.name] = _f
+        _key = callee_frame_key(_f)
+        if _key not in funcs_by_name and _key not in imported_free_fns:
+            imported_free_fns[_key] = _f
+
+    # SL-280: the frame keys whose BODY came from an imported module. The clone
+    # is appended to `program.functions` so the post-transform re-entry can read
+    # it, and it must leave again once its frame exists.
+    #
+    # THE INVARIANT: THE IMPORTED MODULE OWNS THE EMISSION. The splice owns only
+    # a copy to build a frame from, and that copy is filtered back out of
+    # `program.functions` below, by frame key. Renaming the clone is the
+    # alternative and is worse: the frame, the driver and every embed site would
+    # then carry a symbol no module declares.
+    #
+    # The filter was `f.name not in removed`, which cannot express this once a
+    # clone's key and its name differ — and a clone left behind is a body the
+    # frame builder has already REWRITTEN into a half-lowered state machine.
+    # Probed both ways out of it, and they are ONE bug wearing two faces: the
+    # husk either reaches the post-transform re-typecheck, where its rewritten
+    # body names `self` in a free function (``'self' can only be used inside
+    # methods``, reported inside the dependency at a line whose author wrote no
+    # `self`), or it survives that and reaches codegen, where it is a SECOND
+    # definition of a symbol the imported module also emits and llvmlite refuses
+    # it (`DuplicatedNameError: helper_private$m$dep` out of
+    # `codegen/core.py::_declare_function`, surfaced as an internal compiler
+    # error). Which face appears is a detail of the body — a reference
+    # parameter's reads are rewritten through `self`, so that shape takes the
+    # first — and neither is a splice-preprocessing bug, which is what they look
+    # like from the diagnostic.
+    spliced_free_fn_keys = set()
 
     def _splice_imported_free_fn(name):
         """Pull an imported free function into the entry driven closure: a
@@ -11452,6 +11600,7 @@ def transform_program(program, typechecker, imported_ast=None):
                                                       None))
         funcs_by_name[name] = clone
         program.functions.append(clone)
+        spliced_free_fn_keys.add(name)
         return clone
 
     def _promote_joining_body(name, work):
@@ -11578,26 +11727,31 @@ def transform_program(program, typechecker, imported_ast=None):
                 t = nodes.get(e.target)
                 if t is None:
                     continue
-                is_fn_edge = (isinstance(e.target, tuple) and e.target[0] == "fn"
-                              and e.target[1] in funcs_by_name)
+                is_free_edge = (isinstance(e.target, tuple)
+                                and e.target[0] == "fn")
+                is_fn_edge = is_free_edge and e.target[1] in funcs_by_name
+                # DOES THIS EDGE CARRY A SUSPENSION? Two sources, asked in one
+                # place (SL-280). The fixpoint's own answer, and — design 96 —
+                # a free callee it left `suspends=False` that STRUCTURALLY
+                # suspends through a buried std method call or a channel
+                # receive. The structural question used to be asked only of a
+                # body already in `funcs_by_name`, which an imported one is not
+                # until the splice below puts it there: the exact shape of the
+                # SL-280 wedge (`read_chunk` -> `stream.read()`) was refused
+                # entry by the very gate that exists to catch it.
+                if not (t.suspends
+                        or (is_free_edge
+                            and _structurally_suspends(e.target[1]))):
+                    continue
                 # SL-208 / DF-300e: a free-fn edge to a CROSS-MODULE callee (in
                 # `imported_free_fns`, not yet in `funcs_by_name`). Splice its
                 # body into the entry closure and follow the edge — otherwise a
                 # cross-module suspending free callee is missed and lowers as a
                 # plain call whose park wedges the reactor.
-                if (not is_fn_edge and t.suspends
-                        and isinstance(e.target, tuple) and e.target[0] == "fn"
+                if (not is_fn_edge and is_free_edge
                         and e.target[1] in imported_free_fns):
                     if _splice_imported_free_fn(e.target[1]) is not None:
                         is_fn_edge = True
-                # design 96: follow a free-fn edge whose target the fixpoint left
-                # `suspends=False` but which STRUCTURALLY suspends via a buried
-                # method call (see `structurally_susp_fns` above) — otherwise a
-                # depth-2+ nested suspending method call is missed and its park
-                # wedges the thread.
-                if not t.suspends and not (
-                        is_fn_edge and e.target[1] in structurally_susp_fns):
-                    continue
                 if is_fn_edge:
                     work.append(("fn", e.target[1]))
                 elif isinstance(e.target, int) and e.target in methods_by_id:
@@ -11689,8 +11843,9 @@ def transform_program(program, typechecker, imported_ast=None):
                          if getattr(m, 'body', None) is not None]
         for _b in _role_bodies:
             for _fc in _iter_function_calls(_b):
-                if _fc.name in spawn_roots:
-                    dual_role_spawn_roots.add(_fc.name)
+                _fck = callee_frame_key(_fc)   # SL-280: `spawn_roots` is keyed
+                if _fck in spawn_roots:        # by frame key, so ask for one
+                    dual_role_spawn_roots.add(_fck)
         dual_role_spawn_roots.update(n for n in spawn_roots if n in roots)
     # design 221 unit B3: a suspending `main` that ALSO spawns rides the ambient
     # executor, which erases its frame into a `Box<any Resumable>` — so a
@@ -11985,12 +12140,22 @@ def transform_program(program, typechecker, imported_ast=None):
     # DF-218e: consumption symmetry — a generic TEMPLATE naming a consumed
     # callee is consumed with it.
     _consume_templates_naming_removed(
-        program, removed, {f.name for f in new_functions},
+        program, removed, {callee_frame_key(f) for f in new_functions},
         _required_by_conformance,
         extra_decls=list(new_functions) + list(new_extensions))
 
     # Splice: remove driven roots, add synthesized declarations.
-    program.functions = [f for f in program.functions if f.name not in removed]
+    #
+    # SL-280: filtered by FRAME KEY, which is what `removed` holds. Two things
+    # rest on it. A driven/embedded body whose registration stamped a symbol
+    # (`helper$m$dep`) is now actually removed — under the old `f.name` test it
+    # survived as a half-lowered husk beside the frame that replaced it. And a
+    # SPLICED imported body leaves unconditionally: the imported module emits
+    # that symbol itself, so a clone left behind would be a second definition of
+    # it and llvmlite refuses the second (see `spliced_free_fn_keys`).
+    _drop = removed | spliced_free_fn_keys
+    program.functions = [f for f in program.functions
+                         if callee_frame_key(f) not in _drop]
     program.functions.extend(new_functions)
     program.structs.extend(new_structs)
     program.enums.extend(new_enums)

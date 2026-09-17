@@ -1,0 +1,106 @@
+// Fixture for `coro_imported_callee_discovery_matrix.saw` (SL-280): the
+// IMPORTED module of the discovery matrix.
+//
+// Rows S0-S9 differ only in HOW the suspension is reached from a public entry
+// point of this module. Five of them (S1, S3, S5, S8, S9) were silently dropped
+// before the `callee_frame_key` funnel landed; the other five worked, and WHY
+// each worked is what localized the bug — a method callee is enqueued by
+// `_scan_method_callees`, a generic one by `_promote_joining_body`, and a
+// `public` free function's frame key happened to equal its bare name.
+
+import std.task.{yield_now}
+import sl280matrix2.{s4_target}
+
+public struct Widget { n: Int }
+
+extension Widget {
+    func hop(&self) -> Int {
+        yield_now()
+        self.n + 1
+    }
+}
+
+// S0: this module's own entry suspends DIRECTLY (SL-208's fixed cell).
+public func s0_entry(n: Int) -> Int {
+    yield_now()
+    n + 1
+}
+
+// S1: -> its own module-PRIVATE free function. The headline cell.
+func s1_helper(n: Int) -> Int {
+    yield_now()
+    n + 1
+}
+
+public func s1_entry(n: Int) -> Int { s1_helper(n) }
+
+// S2: -> its own extension METHOD (`_scan_method_callees` reaches it).
+public func s2_entry(n: Int) -> Int {
+    let w = Widget(n: n)
+    w.hop()
+}
+
+// S3: -> TWO of its own private free functions (the chain, not just one hop).
+func s3_inner(n: Int) -> Int {
+    yield_now()
+    n + 1
+}
+
+func s3_outer(n: Int) -> Int { s3_inner(n) }
+
+public func s3_entry(n: Int) -> Int { s3_outer(n) }
+
+// S4: -> a SECOND imported module's public function (a qualified call, which
+// parses as a MethodCall and so was never on the broken path).
+public func s4_entry(n: Int) -> Int { s4_target(n) }
+
+// S5: an imported METHOD -> this module's private free function.
+func s5_helper(n: Int) -> Int {
+    yield_now()
+    n + 1
+}
+
+extension Widget {
+    public func s5_method(&self) -> Int { s5_helper(self.n) }
+}
+
+// S6: -> its own private GENERIC free function (`_promote_joining_body`
+// reaches it, which is why the generic edge worked and the plain one did not).
+func s6_helper<T>(n: Int, witness: T) -> Int {
+    yield_now()
+    n + 1
+}
+
+public func s6_entry(n: Int) -> Int { s6_helper<Int>(n, 0) }
+
+// S7: -> its own PUBLIC free function. The sharp control for S1: byte-identical
+// but for one word, and design 249 tags only the private one.
+public func s7_helper(n: Int) -> Int {
+    yield_now()
+    n + 1
+}
+
+public func s7_entry(n: Int) -> Int { s7_helper(n) }
+
+// S8: -> its own private function taking a REFERENCE parameter. The shape of
+// the real `read_chunk(stream: &TcpStream, secs: Int)`.
+func s8_helper(w: &Widget) -> Int {
+    yield_now()
+    w.n + 1
+}
+
+public func s8_entry(n: Int) -> Int {
+    let w = Widget(n: n)
+    s8_helper(&w)
+}
+
+// S9: -> its own private function through a `let` statement rather than a tail.
+func s9_helper(n: Int) -> Int {
+    yield_now()
+    n + 1
+}
+
+public func s9_entry(n: Int) -> Int {
+    let r = s9_helper(n)
+    r
+}

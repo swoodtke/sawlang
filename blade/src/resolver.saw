@@ -266,8 +266,70 @@ func req_ok(constraint: String, v: Version) -> Bool? {
 // Resolution
 // =============================================================================
 
+// One pending unit of resolver work (SL-304).
+//
+// The graph walk used to be a self-recursive `visit`, which is a SUSPENDING
+// recursion — `visit` reaches `ls_remote_tags`/`clone_tag`, whose `Command`
+// reap loop parks — and design 44 embeds a suspending callee's frame by value,
+// so a suspending cycle has no compile-time frame size. The walk is the same
+// depth-first pre-order it always was; what carries the descent is this
+// explicit LIFO worklist instead of the call stack.
+//
+// `Unwind` is the pop marker. It is queued directly beneath a package's own
+// edges, so it is popped only once that package's whole subtree is done — which
+// is what keeps `stack` (the ANCESTOR chain the cycle check reads) meaning
+// exactly what it meant under recursion.
+enum WorkItem {
+    case Edge(
+        dep_name: String,
+        source: DepSource,
+        constraint: String,
+        requirer: String,
+        base_dir: Path,
+    ),
+    case Unwind
+}
+
+// Move `batch` onto the LIFO worklist so the driver pops it in DECLARATION
+// order: the last entry goes on first. `batch` is left empty.
+func push_reversed(work: &var Vector<WorkItem>, batch: &var Vector<WorkItem>) {
+    while batch.len() > 0 {
+        guard let item = batch.pop() else {
+            break
+        }
+        try! work.push(item)
+    }
+}
+
+// Drive the worklist to exhaustion. The first error a visit reports propagates
+// straight out and abandons the walk, exactly as the recursive `try` did.
+func visit_all(
+    work: &var Vector<WorkItem>,
+    resolution: &var Resolution,
+    reqs: &var ReqList,
+    stack: &var Vector<String>,
+) -> Result<Bool, ResolveError> {
+    while work.len() > 0 {
+        guard let item = work.pop() else {
+            break
+        }
+        match item {
+            case Unwind -> {
+                let _ = stack.pop()
+            },
+            case Edge(dep_name, source, constraint, requirer, base_dir) -> {
+                let _ = try visit(
+                    dep_name, source, constraint, requirer, base_dir,
+                    &var resolution, &var reqs, &var stack, &var work,
+                )
+            }
+        }
+    }
+    true
+}
+
 // Visit one dependency edge: record the requirement, and (first time only) read
-// the dependency's manifest, add it to the table, and descend into ITS deps.
+// the dependency's manifest, add it to the table, and ENQUEUE its own deps.
 func visit(
     dep_name: String,
     source: DepSource,
@@ -277,6 +339,7 @@ func visit(
     resolution: &var Resolution,
     reqs: &var ReqList,
     stack: &var Vector<String>,
+    work: &var Vector<WorkItem>,
 ) -> Result<Bool, ResolveError> {
 
     // Every edge is a requirement to validate later (so conflicts name every
@@ -381,23 +444,32 @@ func visit(
     }
     resolution.add(dep_name, resolved_version, resolved_kind, dep_loc, declared, resolved_rev)
 
+    // ENTER the package: its name joins the ancestor stack, and an `Unwind`
+    // marker is queued beneath its edges to take the name back off once the
+    // subtree is done — the worklist's stand-in for the `stack.pop()` that used
+    // to sit after the recursive loop.
     try! stack.push(dep_name)
     let sub = match m.dependencies() {
         case Ok(x) -> move x,
         case Err(_) -> { return ResolveError(msg: "cannot read dependencies of `{dep_name}`") }
     }
+    var children = Vector<WorkItem>()
     var j = 0
     while j < sub.len() {
         guard let sd = sub.get(j) else {
             break
         }
-        let _ = try visit(
-            sd.name, sd.source, sd.version, dep_name, dep_dir,
-            &var resolution, &var reqs, &var stack,
-        )
+        try! children.push(WorkItem.Edge(
+            dep_name: sd.name,
+            source: sd.source,
+            constraint: sd.version,
+            requirer: dep_name,
+            base_dir: dep_dir,
+        ))
         j = j + 1
     }
-    let _ = stack.pop()
+    try! work.push(WorkItem.Unwind)
+    push_reversed(&var work, &var children)
 
     true
 }
@@ -466,22 +538,33 @@ public func resolve(root: Manifest) -> Result<Resolution, ResolveError> {
     var resolution = Resolution()
     var reqs = ReqList()
     var stack = Vector<String>()
+    var work = Vector<WorkItem>()
 
     let deps = match root.dependencies() {
         case Ok(x) -> move x,
         case Err(_) -> { return ResolveError(msg: "cannot read root dependencies") }
     }
+    // The root's own edges seed the worklist. The root itself never joins the
+    // ancestor stack (it never did) — a package depending on itself is the
+    // self-dependency error, not a cycle.
+    var seeds = Vector<WorkItem>()
     var i = 0
     while i < deps.len() {
         guard let d = deps.get(i) else {
             break
         }
-        let _ = try visit(
-            d.name, d.source, d.version, root.name(), root.root_dir,
-            &var resolution, &var reqs, &var stack,
-        )
+        try! seeds.push(WorkItem.Edge(
+            dep_name: d.name,
+            source: d.source,
+            constraint: d.version,
+            requirer: root.name(),
+            base_dir: root.root_dir,
+        ))
         i = i + 1
     }
+    push_reversed(&var work, &var seeds)
+
+    let _ = try visit_all(&var work, &var resolution, &var reqs, &var stack)
 
     let _ = try validate(&resolution, &reqs)
 

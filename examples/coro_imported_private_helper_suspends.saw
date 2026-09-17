@@ -1,16 +1,18 @@
-// XFAIL: SL-280 a suspension reached through a MODULE-PRIVATE free function of
-// an IMPORTED module is silently dropped — no frame is built for the helper, so
-// the transform lowers it as a plain call. The `public` twin beside it works,
-// which is the whole diagnosis: `coro_transform.py`'s `imported_free_fns` table
-// is keyed by the UNMANGLED name while the effect graph keys a free function by
+// SL-280: a suspension reached through a MODULE-PRIVATE free function of an
+// IMPORTED module survives the coroutine transform, exactly as the `public`
+// twin beside it always did. That pair — byte-identical but for one word — is
+// the whole diagnosis: `coro_transform.py`'s `imported_free_fns` table was
+// keyed by the UNMANGLED name while the effect graph keys a free function by
 // `mangled_symbol or name`, and design 249 gives only a module-PRIVATE free
-// function a `$m$<module>` mangled symbol. The edge key therefore never matches
-// the table, the splice declines the callee, and nothing is said.
+// function a `$m$<module>` mangled symbol. The edge key never matched the
+// table, the splice declined the callee, no frame was built, and nothing was
+// said. Both ends ask `frame_keys.callee_frame_key` now.
 //
-// This is the compile-time face of the SL-280 wedge. The runtime face is worse:
-// when the dropped suspension is a std.net park rather than a `yield_now`, the
-// park lowers through the out-of-frame codegen fallback in `codegen/calls.py`,
-// which registers the fd and then BLOCKS THE OS THREAD — and that thread is the
+// This is the compile-time face of the SL-280 wedge. The runtime face is worse,
+// and `coro_imported_private_helper_parks_on_io.saw` pins it: when the dropped
+// suspension is a std.net park rather than a `yield_now`, the park lowers
+// through the out-of-frame codegen fallback in `codegen/calls.py`, which
+// registers the fd and then BLOCKS THE OS THREAD — and that thread is the
 // cooperative executor's, so the whole process stops until the fd is ready.
 //
 // `__saw_drive_steps` counts Pending resumes, so it reports whether the

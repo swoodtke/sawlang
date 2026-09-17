@@ -1,0 +1,9 @@
+// Fixture for `coro_imported_callee_discovery_matrix.saw` (SL-280): the SECOND
+// imported module, reached from the first one in row S4.
+
+import std.task.{yield_now}
+
+public func s4_target(n: Int) -> Int {
+    yield_now()
+    n + 1
+}
