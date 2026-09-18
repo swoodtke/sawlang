@@ -8,8 +8,20 @@
 // attribute — could never fire on it (design 228 leg 3). The monomorphized
 // twin had the same hole.
 //
+// The directive reads the UNOPTIMIZED lowering (`-O0`), which is where the
+// declaration's own shape lives. Since SL-274 the hosted profile internalizes
+// every definition it did not `@export`, so at the default pipeline `globaldce`
+// deletes all four of these — every call to them is on a path the constant
+// arguments below prove dead — and the sidecar holds nothing but `main`. That
+// they are deletable is the point of internal linkage; what this row is about
+// is the `void` + `noreturn` they are declared WITH, and `-O0` is where a
+// declaration is still a declaration.
+//
 // EXPECT: success
-// EXPECT-IR-CONTAINS: define void @Killer_die
+// COMPILE-FLAGS: -O0
+// EXPECT-IR-CONTAINS: define internal void @Killer_die
+// EXPECT-IR-CONTAINS: define internal void @Killer_halt
+// EXPECT-IR-CONTAINS: define internal void @"Killer_slay$1$Int"
 // EXPECT-OUTPUT:
 // 7 7 7 7
 

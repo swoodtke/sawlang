@@ -1,0 +1,51 @@
+// SL-274 review r2's CLASS sweep, third consumer: design 142's cross-module
+// extension-method tie-break took the flat-vs-nested collision too, and — like
+// the type-identity one — it predates SL-274.
+//
+// Two modules may each extend one type with the same method name and the SAME
+// signature. Their signature manglings are identical, so `_stamp_overload_symbols`
+// discriminates the codegen symbols by defining module (`$M$<tag>`), through the
+// one `module_tag` rendering. While that rendering joined a path with `"_"`, a
+// module `m_a` and a module `m.a` were one tag, so the two extensions collided:
+//
+//     internal compiler error: Marker$m$sl274marker_describe$OL$$M$m_a
+//
+// on the compiler before SL-274. This is the nested-path twin of
+// `extension_method_tie_break_distinguishes_the_entry_module.saw`, which is the
+// same site with the entry module on one side; both are fixed by making
+// `module_tag` injective rather than by touching either tag's own site.
+//
+// The entry module's own extension wins the call here (its `describe` is the one
+// in scope for `main`'s module), so `entry 2` says the two imported extensions
+// were registered without either displacing it.
+//
+// EXPECT: success
+// COMPILE-FLAGS: --module-path sl274marker={TESTDIR}/modules/sl274marker
+// EXPECT-OUTPUT: entry 2
+
+import sl274marker.{Marker}
+
+module m_a {
+    import sl274marker.{Marker}
+    extension Marker {
+        public func describe(&self) -> Int { self.n + 100 }
+    }
+}
+
+module m {
+    public module a {
+        import sl274marker.{Marker}
+        extension Marker {
+            public func describe(&self) -> Int { self.n + 200 }
+        }
+    }
+}
+
+extension Marker {
+    func describe(&self) -> Int { self.n + 1 }
+}
+
+func main() {
+    let marker = Marker(n: 1)
+    print("entry {marker.describe()}")
+}

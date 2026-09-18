@@ -34,6 +34,20 @@ STD_DIR = os.path.join(ROOT, "sawc", "std")
 LEAF = "df153a_probe_%d" % os.getpid()
 PROBE_PATH = os.path.join(STD_DIR, LEAF + ".saw")
 
+# The probe module's tag, ASKED OF THE FUNNEL rather than pasted together. A
+# module tag escapes its components (SL-274: `("a", "b")` and `("a_b",)` used to
+# render alike), so this leaf's underscores do not survive verbatim —
+# `std_df153a_0probe_0<pid>` — and a test that spells its own tag would be
+# checking the paste, not the identity the compiler stamped.
+from type_identity import QUALIFIER, module_tag  # noqa: E402
+
+PROBE_TAG = module_tag(("<std>", LEAF))
+
+
+def probe_identity(name):
+    return "%s%s%s" % (name, QUALIFIER, PROBE_TAG)
+
+
 PROBE_SOURCE = """\
 // Design 204 test fixture (tools/test_std_private_type_names.py). Written and
 // removed by that test; it is never part of a real build.
@@ -84,23 +98,23 @@ def main():
         check(once.get("State") == "State$m$std_once",
               "std/once.saw's `State` is not bound in its own module view: %r"
               % (once.get("State"),))
-        check(probe.get("State") == "State$m$std_%s" % LEAF,
+        check(probe.get("State") == probe_identity("State"),
               "the probe file's `State` is not bound in its own module view: %r"
               % (probe.get("State"),))
         check(mapmod.get("MapSlot") == "MapSlot$m$std_map",
               "std/map.saw's `MapSlot` is not bound in its own module view: %r"
               % (mapmod.get("MapSlot"),))
-        check(probe.get("MapSlot") == "MapSlot$m$std_%s" % LEAF,
+        check(probe.get("MapSlot") == probe_identity("MapSlot"),
               "the probe file's `MapSlot` is not bound in its own module view: "
               "%r" % (probe.get("MapSlot"),))
 
         # Two declarations, two symbols, two layouts — not one entry that the
         # second declaration overwrote.
         check("State$m$std_once" in ns.enums and
-              "State$m$std_%s" % LEAF in ns.enums,
+              probe_identity("State") in ns.enums,
               "the two `State` enums are not both registered")
         left = ns.enums.get("State$m$std_once")
-        right = ns.enums.get("State$m$std_%s" % LEAF)
+        right = ns.enums.get(probe_identity("State"))
         if left is not None and right is not None:
             check(left is not right, "the two `State` enums are one symbol")
             check(sorted(left.variant_order) == ["Ready", "Setting", "Unset"],
@@ -113,7 +127,7 @@ def main():
         # this pair also pins that the two never meet in the struct-vs-enum
         # conflict check either.
         lslot = ns.enums.get("MapSlot$m$std_map")
-        rslot = ns.structs.get("MapSlot$m$std_%s" % LEAF)
+        rslot = ns.structs.get(probe_identity("MapSlot"))
         check(lslot is not None and rslot is not None,
               "the two `MapSlot` declarations are not both registered")
         if rslot is not None:
@@ -129,11 +143,11 @@ def main():
         from codegen.mangle import mangle_method, mangle_type
 
         left_t = SawType(TypeKind.ENUM, enum_name="State$m$std_once")
-        right_t = SawType(TypeKind.ENUM, enum_name="State$m$std_%s" % LEAF)
+        right_t = SawType(TypeKind.ENUM, enum_name=probe_identity("State"))
         check(mangle_type(left_t) != mangle_type(right_t),
               "the two `State` enums mangle alike: %r" % mangle_type(left_t))
         check(mangle_method("State$m$std_once", "describe")
-              != mangle_method("State$m$std_%s" % LEAF, "describe"),
+              != mangle_method(probe_identity("State"), "describe"),
               "the two `State` enums share a method symbol family")
         # A PUBLIC std type's mangling is untouched — the spelling every
         # program's IR has always carried.

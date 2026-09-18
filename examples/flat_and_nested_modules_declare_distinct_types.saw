@@ -1,0 +1,50 @@
+// SL-274 review r2's CLASS sweep: design 144's type identity took the same
+// collision, and took it before SL-274 existed.
+//
+// A type's identity is `(defining module, name)`, fused into one string as
+// `Header$m$<module tag>` — the SAME `type_identity.module_tag` rendering a free
+// function's symbol uses. While that rendering joined a path with `"_"`, a
+// `Header` declared in module `t_u` and one declared in `t.u` were both
+// `Header$m$t_u`: one identity, two layouts, one method symbol family. On the
+// compiler before SL-274 this program is
+//
+//     internal compiler error: Header$m$t_u_value
+//
+// which is the design-144 rule not holding where it is written to hold — two
+// modules' same-named types are supposed to coexist, and these two are only
+// spelled apart by where the underscore sits. Fixing the rendering in
+// `module_tag` fixes every consumer of a tag at once, which is the whole reason
+// the fix belongs there: the free-function twin
+// (`flat_and_nested_module_paths_are_distinct.saw`), this one, and the
+// extension-method tie-break
+// (`extension_method_tie_break_distinguishes_nested_module_paths.saw`).
+//
+// The values are the oracle — +100 versus +200 — so a method dispatched to the
+// wrong declaration's body is visible rather than merely mis-symbolled.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: 101
+// EXPECT-OUTPUT: 201
+
+module t_u {
+    public struct Header { n: Int }
+    extension Header {
+        public func value(&self) -> Int { self.n + 100 }
+    }
+}
+
+module t {
+    public module u {
+        public struct Header { n: Int }
+        extension Header {
+            public func value(&self) -> Int { self.n + 200 }
+        }
+    }
+}
+
+func main() {
+    let flat = t_u.Header(n: 1)
+    let nested = t.u.Header(n: 1)
+    print(flat.value())
+    print(nested.value())
+}

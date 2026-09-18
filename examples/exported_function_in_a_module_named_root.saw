@@ -1,0 +1,38 @@
+// SL-274 review r1: the two findings COMBINED — an `@export`ed function inside a
+// module named `root`, beside an `@export`ed function of the same Saw name in the
+// entry module.
+//
+// Each finding alone is pinned by `two_modules_export_distinct_c_symbols.saw` and
+// `module_named_root_is_not_the_entry_module.saw`. This is the cell where they
+// meet, and it is the one that also fails on the compiler BEFORE SL-274: design
+// 249's census saw `value` declared by two modules and tagged both `$M$root`,
+// because its tag came from the same `module_tag` the entry module used. So this
+// row is a regression pin in both directions —
+//
+//     Linking failed: Undefined symbols for architecture arm64:
+//       "_root_value", referenced from:
+//           _main in pre_comb.o
+//
+// on main, and `Undefined symbols: _first_value` under SL-274 revision 1.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: saw 11 22
+// EXPECT-OUTPUT: c 11 22
+
+extern "C" {
+    func entry_value() -> Int
+    func root_value() -> Int
+}
+
+module root {
+    @export("root_value")
+    public func value() -> Int { 22 }
+}
+
+@export("entry_value")
+func value() -> Int { 11 }
+
+func main() {
+    print("saw {value()} {root.value()}")
+    print("c {entry_value()} {root_value()}")
+}

@@ -764,7 +764,11 @@ Saw is freestanding: the same language targets bare metal.
   [the allocation-free path](LANGUAGE_SPEC.md#format-arguments-and-the-allocation-free-path)
   in the spec.
 - **C-ABI exports**: `@export("name")` gives a function an exact, unmangled
-  symbol with the C calling convention.
+  symbol with the C calling convention, and it is the only way a Saw
+  declaration reaches the linker. Every other definition is emitted with a
+  module-mangled symbol and internal linkage, so a top-level `func read(...)`
+  cannot capture libc's `read` for the rest of the program. See
+  [link symbols and linkage](LANGUAGE_SPEC.md#link-symbols-and-linkage).
 - **Stated alignment**: `@align(N)` on a local or a `static` emits the slot at
   an alignment of at least `N` bytes. A `[UInt8; N]` is 1-aligned by ABI, so a
   buffer that an ABI needs word-aligned has no way to say so otherwise, and the

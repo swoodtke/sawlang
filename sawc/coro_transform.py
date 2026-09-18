@@ -10819,7 +10819,15 @@ def _promote_nested_generic_calls(program, funcs_by_name, seed_names, typechecke
         args = fc.type_args
         if resolve is not None:
             args = [resolve(a) for a in args]
-        mangled = mangle_function(fc.name, args)
+        # SL-274: the TEMPLATE's base, through the one funnel — the same choice
+        # `monomorphize._function_template_name` makes, so the instance this
+        # walk spells is the instance the registry built. Reading `fc.name` here
+        # was SL-280's mechanism at a third site: every free function carries a
+        # module tag now, so a generic callee's base and its written name differ
+        # and `mangle_function(fc.name, ...)` named an instance nobody had — the
+        # promotion silently declined and the author got ``cannot suspend in
+        # `sync func` method: `__Frame_s6_entry.resume` calls `s6_helper$1$Int` ``.
+        mangled = mangle_function(callee_frame_key(fc) or fc.name, args)
         if not instantiation_suspends(mangled):
             return None
         # Adopt phase 2's instance (idempotent by presence in the entry AST).
@@ -10835,6 +10843,12 @@ def _promote_nested_generic_calls(program, funcs_by_name, seed_names, typechecke
             program.functions.append(clone)
             funcs_by_name[mangled] = clone
         fc.name = mangled
+        # SL-274, on the drive-site rewrite's own terms (see
+        # `typechecker/expressions.py`'s `inner.resolved_symbol = None`): the
+        # call NAMES the instantiation now, so the template's symbol is stale
+        # data, and `callee_frame_key(fc)` — which `_classify_call` asks — must
+        # answer the instance rather than the base it was cloned from.
+        fc.resolved_symbol = None
         fc.type_args = None
         return mangled
 

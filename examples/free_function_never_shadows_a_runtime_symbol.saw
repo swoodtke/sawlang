@@ -1,0 +1,72 @@
+// SL-274: a free function never captures the libc symbol of the same name.
+//
+// A free function used to be emitted under the name the author wrote, so
+// `func read(...)` at top level BOUND the whole program's `read`. The runtime's
+// `__saw_rt_fs_read` seam calls libc's `read(2)`; the linker resolved that call
+// to the SAW function instead, which returns whatever it likes, and `File.read`
+// then built a `Data` around a byte count no read had produced. There was no
+// diagnostic at any stage.
+//
+// Measured before the fix, with this exact file: `bytes 4242` and exit 0 — a
+// `Data` claiming 4242 bytes out of a 16-byte buffer. The A/B was the function's
+// NAME and nothing else: renaming it to `read_renamed` printed `bytes 16`.
+//
+// `read` is one of five names the corpus already collided with (`connect`,
+// `rename`, `send`, `dup2` are the others, each an `extern "C"` the runtime
+// declares); every libc symbol was exposed, and the worst were the ones the
+// runtime uses on its own behalf, where the failure surfaces far from the
+// definition and reads like memory corruption.
+//
+// The fix is by construction, in two halves: every free function is emitted
+// under a MODULE-MANGLED symbol (`read$m$` here — the entry module's tag is the
+// EMPTY one, which is the spelling no module path can take) and, unless `@export`ed,
+// with INTERNAL linkage — so the linker has nothing of ours to bind. `nm` on
+// this binary has no `T _read` and never resolves the runtime's call to us.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: bytes 16
+// EXPECT-OUTPUT: helper 4242
+
+import std.file.{File}
+import std.path.{Path}
+import std.data.{Data}
+import std.net.{IoError}
+
+// The collision. Not a plausible API — a plausible ACCIDENT: `read` is an
+// obvious name for a helper, and nothing about writing one says the program has
+// just replaced libc's for every caller in it, the runtime included.
+func read(a: Int) -> Int { 4242 }
+
+func sixteen_bytes() -> Data {
+    var data = Data()
+    var i = 0
+    while i < 16 {
+        try! data.push(65 as UInt8)
+        i = i + 1
+    }
+    move data
+}
+
+func seed(p: Path) -> Result<Void, IoError> {
+    var out = try File.create(p)
+    let _ = try out.write(sixteen_bytes())
+    return
+}
+
+func main() -> Result<Void, IoError> {
+    let p = Path(s: "/tmp/saw_sl274_read_shadow.bin")
+    try seed(p)
+
+    // The true byte count, which is only reachable if `__saw_rt_fs_read` called
+    // libc's `read` rather than the one above.
+    var f = try File.open(p)
+    let d = try f.read(size: 16)
+    print("bytes {d.len()}")
+
+    // And the Saw function is still perfectly callable, under whatever symbol
+    // it was given — the mangling is invisible to the source.
+    print("helper {read(1)}")
+
+    let _ = File.remove(p)
+    return
+}

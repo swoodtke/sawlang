@@ -146,7 +146,15 @@ class ErrorReporter:
     # this, and rendering it for a human is always the short name. Scrubbing
     # here rather than at each message site makes the rule total: it holds for
     # every diagnostic in the compiler, including ones not yet written.
-    _QUALIFIER_RE = re.compile(r"\$m\$[A-Za-z0-9_]+")
+    # `*`, not `+`: the ENTRY module renders as the EMPTY tag (SL-274 — see
+    # `type_identity.module_tag`), so `helper$m$` is a qualified symbol and is
+    # scrubbed like any other. `$` cannot occur in a source identifier, so the
+    # match can never eat part of a name an author wrote.
+    # `[A-Za-z0-9_]` is the WHOLE tag alphabet, escapes included: a module
+    # path's components are escaped into it (`a_b` -> `a_0b`, a non-ASCII
+    # character -> `_1<hex>_`), so a tag is still scrubbed whole and a
+    # diagnostic never shows half of one.
+    _QUALIFIER_RE = re.compile(r"\$m\$[A-Za-z0-9_]*")
 
     @classmethod
     def humanize(cls, text: Optional[str]) -> Optional[str]:

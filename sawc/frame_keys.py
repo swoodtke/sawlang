@@ -14,10 +14,11 @@ cooperative executor's own thread — the whole process wedged on one idle socke
 The answer here is INDEPENDENT of whether a free function happens to carry a
 tag. A declaration, a call site and a resolved symbol all name the same frame,
 so they all produce the same string, and a program where the tag is present
-behaves exactly as one where it is absent. That independence is the point:
-SL-274 will give EVERY free function a module-mangled symbol, and today's
-agreement between the two answers for public functions is a coincidence that
-change would end.
+behaves exactly as one where it is absent. That independence is the point, and
+SL-274 collected on it: EVERY free function outside std now carries a
+`$m$<module>` tag, so the agreement between a public function's bare name and
+its key — a coincidence before — is gone, and every site that read a written
+name had to be one of the entries below.
 
 ENTRY POINTS (obligation 1 — a funnel names its entries):
 
@@ -41,6 +42,13 @@ ENTRY POINTS (obligation 1 — a funnel names its entries):
     module-qualified free call, which wears a `MethodCall`'s shape.
   * `coro_transform.py::_promote_nested_generic_methods` — the free-fn descent
     of the method-instantiation walk (`funcs_by_name` again).
+  * `coro_transform.py::_promote_nested_generic_calls` — the TEMPLATE base a
+    nested generic call's instantiation is spelled from
+    (`mangle_function(<key>, args)`), so the instance this walk names is the
+    instance `monomorphize._function_template_name` demanded; and the CLEAR of
+    the stale `resolved_symbol` once the call has been rewritten to name that
+    instance. Added by SL-274, which is what made a generic callee's base and
+    its written name differ for every module.
   * `coro_transform.py::_FrameBuilder._is_suspending_expr` — the ANF /
     expression-position hoist's suspension test.
   * `coro_transform.py::_FrameBuilder._spans_suspension` — the CFG-split test.

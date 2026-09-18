@@ -11583,7 +11583,10 @@ still governs Saw-side callers.
 **`@section("name")`** places a top-level function or static in the named
 object-file section (the LLVM section attribute). It composes with `@export` and
 does not require it; the name is passed through verbatim (the linker's problem)
-beyond a non-empty check. Section-name *syntax* is target-specific — ELF accepts
+beyond a non-empty check. Placement is all it does: a `@section` without an
+`@export` beside it still has internal linkage, in both profiles (see
+[Link symbols and linkage](#link-symbols-and-linkage)), so the section is a
+placement request and never a second way to publish a symbol. Section-name *syntax* is target-specific — ELF accepts
 `.vector_table`, mach-o requires the `SEG,sect` form. Getting it wrong on a
 mach-O target is a compile error naming the declaration and the two-part form:
 
@@ -11603,6 +11606,63 @@ func kernel_entry() -> Int32 { 0 }
 @section(".vector_table")
 static VECTORS: [UInt32; 64]        // externally-visible, kept alive, in-section
 ```
+
+#### Link symbols and linkage
+
+**Status: implemented.** `@export` is the only way a Saw declaration reaches the
+linker. Every other definition a compile produces is emitted with a decorated
+symbol and **internal linkage**, so nothing outside the module can bind to it.
+
+A free function's symbol is its name plus the module that defines it: `read` in a
+dependency called `wire` is emitted as `read$m$wire`. The entry module has no
+path, so it renders as the EMPTY tag — `read` at the top of the program you are
+compiling is `read$m$`. That is not a cosmetic choice: every real module path
+renders at least one character, so the empty tag is the one spelling no module
+can take, and a module literally named `root` (`read$m$root`) stays a different
+module from the entry one. A NESTED path joins its components with `_`, and a
+component that contains a `_` escapes it as `_0`, so `read` in `pkg.sub` is
+`read$m$pkg_sub` while `read` in a module named `pkg_sub` is `read$m$pkg_0sub` —
+two modules, two symbols, for the same reason. An overload set appends its
+design-55 signature suffix to the base (`read$m$$OL$Int`) and a generic's
+instantiations append their type arguments (`read$m$$1$Int`). Two modules may declare one free-function name, and
+the symbols differ by construction rather than by a check.
+
+The entry module's `main` is the single exemption: it is the C entry, emitted
+under that name with external linkage. A dependency that declares `main` gets an
+ordinary free function with an ordinary tag.
+
+An `@export`ed function is tagged like any other. `@export` decides the emitted C
+symbol and the linkage, not the name the compiler knows the function by, so two
+modules may export distinct C names from one Saw name:
+
+```saw
+module first {
+    @export("first_value")
+    public func value() -> Int { 11 }
+}
+
+module second {
+    @export("second_value")
+    public func value() -> Int { 22 }
+}
+```
+
+The mangling is invisible to Saw source — a call site names the function, not the
+symbol. What it changes is what the LINKER sees, and that is the point: a program
+with a top-level `func read(...)` used to emit a global `read`, which the linker
+resolved libc's `read(2)` to, including for the `__saw_rt_fs_read` seam inside
+the runtime. `File.read` then reported whatever that function returned. Internal
+linkage closes the same hole from the other side, for the std free functions that
+keep their written names as well.
+
+Three consequences worth stating:
+
+- A hosted `-c` object is somebody else's to link, so it keeps external linkage
+  on everything. Internalization applies where a compile owns the whole program:
+  an executable, `--freestanding`, and `--runtime-build`.
+- An internal definition nothing reaches is deleted by the `-O1` pipeline. That
+  is intended, and it is why `@export` carries a DCE keep-root with it.
+- Nothing in the language exposes a symbol name. To pin one, write `@export`.
 
 #### Alignment
 

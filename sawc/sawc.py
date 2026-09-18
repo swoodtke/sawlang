@@ -441,50 +441,17 @@ def report_import_cycle(reporter, cycle, module_map):
         source_file=getattr(first_ast, 'source_path', None))
 
 
-def _census_module_functions(owners, module_path, program):
-    """Record `program`'s top-level free functions as declared by `module_path`,
-    recursing into its INLINE module declarations (design 249).
-
-    Only free functions: methods live on a type, and an extern block declares a
-    C symbol whose name is the ABI, neither of which the module-tagging rule
-    touches."""
-    for func in getattr(program, 'functions', []) or []:
-        owners.setdefault(func.name, set()).add(tuple(module_path))
-    for mod_decl in getattr(program, 'module_decls', []) or []:
-        if getattr(mod_decl, 'is_inline', False) and mod_decl.body is not None:
-            _census_module_functions(
-                owners, tuple(module_path) + (mod_decl.name,), mod_decl.body)
-
-
-def free_function_owner_census(module_map, entry_ast=None, builtin_ns=None):
-    """`{free function name: {declaring module path, ...}}` over a whole
-    compilation (design 249).
-
-    A name more than one module declares needs a per-module codegen symbol, and
-    that decision must not depend on which module is checked first — so it is
-    taken here, over the PARSED module set, before any of them is registered.
-
-    `builtin_ns` folds in std's and builtin.saw's own free functions, each under
-    its design-82 file-module: std is compiled into the program too, so a user
-    declaration sharing a std name is exactly the case that needs two symbols.
-    Std's side never moves (it is checked once and cached across compiles), so
-    the user's is the one that takes a tag."""
-    owners = {}
-    for mod_path, mod_ast in (module_map or {}).items():
-        _census_module_functions(owners, mod_path, mod_ast)
-    if entry_ast is not None:
-        _census_module_functions(owners, (), entry_ast)
-    if builtin_ns is not None:
-        for name, syms in builtin_ns.function_overloads.items():
-            for sym in syms:
-                owners.setdefault(name, set()).add(
-                    tuple(getattr(sym, 'def_module', ()) or ()))
-    return owners
-
-
 def std_free_function_owner_census(builtin_ast):
-    """The same census over the merged builtin+std AST, whose modules are the
-    per-FILE identities design 82 gives each std file (design 249)."""
+    """`{free function name: {declaring std file-module, ...}}` over the merged
+    builtin+std AST, whose modules are the per-FILE identities design 82 gives
+    each std file (design 249).
+
+    STD ONLY, since SL-274. Every other module's free functions are
+    module-tagged unconditionally (`_free_function_symbol_base`), so nothing
+    outside std needs a census to know whether a name is shared. std keeps this
+    one because its free functions keep the names the author wrote: codegen
+    emits calls to a dozen of them by literal string, so the tag can only go on
+    a name two std FILES actually share (`json.encode` beside `cbor.encode`)."""
     from type_identity import std_leaf
     owners = {}
     for func in getattr(builtin_ast, 'functions', []) or []:
@@ -1701,12 +1668,11 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
         builtin_ns, '_std_pristine_generic_struct_methods', {})
     typechecker._std_module_scope_by_file = getattr(
         builtin_ns, '_std_module_scope_by_file', {})
-    # design 249: which MODULES declare each free-function name, taken over the
-    # parsed module set (entry included) before the first module is checked, so
-    # a name two modules own gets a per-module codegen symbol whichever order
-    # they are checked in.
-    typechecker.free_function_owners = free_function_owner_census(
-        module_map, entry_ast, builtin_ns)
+    # SL-274 retired design 249's whole-compilation census here: every free
+    # function OUTSIDE std is module-tagged unconditionally, so a name two
+    # modules own is disambiguated by construction and the decision no longer
+    # depends on which module is checked first. std keeps its own census, taken
+    # in `build_builtin_namespace` over the std file-modules.
 
     # The builtin namespace was built once by build_builtin_namespace(); all its
     # symbols are already type-checked and marked directly accessible.

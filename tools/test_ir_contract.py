@@ -348,6 +348,16 @@ def _check_statics(failures, filename, tag, expected):
 #: noreturn paths it forms, at every level, so a handful of `minsize`
 #: functions at `-O1` is LLVM's business and not a leak. What the level owns
 #: is the WHOLE module — every definition or none.
+#: A DIVERGING definition is left out of the share entirely (SL-274), because
+#: its size attributes are never the level's: LLVM stamps its own cold clones,
+#: and design 261's outlined panic routines are emitted `cold minsize noinline
+#: noreturn` by `codegen/calls.py::_panic_helper` at every level on purpose. As
+#: a fraction they were harmless while the hosted module carried ~90
+#: definitions; once SL-274 internalized everything but the `@export`s,
+#: `globaldce` cut the fixture to five attributed definitions of which three
+#: were those routines, and `-O1` read 60% `minsize`. The share has to be taken
+#: over the definitions the level actually owns, which is what this excludes
+#: down to.
 OPT_LEVEL_ATTRS = [
     ("-O1", set(), {"optsize", "minsize"}),
     ("-O2", set(), {"optsize", "minsize"}),
@@ -386,10 +396,12 @@ def check_opt_level_attributes(failures):
         with open(out + ".ll") as f:
             text = f.read()
         groups = {n: set(body.split()) for n, body in _ATTR_GROUP_RE.findall(text)}
-        defines = _DEFINE_RE.findall(text)
+        defines = [n for n in _DEFINE_RE.findall(text)
+                   if "noreturn" not in groups.get(n, ())]
         if not defines:
-            failures.append(f"{flag}: no `define` carries an attribute group — "
-                            f"the fixture emitted nothing to check")
+            failures.append(f"{flag}: no returning `define` carries an "
+                            f"attribute group — the fixture emitted nothing "
+                            f"to check")
             continue
         for attribute in sorted(wanted | unwanted):
             share = (sum(1 for n in defines if attribute in groups.get(n, ()))

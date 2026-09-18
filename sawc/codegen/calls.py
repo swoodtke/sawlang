@@ -1499,14 +1499,17 @@ class CallsMixin:
         string-runtime helpers are emitted before the executor's sink exists.
         Sharing a routine across that boundary would let whichever site came
         first decide for the rest, which is a behavior change, not a size win.
+
+        Which of the two it is comes from `_panic_sink_is_bt`, the IDENTITY
+        question, never from the emitted symbol of the sink it hands back — see
+        that method (SL-274).
         """
         cache = getattr(self, "_panic_helpers", None)
         if cache is None:
             cache = {}
             self._panic_helpers = cache
 
-        sink = self._panic_sink()
-        sink_tag = "bt" if sink.name == "__saw_bt_panic" else "rt"
+        sink_tag = "bt" if self._panic_sink_is_bt() else "rt"
         key = f"{sink_tag}${'_'.join(self._step_key(s) for s in steps)}"
         helper = cache.get(key)
         if helper is not None:

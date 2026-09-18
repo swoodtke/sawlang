@@ -3579,6 +3579,31 @@ error — EXCEPT under `sawc --runtime-build` (design 113b), which lets the
 per-host runtime under `sawc/rt/` export exactly the frozen `__saw_rt_*`
 ABI (sync-only; a non-ABI `__saw_rt_*` name / a suspending body is a clean
 error). You only touch this when authoring `sawc/rt/`.
+- **`@export` IS THE ONLY WAY A DECLARATION REACHES THE LINKER (SL-274).** Every
+  other definition is emitted with a MODULE-MANGLED symbol (`read` in a module
+  `wire` is `read$m$wire`; the ENTRY module has no path and renders as the EMPTY
+  tag, `read$m$`, which is the one spelling no module can take — so a module
+  literally named `root` is a different module; a nested path joins its
+  components with `_` and a component's own `_` escapes as `_0`, so `pkg.sub` is
+  `read$m$pkg_sub` and a module named `pkg_sub` is `read$m$pkg_0sub`; an overload
+  member is `read$m$$OL$Int` and an instantiation `read$m$$1$Int`) and INTERNAL
+  linkage. An `@export`ed function is tagged like any other: `@export` decides
+  the emitted C symbol and the linkage, not the name the compiler knows the
+  function by, so two modules may export distinct C names from one Saw name.
+  Two things follow that you can otherwise get bitten by. A top-level
+  `func read(...)`/`write`/`connect`/`open`/`malloc` no longer captures the libc
+  symbol of that name for the whole program — it used to, silently, including
+  for the runtime's own `__saw_rt_fs_read` seam, so `File.read(size: 16)`
+  reported 4242 bytes out of a 16-byte buffer at exit 0 (and adding a SECOND
+  overload of the name made the symptom vanish, so an unrelated edit could
+  "fix" it). And `@section(".s")` WITHOUT `@export` places the definition and
+  publishes nothing — hosted used to leave it externally visible while
+  freestanding did not; both are local now. The mangling is invisible to
+  source: a call site names the function, never the symbol. The ENTRY module's
+  `main` is the one exemption (it is the C entry); a DEPENDENCY that declares
+  `main` gets an ordinary tagged internal function, which is what stopped the
+  entry point from disappearing into an `Undefined symbols: "_main"` link
+  failure.
 - **`@align(N)` STATES A SLOT'S ALIGNMENT (DF-300b)** — on a local `let`/`var`
   or a `static`, and nowhere else. A `[UInt8; N]` is 1-aligned by ABI, so a
   byte buffer whose ABI wants word alignment has no other way to say so, and

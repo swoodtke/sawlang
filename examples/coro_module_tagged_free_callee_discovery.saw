@@ -2,21 +2,23 @@
 // SAME question whether or not registration stamped a mangled symbol on it, and
 // whichever rule stamped one.
 //
-// Two modules declaring one free-function name is legal (design 249), and the
-// answer is a `$M$<module>` tag on BOTH — on the entry module's private one
-// (`$M$root`) and on the dependency's PUBLIC one (`$M$sl280tag`). Neither is a
-// `private`-only `$m$` tag, so this reaches the mechanism from the other side:
-// what the transform was keying on was the bare NAME, and every rule that
+// Two modules declaring one free-function name is legal, and both sides get a
+// module tag — the entry module's private one and the dependency's PUBLIC one.
+// Neither is a `private`-only tag, so this reaches the mechanism from the other
+// side: what the transform was keying on was the bare NAME, and every rule that
 // renames a free function walks into the same hole. Note the entry-module row —
 // the bug is not confined to imported bodies, it is confined to callees whose
 // key and name differ.
 //
-// This is the acceptance criterion for SL-274, which is blocked on this issue.
-// SL-274 gives EVERY free function a module-mangled symbol — so after it lands,
-// a PUBLIC free function's frame key stops coinciding with its bare name, and
-// the whole working half of this bug's matrix would move to the broken half. It
-// is safe exactly when the funnel's answer does not depend on the tag, which is
-// what the `imported_public` row measures.
+// This was written as the acceptance criterion for SL-274, which was blocked on
+// this issue. SL-274 has since landed and gives EVERY free function a
+// module-mangled symbol (`tagged_helper$m$` here, `tagged_helper$m$sl280tag` in
+// the dependency), which RETIRED the design-249 census tag this fixture was
+// built on — a name two modules share no longer decides anything, because every
+// name is tagged. So a PUBLIC free function's frame key no longer coincides with
+// its bare name anywhere, and the whole working half of this bug's matrix would
+// have moved to the broken half. It is safe exactly when the funnel's answer
+// does not depend on the tag, which is what the `imported_public` row measures.
 //
 // Measured before the fix: entry_tagged 0, imported_public 0.
 //
@@ -33,7 +35,8 @@
 import std.task.{yield_now}
 import sl280tag.{reach_tagged}
 
-/// Carries `$M$root`, because the dependency declares this name too.
+/// Carries a module tag — `tagged_helper$m$`, the entry module's, whose tag is
+/// EMPTY so that a module named `root` cannot spell it (SL-274).
 func tagged_helper(n: Int) -> Int {
     yield_now()
     n + 1

@@ -1,0 +1,7 @@
+// Fixture for `extension_method_tie_break_distinguishes_the_entry_module.saw`.
+//
+// A type two modules can both extend. It has to live in a THIRD module: design
+// 142's tie-break only fires when two different modules extend one type with the
+// same method name and the same signature, and the entry module extending its own
+// type gives the other module nothing to reach.
+public struct Marker { n: Int }

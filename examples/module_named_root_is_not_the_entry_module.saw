@@ -1,0 +1,33 @@
+// SL-274 review r1 finding P2: a module named `root` is not the entry module.
+//
+// `type_identity.module_tag` renders a defining module for a symbol, and it used
+// to render the entry module's EMPTY path as the word `root` — which is exactly
+// what a user module named `root` renders as. Two declarations, one tag: both
+// `helper`s below became `helper$m$root` and codegen died with
+//
+//     internal compiler error: helper$m$root
+//
+// A real module path always renders at least one character, so the EMPTY
+// rendering is the one tag no module can take, and that is what the entry module
+// gets: `helper$m$` beside `helper$m$root`. `$` is forbidden in a Saw identifier,
+// so the trailing delimiter can never collide with a name an author could write.
+//
+// The values are the oracle — +1 versus +100 — so which of the two helpers ran is
+// visible, and `root.reach(1)` reaching 101 says the module's own private helper
+// was not displaced by the entry module's.
+//
+// EXPECT: success
+// EXPECT-OUTPUT: entry 2
+// EXPECT-OUTPUT: root 101
+
+module root {
+    func helper(n: Int) -> Int { n + 100 }
+    public func reach(n: Int) -> Int { helper(n) }
+}
+
+func helper(n: Int) -> Int { n + 1 }
+
+func main() {
+    print("entry {helper(1)}")
+    print("root {root.reach(1)}")
+}

@@ -1,16 +1,18 @@
 // Fixture for `coro_module_tagged_free_callee_discovery.saw` (SL-280).
 //
 // This module declares a free function whose NAME the entry module also
-// declares. Design 249 answers that with a `$M$<module>` codegen tag on BOTH —
-// including the PUBLIC one here, and including the entry module's, whose tag is
-// `$M$root`. So this fixture puts a mangled symbol on a free function through a
-// route that has nothing to do with `private`, which is what makes it the
-// tag-independence probe: the funnel must not care WHY a symbol is there, or
-// whether there is one at all.
+// declares. Design 249 answered that with a `$M$<module>` codegen tag on both
+// sides, which is the route this fixture was built on; SL-274 retired the census
+// and tags EVERY free function, so the PUBLIC one here is
+// `tagged_helper$m$sl280tag` and the entry module's is `tagged_helper$m$`. Either
+// way the fixture puts a mangled symbol on a free function through a route that
+// has nothing to do with `private`, which is what makes it the tag-independence
+// probe: the funnel must not care WHY a symbol is there, or whether there is one
+// at all.
 
 import std.task.{yield_now}
 
-/// PUBLIC, and tagged `tagged_helper$M$sl280tag` all the same. Returns n + 100,
+/// PUBLIC, and tagged `tagged_helper$m$sl280tag` all the same. Returns n + 100,
 /// so a caller that reaches the ENTRY module's same-named helper by mistake is
 /// visible in the VALUE and not only in the step count.
 public func tagged_helper(n: Int) -> Int {

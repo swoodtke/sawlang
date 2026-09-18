@@ -8,9 +8,15 @@
 // be promoted and framed at both: the ticker's lines land between the worker's,
 // which only happens if the worker really parked inside it.
 //
+// The frame is named for the INSTANCE, and the instance is named from its
+// template's symbol — `yielder$m$$1$Int` since SL-274 gave every free function a
+// module tag, the entry module's being the empty one. Naming the instance rather
+// than `__Frame_yielder` is the point of the directive: what must be framed is
+// the instantiation, not the template.
+//
 // EXPECT: success
 // EXPECT-IR-ABSENT: __Frame_apply
-// EXPECT-IR-CONTAINS: __Frame_yielder$1$Int
+// EXPECT-IR-CONTAINS: __Frame_yielder$m$$1$Int
 // EXPECT-IR-CONTAINS: __Frame_worker
 // EXPECT-OUTPUT:
 // plain 20 10

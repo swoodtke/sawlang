@@ -1914,6 +1914,12 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     # every downstream kernel to be placed at all.
     BT_TABLE_SYMBOL = "__saw_bt_table"
 
+    # std/taskgroup.saw's executor-aware panic sink, looked up in
+    # `self.functions` (which is keyed by a declaration's codegen symbol, and a
+    # std free function keeps the name the author wrote — see
+    # `_free_function_symbol_base`'s std branch).
+    BT_PANIC_SINK = "__saw_bt_panic"
+
     def _panic_sink(self):
         """The function a panic site calls (design 158).
 
@@ -1928,10 +1934,26 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
         freestanding profiles that exclude std.taskgroup, and the string-runtime
         helpers emitted before any Saw function is declared.
         """
-        sink = self.functions.get("__saw_bt_panic")
+        sink = self.functions.get(self.BT_PANIC_SINK)
         if sink is not None:
             return sink
         return self.functions["__saw_rt_panic"]
+
+    def _panic_sink_is_bt(self) -> bool:
+        """Whether `_panic_sink` answers the executor's sink rather than the raw
+        seam — asked the SAME way `_panic_sink` asks it, so the two can never
+        disagree (SL-274).
+
+        `_panic_helper` keys its outlined assembly routine on this, and used to
+        decide it by comparing `sink.name` against the literal
+        `"__saw_bt_panic"` — the EMITTED LLVM symbol of a Saw free function
+        (`std/taskgroup.saw`). SL-274 mangles free-function symbols, and while
+        std's own keep the names the author wrote, a name comparison there is a
+        latent merge of two families the `_panic_helper` docstring says are
+        deliberately separate: any rename would have silently routed every
+        executor-sink site into the `"rt"` family, and the first site to arrive
+        would have decided the panic behaviour of the rest. Ask the identity."""
+        return self.functions.get(self.BT_PANIC_SINK) is not None
 
     def _emit_bt_table(self, program):
         """Emit this program's logical-backtrace table as one read-only global.
@@ -2581,16 +2603,31 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
             # clang on the HOST (mach-O rejects that ELF section spelling), and
             # -O1 globaldce already strips the unreferenced internal defs.
             self._apply_section_layout(place_sections=False)
-        elif not self._is_apple_triple():
-            # design 168 unit 1 (DF-164b): a HOSTED ELF link gets the same
+        else:
+            # SL-274: the HOSTED profile internalizes on exactly the terms the
+            # other two already did — `@export` is the only way out, so no
+            # definition this module did not publish can be bound from outside
+            # it. That is the linkage half of the ruling whose mangling half is
+            # `typechecker/registration.py::_free_function_symbol_base`; it is
+            # what makes a user `func read(...)` unable to capture the `read`
+            # the runtime's own seam calls, whatever the symbol is spelled.
+            #
+            # Gated on `_strip_unreachable`, which is `sawc.py`'s
+            # `whole_program`: an executable link or an object that already
+            # internalizes everything but its `@export`s. A plain hosted `-c`
+            # object is SOMEBODY ELSE'S to link, so it keeps external linkage.
+            #
+            # Sections stay design 168 unit 1 (DF-164b): a HOSTED ELF link gets
             # per-symbol sections so `ld --gc-sections` (added to the clang link
-            # line in sawc.py) can drop what nothing reaches. Sections ONLY — a
-            # hosted object keeps external linkage, because the runtime objects
-            # linked beside it and any `@export`ed entry point are resolved by
-            # the linker, not by this module's own reference graph. Mach-O needs
-            # none of this: `ld64 -dead_strip` works at symbol granularity and
-            # rejects the ELF section spelling, so apple triples skip it.
-            self._apply_section_layout(place_sections=True, internalize=False)
+            # line in sawc.py) can drop what nothing reaches. Mach-O needs none
+            # of it — `ld64 -dead_strip` works at symbol granularity and rejects
+            # the ELF section spelling — so apple triples take the linkage half
+            # alone.
+            place = not self._is_apple_triple()
+            if place or self._strip_unreachable:
+                self._apply_section_layout(
+                    place_sections=place,
+                    internalize=self._strip_unreachable)
 
         # design 246 Unit B: nothing may leave here with a body still waiting.
         # A monomorphization reached during BODY generation registers types too,
@@ -2601,15 +2638,26 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
 
     def _apply_section_layout(self, place_sections: bool = True,
                               internalize: bool = True):
-        """Prepare the module for dead-code-free linking (design 112, 168).
+        """Prepare the module for dead-code-free linking (design 112, 168) and
+        decide every definition's LINKAGE (SL-274).
 
-        `place_sections=False` (design 113b runtime-build): internalize only, with
-        NO per-symbol section assignment — the object is host-linked by clang and
-        the mach-O host rejects the ELF `.text.<name>` spelling.
+        THE ONE PLACE a definition's linkage is decided (obligation 1 — a funnel
+        names its entries). ENTRY POINTS, all three in `generate`'s tail:
 
-        `internalize=False` (design 168 hosted ELF): section the symbols but leave
-        linkage alone, so `--gc-sections` has per-symbol granularity to work at
-        while the linker still resolves cross-object references.
+          * `--freestanding`: sections + internalize (design 112).
+          * `--runtime-build`: internalize only, `place_sections=False` — the
+            object is host-linked by clang and the mach-O host rejects the ELF
+            `.text.<name>` spelling (design 113b).
+          * HOSTED: internalize when this compile owns the whole program
+            (`_strip_unreachable`), plus sections on ELF (design 168 unit 1).
+            A plain hosted `-c` object is somebody else's to link and keeps
+            external linkage, so it passes `internalize=False`.
+
+        The keep-set is the same in every one of them: `@export`ed globals plus
+        the C `main`. That is what SL-274's ruling means by "collisions become
+        impossible by construction" — a Saw free function nothing published can
+        no longer be bound by the linker at all, so it cannot capture the libc
+        symbol of the same name for the runtime seam that calls it.
 
         Codegen emits EVERY loaded stdlib method (and its closure/vtable
         descriptor globals + backend constant pools) regardless of reachability,
@@ -2630,7 +2678,11 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
            globaldce does not run). Only definitions without an explicit
            `@section` are placed; declarations and `llvm.*` anchors are left alone.
 
-        Guarded by `freestanding`, so hosted builds are byte-identical.
+        Note what (1) settles for `@section` WITHOUT `@export`: the attribute
+        promises PLACEMENT and nothing else (LANGUAGE_SPEC reserves external
+        linkage for `@export`), and a `@section`'d function is not in the
+        keep-set, so it internalizes like any other. Freestanding always read
+        that way; the hosted profile agrees since SL-274.
         """
         # Keep-roots: the exported functions/statics (already anchored in
         # `@llvm.used`) plus the C `main` if present. Everything else internalizes.

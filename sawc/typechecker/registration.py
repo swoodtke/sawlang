@@ -1154,7 +1154,7 @@ class RegistrationMixin:
 
         visibility = getattr(func, 'visibility', Visibility.PRIVATE)
         symbol_base = self._free_function_symbol_base(
-            func.name, def_module, visibility)
+            func.name, def_module, visibility, func)
         symbol = FunctionSymbol(
             param_types=param_types,
             param_names=param_names,
@@ -1261,7 +1261,8 @@ class RegistrationMixin:
     @staticmethod
     def _module_symbol_tag(module: Tuple[str, ...]) -> str:
         """A defining module rendered for an LLVM symbol name: identifier-safe,
-        stable, and distinct per module (`("<std>", "data")` -> `std_data`).
+        stable, and INJECTIVE over the complete path (`("<std>", "data")` ->
+        `std_data`, `("a_b",)` -> `a_0b`, which is not `("a", "b")`'s `a_b`).
 
         Design 144 shares this rendering for type identities, so the two
         module-qualification schemes agree on how a module is spelled in a
@@ -1317,79 +1318,139 @@ class RegistrationMixin:
     # ------------------------------------------------------------------ #
     def _module_private_symbol(self, base: str, def_module: Tuple[str, ...],
                                visibility: Visibility) -> Optional[str]:
-        """The module-qualified codegen symbol for a private declaration, or
-        None when the declaration keeps its plain name (public — importable by
+        """The module-qualified codegen symbol for a private STATIC, or None
+        when the declaration keeps its plain name (public — importable by
         simple name, so a genuine cross-module clash is a real ambiguity — or
-        root-module, where there is nothing to distinguish it from)."""
+        root-module, where there is nothing to distinguish it from).
+
+        Statics only, since SL-274 gave free functions their own rule (every
+        one of them is module-tagged, see `_free_function_symbol_base`); the
+        one caller is `_register_static`."""
         if visibility != Visibility.PRIVATE or not def_module:
             return None
         return f"{base}$m${self._module_symbol_tag(def_module)}"
 
     def _free_function_symbol_base(self, name: str,
                                    def_module: Tuple[str, ...],
-                                   visibility: Visibility) -> str:
-        """Design 249: the module-tagged codegen base for a free function whose
-        name MORE THAN ONE module of this compilation declares, or "" when the
-        plain name is unambiguous.
+                                   visibility: Visibility,
+                                   func=None) -> str:
+        """THE codegen base symbol of a free function, or "" for the plain name.
 
-        Two modules owning one free-function name is legal since design 249, so
-        the two definitions need two LLVM symbols. The decision is a pure
-        function of `free_function_owners` — the (name -> declaring modules)
-        census the driver takes over the parsed module set BEFORE any module is
-        checked — so it never depends on module order and never renames a
-        symbol whose bodies are already checked.
+        SL-274: a free function used to be emitted under the name the author
+        wrote, so `func read(...)` at top level BOUND the whole program's `read`
+        — libc's included, and the runtime's `__saw_rt_fs_read` seam calls
+        libc's. The failure was a segfault or a `Data` claiming 4242 bytes out
+        of a 16-byte buffer, with nothing said at any stage. The ruling (user,
+        Sep 14) is that collisions become impossible BY CONSTRUCTION: every
+        free function is module-mangled AND internal unless `@export`ed. This
+        is the mangling half; `codegen/core.py::_apply_section_layout` is the
+        linkage half.
 
-        A PRIVATE declaration of a NON-ROOT module is left to DF-140f's `$m$`
-        tag, which already makes it module-local. The root module takes a tag
-        like any other (`module_tag(())` is `root`) — std is checked once and
-        CACHED across compiles, so its symbols cannot depend on the program
-        being compiled, which makes the entry the side that moves when a user
-        declaration meets a std one.
+        ENTRY POINTS (obligation 1 — a funnel names its entries):
+          * `_register_function` — the only caller. What it returns lands on
+            the `FunctionSymbol.symbol_base`, on its `mangled_name`, and on the
+            declaration's `mangled_symbol`, so declaration and call resolution
+            read one answer.
+          * `_stamp_overload_symbols` builds an overload member's `$OL$` symbol
+            and a 2+-generic set's template base ON TOP of `symbol_base`, so a
+            decorated member is `<name>$m$<module>$OL$<sig>` and a generic's
+            instantiations are `<name>$m$<module>$<args>`. Nothing else in the
+            compiler decides a free function's symbol.
+
+        The base is `<name>$m$<module tag>`, and the ENTRY module's own
+        functions are tagged too, which is what fixes the `func read` beside
+        `File.read` case. `$m$` is DF-140f's delimiter and design 144 shares it
+        for type identities, so the schemes still agree on how a module is
+        spelled in a symbol; on a free function it now means "the module that
+        DEFINES it" rather than "private", because every free function carries
+        one. This RETIRES design 249's separate `$M$` census tag: a per-module
+        tag disambiguates two modules declaring one name by construction, with
+        no whole-compilation census to take and no dependence on which module is
+        checked first.
+
+        THE ENTRY MODULE IS THE EMPTY TAG, `<name>$m$` (SL-274 review r1
+        finding P2). `module_tag` used to render the entry module's empty path
+        as the word `root`, which a user module named `root` renders as too — so
+        `module root { func helper() }` beside an entry-module `func helper()`
+        produced `helper$m$root` twice and codegen died with `internal compiler
+        error: helper$m$root`. A real module path always renders at least one
+        character, so the EMPTY rendering is the one spelling no module can
+        take; the fix is in `type_identity.module_tag`, which is where every
+        `$m$` tag in the compiler is spelled, so the free-function tags of this
+        funnel and design 144's type identities cannot disagree about which
+        module is which. It also closes the same collision at
+        `_stamp_overload_symbols`' cross-module extension-method
+        disambiguator, where it predates SL-274.
+
+        AN `@export`ed FUNCTION IS TAGGED LIKE ANY OTHER (SL-274 review r1
+        finding P1). `@export` decides the EMITTED C symbol and the linkage, not
+        the compiler's internal identity: `codegen/core.py::_declare_function`
+        already separates the two (`func_name`, the `self.functions` key, from
+        `llvm_name`, which is `export_symbol(func)` when there is one), so a
+        function keeps `<name>$m$<module>` everywhere the compiler names it and
+        is EMITTED under the requested C name. Exempting it here returned an
+        empty base, so two modules exporting distinct C names from one Saw name
+        shared one lookup key, the second overwrote the first, and the first's
+        body was never emitted — `@export("first_value")` beside
+        `@export("second_value")` failed to link with `Undefined symbols:
+        _first_value`.
+
+        THREE declarations keep the plain name, each because something reads the
+        written name as the symbol:
+
+          * the ENTRY module's `main`. It IS the C entry, emitted by that name
+            and load-bearing at `codegen/core.py:3526`/`:3539`/`:3420`/`:2638`,
+            `codegen/reachability.py:107`, `typechecker/effects.py:1013` and the
+            coroutine transform's seeds. A DEPENDENCY's `main` is an ordinary
+            free function and takes an ordinary tag — that is SL-305, where a
+            dependency merely DECLARING the name gave the entry's `main` a tag
+            and the link failed with `Undefined symbols: _main`.
+          * a COMPILER-SYNTHESIZED function (`is_synthesized`) or a
+            MONOMORPHIZED INSTANCE (`is_mono_instance`) — a coroutine frame's
+            driver, an entry executor, a frame release, a generic
+            instantiation's clone. Each is named by STRING where it is built
+            and at every reference to it, exactly as design 204 records for a
+            synthesized TYPE, so a tag would rename the declaration out from
+            under the string that builds the call. An instance's name ALREADY
+            carries the template's module tag (`run$m$$1$Fast`), so tagging
+            it again would both double the tag and detach the clone's effect
+            node from the root the drive site recorded.
+          * a STDLIB declaration (`_checking_builtins`), which keeps design
+            249's narrower rule: the `$M$<std file>` tag goes on a name two std
+            FILES actually share (`json.encode` beside `cbor.encode`) and
+            nowhere else. std's free functions are the seam between the compiler
+            and its own stdlib — codegen EMITS calls to `__saw_print_int`,
+            `__saw_fmt_int`, `__saw_main_exit_code`, `__saw_bt_panic` and a
+            dozen more by literal name (`codegen/core.py`, `codegen/calls.py`) —
+            so they are named by string for the same reason a synthesized
+            function is. They are `__saw_`/`__bt_`-prefixed and none is
+            `@export`ed, so the linkage half internalizes every one of them and
+            the collision this closes cannot reach them either. Nor can a USER
+            declaration collide with one: the user's side is always tagged.
         """
-        if visibility == Visibility.PRIVATE and def_module:
+        if getattr(self, '_checking_builtins', False):
+            # Design 249's census, std-only now (`std_free_function_owner_census`).
+            if visibility == Visibility.PRIVATE and def_module:
+                return ""
+            owners = (getattr(self, 'free_function_owners', None) or {}).get(name)
+            if not owners or len(owners) < 2:
+                return ""
+            return f"{name}$M${self._module_symbol_tag(def_module)}"
+        if func is not None:
+            if (getattr(func, 'is_synthesized', False)
+                    or getattr(func, 'is_mono_instance', False)):
+                return ""
+        if name == "main" and not def_module:
             return ""
-        owners = (getattr(self, 'free_function_owners', None) or {}).get(name)
-        if not owners or len(owners) < 2:
-            return ""
-        return f"{name}$M${self._module_symbol_tag(def_module)}"
-
-    def _stamp_module_private_functions(self):
-        """Give this module's private free functions a module-local codegen
-        symbol. Runs per module, and only over declarations this module OWNS —
-        an imported symbol is the SAME object as the source module's, so
-        stamping it here would rename the definition out from under its owner."""
-        own_module = self._vis_module_for_source(None)
-        # Design 249: ask the module-keyed storage for THIS module's own
-        # declarations, so an import that puts another module's same-named
-        # function in the bare view no longer hides this one's private tag.
-        own_table = self.namespace.module_function_overloads.get(
-            tuple(own_module), {})
-        for name, overloads in own_table.items():
-            if len(overloads) != 1:
-                # An overload set already carries signature-mangled symbols; a
-                # cross-module private clash inside one is out of scope here.
-                continue
-            sym = overloads[0]
-            if sym.mangled_name or sym.decl_node is None:
-                continue
-            if sym.type_params:
-                # A generic's symbol is the template base its monomorphizations
-                # are named from; leave that naming alone.
-                continue
-            mangled = self._module_private_symbol(
-                name, own_module, getattr(sym, 'visibility', Visibility.PRIVATE))
-            if mangled is None:
-                continue
-            sym.mangled_name = mangled
-            sym.decl_node.mangled_symbol = mangled
+        return f"{name}$m${self._module_symbol_tag(def_module)}"
 
     def _stamp_overload_symbols(self):
         """Assign each member of a 2+ overload set a type-signature-suffixed
         codegen symbol (design 55), stamping both the FunctionSymbol and its
         declaring AST node so the typechecker (call resolution) and codegen
-        (definition emission) agree. Single-declaration names are untouched and
-        keep their plain symbol. Generic overloads keep their type-argument
-        instantiation naming and are left plain here.
+        (definition emission) agree. Single-declaration names keep the symbol
+        `_free_function_symbol_base` already gave them. Generic overloads keep
+        their type-argument instantiation naming and are left plain here.
 
         Design 249: the free-function half walks the MODULE-KEYED storage and
         stamps only the module this pass registers. An overload set is one
@@ -1397,8 +1458,9 @@ class RegistrationMixin:
         same-named functions in a single bare set never re-mangles either
         module's symbols out from under the bodies already resolved against
         them. The BASE each symbol is built from is the declaration's
-        `symbol_base` — the plain name, or the `$M$`-tagged one when more than
-        one module declares the name.
+        `symbol_base` — since SL-274 the module-tagged `<name>$m$<module>` for
+        every free function, so a member reads `<name>$m$<module>$OL$<sig>` and
+        two modules' same-shaped overload sets cannot collide.
         """
         from codegen.mangle import mangle_overload, mangle_method, mangle_type
 
