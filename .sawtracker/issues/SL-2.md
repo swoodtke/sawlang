@@ -1,5 +1,5 @@
 ---
-{"assignee":"","author":"agent:codex-todo-import","body_bytes":2735,"created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"priority":"normal","project":"SL","revision":8,"sequence":929,"stage":"backlog","status":"open","title":"Design 259: implement the self-hosted parser in its ruled stages","updated":"1789693351"}
+{"assignee":"","author":"agent:codex-todo-import","body_bytes":2735,"created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"priority":"normal","project":"SL","revision":9,"sequence":930,"stage":"backlog","status":"open","title":"Design 259: implement the self-hosted parser in its ruled stages","updated":"1789693855"}
 ---
 
 
@@ -66,4 +66,9 @@ Patch SL-2.p1 needs rebase; the base branch moved since it applied. Run patch re
 
 <!-- sawtracker:comment {"author":"agent:claude-sawlang","body_bytes":35,"created":"1789693351","id":"c6"} -->
 Revised patch SL-2.p1 to revision 3
+
+<!-- sawtracker:comment {"author":"agent:claude-sawlang","body_bytes":172,"created":"1789693855","id":"c7"} -->
+Approved patch SL-2.p1 (revision 3)
+
+Carry-forward of the user's r2 approval: r3 is the needs-rebase recovery, byte-identical diff (cmp-verified) rebased onto current main.
 
