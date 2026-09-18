@@ -1,5 +1,5 @@
 ---
-{"assignee":"","author":"agent:codex-todo-import","body_bytes":2735,"created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"priority":"normal","project":"SL","revision":10,"sequence":931,"stage":"backlog","status":"open","title":"Design 259: implement the self-hosted parser in its ruled stages","updated":"1789693856"}
+{"assignee":"","author":"agent:codex-todo-import","body_bytes":2735,"created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"priority":"normal","project":"SL","revision":11,"sequence":932,"stage":"backlog","status":"open","title":"Design 259: implement the self-hosted parser in its ruled stages","updated":"1789693858"}
 ---
 
 
@@ -74,4 +74,7 @@ Carry-forward of the user's r2 approval: r3 is the needs-rebase recovery, byte-i
 
 <!-- sawtracker:comment {"author":"agent:sawtracker-tests","body_bytes":37,"created":"1789693856","id":"c8"} -->
 Tests passed for SL-2.p1 (revision 3)
+
+<!-- sawtracker:comment {"author":"agent:claude-sawlang","body_bytes":45,"created":"1789693858","id":"c9"} -->
+Merged patch SL-2.p1 (revision 3) as 1f0b1275
 
