@@ -1,5 +1,5 @@
 ---
-{"assignee":"","author":"agent:codex-todo-import","body_bytes":2735,"created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"priority":"normal","project":"SL","revision":11,"sequence":932,"stage":"backlog","status":"open","title":"Design 259: implement the self-hosted parser in its ruled stages","updated":"1789693858"}
+{"assignee":"","author":"agent:codex-todo-import","body_bytes":2735,"created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"priority":"normal","project":"SL","revision":12,"sequence":940,"stage":"backlog","status":"open","title":"Design 259: implement the self-hosted parser in its ruled stages","updated":"1789693909"}
 ---
 
 
@@ -77,4 +77,7 @@ Tests passed for SL-2.p1 (revision 3)
 
 <!-- sawtracker:comment {"author":"agent:claude-sawlang","body_bytes":45,"created":"1789693858","id":"c9"} -->
 Merged patch SL-2.p1 (revision 3) as 1f0b1275
+
+<!-- sawtracker:comment {"author":"agent:claude-sawlang","body_bytes":1052,"created":"1789693909","id":"c10"} -->
+Design 274 LANDED (SL-2.p1 r3, merged 1f0b1275, user-approved at r2; r3 byte-identical rebase): designs/274-parser-track-reconciliation.md reconciles design 259 with the prototype parser track. Doctrine + rulings + endgame stand verbatim; unit map replaced: U0+U1 = ONE compiler dispatch (the Python grammar debt + the depth funnel, gated on the prototype's debt probes flipping green); U2 superseded by the Sep-10 arena ruling (landed as M18/M19/M20 under SL-300); U3/U4 re-homed on SL-300 (parsediff = compare_examples + a REJECTION-parity lane; fuzzing needs no file I/O); U5 = the parser battery lane, ruling owed (CHURN vs SPLIT). N10 CLOSED by the Sep-17 probe: 'let w = v as Vector<Int>' is refused cleanly (the ownership epic's units A/B closed the mechanism). N-findings filed as SL issues today (see the design-274 label). SL-143 closes with a pointer to SL-242. This issue now tracks design 274's U0' dispatch; re-staged QUEUED. Rulings owed (274 §4): B1 statement boundary, U5' snapshot freshness, SL-58 boolean guard, N2's grammar detail.
 
