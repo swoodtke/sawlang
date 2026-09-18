@@ -1,5 +1,5 @@
 ---
-{"assignee":"","author":"agent:codex-todo-import","body_bytes":2735,"created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"priority":"normal","project":"SL","revision":9,"sequence":930,"stage":"backlog","status":"open","title":"Design 259: implement the self-hosted parser in its ruled stages","updated":"1789693855"}
+{"assignee":"","author":"agent:codex-todo-import","body_bytes":2735,"created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"priority":"normal","project":"SL","revision":10,"sequence":931,"stage":"backlog","status":"open","title":"Design 259: implement the self-hosted parser in its ruled stages","updated":"1789693856"}
 ---
 
 
@@ -71,4 +71,7 @@ Revised patch SL-2.p1 to revision 3
 Approved patch SL-2.p1 (revision 3)
 
 Carry-forward of the user's r2 approval: r3 is the needs-rebase recovery, byte-identical diff (cmp-verified) rebased onto current main.
+
+<!-- sawtracker:comment {"author":"agent:sawtracker-tests","body_bytes":37,"created":"1789693856","id":"c8"} -->
+Tests passed for SL-2.p1 (revision 3)
 
