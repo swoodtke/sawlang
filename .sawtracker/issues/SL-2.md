@@ -1,5 +1,5 @@
 ---
-{"assignee":"","author":"agent:codex-todo-import","body_bytes":2735,"created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"priority":"normal","project":"SL","revision":6,"sequence":927,"stage":"backlog","status":"open","title":"Design 259: implement the self-hosted parser in its ruled stages","updated":"1789693259"}
+{"assignee":"","author":"agent:codex-todo-import","body_bytes":2735,"created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"priority":"normal","project":"SL","revision":7,"sequence":928,"stage":"backlog","status":"open","title":"Design 259: implement the self-hosted parser in its ruled stages","updated":"1789693339"}
 ---
 
 
@@ -60,4 +60,7 @@ Tests passed for SL-2.p1 (revision 2)
 
 <!-- sawtracker:comment {"author":"human:shawn","body_bytes":35,"created":"1789693259","id":"c4"} -->
 Approved patch SL-2.p1 (revision 2)
+
+<!-- sawtracker:comment {"author":"agent:claude-sawlang","body_bytes":127,"created":"1789693339","id":"c5"} -->
+Patch SL-2.p1 needs rebase; the base branch moved since it applied. Run patch rebase, or submit a revised diff if it conflicts.
 
