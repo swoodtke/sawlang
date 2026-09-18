@@ -37,6 +37,8 @@ is scheduled and in what order is the whole of what they say.
 
 - Design 259 — the self-hosted parser (designs/259-selfhost-parser.md; QUEUED Sep 1 by the user, §3 ruling batch fully RULED same day incl. R7′ statement arms). **RECONCILED by design 274 (DRAFT Sep 17, designs/274-parser-track-reconciliation.md; tracker SL-2):** the doctrine + rulings stand; U2 was superseded by the Sep-10 arena ruling and landed as the prototype track (SL-300: M18/M19/M20); U0 + U1 (the Python grammar debt + depth funnel, never started) become one compiler dispatch gated on the prototype's debt probes; N10 CLOSED by probe; the N-findings get SL ids at 274's approval
 
+- Design 275 — coroutine transform discovery uniformity (designs/275-coro-discovery-uniformity.md; RULED Sep 18 by the user, epic SL-318). Four units in order U4 → U1 → U2 → U3: the three-valued effect answer, the frame LEDGER + `corodiscovery` gate lane, TOTALITY (no silent decline; SL-287, SL-316, K33–K37), then coverage SL-215 + SL-317 as epic units — NOT point fixes; sawtracker's build waits for the finished foundation (user ruling). Dispatches right after SL-274.p1 lands, AHEAD of the small-fixes batch (user re-sequenced Sep 18); one Opus agent per unit, serially
+
 ## [BACKLOG] — filed, not scheduled
 
 
