@@ -35,7 +35,7 @@ is scheduled and in what order is the whole of what they say.
 
 - Design 272 — server hardening: io deadlines + socket options + signals (designs/272-server-hardening.md; SL-204 + SL-229 + SL-228, one dispatch window at the queue tail per the user's Sep-10 ruling). Three units in landing order; the brief's DECISIONS section carries the open points the rulings left, D3-3 (SIGPIPE) being the one that decides whether the trio composes
 
-- Design 259 — the self-hosted parser (designs/259-selfhost-parser.md; QUEUED Sep 1 by the user, §3 ruling batch fully RULED same day incl. R7′ statement arms). The brief is the source of the next batch: U0 grammar debt + U1 depth funnel are compiler dispatches and serialize with the pipeline (N10's soundness fix goes FIRST after 218/1.5 integrates, by fix-on-discovery — brief §4); U2–U5 are selfhost/-side and may run CONCURRENT with design 258 in a worktree; the Class-2 fix set (incl. DF-287a/b) triages at U0 dispatch
+- Design 259 — the self-hosted parser (designs/259-selfhost-parser.md; QUEUED Sep 1 by the user, §3 ruling batch fully RULED same day incl. R7′ statement arms). **RECONCILED by design 274 (DRAFT Sep 17, designs/274-parser-track-reconciliation.md; tracker SL-2):** the doctrine + rulings stand; U2 was superseded by the Sep-10 arena ruling and landed as the prototype track (SL-300: M18/M19/M20); U0 + U1 (the Python grammar debt + depth funnel, never started) become one compiler dispatch gated on the prototype's debt probes; N10 CLOSED by probe; the N-findings get SL ids at 274's approval
 
 ## [BACKLOG] — filed, not scheduled
 
