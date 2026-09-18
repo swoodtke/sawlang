@@ -136,6 +136,13 @@ REAL_SUSPEND_LABELS = ("yield_now", "sleep", "__saw_io_park", "io_wait",
 
 _BLOCKING_SOURCE_PREFIX = "blocking extern"
 
+# THE conservative source, spelled once. `_effect_indirect_call` is the only
+# place that produces it: a call through a non-`sync` function VALUE might
+# suspend, because the value's own effect is not in the type. Every consumer that
+# needs "does this body suspend for a reason of its OWN" strikes out exactly this
+# label — see `suspends_ignoring_closure_calls`.
+CLOSURE_CALL_SOURCE_LABEL = "a call through a non-`sync` function value"
+
 
 def _is_real_source(source: SuspendSource) -> bool:
     return (source.label in REAL_SUSPEND_LABELS
@@ -160,6 +167,61 @@ def suspends_ignoring_blocking(nodes) -> Dict[Any, bool]:
     out: Dict[Any, bool] = {}
     for key, node in nodes.items():
         out[key] = any(not s.label.startswith(_BLOCKING_SOURCE_PREFIX)
+                       for s in node.direct)
+    changed = True
+    while changed:
+        changed = False
+        for key, node in nodes.items():
+            if out.get(key):
+                continue
+            for e in node.edges:
+                if out.get(e.target):
+                    out[key] = True
+                    changed = True
+                    break
+    return out
+
+
+def suspends_ignoring_closure_calls(nodes) -> Dict[Any, bool]:
+    """`suspends`, with the CONSERVATIVE closure-call source struck out.
+
+    "Does this body suspend for a reason of its OWN?" — every source counts
+    except `CLOSURE_CALL_SOURCE_LABEL`, which says only that a call through a
+    non-`sync` function value MIGHT. A body whose whole answer is that source
+    (`Vector.each`, `Map.each`, `JsonValue._write`, a user method that calls a
+    closure parameter) has no park to host: the closure's own suspension, if it
+    has one, belongs to the closure body, which is lowered on its own terms.
+
+    ENTRY POINTS (every caller; obligation 1 — this is the funnel):
+      * `sawc.build_builtin_namespace` — the std `(struct, method)` name pairs
+        the coroutine transform's call-site classifier consults, since a std
+        method has no node in the entry graph to ask about.
+      * `coro_transform.transform_program` — the same census over the ENTRY
+        graph, for BOTH the classifier
+        (`_suspending_method_target` / `_promote_nested_generic_methods`) and the
+        closure walk's edge-follow, which decides which callees get a frame.
+      * `coro_transform._promote_nested_generic_calls` — the GENERIC FREE-FUNCTION
+        twin of that promotion (`instantiation_suspends`). Added by SL-306's
+        review: it read the broad bit while the walk beside it asked this, so one
+        instance was framed for a direct driven call and left plain for a
+        conservative-only caller, and the half-lowered body reached codegen.
+      * `EffectsMixin.finalize_effects`'s sync-context check, for a SYNTHESIZED
+        frame method only (`SuspendNode.closure_calls_permitted`) — the same
+        answer read as "did the transform leave a REAL suspension in a resume
+        body?", which is what that `sync` marker actually guards.
+
+    WHY NOT `really_suspending` (SL-306's first, wrong, answer). That question is
+    sharper still: it strikes the test-only `__saw_suspend` intrinsic as well,
+    because a synthetic suspension point must not wrap `main` in an entry
+    executor. But `__saw_suspend` IS a state boundary the transform has to split
+    a frame at (design 44), so asking `really_suspending` here dropped every
+    design-44 test's suspension on the floor — the silent degradation this whole
+    family is about, introduced by the fix for it. One source is struck here, and
+    it is the one that says "might".
+    """
+    out: Dict[Any, bool] = {}
+    for key, node in nodes.items():
+        out[key] = any(s.label != CLOSURE_CALL_SOURCE_LABEL
                        for s in node.direct)
     changed = True
     while changed:
@@ -249,6 +311,18 @@ class SuspendNode:
     # OTHER suspension source is refused there exactly as in any sync context,
     # so the flag narrows one rule rather than opening a hole.
     blocking_permitted: bool = False
+    # SL-306 review r2: this sync context is a SYNTHESIZED frame method — a
+    # `sync` declaration the compiler wrote, not the author — so the conservative
+    # closure-call source does not violate it. Set on a `is_sync` +
+    # `is_synthesized` method and nowhere else. Narrows ONE rule, exactly as
+    # `blocking_permitted` does, and for the same kind of reason: what a frame
+    # method's `sync` marker protects is the invariant that the transform left no
+    # REAL suspension un-lowered in a resume body, and a callee that only "might"
+    # suspend because it calls a non-`sync` function value is a plain call the
+    # frame is right to make. Every other source is refused there as ever —
+    # including the test-only `__saw_suspend`, which is a state boundary a resume
+    # must never still contain.
+    closure_calls_permitted: bool = False
     direct: List[SuspendSource] = field(default_factory=list)
     edges: List[SuspendEdge] = field(default_factory=list)
     suspends: bool = False              # computed by the fixpoint
@@ -280,6 +354,14 @@ class EffectsMixin:
         # right default for the BUILTIN compile itself, which has those bodies in
         # front of it. `_effect_seed_std_methods` mints a leaf node per entry.
         self._std_really_suspending_methods: Dict[Any, tuple] = {}
+        # SL-306: the std methods that suspend for a reason of their OWN — every
+        # source but the conservative closure-call one — as `(struct, method)`
+        # NAME PAIRS, filled from the builtin namespace by the same driver. The
+        # coroutine transform's call-site classifier asks by name, because a std
+        # method has no node in this graph for the node-id table above to answer
+        # for; without this it could not tell `TcpStream.read` (a real park) from
+        # `JsonValue._write` (a recursion inside a `Vector.each` closure).
+        self._std_suspending_methods_ignoring_closure_calls: Set[tuple] = set()
         # design 44: free-function names driven by a `__saw_drive(...)` /
         # `__saw_drive_steps(...)` site, mapped to the set of driver modes requested
         # ({"value", "steps"}). A driven root and its suspending callees are the
@@ -503,6 +585,12 @@ class EffectsMixin:
                 source_file=getattr(method, "source_file", None),
                 sync_reason=reason,
                 sync_hint=hint,
+                # SL-306 review r2: a SYNTHESIZED `sync` method is a frame
+                # method (`__Frame_f.resume` and its siblings), and its `sync`
+                # marker guards the transform's own invariant rather than a
+                # promise the author made. See `closure_calls_permitted`.
+                closure_calls_permitted=bool(
+                    is_sync and getattr(method, "is_synthesized", False)),
             )
             self._suspend_nodes[key] = node
         self._suspend_stack.append(node)
@@ -602,10 +690,12 @@ class EffectsMixin:
 
     def _effect_indirect_call(self, func_type, line: int):
         """A call through a function-typed value. Non-`sync` => conservatively
-        suspends (design 22 known-hard case: effect polymorphism)."""
+        suspends (design 22 known-hard case: effect polymorphism).
+
+        THE one producer of `CLOSURE_CALL_SOURCE_LABEL`, which is what lets
+        `suspends_ignoring_closure_calls` strike this source and only this one."""
         if not getattr(func_type, "func_is_sync", False):
-            self._effect_direct_source(
-                "a call through a non-`sync` function value", line)
+            self._effect_direct_source(CLOSURE_CALL_SOURCE_LABEL, line)
 
     # ---------------------------------------------- design 70: effect polymorphism
     def _effect_queue_fn_mono(self, template_name: str, resolved_args) -> str:
@@ -1019,6 +1109,7 @@ class EffectsMixin:
         # design 242 ruling 9: a blocking-permitted context asks a narrower
         # question, so the second fixpoint is computed only if one exists.
         beyond_blocking = None
+        beyond_closure_calls = None
         for node in nodes.values():
             if not (node.sync_reason and node.suspends):
                 continue
@@ -1026,6 +1117,15 @@ class EffectsMixin:
                 if beyond_blocking is None:
                     beyond_blocking = suspends_ignoring_blocking(nodes)
                 if not beyond_blocking.get(node.key):
+                    continue
+            # SL-306 review r2: a SYNTHESIZED frame method asks the narrower
+            # question, for the reason `closure_calls_permitted` states. Same
+            # shape as the blocking narrowing above, one source instead of one
+            # class of source, and computed only if such a context exists.
+            if node.closure_calls_permitted:
+                if beyond_closure_calls is None:
+                    beyond_closure_calls = suspends_ignoring_closure_calls(nodes)
+                if not beyond_closure_calls.get(node.key):
                     continue
             if ("sync", node.key) in self._effects_reported:
                 continue

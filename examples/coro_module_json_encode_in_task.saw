@@ -1,0 +1,41 @@
+// SL-306, the shape the regression was FOUND as: the same encode one frame
+// deeper, through an ordinary `public` helper of an IMPORTED module — sawtracker's
+// `common.json(&result)`, which every one of its handlers calls.
+//
+// This cell compiled before SL-280 for the wrong reason: the transform declined
+// the imported free-call edge, so `to_text` was never framed and the callee's
+// (nonexistent) suspension was never looked for. SL-280 keyed that edge the way
+// the effect graph keys it, the callee was pulled in, and the conservative answer
+// at `to_json_string` built `__Frame_JsonValue__write` — a frame around a body
+// whose recursion sits inside a `Vector.each` closure. Both halves are right now:
+// the edge is followed, and a conservative-only callee is not embedded.
+//
+// EXPECT: success
+// COMPILE-FLAGS: --module-path sl306mod={TESTDIR}/modules/sl306mod
+// EXPECT-IR-ABSENT: __Frame_JsonValue__write
+// EXPECT-OUTPUT:
+// public {"a":1}
+// private {"a":1}
+
+import std.json.{JsonValue}
+import std.channel.{Channel}
+import sl306mod.{encode_public, encode_via_private}
+
+func worker(inbox: Channel<Int>, outbox: Channel<String>) {
+    let n = try inbox.receive() catch { return }
+    var doc = JsonValue.Object(fields: Map<String, JsonValue>())
+    let _ = try! doc.as_object()!.insert("a", JsonValue.Number(value: n))
+    let _ = outbox.send("public {encode_public(&doc)}")
+    let _ = outbox.send("private {encode_via_private(&doc)}")
+}
+
+func main() {
+    let inbox = try! Channel<Int>()
+    let outbox = try! Channel<String>()
+    var group = TaskGroup()
+    let task = group.spawn(worker(inbox.copy(), outbox.copy()))
+    let _ = inbox.send(1)
+    print(try! outbox.receive())
+    print(try! outbox.receive())
+    task.join()
+}

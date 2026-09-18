@@ -1,0 +1,44 @@
+// SL-306: a task that encodes a `JsonValue` compiles and runs.
+//
+// `to_json_string` reaches `JsonValue._write`, which recurses into itself inside
+// the closure `Vector.each` runs — so the effect graph marks both suspending by
+// its CONSERVATIVE rule (a call through a non-`sync` function value might
+// suspend). Nothing in either body ever parks. The coroutine transform's
+// call-site classifier read only that broad answer at a nameable callee, so it
+// embedded `_write`'s frame, and the closure-body rejector then refused the
+// program from inside a std file the author never opened:
+//
+//   error: the suspending call `JsonValue._write(...)` appears inside a CLOSURE
+//          BODY in driven `JsonValue__write` ...
+//     --> sawc/std/json.saw:1477:31
+//
+// It asks `effects.suspends_ignoring_closure_calls` now — "does this callee
+// suspend for a reason of its OWN?" — and a conservative-only callee lowers as
+// the plain call it is. This direct shape had NEVER compiled; the imported twin
+// beside it (`coro_module_json_encode_in_task.saw`) is the one SL-280 brought
+// here, which is why the regression surfaced then.
+//
+// EXPECT: success
+// EXPECT-IR-ABSENT: __Frame_JsonValue__write
+// EXPECT-OUTPUT:
+// {"a":1}
+
+import std.json.{JsonValue}
+import std.channel.{Channel}
+
+func worker(inbox: Channel<Int>, outbox: Channel<String>) {
+    let n = try inbox.receive() catch { return }
+    var doc = JsonValue.Object(fields: Map<String, JsonValue>())
+    let _ = try! doc.as_object()!.insert("a", JsonValue.Number(value: n))
+    let _ = outbox.send(try! doc.to_json_string())
+}
+
+func main() {
+    let inbox = try! Channel<Int>()
+    let outbox = try! Channel<String>()
+    var group = TaskGroup()
+    let task = group.spawn(worker(inbox.copy(), outbox.copy()))
+    let _ = inbox.send(1)
+    print(try! outbox.receive())
+    task.join()
+}

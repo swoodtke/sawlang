@@ -1,0 +1,59 @@
+// SL-306, the positive half of the matrix: a callee that suspends ONLY by the
+// conservative closure-call rule is never embedded, from every location a driven
+// body can reach it — written in the entry module, behind an imported `public`
+// helper, and behind an imported MODULE-PRIVATE one (the SL-280 keying cell) —
+// with a DRIVEN root here and a SPAWNED one in the file beside this.
+//
+// Two families of conservative-only callee, so the rule is about the CALLEE and
+// not about std: `JsonValue.to_json_string` (a std method reaching a recursion
+// inside a `Vector.each` closure) and `sl306mod.Folder.apply` (a USER method
+// whose body calls a non-`sync` function VALUE — the same suspension source,
+// raised in user code).
+//
+// The IR assertions are the half a runtime check cannot see: the program printed
+// the right answers before this landed too, whenever it compiled at all. What was
+// wrong was the frames.
+//
+// EXPECT: success
+// COMPILE-FLAGS: --module-path sl306mod={TESTDIR}/modules/sl306mod
+// EXPECT-IR-ABSENT: __Frame_JsonValue__write
+// EXPECT-IR-ABSENT: __Frame_Folder
+// EXPECT-IR-ABSENT: __Frame_fold_public
+// EXPECT-IR-CONTAINS: __Frame_main
+// EXPECT-OUTPUT:
+// entry {"a":1}
+// public {"a":1}
+// private {"a":1}
+// fold 42 42 42
+// sum 6 6
+// driven root resumed
+
+import std.json.{JsonValue}
+import std.task.{yield_now}
+import sl306mod.{Folder, encode_public, encode_via_private, fold_public,
+                 fold_via_private, sum_public, sum_via_private}
+
+func entry_encode(doc: &JsonValue) -> String {
+    try! doc.to_json_string()
+}
+
+func entry_fold(folder: &Folder) -> Int {
+    folder.apply({ n in n + 1 })
+}
+
+func main() {
+    var doc = JsonValue.Object(fields: Map<String, JsonValue>())
+    let _ = try! doc.as_object()!.insert("a", JsonValue.Number(value: 1))
+    let folder = Folder(seed: 41)
+    let values: Vector<Int> = [1, 2, 3]
+
+    print("entry {entry_encode(&doc)}")
+    print("public {encode_public(&doc)}")
+    print("private {encode_via_private(&doc)}")
+    print("fold {entry_fold(&folder)} {fold_public(&folder)} {fold_via_private(&folder)}")
+    print("sum {sum_public(&values)} {sum_via_private(&values)}")
+    // `main` really suspends, so this whole body IS a driven frame: every call
+    // above is a call site inside one, which is the position the bug lived at.
+    yield_now()
+    print("driven root resumed")
+}

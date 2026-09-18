@@ -1,0 +1,43 @@
+// SL-306, the FREE-FUNCTION face of the same mechanism, probed with the fix and
+// fixed by it: `apply` suspends only because it calls a non-`sync` function VALUE,
+// and `outer` both calls it directly — which is what put `outer` in the driven
+// closure — and calls it again inside a `Vector.each` closure. Nothing here parks.
+//
+// The closure walk asked the BROAD suspends bit, so both bodies were framed, and
+// the frame put the closure-body rejector in front of the second call:
+//
+//   error: the suspending call `apply(...)` appears inside a CLOSURE BODY in
+//          driven `outer` ...
+//
+// One mechanism, two axes: the walk's edge-follow asks
+// `effects.suspends_ignoring_closure_calls` now, exactly as the call-site
+// classifier does.
+//
+// EXPECT: success
+// EXPECT-IR-ABSENT: __Frame_outer
+// EXPECT-IR-ABSENT: __Frame_apply
+// EXPECT-IR-CONTAINS: __Frame_main
+// EXPECT-OUTPUT:
+// at 7 -> 10
+// at 8 -> 10
+// 12
+// done
+
+import std.task.{yield_now}
+
+func apply(f: (Int) -> Int) -> Int { f(1) }
+
+func outer(values: &Vector<Int>, f: (Int) -> Int) -> Int {
+    let base = apply(f)
+    values.each({ n in
+        print("at {n} -> {apply(f)}")
+    })
+    base + values.len()
+}
+
+func main() {
+    let values: Vector<Int> = [7, 8]
+    print(outer(&values, { n in n * 10 }))
+    yield_now()
+    print("done")
+}

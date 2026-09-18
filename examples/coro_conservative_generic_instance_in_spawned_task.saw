@@ -1,0 +1,64 @@
+// SL-306 review r1, the SPAWNED-task row of codex's cell, with the control that
+// says the fix did not stop promoting the instantiations that DO own a suspension.
+//
+// `apply<Int>` is conservative-only (it calls a non-`sync` function value) and is
+// reached twice from the task body — directly, and through the conservative-only
+// helper `folded` — so it must be promoted at neither site. `yielder<Int>` is the
+// same shape with a real `yield_now()` in it, reached the same two ways, and must
+// be promoted and framed at both: the ticker's lines land between the worker's,
+// which only happens if the worker really parked inside it.
+//
+// EXPECT: success
+// EXPECT-IR-ABSENT: __Frame_apply
+// EXPECT-IR-CONTAINS: __Frame_yielder$1$Int
+// EXPECT-IR-CONTAINS: __Frame_worker
+// EXPECT-OUTPUT:
+// plain 20 10
+// tick 0
+// parked 3 3
+// tick 1
+
+import std.task.{yield_now}
+import std.channel.{Channel}
+
+func apply<T>(value: T, f: (T) -> Int) -> Int { f(value) }
+
+func yielder<T>(value: T, f: (T) -> Int) -> Int {
+    yield_now()
+    f(value)
+}
+
+func folded() -> Int {
+    apply<Int>(1, { n: Int in n * 10 })
+}
+
+func parked() -> Int {
+    yielder<Int>(1, { n: Int in n + 2 })
+}
+
+func worker(out: Channel<String>) {
+    let direct = apply<Int>(2, { n: Int in n * 10 })
+    let _ = out.send("plain {direct} {folded()}")
+    let one = yielder<Int>(1, { n: Int in n + 2 })
+    let two = parked()
+    let _ = out.send("parked {one} {two}")
+}
+
+func ticker(out: Channel<String>) {
+    for i in 0..2 {
+        yield_now()
+        let _ = out.send("tick {i}")
+    }
+}
+
+func main() {
+    let out = try! Channel<String>()
+    var group = TaskGroup()
+    let a = group.spawn(worker(out.copy()))
+    let b = group.spawn(ticker(out.copy()))
+    for i in 0..4 {
+        print(try! out.receive())
+    }
+    a.join()
+    b.join()
+}

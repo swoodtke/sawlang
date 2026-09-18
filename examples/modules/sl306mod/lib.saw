@@ -1,0 +1,136 @@
+//! Fixture for SL-306 — the conservative-suspension matrix, from an IMPORTED
+//! module.
+//!
+//! Every helper here is reached from a driven or spawned body in the test files,
+//! in three locations: the entry module itself (written there), a `public`
+//! helper of this module, and a MODULE-PRIVATE helper of this module — the third
+//! being the one design 249 tags with a `$m$<module>` symbol, which is what
+//! SL-280 keyed the transform's splice on.
+//!
+//! The helpers come in two families. The CONSERVATIVE-ONLY ones "suspend" solely
+//! by the effect graph's rule that a call through a non-`sync` function value
+//! might (`Vector.each`'s closure call, and `JsonValue._write`'s recursion
+//! inside one): nothing in them ever parks, so nothing owes them a frame. The
+//! REALLY-suspending ones reach a cooperative primitive and must still be
+//! embedded and driven — they are the regression controls for the fix.
+
+import std.json.{JsonValue}
+import std.task.{yield_now}
+
+// ---------------------------------------------------------------- conservative
+
+/// Encodes a document — `to_json_string` reaches `JsonValue._write`, which
+/// recurses into itself inside the closure `Vector.each` runs. This is the
+/// SL-306 shape, behind a `public` helper.
+public func encode_public(doc: &JsonValue) -> String {
+    try! doc.to_json_string()
+}
+
+func _encode_private(doc: &JsonValue) -> String {
+    try! doc.to_json_string()
+}
+
+/// The same encode through a MODULE-PRIVATE helper of this module.
+public func encode_via_private(doc: &JsonValue) -> String {
+    _encode_private(&doc)
+}
+
+/// A conservative-only USER method: `apply` calls a non-`sync` function VALUE,
+/// which is the same suspension source `Vector.each` raises.
+public struct Folder { seed: Int }
+
+extension Folder {
+    public func apply(&self, f: (Int) -> Int) -> Int { f(self.seed) }
+}
+
+/// Calls that user method behind a `public` helper.
+public func fold_public(folder: &Folder) -> Int {
+    folder.apply({ n in n + 1 })
+}
+
+func _fold_private(folder: &Folder) -> Int {
+    folder.apply({ n in n + 1 })
+}
+
+/// …and behind a module-private one.
+public func fold_via_private(folder: &Folder) -> Int {
+    _fold_private(&folder)
+}
+
+/// A std conservative-only method (`Vector.each`) with a SYNC closure body,
+/// behind a `public` helper. Sums without writing through a capture.
+func _touch(n: Int) {}
+
+public func sum_public(values: &Vector<Int>) -> Int {
+    var total = 0
+    for i in 0..values.len() {
+        total = total + values[i]
+    }
+    values.each({ n in _touch(n) })
+    total
+}
+
+func _sum_private(values: &Vector<Int>) -> Int {
+    var total = 0
+    for i in 0..values.len() {
+        total = total + values[i]
+    }
+    values.each({ n in _touch(n) })
+    total
+}
+
+/// …and behind a module-private one.
+public func sum_via_private(values: &Vector<Int>) -> Int {
+    _sum_private(&values)
+}
+
+// ------------------------------------------------------- really-suspending
+
+/// The control: a helper that REALLY suspends, so it must be embedded + driven.
+public func yield_public(n: Int) -> Int {
+    yield_now()
+    n + 1
+}
+
+func _yield_private(n: Int) -> Int {
+    yield_now()
+    n + 1
+}
+
+/// …through a module-private helper (the SL-280 cell).
+public func yield_via_private(n: Int) -> Int {
+    _yield_private(n)
+}
+
+/// A conservative-only USER method called from a REALLY-suspending helper: the
+/// two families in one body, so the fix cannot answer by function rather than by
+/// callee.
+public func fold_then_yield(folder: &Folder) -> Int {
+    let base = folder.apply({ n in n + 1 })
+    yield_now()
+    base
+}
+
+// ------------------------------------------- a closure body that really parks
+
+/// A conservative-only std method whose CLOSURE BODY really suspends, written in
+/// a `public` helper of this module. Reached from a driven body it must be
+/// REFUSED, never lowered through the out-of-frame park.
+public func each_yield_public(values: &Vector<Int>) -> Int {
+    values.each({ n in
+        yield_now()
+    })
+    values.len()
+}
+
+func _each_yield_private(values: &Vector<Int>) -> Int {
+    values.each({ n in
+        yield_now()
+    })
+    values.len()
+}
+
+/// The same through a module-private helper.
+public func each_yield_via_private(values: &Vector<Int>) -> Int {
+    _each_yield_private(&values)
+}

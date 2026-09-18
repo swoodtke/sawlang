@@ -1835,7 +1835,12 @@ def _suspending_method_target(mc, tc):
                                 no-op, and the cooperative contract would be
                                 silently dropped on a program that compiles,
                                 runs and prints the right answer.
-      * NOT_SUSPENDING        — not a suspending method call at all.
+      * NOT_SUSPENDING        — not a suspending method call at all, INCLUDING a
+                                method that suspends only by the conservative
+                                closure-call rule (SL-306; the paragraph below
+                                the entry points). Such a callee has no park of
+                                its own, so a plain call is the correct lowering
+                                and a frame around it is what was wrong.
 
     This replaces `_method_call_owner`, whose single `None` meant BOTH of the
     last two — and all seven consumers below read it as the last one, which is
@@ -1907,20 +1912,29 @@ def _suspending_method_target(mc, tc):
         return _NOT_SUSPENDING
     if (owner, mc.method_name) not in susp:
         return _NOT_SUSPENDING
+    # SL-306: ONE question, asked once, for BOTH answers below. The
+    # suspending-method set is the BROAD one: it holds `Vector.each`, `Map.each`,
+    # `JsonValue._write` and every method that reaches one, which "suspend"
+    # solely by the rule that a call through a non-`sync` function value might
+    # (`effects.suspends_ignoring_closure_calls` strikes exactly that source). A
+    # method that suspends no other way has no park to host, so there is nothing
+    # for this call site to embed OR to refuse — it lowers as the plain call it
+    # is, which is what the callee's own body compiles to.
+    #
+    # design 223 asked this at the un-nameable branch only, and the nameable one
+    # answered EMBED unconditionally: `to_json_string()` inside a driven frame
+    # therefore built `__Frame_JsonValue__write` around a body whose recursion
+    # sits inside the `Vector.each` closure, and the closure-body rejector
+    # refused a program with no suspension in it (SL-306). The closure's OWN
+    # suspension, if it has one, is still refused where it is written — by
+    # `_reject_buried_suspend_call`'s in-closure arm, which reads the body the
+    # author wrote rather than the callee's frame.
+    own = (getattr(tc, '_own_suspending_methods_set', None)
+           if tc is not None else None) or set()
+    if (owner, mc.method_name) not in own:
+        return _NOT_SUSPENDING
     if recv_args or getattr(mc, 'type_args', None):
-        # Un-nameable — but REFUSING is only right for a method that really
-        # suspends. The suspending-method set is the conservative one: it holds
-        # `Vector.map` and its siblings, which "suspend" solely by the rule that
-        # a call through a non-`sync` function value might (design 206's
-        # `really_suspending` excludes exactly those). Refusing on a merely
-        # conservative answer would reject `v.map({ n in slow(n) })` — where
-        # nothing in `map` itself suspends and the closure's own suspension is
-        # lowered on its own terms — so a conservative-only generic call keeps
-        # the pre-223 answer instead.
-        really = (getattr(tc, '_really_suspending_methods_set', None)
-                  if tc is not None else None) or set()
-        if (owner, mc.method_name) not in really:
-            return _NOT_SUSPENDING
+        # Un-nameable, and it owns a suspension: REFUSE, never degrade.
         if recv_args:
             return _MethodTarget(
                 'unsupported', None, owner, is_static,
@@ -5554,19 +5568,20 @@ class _FrameBuilder:
             if isinstance(n, FunctionCall) and (
                     callee_frame_key(n) in self._suspends      # SL-280
                     or n.name in _SUSPEND_CALLS):
-                found.append(("fn", n))
+                found.append(("fn", n, in_closure))
             # design 103 (A6): a blocking-extern call in a position the offload
             # desugar cannot occupy (buried in a larger expression, a `try!`, an
             # `if let`/`guard let` body). Reject cleanly, ANCHORED AT THE USER CALL
             # SITE — never let it fall through to lower as a direct call and trip the
             # synthesized `resume`'s sync check anchored at `__Frame_*.resume`.
             elif isinstance(n, FunctionCall) and self._is_blocking_extern(n.name):
-                found.append(("blk", n))
+                found.append(("blk", n, in_closure))
             # design 62 G3: a cooperative `receive()` buried in an expression /
             # nested position (only a top-level `let v = ch.receive()` or bare
             # `ch.receive()` is supported) is rejected rather than miscompiled.
             elif isinstance(n, MethodCall) and getattr(n, 'is_chan_recv', False):
-                found.append(("recv", _FakeCall("receive", n.line, n.column)))
+                found.append(("recv", _FakeCall("receive", n.line, n.column),
+                              in_closure))
             # SL-208 / DF-300e: a module-qualified FREE-FUNCTION call (`mod.f(...)`)
             # in an inexpressible position is a free call, not a method — report
             # it with the free-function message and the callee's own name, so the
@@ -5576,7 +5591,7 @@ class _FrameBuilder:
             elif (isinstance(n, MethodCall)
                   and self._module_free_call_suspends(n)):
                 found.append(("fn", _FakeCall(
-                    n.module_free_call, n.line, n.column)))
+                    n.module_free_call, n.line, n.column), in_closure))
             # design 101: a suspending METHOD call in a position no hoist lifted and
             # the CFG walk cannot split (an `if let`/`guard let` body). Reject with
             # the same workaround the top-level buried-method rejection names.
@@ -5590,8 +5605,9 @@ class _FrameBuilder:
         if found:
             entry = found[0]
             kind, g = entry[0], entry[1]
+            in_closure = entry[2]
             if kind == "method":
-                if entry[2]:
+                if in_closure:
                     raise self._error(
                         self._suspend_in_closure_message(
                             f"`{_suspending_method_target(g, self._tc).owner or '?'}"
@@ -5613,6 +5629,22 @@ class _FrameBuilder:
                     f"(an `if let`/`guard let` body). Restructure to a plain "
                     f"`if`/`else` or `match`, or drive the method directly.",
                     g)
+            if in_closure:
+                # SL-306: a suspension inside a CLOSURE LITERAL's body, reported
+                # in the closure's own terms whatever KIND it is. design 223
+                # unit 3 gave the method arm this message and left the other
+                # three telling the author to bind the call to its own `let` — a
+                # fix that does nothing, because the position that cannot host
+                # the suspension is the closure body, not the statement.
+                #
+                # Reachable for every kind since SL-306: a callee that suspends
+                # only by the conservative closure-call rule is no longer
+                # embedded, so a `v.each { yield_now() }` in a driven body is
+                # refused HERE (by the caller's own scan of the body its author
+                # wrote) rather than from inside a frame built around `each`.
+                what = (f"`{g.name}(...)`" if kind != "recv"
+                        else "`receive()`")
+                raise self._error(self._suspend_in_closure_message(what), g)
             if kind == "blk":
                 raise self._error(
                     f"coroutine transform: the blocking-extern call `{g.name}(...)` "
@@ -10739,7 +10771,11 @@ def _promote_nested_generic_calls(program, funcs_by_name, seed_names, typechecke
     Only suspending instantiations are promoted; a non-suspending generic call is
     left for codegen's normal monomorphization. Idempotent per mangled symbol."""
     from codegen.mangle import mangle_function
+    from typechecker.effects import suspends_ignoring_closure_calls
     nodes = getattr(typechecker, "_suspend_nodes", {})
+    # SL-306: the promotion criterion, through the funnel every other framing
+    # decision now goes through (see `instantiation_suspends`).
+    own_suspends = suspends_ignoring_closure_calls(nodes)
     resolve = getattr(typechecker, "_resolve_type", None)
     # Phase 2's instances, by mangled name — the store this walk adopts from.
     spliced = {f.name: f for f in (getattr(imported_ast, 'functions', None) or [])
@@ -10752,8 +10788,28 @@ def _promote_nested_generic_calls(program, funcs_by_name, seed_names, typechecke
         typechecker.namespace = entry_ns
 
     def instantiation_suspends(mangled):
+        """Does this instantiation OWN a suspension? (SL-306 review r1, codex P1.)
+
+        The SAME question the closure walk's edge-follow and
+        `_suspending_method_target` ask — `effects.suspends_ignoring_closure_calls`
+        — and it has to be the same one, because promotion and framing are one
+        decision seen from two ends. This read the BROAD `suspends` bit, so a
+        generic instantiation that suspends only through the conservative
+        closure-call rule (`apply<Int>(1, { n in n * 10 })` — the instance calls a
+        non-`sync` function value) was still promoted and framed when a driven
+        body called it DIRECTLY, while the ordinary conservative-only helper
+        calling the same instance was left unframed. One instance body, rewritten
+        into a resume state machine for the frame and then reached by the helper's
+        plain call: `internal compiler error ... (SelfExpr): 'self' not found in
+        current scope`, because the rewritten body names the frame's `self` inside
+        what is still a free function.
+
+        Asking the funnel makes the two ends agree: such an instance is not
+        promoted, both call sites stay plain calls, and codegen's ordinary
+        monomorphization serves them — which is what the un-promoted arm already
+        documents for every other non-suspending generic call."""
         node = nodes.get(("fn", mangled))
-        return node is not None and node.suspends
+        return node is not None and bool(own_suspends.get(("fn", mangled)))
 
     def maybe_promote(fc):
         """If `fc` is a suspending generic free-function call, splice + rewrite it.
@@ -10911,7 +10967,7 @@ def _method_is_conformance_required(ext, mast, required_by_conformance):
 
 
 def _promote_nested_generic_methods(program, funcs_by_name, seed_names, all_exts,
-                                    susp_methods, really_susp_methods,
+                                    susp_methods, own_susp_methods,
                                     typechecker):
     """design 223 unit 1: give the EMBEDDED position the instantiation the DRIVE
     position already gets.
@@ -11064,11 +11120,13 @@ def _promote_nested_generic_methods(program, funcs_by_name, seed_names, all_exts
             if owner is None or (owner, mc.method_name) not in susp_methods:
                 continue
             if recv_args or getattr(mc, 'type_args', None):
-                # Only a method that REALLY suspends earns an instantiation.
-                # `Vector.map` is in the suspending set by the conservative
-                # closure-call rule alone; monomorphizing it would put a frame
-                # around a body that suspends nothing.
-                if (owner, mc.method_name) not in really_susp_methods:
+                # Only a method that suspends for a reason of its OWN earns an
+                # instantiation. `Vector.map` is in the broad suspending set by
+                # the conservative closure-call rule alone; monomorphizing it
+                # would put a frame around a body that suspends nothing. Same set
+                # `_suspending_method_target` gates EMBED on (SL-306), so a
+                # stamped call and the classifier cannot disagree.
+                if (owner, mc.method_name) not in own_susp_methods:
                     continue
                 clone = (promote_generic_struct(mc, owner, recv_args)
                          if recv_args else promote_generic_method(mc, owner))
@@ -11239,17 +11297,36 @@ def transform_program(program, typechecker, imported_ast=None):
     # eventual lift; until then this is the honest rejection.
     _nodes_for_methods = getattr(typechecker, "_suspend_nodes", {})
     suspending_methods = set(getattr(typechecker, "_std_suspending_methods", set()))
-    # design 223: the same census, asked design 206's SHARPER question — does
-    # this method REALLY suspend (reach a cooperative primitive), or does it only
-    # "suspend" by the conservative rule that a call through a non-`sync`
-    # function value might? The two sets differ on `Vector.map` and friends, and
-    # the difference decides whether an un-nameable call site is REFUSED or left
-    # exactly as it was: refusing on a conservative answer would reject a
-    # perfectly ordinary `v.map({ ... })`.
-    from typechecker.effects import really_suspending as _really_suspending
+    # design 223, sharpened by SL-306: the same census, asked WITHOUT the
+    # conservative closure-call source — does this method suspend for a reason of
+    # its OWN (`suspends_ignoring_closure_calls`), or only because it calls a
+    # non-`sync` function value, which any closure-taking method does? The two
+    # sets differ on `Vector.each`, `Map.each`, `JsonValue._write` and every
+    # method that reaches one, and the difference decides whether a call site
+    # embeds the callee's frame at all.
+    #
+    # design 223 asked `really_suspending` here, which is SHARPER STILL and was
+    # wrong for this question: it also strikes the test-only `__saw_suspend`,
+    # which IS a state boundary the transform must split a frame at (design 44),
+    # so gating on it dropped every design-44 test's suspension — an internal
+    # compiler error where the method body had been stripped, and a silent sync
+    # call where it had not. One source is struck, and it is the one that says
+    # "might".
+    from typechecker.effects import (
+        suspends_ignoring_closure_calls as _suspends_ignoring_closure_calls)
     from type_identity import std_leaf as _std_leaf
-    _really = _really_suspending(_nodes_for_methods)
-    really_suspending_methods = set()
+    _own_susp = _suspends_ignoring_closure_calls(_nodes_for_methods)
+    # SEEDED from the builtin compile's own answer, exactly as
+    # `suspending_methods` is seeded from `_std_suspending_methods` above. std
+    # bodies belong to a different typechecker, so a std method has no node in
+    # `_nodes_for_methods` and the loop below can never judge one: without the
+    # seed this set held only the ENTRY compile's methods, so `TcpStream.read`
+    # and `JsonValue._write` were indistinguishable here — both absent — and a
+    # gate on the difference would have dropped a real park.
+    own_suspending_methods = set(
+        getattr(typechecker,
+                "_std_suspending_methods_ignoring_closure_calls", set())
+        or set())
     # DF-206d, probed live by design 223's cell K. `_std_suspending_methods` is
     # a set of NAME PAIRS — std bodies belong to a different typechecker, so
     # their effect nodes are absent from this graph and a name is all that
@@ -11274,8 +11351,8 @@ def transform_program(program, typechecker, imported_ast=None):
             node = _nodes_for_methods.get(m.node_id)
             if node is not None and node.suspends:
                 suspending_methods.add((sname, m.name))
-            if _really.get(m.node_id):
-                really_suspending_methods.add((sname, m.name))
+            if _own_susp.get(m.node_id):
+                own_suspending_methods.add((sname, m.name))
             if is_std:
                 _declared_by_std.add((sname, m.name))
             elif node is not None:
@@ -11286,7 +11363,7 @@ def transform_program(program, typechecker, imported_ast=None):
         if not _suspends and _pair not in _declared_by_std:
             suspending_methods.discard(_pair)
     typechecker._suspending_methods_set = suspending_methods
-    typechecker._really_suspending_methods_set = really_suspending_methods
+    typechecker._own_suspending_methods_set = own_suspending_methods
 
     new_structs = []
     new_enums = []
@@ -11327,7 +11404,7 @@ def transform_program(program, typechecker, imported_ast=None):
     # `Box2<String>`), so it is registered with the method tables below.
     promoted_methods = _promote_nested_generic_methods(
         program, funcs_by_name, seed_names, _all_exts, suspending_methods,
-        really_suspending_methods, typechecker)
+        own_suspending_methods, typechecker)
 
     # The driven closure: every suspending entry-module free function reachable
     # from a driven root through suspending-call edges. Each becomes a frame +
@@ -11739,7 +11816,18 @@ def transform_program(program, typechecker, imported_ast=None):
                 # until the splice below puts it there: the exact shape of the
                 # SL-280 wedge (`read_chunk` -> `stream.read()`) was refused
                 # entry by the very gate that exists to catch it.
-                if not (t.suspends
+                #
+                # SL-306: the fixpoint's answer is asked WITHOUT the conservative
+                # closure-call source (`_own_susp`), for the same reason the
+                # call-site classifier is — a callee that "suspends" only because
+                # it calls a non-`sync` function value has no park, so a frame
+                # around it is not merely wasteful: the frame runs the
+                # closure-body rejector over the callee's own body, and refused
+                # `outer` for calling a conservative-only helper inside a
+                # `Vector.each` closure (the free-function face of SL-306, probed
+                # and fixed with it). The structural gate beside it is unchanged
+                # and is what still carries the routes this graph cannot see.
+                if not (_own_susp.get(e.target)
                         or (is_free_edge
                             and _structurally_suspends(e.target[1]))):
                     continue

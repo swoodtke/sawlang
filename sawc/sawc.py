@@ -22,7 +22,8 @@ from codegen.core import DEFAULT_OPTIMIZATION_LEVEL
 from errors import (ErrorReporter, ErrorKind, WARNING_CATEGORIES,
                     enable_warnings)
 from typechecker import TypeChecker
-from typechecker.effects import really_suspending
+from typechecker.effects import (really_suspending,
+                                 suspends_ignoring_closure_calls)
 from module_resolver import ModuleResolver, ModulePathError
 from version import SAWC_VERSION
 
@@ -689,6 +690,27 @@ def build_builtin_namespace(verbose: bool = False, freestanding: bool = False,
             std_really_suspending[m.node_id] = (
                 f"`{sname}.{m.name}`", _hops[-1], _line)
     builtin_ns._std_really_suspending_methods = std_really_suspending
+
+    # SL-306: a THIRD census of the same bodies, asked the question the coroutine
+    # transform's call-site classifier needs — "does this method suspend for a
+    # reason of its OWN?", i.e. everything except the conservative closure-call
+    # source (`suspends_ignoring_closure_calls`). Carried as NAME PAIRS, like
+    # `_std_suspending_methods` above and for the same reason: a std method has
+    # no node in the entry graph, so a name is all that crosses.
+    #
+    # Without it the transform could not tell `TcpStream.read` (a real park) from
+    # `JsonValue._write` (a recursion inside a `Vector.each` closure) — the
+    # broad set holds both — so it embedded both, and a frame around `_write`
+    # put the closure-body rejector in front of a program with no suspension in
+    # it (the SL-306 regression).
+    std_suspending_own = set()
+    _own = suspends_ignoring_closure_calls(builtin_tc._suspend_nodes)
+    for ext in getattr(builtin_ast, 'extensions', []):
+        sname = getattr(ext, 'struct_name', None)
+        for m in ext.methods:
+            if _own.get(m.node_id):
+                std_suspending_own.add((sname, m.name))
+    builtin_ns._std_suspending_methods_ignoring_closure_calls = std_suspending_own
 
     # design 121: the same question for FREE std functions (`yield_now`), so
     # `--emit-docs` can report each std item's effect. Same reason the method set
@@ -1657,6 +1679,11 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
     # graph knows that `listener.accept()` / `ch.receive()` is a suspension.
     typechecker._std_really_suspending_methods = getattr(
         builtin_ns, '_std_really_suspending_methods', {})
+    # SL-306: and the census asked WITHOUT the conservative closure-call source,
+    # as name pairs — what the coroutine transform's call-site classifier reads
+    # to tell a real park from a method that only calls a closure.
+    typechecker._std_suspending_methods_ignoring_closure_calls = getattr(
+        builtin_ns, '_std_suspending_methods_ignoring_closure_calls', set())
     # design 82 Part B: the (std symbol name -> owning std file) map, so a bare
     # reference to a non-prelude std symbol errors with a "did you mean import"
     # hint instead of resolving silently.

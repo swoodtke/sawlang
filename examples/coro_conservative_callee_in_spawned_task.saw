@@ -1,0 +1,61 @@
+// SL-306, the SPAWNED-root row of the matrix, and its control: the same
+// conservative-only callees from a task body, beside really-suspending helpers of
+// the same imported module that must STILL be embedded and driven.
+//
+// The control is the load-bearing half. A fix that answered "not suspending" one
+// notch too sharply would drop a real park with nothing said (SL-287's class), so
+// this asserts both directions at once: no frame for the conservative-only
+// callees, a frame for each really-suspending one, and an interleaving — the
+// ticker's lines land between the worker's, which only happens if the worker
+// actually parked at `yield_public` / `yield_via_private`.
+//
+// EXPECT: success
+// COMPILE-FLAGS: --module-path sl306mod={TESTDIR}/modules/sl306mod
+// EXPECT-IR-ABSENT: __Frame_JsonValue__write
+// EXPECT-IR-ABSENT: __Frame_Folder
+// EXPECT-IR-CONTAINS: __Frame_yield_public
+// EXPECT-IR-CONTAINS: __Frame_yield_via_private
+// EXPECT-IR-CONTAINS: __Frame_fold_then_yield
+// EXPECT-OUTPUT:
+// json {"a":1} {"a":1}
+// fold 42 42
+// tick 0
+// tick 1
+// real 2 2 42
+
+import std.json.{JsonValue}
+import std.task.{yield_now}
+import std.channel.{Channel}
+import sl306mod.{Folder, encode_public, encode_via_private, fold_public,
+                 fold_via_private, yield_public, yield_via_private,
+                 fold_then_yield}
+
+func worker(out: Channel<String>) {
+    var doc = JsonValue.Object(fields: Map<String, JsonValue>())
+    let _ = try! doc.as_object()!.insert("a", JsonValue.Number(value: 1))
+    let folder = Folder(seed: 41)
+    let _ = out.send("json {encode_public(&doc)} {encode_via_private(&doc)}")
+    let _ = out.send("fold {fold_public(&folder)} {fold_via_private(&folder)}")
+    // Three real parks, each in a callee the transform must still frame. The
+    // ticker gets its two turns here.
+    let _ = out.send("real {yield_public(1)} {yield_via_private(1)} {fold_then_yield(&folder)}")
+}
+
+func ticker(out: Channel<String>) {
+    for i in 0..2 {
+        yield_now()
+        let _ = out.send("tick {i}")
+    }
+}
+
+func main() {
+    let out = try! Channel<String>()
+    var group = TaskGroup()
+    let a = group.spawn(worker(out.copy()))
+    let b = group.spawn(ticker(out.copy()))
+    for i in 0..5 {
+        print(try! out.receive())
+    }
+    a.join()
+    b.join()
+}
