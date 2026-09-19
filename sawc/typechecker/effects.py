@@ -140,146 +140,313 @@ _BLOCKING_SOURCE_PREFIX = "blocking extern"
 # place that produces it: a call through a non-`sync` function VALUE might
 # suspend, because the value's own effect is not in the type. Every consumer that
 # needs "does this body suspend for a reason of its OWN" strikes out exactly this
-# label — see `suspends_ignoring_closure_calls`.
+# label — see `frame_boundary`.
 CLOSURE_CALL_SOURCE_LABEL = "a call through a non-`sync` function value"
 
+# The two synthetic suspension points (`typechecker/expressions.py`, one site):
+# design 22's effect-only `__saw_test_suspend` and design 44's state boundary
+# `__saw_suspend`, which lower to the same no-op outside a driven closure. Both
+# are FRAME boundaries and neither needs an executor.
+_FRAME_INTRINSIC_LABELS = ("__saw_suspend", "__saw_test_suspend")
 
-def _is_real_source(source: SuspendSource) -> bool:
-    return (source.label in REAL_SUSPEND_LABELS
-            or source.label.startswith(_BLOCKING_SOURCE_PREFIX))
+# design 223 unit 3's source: ``a call through `any Trait` dispatch``, one per
+# trait, so it is matched by prefix. `CLOSURE_CALL_SOURCE_LABEL` is tested for
+# equality before this, and the two spellings differ from the fourth word on.
+_EXISTENTIAL_SOURCE_PREFIX = "a call through `any "
+
+# What `_effect_path` answers when it can reach no source at all — a shape that
+# should not exist for a suspending node. Named so a caller BUILDING a table can
+# test for it instead of letting it reach a user-facing message.
+PATH_PLACEHOLDER_LABEL = "<suspension source>"
 
 
-def suspends_ignoring_blocking(nodes) -> Dict[Any, bool]:
-    """`suspends`, computed with every BLOCKING-EXTERN source struck out.
+# design 275 U4 — THE CAUSES. Every suspension source in the graph is one of
+# these, and the analysis answers ONE question per node: WHICH causes can reach
+# it. Every predicate anybody asks — "must this `sync` body be refused?", "does
+# `main` need an executor?", "must this body be framed?" — is a DERIVED READ of
+# that set (the five named derivations below), so no consumer re-derives a
+# subset privately. A three-valued answer would have forced exactly that
+# re-derivation: the four predicates this unit replaces exist BECAUSE each
+# consumer needs a different subset of the causes.
+class SuspendCause:
+    """One bit per KIND of suspension source.
 
-    The question design 242 ruling 9's blocking-permitted context asks: a
-    `Thread.spawn { ... }` body may block its own thread on FFI (that is the
-    point of spawning one), and must still be refused every OTHER way of
-    suspending — a cooperative primitive, a park, a suspending callee — because
-    there is no executor on that thread to resume it.
-
-    Same shape as the `suspends` fixpoint and as `really_suspending`: monotone,
-    SCC-safe, and computed once per finalize. Blocking-ness is a property of the
-    SOURCE, so a helper the body calls is struck out on the same terms — which
-    is what makes `Thread.spawn { drain(fd) }` legal for a `drain` written
-    around a `blocking` extern.
+    TOTAL over the labels `_effect_direct_source` produces (`_source_class` maps
+    each one); an unrecognized label falls to `UNCLASSIFIED`, whose membership in
+    the derivations below is the conservative one a new source had before this
+    existed.
     """
-    out: Dict[Any, bool] = {}
+    # A real cooperative primitive: `yield_now`, `sleep`, `io_wait`,
+    # `io_wait_until`, `__saw_io_park`, `__saw_chan_park` (REAL_SUSPEND_LABELS),
+    # or a seeded std leaf that reaches one. The body hands control back to the
+    # executor, so there has to BE one.
+    COOPERATIVE = 1
+    # A `blocking` extern call — design 103's thread offload. It needs the
+    # executor too, and design 242 ruling 9 PERMITS it in a `Thread.spawn` body,
+    # which is the one derivation that tells the two apart.
+    BLOCKING = 2
+    # The test-only `__saw_suspend` / `__saw_test_suspend` intrinsic: a frame
+    # boundary the transform must split at (design 44) that codegens to nothing,
+    # so it must never wrap `main` in an executor. This ONE cause is the whole
+    # difference between design 206's predicate and SL-306's, and mistaking it
+    # for the others is the trap SL-306's agent hit.
+    TEST_SUSPEND = 4
+    # A call through `any Trait` dispatch (design 223 unit 3). Conservative — a
+    # vtable word carries no effect — and `_report_existential_suspend_dispatch`
+    # refuses at the DISPATCH when some conformance really suspends. Its OWN
+    # cause because the two predicates it sat between disagreed about it and
+    # always had: design 206's struck it, SL-306's did not. See the note on
+    # `frame_boundary`.
+    EXISTENTIAL_DISPATCH = 8
+    # THE conservative closure-call source (`CLOSURE_CALL_SOURCE_LABEL`): a call
+    # through a non-`sync` function VALUE, which every closure-taking body raises
+    # and which says only "might".
+    CLOSURE_CALL = 16
+    # Any source label this classifier does not know. Never produced today.
+    UNCLASSIFIED = 32
+
+    ALL = (COOPERATIVE | BLOCKING | TEST_SUSPEND | EXISTENTIAL_DISPATCH
+           | CLOSURE_CALL | UNCLASSIFIED)
+    # (bit, name) for reporting — the equivalence probe and any future dump.
+    NAMES = (
+        (COOPERATIVE, "cooperative"),
+        (BLOCKING, "blocking"),
+        (TEST_SUSPEND, "test_suspend"),
+        (EXISTENTIAL_DISPATCH, "existential_dispatch"),
+        (CLOSURE_CALL, "closure_call"),
+        (UNCLASSIFIED, "unclassified"),
+    )
+
+
+def describe_causes(causes: int) -> str:
+    """`{cooperative, closure_call}` — the cause set, spelled, for a report."""
+    named = [name for bit, name in SuspendCause.NAMES if causes & bit]
+    return "{" + ", ".join(named) + "}"
+
+
+# --------------------------------------------------------------------------
+# THE NAMED DERIVATIONS (design 275 U4). ONE row per context decision, each
+# naming its consumers; a consumer that needs a subset no row names ADDS A ROW
+# here rather than combining bits at its own site. These five, and the fact that
+# they are the only readers of a cause set, are what keep the four walkers this
+# unit deleted from growing back.
+# --------------------------------------------------------------------------
+
+def might_suspend(causes: int) -> bool:
+    """ANY cause — "this body is not provably suspension-free".
+
+    THE REFUSING question: a `sync` body that maps a vector with an unknown
+    closure might suspend and is refused on exactly this.
+
+    CONSUMERS: `EffectsMixin.finalize_effects`' sync-context check and
+    `SuspendNode.suspends` (the field every node-holding reader consults);
+    `consumes._check_consumes_suspending_fences` (design 260's two fences);
+    `coro_transform._find_suspending_cycle`, `_default_expr_suspends`, and
+    `transform_program`'s `_suspending_methods_set` census + its
+    `_answered_locally` override; `sawc.build_builtin_namespace`'s
+    `_std_suspending_methods` and `_std_suspending_functions` (the latter read by
+    `docs_emit` for `--emit-docs`).
+    """
+    return bool(causes)
+
+
+def wraps_main(causes: int) -> bool:
+    """`cooperative | blocking` — "a live EXECUTOR has to exist for this".
+
+    Design 45 item 1's entry gate, which is what the row is named for: a
+    suspending `main` is wrapped in the entry executor. `test_suspend` is
+    deliberately OUT (it codegens to nothing and is reached only through an
+    explicit `__saw_drive`), and so are the two conservative causes, which say
+    only that a body might.
+
+    CONSUMERS: `finalize_effects`' `_main_suspends`;
+    `sawc.build_builtin_namespace`'s `_std_really_suspending_methods`, the table
+    `_effect_seed_std_methods` mints leaf nodes from (a merely-conservative std
+    method must not become a leaf, or every `deinit` that maps a vector would be
+    a suspension error); and `_report_existential_suspend_dispatch`, design 223
+    unit 3's refusal, which fires only for a conformance body that really parks.
+    """
+    return bool(causes & (SuspendCause.COOPERATIVE | SuspendCause.BLOCKING))
+
+
+def refused_in_thread_body(causes: int) -> bool:
+    """Every cause but `blocking` — design 242 ruling 9's question.
+
+    A `Thread.spawn { ... }` body may block its own thread on FFI (that is the
+    point of spawning one) and must still be refused every OTHER way of
+    suspending, because no executor runs on that thread to resume it.
+    Blocking-ness is a property of the SOURCE, so a helper the body calls is
+    struck on the same terms — which is what makes `Thread.spawn { drain(fd) }`
+    legal for a `drain` written around a blocking extern.
+
+    CONSUMERS: `finalize_effects`' `blocking_permitted` narrowing, and nothing
+    else — a thread body is the one context that permits one cause and refuses
+    the rest.
+    """
+    return bool(causes & ~SuspendCause.BLOCKING & SuspendCause.ALL)
+
+
+def frame_boundary(causes: int) -> bool:
+    """Every cause but `closure_call` — "this body owns a suspension a FRAME has
+    to be built around".
+
+    `cooperative | blocking | test_suspend` are the boundaries design 44 splits a
+    state machine at. `closure_call` is read for NOTHING here, which is SL-306's
+    rule stated positively: a body that "suspends" only because it calls a
+    non-`sync` function value has no park to host, and framing it put the
+    closure-body rejector in front of programs with no suspension in them.
+
+    THE ONE MEMBERSHIP THAT IS RECORDED RATHER THAN RULED: `existential_dispatch`
+    counts here, because SL-306's predicate counted it and this unit is
+    behaviour-preserving. It is a conservative cause — a vtable word carries no
+    effect, and design 223 refuses the dispatch outright when a conformance body
+    really suspends — so a body whose ONLY cause is one is framed today although
+    it owns no park. Probed, filed, and left alone: moving it into
+    `closure_call`'s half is a behaviour flip that belongs to the ledger unit.
+
+    CONSUMERS: `finalize_effects`' `closure_calls_permitted` narrowing (a
+    SYNTHESIZED frame method's `sync` marker guards exactly this invariant);
+    `coro_transform.transform_program`'s `_own_suspending_methods_set` census and
+    its closure-walk edge-follow; `_promote_nested_generic_calls`'
+    `instantiation_suspends`; and
+    `sawc.build_builtin_namespace`'s `_std_suspending_methods_ignoring_closure_calls`.
+    """
+    return bool(causes & ~SuspendCause.CLOSURE_CALL & SuspendCause.ALL)
+
+
+def closure_only(causes: int) -> bool:
+    """`closure_call` and nothing else — the conservative answer, alone.
+
+    CONSUMERS: none in the compiler today, deliberately. It is the diagnostics
+    row: the answer to "why is this body not framed although it might
+    suspend?", and the shape a future reader should reach for instead of
+    spelling `might_suspend(c) and not frame_boundary(c)` at a site of its own.
+    """
+    return causes == SuspendCause.CLOSURE_CALL
+
+
+def _source_class(source: SuspendSource) -> int:
+    """The ONE mapping from a SOURCE to its `SuspendCause`."""
+    return cause_of_label(source.label)
+
+
+def cause_of_label(label: str) -> int:
+    """The ONE mapping from a source LABEL to its `SuspendCause`.
+
+    Public because `sawc.build_builtin_namespace` asks it of a label it is about
+    to hand to the std seed — the seeded leaf must carry a source for the cause
+    a diagnostic may strike, and "is this label the blocking one?" is this
+    question, not a second prefix test beside it.
+    """
+    if label in REAL_SUSPEND_LABELS:
+        return SuspendCause.COOPERATIVE
+    if label.startswith(_BLOCKING_SOURCE_PREFIX):
+        return SuspendCause.BLOCKING
+    if label == CLOSURE_CALL_SOURCE_LABEL:
+        return SuspendCause.CLOSURE_CALL
+    if label.startswith(_EXISTENTIAL_SOURCE_PREFIX):
+        return SuspendCause.EXISTENTIAL_DISPATCH
+    if label in _FRAME_INTRINSIC_LABELS:
+        return SuspendCause.TEST_SUSPEND
+    return SuspendCause.UNCLASSIFIED
+
+
+class SuspensionAnswers:
+    """The CAUSE SET of every node in one effect graph, and the five derived
+    reads of it (design 275 U4).
+
+    Built by `classify_suspensions`. Nothing outside this file derives a
+    suspension answer from `SuspendSource` labels, walks the edges to find one,
+    or combines cause bits of its own — a consumer asks one of the five named
+    derivations, and a consumer that needs a subset none of them names adds a
+    row up there.
+    """
+
+    __slots__ = ("_causes",)
+
+    def __init__(self, causes: Dict[Any, int]):
+        # key -> the union of every `SuspendCause` bit reachable from that node.
+        self._causes = causes
+
+    def causes(self, key) -> int:
+        """The cause SET reachable from `key` (0 for an unknown key)."""
+        return self._causes.get(key, 0)
+
+    def might_suspend(self, key) -> bool:
+        return might_suspend(self._causes.get(key, 0))
+
+    def wraps_main(self, key) -> bool:
+        return wraps_main(self._causes.get(key, 0))
+
+    def refused_in_thread_body(self, key) -> bool:
+        return refused_in_thread_body(self._causes.get(key, 0))
+
+    def frame_boundary(self, key) -> bool:
+        return frame_boundary(self._causes.get(key, 0))
+
+    def closure_only(self, key) -> bool:
+        return closure_only(self._causes.get(key, 0))
+
+
+def classify_suspensions(nodes) -> SuspensionAnswers:
+    """THE suspension analysis, run ONCE per graph (design 275 U4).
+
+    One monotone, SCC-safe propagation: a node's cause set is the union of its
+    own direct sources' causes and every cause its callees reach. `suspends`,
+    design 206's executor gate, design 242 ruling 9's thread narrowing and
+    SL-306's framing question were four separate walks of this same graph, each
+    computing one BIT of what this computes in one pass; they are the derivations
+    above now, so they cannot drift apart and no consumer can quietly grow a
+    fifth.
+
+    ENTRY POINTS (obligation 1 — every caller, with the derivation it reads):
+
+      * `EffectsMixin.finalize_effects` — stamps `SuspendNode.causes` on every
+        node (so a reader holding a NODE asks the same set, never a second
+        analysis), then reads `wraps_main` for `_main_suspends`,
+        `refused_in_thread_body` for a design-242 thread body, `frame_boundary`
+        for a SYNTHESIZED frame method's `sync` marker, and hands the table to
+        `_report_existential_suspend_dispatch` (`wraps_main`). The sync-context
+        check and `_check_consumes_suspending_fences` read `might_suspend`
+        through `SuspendNode.suspends`.
+      * `sawc.build_builtin_namespace` — the three std censuses over the BUILTIN
+        graph, which the entry compile cannot compute because it never checks a
+        std body: `_std_suspending_methods` (`might_suspend`, name pairs),
+        `_std_really_suspending_methods` (`wraps_main`, keyed by node id — the
+        table `_effect_seed_std_methods` mints leaf nodes from, carrying the
+        CAUSE SET so a seeded leaf answers every derivation the way the std body
+        it stands for does) and
+        `_std_suspending_methods_ignoring_closure_calls` (`frame_boundary`, name
+        pairs), plus `_std_suspending_functions` (`might_suspend`) for
+        `--emit-docs`.
+      * `coro_transform.transform_program` — ONE table for the whole transform,
+        handed down to everything below it: the `(struct, method)` censuses that
+        become `_suspending_methods_set` (`might_suspend`) and
+        `_own_suspending_methods_set` (`frame_boundary`), which
+        `_suspending_method_target` reads in that order (broad gate, then the
+        framing question); the closure walk's edge-follow (`frame_boundary`); and
+        `_promote_nested_generic_calls`' `instantiation_suspends`
+        (`frame_boundary`). `_find_suspending_cycle` and
+        `_default_expr_suspends` read `might_suspend` through the node field.
+    """
+    causes: Dict[Any, int] = {}
     for key, node in nodes.items():
-        out[key] = any(not s.label.startswith(_BLOCKING_SOURCE_PREFIX)
-                       for s in node.direct)
+        mask = node.seeded_causes
+        for s in node.direct:
+            mask |= _source_class(s)
+        causes[key] = mask
     changed = True
     while changed:
         changed = False
         for key, node in nodes.items():
-            if out.get(key):
-                continue
+            mask = causes[key]
+            grown = mask
             for e in node.edges:
-                if out.get(e.target):
-                    out[key] = True
-                    changed = True
-                    break
-    return out
-
-
-def suspends_ignoring_closure_calls(nodes) -> Dict[Any, bool]:
-    """`suspends`, with the CONSERVATIVE closure-call source struck out.
-
-    "Does this body suspend for a reason of its OWN?" — every source counts
-    except `CLOSURE_CALL_SOURCE_LABEL`, which says only that a call through a
-    non-`sync` function value MIGHT. A body whose whole answer is that source
-    (`Vector.each`, `Map.each`, `JsonValue._write`, a user method that calls a
-    closure parameter) has no park to host: the closure's own suspension, if it
-    has one, belongs to the closure body, which is lowered on its own terms.
-
-    ENTRY POINTS (every caller; obligation 1 — this is the funnel):
-      * `sawc.build_builtin_namespace` — the std `(struct, method)` name pairs
-        the coroutine transform's call-site classifier consults, since a std
-        method has no node in the entry graph to ask about.
-      * `coro_transform.transform_program` — the same census over the ENTRY
-        graph, for BOTH the classifier
-        (`_suspending_method_target` / `_promote_nested_generic_methods`) and the
-        closure walk's edge-follow, which decides which callees get a frame.
-      * `coro_transform._promote_nested_generic_calls` — the GENERIC FREE-FUNCTION
-        twin of that promotion (`instantiation_suspends`). Added by SL-306's
-        review: it read the broad bit while the walk beside it asked this, so one
-        instance was framed for a direct driven call and left plain for a
-        conservative-only caller, and the half-lowered body reached codegen.
-      * `EffectsMixin.finalize_effects`'s sync-context check, for a SYNTHESIZED
-        frame method only (`SuspendNode.closure_calls_permitted`) — the same
-        answer read as "did the transform leave a REAL suspension in a resume
-        body?", which is what that `sync` marker actually guards.
-
-    WHY NOT `really_suspending` (SL-306's first, wrong, answer). That question is
-    sharper still: it strikes the test-only `__saw_suspend` intrinsic as well,
-    because a synthetic suspension point must not wrap `main` in an entry
-    executor. But `__saw_suspend` IS a state boundary the transform has to split
-    a frame at (design 44), so asking `really_suspending` here dropped every
-    design-44 test's suspension on the floor — the silent degradation this whole
-    family is about, introduced by the fix for it. One source is struck here, and
-    it is the one that says "might".
-    """
-    out: Dict[Any, bool] = {}
-    for key, node in nodes.items():
-        out[key] = any(s.label != CLOSURE_CALL_SOURCE_LABEL
-                       for s in node.direct)
-    changed = True
-    while changed:
-        changed = False
-        for key, node in nodes.items():
-            if out.get(key):
-                continue
-            for e in node.edges:
-                if out.get(e.target):
-                    out[key] = True
-                    changed = True
-                    break
-    return out
-
-
-def really_suspending(nodes) -> Dict[Any, bool]:
-    """THE answer to "does this body REALLY suspend?", for every node in `nodes`.
-
-    Design 206's funnel: one definition, two typecheckers. Both callers below
-    ask the same question of the same graph shape, and the two used to differ —
-    which is the whole of DF-203a/DF-203b.
-
-    ENTRY POINTS (every caller; process rule 1):
-      * `EffectsMixin.finalize_effects` — the ENTRY compile, for `_main_suspends`
-        (the design-45 item-1 gate that wraps a suspending `main` in the entry
-        executor).
-      * `sawc.build_builtin_namespace` — the BUILTIN compile, for
-        `_std_really_suspending_methods`, the table the entry compile is then
-        seeded with (`EffectsMixin._effect_seed_std_methods`). std bodies are
-        checked only there, so without the table the entry graph believes
-        `listener.accept()` and `ch.receive()` suspend nothing.
-
-    ROUTES a real suspension travels to reach a body (the position matrix this
-    answer quantifies over):
-      1. a direct cooperative primitive in the body — `yield_now()` /
-         `sleep(d)` / `io_wait(fd, dir)` / `__saw_io_park()`;
-      2. a `blocking` extern call (design 103's thread offload);
-      3. a call to another analyzed body that reaches 1-3 (any depth, SCC-safe);
-      4. a call to a std METHOD that reaches 1-3 — carried in as a seeded leaf
-         node, because std bodies belong to a different typechecker's graph.
-    The conservative closure source is deliberately NOT a route: it says
-    "might", and this question is "does".
-    """
-    really: Dict[Any, bool] = {}
-    for key, node in nodes.items():
-        really[key] = any(_is_real_source(s) for s in node.direct)
-    changed = True
-    while changed:
-        changed = False
-        for key, node in nodes.items():
-            if really.get(key):
-                continue
-            for e in node.edges:
-                if really.get(e.target):
-                    really[key] = True
-                    changed = True
-                    break
-    return really
+                grown |= causes.get(e.target, 0)
+            if grown != mask:
+                causes[key] = grown
+                changed = True
+    return SuspensionAnswers(causes)
 
 
 @dataclass
@@ -325,7 +492,18 @@ class SuspendNode:
     closure_calls_permitted: bool = False
     direct: List[SuspendSource] = field(default_factory=list)
     edges: List[SuspendEdge] = field(default_factory=list)
-    suspends: bool = False              # computed by the fixpoint
+    # design 275 U4: THE cause set (`SuspendCause` bits) reaching this node,
+    # stamped by `finalize_effects` out of the one `classify_suspensions` pass.
+    # 0 until the graph has settled — which is also what it means for a node
+    # minted after the last settling.
+    causes: int = 0
+    # Causes this node carries that no `direct` source spells. Exactly one
+    # producer: `_effect_seed_std_methods`, which mints a LEAF for a std method
+    # whose body belongs to another typechecker's graph, carrying the cause set
+    # the builtin compile computed for it. Kept apart from `direct` because
+    # `direct` is also the diagnostic PATH's material (`_effect_path` names one
+    # representative source), and a seeded leaf needs one label and a whole set.
+    seeded_causes: int = 0
     # design 70 (A5) had a `poly_candidate` flag here — set when a body called a
     # method on a type-PARAMETER receiver, and read in exactly one place, to
     # decide whether a deferred template-named call edge was worth materializing
@@ -334,6 +512,20 @@ class SuspendNode:
     # recorded against it at monomorphization time, so there is no deferral left
     # to gate. Per-instantiation effect re-inference is unchanged — it is what
     # the instance check has always been.
+
+    @property
+    def suspends(self) -> bool:
+        """`might_suspend` read off this node's own cause set.
+
+        DERIVED, never assigned, so the broad bit and the cause set cannot
+        disagree the way the separate fixpoints that computed them could
+        (design 275 U4). The readers that hold a node and want this question are
+        `_effect_path`, `_check_consumes_suspending_fences`,
+        `coro_transform._find_suspending_cycle`, `_default_expr_suspends` and
+        the `(struct, method)` census in `transform_program`; a reader that wants
+        another derivation asks `SuspensionAnswers` for it by name.
+        """
+        return might_suspend(self.causes)
 
 
 class EffectsMixin:
@@ -347,6 +539,11 @@ class EffectsMixin:
         # free-function key is a tuple, a method/closure key a plain int.
         self._suspend_nodes: Dict[Any, SuspendNode] = {}
         self._suspend_stack: List[SuspendNode] = []
+        # design 275 U4: the last settling's `SuspensionAnswers` — the ONE walk
+        # `finalize_effects` computes, kept so a reader that has the typechecker
+        # but not a node can ask the same table rather than walk again. Empty
+        # until the first settling.
+        self._suspension_answers = SuspensionAnswers({})
         # design 206: the std METHODS that REALLY suspend, as
         # `Method.node_id -> (short, real-source label, line)`. Empty here and
         # filled by the driver out of the builtin namespace (`sawc.py`), because
@@ -438,7 +635,7 @@ class EffectsMixin:
         # caller embeds the callee's frame by value — and dynamic dispatch has
         # none, so a suspending conformance body reached through `any Trait` can
         # neither be embedded nor driven. It was not refused either: the dispatch
-        # is a merely-CONSERVATIVE suspension source (`really_suspending`
+        # is a merely-CONSERVATIVE suspension source (the executor question
         # excludes it, exactly as it excludes a call through a closure), so no
         # frame was built anywhere in the program and the `yield_now()` inside
         # the impl ran outside a frame, where it is a no-op.
@@ -693,7 +890,7 @@ class EffectsMixin:
         suspends (design 22 known-hard case: effect polymorphism).
 
         THE one producer of `CLOSURE_CALL_SOURCE_LABEL`, which is what lets
-        `suspends_ignoring_closure_calls` strike this source and only this one."""
+        `frame_boundary` strike this cause and only this one."""
         if not getattr(func_type, "func_is_sync", False):
             self._effect_direct_source(CLOSURE_CALL_SOURCE_LABEL, line)
 
@@ -1004,20 +1201,33 @@ class EffectsMixin:
         the representative REAL source the builtin graph walked to, so a sync
         violation through a std method still names the primitive it ends at.
 
-        Only REALLY-suspending methods are seeded (`really_suspending`'s gate):
+        Only REALLY-suspending methods are seeded (`wraps_main`'s gate):
         `Vector.map` and friends "suspend" solely by the conservative
         closure-call rule, and minting nodes for those would flag every
         `sync`/`deinit` body that maps a vector. A merely-conservative std
         method keeps the design-84 treatment it already had — the
         `_std_suspending_methods` name set the coroutine transform consults
         structurally.
+
+        Each seeded leaf carries the std method's whole CAUSE SET (design 275
+        U4), not a bit: the LABEL is one representative source, for the
+        diagnostic path, and `seeded_causes` is what every derivation reads, so a
+        leaf answers `refused_in_thread_body` and `frame_boundary` the way the
+        std body it stands for does instead of the way its one label happens to.
         """
         table = self._std_really_suspending_methods
         if not table:
             return
-        for node_id, (short, label, line) in table.items():
+        for node_id, (short, label, line, causes, alt) in table.items():
             if node_id in self._suspend_nodes:
                 continue
+            # Representative FIRST, so a reader that strikes nothing sees the
+            # label it always saw; the alternate is the source a striking reader
+            # (design 242's thread body strikes `blocking`) needs to find here
+            # instead of dead-ending at the leaf.
+            direct = [SuspendSource(label=label, line=line)]
+            if alt is not None:
+                direct.append(SuspendSource(label=alt[0], line=alt[1]))
             self._suspend_nodes[node_id] = SuspendNode(
                 key=node_id,
                 short=short,
@@ -1025,7 +1235,8 @@ class EffectsMixin:
                 line=line,
                 column=1,
                 source_file=None,
-                direct=[SuspendSource(label=label, line=line)],
+                direct=direct,
+                seeded_causes=causes,
             )
 
     # -------------------------------------------------- fixpoint + diagnostics
@@ -1070,25 +1281,15 @@ class EffectsMixin:
         self._effect_seed_std_methods()
 
         nodes = self._suspend_nodes
-        # Iterate to fixpoint. Correct for mutual recursion and SCCs: a node
-        # flips to `suspends` once any source or any suspending callee is seen,
-        # and flips are monotone, so the loop terminates in <= |nodes| sweeps.
-        changed = True
-        while changed:
-            changed = False
-            for node in nodes.values():
-                if node.suspends:
-                    continue
-                s = bool(node.direct)
-                if not s:
-                    for e in node.edges:
-                        t = nodes.get(e.target)
-                        if t is not None and t.suspends:
-                            s = True
-                            break
-                if s:
-                    node.suspends = True
-                    changed = True
+        # design 275 U4: ONE walk, and every question below is a mask over it.
+        # Correct for mutual recursion and SCCs (monotone class union, so the
+        # loop terminates), and re-entrant for the reason the docstring gives —
+        # the graph only ever GROWS between settlings, so a fresh classification
+        # can only move a node up the lattice, never back down.
+        answers = classify_suspensions(nodes)
+        self._suspension_answers = answers
+        for key, node in nodes.items():
+            node.causes = answers.causes(key)
 
         # design 45 item 1: record whether `main` REALLY suspends -- reaches a
         # real cooperative primitive (`yield_now`/`sleep`) -- so the pipeline wraps
@@ -1098,43 +1299,39 @@ class EffectsMixin:
         # only with explicit `__saw_drive`) must NOT auto-wrap main.
         # design 76: `__saw_io_park` (IO reactor) and blocking-extern offload are also
         # REAL suspensions that must wrap `main` in the entry executor.
-        # design 206: the gate reads `really_suspending` — the ONE definition,
-        # shared with the builtin compile that supplies the std method table.
-        self._main_suspends = bool(really_suspending(nodes).get(("fn", "main")))
+        # design 206: the gate reads the executor question — one definition,
+        # shared with the builtin compile that supplies the std method table, and
+        # since design 275 U4 a derived read of the analysis above rather than a
+        # walk of its own.
+        self._main_suspends = answers.wraps_main(("fn", "main"))
 
         # design 260: the two fences a SUSPENDING consuming body meets. Decided
         # here because "does this body suspend?" is a whole-program answer.
         self._check_consumes_suspending_fences(nodes)
 
         # design 242 ruling 9: a blocking-permitted context asks a narrower
-        # question, so the second fixpoint is computed only if one exists.
-        beyond_blocking = None
-        beyond_closure_calls = None
+        # question. Both narrowings below are DERIVED READS of the one analysis
+        # now (design 275 U4) — they used to be a second and a third fixpoint,
+        # computed lazily because each cost a whole pass over the graph.
         for node in nodes.values():
             if not (node.sync_reason and node.suspends):
                 continue
-            if node.blocking_permitted:
-                if beyond_blocking is None:
-                    beyond_blocking = suspends_ignoring_blocking(nodes)
-                if not beyond_blocking.get(node.key):
-                    continue
+            if (node.blocking_permitted
+                    and not answers.refused_in_thread_body(node.key)):
+                continue
             # SL-306 review r2: a SYNTHESIZED frame method asks the narrower
-            # question, for the reason `closure_calls_permitted` states. Same
-            # shape as the blocking narrowing above, one source instead of one
-            # class of source, and computed only if such a context exists.
-            if node.closure_calls_permitted:
-                if beyond_closure_calls is None:
-                    beyond_closure_calls = suspends_ignoring_closure_calls(nodes)
-                if not beyond_closure_calls.get(node.key):
-                    continue
+            # question, for the reason `closure_calls_permitted` states — the
+            # framing question.
+            if node.closure_calls_permitted and not answers.frame_boundary(node.key):
+                continue
             if ("sync", node.key) in self._effects_reported:
                 continue
             self._effects_reported.add(("sync", node.key))
             self._report_sync_violation(node)
 
-        self._report_existential_suspend_dispatch(really_suspending(nodes))
+        self._report_existential_suspend_dispatch(answers)
 
-    def _report_existential_suspend_dispatch(self, really):
+    def _report_existential_suspend_dispatch(self, answers):
         """design 223 unit 3 (DF-223b): refuse a dispatch through `any Trait` to
         a trait method some conformance implements with a SUSPENDING body.
 
@@ -1155,7 +1352,11 @@ class EffectsMixin:
             trait_name, method_name, line, column, src = site
             impls = self._trait_impl_nodes.get((trait_name, method_name), ())
             for node_id, owner in impls:
-                if not really.get(node_id):
+                # The EXECUTOR question (`wraps_main`, design 206's old
+                # `really_suspending`): a conformance body whose only suspension
+                # is the test-only `__saw_suspend` is not refused here, exactly
+                # as before.
+                if not answers.wraps_main(node_id):
                     continue
                 if ("existential", site) in self._effects_reported:
                     break
@@ -1201,6 +1402,14 @@ class EffectsMixin:
         in a blocking-permitted context those are legal, so a path that names one
         would point at the wrong line — the reader needs the cooperative
         suspension that actually broke the rule.
+
+        A SEEDED std leaf is why `direct` may hold more than one source: a std
+        method with several causes carries one per cause (design 275 U4), in
+        representative-first order, so `own[0]` below is the same label every
+        non-striking reader has always seen while a striking one still finds the
+        source that satisfies its own question. Without that second source the
+        walk dead-ends at the leaf and falls to `PATH_PLACEHOLDER_LABEL`, which
+        is what `Thread.spawn { c.output() }` printed.
         """
         visited = set()
 
@@ -1208,7 +1417,7 @@ class EffectsMixin:
             if not skip_blocking:
                 return n.direct
             return [s for s in n.direct
-                    if not s.label.startswith(_BLOCKING_SOURCE_PREFIX)]
+                    if not _source_class(s) & SuspendCause.BLOCKING]
 
         def walk(n: SuspendNode):
             visited.add(n.key)
@@ -1227,6 +1436,8 @@ class EffectsMixin:
 
         result = walk(node)
         if result is None:
-            # Should not happen for a suspending node, but stay robust.
-            return (["<suspension source>"], node.short, node.line)
+            # Should not happen for a suspending node, but stay robust. A reader
+            # that CONSTRUCTS a path for a table (the std seed) tests for this
+            # label rather than shipping it into a user-facing message.
+            return ([PATH_PLACEHOLDER_LABEL], node.short, node.line)
         return result

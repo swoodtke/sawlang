@@ -85,7 +85,11 @@ SIX FAMILIES. Five ride the AST as DECLARED `annotation(...)` fields (design
    `IfLetExpr._coro_split`, `WhileExpr.diverges`. BESIDE the AST: the design-22
    effect graph (`typechecker._suspend_nodes`, keyed by `node_id` for a method
    and `("fn", name)` for a function), whose one answer is
-   `effects.really_suspending`. The graph is the single family that is not an
+   `effects.classify_suspensions` — the CAUSE SET per node (design 275 U4:
+   which of `cooperative` / `blocking` / `test_suspend` / `closure_call` /
+   `existential_dispatch` can reach it), of which this transform reads the
+   `frame_boundary` derivation and nothing else; the conservative closure call
+   is read here for nothing at all. The graph is the single family that is not an
    annotation, and it is keyed by `node_id` — per-declaration and serializable
    exactly as the AST is. It is CARRIED for a non-generic embed and RE-DERIVED
    for a generic instantiation, because designs 70/74 make effects depend on
@@ -1916,7 +1920,7 @@ def _suspending_method_target(mc, tc):
     # suspending-method set is the BROAD one: it holds `Vector.each`, `Map.each`,
     # `JsonValue._write` and every method that reaches one, which "suspend"
     # solely by the rule that a call through a non-`sync` function value might
-    # (`effects.suspends_ignoring_closure_calls` strikes exactly that source). A
+    # (`effects.frame_boundary` strikes exactly that source). A
     # method that suspends no other way has no park to host, so there is nothing
     # for this call site to embed OR to refuse — it lowers as the plain call it
     # is, which is what the callee's own body compiles to.
@@ -10747,7 +10751,7 @@ def _names_the_survivors_call(program, removed, extra_decls):
 
 
 def _promote_nested_generic_calls(program, funcs_by_name, seed_names, typechecker,
-                                  imported_ast=None):
+                                  imported_ast=None, answers=None):
     """design 74 (A5-rest, shape 3). Walk every driven body (and, transitively, the
     bodies of the concrete instantiations it pulls in) for a NESTED suspending
     generic call in a drivable position — a top-level or control-flow-body
@@ -10771,11 +10775,21 @@ def _promote_nested_generic_calls(program, funcs_by_name, seed_names, typechecke
     Only suspending instantiations are promoted; a non-suspending generic call is
     left for codegen's normal monomorphization. Idempotent per mangled symbol."""
     from codegen.mangle import mangle_function
-    from typechecker.effects import suspends_ignoring_closure_calls
+    from typechecker.effects import classify_suspensions
     nodes = getattr(typechecker, "_suspend_nodes", {})
     # SL-306: the promotion criterion, through the funnel every other framing
     # decision now goes through (see `instantiation_suspends`).
-    own_suspends = suspends_ignoring_closure_calls(nodes)
+    #
+    # design 275 U4: `answers` is `transform_program`'s ONE table, handed down
+    # rather than recomputed — this walk runs once per body that JOINS the
+    # driven closure (`_promote_joining_body`), so a walk of its own was a walk
+    # of the whole graph per body. The graph is fixed for the length of the
+    # transform: phase 2 registered and instance-checked every instance this
+    # adopts before `transform_program` was entered, and the synthesized
+    # declarations that extend it are admitted (and re-settled) afterwards.
+    # None only for a caller outside that ordering, which is nobody today.
+    if answers is None:
+        answers = classify_suspensions(nodes)
     resolve = getattr(typechecker, "_resolve_type", None)
     # Phase 2's instances, by mangled name — the store this walk adopts from.
     spliced = {f.name: f for f in (getattr(imported_ast, 'functions', None) or [])
@@ -10791,7 +10805,7 @@ def _promote_nested_generic_calls(program, funcs_by_name, seed_names, typechecke
         """Does this instantiation OWN a suspension? (SL-306 review r1, codex P1.)
 
         The SAME question the closure walk's edge-follow and
-        `_suspending_method_target` ask — `effects.suspends_ignoring_closure_calls`
+        `_suspending_method_target` ask — `effects.frame_boundary`
         — and it has to be the same one, because promotion and framing are one
         decision seen from two ends. This read the BROAD `suspends` bit, so a
         generic instantiation that suspends only through the conservative
@@ -10809,7 +10823,7 @@ def _promote_nested_generic_calls(program, funcs_by_name, seed_names, typechecke
         monomorphization serves them — which is what the un-promoted arm already
         documents for every other non-suspending generic call."""
         node = nodes.get(("fn", mangled))
-        return node is not None and bool(own_suspends.get(("fn", mangled)))
+        return node is not None and answers.frame_boundary(("fn", mangled))
 
     def maybe_promote(fc):
         """If `fc` is a suspending generic free-function call, splice + rewrite it.
@@ -11312,24 +11326,29 @@ def transform_program(program, typechecker, imported_ast=None):
     _nodes_for_methods = getattr(typechecker, "_suspend_nodes", {})
     suspending_methods = set(getattr(typechecker, "_std_suspending_methods", set()))
     # design 223, sharpened by SL-306: the same census, asked WITHOUT the
-    # conservative closure-call source — does this method suspend for a reason of
-    # its OWN (`suspends_ignoring_closure_calls`), or only because it calls a
+    # conservative closure-call cause — does this method suspend for a reason of
+    # its OWN (`frame_boundary`), or only because it calls a
     # non-`sync` function value, which any closure-taking method does? The two
     # sets differ on `Vector.each`, `Map.each`, `JsonValue._write` and every
     # method that reaches one, and the difference decides whether a call site
     # embeds the callee's frame at all.
     #
-    # design 223 asked `really_suspending` here, which is SHARPER STILL and was
-    # wrong for this question: it also strikes the test-only `__saw_suspend`,
+    # design 223 asked the EXECUTOR question here, which is SHARPER STILL and
+    # was wrong for this one: it also strikes the test-only `__saw_suspend`,
     # which IS a state boundary the transform must split a frame at (design 44),
     # so gating on it dropped every design-44 test's suspension — an internal
     # compiler error where the method body had been stripped, and a silent sync
-    # call where it had not. One source is struck, and it is the one that says
+    # call where it had not. One cause is struck, and it is the one that says
     # "might".
-    from typechecker.effects import (
-        suspends_ignoring_closure_calls as _suspends_ignoring_closure_calls)
+    #
+    # design 275 U4: ONE analysis of the graph, run once here and read by every
+    # framing decision in this transform — the census below, the closure walk's
+    # edge-follow, and both generic promotions. `might_suspend` and
+    # `frame_boundary` are two DERIVED READS of one cause set now, not two walks
+    # of one graph.
+    from typechecker.effects import classify_suspensions as _classify_suspensions
     from type_identity import std_leaf as _std_leaf
-    _own_susp = _suspends_ignoring_closure_calls(_nodes_for_methods)
+    _answers = _classify_suspensions(_nodes_for_methods)
     # SEEDED from the builtin compile's own answer, exactly as
     # `suspending_methods` is seeded from `_std_suspending_methods` above. std
     # bodies belong to a different typechecker, so a std method has no node in
@@ -11363,16 +11382,16 @@ def transform_program(program, typechecker, imported_ast=None):
         is_std = _std_leaf(getattr(ext, 'source_file', None)) is not None
         for m in ext.methods:
             node = _nodes_for_methods.get(m.node_id)
-            if node is not None and node.suspends:
+            if _answers.might_suspend(m.node_id):
                 suspending_methods.add((sname, m.name))
-            if _own_susp.get(m.node_id):
+            if _answers.frame_boundary(m.node_id):
                 own_suspending_methods.add((sname, m.name))
             if is_std:
                 _declared_by_std.add((sname, m.name))
             elif node is not None:
                 _answered_locally[(sname, m.name)] = (
                     _answered_locally.get((sname, m.name), False)
-                    or node.suspends)
+                    or _answers.might_suspend(m.node_id))
     for _pair, _suspends in _answered_locally.items():
         if not _suspends and _pair not in _declared_by_std:
             suspending_methods.discard(_pair)
@@ -11408,7 +11427,8 @@ def transform_program(program, typechecker, imported_ast=None):
     if main_suspends:
         seed_names.append("main")
     promoted = _promote_nested_generic_calls(
-        program, funcs_by_name, seed_names, typechecker, imported_ast)
+        program, funcs_by_name, seed_names, typechecker, imported_ast,
+        answers=_answers)
     # design 223 unit 1: the METHOD twin of that promotion. A suspending method
     # whose frame identity needs an instantiation — one on a generic struct, or
     # a method-level generic — gets that instantiation built here and its frame
@@ -11722,7 +11742,8 @@ def transform_program(program, typechecker, imported_ast=None):
         string-hash order, and it would reach `closure`, then `fbs`, then the
         order the frame structs are emitted in."""
         for _m in sorted(_promote_nested_generic_calls(
-                program, funcs_by_name, [name], typechecker, imported_ast)):
+                program, funcs_by_name, [name], typechecker, imported_ast,
+                answers=_answers)):
             work.append(("fn", _m))
 
     closure = []
@@ -11832,7 +11853,7 @@ def transform_program(program, typechecker, imported_ast=None):
                 # entry by the very gate that exists to catch it.
                 #
                 # SL-306: the fixpoint's answer is asked WITHOUT the conservative
-                # closure-call source (`_own_susp`), for the same reason the
+                # closure-call cause (`_answers.frame_boundary`), for the same reason the
                 # call-site classifier is — a callee that "suspends" only because
                 # it calls a non-`sync` function value has no park, so a frame
                 # around it is not merely wasteful: the frame runs the
@@ -11841,7 +11862,7 @@ def transform_program(program, typechecker, imported_ast=None):
                 # `Vector.each` closure (the free-function face of SL-306, probed
                 # and fixed with it). The structural gate beside it is unchanged
                 # and is what still carries the routes this graph cannot see.
-                if not (_own_susp.get(e.target)
+                if not (_answers.frame_boundary(e.target)
                         or (is_free_edge
                             and _structurally_suspends(e.target[1]))):
                     continue

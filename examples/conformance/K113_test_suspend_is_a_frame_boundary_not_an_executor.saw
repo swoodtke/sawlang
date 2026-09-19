@@ -1,0 +1,45 @@
+// K113 — design 275 U4, the `test_suspend` cause in the `main` context. It is a
+// FRAME BOUNDARY and NOT an executor obligation, and those are two derived reads
+// of one cause set.
+//
+// `frame_boundary` counts it: design 44 splits a driven body's state machine at
+// it, so `driven` below gets a frame and resumes across it. `wraps_main`
+// (design 45 item 1's gate) does NOT: the intrinsic codegens to nothing and is
+// reached only through an explicit `__saw_drive`, so a `main` whose only
+// suspension is one is left an ordinary function — no frame, no entry executor
+// wrapped around it.
+//
+// One class, two answers, and mistaking either for the other has cost a
+// landing each way: gating the framing question on the executor one dropped
+// every design-44 test's suspension (SL-306's first fix), and gating the
+// executor question on the framing one would wrap a plain `main` in a scheduler
+// nothing ever cedes to.
+//
+// `__Frame_main` IS the executor gate's answer, read off the IR: a `main` the
+// gate says suspends becomes a frame with a driver wrapped around it (every
+// `yield_now`-in-main test in the corpus asserts that frame's presence), and one
+// it says does not stays the plain function it was written as.
+//
+// EXPECT: success
+// EXPECT-IR-CONTAINS: __Frame_driven
+// EXPECT-IR-ABSENT: __Frame_main
+// EXPECT-OUTPUT:
+// before
+// driven 12
+// after
+
+func driven(n: Int) -> Int {
+    let bumped = n + 1
+    __saw_suspend()
+    bumped + 1
+}
+
+func main() {
+    print("before")
+    print("driven {__saw_drive(driven(10))}")
+    // The same intrinsic in `main`'s own body: a state boundary the transform
+    // would split at inside a driven frame, and no reason at all to give `main`
+    // an executor.
+    __saw_suspend()
+    print("after")
+}

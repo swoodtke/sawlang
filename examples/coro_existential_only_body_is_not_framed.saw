@@ -1,0 +1,51 @@
+// XFAIL: SL-323 — a body whose ONLY suspension cause is an `any Trait` dispatch
+// is framed by the coroutine transform, although a dispatch owns no park.
+//
+// The cause is CONSERVATIVE: a vtable word carries no effect, and design 223
+// unit 3 refuses the dispatch outright when some conformance implements the
+// method with a really-suspending body — so no frame is ever owed for one. The
+// two predicates design 275 U4 replaced disagreed about it and always had
+// (design 206's executor question struck it, SL-306's framing question did not),
+// and the transform frames on the second. `via_existential` is therefore pulled
+// into the driven closure, and design 88's fence then refuses its erased
+// parameter for a frame it never needed:
+//
+//   error: coroutine transform: `g: &any Greeter` cannot be a parameter of the
+//          suspending function `via_existential`. A reference that spans a
+//          suspension is held in the frame as a handle to its referent ...
+//
+// The directives below are the INTENDED behaviour: nothing here suspends but
+// `root`'s own `__saw_suspend`, so `via_existential` is an ordinary call and
+// gets no frame. When `existential_dispatch` moves into the conservative half
+// (SL-318 U1/U2), this XPASSes.
+//
+// EXPECT: success
+// EXPECT-IR-ABSENT: __Frame_via_existential
+// EXPECT-IR-CONTAINS: __Frame_root
+// EXPECT-OUTPUT:
+// 6
+
+trait Greeter {
+    func greet(&self) -> Int
+}
+
+struct A { n: Int }
+
+extension A: Greeter {
+    func greet(&self) -> Int { self.n }
+}
+
+func via_existential(g: &any Greeter) -> Int {
+    g.greet()
+}
+
+func root() -> Int {
+    let a = A(n: 5)
+    let x = via_existential(&a)
+    __saw_suspend()
+    x + 1
+}
+
+func main() {
+    print(__saw_drive(root()))
+}

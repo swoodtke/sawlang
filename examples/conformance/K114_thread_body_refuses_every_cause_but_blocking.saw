@@ -1,0 +1,49 @@
+// K114 — design 275 U4, the THREAD-BODY context for the two causes K83 and K84
+// left unmeasured. Design 242 ruling 9 permits exactly ONE cause in a
+// `Thread.spawn { ... }` body — `blocking`, because blocking that thread is the
+// reason to spawn one — and refuses every other, because no executor runs there
+// to resume a suspension. K83 pins the `cooperative` cell and K84 the `blocking`
+// one; these are `test_suspend` and `closure_call`.
+//
+// Both are worth their own cells because each is the cause that ONE of the four
+// deleted walkers treated differently from the others: `test_suspend` is the one
+// design 206's predicate struck, and `closure_call` is the one SL-306's struck.
+// The thread body is the context that reads neither — its derivation
+// (`refused_in_thread_body`) is "every cause but `blocking`", so both refusals
+// come out of the same row rather than out of two predicates that happened to
+// agree.
+//
+// The chain in each message is the oracle: the refusal must name the CAUSE it
+// found, not merely the callee, which is what tells `apply` (a closure call, no
+// park) from `boundary` (a state boundary) in a diagnostic.
+//
+// The MULTI-CAUSE std method — a body reached through a seeded leaf that both
+// parks cooperatively and offloads a blocking extern — is K112's row and lives
+// in its own file: a compile stops after a settling that reported errors, and
+// that refusal is only reached at a later one (SL-327), so beside these two
+// cells its message would never be emitted.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot suspend in a `Thread.spawn { ... }` body
+// EXPECT-ERROR-CONTAINS: __saw_suspend
+// EXPECT-ERROR-CONTAINS: a call through a non-`sync` function value
+// EXPECT-ERROR-CONTAINS: a spawned thread runs no executor
+
+func apply(f: (Int) -> Int) -> Int {
+    f(1)
+}
+
+func boundary() -> Int {
+    __saw_suspend()
+    2
+}
+
+func main() {
+    // `test_suspend`: a state boundary, and a thread has nothing to resume it.
+    var a = Thread.spawn { boundary() }
+    print(a.join())
+    // `closure_call`: the conservative cause, refused here exactly as in any
+    // other `sync` context — a thread body narrows ONE rule, not this one.
+    var b = Thread.spawn { apply({ v in v + 1 }) }
+    print(b.join())
+}

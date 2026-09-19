@@ -22,8 +22,8 @@ from codegen.core import DEFAULT_OPTIMIZATION_LEVEL
 from errors import (ErrorReporter, ErrorKind, WARNING_CATEGORIES,
                     enable_warnings)
 from typechecker import TypeChecker
-from typechecker.effects import (really_suspending,
-                                 suspends_ignoring_closure_calls)
+from typechecker.effects import (PATH_PLACEHOLDER_LABEL, SuspendCause,
+                                 cause_of_label, classify_suspensions)
 from module_resolver import ModuleResolver, ModulePathError
 from version import SAWC_VERSION
 
@@ -625,12 +625,16 @@ def build_builtin_namespace(verbose: bool = False, freestanding: bool = False,
     # checks std bodies (they are pre-checked here), so it cannot infer these on
     # its own; carrying the set lets the coroutine transform embed a nested
     # suspending std method called from an entry-module driven/spawned body.
+    #
+    # design 275 U4: ONE analysis of the builtin graph, read three ways below
+    # (`might_suspend`, `wraps_main`, `frame_boundary`) — three censuses of the
+    # same bodies that used to be three separate walks of it.
+    std_answers = classify_suspensions(builtin_tc._suspend_nodes)
     std_suspending = set()
     for ext in getattr(builtin_ast, 'extensions', []):
         sname = getattr(ext, 'struct_name', None)
         for m in ext.methods:
-            node = builtin_tc._suspend_nodes.get(m.node_id)
-            if node is not None and node.suspends:
+            if std_answers.might_suspend(m.node_id):
                 std_suspending.add((sname, m.name))
     builtin_ns._std_suspending_methods = std_suspending
 
@@ -645,23 +649,46 @@ def build_builtin_namespace(verbose: bool = False, freestanding: bool = False,
     # Narrow on purpose: `Vector.map` suspends only by the conservative
     # closure-call rule, and a leaf node for THAT would make every `deinit` that
     # maps a vector a suspension error.
+    #
+    # design 275 U4: the entry carries the method's whole CAUSE SET beside that
+    # representative label, so the leaf the entry compile mints answers every
+    # derivation the way the std body does. The GATE is unchanged and is
+    # `wraps_main` — a merely-conservative std method is still not seeded.
+    #
+    # AND A SECOND LABEL, for a MULTI-CAUSE method. One label cannot spell a set:
+    # `Command.output` parks cooperatively on the child's exit AND offloads the
+    # pipe drain through a `blocking` extern, and the walk above ends at whichever
+    # of the two it reaches first. A diagnostic that STRIKES one class of source —
+    # design 242 ruling 9's thread body strikes `blocking` — then finds nothing to
+    # name at the leaf and falls back to `_effect_path`'s `<suspension source>`
+    # placeholder. So the non-blocking path is walked here too (the builtin graph
+    # is the only place it can be), and the leaf carries a source for each, in
+    # this order: every reader that does not strike anything still sees the same
+    # representative it always did.
     std_really_suspending = {}
-    _really = really_suspending(builtin_tc._suspend_nodes)
     for ext in getattr(builtin_ast, 'extensions', []):
         sname = getattr(ext, 'struct_name', None)
         for m in ext.methods:
             node = builtin_tc._suspend_nodes.get(m.node_id)
-            if node is None or not _really.get(m.node_id):
+            if node is None or not std_answers.wraps_main(m.node_id):
                 continue
             _hops, _short, _line = builtin_tc._effect_path(node)
+            _alt = None
+            if (std_answers.refused_in_thread_body(m.node_id)
+                    and cause_of_label(_hops[-1]) & SuspendCause.BLOCKING):
+                _alt_hops, _alt_short, _alt_line = builtin_tc._effect_path(
+                    node, skip_blocking=True)
+                if _alt_hops[-1] != PATH_PLACEHOLDER_LABEL:
+                    _alt = (_alt_hops[-1], _alt_line)
             std_really_suspending[m.node_id] = (
-                f"`{sname}.{m.name}`", _hops[-1], _line)
+                f"`{sname}.{m.name}`", _hops[-1], _line,
+                std_answers.causes(m.node_id), _alt)
     builtin_ns._std_really_suspending_methods = std_really_suspending
 
     # SL-306: a THIRD census of the same bodies, asked the question the coroutine
     # transform's call-site classifier needs — "does this method suspend for a
     # reason of its OWN?", i.e. everything except the conservative closure-call
-    # source (`suspends_ignoring_closure_calls`). Carried as NAME PAIRS, like
+    # cause (`frame_boundary`). Carried as NAME PAIRS, like
     # `_std_suspending_methods` above and for the same reason: a std method has
     # no node in the entry graph, so a name is all that crosses.
     #
@@ -671,11 +698,10 @@ def build_builtin_namespace(verbose: bool = False, freestanding: bool = False,
     # put the closure-body rejector in front of a program with no suspension in
     # it (the SL-306 regression).
     std_suspending_own = set()
-    _own = suspends_ignoring_closure_calls(builtin_tc._suspend_nodes)
     for ext in getattr(builtin_ast, 'extensions', []):
         sname = getattr(ext, 'struct_name', None)
         for m in ext.methods:
-            if _own.get(m.node_id):
+            if std_answers.frame_boundary(m.node_id):
                 std_suspending_own.add((sname, m.name))
     builtin_ns._std_suspending_methods_ignoring_closure_calls = std_suspending_own
 
@@ -684,9 +710,8 @@ def build_builtin_namespace(verbose: bool = False, freestanding: bool = False,
     # exists — only the builtin typechecker ever analyzes std bodies.
     std_suspending_funcs = set()
     for fn in getattr(builtin_ast, 'functions', []):
-        node = builtin_tc._suspend_nodes.get(
-            ("fn", getattr(fn, 'mangled_symbol', None) or fn.name))
-        if node is not None and node.suspends:
+        if std_answers.might_suspend(
+                ("fn", getattr(fn, 'mangled_symbol', None) or fn.name)):
             std_suspending_funcs.add(fn.name)
     builtin_ns._std_suspending_functions = std_suspending_funcs
 

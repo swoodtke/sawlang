@@ -1,0 +1,134 @@
+// K111-K115, the FRAMED-BODY column. design 275 U4: the effect graph answers,
+// once per node, WHICH CAUSES a suspension can reach it by — `cooperative`,
+// `blocking`, `test_suspend`, `closure_call` (and, today, `existential_dispatch`)
+// — and each context reads the causes it must. This file is the framed-body
+// context: a frame is built for every cause EXCEPT the conservative closure
+// call, at every shape a callee takes, all in one compile so the shapes cannot
+// disagree the way four separate walkers of one graph could.
+//
+// The IR assertions are the oracle: every cell prints the same number whether or
+// not a frame was built, which is what made the SL-306 family invisible to
+// output alone.
+//
+//   shape              framed (cooperative/test_suspend)   not framed (closure_call)
+//   free function      really_free, boundary               closure_only_free
+//   method             Widget.tick                         Widget.fold
+//   generic instance   hop<Int>                            pass<Int>
+//   imported helper    yield_public, yield_via_private     fold_public, fold_via_private
+//   no cause at all    --                                  plain_free
+//   closure body       (K105's row covers both directions)
+//
+// `boundary` is the cell the two deleted predicates disagreed about: the
+// EXECUTOR question strikes `test_suspend` (a synthetic suspension point must
+// not wrap `main` in the entry executor — K113) while the FRAMING question must
+// not, because it is a state boundary a frame has to split at (design 44).
+// Asking the executor question here dropped every design-44 test's suspension
+// on the floor, which is the trap SL-306's agent hit.
+//
+// EXPECT: success
+// COMPILE-FLAGS: --module-path sl306mod={TESTDIR}/../modules/sl306mod
+// EXPECT-IR-CONTAINS: __Frame_really_free
+// EXPECT-IR-CONTAINS: __Frame_boundary
+// EXPECT-IR-CONTAINS: __Frame_Widget_tick
+// EXPECT-IR-CONTAINS: __Frame_hop
+// EXPECT-IR-CONTAINS: __Frame_yield_via_private
+// EXPECT-IR-CONTAINS: __Frame__yield_private
+// EXPECT-IR-ABSENT: __Frame_closure_only_free
+// EXPECT-IR-ABSENT: __Frame_plain_free
+// EXPECT-IR-ABSENT: __Frame_Widget_fold
+// EXPECT-IR-ABSENT: __Frame_pass
+// EXPECT-IR-ABSENT: __Frame_fold_public
+// EXPECT-IR-ABSENT: __Frame__fold_private
+// EXPECT-OUTPUT:
+// really_free 11
+// boundary 21
+// closure_only_free 30
+// plain_free 40
+// tick 6
+// fold 15
+// hop 61
+// pass 70
+// imported really 81 82
+// imported closure_call 91 91
+// done
+
+import std.task.{yield_now}
+import sl306mod.{Folder, fold_public, fold_via_private, yield_public,
+                 yield_via_private}
+
+struct Widget { n: Int }
+
+extension Widget {
+    // `really`: a cooperative primitive in the body.
+    func tick(&var self) -> Int {
+        self.n = self.n + 1
+        yield_now()
+        self.n
+    }
+
+    // `closure_call`: the one conservative source, raised by any closure-taking
+    // method. Nothing here parks, so there is nothing to frame.
+    func fold(&self, f: (Int) -> Int) -> Int {
+        f(self.n)
+    }
+}
+
+// `really`, free function.
+func really_free(n: Int) -> Int {
+    yield_now()
+    n + 1
+}
+
+// `really` through the TEST intrinsic, which needs no executor and is still a
+// frame boundary.
+func boundary(n: Int) -> Int {
+    __saw_suspend()
+    n + 1
+}
+
+// `closure_call`, free function.
+func closure_only_free(f: (Int) -> Int) -> Int {
+    f(30)
+}
+
+// `no`.
+func plain_free(n: Int) -> Int {
+    n + 1
+}
+
+// `really`, generic — the instance is what the answer is computed for.
+func hop<T>(x: T, n: Int) -> Int {
+    yield_now()
+    n + 1
+}
+
+// `closure_call`, generic.
+func pass<T>(x: T, f: (Int) -> Int) -> Int {
+    f(70)
+}
+
+func main() {
+    print("really_free {really_free(10)}")
+    print("boundary {boundary(20)}")
+    print("closure_only_free {closure_only_free({ n in n })}")
+    print("plain_free {plain_free(39)}")
+
+    var w = Widget(n: 5)
+    let ticked = w.tick()
+    print("tick {ticked}")
+    print("fold {w.fold({ n in n + 9 })}")
+
+    let hopped = hop<Int>(1, 60)
+    print("hop {hopped}")
+    print("pass {pass<Int>(1, { n in n })}")
+
+    let folder = Folder(seed: 90)
+    print("imported really {yield_public(80)} {yield_via_private(81)}")
+    print("imported closure_call {fold_public(&folder)} {fold_via_private(&folder)}")
+
+    // `main` itself really suspends, so this whole body IS a driven frame and
+    // every call above is a call site inside one — the position the answer
+    // decides.
+    yield_now()
+    print("done")
+}

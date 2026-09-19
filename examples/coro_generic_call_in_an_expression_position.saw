@@ -1,0 +1,45 @@
+// XFAIL: SL-326 — a suspending GENERIC free call in an expression position
+// inside a driven body is hoisted by design 120's ANF but never PROMOTED, so the
+// instantiation it names has no frame and the hoisted call is a plain call to a
+// suspending body inside the synthesized resume:
+//
+//   error: cannot suspend in `sync func` method: method `__Frame_main.resume`
+//          calls `warp$1$Int` → yield_now (`warp$1$Int` suspends at line N)
+//
+// Two position sets that do not agree (SL-326's mechanism):
+// `_promote_nested_generic_calls` walks the positions design 74 shape 3 was
+// written against — a statement-level `let x = g<Args>(...)` or a bare call —
+// while design 120 gave every EXPRESSION position a hoist and design 224 widened
+// it again. The `let` cell below is the control and compiles today; the
+// interpolation, argument and operand cells are the ones that do not.
+//
+// Found by design 275 U4's adversarial probe set. It is U2's cell (the shape
+// table's fourth outcome, "hoisted but never built"), and this pin XPASSes when
+// the promotion walk and the hoist are reconciled.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// let 10
+// interpolation 11
+// argument 12
+// operand 14
+// done
+
+import std.task.{yield_now}
+
+func warp<T>(x: T, n: Int) -> Int {
+    yield_now()
+    n + 10
+}
+
+func take(v: Int) -> Int { v }
+
+func main() {
+    let bound = warp<Int>(1, 0)
+    print("let {bound}")
+    print("interpolation {warp<Int>(1, 1)}")
+    print("argument {take(warp<Int>(1, 2))}")
+    print("operand {1 + warp<Int>(1, 3)}")
+    yield_now()
+    print("done")
+}
