@@ -65,6 +65,7 @@ STAGES=(
     "astgraft|no|no pass stamps an AST attribute no class declares|$PY tools/test_ast_graft.py"
     "transferdecisions|no|every ownership boundary carries an explicit decision|$PY tools/test_transfer_decisions.py"
     "producertaxonomy|no|every value-position node says how it produces a value|$PY tools/test_producer_taxonomy.py"
+    "corodiscovery|no|one ledger answers every coroutine frame decision|$PY tools/test_coro_discovery.py"
     "citations|no|the files nothing compiles: stale DF/SL citations, committed conflict markers|$PY tools/check_citations.py"
     "forgetgate|no|every __saw_forget and M1/M3 stamp cites its deferral|$PY tools/test_forget_purge.py"
     "ircontract|no|-c embeds what hosted embeds; seam widths match rt/ABI.md|$PY tools/test_ir_contract.py"

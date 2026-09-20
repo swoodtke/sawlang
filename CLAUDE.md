@@ -61,14 +61,21 @@ activated first.
 ./.venv/bin/python sawc/sawc.py <src.saw> [-o out] [-v] [-c]
     [--emit-ir] [--emit-ast] [--ids] [--emit-docs] [--emit-docs-all]
     [-O0 | -O2 | -Os | -Oz]
-    [--emit-frame-layout] [--emit-bt-table]
+    [--emit-frame-layout] [--emit-bt-table] [--emit-frame-ledger]
     [--target TRIPLE] [--target-features FEATURES]
     [--module-path NAME=DIR]
     [--freestanding] [--runtime-build] [--runtime-provider]
     [--no-hidden-alloc] [-W NAME | -W all]
 ```
 That is the complete flag set (`sawc.py:2081-2190`); `-o` defaults to
-`.build/<source>`. `--no-hidden-alloc` (design 135) rejects the
+`.build/<source>`. `--emit-frame-ledger` (design 275 U1) dumps the
+coroutine transform's DISCOVERY LEDGER instead of code — one FRAME row
+per frame key it reached (kind, suspension causes, buildable + why not,
+home module, where the body came from) and one SITE row per suspension
+position (its context and outcome: embed / inline / refuse / declined).
+Deterministically ordered and path-free, so two compilers' dumps diff:
+it is the instrument behaviour preservation is proven with, and the
+`declined` rows are U2's worklist. `--no-hidden-alloc` (design 135) rejects the
 allocations the compiler inserts that no source construct names.
 `-W` (design 150) enables a warning category (repeatable, `-W all` for
 every one; warnings are off by default and never affect the exit code).
@@ -172,6 +179,19 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   tools/battery.sh --list
   ```
   Stages: `suite`, `icebreadcrumb`, `lexdiff`, `astdiff`, `astgraft`,
+  `corodiscovery` (design 275 U1: ONE ledger answers every coroutine frame
+  decision — `tools/test_coro_discovery.py` parses `coro_transform.py` and
+  fails on any site outside the ledger's builder that reads a raw discovery
+  input, on a frame table looked up by a written `.name`, on a named consumer
+  that stopped reading the ledger, on a new caller of either key composer, and
+  on a missing freeze or miss invariant. Two of its nine checks RUN the
+  compiler rather than reading it: one DROPS a recorded decision — injected
+  into `FrameLedger.record_frame`, restored in a `finally`, the
+  `icebreadcrumb` pattern — and requires the internal-compiler-error line to
+  NAME the dropped key, because a structural check that `frame()` contains a
+  raise is not a check that a consumer's miss reaches it; the other asserts the
+  dump carries a `context=driven root` site for each of the three driven-root
+  families, which is what caught a FRAME row sitting beside `# sites: 0`),
   `citations` (DF-248c, Aug 24: stale XFAIL/ledger citations against the
   tracker's closed set + committed conflict markers over tracked files —
   the gate for the files nothing compiles),

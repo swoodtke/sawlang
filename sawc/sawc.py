@@ -1969,9 +1969,17 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
         entry_decl_ids = {field: {id(d) for d in getattr(entry_ast, field, None)
                                   or []}
                           for field in _decl_lists(entry_ast)}
+        import coro_ledger
         try:
             changed = transform_program(entry_ast, typechecker,
                                         imported_ast=merged_ast)
+        except coro_ledger.LedgerMiss as e:
+            # design 275 U1: a consumer asked the discovery ledger for a frame it
+            # holds no row for, or wrote to it after the freeze. Both are
+            # INVARIANT failures — never permission to emit a plain call — and
+            # they report as design 192 unit 2's internal compiler error, with the
+            # key in the message.
+            _report_ice(e, None)
         except CoroTransformError as e:
             # design 74 (A8): anchor the coroutine-transform rejection at the
             # user's source line (file:line:col + snippet) via the shared error
@@ -2379,6 +2387,21 @@ Examples:
                              "callee sub-frame the callee it holds and the "
                              "resume state in which it is live. Writes to -o, "
                              "else stdout. Analysis only.")
+    parser.add_argument("--emit-frame-ledger", action="store_true",
+                        dest="emit_frame_ledger",
+                        help="Emit the coroutine transform's DISCOVERY LEDGER "
+                             "instead of code (design 275 U1): the closed frame "
+                             "table the transform computes before it lowers any "
+                             "body — one FRAME row per frame key it reached "
+                             "(kind, suspension causes, whether a frame can be "
+                             "built and why not, home module, where the body "
+                             "came from) and one SITE row per suspension "
+                             "position (the context it sits in and the outcome "
+                             "it gets: embed, inline, refuse, or declined). "
+                             "Deterministically ordered and path-free, so two "
+                             "compilers' dumps diff. Writes to -o, else stdout. "
+                             "Analysis only; a program with no driven root "
+                             "reports an empty ledger.")
     parser.add_argument("--emit-bt-table", action="store_true",
                         dest="emit_bt_table",
                         help="Emit the logical-BACKTRACE TABLE as JSON instead "
@@ -2577,6 +2600,42 @@ Examples:
             runtime_provider=args.runtime_provider)
         run_codegen(codegen, merged_ast)
         text = render_report(build_report(codegen, merged_ast, args.input))
+        if args.output:
+            with open(args.output, 'w') as f:
+                f.write(text)
+            if args.verbose:
+                print(f"  Wrote {args.output}")
+        else:
+            sys.stdout.write(text)
+
+    elif args.emit_frame_ledger:
+        # design 275 U1: the discovery ledger. The front half ALONE — the ledger
+        # is computed inside the coroutine transform, which `_prepare_codegen`
+        # runs, and codegen would add nothing but time. Set the capture BEFORE
+        # the front half, take the text after: a program with no driven root
+        # never enters the transform and reports an empty ledger, which is a real
+        # answer rather than a missing file.
+        import coro_ledger
+
+        with open(args.input, 'r') as f:
+            source = f.read()
+
+        entry_ast = parse_source(source, args.input, args.verbose)
+        entry_ast.source_path = os.path.abspath(args.input)
+
+        coro_ledger.set_capture(True)
+        try:
+            _prepare_codegen(
+                args.input, entry_ast, source, verbose=args.verbose,
+                object_only=args.c, target_triple=args.target,
+                freestanding=args.freestanding, module_paths=module_paths,
+                runtime_build=args.runtime_build,
+                target_features=args.target_features,
+                no_hidden_alloc=args.no_hidden_alloc,
+                runtime_provider=args.runtime_provider)
+            text = coro_ledger.take_dump()
+        finally:
+            coro_ledger.set_capture(False)
         if args.output:
             with open(args.output, 'w') as f:
                 f.write(text)

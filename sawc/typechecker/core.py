@@ -764,18 +764,13 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # more than one module owns is `$M$`-tagged per module, and a name only
         # one module owns keeps the plain spelling it has always had.
         self.free_function_owners: Dict[str, Set[Tuple[str, ...]]] = {}
-        # design 45: the suspending METHODS the effect fixpoint settled on,
-        # handed back by the coroutine transform for its own second pass.
-        self._suspending_methods_set: Optional[set] = None
-        # design 223, sharpened by SL-306: the same census asked WITHOUT the
-        # conservative closure-call source — which methods suspend for a reason
-        # of their OWN, as against the broad set above, which also holds the ones
-        # that "suspend" only because they call through a non-`sync` function
-        # value (`Vector.each`, `JsonValue._write`). The transform decides from
-        # this one whether a call site EMBEDS the callee's frame at all, and
-        # whether an un-nameable one is refused; the difference between the two
-        # sets is exactly the calls that must do neither.
-        self._own_suspending_methods_set: Optional[set] = None
+        # The two suspending-METHOD censuses used to live here — the broad one
+        # (design 45) and the one asked WITHOUT the conservative closure-call
+        # cause (design 223, sharpened by SL-306), whose difference decides
+        # whether a call site embeds a callee's frame at all. Design 275 U1 moved
+        # both onto `coro_ledger.FrameLedger`, which is the one thing that holds a
+        # frame decision now; nothing outside the transform ever read them, and
+        # design 266 retired the "second pass" the older comment named.
 
         # design 204: the source file of the declaration currently being
         # REGISTERED, for `_type_lookup_module`. Registration resolves a

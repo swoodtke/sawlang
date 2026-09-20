@@ -1,0 +1,197 @@
+// K116/K117 — design 275 U1 (SL-318). THE adversarial set for the ONE discovery
+// ledger, promoted from lead probes to a standing gate.
+//
+// The guarantee: every frame decision the coroutine transform makes is made
+// ONCE, recorded in the ledger, and READ from there. Before U1 roughly twenty
+// predicates re-derived "does this callee suspend / what key names its frame /
+// can I build it" from the raw inputs — `node.suspends`, `mangled_symbol`,
+// `resolved_symbol`, `module_free_call`, a callee node's written `name`, the two
+// suspending-method sets, both body tables, the instantiation registry — and
+// every one of the week's findings was two of those readings disagreeing
+// (SL-280's six keying sites, SL-274's two more, SL-306's classifier-versus-walk
+// split and its review's fourth reader). Each cell below is one of those
+// disagreements, arranged so the ANSWER is visible rather than inferred.
+//
+// WHY EVERY CELL ASSERTS THE IR TOO. Each of these programs prints the same
+// number whether or not a frame was built: a dropped suspension is a `yield_now`
+// that no-ops, and the value comes out right either way. `__saw_drive_steps`
+// counts the SUSPENSIONS the drive loop observed, so a surviving one reads 1 and
+// a dropped one reads 0; the `__Frame_` grep then says which frames exist — the
+// check the lead did by hand in three consecutive reviews, pinned here.
+//
+// The cells, and what each one would break:
+//
+//   same_name_entry / same_name_inline / same_name_imported — THREE modules
+//     declaring `worker`, each suspending, each answering differently. A
+//     bare-name key collapses them and embeds whichever body it found first, so
+//     the values are the oracle (+1 / +100 / +1000) and the frame set says all
+//     three exist.
+//   flat_vs_nested — a module `s_t` beside the module `s.t`, each with a
+//     suspending `hop`. The two render alike under a `"_".join` module tag
+//     (K110's collision) and the ledger keys them apart.
+//   generic_via_helper — a driven root reaching a suspending generic
+//     instantiation through a NON-generic helper, which is the depth the seed
+//     walk alone does not reach (`_promote_joining_body`'s reason for existing).
+//   closure_caller — a driven root whose callee suspends ONLY through the
+//     conservative closure-call cause (it calls `Vector.each` with a sync
+//     closure). Nothing is framed for it (SL-306), and the absent frames are
+//     the assertion: this is the cell where the classifier and the closure walk
+//     used to disagree.
+//   imported_private_by_reference — a module-private imported helper reached
+//     through a public entry point and taking its argument BY REFERENCE. Both
+//     halves matter: the private helper carries a module tag its public twin
+//     used not to, and the reference parameter is the body shape whose splice
+//     rewrites reads through `self`.
+//   spliced_mono_clone — an imported suspending GENERIC instantiated from the
+//     entry driven body. The clone is spliced into the entry module and must
+//     stay keyed to its HOME module, because the imported module is what emits
+//     the symbol.
+//
+// EXPECT: success
+// COMPILE-FLAGS: --module-path sl318ledger={TESTDIR}/modules/sl318ledger
+// EXPECT-OUTPUT:
+// same_name_entry 1 1
+// same_name_inline 100 1
+// same_name_imported 1000 1
+// flat_vs_nested 11 21
+// generic_via_helper 7 1
+// closure_caller 6 0
+// imported_private_by_reference 6 1
+// spliced_mono_clone 15 1
+// EXPECT-IR-CONTAINS: __Frame_worker$m$_resume
+// EXPECT-IR-CONTAINS: __Frame_worker$m$inner_resume
+// EXPECT-IR-CONTAINS: __Frame_worker$m$sl318ledger_resume
+// EXPECT-IR-CONTAINS: __Frame_hop$m$s_0t_resume
+// EXPECT-IR-CONTAINS: __Frame_hop$m$s_t_resume
+// EXPECT-IR-CONTAINS: __Frame_spin$m$$1$Int_resume
+// EXPECT-IR-CONTAINS: __Frame_bump_private$m$sl318ledger_resume
+// EXPECT-IR-CONTAINS: __Frame_reach_private$m$sl318ledger_resume
+// EXPECT-IR-CONTAINS: __Frame_warp$m$sl318ledger$1$Int_resume
+// EXPECT-IR-ABSENT: __Frame_fold_entry$m$
+
+import std.task.{yield_now}
+import sl318ledger.{Counter, reach_private, warp, worker as imported_worker}
+
+// ---------------------------------------------------------------- same name × 3
+
+/// The entry module's `worker`. +1.
+func worker(n: Int) -> Int {
+    yield_now()
+    n + 1
+}
+
+module inner {
+    import std.task.{yield_now}
+
+    /// An inline submodule's `worker`, one key space away from the entry
+    /// module's and from the dependency's. +100.
+    public func worker(n: Int) -> Int {
+        yield_now()
+        n + 100
+    }
+}
+
+func same_name_entry_root(n: Int) -> Int { worker(n) }
+func same_name_inline_root(n: Int) -> Int { inner.worker(n) }
+func same_name_imported_root(n: Int) -> Int { imported_worker(n) }
+
+// -------------------------------------------------------------- flat vs nested
+
+module s_t {
+    import std.task.{yield_now}
+
+    func hop(n: Int) -> Int {
+        yield_now()
+        n + 10
+    }
+
+    public func reach(n: Int) -> Int { hop(n) }
+}
+
+module s {
+    public module t {
+        import std.task.{yield_now}
+
+        public func hop(n: Int) -> Int {
+            yield_now()
+            n + 20
+        }
+    }
+}
+
+func flat_root(n: Int) -> Int { s_t.reach(n) }
+func nested_root(n: Int) -> Int { s.t.hop(n) }
+
+// ---------------------------------------------------------- generic via helper
+
+/// A suspending generic in the entry module. Reached through `warp_helper`, so
+/// the promotion has to happen as that body JOINS the driven closure rather
+/// than from the seed walk over the roots.
+func spin<T>(seed: Int) -> Int {
+    yield_now()
+    seed + 2
+}
+
+func warp_helper(n: Int) -> Int {
+    let bumped = spin<Int>(seed: n)
+    bumped
+}
+
+func generic_via_helper_root(n: Int) -> Int { warp_helper(n) }
+
+// ------------------------------------------------------------- closure caller
+
+/// Suspends ONLY by the conservative closure-call cause: `each` takes a
+/// non-`sync` function value, so the effect graph says "might" and nothing here
+/// owns a park. No frame is owed, at this body or at its caller.
+func fold_entry(v: &Vector<Int>) -> Int {
+    var total = 0
+    v.each({ [&var total] e in total = total + e })
+    total
+}
+
+func closure_root(n: Int) -> Int {
+    let v: Vector<Int> = [1, 2, 3]
+    fold_entry(&v) + n
+}
+
+// ------------------------------------------------ imported private by reference
+
+func imported_private_root(n: Int) -> Int {
+    let cell = Counter(base: n)
+    reach_private(&cell)
+}
+
+// ----------------------------------------------------------- spliced mono clone
+
+func spliced_mono_root(n: Int) -> Int {
+    let warped = warp<Int>(seed: n)
+    warped
+}
+
+func main() {
+    print("same_name_entry {} {}",
+          __saw_drive(same_name_entry_root(0)),
+          __saw_drive_steps(same_name_entry_root(0)))
+    print("same_name_inline {} {}",
+          __saw_drive(same_name_inline_root(0)),
+          __saw_drive_steps(same_name_inline_root(0)))
+    print("same_name_imported {} {}",
+          __saw_drive(same_name_imported_root(0)),
+          __saw_drive_steps(same_name_imported_root(0)))
+    print("flat_vs_nested {} {}",
+          __saw_drive(flat_root(1)),
+          __saw_drive(nested_root(1)))
+    print("generic_via_helper {} {}",
+          __saw_drive(generic_via_helper_root(5)),
+          __saw_drive_steps(generic_via_helper_root(5)))
+    print("closure_caller {} {}",
+          __saw_drive(closure_root(0)),
+          __saw_drive_steps(closure_root(0)))
+    print("imported_private_by_reference {} {}",
+          __saw_drive(imported_private_root(5)),
+          __saw_drive_steps(imported_private_root(5)))
+    print("spliced_mono_clone {} {}",
+          __saw_drive(spliced_mono_root(5)),
+          __saw_drive_steps(spliced_mono_root(5)))
+}

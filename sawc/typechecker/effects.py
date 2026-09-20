@@ -241,9 +241,10 @@ def might_suspend(causes: int) -> bool:
     CONSUMERS: `EffectsMixin.finalize_effects`' sync-context check and
     `SuspendNode.suspends` (the field every node-holding reader consults);
     `consumes._check_consumes_suspending_fences` (design 260's two fences);
-    `coro_transform._find_suspending_cycle`, `_default_expr_suspends`, and
-    `transform_program`'s `_suspending_methods_set` census + its
-    `_answered_locally` override; `sawc.build_builtin_namespace`'s
+    `coro_ledger.FrameLedger.might_suspend_free` (which is what
+    `coro_transform._find_suspending_cycle` and `_default_expr_suspends` ask) and
+    `_build_frame_ledger`'s BROAD method census + its `_answered_locally`
+    override; `sawc.build_builtin_namespace`'s
     `_std_suspending_methods` and `_std_suspending_functions` (the latter read by
     `docs_emit` for `--emit-docs`).
     """
@@ -306,9 +307,10 @@ def frame_boundary(causes: int) -> bool:
 
     CONSUMERS: `finalize_effects`' `closure_calls_permitted` narrowing (a
     SYNTHESIZED frame method's `sync` marker guards exactly this invariant);
-    `coro_transform.transform_program`'s `_own_suspending_methods_set` census and
-    its closure-walk edge-follow; `_promote_nested_generic_calls`'
-    `instantiation_suspends`; and
+    `coro_transform._build_frame_ledger`'s OWN method census (read back as
+    `FrameLedger.method_owns_suspension`), its closure-walk edge-follow
+    (`FrameLedger.edge_is_boundary`) and `FrameLedger.free_boundary`;
+    `FrameLedger.instantiation_is_boundary`, which both generic promotions ask; and
     `sawc.build_builtin_namespace`'s `_std_suspending_methods_ignoring_closure_calls`.
     """
     return bool(causes & ~SuspendCause.CLOSURE_CALL & SuspendCause.ALL)
@@ -419,15 +421,15 @@ def classify_suspensions(nodes) -> SuspensionAnswers:
         `_std_suspending_methods_ignoring_closure_calls` (`frame_boundary`, name
         pairs), plus `_std_suspending_functions` (`might_suspend`) for
         `--emit-docs`.
-      * `coro_transform.transform_program` — ONE table for the whole transform,
-        handed down to everything below it: the `(struct, method)` censuses that
-        become `_suspending_methods_set` (`might_suspend`) and
-        `_own_suspending_methods_set` (`frame_boundary`), which
-        `_suspending_method_target` reads in that order (broad gate, then the
-        framing question); the closure walk's edge-follow (`frame_boundary`); and
-        `_promote_nested_generic_calls`' `instantiation_suspends`
-        (`frame_boundary`). `_find_suspending_cycle` and
-        `_default_expr_suspends` read `might_suspend` through the node field.
+      * `coro_transform._build_frame_ledger` — ONE table for the whole transform,
+        held by the design-275-U1 discovery LEDGER, which is the only thing that
+        reads it: the `(struct, method)` censuses (`might_suspend` broad,
+        `frame_boundary` own), which `FrameLedger.method_target` reads in that
+        order (broad gate, then the framing question); the closure walk's
+        edge-follow and `free_boundary` (`frame_boundary`);
+        `instantiation_is_boundary`, which both generic promotions ask
+        (`frame_boundary`); and `might_suspend_free`, which the cycle check and
+        the suspending-parameter-default refusal ask.
     """
     causes: Dict[Any, int] = {}
     for key, node in nodes.items():

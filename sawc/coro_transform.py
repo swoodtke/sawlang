@@ -89,7 +89,9 @@ SIX FAMILIES. Five ride the AST as DECLARED `annotation(...)` fields (design
    which of `cooperative` / `blocking` / `test_suspend` / `closure_call` /
    `existential_dispatch` can reach it), of which this transform reads the
    `frame_boundary` derivation and nothing else; the conservative closure call
-   is read here for nothing at all. The graph is the single family that is not an
+   is read here for nothing at all. design 275 U1: it is read ONCE, by
+   `_build_frame_ledger`, and every consumer in this module asks the resulting
+   `coro_ledger.FrameLedger` instead. The graph is the single family that is not an
    annotation, and it is keyed by `node_id` — per-declaration and serializable
    exactly as the AST is. It is CARRIED for a non-generic embed and RE-DERIVED
    for a generic instantiation, because designs 70/74 make effects depend on
@@ -155,7 +157,11 @@ from ast_nodes import (
 )
 from type_identity import type_identity as _type_identity
 from typechecker.effects import _first_pristine
-from frame_keys import callee_frame_key
+# design 275 U1: the DISCOVERY LEDGER, and this module's only route to a frame
+# key or a suspension answer. `frame_keys.callee_frame_key` is deliberately NOT
+# imported here any more — it is the ledger's composer, with one caller, and
+# `tools/test_coro_discovery.py` is what keeps it that way.
+import coro_ledger
 from ast_walk import (child_nodes, control_blocks, control_heads, map_nodes,
                       pattern_binding_names)
 
@@ -1702,20 +1708,14 @@ def _rewrite_node(node, encmap):
 # nesting / recursion analysis over the design-22 suspend graph
 # --------------------------------------------------------------------------- #
 
-def _node_display(key, nodes):
-    n = nodes.get(key)
-    if n is not None:
-        return n.short.strip("`")
-    if isinstance(key, tuple) and len(key) == 2:
-        return key[1]
-    return str(key)
-
-
-def _find_suspending_cycle(start_key, nodes):
+def _find_suspending_cycle(start_key, ledger):
     """DFS the suspending-call graph from `start_key`; return the first cycle as a
     list of node keys (the repeated key closing it), or None. Only edges to
     nodes that themselves suspend are followed — a cycle here is *suspending*
-    recursion, which the flat-frame (embed-by-value) model cannot size."""
+    recursion, which the flat-frame (embed-by-value) model cannot size.
+
+    design 275 U1: which edges those are is `ledger.suspending_edge_targets`, not
+    a second reading of the graph here."""
     on_path = []
     on_set = set()
     visited = set()
@@ -1726,16 +1726,12 @@ def _find_suspending_cycle(start_key, nodes):
         if key in visited:
             return None
         visited.add(key)
-        node = nodes.get(key)
-        if node is None:
+        if not ledger.has_graph_node(key):
             return None
         on_path.append(key)
         on_set.add(key)
-        for e in node.edges:
-            t = nodes.get(e.target)
-            if t is None or not t.suspends:
-                continue
-            cyc = dfs(e.target)
+        for target in ledger.suspending_edge_targets(key):
+            cyc = dfs(target)
             if cyc is not None:
                 return cyc
         on_path.pop()
@@ -1745,7 +1741,7 @@ def _find_suspending_cycle(start_key, nodes):
     return dfs(start_key)
 
 
-def _analyze_nesting(start_key, anchor, nodes, is_built=None):
+def _analyze_nesting(start_key, anchor, ledger):
     """Suspending RECURSION is a compile error naming the cycle: the flat-frame
     model embeds callee frames by value (Part 0b), so a suspending-call cycle has
     no compile-time frame size. Non-recursive nested suspending calls are now
@@ -1777,24 +1773,25 @@ def _analyze_nesting(start_key, anchor, nodes, is_built=None):
     `anchor` is only for the diagnostic's position — the function or method AST
     the cycle was entered through.
 
-    `is_built` KEEPS THE CHECK EXACTLY AS STRICT AS THE FRAME BUILDER, and is
-    not optional in spirit. The suspending-call GRAPH is wider than the set of
+    `ledger.is_built` KEEPS THE CHECK EXACTLY AS STRICT AS THE FRAME BUILDER, and
+    is not optional in spirit. The suspending-call GRAPH is wider than the set of
     frames the transform actually builds: the closure walk follows an edge only
     when it can name and build a frame for the target, so a suspending callee it
     declines to reach — a cross-module free function the splice does not take,
-    say — is in `nodes` and not in `closure`. A cycle through such a node is
+    say — has a graph node and no ledger frame. A cycle through such a node is
     never embedded, so it has a frame size and is not an error. Blade's own
     dependency resolver is that program: `visit` recurses and reaches
     `Command.run`, and blade has always compiled because no `__Frame_visit` is
     ever built. Without this gate SL-227's widening refused the package manager.
     Asking "will every frame on this cycle be built" is the same question
-    `_build_sub_frame` would have answered by diverging."""
-    cyc = _find_suspending_cycle(start_key, nodes)
-    if cyc is not None and is_built is not None and not all(
-            is_built(k) for k in cyc):
+    `_build_sub_frame` would have answered by diverging — and design 275 U1 makes
+    it ONE question the ledger already answered, rather than a closure the caller
+    hands in over a set of its own."""
+    cyc = _find_suspending_cycle(start_key, ledger)
+    if cyc is not None and not all(ledger.is_built(k) for k in cyc):
         return
     if cyc is not None:
-        chain = " -> ".join(_node_display(k, nodes) for k in cyc)
+        chain = " -> ".join(ledger.node_label(k) for k in cyc)
         raise CoroTransformError(
             f"suspending recursion is not allowed: the suspending-call cycle "
             f"`{chain}` has no compile-time frame size (design 44 embeds callee "
@@ -1806,174 +1803,10 @@ def _analyze_nesting(start_key, anchor, nodes, is_built=None):
 # per-function transform
 # --------------------------------------------------------------------------- #
 
-class _MethodTarget(NamedTuple):
-    """The answer `_suspending_method_target` gives. THREE values, not two."""
-    kind: str                      # 'embed' | 'unsupported' | 'none'
-    frame_key: Optional[str]       # 'embed' only — the frame this call embeds
-    owner: Optional[str]           # the type the method belongs to, when known
-    is_static: bool
-    reason: Optional[str]          # 'unsupported' only — why it cannot be named
-
-    @property
-    def suspends(self):
-        """Does this call SUSPEND? True for both answers that are not 'none' —
-        an inexpressible suspending call is still a suspending call, and that
-        is the whole of the bug this type exists to close."""
-        return self.kind != 'none'
-
-
-_NOT_SUSPENDING = _MethodTarget('none', None, None, False, None)
-
-
-def _suspending_method_target(mc, tc):
-    """THE call-site classifier for a suspending METHOD call (design 223 unit 1).
-
-    Three-valued, and the third value is the point:
-
-      * EMBED(frame_key)      — a suspending method whose frame this call site
-                                can name and embed.
-      * UNSUPPORTED(reason)   — a suspending method whose frame it CANNOT name.
-                                The caller's job is to RAISE. It must never
-                                degrade to a plain call: the callee's park would
-                                run outside any frame, where `yield_now` is a
-                                no-op, and the cooperative contract would be
-                                silently dropped on a program that compiles,
-                                runs and prints the right answer.
-      * NOT_SUSPENDING        — not a suspending method call at all, INCLUDING a
-                                method that suspends only by the conservative
-                                closure-call rule (SL-306; the paragraph below
-                                the entry points). Such a callee has no park of
-                                its own, so a plain call is the correct lowering
-                                and a frame around it is what was wrong.
-
-    This replaces `_method_call_owner`, whose single `None` meant BOTH of the
-    last two — and all seven consumers below read it as the last one, which is
-    how seven probed positions came to compile as plain sync calls (design 223's
-    finding; DF-218k/l/m and DF-223a are four faces of it).
-
-    ENTRY POINTS (every consumer; obligation 1 — this is the funnel):
-      * `_FrameBuilder._classify_method_call` — the nested-embedding classifier.
-        Embeds on EMBED; returns None on UNSUPPORTED so the rejection below
-        fires at the same statement.
-      * `_FrameBuilder._method_call_suspends` — "is this a suspension?", read by
-        the expression-position hoists and by `_reject_buried_suspend_call`.
-        True for EMBED *and* UNSUPPORTED.
-      * `_FrameBuilder._suspending_method_call` — the statement-shaped twin,
-        feeding the top-level rejector.
-      * `_FrameBuilder._reject_suspending_method_call` — rejector 1 (a buried
-        method call at statement level).
-      * `_FrameBuilder._reject_buried_suspend_call` — rejector 2 (an expression
-        position no hoist lifted).
-      * `_rewrite_drive_sites` — `__saw_drive(recv.m(...))` -> the driver's
-        name. The one entry point that does NOT ask this question and reads the
-        owner off the call directly, deliberately: an EXPLICITLY driven method
-        is a root, so it need not be in the suspending set at all (design 44's
-        `__saw_drive` drives whatever it is handed), and asking "does this
-        suspend?" there would answer about a different thing.
-      * `transform_program._scan_method_callees` — the structural discovery of
-        callee frames to build. Enqueues EMBED only: a frame it cannot name is
-        a frame it cannot build, and the rejectors are what report that.
-
-    WHAT IT READS. An INSTANCE call carries its owner on the RECEIVER's resolved
-    type — `struct_name` for a struct and `enum_name` for an ENUM, which is the
-    one-word half of DF-218l (design 145 gave enums extensions, design 74 gives
-    methods frames, and this is where the two had not met). A STATIC call has no
-    receiver, so the typechecker stamps `static_receiver` on the call (DF-184a).
-
-    A GENERIC receiver or a method-level generic needs an INSTANTIATION to be
-    named at all, and the instantiation is not something a classifier can
-    conjure — `_promote_nested_generic_methods` builds it before any body is
-    lowered and stamps the resulting frame key on the call. So a stamped call is
-    EMBED whatever its type arguments look like, and an unstamped one whose
-    receiver or call carries type arguments is UNSUPPORTED. That keeps ONE
-    question here ("can I name this frame?") and leaves "can this frame be
-    built?" where the building happens.
-    """
-    if getattr(mc, 'is_chan_recv', False):
-        # design 62 G3: a cooperative `receive()` lowers INLINE — it suspends
-        # and embeds nothing, so it is not this classifier's business.
-        return _NOT_SUSPENDING
-    susp = getattr(tc, '_suspending_methods_set', None) if tc is not None else None
-    if not susp:
-        return _NOT_SUSPENDING
-    is_static = bool(getattr(mc, 'is_static_method_call', False))
-    if is_static:
-        owner = getattr(mc, 'static_receiver', None)
-        recv_args = getattr(mc.object, 'type_args', None)
-    else:
-        rt = getattr(mc.object, 'resolved_type', None)
-        owner = ((getattr(rt, 'struct_name', None)
-                  or getattr(rt, 'enum_name', None)) if rt is not None else None)
-        recv_args = getattr(rt, 'type_args', None) if rt is not None else None
-    stamped = getattr(mc, 'coro_frame_key', None)
-    if stamped is not None:
-        return _MethodTarget('embed', stamped, owner, is_static, None)
-    if owner is None:
-        # No compile-time owner: an existential receiver, a type parameter, a
-        # primitive. Nothing here can name a frame, and nothing here KNOWS
-        # whether one is owed — the existential case is DF-223b, refused by the
-        # typechecker at the dispatch, where the trait is in hand.
-        return _NOT_SUSPENDING
-    if (owner, mc.method_name) not in susp:
-        return _NOT_SUSPENDING
-    # SL-306: ONE question, asked once, for BOTH answers below. The
-    # suspending-method set is the BROAD one: it holds `Vector.each`, `Map.each`,
-    # `JsonValue._write` and every method that reaches one, which "suspend"
-    # solely by the rule that a call through a non-`sync` function value might
-    # (`effects.frame_boundary` strikes exactly that source). A
-    # method that suspends no other way has no park to host, so there is nothing
-    # for this call site to embed OR to refuse — it lowers as the plain call it
-    # is, which is what the callee's own body compiles to.
-    #
-    # design 223 asked this at the un-nameable branch only, and the nameable one
-    # answered EMBED unconditionally: `to_json_string()` inside a driven frame
-    # therefore built `__Frame_JsonValue__write` around a body whose recursion
-    # sits inside the `Vector.each` closure, and the closure-body rejector
-    # refused a program with no suspension in it (SL-306). The closure's OWN
-    # suspension, if it has one, is still refused where it is written — by
-    # `_reject_buried_suspend_call`'s in-closure arm, which reads the body the
-    # author wrote rather than the callee's frame.
-    own = (getattr(tc, '_own_suspending_methods_set', None)
-           if tc is not None else None) or set()
-    if (owner, mc.method_name) not in own:
-        return _NOT_SUSPENDING
-    if recv_args or getattr(mc, 'type_args', None):
-        # Un-nameable, and it owns a suspension: REFUSE, never degrade.
-        if recv_args:
-            return _MethodTarget(
-                'unsupported', None, owner, is_static,
-                f"its receiver `{owner}<...>` is a generic instantiation this "
-                f"call site could not be monomorphized for")
-        return _MethodTarget(
-            'unsupported', None, owner, is_static,
-            f"it is a generic method (`{mc.method_name}<...>`) this call site "
-            f"could not be monomorphized for")
-    return _MethodTarget(
-        'embed',
-        _method_frame_key(owner, mc.method_name,
-                          getattr(mc, 'resolved_symbol', None)),
-        owner, is_static, None)
-
-
 def _method_call_is_static(mc):
     """DF-184a: True if `mc` is a STATIC method call — no receiver to embed, so
     its frame carries no `__recv` and its body has no `self` to rewrite."""
     return bool(getattr(mc, 'is_static_method_call', False))
-
-
-def _method_frame_key(struct_name, method_name, resolved_symbol=None):
-    """Canonical frame key for a driven/embedded suspending METHOD (design 95).
-
-    THE one spot that decides a driven-method frame's identity. Two OVERLOADS of
-    the same method name must get DISTINCT frames, so an overloaded suspending
-    method is keyed by its design-55 resolved signature — the overload-mangled
-    symbol (`Struct_write$OL$String`, carrying the `$OL$`/`$LB$` suffix) already
-    composed by the typechecker: `mangled_symbol` on the method AST (definition
-    side), `resolved_symbol` on the MethodCall (call site). A NON-overloaded
-    method has no resolved symbol and keeps the plain `{struct}_{method}` key, so
-    the common case (one signature per name) is byte-for-byte unchanged.
-    """
-    return resolved_symbol or f"{struct_name}_{method_name}"
 
 
 def _cell_type(fb):
@@ -2056,7 +1889,13 @@ def _body_arms_io(body):
 
 class _FrameBuilder:
     def __init__(self, func, struct_name=None, tc=None, is_spawn_root=False,
-                 recv_saw_type=None, exit_status_root=False):
+                 recv_saw_type=None, exit_status_root=False, ledger=None):
+        # design 275 U1: THE discovery ledger, and this builder's only route to
+        # any frame-keying or suspension answer. Every classifier and rejector
+        # below asks it; none of them reads an effect node, a mangled symbol or a
+        # written callee name of its own. Never None in practice — the five
+        # construction sites all live in `transform_program`, past the ledger.
+        self._ledger = ledger
         # design 221 unit B3 (DF-220b): `main`'s frame under the AMBIENT
         # executor. It is a spawn root in the layout sense — its result and
         # cancel word live in a group-owned cell it reaches through `__cellp`,
@@ -2136,8 +1975,8 @@ class _FrameBuilder:
             # resolved signature (the `mangled_symbol` the typechecker stamped on
             # the method AST), so two `write` overloads get distinct frames; a
             # non-overloaded method keeps the plain `{struct}_{method}` name.
-            self.name = _method_frame_key(
-                struct_name, func.name, getattr(func, 'mangled_symbol', None))
+            self.name = ledger.method_key_of_decl(
+                struct_name, func.name, func)
             # design 74 (A5-rest, shape 2): a method on a GENERIC struct is driven
             # for a concrete receiver (`Holder<Int>`) — `recv_saw_type` carries the
             # instantiation so `__recv` points at the monomorphized struct codegen
@@ -2166,7 +2005,7 @@ class _FrameBuilder:
             # `helper` and an imported module's private `helper$m$dep` spliced
             # in beside it — are two frames, and `__Frame_helper` for both would
             # be one LLVM symbol carrying two state machines.
-            self.name = callee_frame_key(func)
+            self.name = ledger.key_of(func)
             self.recv_type = None
             self.recv_ptr_type = None
             self.recv_pointee = None
@@ -2847,11 +2686,12 @@ class _FrameBuilder:
         if isinstance(expr, FunctionCall):
             if getattr(expr, 'type_args', None):
                 return False
-            # SL-280: `self._suspends` holds FRAME KEYS (it is `set(closure)`),
-            # so the membership test asks `callee_frame_key`, never the written
-            # name. A tagged callee read as its bare name is a suspension
-            # answered False — which is a park lowered in place.
-            return (callee_frame_key(expr) in self._suspends
+            # design 275 U1: ONE question to the ledger — does this call site
+            # embed a frame that was BUILT? SL-280's mechanism was this test
+            # composing its own key (a tagged callee read as its bare name is a
+            # suspension answered False, i.e. a park lowered in place); U1's is
+            # that it cannot compose one at all.
+            return (self._ledger.free_call_frame(expr) is not None
                     or self._is_blocking_extern(expr.name))
         if isinstance(expr, MethodCall):
             return (getattr(expr, 'is_chan_recv', False)
@@ -4405,7 +4245,7 @@ class _FrameBuilder:
                 return
             if isinstance(n, FunctionCall) and (
                     n.name in _SUSPEND_CALLS
-                    or callee_frame_key(n) in self._suspends):   # SL-280
+                    or self._ledger.free_call_frame(n) is not None):
                 found[0] = True
                 return
             # design 103 (A6): a blocking-extern call is a suspension point (the
@@ -4820,8 +4660,11 @@ class _FrameBuilder:
     # driven closure before any resume body is generated, so a caller can embed
     # a callee's fully-known frame by value (design 44's flat-frame model).
     # ------------------------------------------------------------------ #
-    def prepare(self, suspends):
-        self._suspends = suspends
+    def prepare(self):
+        """design 275 U1: no `suspends` SET is handed in any more. The set this
+        took was `set(closure)` — a second copy of what the ledger holds — and
+        every consumer of it now asks `self._ledger.free_call_frame`, so there is
+        one table and no way for a builder to be given a stale one."""
         func = self.func
         # DF-218n: `__saw_drive` in a body that itself suspends is refused HERE,
         # on the untouched body — every lowering below moves the site's argument
@@ -4912,7 +4755,7 @@ class _FrameBuilder:
                        if not (self.has_recv and p.name == "self")]
         # Nested suspending call sites (whole body, incl. control-flow bodies).
         # Each embeds a callee frame by value; `sub` names its field. Must run
-        # before local collection (both consult `self._suspends`).
+        # before local collection (both ask the discovery ledger).
         self._collect_calls()
         self.frame_locals = self._collect_frame_locals()
 
@@ -5186,15 +5029,17 @@ class _FrameBuilder:
             # frame is a method frame (`__recv` points at the receiver's storage);
             # its key is `{struct}_{method}`, matching `_FrameBuilder.name`.
             return self._classify_method_call(stmt, target, is_ret)
-        # SL-280: the callee is named by its FRAME KEY at both ends — the
-        # membership test below and the `callee` this returns, which
-        # `_callee_fb` resolves against `fbs`. Reading `fc.name` here made the
-        # classifier disagree with the closure walk: a private imported helper
-        # was invisible to it, and an entry-module function that merely SHARED
-        # a name with the real callee was embedded in its place (a silently
-        # wrong answer, not just a dropped suspension).
-        key = callee_frame_key(fc)
-        if key not in self._suspends:
+        # SL-280 / design 275 U1: the callee is named by its FRAME KEY at both
+        # ends, and the LEDGER is what answers with it — the `callee` this
+        # returns is the same string `_callee_fb` resolves against `fbs`.
+        # Reading `fc.name` here made the classifier disagree with the closure
+        # walk: a private imported helper was invisible to it, and an
+        # entry-module function that merely SHARED a name with the real callee
+        # was embedded in its place (a silently wrong answer, not just a dropped
+        # suspension). Now the classifier and the walk cannot hold two answers,
+        # because there is one table and no second reading of it.
+        key = self._ledger.free_call_frame(fc)
+        if key is None:
             return None
         if getattr(fc, 'type_args', None):
             # design 70 (A5): a TOP driven/spawned generic is monomorphized before
@@ -5215,7 +5060,7 @@ class _FrameBuilder:
         recv_type_args, is_method} or None. Supported forms mirror the free-function
         ones (let-bound / bare-discard / tail-return).
 
-        design 223: the RECEIVER question is `_suspending_method_target`'s, and
+        design 223: the RECEIVER question is `FrameLedger.method_target`'s, and
         an UNSUPPORTED answer returns None from HERE so the rejector at the same
         statement (`_reject_suspending_method_call`) raises. Returning None used
         to mean "not a suspending call" as well, which is what let the
@@ -5245,10 +5090,10 @@ class _FrameBuilder:
         # parses as a `MethodCall` but is a free function, not an instance
         # method — embed it exactly as `_classify_call` embeds a same-module
         # `FunctionCall` (callee keyed by name, no `__recv`). Only when the
-        # callee is in the driven closure (`self._suspends`); a non-suspending
-        # cross-module free call stays a plain module call for codegen.
-        mfree = callee_frame_key(mc)   # SL-280: the funnel, not a raw read
-        if mfree is not None and mfree in self._suspends:
+        # ledger holds a BUILT frame for it; a non-suspending cross-module free
+        # call stays a plain module call for codegen.
+        mfree = self._ledger.free_call_frame(mc)
+        if mfree is not None:
             if getattr(mc, 'type_args', None):
                 # Mirror `_classify_call`'s generic-nested refusal (design 70).
                 raise self._error(
@@ -5261,7 +5106,7 @@ class _FrameBuilder:
                     'line': getattr(mc, 'line', 0) or 0}
         # DF-184a: the classifier answers for a STATIC call too, whose `recv` is
         # None — the sub-frame it embeds has no `__recv` to seed.
-        tgt = _suspending_method_target(mc, self._tc)
+        tgt = self._ledger.method_target(mc)
         if tgt.kind != 'embed':
             return None
         return {'callee': tgt.frame_key,
@@ -5378,11 +5223,10 @@ class _FrameBuilder:
         suspension-detection site below, so the split/embed and the rejections
         see it, never a plain lowering (the SL-208 wedge).
 
-        SL-280: the key comes from `callee_frame_key`, which is also what says
-        a `MethodCall` is a genuine METHOD (it answers None) — so this and the
-        classifier cannot drift on which calls are free calls."""
-        mfree = callee_frame_key(mc)
-        return mfree is not None and mfree in self._suspends
+        SL-280 / design 275 U1: the key comes from the LEDGER, which is also
+        what says a `MethodCall` is a genuine METHOD (it answers None) — so this
+        and the classifier cannot drift on which calls are free calls."""
+        return self._ledger.free_call_frame(mc) is not None
 
     def _method_call_suspends(self, mc):
         """design 84 + 223: True if `mc` is a call to a suspending method — one
@@ -5391,7 +5235,7 @@ class _FrameBuilder:
         the expression-position hoists and `_reject_buried_suspend_call`, so a
         `False` here is a suspension lowered in place as a plain call."""
         return (self._module_free_call_suspends(mc)
-                or _suspending_method_target(mc, self._tc).suspends)
+                or self._ledger.method_target(mc).is_suspension)
 
     def _suspending_method_call(self, stmt):
         """If `stmt` is a top-level `let x = recv.m(args)` / bare `recv.m(args)`
@@ -5406,8 +5250,8 @@ class _FrameBuilder:
             mc = stmt.expression
         if mc is None:
             return None, None
-        tgt = _suspending_method_target(mc, self._tc)
-        return (mc, tgt) if tgt.suspends else (None, None)
+        tgt = self._ledger.method_target(mc)
+        return (mc, tgt) if tgt.is_suspension else (None, None)
 
     def _reject_suspending_method_call(self, stmt):
         mc, tgt = self._suspending_method_call(stmt)
@@ -5570,7 +5414,7 @@ class _FrameBuilder:
             if isinstance(n, ClosureExpr):
                 in_closure = True
             if isinstance(n, FunctionCall) and (
-                    callee_frame_key(n) in self._suspends      # SL-280
+                    self._ledger.free_call_frame(n) is not None
                     or n.name in _SUSPEND_CALLS):
                 found.append(("fn", n, in_closure))
             # design 103 (A6): a blocking-extern call in a position the offload
@@ -5595,7 +5439,7 @@ class _FrameBuilder:
             elif (isinstance(n, MethodCall)
                   and self._module_free_call_suspends(n)):
                 found.append(("fn", _FakeCall(
-                    n.module_free_call, n.line, n.column), in_closure))
+                    self._ledger.key_of(n), n.line, n.column), in_closure))
             # design 101: a suspending METHOD call in a position no hoist lifted and
             # the CFG walk cannot split (an `if let`/`guard let` body). Reject with
             # the same workaround the top-level buried-method rejection names.
@@ -5614,10 +5458,10 @@ class _FrameBuilder:
                 if in_closure:
                     raise self._error(
                         self._suspend_in_closure_message(
-                            f"`{_suspending_method_target(g, self._tc).owner or '?'}"
+                            f"`{self._ledger.method_target(g).owner or '?'}"
                             f".{g.method_name}(...)`"),
                         g)
-                tgt = _suspending_method_target(g, self._tc)
+                tgt = self._ledger.method_target(g)
                 if tgt.kind == 'unsupported':
                     # design 223: the frame could not be NAMED, which is a
                     # different refusal from "this position cannot host one" —
@@ -7505,9 +7349,10 @@ class _FrameBuilder:
                 f"internal compiler error: the coroutine transform classified "
                 f"this call as embeddable into `{self.name}` under the frame "
                 f"key `{info['callee']}`, but no such frame was built. The "
-                f"call-site classifier (`_suspending_method_target`) and the "
+                f"call-site classifier (`FrameLedger.method_target`) and the "
                 f"closure walk that builds frames must agree on every key; "
-                f"this is a compiler bug, not a problem with this code.",
+                f"design 275 U1 makes them one table, so this is a compiler "
+                f"bug, not a problem with this code.",
                 line=info.get('line', 0) or self._cur_line, column=0)
         return fb
 
@@ -7524,7 +7369,7 @@ class _FrameBuilder:
         # callee declares a default the site did not fill.
         for i, (aval, from_source) in enumerate(_arity_args(
                 info['args'], info.get('plan'), callee_fb.params,
-                info['callee'], info.get('line', 0) or 0, 0, self._tc,
+                info['callee'], info.get('line', 0) or 0, 0, self._ledger,
                 src_file=self.src_file)):
             is_ref_param = (i < len(callee_fb.params)
                             and callee_fb.encmap.get(
@@ -9350,7 +9195,7 @@ def _seed_field(fb: _FrameBuilder, name, saw_type, value):
     return value
 
 
-def _default_expr_suspends(expr, tc):
+def _default_expr_suspends(expr, ledger):
     """Does evaluating `expr` — a parameter's DEFAULT VALUE — suspend?
 
     A default that suspends cannot be materialized as an ordinary expression:
@@ -9366,36 +9211,40 @@ def _default_expr_suspends(expr, tc):
     suspending METHOD call in any of design 223's shapes, the cooperative-yield
     intrinsic, and a channel receive. Conservative in the safe direction: an
     UNSUPPORTED method target counts as suspending too, because it is a
-    suspension this transform cannot express either way."""
-    nodes = getattr(tc, "_suspend_nodes", {}) or {}
+    suspension this transform cannot express either way.
 
-    def _fn_suspends(name):
-        n = nodes.get(("fn", name)) if name else None
-        return n is not None and n.suspends
+    design 275 U1: the BROAD answer, asked of the ledger
+    (`might_suspend_free`), which is exactly what this read before through the
+    effect node's own `suspends`. SL-324 records that the refusal this feeds is
+    about a FRAME and so probably wants `frame_boundary` instead — a body whose
+    only cause is the conservative closure call is framed nowhere, and telling
+    its author about a coroutine frame is a message about something that does not
+    exist. That is a WIDENING flip and it belongs to U2; preserving it here is
+    what keeps this unit behaviour-identical."""
 
     def walk(n):
         if n is None:
             return False
         if isinstance(n, FunctionCall):
-            # SL-280: `callee_frame_key` is the one composer of both spellings
-            # this used to inline (`resolved_symbol or name` here, and
-            # `module_free_call` below).
-            if _fn_suspends(callee_frame_key(n)):
+            if ledger.might_suspend_free(ledger.key_of(n)):
                 return True
         elif isinstance(n, MethodCall):
             if (getattr(n, 'is_yield_intrinsic', False)
                     or getattr(n, 'is_chan_recv', False)):
                 return True
-            if _fn_suspends(callee_frame_key(n)):
+            # A module-qualified free call (SL-208's `mod.f(...)`) wears a
+            # `MethodCall`'s shape; the ledger's composer is what tells the two
+            # apart, answering None for a genuine method.
+            if ledger.might_suspend_free(ledger.key_of(n)):
                 return True
-            if _suspending_method_target(n, tc).suspends:
+            if ledger.method_target(n).is_suspension:
                 return True
         return any(walk(c) for c in _child_nodes(n))
 
     return walk(expr)
 
 
-def _arity_args(call_args, arg_plan, params, callee, line, column, tc,
+def _arity_args(call_args, arg_plan, params, callee, line, column, ledger,
                 src_file=None):
     """The values a call supplies to a callee's frame: ONE PER FORMAL PARAMETER,
     in declaration order, with every OMITTED DEFAULT materialized from the
@@ -9459,7 +9308,7 @@ def _arity_args(call_args, arg_plan, params, callee, line, column, tc,
                 f"coroutine transform: no argument and no default for parameter "
                 f"`{pname}` of `{callee}`",
                 source_file=src_file, line=line, column=column)
-        if _default_expr_suspends(dflt, tc):
+        if _default_expr_suspends(dflt, ledger):
             raise CoroTransformError(
                 f"coroutine transform: the default value of parameter `{pname}` "
                 f"of `{callee}` suspends, and a suspending default cannot be "
@@ -9509,7 +9358,7 @@ def _arity_args(call_args, arg_plan, params, callee, line, column, tc,
     return out
 
 
-def _arity_arguments(call, params, callee, tc, src_file=None):
+def _arity_arguments(call, params, callee, ledger, src_file=None):
     """`_arity_args` at a ROOT SITE, as an `Argument` list ready to hand to the
     synthesized wrapper — full arity, positional (the plan already resolved the
     labels, and it never reorders, so the names have nothing left to say).
@@ -9528,7 +9377,7 @@ def _arity_arguments(call, params, callee, tc, src_file=None):
         return args
     filled = _arity_args(args, getattr(call, 'arg_plan', None), params, callee,
                          getattr(call, 'line', 0) or 0,
-                         getattr(call, 'column', 0) or 0, tc, src_file)
+                         getattr(call, 'column', 0) or 0, ledger, src_file)
     return [Argument(name=None, value=v) for (v, _from_source) in filled]
 
 
@@ -10386,7 +10235,7 @@ def _labeled_call_rule(node):
     return node
 
 
-def _spawn_site_rule(node, params_of, tc, src_file=None):
+def _spawn_site_rule(node, params_of, ledger, src_file=None):
     """Rewrite a cooperative spawn site to its synthesized helper call. Both
     forms were stamped with `spawn_root` by the typechecker:
 
@@ -10413,7 +10262,7 @@ def _spawn_site_rule(node, params_of, tc, src_file=None):
         call = FunctionCall(
             name=f"__bgspawn_{node.spawn_root}",
             arguments=[_ref_arg_to_ptr(a) for a in _arity_arguments(
-                inner, params_of(node.spawn_root), node.spawn_root, tc,
+                inner, params_of(node.spawn_root), node.spawn_root, ledger,
                 src_file)],
             line=node.line, column=node.column)
         call.resolved_type = getattr(node, 'resolved_type', None)
@@ -10429,7 +10278,7 @@ def _spawn_site_rule(node, params_of, tc, src_file=None):
             name=f"__spawn_{root}",
             arguments=([Argument(name=None, value=group_ptr)]
                        + [_ref_arg_to_ptr(a) for a in _arity_arguments(
-                           inner, params_of(root), root, tc, src_file)]),
+                           inner, params_of(root), root, ledger, src_file)]),
             line=node.line, column=node.column)
         # Carry the handle type so a suspending spawner can type the frame-resident
         # `let h = ...` binding (conservative-by-scope liveness reads it).
@@ -10438,7 +10287,7 @@ def _spawn_site_rule(node, params_of, tc, src_file=None):
     return node
 
 
-def _rewrite_spawn_sites(node, params_of, tc, src_file=None):
+def _rewrite_spawn_sites(node, params_of, ledger, src_file=None):
     """Rewrite every `group.spawn(f(args))` under `node` (see `_spawn_site_rule`).
 
     `params_of(root_name)` answers the spawned function's parameter list (or
@@ -10446,7 +10295,8 @@ def _rewrite_spawn_sites(node, params_of, tc, src_file=None):
     default at the site. `src_file` is the file the body being walked was
     written in, so a refusal raised while filling one anchors there (SL-224)."""
     return _rewrite_nodes(node,
-                          lambda n: _spawn_site_rule(n, params_of, tc, src_file))
+                          lambda n: _spawn_site_rule(n, params_of, ledger,
+                                                     src_file))
 
 
 # --------------------------------------------------------------------------- #
@@ -10467,7 +10317,7 @@ def _ref_arg_to_ptr(arg):
     return arg
 
 
-def _rewrite_drive_sites(node, roots, params_of, tc, src_file=None):
+def _rewrite_drive_sites(node, roots, params_of, ledger, src_file=None):
     """Rewrite `__saw_drive(f(args))` -> `__saw_drive_f(args)` and
     `__saw_drive_steps(f(args))` -> `__saw_drive_steps_f(args)` in place, everywhere.
 
@@ -10489,12 +10339,11 @@ def _rewrite_drive_sites(node, roots, params_of, tc, src_file=None):
             # DF-184a: a STATIC method's frame has no `__recv`, so its driver
             # takes the arguments alone.
             if _method_call_is_static(inner):
-                key = _method_frame_key(
-                    getattr(inner, 'static_receiver', None), inner.method_name,
-                    getattr(inner, 'resolved_symbol', None))
+                key = ledger.method_key_of_call(
+                    getattr(inner, 'static_receiver', None), inner)
                 node.name = prefix + key
                 node.arguments = [_ref_arg_to_ptr(a) for a in _arity_arguments(
-                    inner, params_of(key), inner.method_name, tc, src_file)]
+                    inner, params_of(key), inner.method_name, ledger, src_file)]
                 return node
             recv_type = getattr(inner.object, 'resolved_type', None)
             struct_name = getattr(recv_type, 'struct_name', None)
@@ -10509,21 +10358,20 @@ def _rewrite_drive_sites(node, roots, params_of, tc, src_file=None):
                                      in_argument_position=True)
             # design 95: name the driver by the resolved-signature frame key so an
             # overloaded method's driver matches its frame.
-            key = _method_frame_key(
-                struct_name, inner.method_name,
-                getattr(inner, 'resolved_symbol', None))
+            key = ledger.method_key_of_call(struct_name, inner)
             node.name = prefix + key
             node.arguments = ([Argument(name=None, value=recv_ptr)]
                               + [_ref_arg_to_ptr(a) for a in _arity_arguments(
                                   inner, params_of(key), inner.method_name,
-                                  tc, src_file)])
+                                  ledger, src_file)])
             return node
         # SL-280: the driver is named after the callee's FRAME KEY, matching
-        # `_FrameBuilder.name` and the root `_effect_record_driven` recorded.
-        key = callee_frame_key(inner)
+        # `_FrameBuilder.name` and the root `_effect_record_driven` recorded —
+        # and design 275 U1 makes the ledger the one place that composes it.
+        key = ledger.key_of(inner)
         node.name = prefix + key
         node.arguments = [_ref_arg_to_ptr(a) for a in _arity_arguments(
-            inner, params_of(key), inner.name, tc, src_file)]
+            inner, params_of(key), inner.name, ledger, src_file)]
         return node
     if isinstance(node, ASTNode):
         # A drive site is rewritten IN PLACE (the `FunctionCall` keeps its
@@ -10531,7 +10379,7 @@ def _rewrite_drive_sites(node, roots, params_of, tc, src_file=None):
         # back — which is what lets this share `_child_nodes` with the read-only
         # walks and pick up their tuple reach (DF-187b).
         for c in _child_nodes(node):
-            _rewrite_drive_sites(c, roots, params_of, tc, src_file)
+            _rewrite_drive_sites(c, roots, params_of, ledger, src_file)
     return node
 
 
@@ -10591,30 +10439,12 @@ def _inline_static_refs(val, const_statics):
     _rw(val)
 
 
-def _find_method(program, struct_name, method_name, method_symbol=None):
-    """Locate a driven method's AST and the extension that owns it.
-
-    design 95: when the method name is overloaded, `method_symbol` (the resolved
-    overload-mangled symbol) selects the exact overload — a name-only match would
-    return whichever overload was declared first."""
-    for ext in program.extensions:
-        if getattr(ext, 'struct_name', None) != struct_name:
-            continue
-        for m in ext.methods:
-            if m.name != method_name:
-                continue
-            if method_symbol is not None and \
-                    getattr(m, 'mangled_symbol', None) != method_symbol:
-                continue
-            return m, ext
-    return None, None
-
-
-def _called_function_names(decl, out):
+def _called_function_names(decl, out, ledger):
     """Every free-function FRAME KEY `decl`'s body CALLS, added to `out`.
 
     SL-280: keys, not written names — `removed`/`consumed` are frame keys, and
-    the two sets are intersected."""
+    the two sets are intersected. design 275 U1: the key comes from the ledger,
+    which is the only composer left."""
     body = getattr(decl, 'body', None)
     if body is None:
         return out
@@ -10626,17 +10456,18 @@ def _called_function_names(decl, out):
             continue
         seen.add(id(node))
         if isinstance(node, FunctionCall):
-            out.add(callee_frame_key(node))
+            out.add(ledger.key_of(node))
         stack.extend(_all_child_nodes(node))
     return out
 
 
-def _names_a_consumed_call(decl, consumed):
+def _names_a_consumed_call(decl, consumed, ledger):
     """Does `decl`'s body CALL any of `consumed` by name?"""
-    return bool(_called_function_names(decl, set()) & consumed)
+    return bool(_called_function_names(decl, set(), ledger) & consumed)
 
 
-def _consume_method_templates_naming(program, consumed, required_by_conformance):
+def _consume_method_templates_naming(program, consumed, required_by_conformance,
+                                     ledger):
     """The METHOD half of consumption symmetry (DF-218e's sweep row).
 
     A GENERIC method template survives its extension for the same reason a
@@ -10657,7 +10488,7 @@ def _consume_method_templates_naming(program, consumed, required_by_conformance)
         for m in list(getattr(ext, 'methods', []) or []):
             if not getattr(m, 'type_params', None):
                 continue
-            if not _names_a_consumed_call(m, consumed):
+            if not _names_a_consumed_call(m, consumed, ledger):
                 continue
             if _strip_driven_method(ext, m, required_by_conformance):
                 name = getattr(m, 'name', None)
@@ -10666,7 +10497,7 @@ def _consume_method_templates_naming(program, consumed, required_by_conformance)
     return gone
 
 
-def _consume_templates_naming_removed(program, removed, readded,
+def _consume_templates_naming_removed(program, removed, readded, ledger,
                                       required_by_conformance=frozenset(),
                                       extra_decls=()):
     """CONSUMPTION SYMMETRY (design 218b section 4, ruling 5 — DF-218e).
@@ -10700,13 +10531,13 @@ def _consume_templates_naming_removed(program, removed, readded,
     consumed = set(removed) - set(readded)
     if not consumed:
         return
-    templates = {callee_frame_key(f): f for f in program.functions   # SL-280
+    templates = {ledger.key_of(f): f for f in program.functions   # SL-280
                  if getattr(f, 'type_params', None)
-                 and callee_frame_key(f) not in removed}
+                 and ledger.key_of(f) not in removed}
     changed = True
     while changed:
         changed = False
-        live = _names_the_survivors_call(program, removed, extra_decls)
+        live = _names_the_survivors_call(program, removed, extra_decls, ledger)
         for name, decl in list(templates.items()):
             if name in live:
                 # SOMETHING STILL CALLS IT, so consuming it would trade a
@@ -10719,39 +10550,38 @@ def _consume_templates_naming_removed(program, removed, readded,
                 # it. That is a known limit (drive such a generic directly),
                 # and this rule does not get to make it worse.
                 continue
-            if _names_a_consumed_call(decl, consumed):
+            if _names_a_consumed_call(decl, consumed, ledger):
                 removed.add(name)
                 consumed.add(name)
                 del templates[name]
                 changed = True
         for name in _consume_method_templates_naming(
-                program, consumed, required_by_conformance):
+                program, consumed, required_by_conformance, ledger):
             if name not in consumed:
                 consumed.add(name)
                 changed = True
 
 
-def _names_the_survivors_call(program, removed, extra_decls):
+def _names_the_survivors_call(program, removed, extra_decls, ledger):
     """Every function name the program will still CALL after the splice — the
     surviving free functions, every extension method, and the declarations the
     transform is about to add (the frames and drivers, which is where a
     promoted call site ends up)."""
     live = set()
     for f in program.functions:
-        if callee_frame_key(f) not in removed:   # SL-280
-            _called_function_names(f, live)
+        if ledger.key_of(f) not in removed:   # SL-280
+            _called_function_names(f, live, ledger)
     for decl in extra_decls:
-        _called_function_names(decl, live)
+        _called_function_names(decl, live, ledger)
         for m in getattr(decl, 'methods', []) or []:
-            _called_function_names(m, live)
+            _called_function_names(m, live, ledger)
     for ext in getattr(program, 'extensions', []) or []:
         for m in getattr(ext, 'methods', []) or []:
-            _called_function_names(m, live)
+            _called_function_names(m, live, ledger)
     return live
 
 
-def _promote_nested_generic_calls(program, funcs_by_name, seed_names, typechecker,
-                                  imported_ast=None, answers=None):
+def _promote_nested_generic_calls(program, ledger, seed_names, typechecker):
     """design 74 (A5-rest, shape 3). Walk every driven body (and, transitively, the
     bodies of the concrete instantiations it pulls in) for a NESTED suspending
     generic call in a drivable position — a top-level or control-flow-body
@@ -10773,57 +10603,23 @@ def _promote_nested_generic_calls(program, funcs_by_name, seed_names, typechecke
     site onto the instance key the driven closure has to seed. See DF-295a.
 
     Only suspending instantiations are promoted; a non-suspending generic call is
-    left for codegen's normal monomorphization. Idempotent per mangled symbol."""
+    left for codegen's normal monomorphization. Idempotent per mangled symbol.
+
+    design 275 U1: the promotion criterion is `ledger.instantiation_is_boundary`,
+    the SAME question the closure walk's edge-follow and `method_target` ask —
+    and it has to be the same one, because promotion and framing are one decision
+    seen from two ends. This walk used to compute its own `classify_suspensions`
+    table (design 275 U4 handed one down instead), keep its own
+    `is_mono_instance` store and compose its own keys; all three are the ledger's
+    now, so a body's instance set and the frames built for it cannot disagree."""
     from codegen.mangle import mangle_function
-    from typechecker.effects import classify_suspensions
-    nodes = getattr(typechecker, "_suspend_nodes", {})
-    # SL-306: the promotion criterion, through the funnel every other framing
-    # decision now goes through (see `instantiation_suspends`).
-    #
-    # design 275 U4: `answers` is `transform_program`'s ONE table, handed down
-    # rather than recomputed — this walk runs once per body that JOINS the
-    # driven closure (`_promote_joining_body`), so a walk of its own was a walk
-    # of the whole graph per body. The graph is fixed for the length of the
-    # transform: phase 2 registered and instance-checked every instance this
-    # adopts before `transform_program` was entered, and the synthesized
-    # declarations that extend it are admitted (and re-settled) afterwards.
-    # None only for a caller outside that ordering, which is nobody today.
-    if answers is None:
-        answers = classify_suspensions(nodes)
     resolve = getattr(typechecker, "_resolve_type", None)
-    # Phase 2's instances, by mangled name — the store this walk adopts from.
-    spliced = {f.name: f for f in (getattr(imported_ast, 'functions', None) or [])
-               if getattr(f, 'is_mono_instance', False)}
     # Resolve type args + splice under the entry module's symbol scope (the
     # namespace was reset after check_module returned).
     entry_ns = getattr(typechecker, "_entry_module_ns", None)
     saved_ns = getattr(typechecker, "namespace", None)
     if entry_ns is not None:
         typechecker.namespace = entry_ns
-
-    def instantiation_suspends(mangled):
-        """Does this instantiation OWN a suspension? (SL-306 review r1, codex P1.)
-
-        The SAME question the closure walk's edge-follow and
-        `_suspending_method_target` ask — `effects.frame_boundary`
-        — and it has to be the same one, because promotion and framing are one
-        decision seen from two ends. This read the BROAD `suspends` bit, so a
-        generic instantiation that suspends only through the conservative
-        closure-call rule (`apply<Int>(1, { n in n * 10 })` — the instance calls a
-        non-`sync` function value) was still promoted and framed when a driven
-        body called it DIRECTLY, while the ordinary conservative-only helper
-        calling the same instance was left unframed. One instance body, rewritten
-        into a resume state machine for the frame and then reached by the helper's
-        plain call: `internal compiler error ... (SelfExpr): 'self' not found in
-        current scope`, because the rewritten body names the frame's `self` inside
-        what is still a free function.
-
-        Asking the funnel makes the two ends agree: such an instance is not
-        promoted, both call sites stay plain calls, and codegen's ordinary
-        monomorphization serves them — which is what the un-promoted arm already
-        documents for every other non-suspending generic call."""
-        node = nodes.get(("fn", mangled))
-        return node is not None and answers.frame_boundary(("fn", mangled))
 
     def maybe_promote(fc):
         """If `fc` is a suspending generic free-function call, splice + rewrite it.
@@ -10841,12 +10637,12 @@ def _promote_nested_generic_calls(program, funcs_by_name, seed_names, typechecke
         # and `mangle_function(fc.name, ...)` named an instance nobody had — the
         # promotion silently declined and the author got ``cannot suspend in
         # `sync func` method: `__Frame_s6_entry.resume` calls `s6_helper$1$Int` ``.
-        mangled = mangle_function(callee_frame_key(fc) or fc.name, args)
-        if not instantiation_suspends(mangled):
+        mangled = mangle_function(ledger.key_of(fc) or fc.name, args)
+        if not ledger.instantiation_is_boundary(mangled):
             return None
         # Adopt phase 2's instance (idempotent by presence in the entry AST).
-        if mangled not in funcs_by_name:
-            clone = spliced.get(mangled)
+        if ledger.free_body(mangled) is None:
+            clone = ledger.mono_free_bodies.get(mangled)
             if clone is None:
                 # The registry has no body for this instantiation. Before stage 4
                 # this arm meant "no pristine template captured"; it now means the
@@ -10855,15 +10651,15 @@ def _promote_nested_generic_calls(program, funcs_by_name, seed_names, typechecke
                 # diagnostic rather than miscompiling it.
                 return None
             program.functions.append(clone)
-            funcs_by_name[mangled] = clone
-        fc.name = mangled
+            ledger.register_free_body(clone, origin=coro_ledger.ORIGIN_MONO,
+                                      key=mangled)
         # SL-274, on the drive-site rewrite's own terms (see
         # `typechecker/expressions.py`'s `inner.resolved_symbol = None`): the
         # call NAMES the instantiation now, so the template's symbol is stale
-        # data, and `callee_frame_key(fc)` — which `_classify_call` asks — must
-        # answer the instance rather than the base it was cloned from.
-        fc.resolved_symbol = None
-        fc.type_args = None
+        # data, and the key the ledger answers — which `_classify_call` asks —
+        # must be the instance rather than the base it was cloned from. One
+        # method does all three writes, so they cannot come apart.
+        ledger.rename_call_to(fc, mangled)
         return mangled
 
     def scan_call_stmt(s):
@@ -10918,7 +10714,7 @@ def _promote_nested_generic_calls(program, funcs_by_name, seed_names, typechecke
         if name in scanned:
             continue
         scanned.add(name)
-        func = funcs_by_name.get(name)
+        func = ledger.free_body(name)
         if func is None or getattr(func, 'body', None) is None:
             continue
         newly = []
@@ -10994,8 +10790,7 @@ def _method_is_conformance_required(ext, mast, required_by_conformance):
     return False
 
 
-def _promote_nested_generic_methods(program, funcs_by_name, seed_names, all_exts,
-                                    susp_methods, own_susp_methods,
+def _promote_nested_generic_methods(program, ledger, seed_names, all_exts,
                                     typechecker):
     """design 223 unit 1: give the EMBEDDED position the instantiation the DRIVE
     position already gets.
@@ -11025,10 +10820,13 @@ def _promote_nested_generic_methods(program, funcs_by_name, seed_names, all_exts
     exactly as the drive path splices it, and needs nothing here.
 
     What it does NOT do is decide whether the instantiation suspends: that
-    answer comes from `susp_methods`, which is keyed by the TEMPLATE. A method
-    whose template suspends is treated as suspending at every instantiation —
-    over-approximating in the safe direction, and the same answer both rejectors
-    have always used.
+    answer is the LEDGER's two method censuses, which are keyed by the TEMPLATE.
+    A method whose template suspends is treated as suspending at every
+    instantiation — over-approximating in the safe direction, and the same answer
+    both rejectors have always used. design 275 U1: the censuses used to arrive
+    as two SET parameters and the frame key was composed here; both are the
+    ledger's now, so a stamped call and the classifier that reads the stamp
+    cannot disagree about either.
     """
     from codegen.mangle import mangle_named, mangle_method
     out = {}
@@ -11050,13 +10848,9 @@ def _promote_nested_generic_methods(program, funcs_by_name, seed_names, all_exts
     # design 266 keeps that splice, so the second producer has to stop. The frame
     # builder copies before rewriting anything on a non-entry extension (the
     # design-146/223 rule at `nested_method_fbs`), so the adopted body survives
-    # being framed.
-    spliced_methods = {}
-    for _ext in all_exts:
-        for _m in _ext.methods:
-            _sym = getattr(_m, 'mangled_symbol', None)
-            if _sym and getattr(_m, 'is_mono_instance', False):
-                spliced_methods.setdefault(_sym, (_m, _ext))
+    # being framed. The store itself is `ledger.mono_method_bodies`, filled at
+    # registration — one table, so this walk cannot build a second view of it.
+    #
     # Resolve + register under the entry module's symbol scope: the namespace was
     # reset after `check_module` returned, exactly as for the free-function twin.
     entry_ns = getattr(typechecker, "_entry_module_ns", None)
@@ -11101,10 +10895,9 @@ def _promote_nested_generic_methods(program, funcs_by_name, seed_names, all_exts
             (owner, mono_name), (None, None))
         if clone is None:
             return None
-        key = _method_frame_key(owner, mono_name,
-                                getattr(clone, 'mangled_symbol', None))
+        key = ledger.method_key_of_decl(owner, mono_name, clone)
         out[key] = (owner, clone, ext, recv_type or concrete_recv)
-        mc.coro_frame_key = key
+        ledger.stamp_method_frame_key(mc, key)
         return clone
 
     def promote_generic_method(mc, owner):
@@ -11117,10 +10910,11 @@ def _promote_nested_generic_methods(program, funcs_by_name, seed_names, all_exts
         # the demand walk did not reach this call, which is the same fallback
         # arm C1 keeps for the same reason.
         symbol = mangle_method(owner, mc.method_name, method_type_args=args)
-        adopted = spliced_methods.get(symbol)
+        adopted = ledger.mono_method_bodies.get(symbol)
         if adopted is not None:
             clone, _ext = adopted
-            mc.coro_frame_key = _method_frame_key(owner, clone.name, symbol)
+            ledger.stamp_method_frame_key(
+                mc, ledger.method_key(owner, clone.name, symbol))
             return clone
         mono_name = mangle_named(mc.method_name, args)
         typechecker._build_method_mono(owner, mc.method_name, args, mono_name)
@@ -11128,13 +10922,14 @@ def _promote_nested_generic_methods(program, funcs_by_name, seed_names, all_exts
                       if getattr(m, 'name', None) == mono_name), None)
         if clone is None:
             return None
-        mc.coro_frame_key = _method_frame_key(
-            owner, mono_name, getattr(clone, 'mangled_symbol', None))
+        ledger.stamp_method_frame_key(
+            mc, ledger.method_key_of_decl(owner, mono_name, clone))
         return clone
 
     def scan(body, enqueue):
         for mc in _iter_method_calls(body):
-            if getattr(mc, 'is_chan_recv', False) or mc.coro_frame_key is not None:
+            if (getattr(mc, 'is_chan_recv', False)
+                    or ledger.method_frame_key_stamped(mc) is not None):
                 continue
             if getattr(mc, 'is_static_method_call', False):
                 owner = getattr(mc, 'static_receiver', None)
@@ -11145,16 +10940,17 @@ def _promote_nested_generic_methods(program, funcs_by_name, seed_names, all_exts
                           or getattr(rt, 'enum_name', None))
                          if rt is not None else None)
                 recv_args = getattr(rt, 'type_args', None) if rt is not None else None
-            if owner is None or (owner, mc.method_name) not in susp_methods:
+            if owner is None or not ledger.method_might_suspend(
+                    owner, mc.method_name):
                 continue
             if recv_args or getattr(mc, 'type_args', None):
                 # Only a method that suspends for a reason of its OWN earns an
                 # instantiation. `Vector.map` is in the broad suspending set by
                 # the conservative closure-call rule alone; monomorphizing it
-                # would put a frame around a body that suspends nothing. Same set
-                # `_suspending_method_target` gates EMBED on (SL-306), so a
-                # stamped call and the classifier cannot disagree.
-                if (owner, mc.method_name) not in own_susp_methods:
+                # would put a frame around a body that suspends nothing. Same
+                # census `FrameLedger.method_target` gates EMBED on (SL-306), so
+                # a stamped call and the classifier cannot disagree.
+                if not ledger.method_owns_suspension(owner, mc.method_name):
                     continue
                 clone = (promote_generic_struct(mc, owner, recv_args)
                          if recv_args else promote_generic_method(mc, owner))
@@ -11167,13 +10963,13 @@ def _promote_nested_generic_methods(program, funcs_by_name, seed_names, all_exts
             if clone is not None and getattr(clone, 'body', None) is not None:
                 enqueue(clone.body)
         for fc in _iter_function_calls(body):
-            # SL-280: `funcs_by_name` is keyed by FRAME KEY, so the free-fn
-            # descent asks for one. Reading `fc.name` stopped this walk dead at
-            # any callee registration had stamped a symbol on (`$m$`/`$M$`/an
-            # overload signature) — and a suspending generic METHOD call below
-            # such a callee then got no instantiation, which is DF-218m's
-            # silent plain-call lowering with a new way in.
-            callee = funcs_by_name.get(callee_frame_key(fc))
+            # SL-280: the entry body table is keyed by FRAME KEY, so the free-fn
+            # descent asks the ledger for one. Reading `fc.name` stopped this walk
+            # dead at any callee registration had stamped a symbol on
+            # (`$m$`/`$M$`/an overload signature) — and a suspending generic
+            # METHOD call below such a callee then got no instantiation, which is
+            # DF-218m's silent plain-call lowering with a new way in.
+            callee = ledger.free_body_of_call(fc)
             if callee is not None and getattr(callee, 'body', None) is not None:
                 enqueue(callee.body)
 
@@ -11186,7 +10982,7 @@ def _promote_nested_generic_methods(program, funcs_by_name, seed_names, all_exts
             work.append(body)
 
     for name in seed_names:
-        f = funcs_by_name.get(name)
+        f = ledger.free_body(name)
         if f is not None and getattr(f, 'body', None) is not None:
             enqueue(f.body)
     while work:
@@ -11222,48 +11018,342 @@ def _assign_bt_indices(frame_structs, builders):
             lit.value = index
 
 
-def transform_program(program, typechecker, imported_ast=None):
-    roots = dict(getattr(typechecker, "_driven_roots", {}) or {})
-    method_roots = dict(getattr(typechecker, "_driven_method_roots", {}) or {})
-    spawn_roots = dict(getattr(typechecker, "_spawn_roots", {}) or {})
-    mt_spawn_roots = set(getattr(typechecker, "_mt_spawn_roots", set()) or set())
-    # design 242 ruling 3: roots spawned by `Task.spawn` into the process-wide
-    # background group. A root may be in BOTH sets (spawned into a group at one
-    # site and into the background at another) — the two helpers box the same
-    # frame and differ only in where the group comes from.
-    bg_spawn_roots = set(
-        getattr(typechecker, "_background_spawn_roots", set()) or set())
-    # SL-280: keyed by FRAME KEY, which is what the effect graph's edges, the
-    # driven/spawned roots and every call-site classifier name a callee by. It
-    # was `f.name`, and a free function whose registration stamped a symbol
-    # (design 249's `$m$`/`$M$` tags, design 55's `$OL$`) was then filed under a
-    # name no edge ever used — so its body was never found, no frame was built,
-    # and the suspension inside it was dropped in silence.
-    funcs_by_name = {callee_frame_key(f): f for f in program.functions}
-    # design 84: a nested suspending method may be defined in an IMPORTED module
-    # (std.net's TcpStream.read / TcpListener.accept), not the entry module. The
-    # transform is otherwise entry-module-only, but a NON-generic method frame is
-    # self-contained (its resume is a fresh state machine on the frame struct,
-    # spliced into the entry AST), so it can be embedded cross-module. `merge_programs`
-    # shares method AST objects (list concat), so `method.node_id` still matches
-    # the effect nodes. The ORIGINAL method stays in its module as harmless dead code
-    # (its calls were all rewritten to the embedded drive). Generic-struct / method-
-    # generic methods stay unsupported (rejected at the call site).
-    _entry_ext_ids = {e.node_id for e in program.extensions}
-    # design 223 unit 2: what the strip may NOT remove. Every trait in the
-    # compilation unit, by the two names an extension's `conformances` list can
-    # hold — see `_conformance_required_names`.
-    _required_by_conformance = _conformance_required_names(
-        list(getattr(program, 'traits', None) or [])
-        + list(getattr(imported_ast, 'traits', None) or []))
-    _imported_exts = ([e for e in getattr(imported_ast, 'extensions', [])
-                       if e.node_id not in _entry_ext_ids] if imported_ast is not None else [])
-    _all_exts = list(program.extensions) + _imported_exts
+def _declined_edge_reason(target, is_free_edge, ledger):
+    """WHY the closure walk followed a suspension-carrying edge nowhere.
+
+    Analysis-only (design 275 U1): the reason string a DECLINED frame row
+    carries, so the dump says which of the three shapes a decline is rather than
+    leaving the reader to infer it from the key. Three, and each is a distinct
+    fix in U2: a generic TEMPLATE (its instantiations are keyed separately, and a
+    decline here is normal), a callee body neither table holds (the SL-287 /
+    SL-316 shape — the one U2 turns into a refusal), and a method edge no
+    registered AST answers.
+    """
+    if not is_free_edge:
+        return "no registered method AST answers this effect edge"
+    body = ledger.free_or_imported_body(target[1])
+    if body is not None and getattr(body, 'type_params', None):
+        return ("a generic template owns no frame; its suspending "
+                "instantiations are keyed and built separately")
+    return "neither body table holds this callee, so no frame can be built for it"
+
+
+def _record_frame_decisions(ledger, *, typechecker, structurally_suspends,
+                            roots, spawn_roots, method_roots, entry_ext_ids,
+                            declined_frames):
+    """design 275 U1 — CLOSE the ledger: one recorded decision per callee, one
+    recorded outcome per suspension position.
+
+    RUNS ON EVERY COMPILE, not only under `--emit-frame-ledger` (codex's P1 on
+    SL-318.p4 r1). The first draft filled these tables only when the dump was
+    asked for, so in an ordinary build a consumer's table miss and a recorded
+    "no frame owed" were one fact — the invariant the unit exists to establish
+    was decorative. The FLAG now decides only whether the text is RENDERED.
+
+    ANALYSIS ONLY: every column is read back out of what discovery already
+    concluded, which is also what makes the dump a usable old-versus-new
+    instrument. Nothing here changes what the transform does.
+
+    THREE PASSES, in order:
+
+      1. the frames discovery BUILT — the free closure, the embedded methods,
+         and the driven method ROOTS (whose declarations the builder resolved
+         into `method_root_decls` after the walk, codex's P2);
+      2. the keys discovery DECLINED, with the reason the walk recorded;
+      3. the SITE census, a read-only walk of every body that will be lowered —
+         which also closes the frame table, because a callee it meets with no
+         decision yet gets one: `no-frame-owed` when it owns no suspension, and
+         `declined` when it does and the walk never reached it. That third case
+         is SL-287/SL-316's shape; U1 records it and lowers exactly as before.
+
+    Called before `_instrument_loop_backedges` runs, so the positions are the
+    author's and not design 127's.
+    """
+    ns = (getattr(typechecker, "_entry_module_ns", None)
+          or getattr(typechecker, "namespace", None))
+
+    def _blocking_extern(name):
+        if ns is None or not name:
+            return False
+        sym = ns.lookup_function(name)
+        return sym is not None and getattr(sym, "is_blocking", False)
+
+    def _free_boundary(key):
+        return ledger.free_boundary(key, structurally_suspends)
+
+    def _free_row(key, decision, reason=None):
+        if ledger.has_frame_row(key):
+            return
+        fn = ledger.free_or_imported_body(key)
+        mono = bool(getattr(fn, 'is_mono_instance', False))
+        ledger.record_frame(coro_ledger.FrameRow(
+            key=key,
+            kind=coro_ledger.KIND_MONO if mono else coro_ledger.KIND_FREE,
+            causes=ledger.causes_of_free(key),
+            boundary=_free_boundary(key),
+            decision=decision,
+            buildable=(decision != coro_ledger.DECISION_DECLINED),
+            reason=reason,
+            home_module=coro_ledger.home_module_of(
+                key, getattr(fn, 'source_file', None)),
+            splice=(coro_ledger.ORIGIN_MONO if mono
+                    else coro_ledger.ORIGIN_IMPORTED
+                    if (key in ledger.spliced_keys
+                        or key not in ledger.free_bodies)
+                    else coro_ledger.ORIGIN_ENTRY)))
+
+    def _method_row(key, owner, mast, ext, decision, reason=None, mono=False):
+        if ledger.has_frame_row(key):
+            return
+        mono = (mono or bool(getattr(mast, 'is_mono_instance', False))
+                or key in ledger.mono_recv_types)
+        kind = (coro_ledger.KIND_MONO if mono
+                else coro_ledger.KIND_STATIC
+                if getattr(mast, 'is_static', False)
+                else coro_ledger.KIND_METHOD)
+        src = (getattr(mast, 'source_file', None)
+               or (getattr(ext, 'source_file', None) if ext is not None else None))
+        entry_owned = (ext is not None
+                       and getattr(ext, 'node_id', None) in entry_ext_ids)
+        ledger.record_frame(coro_ledger.FrameRow(
+            key=key, kind=kind,
+            causes=ledger.causes_of_node(getattr(mast, 'node_id', None)),
+            boundary=ledger.method_owns_suspension(
+                owner, getattr(mast, 'name', None)),
+            decision=decision,
+            buildable=(decision != coro_ledger.DECISION_DECLINED),
+            reason=reason,
+            # A METHOD key is `{owner}_{method}` (design 95's resolved symbol
+            # when overloaded), and design 144 tags the OWNER — so the key reads
+            # `Builder$m$src_builder_add_dep`, whose tag runs straight into the
+            # method name and cannot be cut back out. Prefer the declaring
+            # FILE's basename here; the tag is the fallback when a synthesized
+            # clone has no file.
+            home_module=(coro_ledger.home_module_of(None, src) if src
+                         else coro_ledger.home_module_of(key)),
+            splice=(coro_ledger.ORIGIN_MONO if mono
+                    else coro_ledger.ORIGIN_ENTRY if entry_owned
+                    else coro_ledger.ORIGIN_IMPORTED)))
+
+    # ------------------------------------------------------- 1. what was built
+    for _key in ledger.closure:
+        _free_row(_key, coro_ledger.DECISION_FRAMED)
+    for _mid, (_owner, _mast, _ext) in ledger.method_closure.items():
+        _method_row(ledger.method_key_of_decl(_owner, _mast.name, _mast),
+                    _owner, _mast, _ext, coro_ledger.DECISION_FRAMED)
+    # codex's P2: a driven method ROOT is a frame by definition and is kept out
+    # of `method_closure`, so its row AND its body's sites both come from here.
+    for _fkey, (_owner, _mast, _ext, _recv) in ledger.method_root_decls.items():
+        _method_row(_fkey, _owner, _mast, _ext, coro_ledger.DECISION_FRAMED,
+                    mono=_recv is not None)
+
+    # --------------------------------------------------- 2. what was declined
+    for _key, _kind, _reason, _decl in declined_frames:
+        if ledger.has_frame_row(_key):
+            continue
+        if _kind == coro_ledger.KIND_FREE:
+            _free_row(_key, coro_ledger.DECISION_DECLINED, reason=_reason)
+        else:
+            _method_row(_key, None, _decl, None,
+                        coro_ledger.DECISION_DECLINED, reason=_reason)
+
+    # ------------------------------------------------------- 3. the site census
+    def _emit(node, callee, context, outcome, src):
+        ledger.record_site(coro_ledger.SiteRow(
+            file=coro_ledger.basename_of(src),
+            line=getattr(node, 'line', 0) or 0,
+            column=getattr(node, 'column', 0) or 0,
+            callee=callee or "?", context=context, outcome=outcome))
+
+    _IN_CLOSURE = ("refuse(a suspension inside a closure literal is not "
+                   "driven — the closure body is not a frame)")
+    _NO_FRAME = "no suspension is owed for this callee"
+    _UNREACHED = "the discovery walk did not reach this callee"
+    _NO_METHOD_AST = "no registered method AST answers this frame key"
+
+    def _close_free(key):
+        """Record a decision for a free callee the census met and the walk did
+        not decide about. This is what makes the table CLOSED: after it, every
+        key a lowering consumer can ask about has a row, and a miss is a gap."""
+        if key is None or ledger.has_frame_row(key):
+            return
+        body = ledger.free_or_imported_body(key)
+        if body is None or getattr(body, 'type_params', None):
+            # Not a free function this unit holds a non-generic body for: an
+            # extern, a builtin, a std leaf, a generic template. No frame
+            # question, and `free_call_frame` answers None by design.
+            return
+        if _free_boundary(key):
+            _free_row(key, coro_ledger.DECISION_DECLINED, reason=_UNREACHED)
+        else:
+            _free_row(key, coro_ledger.DECISION_NO_FRAME)
+
+    def _scan_sites(body, context, src):
+        def visit(n, in_closure):
+            if isinstance(n, ClosureExpr):
+                in_closure = True
+            ctx = coro_ledger.CONTEXT_CLOSURE_BODY if in_closure else context
+            if isinstance(n, FunctionCall):
+                key = ledger.key_of(n)
+                _close_free(key)
+                if n.name in _SUSPEND_CALLS:
+                    _emit(n, n.name, ctx,
+                          _IN_CLOSURE if in_closure else "inline", src)
+                elif ledger.free_call_frame(n) is not None:
+                    _emit(n, key, ctx,
+                          _IN_CLOSURE if in_closure else "embed", src)
+                elif key is not None and _free_boundary(key):
+                    _emit(n, key, ctx,
+                          "declined(no frame was built for this callee)", src)
+                elif _blocking_extern(n.name):
+                    _emit(n, n.name, ctx,
+                          _IN_CLOSURE if in_closure else "inline", src)
+            elif isinstance(n, MethodCall):
+                mfree = ledger.key_of(n)
+                _close_free(mfree)
+                if getattr(n, 'is_chan_recv', False):
+                    _emit(n, "Channel.receive", ctx,
+                          _IN_CLOSURE if in_closure else "inline", src)
+                elif ledger.free_call_frame(n) is not None:
+                    _emit(n, mfree, ctx,
+                          _IN_CLOSURE if in_closure else "embed", src)
+                elif mfree is not None and _free_boundary(mfree):
+                    _emit(n, mfree, ctx,
+                          "declined(no frame was built for this callee)", src)
+                else:
+                    # Asked BEFORE the freeze, so `_checked_embed`'s own read
+                    # cannot fire here — the census is what closes the row it
+                    # will verify from then on.
+                    tgt = ledger.method_target(n)
+                    if tgt.kind == 'embed':
+                        _close_method(tgt.frame_key)
+                        built = ledger.is_built(tgt.frame_key)
+                        _emit(n, tgt.frame_key, ctx,
+                              _IN_CLOSURE if in_closure
+                              else ("embed" if built else
+                                    "declined(no frame was built for this "
+                                    "method)"), src)
+                    elif tgt.kind == 'unsupported':
+                        _emit(n, f"{tgt.owner or '?'}.{n.method_name}", ctx,
+                              f"refuse({tgt.reason})", src)
+            if isinstance(n, ASTNode):
+                for c in _child_nodes(n):
+                    visit(c, in_closure)
+
+        if body is not None:
+            visit(body, False)
+
+    def _close_method(key):
+        """The method twin of `_close_free`: record a decision for an EMBED frame
+        key the walk did not decide about, so `method_target`'s checked read has a
+        row to verify from the freeze onward. Only ever reached for an EMBED
+        answer — NOT SUSPENDING names no frame and UNSUPPORTED is a refusal, so
+        neither owes a row."""
+        if key is None or ledger.has_frame_row(key):
+            return
+        entry = ledger.method_entry_for_key(key)
+        if entry is None:
+            _method_row(key, None, None, None,
+                        coro_ledger.DECISION_DECLINED, reason=_NO_METHOD_AST)
+        else:
+            _owner, _mast, _ext = entry
+            _method_row(key, _owner, _mast, _ext,
+                        coro_ledger.DECISION_DECLINED, reason=_UNREACHED)
+
+    _scanned = set()
+
+    def _scan_once(body, context, src):
+        if body is None or id(body) in _scanned:
+            return
+        _scanned.add(id(body))
+        _scan_sites(body, context, src)
+
+    for _key in ledger.closure:
+        _fn = ledger.free_body(_key)
+        if _fn is None:
+            continue
+        if _key in roots or (_key == "main" and ledger.main_suspends):
+            _ctx = coro_ledger.CONTEXT_DRIVEN_ROOT
+        elif _key in spawn_roots:
+            _ctx = coro_ledger.CONTEXT_SPAWNED
+        else:
+            _ctx = coro_ledger.CONTEXT_EMBEDDED
+        _scan_once(getattr(_fn, 'body', None), _ctx,
+                   getattr(_fn, 'source_file', None))
+    # A method that is BOTH a root and an embedded callee is one frame and one
+    # body; the roots run first so it is reported as the root it is.
+    for _fkey, (_owner, _mast, _ext, _recv) in ledger.method_root_decls.items():
+        _scan_once(getattr(_mast, 'body', None),
+                   coro_ledger.CONTEXT_DRIVEN_ROOT,
+                   getattr(_mast, 'source_file', None)
+                   or (getattr(_ext, 'source_file', None)
+                       if _ext is not None else None))
+    for _mid, (_owner, _mast, _ext) in ledger.method_closure.items():
+        _fkey = ledger.method_key_of_decl(_owner, _mast.name, _mast)
+        _ctx = (coro_ledger.CONTEXT_DRIVEN_ROOT if _fkey in method_roots
+                else coro_ledger.CONTEXT_EMBEDDED)
+        _scan_once(getattr(_mast, 'body', None), _ctx,
+                   getattr(_mast, 'source_file', None)
+                   or getattr(_ext, 'source_file', None))
+
+
+def _build_frame_ledger(program, typechecker, imported_ast, *, roots,
+                        method_roots, spawn_roots, all_exts, entry_ext_ids):
+    """THE discovery pass (design 275 U1). Returns a FROZEN `FrameLedger`, or
+    None when this program has no coroutine root at all.
+
+    ONE AUTHORITATIVE ANALYSIS, not one traversal: a WORKLIST runs to
+    stabilization, because an imported body or a generic instance can reveal
+    further callees and a monomorphized clone of an imported generic is keyable
+    only once its instantiation is known. Everything here happens BEFORE any body
+    is lowered; the ledger freezes at the end and every later touch is a read.
+
+    THIS FUNCTION IS THE ONLY PLACE IN THIS MODULE ALLOWED TO TOUCH THE RAW
+    DISCOVERY INPUTS, and `tools/test_coro_discovery.py` (the `corodiscovery`
+    battery lane) is what holds that line: it parses this module and fails on any
+    read of a suspension answer, a mangled symbol, a resolved symbol, a
+    module-qualified free-call marker or a callee's written name anywhere outside
+    this function. Even here the KEYING goes through the ledger's registration
+    API, so `frame_keys.callee_frame_key` and `coro_ledger.method_frame_key` have
+    exactly one caller between them.
+
+    The pass, in order: register both body tables and the method tables; take the
+    ONE `classify_suspensions` reading and the two method censuses off it;
+    canonicalize the call shapes every classifier tests for; promote the nested
+    generic calls and methods the driven roots reach; then walk the
+    suspending-call graph from every root, splicing imported bodies and promoting
+    joining ones as it goes, until nothing new is reachable. Finally record the
+    dump's two tables when `--emit-frame-ledger` asked for them.
+    """
+    _nodes_for_methods = getattr(typechecker, "_suspend_nodes", {})
+    # design 275 U4: ONE analysis of the graph, run once here and read by every
+    # framing decision in this transform — the method census below, the closure
+    # walk's edge-follow, and both generic promotions. `might_suspend` and
+    # `frame_boundary` are two DERIVED READS of one cause set, not two walks of
+    # one graph, and design 275 U1 makes the LEDGER the only thing holding them.
+    from typechecker.effects import classify_suspensions as _classify_suspensions
+    from type_identity import std_leaf as _std_leaf
+    _answers = _classify_suspensions(_nodes_for_methods)
+    ledger = coro_ledger.FrameLedger(_answers, _nodes_for_methods, typechecker)
+    _entry_ext_ids = entry_ext_ids
+    _all_exts = all_exts
+    # SL-280: the entry body table is keyed by FRAME KEY, which is what the
+    # effect graph's edges, the driven/spawned roots and every call-site
+    # classifier name a callee by. It was `f.name`, and a free function whose
+    # registration stamped a symbol (design 249's `$m$`/`$M$` tags, design 55's
+    # `$OL$`) was then filed under a name no edge ever used — so its body was
+    # never found, no frame was built, and the suspension inside it was dropped
+    # in silence. The ledger composes the key, so the table and the classifiers
+    # cannot be keyed two ways again.
+    for _f in program.functions:
+        ledger.register_free_body(_f)
+    funcs_by_name = ledger.free_bodies
     # design 45 item 1: a suspending `main` is auto-wrapped in an entry executor.
     main_suspends = (getattr(typechecker, "_main_suspends", False)
-                     and "main" in funcs_by_name)
+                     and ledger.free_body("main") is not None)
+    ledger.main_suspends = main_suspends
     if not roots and not method_roots and not spawn_roots and not main_suspends:
-        return False
+        return None
 
     # DF-190b: canonicalize a FULLY-LABELED call (`f(a: 1)`, a `StructInit` by
     # parse) back into the `FunctionCall` the typechecker already resolved it
@@ -11301,18 +11391,18 @@ def transform_program(program, typechecker, imported_ast=None):
         """The spawned function's formals, for the site's default filling. The
         spawn trampoline (`_make_spawn_trampoline`) copies this same list, so
         the helper's parameters and these agree by construction."""
-        fn = funcs_by_name.get(root)
+        fn = ledger.free_body(root)
         return None if fn is None else list(fn.parameters)
 
     if spawn_roots:
         for f in program.functions:
             f.body = _rewrite_spawn_sites(f.body, _spawn_root_params,
-                                          typechecker,
+                                          ledger,
                                           getattr(f, 'source_file', None))
         for ext in program.extensions:
             for m in ext.methods:
                 m.body = _rewrite_spawn_sites(m.body, _spawn_root_params,
-                                              typechecker,
+                                              ledger,
                                               getattr(m, 'source_file', None)
                                               or getattr(ext, 'source_file',
                                                          None))
@@ -11323,8 +11413,6 @@ def transform_program(program, typechecker, imported_ast=None):
     # it lower in place and trip a confusing sync-violation on the synthesized
     # resume. Full method sub-frame embedding (the Part-0b method twin) is the
     # eventual lift; until then this is the honest rejection.
-    _nodes_for_methods = getattr(typechecker, "_suspend_nodes", {})
-    suspending_methods = set(getattr(typechecker, "_std_suspending_methods", set()))
     # design 223, sharpened by SL-306: the same census, asked WITHOUT the
     # conservative closure-call cause — does this method suspend for a reason of
     # its OWN (`frame_boundary`), or only because it calls a
@@ -11341,22 +11429,14 @@ def transform_program(program, typechecker, imported_ast=None):
     # call where it had not. One cause is struck, and it is the one that says
     # "might".
     #
-    # design 275 U4: ONE analysis of the graph, run once here and read by every
-    # framing decision in this transform — the census below, the closure walk's
-    # edge-follow, and both generic promotions. `might_suspend` and
-    # `frame_boundary` are two DERIVED READS of one cause set now, not two walks
-    # of one graph.
-    from typechecker.effects import classify_suspensions as _classify_suspensions
-    from type_identity import std_leaf as _std_leaf
-    _answers = _classify_suspensions(_nodes_for_methods)
-    # SEEDED from the builtin compile's own answer, exactly as
-    # `suspending_methods` is seeded from `_std_suspending_methods` above. std
-    # bodies belong to a different typechecker, so a std method has no node in
-    # `_nodes_for_methods` and the loop below can never judge one: without the
-    # seed this set held only the ENTRY compile's methods, so `TcpStream.read`
-    # and `JsonValue._write` were indistinguishable here — both absent — and a
-    # gate on the difference would have dropped a real park.
-    own_suspending_methods = set(
+    # SEEDED from the builtin compile's own answers. std bodies belong to a
+    # different typechecker, so a std method has no node in `_nodes_for_methods`
+    # and the loop below can never judge one: without the seed the censuses held
+    # only the ENTRY compile's methods, so `TcpStream.read` and
+    # `JsonValue._write` were indistinguishable here — both absent — and a gate
+    # on the difference would have dropped a real park.
+    ledger.seed_method_census(
+        getattr(typechecker, "_std_suspending_methods", set()) or set(),
         getattr(typechecker,
                 "_std_suspending_methods_ignoring_closure_calls", set())
         or set())
@@ -11382,10 +11462,10 @@ def transform_program(program, typechecker, imported_ast=None):
         is_std = _std_leaf(getattr(ext, 'source_file', None)) is not None
         for m in ext.methods:
             node = _nodes_for_methods.get(m.node_id)
-            if _answers.might_suspend(m.node_id):
-                suspending_methods.add((sname, m.name))
-            if _answers.frame_boundary(m.node_id):
-                own_suspending_methods.add((sname, m.name))
+            ledger.note_method_census(
+                sname, m.name,
+                might=_answers.might_suspend(m.node_id),
+                own=_answers.frame_boundary(m.node_id))
             if is_std:
                 _declared_by_std.add((sname, m.name))
             elif node is not None:
@@ -11394,22 +11474,7 @@ def transform_program(program, typechecker, imported_ast=None):
                     or _answers.might_suspend(m.node_id))
     for _pair, _suspends in _answered_locally.items():
         if not _suspends and _pair not in _declared_by_std:
-            suspending_methods.discard(_pair)
-    typechecker._suspending_methods_set = suspending_methods
-    typechecker._own_suspending_methods_set = own_suspending_methods
-
-    new_structs = []
-    new_enums = []
-    new_extensions = []
-    new_functions = []
-    removed = set()
-
-    # The `Poll` signal enum and the `Resumable` trait are declared in
-    # std/compiler/frame.saw (design 218 unit 1) — not synthesized here — and
-    # sawc.py's `COMPILER_EMITTED_STD_SYMBOLS` carve-out keeps both compiled in
-    # even when that module is not imported, so `Resumable` can name `Poll` and
-    # frames can conform to it for the erased run queue.
-    nodes = getattr(typechecker, "_suspend_nodes", {})
+            ledger.drop_method_from_broad_census(_pair)
 
     # design 74 (A5-rest, shape 3): promote NESTED suspending generic calls inside
     # driven bodies to concrete callees BEFORE the closure walk, rewriting each
@@ -11426,19 +11491,22 @@ def transform_program(program, typechecker, imported_ast=None):
     seed_names = list(roots.keys()) + list(spawn_roots.keys())
     if main_suspends:
         seed_names.append("main")
+    # Phase 2's monomorphized instances, registered with the ledger BEFORE the
+    # promotions run, so the store they adopt from is the ledger's one table.
+    ledger.register_mono_free_bodies(
+        getattr(imported_ast, 'functions', None) or [])
+    ledger.register_mono_method_bodies(_all_exts)
     promoted = _promote_nested_generic_calls(
-        program, funcs_by_name, seed_names, typechecker, imported_ast,
-        answers=_answers)
+        program, ledger, seed_names, typechecker)
     # design 223 unit 1: the METHOD twin of that promotion. A suspending method
     # whose frame identity needs an instantiation — one on a generic struct, or
     # a method-level generic — gets that instantiation built here and its frame
-    # key stamped on the call, so `_suspending_method_target` can NAME it. What
+    # key stamped on the call, so `FrameLedger.method_target` can NAME it. What
     # is not promoted stays UNSUPPORTED and is refused at the call site; what is
     # promoted on a GENERIC STRUCT lives in no extension (its `self` is
     # `Box2<String>`), so it is registered with the method tables below.
     promoted_methods = _promote_nested_generic_methods(
-        program, funcs_by_name, seed_names, _all_exts, suspending_methods,
-        own_suspending_methods, typechecker)
+        program, ledger, seed_names, _all_exts, typechecker)
 
     # The driven closure: every suspending entry-module free function reachable
     # from a driven root through suspending-call edges. Each becomes a frame +
@@ -11451,28 +11519,23 @@ def transform_program(program, typechecker, imported_ast=None):
     # (with a `__recv` pointer into the receiver's caller-frame storage). Effect
     # edges to a method are keyed by `Method.node_id`, so map every method AST to its
     # (struct, method, extension) to follow those edges and build the frames.
-    methods_by_id = {}
-    # design 95: keyed by the resolved-signature FRAME KEY (not (struct, name)),
-    # so two overloads of the same method name each map to their OWN AST — a
-    # name-only key collapsed them (second overwrote first → mis-resolution).
-    methods_by_key = {}   # frame_key -> method.node_id — for the body scan
+    # design 95: the method tables are keyed by the resolved-signature FRAME KEY
+    # (not (struct, name)), so two overloads of the same method name each map to
+    # their OWN AST — a name-only key collapsed them (second overwrote first →
+    # mis-resolution). Both tables are the ledger's, and one registration fills
+    # both, so the node-id table and the key table cannot disagree.
     for ext in _all_exts:
         sname = getattr(ext, 'struct_name', None)
         for m in ext.methods:
-            methods_by_id[m.node_id] = (sname, m, ext)
-            methods_by_key[_method_frame_key(
-                sname, m.name, getattr(m, 'mangled_symbol', None))] = m.node_id
+            ledger.register_method(sname, m, ext)
     # design 223: a promoted GENERIC-STRUCT instantiation is a method AST that
     # sits in no `ext.methods` list, so the loop above cannot see it. Register it
     # under the frame key the call sites were stamped with — the same key
     # `_scan_method_callees` will ask for — and remember its concrete receiver
     # type, which is the one thing its frame builder needs that a plain method's
     # does not.
-    gsm_recv_types = {}
     for _key, (_owner, _clone, _ext, _recv_type) in promoted_methods.items():
-        methods_by_id[_clone.node_id] = (_owner, _clone, _ext)
-        methods_by_key[_key] = _clone.node_id
-        gsm_recv_types[_key] = _recv_type
+        ledger.register_mono_method(_key, _owner, _clone, _ext, _recv_type)
 
     def _scan_method_callees(body):
         """Enqueue every nested suspending METHOD call in `body` (a std method's
@@ -11494,10 +11557,10 @@ def transform_program(program, typechecker, imported_ast=None):
             # design 95: the frame key resolves the exact overload via its
             # resolved signature, so a call to `write(String)` finds the String
             # frame and not whichever `write` was registered last.
-            tgt = _suspending_method_target(mc, typechecker)
+            tgt = ledger.method_target(mc)
             if tgt.kind != 'embed':
                 continue
-            mid = methods_by_key.get(tgt.frame_key)
+            mid = ledger.method_id_for_key(tgt.frame_key)
             if mid is not None:
                 out.append(("method", mid))
         return out
@@ -11581,10 +11644,10 @@ def transform_program(program, typechecker, imported_ast=None):
         function the fixpoint already marks is followed via `t.suspends`
         instead and never reaches here.
 
-        Bodies are looked up in `funcs_by_name` FIRST (the entry module, plus
-        whatever the walk has already spliced) and then in `imported_free_fns`
-        — a body that has not been spliced yet still has to be able to answer,
-        which is the phase ordering this closes.
+        Bodies come from `ledger.free_or_imported_body`, which looks in the entry
+        table FIRST (plus whatever the walk has already spliced) and then in the
+        importable one — a body that has not been spliced yet still has to be able
+        to answer, which is the phase ordering this closes.
         """
         return _struct_susp_probe(key, set())[1]
 
@@ -11603,9 +11666,7 @@ def transform_program(program, typechecker, imported_ast=None):
             # A cycle contributes nothing on its own: if any member really
             # suspends, that member's own body is what says so.
             return False, False
-        fn = funcs_by_name.get(key)
-        if fn is None:
-            fn = imported_free_fns.get(key)
+        fn = ledger.free_or_imported_body(key)
         if fn is None or getattr(fn, 'type_params', None):
             _struct_susp_cache[key] = False
             return True, False
@@ -11614,9 +11675,7 @@ def transform_program(program, typechecker, imported_ast=None):
         answer = bool(_scan_method_callees(fn.body)
                       or _body_has_chan_recv(fn.body))
         if not answer:
-            node = nodes.get(("fn", key))
-            for _e in (node.edges if node is not None else ()):
-                _tgt = _e.target
+            for _tgt in ledger.graph_edge_targets(("fn", key)):
                 if not (isinstance(_tgt, tuple) and _tgt[0] == "fn"):
                     continue
                 _ok, _sub = _struct_susp_probe(_tgt[1], visiting)
@@ -11653,11 +11712,8 @@ def transform_program(program, typechecker, imported_ast=None):
     # entry `helper` no longer hides a dependency's tagged `helper$m$dep` (they
     # are two functions and the walk needs both), and the entry body still wins
     # wherever the two really are one key.
-    imported_free_fns = {}
     for _f in (getattr(imported_ast, 'functions', None) or []):
-        _key = callee_frame_key(_f)
-        if _key not in funcs_by_name and _key not in imported_free_fns:
-            imported_free_fns[_key] = _f
+        ledger.register_imported_free_body(_f)
 
     # SL-280: the frame keys whose BODY came from an imported module. The clone
     # is appended to `program.functions` so the post-transform re-entry can read
@@ -11684,8 +11740,9 @@ def transform_program(program, typechecker, imported_ast=None):
     # parameter's reads are rewritten through `self`, so that shape takes the
     # first — and neither is a splice-preprocessing bug, which is what they look
     # like from the diagnostic.
-    spliced_free_fn_keys = set()
-
+    # The keys themselves live on the ledger (`spliced_keys`), because the drop
+    # filter at the end of `transform_program` is what consumes them and there is
+    # no second set for the two halves to disagree over.
     def _splice_imported_free_fn(name):
         """Pull an imported free function into the entry driven closure: a
         deep COPY (the transform REWRITES the body it is handed, and the
@@ -11697,7 +11754,7 @@ def transform_program(program, typechecker, imported_ast=None):
 
         Generic promotion is NOT done here: `_promote_joining_body` below runs
         it for every body that joins the closure, spliced or not."""
-        src = imported_free_fns.get(name)
+        src = ledger.importable_body(name)
         if src is None or getattr(src, 'type_params', None):
             return None
         import copy as _copy
@@ -11706,12 +11763,12 @@ def transform_program(program, typechecker, imported_ast=None):
         clone.body = _rewrite_yield_intrinsic_calls(clone.body)
         if spawn_roots:
             clone.body = _rewrite_spawn_sites(clone.body, _spawn_root_params,
-                                              typechecker,
+                                              ledger,
                                               getattr(clone, 'source_file',
                                                       None))
-        funcs_by_name[name] = clone
+        ledger.register_free_body(clone, origin=coro_ledger.ORIGIN_IMPORTED,
+                                  key=name)
         program.functions.append(clone)
-        spliced_free_fn_keys.add(name)
         return clone
 
     def _promote_joining_body(name, work):
@@ -11742,12 +11799,16 @@ def transform_program(program, typechecker, imported_ast=None):
         string-hash order, and it would reach `closure`, then `fbs`, then the
         order the frame structs are emitted in."""
         for _m in sorted(_promote_nested_generic_calls(
-                program, funcs_by_name, [name], typechecker, imported_ast,
-                answers=_answers)):
+                program, ledger, [name], typechecker)):
             work.append(("fn", _m))
 
-    closure = []
-    method_closure = {}   # method.node_id -> (struct_name, method_ast, extension)
+    # design 275 U1: the frames discovery reached and did NOT build, each with
+    # the reason. Recorded for the `--emit-frame-ledger` dump and for nothing
+    # else — the transform's behaviour at these keys is exactly what it was.
+    # Three ways a key lands here, all of them a `continue` in the walk below: a
+    # generic TEMPLATE (its instantiations are keyed separately), a callee body
+    # neither body table holds, and a method edge no registered AST answers.
+    declined_frames = []   # (key, kind, reason, decl)
     seen = set()
     # `promoted` is a SET of instantiation names, so iterating it directly puts
     # string-hash order — which Python randomizes per process — into the work
@@ -11763,7 +11824,7 @@ def transform_program(program, typechecker, imported_ast=None):
             continue
         seen.add((kind, key))
         if kind == "fn":
-            func = funcs_by_name.get(key)
+            func = ledger.free_body(key)
             if func is None:
                 # SL-208 / DF-300e: a CROSS-MODULE suspending free callee,
                 # reached through a module-qualified call. Splice its body into
@@ -11772,8 +11833,8 @@ def transform_program(program, typechecker, imported_ast=None):
                 func = _splice_imported_free_fn(key)
             if func is None:
                 # NO ANCHOR, on purpose (SL-224): the declaration this would
-                # point at is the thing that is missing — `funcs_by_name` has
-                # no entry for `key` and the splice found no imported body, so
+                # point at is the thing that is missing — neither body table has
+                # an entry for `key` and the splice found no imported body, so
                 # there is no node to read a file or a line off. `sawc.py`
                 # renders it as a bare message, which is the honest shape for a
                 # wiring failure that names no user construct.
@@ -11790,18 +11851,22 @@ def transform_program(program, typechecker, imported_ast=None):
                 # promotion could NOT handle (e.g. cross-module, shape 4) keeps its
                 # generic AST call and is rejected — with a workaround and a
                 # user-anchored line — by `_classify_call` when its caller lowers.
+                if coro_ledger.capture_enabled():
+                    declined_frames.append((
+                        key, coro_ledger.KIND_FREE,
+                        "a generic template owns no frame; its suspending "
+                        "instantiations are keyed and built separately", func))
                 continue
-            closure.append(key)
+            ledger.add_built_free(key)
             _promote_joining_body(key, work)
             work.extend(_scan_method_callees(func.body))
-            node = nodes.get(("fn", key))
+            graph_key = ("fn", key)
         else:  # a nested suspending method callee
-            entry = methods_by_id.get(key)
+            entry = ledger.methods_by_id.get(key)
             if entry is None:
                 continue
             sname, mast, ext = entry
-            fbkey = _method_frame_key(
-                sname, mast.name, getattr(mast, 'mangled_symbol', None))
+            fbkey = ledger.method_key_of_decl(sname, mast.name, mast)
             # A method-level or generic-struct generic is not embedded here —
             # the call site is rejected cleanly by
             # `_reject_suspending_method_call`.
@@ -11829,56 +11894,199 @@ def transform_program(program, typechecker, imported_ast=None):
             if (not getattr(mast, 'is_mono_instance', False)
                     and (getattr(mast, 'type_params', None)
                          or getattr(ext, 'type_params', None))):
+                if coro_ledger.capture_enabled():
+                    declined_frames.append((
+                        fbkey,
+                        (coro_ledger.KIND_STATIC
+                         if getattr(mast, 'is_static', False)
+                         else coro_ledger.KIND_METHOD),
+                        "a generic method template owns no frame; the call site "
+                        "is refused by `_reject_suspending_method_call` unless "
+                        "an instantiation was promoted for it", mast))
                 continue
-            method_closure[key] = (sname, mast, ext)
+            ledger.add_built_method(key, sname, mast, ext, fbkey)
             if getattr(mast, 'body', None) is not None:
                 work.extend(_scan_method_callees(mast.body))
-            node = nodes.get(mast.node_id)
-        if node is not None:
-            for e in node.edges:
-                t = nodes.get(e.target)
-                if t is None:
+            graph_key = mast.node_id
+        if ledger.has_graph_node(graph_key):
+            for _target in ledger.graph_edge_targets(graph_key):
+                if not ledger.has_graph_node(_target):
                     continue
-                is_free_edge = (isinstance(e.target, tuple)
-                                and e.target[0] == "fn")
-                is_fn_edge = is_free_edge and e.target[1] in funcs_by_name
+                is_free_edge = (isinstance(_target, tuple)
+                                and _target[0] == "fn")
+                is_fn_edge = (is_free_edge
+                              and ledger.free_body(_target[1]) is not None)
                 # DOES THIS EDGE CARRY A SUSPENSION? Two sources, asked in one
                 # place (SL-280). The fixpoint's own answer, and — design 96 —
                 # a free callee it left `suspends=False` that STRUCTURALLY
                 # suspends through a buried std method call or a channel
                 # receive. The structural question used to be asked only of a
-                # body already in `funcs_by_name`, which an imported one is not
+                # body already in the entry table, which an imported one is not
                 # until the splice below puts it there: the exact shape of the
                 # SL-280 wedge (`read_chunk` -> `stream.read()`) was refused
                 # entry by the very gate that exists to catch it.
                 #
                 # SL-306: the fixpoint's answer is asked WITHOUT the conservative
-                # closure-call cause (`_answers.frame_boundary`), for the same reason the
-                # call-site classifier is — a callee that "suspends" only because
-                # it calls a non-`sync` function value has no park, so a frame
-                # around it is not merely wasteful: the frame runs the
-                # closure-body rejector over the callee's own body, and refused
-                # `outer` for calling a conservative-only helper inside a
+                # closure-call cause (the `frame_boundary` derivation), for the
+                # same reason the call-site classifier is — a callee that
+                # "suspends" only because it calls a non-`sync` function value has
+                # no park, so a frame around it is not merely wasteful: the frame
+                # runs the closure-body rejector over the callee's own body, and
+                # refused `outer` for calling a conservative-only helper inside a
                 # `Vector.each` closure (the free-function face of SL-306, probed
                 # and fixed with it). The structural gate beside it is unchanged
                 # and is what still carries the routes this graph cannot see.
-                if not (_answers.frame_boundary(e.target)
-                        or (is_free_edge
-                            and _structurally_suspends(e.target[1]))):
+                # design 275 U1: both halves are ONE ledger read, and it is the
+                # same read the promotion criterion asks.
+                if not ledger.edge_is_boundary(_target, _structurally_suspends):
                     continue
                 # SL-208 / DF-300e: a free-fn edge to a CROSS-MODULE callee (in
-                # `imported_free_fns`, not yet in `funcs_by_name`). Splice its
-                # body into the entry closure and follow the edge — otherwise a
+                # the importable table, not yet in the entry one). Splice its body
+                # into the entry closure and follow the edge — otherwise a
                 # cross-module suspending free callee is missed and lowers as a
                 # plain call whose park wedges the reactor.
                 if (not is_fn_edge and is_free_edge
-                        and e.target[1] in imported_free_fns):
-                    if _splice_imported_free_fn(e.target[1]) is not None:
+                        and ledger.importable_body(_target[1]) is not None):
+                    if _splice_imported_free_fn(_target[1]) is not None:
                         is_fn_edge = True
                 if is_fn_edge:
-                    work.append(("fn", e.target[1]))
-                elif isinstance(e.target, int) and e.target in methods_by_id:
-                    work.append(("method", e.target))
+                    work.append(("fn", _target[1]))
+                elif (isinstance(_target, int)
+                      and _target in ledger.methods_by_id):
+                    work.append(("method", _target))
+                elif coro_ledger.capture_enabled():
+                    # design 275 U1: the edge CARRIES a suspension and the walk
+                    # follows it nowhere — neither body table holds the callee
+                    # and no registered method AST answers the id. Today the
+                    # caller lowers the call PLAINLY; recorded here, changed by
+                    # U2. This is SL-287/SL-316's own shape, read off the walk
+                    # rather than reconstructed from a symptom.
+                    declined_frames.append((
+                        _target[1] if is_free_edge
+                        else f"<method {ledger.node_label(_target)}>",
+                        coro_ledger.KIND_FREE if is_free_edge
+                        else coro_ledger.KIND_METHOD,
+                        _declined_edge_reason(_target, is_free_edge, ledger),
+                        None))
+
+    # SL-227: a driven method ROOT is a frame by definition — `method_roots` is
+    # what builds it, so the walk above never put it in `method_closure`. Tell the
+    # ledger, or the suspending-recursion check is STRICTER than the builder and
+    # refuses a cycle nothing embeds (`_analyze_nesting`'s last paragraph).
+    #
+    # AND RESOLVE ITS DECLARATION (codex's P2 on SL-318.p4 r1). A root's body is
+    # lowered like any other, so every suspension in it is the census's business
+    # — and the first draft walked only `closure` and `method_closure`, so a
+    # driven method root's FRAME row appeared with `# sites: 0` beside it
+    # whatever its body contained. The two sources are the ones the lowering
+    # loop below uses: the typechecker's per-instantiation clone for a method on
+    # a GENERIC struct (which lives in no extension, so no method table holds
+    # it), and `find_entry_method` for a plain one. Deliberately AFTER the walk
+    # and into a table of its own: putting a root into `methods_by_id` would
+    # change which method edges the walk follows, and the walk is over.
+    _gsm_roots = getattr(typechecker, "_driven_generic_struct_methods", {}) or {}
+    for _fkey, _info in method_roots.items():
+        _mid = ledger.method_id_for_key(_fkey)
+        if _mid is not None:
+            ledger.note_method_root_built(_mid, _fkey)
+            _entry = ledger.methods_by_id.get(_mid)
+            if _entry is not None:
+                ledger.register_method_root(_fkey, _entry[0], _entry[1],
+                                            _entry[2])
+            continue
+        _gsm = _gsm_roots.get((_info['struct'], _info['method']))
+        if _gsm is not None and _gsm[1] is not None:
+            ledger.register_method_root(_fkey, _info['struct'], _gsm[1], None,
+                                        recv_type=_gsm[0])
+            continue
+        _mast, _ext = ledger.find_entry_method(
+            program, _info['struct'], _info['method'], _info['symbol'])
+        if _mast is not None:
+            ledger.register_method_root(_fkey, _info['struct'], _mast, _ext)
+
+    # design 275 U1: DISCOVERY HAS FINISHED — the worklist is stable, every frame
+    # the transform will build is named, and nothing below this line may add one.
+    # The decisions are recorded HERE, before `_instrument_loop_backedges`
+    # rewrites a body, so they describe the program the author wrote — and they
+    # are recorded on EVERY compile (codex's P1): the flag decides whether the
+    # TEXT is rendered, never whether the table exists.
+    _record_frame_decisions(
+        ledger, typechecker=typechecker,
+        structurally_suspends=_structurally_suspends,
+        roots=roots, spawn_roots=spawn_roots, method_roots=method_roots,
+        entry_ext_ids=entry_ext_ids, declined_frames=declined_frames)
+    # The structural answers go with the freeze: a CHECKED read has to be able
+    # to ask design 96's question, which the effect graph cannot answer.
+    ledger.freeze(structural=_struct_susp_cache)
+    if coro_ledger.capture_enabled():
+        coro_ledger.record_dump(ledger.dump())
+    return ledger
+
+
+def transform_program(program, typechecker, imported_ast=None):
+    roots = dict(getattr(typechecker, "_driven_roots", {}) or {})
+    method_roots = dict(getattr(typechecker, "_driven_method_roots", {}) or {})
+    spawn_roots = dict(getattr(typechecker, "_spawn_roots", {}) or {})
+    mt_spawn_roots = set(getattr(typechecker, "_mt_spawn_roots", set()) or set())
+    # design 242 ruling 3: roots spawned by `Task.spawn` into the process-wide
+    # background group. A root may be in BOTH sets (spawned into a group at one
+    # site and into the background at another) — the two helpers box the same
+    # frame and differ only in where the group comes from.
+    bg_spawn_roots = set(
+        getattr(typechecker, "_background_spawn_roots", set()) or set())
+    # design 84: a nested suspending method may be defined in an IMPORTED module
+    # (std.net's TcpStream.read / TcpListener.accept), not the entry module. The
+    # transform is otherwise entry-module-only, but a NON-generic method frame is
+    # self-contained (its resume is a fresh state machine on the frame struct,
+    # spliced into the entry AST), so it can be embedded cross-module.
+    # `merge_programs` shares method AST objects (list concat), so
+    # `method.node_id` still matches the effect nodes. The ORIGINAL method stays
+    # in its module as harmless dead code (its calls were all rewritten to the
+    # embedded drive). Generic-struct / method-generic methods stay unsupported
+    # (rejected at the call site).
+    _entry_ext_ids = {e.node_id for e in program.extensions}
+    # design 223 unit 2: what the strip may NOT remove. Every trait in the
+    # compilation unit, by the two names an extension's `conformances` list can
+    # hold — see `_conformance_required_names`.
+    _required_by_conformance = _conformance_required_names(
+        list(getattr(program, 'traits', None) or [])
+        + list(getattr(imported_ast, 'traits', None) or []))
+    _imported_exts = ([e for e in getattr(imported_ast, 'extensions', [])
+                       if e.node_id not in _entry_ext_ids]
+                      if imported_ast is not None else [])
+    _all_exts = list(program.extensions) + _imported_exts
+
+    # design 275 U1: ONE DISCOVERY PASS, and it finishes before a single body is
+    # lowered. Everything below reads the ledger it returns and derives nothing —
+    # which of twenty-odd predicates answered "does this callee suspend / what key
+    # names its frame / can I build it" was the whole of the week's findings, and
+    # there is one answer now. None means this program has no coroutine root.
+    ledger = _build_frame_ledger(
+        program, typechecker, imported_ast, roots=roots,
+        method_roots=method_roots, spawn_roots=spawn_roots,
+        all_exts=_all_exts, entry_ext_ids=_entry_ext_ids)
+    if ledger is None:
+        return False
+    # Names for the ledger's OWN tables, not copies of them — the lowering half
+    # below reads the same dicts and lists discovery filled, and a copy is what
+    # would let the two drift.
+    main_suspends = ledger.main_suspends
+    funcs_by_name = ledger.free_bodies
+    closure = ledger.closure
+    method_closure = ledger.method_closure
+    gsm_recv_types = ledger.mono_recv_types
+
+    new_structs = []
+    new_enums = []
+    new_extensions = []
+    new_functions = []
+    removed = set()
+
+    # The `Poll` signal enum and the `Resumable` trait are declared in
+    # std/compiler/frame.saw (design 218 unit 1) — not synthesized here — and
+    # sawc.py's `COMPILER_EMITTED_STD_SYMBOLS` carve-out keeps both compiled in
+    # even when that module is not imported, so `Resumable` can name `Poll` and
+    # frames can conform to it for the erased run queue.
 
     # SL-227: EVERY root-seeding path is asked, not just the `__saw_drive` one.
     # A spawn root used to reach `_build_sub_frame` with its cycle intact and
@@ -11895,37 +12103,25 @@ def transform_program(program, typechecker, imported_ast=None):
         _seen_cycle_roots.add(_name)
         _cycle_roots.append((("fn", _name), funcs_by_name[_name]))
     # A METHOD root is reached by its node id — `method_roots` is keyed by frame
-    # key, which `methods_by_key` maps across. The graph keys a method by the
-    # RAW id (a function is the `("fn", name)` tuple), which is what
-    # `_find_suspending_cycle` follows through `e.target`, so the id is the start
-    # key as it stands. Without this a self-recursive suspending method reached
-    # the frame-key mismatch in phase 2 as an internal compiler error
-    # (`no such frame was built`) instead of the cycle diagnostic.
-    _root_method_ids = set()
+    # key, which the ledger's method table maps across. The graph keys a method by
+    # the RAW id (a function is the `("fn", name)` tuple), which is what
+    # `_find_suspending_cycle` follows through an edge, so the id is the start key
+    # as it stands. Without this a self-recursive suspending method reached the
+    # frame-key mismatch in phase 2 as an internal compiler error (`no such frame
+    # was built`) instead of the cycle diagnostic.
+    #
+    # A method ROOT is a frame by definition — `method_roots` is what builds it,
+    # so it is not in `method_closure`, which holds the CALLEES the walk reached.
+    # The ledger was told during discovery (`note_method_root_built`), so
+    # `ledger.is_built` is as strict as the builder and no stricter.
     for _fkey in method_roots:
-        _mid = methods_by_key.get(_fkey)
-        if _mid is None:
+        _entry = ledger.method_entry_for_key(_fkey)
+        if _entry is None:
             continue
-        _entry = methods_by_id.get(_mid)
-        _manchor = _entry[1] if isinstance(_entry, tuple) else _entry
-        _root_method_ids.add(_mid)
-        _cycle_roots.append((_mid, _manchor))
-    # The gate that keeps the check as strict as the builder and no stricter —
-    # see `_analyze_nesting`. `closure` (free functions, by name) and
-    # `method_closure` (methods, by node id) ARE the frames about to be built.
-    _closure_names = set(closure)
-
-    def _frame_is_built(key):
-        if isinstance(key, tuple) and len(key) == 2 and key[0] == "fn":
-            return key[1] in _closure_names
-        # A method ROOT is a frame by definition — `method_roots` is what builds
-        # it, so it is not in `method_closure`, which holds the CALLEES the walk
-        # reached. Without that half a self-recursive driven method fell back to
-        # the phase-2 frame-key ICE this check exists to replace.
-        return key in method_closure or key in _root_method_ids
+        _cycle_roots.append((ledger.method_id_for_key(_fkey), _entry[1]))
 
     for _start, _anchor in _cycle_roots:
-        _analyze_nesting(_start, _anchor, nodes, is_built=_frame_is_built)
+        _analyze_nesting(_start, _anchor, ledger)
 
     # design 127 (RC-3): instrument every loop backedge in the bodies that are
     # about to become frames, BEFORE any layout is computed — the inserted
@@ -11946,7 +12142,10 @@ def transform_program(program, typechecker, imported_ast=None):
 
     # Phase 1: build every frame's layout (so a caller can embed a callee frame
     # by value). Phase 2: generate every resume state machine.
-    suspends_set = set(closure)
+    #
+    # design 275 U1: there is no `suspends` SET to hand each builder any more —
+    # the one it took was a copy of `closure`, and every classifier reads
+    # `ledger.free_call_frame` instead.
     # DF-138a: which spawn roots ALSO play a non-spawn role — driven in place by
     # `__saw_drive`, or embedded as some other frame's sub-frame? Those two roles
     # want the frame-resident `__result`/`__cancel` layout; a spawn root wants the
@@ -11966,8 +12165,8 @@ def transform_program(program, typechecker, imported_ast=None):
                          if getattr(m, 'body', None) is not None]
         for _b in _role_bodies:
             for _fc in _iter_function_calls(_b):
-                _fck = callee_frame_key(_fc)   # SL-280: `spawn_roots` is keyed
-                if _fck in spawn_roots:        # by frame key, so ask for one
+                _fck = ledger.key_of(_fc)   # SL-280: `spawn_roots` is keyed by
+                if _fck in spawn_roots:     # frame key, so ask the ledger for one
                     dual_role_spawn_roots.add(_fck)
         dual_role_spawn_roots.update(n for n in spawn_roots if n in roots)
     # design 221 unit B3: a suspending `main` that ALSO spawns rides the ambient
@@ -11981,7 +12180,8 @@ def transform_program(program, typechecker, imported_ast=None):
     fbs = {n: _FrameBuilder(funcs_by_name[n], tc=typechecker,
                             is_spawn_root=(n in spawn_roots
                                            and n not in dual_role_spawn_roots),
-                            exit_status_root=(n == "main" and _exit_status_main))
+                            exit_status_root=(n == "main" and _exit_status_main),
+                            ledger=ledger)
            for n in closure}
     # design 158: every builder this pass creates, in one list, so the backtrace
     # table's frame indices can be assigned once at the end (see
@@ -11994,8 +12194,7 @@ def transform_program(program, typechecker, imported_ast=None):
     # overload's `__Frame_...`.
     nested_method_fbs = []   # (key, extension, method_ast)
     for mid, (sname, mast, ext) in method_closure.items():
-        fbkey = _method_frame_key(
-            sname, mast.name, getattr(mast, 'mangled_symbol', None))
+        fbkey = ledger.method_key_of_decl(sname, mast.name, mast)
         if fbkey in fbs:
             continue
         # design 223 unit 2: the copy is owed for a SECOND reason, and the two
@@ -12025,15 +12224,16 @@ def transform_program(program, typechecker, imported_ast=None):
         # reads out of the `gsm` table below. Everything else about the frame is
         # an ordinary method's.
         fbs[fbkey] = _FrameBuilder(mast, struct_name=sname, tc=typechecker,
-                                   recv_saw_type=gsm_recv_types.get(fbkey))
+                                   recv_saw_type=gsm_recv_types.get(fbkey),
+                                   ledger=ledger)
         all_builders.append(fbs[fbkey])
         nested_method_fbs.append((fbkey, ext, mast))
     # Prepare ALL layouts (fn + method) before generating any resume, so a caller
     # (fn or method) can embed a fully-known callee frame by value.
     for n in closure:
-        new_structs.append(fbs[n].prepare(suspends_set))
+        new_structs.append(fbs[n].prepare())
     for fbkey, _ext, _mast in nested_method_fbs:
-        new_structs.append(fbs[fbkey].prepare(suspends_set))
+        new_structs.append(fbs[fbkey].prepare())
     # DF-138a: the spawn-side frame for each root. A single-role root IS its own
     # spawn frame; a dual-role one gets the `f$spawnroot` trampoline whose sole
     # statement embeds `__Frame_f` as a sub-frame. `spawn_roots` is a dict in
@@ -12044,10 +12244,10 @@ def transform_program(program, typechecker, imported_ast=None):
             spawn_fbs[n] = fbs[n]
             continue
         tfb = _FrameBuilder(_make_spawn_trampoline(funcs_by_name[n], n),
-                            tc=typechecker, is_spawn_root=True)
+                            tc=typechecker, is_spawn_root=True, ledger=ledger)
         spawn_fbs[n] = tfb
         all_builders.append(tfb)
-        new_structs.append(tfb.prepare(suspends_set))
+        new_structs.append(tfb.prepare())
     for n in closure:
         _, resume_ext = fbs[n].build_resume(fbs)
         new_extensions.append(resume_ext)
@@ -12142,9 +12342,9 @@ def transform_program(program, typechecker, imported_ast=None):
                     f"`{struct_name}.{method_name}` was not monomorphized")
             _instrument_loop_backedges(method_ast)   # design 127
             mfb = _FrameBuilder(method_ast, struct_name=struct_name, tc=typechecker,
-                                recv_saw_type=recv_saw_type)
+                                recv_saw_type=recv_saw_type, ledger=ledger)
             all_builders.append(mfb)
-            new_structs.append(mfb.prepare(suspends_set))
+            new_structs.append(mfb.prepare())
             _, resume_ext = mfb.build_resume(fbs)
             new_extensions.append(resume_ext)
             for mode in sorted(modes):   # deterministic emission order
@@ -12161,12 +12361,13 @@ def transform_program(program, typechecker, imported_ast=None):
             for mode in sorted(modes):   # deterministic emission order
                 new_functions.append(_make_driver(fbs[frame_key], mode, fbs))
             continue
-        # design 95: disambiguate an overloaded method by its resolved symbol.
-        method_ast, ext = _find_method(program, struct_name, method_name,
-                                       method_symbol)
+        # design 95: disambiguate an overloaded method by its resolved symbol —
+        # a KEYING read, so it is the ledger's (`find_entry_method`).
+        method_ast, ext = ledger.find_entry_method(
+            program, struct_name, method_name, method_symbol)
         if method_ast is None:
             # NO ANCHOR, on purpose (SL-224): the method declaration this would
-            # anchor on is exactly what `_find_method` failed to find.
+            # anchor on is exactly what the lookup failed to find.
             raise CoroTransformError(
                 f"coroutine transform: driven method `{struct_name}.{method_name}` "
                 f"not found in the entry module")
@@ -12190,9 +12391,10 @@ def transform_program(program, typechecker, imported_ast=None):
             method_ast = _copy.deepcopy(method_ast)
         if ext.node_id in _entry_ext_ids:
             _instrument_loop_backedges(method_ast)   # design 127
-        mfb = _FrameBuilder(method_ast, struct_name=struct_name, tc=typechecker)
+        mfb = _FrameBuilder(method_ast, struct_name=struct_name, tc=typechecker,
+                            ledger=ledger)
         all_builders.append(mfb)
-        new_structs.append(mfb.prepare(suspends_set))
+        new_structs.append(mfb.prepare())
         _, resume_ext = mfb.build_resume(fbs)
         new_extensions.append(resume_ext)
         for mode in sorted(modes):   # deterministic emission order
@@ -12202,19 +12404,19 @@ def transform_program(program, typechecker, imported_ast=None):
     # Rewrite all `__saw_drive(...)` sites across the entry module's function and
     # method bodies to call the synthesized drivers.
     def _driven_params(key):
-        """The driven callee's formals, keyed as its frame is — a free
-        function's name, or a method's `_method_frame_key`. `fbs` is the one
-        table that holds both, and its `params` already drop `self`, which is
-        the same shape a drive site's argument list has."""
+        """The driven callee's formals, keyed as its frame is — the ledger's
+        free-function key, or its method key. `fbs` is the one table that holds
+        both, and its `params` already drop `self`, which is the same shape a
+        drive site's argument list has."""
         fb = fbs.get(key)
         return None if fb is None else fb.params
 
     for f in program.functions:
-        _rewrite_drive_sites(f.body, roots, _driven_params, typechecker,
+        _rewrite_drive_sites(f.body, roots, _driven_params, ledger,
                              getattr(f, 'source_file', None))
     for ext in program.extensions:
         for m in ext.methods:
-            _rewrite_drive_sites(m.body, roots, _driven_params, typechecker,
+            _rewrite_drive_sites(m.body, roots, _driven_params, ledger,
                                  getattr(m, 'source_file', None)
                                  or getattr(ext, 'source_file', None))
 
@@ -12263,8 +12465,8 @@ def transform_program(program, typechecker, imported_ast=None):
     # DF-218e: consumption symmetry — a generic TEMPLATE naming a consumed
     # callee is consumed with it.
     _consume_templates_naming_removed(
-        program, removed, {callee_frame_key(f) for f in new_functions},
-        _required_by_conformance,
+        program, removed, {ledger.key_of(f) for f in new_functions}, ledger,
+        required_by_conformance=_required_by_conformance,
         extra_decls=list(new_functions) + list(new_extensions))
 
     # Splice: remove driven roots, add synthesized declarations.
@@ -12275,10 +12477,10 @@ def transform_program(program, typechecker, imported_ast=None):
     # survived as a half-lowered husk beside the frame that replaced it. And a
     # SPLICED imported body leaves unconditionally: the imported module emits
     # that symbol itself, so a clone left behind would be a second definition of
-    # it and llvmlite refuses the second (see `spliced_free_fn_keys`).
-    _drop = removed | spliced_free_fn_keys
+    # it and llvmlite refuses the second (see `FrameLedger.spliced_keys`).
+    _drop = removed | ledger.spliced_keys
     program.functions = [f for f in program.functions
-                         if callee_frame_key(f) not in _drop]
+                         if ledger.key_of(f) not in _drop]
     program.functions.extend(new_functions)
     program.structs.extend(new_structs)
     program.enums.extend(new_enums)
