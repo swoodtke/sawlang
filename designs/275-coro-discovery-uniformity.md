@@ -168,40 +168,444 @@ newly-refused site is a finding to record, never a tolerance.
   `v.push` — the iterator then reads FREED memory in safe sync code
   (`seen = 1025` for a sum of 10; SL-321 has the repro and the sweep: the
   class is Vector's two iterators, Data's holds an owned copy-on-write
-  source and String's an immutable one). Ruled: the iterator becomes a
-  TRACKED borrow of the collection for the loop's window, so a body
-  mutation is the clean exclusivity error `v.push` already gets inside a
-  `with_ref` window (designs 141/146), and that window SPANS a suspension
-  under design 88's driven-in-place rule (held references are sound by
-  task confinement; spawned frames keep stripping them) extended to the
-  lent place. The alternative — refuse a borrowed-place iterator across a
-  split in v1 — was withdrawn: once the iterator is a tracked borrow it
-  would have refused the very loop this unit exists to compile
-  (sawtracker `store.saw:285`). Matrix cells added: mutation of the
-  iterated collection {in the sync body, across the suspension, via
-  `let it = v.iter()` held across a push} × {Vector.iter, enumerated};
-  obligation 3 row: "no use-after-free in safe code".
-  BORROW-LIFETIME CONTRACT, owed by the U3 brief BEFORE dispatch (codex
-  review point 4 — "frame-owned" alone does not settle address
-  stability): (i) the collection borrow BEGINS at the evaluation of the
-  `for` head and ENDS at loop exit by every route — normal exhaustion,
-  `break`, `return`, an error propagated by `try` out of the body, task
-  cancellation resuming into the frame's `__release`, and frame
-  destruction without resumption — each route named and tested; (ii) the
-  borrow is a REFERENCE stored in the frame (design 88's mechanism), so
-  the referent's ADDRESS must be stable for the window: a collection
-  owned by the frame itself is stable only if the frame is never moved
-  after the window opens — design 44 embeds callee frames BY VALUE in the
-  caller's, and a `Task.spawn`/group spawn MOVES a frame into the
-  scheduler, so the contract states at which points a frame may still
-  move and forbids a window across them (or pins the frame); (iii) a
-  collection reached through a `&var` PARAMETER or an enclosing frame's
-  field is external storage the task does not own — task confinement
-  (D6) is the argument that no other task mutates it, and the Law of
-  Exclusivity inside this task is what the window enforces; the brief
-  distinguishes the two cases in its matrix rather than treating
-  "frame-owned" as one thing.
+  source and String's an immutable one). Ruled Sep 18: the iterator
+  becomes a TRACKED borrow of the collection for the loop's window, so a
+  body mutation is the clean exclusivity error `v.push` already gets
+  inside a `with_ref` window (designs 141/146), and that window SPANS a
+  suspension. The alternative — refuse a borrowed-place iterator across
+  a split in v1 — was withdrawn: it would have refused the very loop
+  this unit exists to compile (sawtracker `store.saw:285`). Ruled Sep
+  20 (superseding the Sep-18 phrasing "design 88's rule extended to the
+  lent place" and the `let it = v.iter()` matrix cell, which is now a
+  REFUSAL): the tracked borrow is a BORROWING STRUCT whose only window
+  is the `for` statement — the subsection below, "U3 borrow-lifetime
+  contract", is the whole ruling, its matrix and codex's completion
+  requirements (c41); it supersedes this bullet wherever they differ.
+  Obligation 3 row: "no use-after-free in safe code".
 
+#### U3 borrow-lifetime contract (RULED Sep 20 — the borrowing-struct model; tightened per codex c41)
+
+The contract codex asked for (SL-318.p1 review point 4), written against
+the compiler as it is after U1, then tightened to codex's six completion
+requirements (SL-318 c41); every claim names the mechanism it rests on,
+and the U3 agent turns each into a test, never a re-derivation. Parts:
+the MODEL and its ORIGIN, the for-head FENCE, EXTENT and DESTRUCTION
+(codex i), ADDRESS STABILITY of frame AND referent (codex ii), EXTERNAL
+STORAGE (codex iii), CANCELLATION as a safety guarantee, the MATRIX, the
+fences.
+
+**0. The model (RULED): the iterator is a BORROWING STRUCT — a type that
+holds a lent place — and the `for` statement is its window.** Two
+models were weighed and one refused. A HANDLE that carries a borrow past
+the call that made it (design 201's `TaskCaptureBorrow` extent,
+generalized to any value) is a lifetime in disguise: design 201 gets
+away with it because a task handle is fenced on every side (written
+fate, `join` releases, never stored), and a general iterator handle
+would owe that fence at every position a value can go — obligation 1's
+position-quantified rule. REFUSED (user, Sep 20): `let it = v.iter()`
+is against the borrows rules; the pattern is the `for` head, the one
+place the extent is already lexical. The borrow is carried BY THE TYPE,
+in four spellings, each a Saw word or a design-141 word one position
+over:
+
+```saw
+public borrows struct VectorIterator<T> {      // (1) the type declares its nature
+    private vector: &Vector<T>                  // (2) the field is a plain reference
+    private index: Int
+}
+extension Vector<T: Copy> {
+    public func iter(&self) borrows -> VectorIterator<T> {   // (3) the signature echoes it
+        VectorIterator<T>(vector: lends self, index: 0)      // (4) the body proves it
+    }
+}
+```
+
+(1) `borrows struct` is design 130's `unsafe struct` shape: the type
+declares its nature at its declaration, every signature that carries the
+type echoes it, `--emit-docs` carries it as a type attribute. No name
+convention (`Unsafe*` exists because unsafety must read at every use
+site by name alone; a borrowing struct appears only as a `for` head
+result, where the loop syntax and the producing `borrows` already say
+it). (2) The field keeps the ordinary reference spelling — `&Vector<T>`
+IS the sigil; a second modifier on the field would be a second spelling
+of one fact. The two levels police each other: a reference-typed field
+outside a `borrows struct` is an error with a fixit naming the keyword;
+a `borrows struct` with no reference field is design 130's rule-7
+teaching error. THE PERMISSION A FIELD CARRIES MATCHES THE WINDOW MODE
+(codex p5-r1 P1): U3 is a SHARED-window feature, so a borrowing struct's
+reference fields are SHARED `&T` ONLY — a `&var T` field, and an
+exclusive `lends` that would feed one, are REFUSED in U3 with a message
+naming the rule (user-defined negative fixtures owed), because a user
+iterator carrying `&var Collection` could reallocate the very
+collection an outer shared iterator is reading through its own field;
+recording the root alone would not catch it. This is DISTINCT from
+`next(&var self)`: the cursor is the iterator's OWN state and mutating
+it is not mutable access to the borrowed collection. The generic
+window record still reserves shared/exclusive MODES for later clients;
+U3 exercises shared only, and an exclusive-window derivation (with its
+writer-versus-reader and nested-window rows) is the follow-up's to
+specify. (3) `borrows` in the effect slot on a VALUE-returning
+function: readers and `--emit-docs` see at the declaration that the
+result borrows the receiver. A `borrows` function either `lend`s exactly
+once (design 141) or RETURNS a borrowing struct, never both. (4) `lends
+<place>` at the init site is the body's proof. LEND THE ROOT, NOT THE
+BUFFER: `next` reads `self.vector.length` and `self.vector.buffer`
+through the reference on every call, nothing is snapshotted, the struct
+owns no raw pointer, and the only `unsafe` left is the index through the
+buffer inside `next`. `EnumeratedIterator` is the same four lines.
+RETURN, NOT SUSPEND: a design-141 accessor stops at its `lend` with its
+frame alive and resumes for an epilogue at window close; this form
+RETURNS — the accessor finishes, the borrow travels in the object, no
+accessor frame lives across the loop.
+
+THE ORIGIN IS A CHECKED COMPILER FACT (codex c41 point 1). A `borrows`
+signature says a borrow exists; the call site must know WHICH root to
+charge. U3 admits ONE origin: the RECEIVER — `lends self` is the only
+`lends` spelling accepted, it REQUIRES a REFERENCE receiver (`&self`;
+a by-value receiver's `self` is the callee's own local, not the
+caller's persistent storage, so `lends self` in a by-value or `&var
+self` producer is refused — the first because there is no live
+borrowed origin, the second because U3 admits shared fields only), and
+every returning path of a `borrows`
+function returning a borrowing struct must initialize EVERY reference
+field with `lends self` (a path that constructs the struct any other way,
+lends a non-receiver place, a projection of `self` (`lends self.buffer`),
+another reference parameter, or a local, is refused: "U3 admits the
+receiver as the only borrow origin"). The origin summary — "receiver
+root" — is recorded on the function declaration as a DECLARED annotation
+field (design 126's AST contract, gated by the `astgraft` lane), so it
+rides `substitute_ast_types` through monomorphization and travels with
+an imported declaration exactly as `is_reference` does; at the call site
+the checker substitutes it onto the RECEIVER PLACE's root through design
+141's root attribution (`&v[i]` charges `v`; `v.iter()` charges `v`;
+`st.patches.iter()` charges the path `st.patches`, an enclosing-owner
+path per design 8/10) — THAT is the handoff, named here so the agent
+reuses the attribution rather than re-deriving a root walk. The
+borrowing-struct-ness is a property of the TYPE IDENTITY (defining
+module, name — design 144), never of a std visibility: a user `borrows
+struct` in another module is refused and admitted by the same rules.
+NOTHING ERASES IT: a borrowing struct may not instantiate ANY type
+parameter — not `Optional<It>`, `Result<It, E>`, `Vector<It>`, `Box<It>`,
+a generic `T`, or a closure's return — and may not be erased into an
+existential (`any Iterator`); it may CONFORM to `Iterator` (that is how
+`for` reaches `next`), but only static dispatch reaches the conformance.
+Each is a refusal row; together they are what makes "a generic identity
+wrapper launders the value" unwritable rather than caught.
+
+**The for-head FENCE, semantically (codex point 2).** A `borrows` call
+returning a borrowing struct is legal in exactly ONE position: as the
+DIRECT head of a `for`, where the RECEIVER is a PLACE rooted in a named
+binding — a local, a parameter (`&`, `&var`, or by value), `self`, or a
+field path of one (`st.patches`). Everything else is refused through ONE
+rejector with one message naming the rule, each a matrix row: a
+TEMPORARY receiver (`for x in make_vec().iter()` — "bind the collection
+first": a temporary has no persistent storage to point into, codex point
+4); an `if`/`match`/block/`try` EXPRESSION in the head that yields the
+call; a `let`/`var` init; an argument; a `return` outside a `borrows`
+function; a struct/enum/tuple/collection-literal element; a closure
+capture or return; a spawn argument or capture; a `move` operand; an
+assignment RHS; a `?.`/`??` operand. A helper forwarding the result and a
+generic identity are not refusal rows but IMPOSSIBLE spellings: a
+borrowing struct cannot be a plain function's parameter or return type,
+nor a type argument, so no helper can name it (the refusal is at the
+helper's declaration). NARROW EXCEPTIONS, stated so they license no user
+storage: (e1) construction and `return` inside the producing `borrows`
+function — its ONLY legal return; (e2) the compiler's hidden `__iter`
+binding — a frame field in a driven body, an alloca in a sync one, never
+nameable; (e3) the receiver position `&self`/`&var self` of the struct's
+OWN extension methods (`next`); (e4) INSIDE those methods the reference
+field is readable only as a non-escaping RE-BORROW — design 106's
+forwarding rules: `self.vector.length`, `self.vector.buffer[idx]`, `&self.
+vector` as an argument — never bound, stored, returned or captured;
+field extraction anywhere else is refused as a language rule (std's
+`private` is convenience, not the safety boundary). NO SECOND ITEM
+LIFETIME: a borrowing struct's `Iterator.Item` may not be a reference or
+a borrowing struct in U3 — the yielded value is OWNED by the loop
+variable (Vector's `T: Copy` elements satisfy this; a user iterator
+yielding `&T` is refused with the message naming the rule). NEGATIVE
+USER-DEFINED FIXTURES are owed even though std is the only positive
+consumer migrated: a user `borrows struct` over a user collection
+exercising every refusal position above, plus the accept cell.
+
+**(i) Extent and destruction — two events, ordered (codex point 3).**
+The window opens at the head's evaluation and closes when the `for`
+statement ends; the extent is LEXICAL, so every route out leaves it.
+Two things happen at the close, in THIS order: first the iterator is
+DESTROYED — its owned fields drop through the ordinary machinery (design
+131's deinit prefix + synthesized field drops; the reference field is
+exempt, design 88), exactly once — and THEN the root charge ends. The
+order matters because a hand-written `deinit` on a borrowing struct may
+still read through the reference. Owned fields and a `deinit` body on a
+borrowing struct are SUPPORTED in U3 (lead call: the drop machinery is
+the existing one, and refusing them would make the std iterators the
+only writable shape); the fixture is a user borrowing iterator holding a
+COUNTED resource beside a COUNTED Vector owner, because an iterator of
+reference-plus-Int cannot test destruction. Routes, each owed a test
+proving the root is writable again at the first reachable point after
+the exit AND the value is the sync twin's: (1) exhaustion; (2) `break`
+with and without a value (SL-222's discarded-body rule unchanged); (3)
+`continue` TARGETING THIS LOOP — NOT an exit: iterator and charge stay
+live across the back-edge, which the op budget now charges (the `:494`
+skip goes); a `break`/`continue` targeting an INNER loop closes nothing
+here, and one targeting an OUTER loop closes this window first (the
+reuse obligation's B2 states the general rule); (4)
+`return` from the body — the writable-again proof sits in the CALLER
+after the call, since the code after the loop is unreachable; (5) an
+error propagated by `try`/`?` — proof in the `catch` (block and inline
+forms — SL-215 lands beside this) or the caller; (6) an error or a
+cancellation CAUGHT inside the body that CONTINUES the loop — the window
+stays live, the iterator is not destroyed; (7) exit under cancellation
+(below). An EMPTY loop opens and closes the window with zero iterations
+(the head still evaluates, the iterator still drops once); a `break` on
+the first iteration followed IMMEDIATELY by a mutation of the root is the
+release-timing cell. Checker-side, no route may leave the root charge
+live past the statement, gated like design 189's loop rule (K17).
+
+**(ii) Address stability — the frame never moves after its first
+`resume`, and the REFERENT is pinned for the window (codex point 4).**
+The three places a frame lives: a DRIVEN-in-place frame is `var __f` on
+the driver's own stack for the whole drive (`_make_driver`), never
+moved; a SPAWNED frame is constructed INSIDE `Box<any Resumable>.make`
+in the spawn helper (`_make_spawn_helper`) at state 0, before any
+resume, and design 134's cell/frame split promises "the fat pointer's
+data word never moves" — including across the `threads: N` worker
+hand-off, which passes the box; an EMBEDDED callee frame is a by-value
+FIELD of its caller's (design 44) and inherits its stability. The one
+move a frame undergoes — the spawn box — precedes state 0, and every
+window opens inside a state body. U3 PINS this: a transform-side
+invariant that a spawn helper boxes only a state-0 frame (ICE breadcrumb
+otherwise). THE REFERENT: the direct-call-on-a-place rule guarantees the
+receiver is persistent storage — a frame FIELD (a frame-local `var v`
+under design 44's encoding), a design-88 frame-resident POINTER's
+referent (a `&`/`&var` parameter), or `&self.<field>` into an enclosing
+frame — never a resume-stack temporary; and the SHARED root charge
+forbids, for the window, every operation that would relocate or replace
+the referent: `move v`, `v = other`, `swap`, `take`, a `swap_out` of an
+enclosing owner, and reassignment of any enclosing-owner path (K20's
+precedent: `move` of a borrowed root is refused) — each a row.
+STRUCTURAL ASSERTION: the transform asserts that the `__iter` field's
+reference targets a persistent owner slot — a frame field address, a
+frame-resident pointer's referent, or a parent-frame field — and never a
+state-body local; a lane check reads the frame layout (`--emit-frame-
+layout` shape) for the matrix files. RUNTIME CELLS: a window across a
+suspension in the driven context; in a spawned root; through an EMBEDDED
+callee inside a spawned parent with REPEATED `Pending`s (the frame is
+resumed many times while the window is live); and `threads: 2`, which
+stays REFUSED on the existing Send-on-frames rule (K19) — frame address
+stability is no argument to relax Send. The synthesized frame gains a
+reference-typed field (design 88's frame-resident pointer, exempt from
+drop flags); the generated methods already say `unsafe` (design 222 unit
+2), and no user-written signature is asked to.
+
+**(iii) External storage — proof by tracked origin, extent and
+exclusivity; confinement is the background (codex point 6).** A
+collection reached through a `&`/`&var` PARAMETER is a design-88
+frame-resident pointer into the DRIVER's caller's storage (in-place: the
+caller is parked on the drive) or into the SPAWNER's storage held by a
+design-201 extent (spawned: the argument borrow keeps the root alive and
+excluded for the task's life). A collection that is an ENCLOSING FRAME's
+field is `&self.<field>` into the parent frame, which does not move by
+(ii). Address stability is inherited; what remains is NON-MUTATION across
+the suspension. LANGUAGE_SPEC §"Suspension and the coroutine transform"
+currently says a container borrow "may not span [a suspension]" because
+"a concurrent task could reallocate" the storage — too broad for THIS
+window, and rewritten NARROWLY: the tracked `for` window is allowed
+because its ORIGIN is recorded, its EXTENT is the statement, and the Law
+of Exclusivity sees every competing safe writer — a `&var v` design-189/
+201 extent live at the head, or STARTED inside the body, is the
+writer-beside-reader error; a `&v` extent composes; a `threads: N` group
+refuses the reference on Send before the question arises; inside this
+task nothing runs while the frame is parked. `with_ref`/`with_var_ref`
+bodies and accessor `lend` windows RETAIN their `sync` restriction
+pending their follow-up; the spec says so in the same paragraph. The
+`Mutex` row is CLOSED, not OPEN: `Mutex.lock<R>(&self, body: (&var T)
+sync -> R)` runs a `sync` body, so a `for` over the guarded collection
+INSIDE `lock` is a sync window and works, and a suspension inside it is
+refused by the sync-body rule — a PAIRED test, without extending guard
+lifetimes.
+
+**Cancellation is a SAFETY guarantee, not a termination claim (codex
+point 5).** A cancel request does not close a window: the borrow stays
+live while cancellation is delivered, while an error or the cancellation
+is caught and handled inside the body, and until the statement has
+actually exited; an external task extent is released by `join`, never by
+`cancel`. What IS guaranteed: a live window is never destroyed by
+dropping a still-running frame — teardown DRIVES the frame (cancel wakes
+a parked task, design 102) and JOINS it (design 124 item 5, K87) before
+its box is released, and the frame reaches the statement's exit or Done
+by ordinary control flow, so iterator and owner cleanup run exactly once
+on the route actually taken. A parent never completes while a sub-frame
+is mid-flight (`_owned_frame_fields`). If the agent finds a
+FRAME-ABANDONMENT path — a box dropped without being driven to Done — it
+is a FINDING (SL issue) whose fix runs the window's cleanup, not an
+"impossible" assertion; panic and process exit stay explicitly outside
+ordinary unwinding. Cells: cancellation while parked in a NESTED callee
+inside the body; a caught cancellation that CONTINUES the loop; a cancel
+delivered BEFORE the head is initialized — a cancel is a REQUEST, it
+does not stop the head from running; the cell is a cancellation
+PROPAGATED out of the head's own evaluation (a caught-and-rethrown
+park in a suspending argument, B3's A3), so no iterator is ever
+constructed: ZERO iterator constructions and ZERO iterator drops, and
+the OWNER's deinit count is whatever its initialization state was
+(one if the vector was initialized before the head, none otherwise);
+cancel at the park then exhaustion; every OTHER cancellation cell
+counts the vector's and the iterator's deinits and expects one each.
+
+**The matrix (obligation 1), rows the agent covers one by one.**
+SL-317's original axes stay: {Vector.iter, enumerated, a user borrowing
+iterator, a record-less user Iterator, Map keys/values (owned copies —
+control)} × {suspension in the BODY, in the HEAD (the receiver
+expression itself suspends: `for x in (try slow_load()).iter()` is
+REFUSED as a non-direct head; a suspending call bound before the loop is
+the accept twin), NESTED loops (inner over the same root composes; inner
+mutating the outer's root refused)} × {driven root, spawned, embedded in
+a spawned parent, nested in while/for}. Root axis for (ii)/(iii): {frame-
+local, `&` param, `&var` param of a driven callee, `&var` param of a
+spawned root (design 201), enclosing frame's field, field of a `&var
+self` receiver, imported collection type, generic collection
+instantiation (`Vector<Wrapper<T>>` via a generic driven callee),
+imported producer module}. Conflict axis: {body pushes; `with_var_ref` on
+the root in the body; `&var` extent live at the head; `&var` extent
+STARTED in the body; `&` extent (composes); move/reassign/swap of the
+root or an enclosing owner; second `for` over the same root nested
+(composes)}. Release axis: the seven routes of (i), the empty loop, break-
+then-mutate, the cancellation cells. Fence axis: every refusal position
+of the fence paragraph, the origin refusals, the type-argument/existential
+refusals, the Item-lifetime refusal — each with a user-defined borrowing
+struct. Obligation 3 row: "no use-after-free in safe code" (SL-321's
+repro flips from `seen = 1025` to a compile error at the push), beside
+the design-96/101/104 rows U2 rewrote.
+
+**REUSE OBLIGATION (user, Sep 20): build the STATEMENT-SCOPED WINDOW,
+with `for` as its first client — not a for-loop feature.** The user
+intends a generic scoped-borrow statement later (a keyword-introduced
+block that binds a lent PLACE for the statement's extent — the
+non-closure form of `with_ref`, able to suspend, `return`, `break` and
+propagate errors; with an `else` arm for a `borrows -> T?` head; the
+follow-up brief carries its spelling). U3's implementation must let
+that brief add its syntax, its typechecking client and its
+acquisition/result binding — and NO second implementation of root
+accounting, pinning, suspension persistence or exit cleanup (codex c44:
+the guarantee is "no duplicated lifetime machinery", not a literal
+node-plus-one-entry count, since an accessor window's acquisition and
+epilogue differ from an iterator's). So, by construction (obligation 1,
+a funnel with named entries): (1) the
+typechecker owns ONE record, a statement window — root path, mode
+(shared/exclusive), origin, the statement node that is its extent —
+opened and closed through ONE chokepoint whose docstring names its
+clients (`for` is the only one in U3) and which performs the root
+charge, the exclusivity conflicts, the move/reassign/take refusals, and
+the close-on-every-route accounting; the `ForLoop` adapter is a thin
+caller that supplies the head and the body and reads back nothing
+for-specific; (2) the coroutine transform keys "a window is live across
+this suspension" on the window RECORD, not on `ForLoop` — the frame
+field for the window's binding, the design-88 pointer encoding, the
+referent-pinning assertion of (ii), and the exit-route closing are
+properties of the window; the for-split (`_split_for`'s collection arm)
+asks the window machinery for its field and its close points and adds
+only the `next()` re-entry; (3) codegen's sync lowering of the window
+(the hidden binding's alloca + the drop-before-charge-end order of (i))
+is the same one routine for any client; (4) the diagnostics name "the
+window" and its introducer generically, with the `for` wording supplied
+by the client, so the generic form does not fork the messages; (5) the
+`borrowing struct` rules (origin, fence, no-erasure) are keyed on the
+TYPE and on "the head of a window", never on `for` — the generic
+statement would bind a borrowing struct through the same head rule if
+ever ruled. FOUR BOUNDARIES the seam is policed against (codex c44):
+(B1) ITERATION stays in the `for` client — iterator construction,
+`next()`, element/pattern binding, exhaustion, the back-edge and its
+op-budget charge; WINDOW LIFETIME is the common layer — root charge,
+persistent referent slot, suspension state, ordered cleanup. The record
+holds a GENERIC resource/owner slot, not a field named `__iter` or an
+`Iterator`-shaped payload; and not every `ForLoop` is a window — a range
+loop or an OWNED-iterator loop opens none and uses the ordinary split —
+nor is every future window a loop. (B2) A window closes by CONTROL-FLOW
+TARGET, not by the spelling of the exit: an edge closes exactly the
+windows whose lexical extent it leaves, inside-out — `continue`
+targeting THIS `for` keeps its window, `break` targeting it closes it,
+`break`/`continue` targeting an INNER loop closes nothing of the outer,
+a window nested inside an outer loop closes when control continues that
+outer loop, and `return`/error/cancellation propagation close every
+scope crossed. The cleanup funnel receives RESOLVED scope/target
+information; an implementation that special-cases every `Continue` node
+as "keep open" leaks the first client's shape and fails review.
+Nested-window and inner-loop cells are pinned NOW. (B3) The record has
+a LIFECYCLE — ACQUIRE, ACTIVE, RELEASE. ACQUIRE is ONE sequence (codex
+p5-r1 P2; it is LANGUAGE_SPEC's "Argument Evaluation Order" — receiver
+before arguments, arguments left to right — plus design 141's rule that
+a reference argument's window is the whole CALL EXPRESSION, applied to
+the head unchanged; nothing here changes evaluation order): (A1) the
+receiver PLACE is resolved — it must be a persistent slot (a frame
+field, a design-88 pointer's referent, `&self.field`), which is what the
+direct-head rule guarantees, so it is never re-resolved to a different
+address; (A2) the head's SHARED borrow of that root opens — and it
+spans the ENTIRE head call expression, ARGUMENTS INCLUDED, exactly as
+`f(&v, g(&var v))` is already a conflict today: an explicit or default
+argument that writes, moves or reallocates the root (`v.iter(slow(&var
+v))`) is REFUSED, a suspending argument is ACCEPTED (the U2 shape
+table's HOIST lifts it before the call; the checker still treats the
+argument as inside the head's window, so the static conflict rule does
+not depend on the lowering, and the root's address is stable across the
+hoisted suspension because A1 made it a persistent slot); (A3)
+arguments evaluate left to right; a FAILING argument (an error
+propagated out of it, or a cancellation caught there) exits before the
+producer runs — no statement charge exists yet, no iterator was
+constructed, the head window closes with the expression, nothing to
+clean; (A4) the producer runs and RETURNS the borrowing struct; (A5)
+the head window hands off to the STATEMENT charge with no gap — the
+same root, the same shared mode, one continuous extent — and the
+resource is initialized into its persistent slot; only then is the
+window ACTIVE (the resource is initialized before it is treated as
+live). RELEASE is exactly once on exit, never on an uninitialized
+resource. Three cells pin the sequence: an argument mutating/moving
+the root (refused at the argument), a suspending argument (accepted,
+order preserved, value equal to the sync twin's), a failing argument
+(no charge, no iterator drop, the root writable in the `catch`). The
+whole thing is done with a CLIENT-PROVIDED
+cleanup operation: for this client, release destroys the borrowing
+iterator before ending the root charge; a future accessor window's
+release would run an accessor epilogue, and an optional head may take
+an `else` branch without ever activating a body window, so the shared
+API assumes neither that release is an iterator drop nor that every
+evaluated head opens a window. (B4) The DIRECT-head / temporary-receiver
+refusals apply to BORROWING results only. The original U3 requirement
+stands: ANY `Iterator` conformer, with a suspension in the head or the
+body — an OWNED iterator produced by a suspending head is evaluated
+once, preserved in frame state, then iterated (its own matrix cell,
+beside the borrowed-from-a-temporary REFUSAL cell); a BORROWED head
+whose ARGUMENTS or defaults suspend follows B3's ACQUIRE sequence
+(A1-A5: receiver place first, the head's shared borrow spanning the
+whole call expression, arguments left to right and hoisted when they
+suspend) rather than falling under the temporary-receiver refusal by
+accident. The lead reviews the seam at
+validation (a grep for `ForLoop` in the window chokepoint and the
+transform's window handling must find only the adapter), and the
+agent's report includes a paragraph "what the generic window statement
+would add": its syntax and typechecking client, its acquisition/result
+binding, and a demonstration that root accounting, pinning, suspension
+persistence and exit cleanup need no second implementation.
+
+**Fences (U3 scope).** The `for` head is the ONLY window that spans a
+suspension in U3. `Vector.with_ref`/`with_var_ref` bodies and `borrows`/
+`lend` windows keep their `sync` rule — same argument, same mechanism,
+but a second consumer sweep and their own rows, so they are a filed
+follow-up (SL issue at dispatch), not a rider (RULED (c)). Receiver is
+the only origin; no `let`-bound borrowing struct; no borrowing struct as
+a parameter, field of another struct, or type argument; `Item` owned.
+The `for` split (SL-317) admits ANY `Iterator` conformer — a record-less
+user iterator splits and stores as a frame field exactly like the std
+one; the borrowing struct is what the std iterators ADD, not what the
+split requires. CONSUMER SWEEP (obligation 2, Sep 20, grep over
+examples, blade, libs, devtools, sawc/std and the read-only sawtracker
+sources): 51 `for` heads over `iter()`/`enumerated()`, all direct calls
+on named places, untouched; the ONLY iterator held outside a `for` head
+is Data's (`examples/data_iter_outlives_source.saw`), whose iterator owns
+its source and is not a borrowing struct. `VectorIterator`'s `public`
+was added so a holder could name it; with holding refused the agent may
+drop it or keep it, and says which. The design-141 sentence "a place is
+never a value and never escapes" becomes: a place is never a value
+outside a borrowing struct, and a borrowing struct is never a value
+outside its window.
 ### U4 — ONE set of suspension CAUSES at the effect source (amended Sep 18)
 
 `typechecker/effects.py` computes ONCE per node the SET of causes a
@@ -271,6 +675,17 @@ compiles and whose IR shows no out-of-frame park in any driven path.
    questions that answer it (an explicit reader-visible surface,
    `--no-hidden-alloc` rejecting it, `AllocError` vs a panic boundary, an
    allocator type parameter for freestanding, `__release` on cancel, Send).
+3. U3 borrow-lifetime contract — RULED Sep 20 (the subsection under
+   U3): (a) the borrow is carried BY THE TYPE — `borrows struct
+   VectorIterator<T>` holding a plain `&Vector<T>` field, produced by
+   `func iter(&self) borrows -> VectorIterator<T>` whose body says
+   `lends self`; a borrowing struct is a window value, never a stored
+   one; (b) the pattern is the `for` HEAD only — `let it = v.iter()` is
+   against the borrows rules and is refused, which is what keeps the
+   extent lexical (the handle-extent model was weighed and refused as a
+   lifetime in disguise); (c) `with_ref`/`lend` windows across a
+   suspension stay a follow-up, not a rider. Codex review of the
+   contract requested on SL-318 before U3 dispatches.
 
 ## 4. What this brief deliberately does NOT do
 
