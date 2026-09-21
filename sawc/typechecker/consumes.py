@@ -163,7 +163,7 @@ class ConsumesMixin:
     # 0b. The two fences a SUSPENDING consuming body meets.
     # ------------------------------------------------------------------
 
-    def _check_consumes_suspending_fences(self, nodes) -> None:
+    def _check_consumes_suspending_fences(self, nodes, answers=None) -> None:
         """Refuse the two shapes a suspending consuming body cannot honour.
 
         A suspending method's receiver does not live in the callee at all: the
@@ -188,12 +188,28 @@ class ConsumesMixin:
         (design 218c phase 3 settles the graph again after monomorphization) —
         so the funnel's `_effects_reported` ledger is what keeps a fence that
         fired on the first settling from firing again on the second.
+
+        WHICH QUESTION — design 275 U2, SL-325. `frame_boundary`, not the broad
+        `might_suspend` these read before. Both refusals rest on the receiver
+        being hoisted into the caller's COROUTINE FRAME, and a body that
+        "suspends" only by the conservative closure-call cause is hoisted
+        nowhere — no frame is built for it at all (SL-306). So a consuming
+        method calling any closure-taking helper met both fences for a frame
+        that does not exist, and the hint's first out (`make the consuming
+        method sync`) named a spelling the compiler then refused for the same
+        cause: the author was told to do a thing that could not be done. A
+        WIDENING flip, one derivation per fence.
         """
         if getattr(self, 'post_transform', False):
             return
         for method, struct_name, has_deinit in getattr(self, '_consumes_bodies', ()):
             node = nodes.get(method.node_id)
-            if node is None or not node.suspends:
+            if node is None:
+                continue
+            if answers is not None:
+                if not answers.frame_boundary(method.node_id):
+                    continue
+            elif not node.suspends:
                 continue
             if ('consumes-fence', method.node_id) in self._effects_reported:
                 continue

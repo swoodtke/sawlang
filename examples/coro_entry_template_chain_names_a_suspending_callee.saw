@@ -1,0 +1,82 @@
+// SL-331 — an ENTRY-module generic template instantiated from inside ANOTHER
+// generic template may name a suspending free function.
+//
+// It used to fail at the POST-TRANSFORM re-typecheck with three cascaded errors
+// about the author's own template:
+//
+//   error: undefined function `leaf`
+//   error: undefined variable `r`
+//   error: function `inner` should return `Int` but body has no value
+//
+// THE MECHANISM, probed rather than inferred (the issue's first hypothesis — a
+// nested clone checked in the wrong namespace — was wrong; the clone is never
+// built, and the error comes from the surviving TEMPLATE's re-check). Design
+// 218b's consumption symmetry (DF-218e) removes a generic template that names a
+// callee the transform consumed, because the template would otherwise name a
+// function that has left the program. Its two questions deadlocked across a
+// CHAIN: `inner<T>` is called by the surviving `outer<T>`, so the `live` guard
+// kept it, while `outer<T>` names no consumed callee DIRECTLY, so it was never a
+// candidate. Neither was consumed and `inner` survived naming `leaf`, which had
+// become `__Frame_leaf$m$`. Design 275 U2 separates the two questions: the
+// candidate CLOSURE runs to a fixpoint first (transitively, which is what the
+// rule's own soundness argument licenses), then the `live` test.
+//
+// THE THREE CONTROLS the matrix needed, all of which always worked: the SYNC
+// twin (ordinary monomorphization of a nested template is fine), the nested
+// template suspending DIRECTLY (the clone itself is fine), and the IMPORTED twin
+// (`coro_qualified_generic_call_embeds.saw` — a dependency's templates are not
+// in the entry AST the re-check walks, which is what made the entry module the
+// failing side, the opposite of the usual asymmetry).
+//
+// A THREE-hop chain sits beside the two-hop one, because the deadlock is a
+// property of the chain rather than of its length.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// two hops 112 1
+// three hops 1112 1
+// sync twin 112
+// EXPECT-IR-CONTAINS: __Frame_leaf$m$
+
+import std.task.{yield_now}
+
+func outer<T>(x: Int) -> Int {
+    let r = inner<T>(x)
+    r + 1
+}
+
+func inner<T>(x: Int) -> Int {
+    let r = leaf(x)
+    r + 10
+}
+
+func leaf(x: Int) -> Int {
+    yield_now()
+    x + 100
+}
+
+// The three-hop chain: the deadlock is the chain's, not the pair's.
+func a3<T>(x: Int) -> Int { b3<T>(x) + 1 }
+func b3<T>(x: Int) -> Int { c3<T>(x) + 10 }
+func c3<T>(x: Int) -> Int { leaf3(x) + 100 }
+
+func leaf3(x: Int) -> Int {
+    yield_now()
+    x + 1000
+}
+
+// The SYNC control: the same two templates over a callee that never parks.
+func sync_outer<T>(x: Int) -> Int { sync_inner<T>(x) + 1 }
+func sync_inner<T>(x: Int) -> Int { sync_leaf(x) + 10 }
+func sync_leaf(x: Int) -> Int { x + 100 }
+
+func two_hops(n: Int) -> Int { outer<Int>(n) }
+func three_hops(n: Int) -> Int { a3<Int>(n) }
+
+func main() {
+    print("two hops {} {}",
+          __saw_drive(two_hops(1)), __saw_drive_steps(two_hops(1)))
+    print("three hops {} {}",
+          __saw_drive(three_hops(1)), __saw_drive_steps(three_hops(1)))
+    print("sync twin {}", sync_outer<Int>(1))
+}

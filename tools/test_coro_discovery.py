@@ -377,11 +377,12 @@ def check_consumers_read_the_ledger(tree):
 # The COUNT is part of the allowlist. A sixth call anywhere fails, which is what
 # makes this an enumeration rather than a naming convention.
 COMPOSER_CALLERS = {
-    "sawc/coro_ledger.py": (8, "THE ledger: the composers' one caller in the "
+    "sawc/coro_ledger.py": (9, "THE ledger: the composers' one caller in the "
                                "transform's half of the compiler — the two "
                                "registrations, the four `*_key*` methods of the "
-                               "read API, `free_call_frame` and "
-                               "`free_body_of_call`"),
+                               "read API, `free_call_frame`, "
+                               "`free_body_of_call`, and design 275 U2's "
+                               "`unbuildable_callee` (SL-287's refusal read)"),
     "sawc/typechecker/effects.py": (2, "the effect graph's NODE key "
                                        "(`_effect_enter_function`) and EDGE key "
                                        "(`_effect_call_function`)"),
@@ -534,10 +535,22 @@ def check_freeze_and_invariants(transform_tree, ledger_tree):
                         f"flag decides only whether the dump TEXT is rendered.")
 
     sawc_tree = parse(os.path.join(SAWC, "sawc.py"))
+
+    def _caught(node):
+        """The exception names one `except` clause catches. A TUPLE counts —
+        design 275 U2 put `coro_shapes.UnclassifiedShape` beside `LedgerMiss`
+        there, both being invariant failures `_report_ice` renders the same
+        way, and a check that only understood a bare name would have read that
+        as the handler going missing."""
+        if node.type is None:
+            return ()
+        parts = (node.type.elts if isinstance(node.type, ast.Tuple)
+                 else [node.type])
+        return tuple(getattr(p, 'attr', None) or getattr(p, 'id', None)
+                     for p in parts)
+
     handled = any(
-        isinstance(n, ast.ExceptHandler)
-        and n.type is not None
-        and getattr(n.type, 'attr', None) == "LedgerMiss"
+        isinstance(n, ast.ExceptHandler) and "LedgerMiss" in _caught(n)
         for n in ast.walk(sawc_tree))
     if not handled:
         problems.append(

@@ -1,0 +1,63 @@
+// SL-327 — a `sync` violation reached through a SEEDED std method is reported
+// at the FIRST settling, beside a violation decided directly there.
+//
+// WHY THE PAIRING IS THE TEST. The pipeline stops after a settling that
+// reported errors, so a diagnosis that only lands at a LATER round is silently
+// dropped from any compile that has another error in it — the author fixes the
+// first violation, recompiles, and only then learns about the second. A single
+// violation cannot show that: alone, it always reaches whichever round decides
+// it. Two in one program can, and the `EXPECT-ERROR-CONTAINS` pair below is the
+// assertion.
+//
+// THE MECHANISM being pinned. std bodies are checked once, by the builtin
+// typechecker, so the entry graph's edge to `Command.output` names a node the
+// entry compile never built; `_effect_seed_std_methods` mints a leaf for it,
+// keyed by `Method.node_id`. That key has to be the SAME node-id generation the
+// entry graph's edges carry, and for a RESTORED std cache blob it was not:
+// measured, five of eight blobs on one machine held a table keyed to an AST
+// that was not the one stored beside them (`Command.output` keyed 20761 in the
+// table and 62190 in both the AST and the namespace symbol). Two keying fixes,
+// no change to settling — `stdcache.store` refuses to publish an inconsistent
+// pair, and `sawc._rekeyed_std_seed` re-keys a restored table onto the AST the
+// compile actually holds, so the blobs already on disk are harmless too.
+//
+// THIS FILE FLAPPED BEFORE THE FIX, which is its own evidence: it passed on a
+// freshly built cache and failed on a restored one, in the same tree, minutes
+// apart.
+//
+// `boundary` is decided directly at the first settling (a cooperative
+// primitive); `Command.output` is the seeded leaf, reached here through four
+// hops so the propagation has somewhere to go wrong. K112 keeps its own file:
+// its cell asserts the MESSAGE, and a message is only emitted for the first
+// error a settling reports.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: closure calls `boundary` → yield_now
+// EXPECT-ERROR-CONTAINS: closure calls `run_job` → `execute` → `checked` → `Command.output` → io_wait
+// EXPECT-ERROR-CONTAINS: 2 error(s) generated
+
+import std.process.{Command}
+import std.task.{yield_now}
+
+func boundary() -> Int {
+    yield_now()
+    7
+}
+
+func checked(name: String) -> Int {
+    var c = Command(program: name)
+    try! c.arg("hi")
+    let _ = c.output()
+    0
+}
+
+func execute(name: String) -> Int { checked(name) }
+func run_job(name: String) -> Int { execute(name) }
+
+func main() {
+    var first = Thread.spawn { boundary() }
+    let _ = first.join()
+
+    var second = Thread.spawn { run_job("/bin/echo") }
+    let _ = second.join()
+}

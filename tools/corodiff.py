@@ -834,9 +834,29 @@ def w_loop_for_exclusive(body):
 
 
 def w_closure_from_driven(body):
+    """A closure CREATED in the driven body and called across the suspension.
+
+    THE BODY IS NOT INSIDE THE CLOSURE, and that is the point of the shape
+    (design 77 DF-C1: a closure created in a driven body works — held across a
+    suspension, its env released exactly once at frame death). It used to be:
+    the wrapper put the body inside the closure literal, so the driven twin's
+    `yield_now()` sat in a CLOSURE BODY, which is not driven at all — it is
+    reached through a function value and has no frame to park in. Nothing
+    refused it, because `main` then carried only the conservative closure-call
+    cause and no frame was built anywhere, so the suspension lowered outside
+    every frame where `yield_now` codegens to nothing; the twins printed the
+    same thing and every pair of this context scored CLEAN on a miscompile.
+    SL-316 refuses that shape now (design 275 U2), wherever it is written, so
+    the old wrapper could only ever produce a deliberate refusal.
+
+    So the suspension goes in `main`, which really is driven, and the closure
+    is what the context contributes: created before the body, invoked after it,
+    living in the frame across the park.
+    """
     return (
         "func main() {\n"
-        "    let f = {\n" + _indent(body, 8) + "\n    }\n"
+        '    let f = { print("closure ran") }\n'
+        + _indent(body, 4) + "\n"
         "    f()\n"
         f"    {CLOSED}\n"
         "}\n"

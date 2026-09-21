@@ -1046,9 +1046,18 @@ var scratch: [Int8; 256] = [0; 256] // REPEAT literal: N copies of one value
   any other. Reading the binding yields the value, so `{ $0 * 2 }` and
   `{ $0.to_string() }` are unchanged; what needs the sigil is FORWARDING —
   a closure passing its element to another `&T` parameter writes `&n`.
-  The closure is not `sync`, so a suspending transform works (the borrow
-  spans the suspend; `&self` is held for the whole call, so exclusivity
-  forbids the `push` that would reallocate under it). `iter`/`enumerated`
+  The closure is not `sync`, but that does NOT make its body drivable: a
+  closure is reached through a function value, so its body is not a frame
+  and a suspension there has nowhere to park. `v.map({ n in slow(n) })`
+  with a suspending `slow` is a clean error at the closure (``appears
+  inside a CLOSURE BODY in driven `traverse` ``), wherever the closure is
+  written — entry module or a dependency's helper. Call the suspending
+  work outside the closure and pass the result in, or move the whole body
+  into a named function the driven body calls. Treat it as REFUSED now and
+  SUSPECT in older builds, where the entry-module spelling was refused and
+  the IMPORTED one compiled and silently dropped the suspension (SL-316:
+  `__saw_drive_steps` reported 0 where 2 were owed, and the io face of it
+  parked the cooperative executor's own thread). `iter`/`enumerated`
   KEEP `T: Copy` — `next()` hands out an element the consumer owns, which
   is a real copy at the source (design 122). `sort` keeps its `T: Copy` too
   (`_greater_at` reads both elements by value to apply `T`'s own `>`);
@@ -2699,10 +2708,35 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   `Person.greet` is a clean error at the dispatch. Call the method on the
   concrete type, or take the receiver as a generic `<T: Greeter>`. (In older
   builds this compiled and the `yield_now()` ran outside any frame, where it is
-  a no-op.) A `&any Trait` PARAMETER of a suspending function is refused for the
+  a no-op.) The refusal is PENDING, not permanent, and the hint says which
+  design it waits on: a heap-allocated frame with an indirect resume, which
+  suspending RECURSION needs too (a suspending-call cycle has no compile-time
+  frame size, so it is refused on the same terms, anchored at the recursive
+  function's own declaration), so the two cite one design together.
+  A `&any Trait` PARAMETER of a suspending function is refused for the
   neighbouring reason: a reference that spans a suspension is held in the frame
   as a handle to its referent, and an erased referent has no size — take a
   `Box<any Trait>` or a generic bound.
+  **BUT A DISPATCH WHOSE IMPLEMENTATIONS ARE ALL SYNC FRAMES NOTHING (SL-323,
+  ruled Sep 20).** The refusal above fires first, so every dispatch that gets
+  as far as the framing question names a method no conformance suspends in — a
+  dispatch is one of the two CONSERVATIVE suspension sources, beside a call
+  through a non-`sync` function value. Both refuse a `sync` body and neither
+  builds a frame, so `func via(g: &any Greeter) -> Int { g.greet() }` is an
+  ordinary call from a driven body:
+  ```saw-fragment
+  func root() -> Int {
+      let a = A(n: 5)
+      let x = via(&a)          // no frame for `via`
+      yield_now()
+      x + 1
+  }
+  ```
+  SUSPECT IT IN OLDER BUILDS: the dispatch used to count as a frame boundary,
+  so `via` joined the driven set and its own erased PARAMETER was then refused
+  by the rule one sentence up — an ordinary erased helper was simply
+  uncallable from a driven body, with a diagnostic about a frame it never
+  needed.
 - A suspending
   METHOD call in a
   driven/spawned body embeds as a driven sub-frame in EVERY control-flow
@@ -2800,7 +2834,20 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   since design 218 unit 1.5 — write it and it takes its turn. Until then it
   compiled to a plain function with the `yield_now()` erased, so a task whose only
   suspension was that call ran to completion before its siblings started; if you
-  are reading output from an older build, suspect that. A method that is BOTH struct-generic AND method-generic
+  are reading output from an older build, suspect that.
+  **AND A SUSPENDING GENERIC CALL WORKS IN EVERY POSITION THE ORDINARY ONE DOES
+  (SL-326 / SL-330 / SL-331, fixed Sep 20).** An EXPRESSION position
+  (`print("{warp<Int>(1)}")`, `take(1, warp<Int>(n))`, `1 + warp<Int>(n)`), the
+  MODULE-QUALIFIED spelling (`mod.warp<Int>(n)`), and an entry-module template
+  CHAIN whose innermost hop names a suspending free function
+  (`outer<T>` -> `inner<T>` -> a parking `leaf`) all embed and cede. Every one
+  was refused before that date, and the diagnostic named a `sync` region and
+  frames the author never wrote (``cannot suspend in `sync func` method:
+  `__Frame_main.resume` calls `warp$1$Int` ``) or, for the chain, ``undefined
+  function `leaf` `` inside the author's own template. Binding the call to a
+  statement-level `let` was the workaround for the first two and moving the
+  templates into a module was the workaround for the third, so a build that
+  still needs either predates the fix. A method that is BOTH struct-generic AND method-generic
   (`Dual<T>.mix<U>`) now drives (design 104 item 3): the frame is keyed by both
   instantiations (`Dual_mix$2$T$U`), so 2 struct × 2 method insts are 4 distinct
   frames. TWO BINDINGS IN ONE SUSPENDING BODY MAY SHARE A NAME and each keeps its

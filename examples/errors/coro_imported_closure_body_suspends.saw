@@ -1,0 +1,39 @@
+// SL-316 — a CLOSURE BODY that really suspends, written in an IMPORTED module's
+// helper, is refused AT THE CLOSURE.
+//
+// This is the cell SL-316 found, and the silent one. Its entry-module twin is
+// refused WHENEVER SOMETHING IN THE PROGRAM IS FRAMED — a suspension written
+// directly in a closure body lands on the enclosing function's own effect node,
+// so a frame IS built and the driven caller's own body scan refuses it. (With
+// no root at all neither twin was refused; that pair is
+// `coro_closure_body_suspends_with_no_driven_root.saw` and its imported
+// sibling.) The imported twin was not refused here either: the enclosing
+// helper carries only the conservative closure-call cause, no frame is built for
+// it, NO FRAME BUILDER EVER SCANS ITS BODY, and the `yield_now()` lowered
+// outside every frame, where it codegens to nothing. The program compiled and
+// printed 0 drive steps where two were owed. Same program shape, one file
+// boundary apart, two outcomes — and the silent one is the third outcome designs
+// 96/101/104 rule out.
+//
+// Design 275 U2 asks the question of the CLOSURE rather than of its caller, so
+// the answer no longer depends on who happens to reach it. The refusal is
+// anchored at the closure, inside the dependency, because that is the code that
+// cannot work.
+//
+// EXPECT: error
+// COMPILE-FLAGS: --module-path sl316closure={TESTDIR}/../modules/sl316closure
+// EXPECT-ERROR-CONTAINS: this closure body suspends
+// EXPECT-ERROR-CONTAINS: a closure body is not driven
+// EXPECT-ERROR-CONTAINS: lib.saw:23:17
+
+import std.task.*
+import sl316closure.{each_yield_public}
+
+func through_dep(values: &Vector<Int>) -> Int {
+    each_yield_public(&values)
+}
+
+func main() {
+    let values: Vector<Int> = [1, 2]
+    print(__saw_drive_steps(through_dep(&values)))
+}

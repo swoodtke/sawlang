@@ -70,12 +70,13 @@ activated first.
 That is the complete flag set (`sawc.py:2081-2190`); `-o` defaults to
 `.build/<source>`. `--emit-frame-ledger` (design 275 U1) dumps the
 coroutine transform's DISCOVERY LEDGER instead of code — one FRAME row
-per frame key it reached (kind, suspension causes, buildable + why not,
-home module, where the body came from) and one SITE row per suspension
-position (its context and outcome: embed / inline / refuse / declined).
-Deterministically ordered and path-free, so two compilers' dumps diff:
-it is the instrument behaviour preservation is proven with, and the
-`declined` rows are U2's worklist. `--no-hidden-alloc` (design 135) rejects the
+per frame key it reached (kind, suspension causes, the decision — `framed` /
+`no-frame-owed` / `template` / `refused` — its reason, home module, where the
+body came from) and one SITE row per suspension position (its context and
+outcome: embed / inline / refuse). Deterministically ordered and path-free, so
+two compilers' dumps diff: it is the instrument behaviour preservation is proven
+with. U1's fourth outcome, `declined`, is GONE from both tables — design 275 U2
+spent that worklist. `--no-hidden-alloc` (design 135) rejects the
 allocations the compiler inserts that no source construct names.
 `-W` (design 150) enables a warning category (repeatable, `-W all` for
 every one; warnings are off by default and never affect the exit code).
@@ -192,6 +193,28 @@ objects are built + cached under `.build/rt/` and auto-linked (delete
   raise is not a check that a consumer's miss reaches it; the other asserts the
   dump carries a `context=driven root` site for each of the three driven-root
   families, which is what caught a FRAME row sitting beside `# sites: 0`),
+  `corototality` (design 275 U2: there is NO fourth outcome —
+  `sawc/coro_shapes.py` says, per shape a suspension can sit in, SPLIT / HOIST /
+  INLINE / EMBED / REFUSE, and `tools/test_coro_shapes.py` compares that table
+  against `ast_walk.CONTAINER_KINDS` and `CONTAINER_HEADS` — the other two
+  enumerations of the same fact — checks each row is well formed and each named
+  consumer still reads it, then INJECTS the failure three times: a dropped
+  container row must ICE naming the AST class, a dropped site decision must ICE,
+  and a plain call to a `frame_boundary` callee grafted into a generated resume
+  body must ICE naming the frame and the callee. Each injection runs beside an
+  uninjected control, because a structural claim that a function contains a
+  raise is not a claim that anything reaches it — and the three injections are
+  six, because the plain-call one runs once per family a call comes in: a free
+  call plus an INSTANCE, a STATIC and a GENERIC-struct method, each grafted from
+  a node the compiler really produced),
+  `stdseed` (SL-327: the design-206 std seed table is keyed by `Method.node_id`,
+  and a wrong key costs a DIAGNOSTIC rather than a failure, so nothing in the
+  corpus can see it — `tools/test_std_seed_keying.py` checks the rule directly:
+  a key must name the METHOD ITS ENTRY IS ABOUT, membership of the integer is
+  not the question; a wrong-method key and a missing key are both refused at
+  publication and re-keyed by identity, an unresolvable identity is an invariant
+  failure naming the entry, and an unsound blob already on disk is discarded AND
+  deleted so it costs one cold std build rather than a silence forever),
   `citations` (DF-248c, Aug 24: stale XFAIL/ledger citations against the
   tracker's closed set + committed conflict markers over tracked files —
   the gate for the files nothing compiles),

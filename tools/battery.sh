@@ -66,6 +66,8 @@ STAGES=(
     "transferdecisions|no|every ownership boundary carries an explicit decision|$PY tools/test_transfer_decisions.py"
     "producertaxonomy|no|every value-position node says how it produces a value|$PY tools/test_producer_taxonomy.py"
     "corodiscovery|no|one ledger answers every coroutine frame decision|$PY tools/test_coro_discovery.py"
+    "corototality|no|every shape a suspension sits in SPLITs, HOISTs, INLINEs, EMBEDs or REFUSEs|$PY tools/test_coro_shapes.py"
+    "stdseed|no|a cached std seed key names the METHOD ITS ENTRY IS ABOUT|$PY tools/test_std_seed_keying.py"
     "citations|no|the files nothing compiles: stale DF/SL citations, committed conflict markers|$PY tools/check_citations.py"
     "forgetgate|no|every __saw_forget and M1/M3 stamp cites its deferral|$PY tools/test_forget_purge.py"
     "ircontract|no|-c embeds what hosted embeds; seam widths match rt/ABI.md|$PY tools/test_ir_contract.py"

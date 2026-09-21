@@ -28,12 +28,15 @@ OUTCOME the transform gives it there. The same callee is EMBED as a direct call
 in a driven body and REFUSE inside a closure literal, and that difference
 belongs to the site, never to two readings of the callee row.
 
-WHAT U1 DELIBERATELY DOES NOT DO. A site the transform DECLINES today — a
+WHAT U1 DELIBERATELY DID NOT DO, AND U2 DID. A site the transform DECLINED — a
 callee or closure body the walk skipped and lowered as a plain call (SL-287,
-SL-316) — is RECORDED with outcome `declined(reason)` and lowered exactly as
-before. U1 is behaviour-preserving by construction; turning a decline into a
-refusal is U2's flip and owes U2's consumer sweep. `--emit-frame-ledger` dumps
-the list, which is what makes that worklist auditable instead of remembered.
+SL-316) — was RECORDED with outcome `declined(reason)` and lowered exactly as
+before: U1 was behaviour-preserving by construction, and `--emit-frame-ledger`
+dumping the list is what made the worklist auditable instead of remembered.
+Design 275 U2 spent it. `declined` is GONE from both tables — a callee that owes
+a frame and has none is `refused` and a call to it is a compile error, a generic
+template is `template` (it owed no frame in the first place), and a site the
+transform will not lower is `refuse(<why>)` with the shape table's message.
 
 ONE BOUNDARY WORTH NAMING, because the brief's wording invites the other
 reading: the SITE table is a RECORD in U1, not a lookup key. Frame builders
@@ -55,7 +58,7 @@ BASENAME for the same reason.
 from typing import NamedTuple, Optional
 
 from frame_keys import callee_frame_key
-from typechecker.effects import describe_causes
+from typechecker.effects import closure_body_owns_suspension, describe_causes
 
 
 # --------------------------------------------------------------------------- #
@@ -69,12 +72,21 @@ KIND_METHOD = "method"                # an instance method (`&self`/`&var self`)
 KIND_STATIC = "static"                # a static method — no receiver to embed
 KIND_MONO = "mono-instance"           # a monomorphized clone of a generic
 
-# `FrameRow.decision` — the THREE-VALUED answer. Absence of a row is NOT a
-# fourth value: it is an invariant failure at every read that can tell the
+# `FrameRow.decision` — the answer, and it is TOTAL. Absence of a row is NOT a
+# further value: it is an invariant failure at every read that can tell the
 # difference (see `FrameLedger.free_call_frame`).
+#
+# design 275 U2 DELETED `declined`. U1 recorded it so U2 could refuse it, and
+# the corpus sweep found the 67 rows carrying it were two unrelated facts under
+# one word: 64 generic TEMPLATES, which own no frame BY CONSTRUCTION and whose
+# instantiations are keyed separately (nothing is wrong there), and 3 callees
+# that own a suspension the walk never reached (SL-287/SL-316 — the silent
+# decline itself). They get a status each, so the word that meant "we gave up,
+# and something may be about to be miscompiled" names nothing any more.
 DECISION_FRAMED = "framed"
 DECISION_NO_FRAME = "no-frame-owed"
-DECISION_DECLINED = "declined"
+DECISION_TEMPLATE = "template"        # a generic template: no frame is OWED
+DECISION_REFUSED = "refused"          # owes a frame, has none: a call is an error
 
 # `FrameRow.splice` — where the BODY the frame is built from came from.
 ORIGIN_ENTRY = "entry"                # the entry module's own AST
@@ -126,13 +138,19 @@ class FrameRow(NamedTuple):
       * `framed`        — a frame was built for this callee; embed it.
       * `no-frame-owed` — discovery looked and this callee owns no suspension a
                           frame must be built around. A plain call is CORRECT.
-      * `declined`      — discovery looked, a suspension IS owed, and no frame
-                          was built. `reason` says why. The transform lowers a
-                          plain call, exactly as it did before U1; U2 flips
-                          these and this column is its worklist.
+      * `template`      — a GENERIC TEMPLATE. It owns no frame BY CONSTRUCTION
+                          and its suspending instantiations are keyed and built
+                          separately, so there is nothing here to fix. 64 of
+                          U1's 67 `declined` rows were this.
+      * `refused`       — discovery looked, a suspension IS owed, and no frame
+                          was built. `reason` says why, and a CALL to such a
+                          callee from a driven body is a COMPILE ERROR carrying
+                          that reason (SL-287). Before design 275 U2 it was a
+                          plain call whose park stopped the executor's thread.
 
-    `buildable` is the brief's column, now derived from the decision: `yes` for
-    `framed` and `no-frame-owed`, `no` with `reason` for `declined`.
+    `buildable` is the brief's column, derived from the decision: `yes` for
+    `framed` and `no-frame-owed`, `no` with `reason` for `template` (no frame
+    can be built FOR THE TEMPLATE, which is the fact) and for `refused`.
 
     `causes` is the design-275-U4 cause SET the effect graph reaches this node
     by, spelled (`{cooperative, closure_call}`). `boundary` is the FRAMING
@@ -164,9 +182,12 @@ class SiteRow(NamedTuple):
                               primitive, a channel receive, a blocking-extern
                               offload. Lowered into THIS frame.
       * `refuse(<why>)`     — a compile error the transform raises at this site.
-      * `declined(<why>)`   — a suspension the transform lowers as a PLAIN CALL.
-                              This is the outcome design 275 exists to end; U1
-                              records it and changes nothing, U2 flips it.
+
+    THERE IS NO FOURTH. U1's `declined(<why>)` — a suspension the transform
+    lowered as a PLAIN CALL — is what design 275 exists to end, and U2 deleted
+    it: every position is now SPLIT, HOIST, INLINE, EMBED or REFUSE, decided by
+    `coro_shapes`, and a position with no decision fails the compile as an
+    invariant (U2's totality check (a)).
     """
     file: str
     line: int
@@ -418,6 +439,7 @@ class FrameLedger:
     | `transform_program` `nested_method_fbs` + method roots | `_method_frame_key(sname, mast.name, mast.mangled_symbol)`, `_find_method` | `method_key_of_decl`, `find_entry_method` |
     | `transform_program` splice filter | `callee_frame_key(f)` over `program.functions` | `key_of` |
     | the consumption sweep (`_called_function_names`, `_consume_templates_naming_removed`, `_names_the_survivors_call`) | `callee_frame_key` at four sites | `key_of` |
+    | `_verify_resume_totality` (design 275 U2 check (b)) | `key_of` + `is_chan_recv` only, so a GENUINE method was never asked about | `callee_owns_suspension` for the free and module-qualified shapes, `method_target` for the method |
 
     `callee_frame_key`'s sixteen named entry points collapse to ONE caller — this
     class — and `method_frame_key`'s likewise. That collapse is the unit.
@@ -449,6 +471,7 @@ class FrameLedger:
         "closure", "method_closure", "_built_free", "_built_method_keys",
         "_root_method_ids", "method_root_decls", "_structural",
         "_frames", "_sites", "_frozen", "main_suspends",
+        "has_coroutine_root",
     )
 
     # ---------------------------------------------------------------- lifecycle
@@ -508,6 +531,15 @@ class FrameLedger:
         # `main` is a root — so it lives here rather than being recomputed from
         # the typechecker beside every use of it.
         self.main_suspends = False
+        # Does this program have a coroutine ROOT at all — a driven call, a
+        # spawned one, or a suspending `main`? The same kind of discovery fact,
+        # and the one that decides whether any FRAME is built. A ROOTLESS ledger
+        # is still a real ledger: it holds the body tables and the cause set, so
+        # the questions that are about a BODY rather than about a frame — SL-316's
+        # "does this closure suspend" — are answerable on a program where nothing
+        # is framed. That is codex's SL-318.p6 r1 P1: the refusal must not depend
+        # on an unrelated drive site existing somewhere else in the file.
+        self.has_coroutine_root = False
 
     def freeze(self, structural=None):
         """Discovery is over. Every later touch is a READ.
@@ -709,13 +741,18 @@ class FrameLedger:
         callee and a decided one were one fact, which is the silent decline this
         epic exists to end, one level up from where it was found.
 
-        Three recorded answers and one refusal:
+        Four recorded answers and one refusal:
 
           * `framed`        -> the key, and the caller embeds the frame;
           * `no-frame-owed` -> None. Discovery LOOKED and this callee owns no
                                suspension; a plain call is correct;
-          * `declined`      -> None, unchanged from before U1. The decision and
-                               its reason are in the dump, and the flip is U2's;
+          * `template`      -> None. A generic template owns no frame; a call
+                               still naming one is `_classify_call`'s design-70
+                               refusal;
+          * `refused`       -> None HERE, and `unbuildable_callee` is the read
+                               that turns it into the compile error (SL-287,
+                               design 275 U2). This answer used to be a plain
+                               call whose park stopped the executor's thread;
           * NO ROW          -> `LedgerMiss` naming the key, IF the ledger can
                                tell the callee owns a suspension.
 
@@ -845,6 +882,93 @@ class FrameLedger:
             return True
         return bool(structural_probe is not None and structural_probe(key))
 
+    def unbuildable_callee(self, node):
+        """SL-287 / design 275 U2: the RECORDED REASON a suspending callee at
+        this call site has no frame, or None.
+
+        THE THIRD OUTCOME'S OWN READ. `free_call_frame` answers `None` for four
+        different facts — `no-frame-owed`, `template`, `refused`, and "not a
+        frame question at all" — and that conflation is exactly what let an
+        unbuildable callee be lowered as a plain call: the five classifiers read
+        `None` as "an ordinary call", and the park then ran outside every frame.
+        U1 made the decision recorded and reasoned; this is the read that spends
+        it, and its one consumer is the ONE rejector
+        (`_reject_buried_suspend_call`), so the refusal is anchored at the call
+        the author wrote and carries the ledger's own words for why.
+
+        Absence is the answer: a callee with no row, or a row that is `framed`,
+        `no-frame-owed` or `template`, is not this question's business. A
+        TEMPLATE is excluded deliberately — a call naming one is design 70's
+        clean refusal at the classifier, about generics rather than about
+        framing, and two rejectors for one call would be the drift this epic
+        exists to end.
+        """
+        key = callee_frame_key(node)
+        if key is None:
+            return None
+        row = self._frames.get(key)
+        if row is None or row.decision != DECISION_REFUSED:
+            return None
+        return row.reason or "no frame was built for it"
+
+    def closure_owns_suspension(self, node_id):
+        """SL-316: does this CLOSURE LITERAL's body own a suspension?
+
+        A closure body is not driven — it is reached through a function value,
+        so there is no frame for a park to live in — and design 223 unit 3
+        refuses one written in a body the transform FRAMES. The cell SL-316
+        found is the same closure in a body the transform does NOT frame: its
+        enclosing function carries only the conservative `closure_call` cause,
+        so no frame is built, no rejector ever scans it, and the suspension
+        lowers outside every frame in silence. Asked of the closure's OWN effect
+        node, this answers for both, which is what makes the refusal a property
+        of the closure rather than of who happens to call it.
+
+        ABSENCE IS THE ANSWER: a closure with no effect node reaches no
+        suspension source.
+
+        THE DERIVATION IS `effects.closure_body_owns_suspension`, not a
+        `frame_boundary` read spelled here — the transform's ENTRY GATE asks the
+        same question of every closure in the program (`finalize_effects`'
+        `_has_suspending_closure_body`, which is what decides whether this walk
+        runs at all on a rootless program), and two spellings of one question
+        would be the drift this epic exists to end. That funnel is also where
+        the `Thread.spawn { ... }` brace's narrower question lives.
+        """
+        if node_id is None:
+            return False
+        return closure_body_owns_suspension(self._nodes.get(node_id),
+                                            self._answers)
+
+    def callee_owns_suspension(self, key):
+        """THE FRAMING QUESTION about a free callee: does it own a suspension a
+        frame has to be built around?
+
+        The RECORDED row first — after the freeze that is the authority, and it
+        is what the walk concluded — then the two questions discovery asked, for
+        a key with no row at all (an extern, a builtin, a std leaf: all `no`).
+        Deliberately NOT `free_call_frame`: both consumers below ask about
+        bodies where a miss is not evidence of a discovery gap, and raising
+        there would report the wrong bug.
+
+        TWO CONSUMERS, design 275 U2:
+
+          * `_verify_resume_totality` — totality check (b), over the bodies the
+            transform SYNTHESIZED: a callee that owns a suspension has no
+            business being plain-called from a resume body;
+          * `_default_expr_suspends` — SL-324. Its refusal is about a FRAME, and
+            it used to ask `might_suspend_free`, which answers "not provably
+            suspension-free". A default calling a closure-taking helper was
+            refused for a park it never reaches.
+        """
+        if not key:
+            return False
+        row = self._frames.get(key)
+        if row is not None:
+            return bool(row.boundary)
+        return bool(self._answers.frame_boundary(("fn", key))
+                    or self._structural.get(key, False))
+
     def edge_is_boundary(self, target, structural_probe=None):
         """The closure walk's edge-follow question, over a GRAPH key."""
         if self._answers.frame_boundary(target):
@@ -952,6 +1076,11 @@ class FrameLedger:
         gap. Absence is a legitimate answer for the other two kinds — NOT
         SUSPENDING names no frame at all, and UNSUPPORTED is a refusal whose
         whole point is that no frame could be named.
+
+        SECOND CONSUMER, design 275 U2: `_verify_resume_totality`, which asks
+        it of every method call left in a GENERATED resume body. Both non-`none`
+        answers are a failure there — an EMBED that was never embedded and an
+        UNSUPPORTED that was never refused reach the executor the same way.
         """
         if getattr(mc, 'is_chan_recv', False):
             # design 62 G3: a cooperative `receive()` lowers INLINE — it suspends
@@ -1069,8 +1198,23 @@ class FrameLedger:
         `resolved_symbol` is cleared (or `key_of` would answer the base the
         instance was cloned from), and the type arguments go. SL-274 is what made
         the third necessary and the second load-bearing.
+
+        Takes EITHER call shape (design 275 U2, SL-330). A module-qualified free
+        call — `mod.g<Int>(x)` — wears a `MethodCall`'s shape and names its
+        callee through `module_free_call`, so the same three writes land on
+        different fields; one method rather than two because they are one
+        operation and a second would be the drift this epic exists to end.
         """
         self._open("a call rename")
+        if hasattr(fc, 'method_name'):
+            # The qualified spelling. `module_free_call` is what `key_of`
+            # answers with and `resolved_symbol` is what codegen's
+            # `_generate_module_function_call` resolves against, so both name
+            # the instance or the two disagree.
+            fc.module_free_call = mangled
+            fc.resolved_symbol = mangled
+            fc.type_args = None
+            return
         fc.name = mangled
         fc.resolved_symbol = None
         fc.type_args = None
@@ -1101,6 +1245,29 @@ class FrameLedger:
         node = self._nodes.get(key)
         return () if node is None else tuple(e.target for e in node.edges)
 
+    def cycle_member_decl(self, key):
+        """The DECLARATION a suspending-cycle member was written as, or None.
+
+        `_analyze_nesting`'s anchor (design 275 §3 ruling 2, and the note
+        SL-280's landing asked for). The cycle walk starts at a ROOT, so the
+        anchor it carries is whichever root seeded it — for a `__saw_drive` in
+        `main`, `func main`, a line the author cannot act on about a cycle
+        several hops away. The cycle's own first member is the function to
+        break, and this is what finds it: the free body table for a
+        `("fn", key)` and the method table for a raw node id, which are the two
+        spellings `_find_suspending_cycle` returns.
+
+        ABSENCE IS THE ANSWER: a member this unit holds no declaration for
+        leaves the root anchor in place, which is what the diagnostic had
+        before.
+        """
+        if isinstance(key, tuple) and len(key) == 2 and key[0] == "fn":
+            return self.free_or_imported_body(key[1])
+        if isinstance(key, int):
+            entry = self.methods_by_id.get(key)
+            return entry[1] if entry is not None else None
+        return None
+
     def node_label(self, key):
         """How a node names itself in a diagnostic (the cycle chain)."""
         n = self._nodes.get(key)
@@ -1115,6 +1282,9 @@ class FrameLedger:
     def dump(self):
         return render_dump(self._frames.values(), self._sites)
 
-    def declined_sites(self):
-        """U2's worklist: every site the transform lowers as a plain call."""
-        return [r for r in self._sites if r.outcome.startswith("declined")]
+    def refusal_sites(self):
+        """Every site the transform REFUSES. U1's twin of this answered for
+        `declined` — the sites it lowered as a plain call — and that list is
+        empty by construction now: design 275 U2 deleted the outcome, and what
+        used to be on it is here."""
+        return [r for r in self._sites if r.outcome.startswith("refuse")]

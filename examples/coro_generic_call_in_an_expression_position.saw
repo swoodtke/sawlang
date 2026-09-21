@@ -1,21 +1,21 @@
-// XFAIL: SL-326 — a suspending GENERIC free call in an expression position
-// inside a driven body is hoisted by design 120's ANF but never PROMOTED, so the
-// instantiation it names has no frame and the hoisted call is a plain call to a
-// suspending body inside the synthesized resume:
+// SL-326, CLOSED by design 275 U2 — a suspending GENERIC free call in an
+// EXPRESSION position inside a driven body. It used to be hoisted by design
+// 120's ANF and never PROMOTED, so the instantiation it named had no frame and
+// the hoisted call was a plain call to a suspending body inside the synthesized
+// resume:
 //
 //   error: cannot suspend in `sync func` method: method `__Frame_main.resume`
 //          calls `warp$1$Int` → yield_now (`warp$1$Int` suspends at line N)
 //
-// Two position sets that do not agree (SL-326's mechanism):
-// `_promote_nested_generic_calls` walks the positions design 74 shape 3 was
+// THE MECHANISM: two position sets that did not agree.
+// `_promote_nested_generic_calls` walked the positions design 74 shape 3 was
 // written against — a statement-level `let x = g<Args>(...)` or a bare call —
 // while design 120 gave every EXPRESSION position a hoist and design 224 widened
-// it again. The `let` cell below is the control and compiles today; the
-// interpolation, argument and operand cells are the ones that do not.
-//
-// Found by design 275 U4's adversarial probe set. It is U2's cell (the shape
-// table's fourth outcome, "hoisted but never built"), and this pin XPASSes when
-// the promotion walk and the hoist are reconciled.
+// it again. The promotion walk is DISCOVERY and the hoist is LOWERING, and
+// nothing reconciled them. U2 reconciles them by deleting the position guess:
+// an edge to a generic instance is a demand whatever position the call sits in.
+// The `let` cell below is the control that always compiled; the interpolation,
+// argument and operand cells are the ones that did not.
 //
 // EXPECT: success
 // EXPECT-OUTPUT:

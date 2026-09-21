@@ -1,25 +1,28 @@
-// Design 216: switching the closure methods to `&T` elements does NOT trade
-// away suspending transforms. A `(&T) -> U` closure parameter carries no `sync`
-// constraint — which is why `map`/`each`/`fold` lend out of the buffer directly
-// instead of going through `with_ref`, whose body IS `sync` for its own
-// scoped-window reasons.
+// Design 216 gave `map`/`each`/`fold` a `(&T)` element and no `sync` constraint,
+// and this file used to read that as "a suspending transform works". It does not,
+// and never did: the suspension ran OUTSIDE every frame, where `yield_now()`
+// codegens to nothing. Design 275 U1 measured it — four `declined` SITE rows and
+// three `declined` FRAME rows in the discovery ledger, the whole of the corpus's
+// silent-decline worklist — and U2 refuses it.
 //
-// The element borrow spans a suspension here. That is sound for the same reason
-// the place window is: the method holds `&self` for its whole run, so the Law of
-// Exclusivity forbids any `&var self` — and therefore any `push` and its
-// reallocation — from reaching the buffer underneath a live element borrow.
+// THE MECHANISM, read off the ledger's two tables together: the driven root
+// `traverse` has an EMPTY cause set, because its three suspending helpers are
+// called from inside CLOSURE LITERALS. The effect graph raises the conservative
+// closure-call cause on the METHOD (`Vector.map`) and records no direct
+// `traverse -> slow_double` edge, so the closure walk never reaches the helpers,
+// no frame is built for any of them, and their `yield_now()` runs in nobody's
+// frame. The values printed were right either way, which is what let this sit in
+// the corpus as a passing test with the limitation written in its own header.
 //
-// (The suspension is written as a call to a suspending helper rather than a bare
-// `yield_now()` in the closure body: a suspending call in a nested/expression
-// position inside a closure is a coroutine-transform limitation that predates
-// this change and is unrelated to the element's spelling.)
-// EXPECT: success
-// EXPECT-OUTPUT:
-// mapped 20
-// mapped 40
-// mapped 60
-// each saw 3
-// folded 60
+// The refusal is the shape table's `ClosureExpr` REFUSE row (`sawc/coro_shapes.py`),
+// raised by the ONE rejector at the closure the author wrote. What design 216
+// really claims — a `(&T)` element parameter, no copy bound, move-only elements
+// traversed — is unaffected and is covered by
+// `vector_closures_over_nocopy_elements.saw`.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: appears inside a CLOSURE BODY in driven `traverse`
+// EXPECT-ERROR-CONTAINS: vector_closure_suspending_transform.saw:41:42
 
 import std.task.*
 
@@ -28,35 +31,15 @@ func slow_double(n: Int) -> Int {
     n * 2
 }
 
-func slow_show(n: Int) {
-    yield_now()
-    print("mapped {n}")
-}
-
-func slow_add(a: Int, b: Int) -> Int {
-    yield_now()
-    a + b
-}
-
 func traverse() -> Int {
     var v = Vector<Int>()
     try! v.push(10)
     try! v.push(20)
     try! v.push(30)
 
-    // A suspending transform.
+    // A suspending transform: refused at the closure, not silently dropped.
     let doubled = try! v.map<Int>({ n in slow_double(n) })
-    doubled.each({ d in slow_show(d) })
-
-    // A suspending `each` body, with a borrow capture across the suspension.
-    var seen = 0
-    v.each({ [&var seen] n in seen = slow_add(seen, 1) })
-    print("each saw {seen}")
-
-    // A suspending fold.
-    let total = v.fold<Int>(0, { acc, n in slow_add(acc, n) })
-    print("folded {total}")
-    total
+    doubled.len()
 }
 
 func main() {

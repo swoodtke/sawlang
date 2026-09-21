@@ -1,0 +1,64 @@
+// SL-330 — a MODULE-QUALIFIED call to an imported suspending GENERIC free
+// function, inside a driven body, embeds its frame and cedes.
+//
+// It used to be neither embedded nor refused honestly: the qualified spelling
+// `alpha.outer<Int>(n)` parses as a `MethodCall` carrying SL-208's
+// `module_free_call` stamp, and `_promote_nested_generic_calls` tested
+// `isinstance(fc, FunctionCall)` — so the instantiation was never promoted, the
+// driven frame's resume plain-called `outer$1$Int`, and the post-transform check
+// reported
+//
+//   error: cannot suspend in `sync func` method: method `__Frame_chain.resume`
+//          calls `outer$1$Int` → `inner` → `leaf` → yield_now
+//
+// blaming a `sync` region the author never wrote for a frame the transform
+// declined to build. SL-217 is the ROOT sibling of the same parser shape; this
+// is the EMBEDDED face, and it is the generic case only because SL-208 taught
+// the non-generic classifiers about the stamp and the promotion was not in that
+// sweep.
+//
+// THE ORACLE IS THE STEP COUNT, not the value: `chain` returns 112 whether or
+// not the suspension survived, and only `__saw_drive_steps` separates an
+// embedded frame from a plain call. The three rows are the isolating matrix —
+// qualified+generic (the cell), bare+generic and qualified+non-generic (the two
+// spellings that always worked) — so a regression that fixes one by breaking
+// another is caught here.
+//
+// EXPECT: success
+// COMPILE-FLAGS: --module-path sl318u2={TESTDIR}/modules/sl318u2
+// EXPECT-OUTPUT:
+// qualified generic 112 1
+// bare generic 112 1
+// qualified plain 8 1
+// EXPECT-IR-CONTAINS: __Frame_outer$m$sl318u2$1$Int
+// EXPECT-IR-CONTAINS: __Frame_leaf$m$sl318u2
+
+import sl318u2
+import sl318u2.{outer}
+
+func qualified_generic(n: Int) -> Int {
+    let r = sl318u2.outer<Int>(n)
+    r
+}
+
+func bare_generic(n: Int) -> Int {
+    let r = outer<Int>(n)
+    r
+}
+
+func qualified_plain(n: Int) -> Int {
+    let r = sl318u2.plain(n)
+    r
+}
+
+func main() {
+    print("qualified generic {} {}",
+          __saw_drive(qualified_generic(1)),
+          __saw_drive_steps(qualified_generic(1)))
+    print("bare generic {} {}",
+          __saw_drive(bare_generic(1)),
+          __saw_drive_steps(bare_generic(1)))
+    print("qualified plain {} {}",
+          __saw_drive(qualified_plain(1)),
+          __saw_drive_steps(qualified_plain(1)))
+}

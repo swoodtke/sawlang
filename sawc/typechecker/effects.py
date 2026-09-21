@@ -191,12 +191,13 @@ class SuspendCause:
     # difference between design 206's predicate and SL-306's, and mistaking it
     # for the others is the trap SL-306's agent hit.
     TEST_SUSPEND = 4
-    # A call through `any Trait` dispatch (design 223 unit 3). Conservative — a
+    # A call through `any Trait` dispatch (design 223 unit 3). CONSERVATIVE — a
     # vtable word carries no effect — and `_report_existential_suspend_dispatch`
     # refuses at the DISPATCH when some conformance really suspends. Its OWN
     # cause because the two predicates it sat between disagreed about it and
-    # always had: design 206's struck it, SL-306's did not. See the note on
-    # `frame_boundary`.
+    # always had: design 206's struck it, SL-306's did not. SL-323, ruled by the
+    # user Sep 20: it belongs with `closure_call`, and `CONSERVATIVE_CAUSES`
+    # beside `frame_boundary` is where that membership is now stated once.
     EXISTENTIAL_DISPATCH = 8
     # THE conservative closure-call source (`CLOSURE_CALL_SOURCE_LABEL`): a call
     # through a non-`sync` function VALUE, which every closure-taking body raises
@@ -222,6 +223,19 @@ def describe_causes(causes: int) -> str:
     """`{cooperative, closure_call}` — the cause set, spelled, for a report."""
     named = [name for bit, name in SuspendCause.NAMES if causes & bit]
     return "{" + ", ".join(named) + "}"
+
+
+def _pending_sl322_note() -> str:
+    """The one sentence both SL-322-pending refusals add (design 275 §3 ruling 2).
+
+    Imported LAZILY: `coro_shapes` is the coroutine transform's table and this
+    module is the typechecker's, so the dependency is a message's and not the
+    analysis's. It exists at all so the row, the message and
+    `tools/test_coro_shapes.py`'s check cannot say three different things about
+    which design the refusal waits on.
+    """
+    from coro_shapes import PENDING_DISPATCH, pending_note
+    return pending_note(PENDING_DISPATCH)
 
 
 # --------------------------------------------------------------------------
@@ -287,44 +301,87 @@ def refused_in_thread_body(causes: int) -> bool:
     return bool(causes & ~SuspendCause.BLOCKING & SuspendCause.ALL)
 
 
+#: THE TWO CONSERVATIVE CAUSES — the ones that say a body MIGHT suspend without
+#: naming a park it owns. Spelled once, because `frame_boundary` is defined by
+#: excluding exactly this set and a second spelling is how the membership below
+#: came to be read two ways in the first place.
+CONSERVATIVE_CAUSES = (SuspendCause.CLOSURE_CALL
+                       | SuspendCause.EXISTENTIAL_DISPATCH)
+
+
 def frame_boundary(causes: int) -> bool:
-    """Every cause but `closure_call` — "this body owns a suspension a FRAME has
-    to be built around".
+    """`cooperative | blocking | test_suspend` — "this body owns a suspension a
+    FRAME has to be built around".
 
-    `cooperative | blocking | test_suspend` are the boundaries design 44 splits a
-    state machine at. `closure_call` is read for NOTHING here, which is SL-306's
-    rule stated positively: a body that "suspends" only because it calls a
-    non-`sync` function value has no park to host, and framing it put the
-    closure-body rejector in front of programs with no suspension in them.
+    Those three are the boundaries design 44 splits a state machine at. The two
+    CONSERVATIVE causes are read for NOTHING here, and that is the rule stated
+    positively: a body that "suspends" only because the compiler cannot prove it
+    does not has no park to host, and framing it puts the closure-body rejector
+    in front of programs with no suspension in them.
 
-    THE ONE MEMBERSHIP THAT IS RECORDED RATHER THAN RULED: `existential_dispatch`
-    counts here, because SL-306's predicate counted it and this unit is
-    behaviour-preserving. It is a conservative cause — a vtable word carries no
-    effect, and design 223 refuses the dispatch outright when a conformance body
-    really suspends — so a body whose ONLY cause is one is framed today although
-    it owns no park. Probed, filed, and left alone: moving it into
-    `closure_call`'s half is a behaviour flip that belongs to the ledger unit.
+    `closure_call` is SL-306's half — a call through a non-`sync` function
+    value, which every closure-taking body raises.
+
+    `existential_dispatch` is SL-323's, RULED by the user on Sep 20 and flipped
+    by design 275 U2. It is conservative for the same kind of reason: a vtable
+    word carries no effect, so a dispatch names no park. WHAT MAKES THE MOVE
+    SOUND is design 223 unit 3's refusal at the DISPATCH
+    (`_report_existential_suspend_dispatch`): when some conformance body really
+    suspends, the dispatch is refused before any framing question is asked, so
+    the only dispatches that reach here are ones whose every implementation is
+    sync. The dispatch keeps refusing a `sync` body through `might_suspend` —
+    "not provably suspension-free" is a different question and this move does
+    not touch it.
+
+    Before the flip, a body whose ONLY cause was a dispatch joined the driven
+    closure, and design 88's erased-parameter fence then refused its
+    `&any Trait` PARAMETER for a frame it never needed — an ordinary erased
+    helper could not be called from a driven body at all.
 
     CONSUMERS: `finalize_effects`' `closure_calls_permitted` narrowing (a
     SYNTHESIZED frame method's `sync` marker guards exactly this invariant);
     `coro_transform._build_frame_ledger`'s OWN method census (read back as
     `FrameLedger.method_owns_suspension`), its closure-walk edge-follow
     (`FrameLedger.edge_is_boundary`) and `FrameLedger.free_boundary`;
-    `FrameLedger.instantiation_is_boundary`, which both generic promotions ask; and
-    `sawc.build_builtin_namespace`'s `_std_suspending_methods_ignoring_closure_calls`.
+    `FrameLedger.instantiation_is_boundary`, which both generic promotions ask;
+    `FrameLedger.callee_owns_suspension`, which design 275 U2's post-lowering
+    totality check and `_default_expr_suspends` ask; and
+    `sawc.build_builtin_namespace`'s
+    `_std_suspending_methods_ignoring_closure_calls`.
     """
-    return bool(causes & ~SuspendCause.CLOSURE_CALL & SuspendCause.ALL)
+    return bool(causes & ~CONSERVATIVE_CAUSES & SuspendCause.ALL)
 
 
 def closure_only(causes: int) -> bool:
-    """`closure_call` and nothing else — the conservative answer, alone.
+    """`closure_call` and nothing else — ONE conservative cause, alone.
 
-    CONSUMERS: none in the compiler today, deliberately. It is the diagnostics
-    row: the answer to "why is this body not framed although it might
-    suspend?", and the shape a future reader should reach for instead of
-    spelling `might_suspend(c) and not frame_boundary(c)` at a site of its own.
+    The narrow row, and it stays narrow: it names the source a diagnostic would
+    name ("suspends only through a closure parameter"). For the general "why is
+    this body not framed although it might suspend?" question, reach for
+    `conservative_only` below — SL-323 gave that set a second member, and
+    widening this row instead would have made its name a lie.
+
+    CONSUMERS: none in the compiler today, deliberately.
     """
     return causes == SuspendCause.CLOSURE_CALL
+
+
+def conservative_only(causes: int) -> bool:
+    """Some cause, and every one of them CONSERVATIVE — "this body might
+    suspend and owns no park".
+
+    Exactly `might_suspend(c) and not frame_boundary(c)`, which is the shape a
+    consumer would otherwise spell for itself, so it is a row (design 275 U4's
+    rule: a consumer that needs a subset no row names adds one here rather than
+    combining bits at its own site). A ROW OF ITS OWN rather than a widened
+    `closure_only` because after SL-323 the set has two members and the old name
+    names one of them.
+
+    CONSUMERS: none in the compiler today, deliberately. It is the diagnostics
+    row.
+    """
+    return bool(causes) and not bool(causes & ~CONSERVATIVE_CAUSES
+                                     & SuspendCause.ALL)
 
 
 def _source_class(source: SuspendSource) -> int:
@@ -389,6 +446,9 @@ class SuspensionAnswers:
     def closure_only(self, key) -> bool:
         return closure_only(self._causes.get(key, 0))
 
+    def conservative_only(self, key) -> bool:
+        return conservative_only(self._causes.get(key, 0))
+
 
 def classify_suspensions(nodes) -> SuspensionAnswers:
     """THE suspension analysis, run ONCE per graph (design 275 U4).
@@ -409,8 +469,10 @@ def classify_suspensions(nodes) -> SuspensionAnswers:
         `refused_in_thread_body` for a design-242 thread body, `frame_boundary`
         for a SYNTHESIZED frame method's `sync` marker, and hands the table to
         `_report_existential_suspend_dispatch` (`wraps_main`). The sync-context
-        check and `_check_consumes_suspending_fences` read `might_suspend`
-        through `SuspendNode.suspends`.
+        check reads `might_suspend` through `SuspendNode.suspends`;
+        `_check_consumes_suspending_fences` read it too until design 275 U2
+        (SL-325) and now takes `frame_boundary`, which is the derivation its
+        caller's-frame argument actually rests on.
       * `sawc.build_builtin_namespace` — the three std censuses over the BUILTIN
         graph, which the entry compile cannot compute because it never checks a
         std body: `_std_suspending_methods` (`might_suspend`, name pairs),
@@ -449,6 +511,43 @@ def classify_suspensions(nodes) -> SuspensionAnswers:
                 causes[key] = grown
                 changed = True
     return SuspensionAnswers(causes)
+
+
+def closure_body_owns_suspension(node, answers) -> bool:
+    """SL-316's question about ONE closure body: does it own a suspension that
+    needs a frame nothing will build for it?
+
+    THE FUNNEL (obligation 1), with two entry points and one rule:
+
+      * `finalize_effects`, which asks it of every closure node to decide
+        whether the coroutine transform is entered at all
+        (`_has_suspending_closure_body`);
+      * `coro_ledger.FrameLedger.closure_owns_suspension`, which asks it of the
+        one closure `_refuse_undriven_suspending_closures` is looking at.
+
+    They must agree, because the first decides whether the second ever runs, so
+    the decision lives here rather than being spelled twice.
+
+    WHICH DERIVATION, AND WHY IT IS NOT ALWAYS `frame_boundary`. An ordinary
+    closure is reached through a function VALUE and there is no frame anywhere
+    for its park to live in, so `frame_boundary` — "owns a suspension a frame
+    has to be built around" — is the question. A `Thread.spawn { ... }` brace is
+    not that: design 242 ruling 9 makes it a `sync` context in which a
+    `blocking` extern is LEGAL and runs directly on the spawned thread, which is
+    the headline reason to spawn one (conformance row K84). Its narrowed
+    question is `refused_in_thread_body`, the same one `finalize_effects` asks
+    of it two paragraphs down — and where that says yes the sync violation is
+    already reported and the compile stops before the transform, so this never
+    speaks second. Asking `frame_boundary` of a thread brace refused every
+    `Thread.spawn { blocking_call() }` in a program that happened to hold a
+    coroutine root (codex, SL-318.p6 r1 P1, found while closing the no-root
+    cell that had been hiding it: K84's own program has no root).
+    """
+    if node is None:
+        return False
+    if node.blocking_permitted:
+        return answers.refused_in_thread_body(node.key)
+    return answers.frame_boundary(node.key)
 
 
 @dataclass
@@ -522,10 +621,13 @@ class SuspendNode:
         DERIVED, never assigned, so the broad bit and the cause set cannot
         disagree the way the separate fixpoints that computed them could
         (design 275 U4). The readers that hold a node and want this question are
-        `_effect_path`, `_check_consumes_suspending_fences`,
-        `coro_transform._find_suspending_cycle`, `_default_expr_suspends` and
-        the `(struct, method)` census in `transform_program`; a reader that wants
-        another derivation asks `SuspensionAnswers` for it by name.
+        `_effect_path`, `coro_transform._find_suspending_cycle` and the
+        `(struct, method)` census in `transform_program`; a reader that wants
+        another derivation asks `SuspensionAnswers` for it by name. TWO left
+        this list at design 275 U2, both because their refusal is about a
+        coroutine FRAME and this answers "not provably suspension-free":
+        `_check_consumes_suspending_fences` (SL-325) and
+        `coro_transform._default_expr_suspends` (SL-324).
         """
         return might_suspend(self.causes)
 
@@ -546,6 +648,18 @@ class EffectsMixin:
         # but not a node can ask the same table rather than walk again. Empty
         # until the first settling.
         self._suspension_answers = SuspensionAnswers({})
+        # SL-316 (codex, SL-318.p6 r1 P1): the `ClosureExpr.node_id`s this graph
+        # holds a node for, and whether ANY of them owns a suspension
+        # (`frame_boundary`, the same derivation `FrameLedger
+        # .closure_owns_suspension` reads — so the gate and the refusal cannot
+        # disagree). A closure body is not driven, so a suspension in one is
+        # refused wherever it is written; the refusal lives in the coroutine
+        # transform, and the transform used to be entered only for a program
+        # with a coroutine ROOT. That made the rejection of an unsupported
+        # closure depend on an unrelated drive site elsewhere in the file. This
+        # is the second half of the transform's entry condition.
+        self._closure_node_ids: Set[Any] = set()
+        self._has_suspending_closure_body = False
         # design 206: the std METHODS that REALLY suspend, as
         # `Method.node_id -> (short, real-source label, line)`. Empty here and
         # filled by the driver out of the builtin namespace (`sawc.py`), because
@@ -797,6 +911,11 @@ class EffectsMixin:
 
     def _effect_enter_closure(self, closure, expected_type):
         key = closure.node_id
+        # The one place a CLOSURE node is minted, so the one place that knows a
+        # node id is a closure's — `_suspend_nodes` keys a method and a closure
+        # the same way (a plain int). `finalize_effects` asks these ids the
+        # framing question for the transform's entry gate (SL-316).
+        self._closure_node_ids.add(key)
         sync_reason = None
         if expected_type is not None and getattr(expected_type, "func_is_sync", False):
             sync_reason = "a `sync` closure context"
@@ -1203,6 +1322,35 @@ class EffectsMixin:
         the representative REAL source the builtin graph walked to, so a sync
         violation through a std method still names the primitive it ends at.
 
+        WHAT MAKES THE FIRST SETTLING MATCH (SL-327, fixed by design 275 U2 —
+        and it did NOT hold before). A node id is meaningless against a
+        different AST, so this keying rests on the table's keys being the same
+        GENERATION as the ids the ENTRY graph's edges carry. `_effect_call_method`
+        keys an edge by `method_info.ast_node.node_id` — the method SYMBOL's
+        declaration, resolved through the builtin namespace — and the table is
+        built by walking that namespace's own `builtin_ast`, so a FRESH build
+        agrees with itself.
+
+        A RESTORED one did not always. Measured: five of eight std cache blobs
+        on one machine held a table keyed to an AST that was not the one stored
+        beside them — `Command.output` keyed 20761 in the table and 62190 in
+        both the AST and the namespace symbol. Every one of those blobs was
+        written by a process whose id bound was an order of magnitude past a
+        fresh std build's, i.e. by a process that had already compiled
+        something — the state `sawc._prepared_builtins`' own docstring says the
+        pair must not be stored from. TWO keying fixes, no change to settling:
+        `stdcache.store` refuses to publish an inconsistent pair, and
+        `sawc._rekeyed_std_seed` re-keys a restored table onto the AST the
+        compile actually holds, so blobs already on disk are harmless too.
+
+        THE COST WHEN IT WENT WRONG is a lost DIAGNOSTIC rather than a
+        miscompile, which is what made it so quiet: the seed is missed, the
+        violation is decided at a later round, and the pipeline stops after a
+        settling that reported errors — so any compile with another error in it
+        never reaches that round. `examples/errors/thread_body_reports_both_violations.saw`
+        is the standing test, and the PAIRING is the test: one violation alone
+        always reaches whichever round decides it.
+
         Only REALLY-suspending methods are seeded (`wraps_main`'s gate):
         `Vector.map` and friends "suspend" solely by the conservative
         closure-call rule, and minting nodes for those would flag every
@@ -1307,9 +1455,29 @@ class EffectsMixin:
         # walk of its own.
         self._main_suspends = answers.wraps_main(("fn", "main"))
 
+        # SL-316: does any CLOSURE BODY in this compile own a suspension? A
+        # closure is reached through a function value, so its suspension has no
+        # frame to park in and is refused where it is written — by
+        # `coro_transform._refuse_undriven_suspending_closures`, which the
+        # driver reaches only through `transform_program`. So this is the OTHER
+        # half of that entry condition, beside `_main_suspends` and the root
+        # tables: without it a program with no driven root never entered the
+        # transform, the refusal never ran, and the suspension lowered outside
+        # every frame in silence (codex, SL-318.p6 r1 P1).
+        # `closure_body_owns_suspension` is the same funnel the refusal itself
+        # asks, so the gate admits exactly the programs the walk has something
+        # to say about — a `Thread.spawn { ... }` brace included, which is the
+        # one closure kind that answers a narrower question.
+        self._has_suspending_closure_body = any(
+            closure_body_owns_suspension(nodes.get(k), answers)
+            for k in self._closure_node_ids)
+
         # design 260: the two fences a SUSPENDING consuming body meets. Decided
         # here because "does this body suspend?" is a whole-program answer.
-        self._check_consumes_suspending_fences(nodes)
+        # design 275 U2 (SL-325): the fences ask `frame_boundary` — their
+        # argument is that the receiver lives in the caller's coroutine FRAME,
+        # and the conservative closure-call cause builds none.
+        self._check_consumes_suspending_fences(nodes, answers)
 
         # design 242 ruling 9: a blocking-permitted context asks a narrower
         # question. Both narrowings below are DERIVED READS of the one analysis
@@ -1337,12 +1505,15 @@ class EffectsMixin:
         """design 223 unit 3 (DF-223b): refuse a dispatch through `any Trait` to
         a trait method some conformance implements with a SUSPENDING body.
 
-        The refusal is the whole answer this brief has for that cell, and the
-        reason is structural rather than temporary: the caller of a suspending
-        method embeds the callee's FRAME BY VALUE, so it must know at compile
-        time which body it is embedding, and a vtable word is exactly the thing
-        that withholds that. Making it work is a design (three candidate answers
-        are written out at DF-223b), not a fix.
+        The reason is structural: the caller of a suspending method embeds the
+        callee's FRAME BY VALUE, so it must know at compile time which body it
+        is embedding, and a vtable word is exactly the thing that withholds
+        that. Making it work is a design, not a fix — and design 275 §3 ruling 2
+        (user, Sep 18) named which: SL-322's heap-allocated frame with an
+        indirect resume, the same shape suspending RECURSION needs, which is why
+        the two land together and neither alone. So the refusal is PENDING
+        rather than permanent, and the hint says so — `coro_shapes.PENDING_SL322`
+        is the row and `pending_note` the one spelling both messages use.
 
         What it replaces is worse than a refusal: no frame was built anywhere,
         so the `yield_now()` inside the impl ran outside any frame — where it is
@@ -1375,7 +1546,8 @@ class EffectsMixin:
                          f"the receiver as a generic `<T: {trait_name}>` (which "
                          f"monomorphizes and keeps the frame identity). Erasing "
                          f"a suspending method is unimplemented by design, not "
-                         f"by accident — see DF-223b",
+                         f"by accident — see DF-223b. "
+                         + _pending_sl322_note(),
                     source_file=src)
                 break
 

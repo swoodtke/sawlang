@@ -1,9 +1,28 @@
 // design 44 item 3: suspending recursion is a compile error. The flat-frame
 // model embeds callee frames BY VALUE, so a cycle in the suspending-call graph
 // has no compile-time frame size. The diagnostic names the cycle.
+//
+// TWO THINGS DESIGN 275 §3 RULING 2 (user, Sep 18) added, both asserted below.
+// The refusal is PENDING, not permanent: a heap-allocated frame with an
+// indirect resume is what this needs, and an existential dispatch of a
+// suspending conformance body needs the same runtime shape, so the two land
+// together under SL-322 and the message names it. (K37 asserts the same
+// citation from the other side; `coro_shapes.PENDING_SL322` is the row both
+// messages render their pending note from.)
+//
+// And the ANCHOR is the RECURSIVE FUNCTION's declaration — the note SL-280's
+// landing asked for. The cycle walk starts at a ROOT, so the anchor used to be
+// whichever root seeded it: in a program where the recursion sits a few hops
+// below the drive site, the caret landed on `func main` or an innocent
+// intermediate, a line the author cannot act on about a cycle somewhere else.
+// `loop` is the function to break, so the caret is on `loop`, which the line
+// expectation below pins.
+//
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: suspending recursion is not allowed
 // EXPECT-ERROR-CONTAINS: loop -> loop
+// EXPECT-ERROR-CONTAINS: SL-322
+// EXPECT-ERROR-CONTAINS: coro_suspending_recursion.saw:27:1
 
 func loop(n: Int) -> Int {
     __saw_suspend()

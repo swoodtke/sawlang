@@ -111,26 +111,7 @@ public func fold_then_yield(folder: &Folder) -> Int {
     base
 }
 
-// ------------------------------------------- a closure body that really parks
-
-/// A conservative-only std method whose CLOSURE BODY really suspends, written in
-/// a `public` helper of this module. Reached from a driven body it must be
-/// REFUSED, never lowered through the out-of-frame park.
-public func each_yield_public(values: &Vector<Int>) -> Int {
-    values.each({ n in
-        yield_now()
-    })
-    values.len()
-}
-
-func _each_yield_private(values: &Vector<Int>) -> Int {
-    values.each({ n in
-        yield_now()
-    })
-    values.len()
-}
-
-/// The same through a module-private helper.
-public func each_yield_via_private(values: &Vector<Int>) -> Int {
-    _each_yield_private(&values)
-}
+// A closure body that really parks used to live here too. Design 275 U2 refuses
+// one WHEREVER it is written (SL-316), so it would refuse this whole fixture for
+// every test that imports it — and none of them called it. The three helpers
+// moved to `examples/modules/sl316closure/lib.saw`, which exists to be refused.

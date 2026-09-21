@@ -415,7 +415,10 @@ func main() {
 A suspending call works in any position: an operand, an argument, a receiver,
 an interpolation, a `return` value. The compiler rewrites the statement into
 evaluation-ordered steps, so left-to-right order and short-circuiting hold as
-written. A single cooperative scheduler runs spawned tasks eagerly, backed by
+written. Where a position cannot host one, the compiler says so at the call —
+a suspension inside a closure body is refused, because a closure is reached
+through a function value and its body is not a frame. There is no third
+outcome: a suspending call is driven, or it is a compile error. A single cooperative scheduler runs spawned tasks eagerly, backed by
 an I/O reactor (kqueue or epoll). `TaskGroup(threads: N)` opts into multiple
 threads, with `Send` checked at every spawn; the default stays single-threaded.
 That constructor starts a worker pool, so it allocates and reports: write

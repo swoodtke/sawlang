@@ -16,9 +16,19 @@
 // it does not. This is the second half. The refusal names the design that is
 // owed, and it is ANCHORED at the dispatch the author wrote.
 //
+// AND THE REFUSAL IS PENDING, NOT PERMANENT (design 275 §3 ruling 2, user,
+// Sep 18). The design that is owed has a carrier: SL-322, a heap-allocated
+// frame with an indirect resume. Suspending RECURSION needs the same runtime
+// shape, so the two land together and neither alone — which is why the hint
+// names SL-322 beside DF-223b, and why `examples/errors/coro_suspending_recursion.saw`
+// asserts the same citation from the other side. `coro_shapes.PENDING_SL322`
+// is the row both messages render their pending note from, so the table, the
+// message and this file cannot say three different things.
+//
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: dispatch through `any Greeter`
 // EXPECT-ERROR-CONTAINS: DF-223b
+// EXPECT-ERROR-CONTAINS: SL-322
 
 import std.task.*
 

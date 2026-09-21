@@ -126,6 +126,15 @@ def load(key):
     Returns None on a miss, or on ANY failure to read the blob back: a cache is
     an optimization, and a corrupt or version-skewed entry must degrade to a
     cold compile rather than take the build down.
+
+    A blob whose design-206 SEED is not keyed to the AST stored beside it is one
+    of those failures (SL-327; codex's SL-318.p6 r1 P2 for the identity half).
+    The publication gate keeps new ones off the disk, and this is what makes the
+    ones already there cost ONE cold build rather than a silently missing
+    diagnostic: it is discarded and DELETED, exactly as an unreadable blob is,
+    so the `store` that follows this compile writes a sound one in its place.
+    Write-once is why the delete matters — without it `store` would decline
+    forever and the key would rebuild cold on every compile.
     """
     path = _blob_path(key)
     try:
@@ -146,6 +155,17 @@ def load(key):
         # the interpreter). If one appears anyway, DELETE it: write-once means
         # `store` would otherwise decline to replace it and every future compile
         # would silently fall back to a cold build, forever.
+        _BLOB_BYTES.pop(key, None)
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        return None
+
+    if not _pair_is_consistent(builtin_ast, builtin_ns):
+        # Checked BEFORE the id counter is seeded: this compile is about to
+        # build std cold, and seeding past a graph it will not use would waste
+        # the id space for nothing.
         _BLOB_BYTES.pop(key, None)
         try:
             os.unlink(path)
@@ -182,12 +202,111 @@ def _prune():
         pass
 
 
+def seed_identity(entry):
+    """The `(owner, method)` a design-206 seed ENTRY is about.
+
+    The entry is `(short, label, line, causes, alt)` and `short` is
+    ``` `Owner.method` ``` — the only name-shaped thing it carries, and the
+    STABLE identity behind a node id that is only meaningful against one AST
+    generation. One reader of that shape, so the publication gate, the repair
+    and the diagnostics cannot disagree about what an entry names.
+    """
+    short = ((entry[0] if entry else None) or "").strip().strip("`")
+    owner, _, name = short.rpartition(".")
+    return (owner or None, name or None)
+
+
+def std_method_index(builtin_ast):
+    """This std AST's methods, both ways round: `id -> (owner, name)` and
+    `(owner, name) -> [ids]`.
+
+    One walk of the std extensions, shared by the publication gate and
+    `sawc._rekeyed_std_seed`'s repair — which have to agree about what THIS ast
+    holds or the repair would be judged against a different reading than the
+    gate that let the blob out.
+    """
+    by_id = {}
+    by_name = {}
+    for ext in getattr(builtin_ast, "extensions", None) or ():
+        owner = getattr(ext, "struct_name", None)
+        for m in getattr(ext, "methods", None) or ():
+            nid = getattr(m, "node_id", None)
+            if nid is None:
+                continue
+            ident = (owner, getattr(m, "name", None))
+            by_id[nid] = ident
+            by_name.setdefault(ident, []).append(nid)
+    return by_id, by_name
+
+
+def unsound_seed_keys(table, builtin_ast):
+    """Every design-206 seed key that does not name THE method its entry is
+    about, as `key -> why` (SL-327, widened per codex's SL-318.p6 r1 P2).
+
+    The table is keyed by `Method.node_id`, and a node id is only meaningful
+    against the AST it was minted in — so a blob whose table and AST are two
+    GENERATIONS restores a seed nothing can find. The entry graph's edges then
+    name leaf nodes that were never minted, a `sync` violation through a std
+    method goes unreported at the settling that would have caught it, and
+    because the pipeline stops after a settling that reported errors, any
+    compile with another error in it loses that diagnostic silently.
+
+    TWO WAYS A KEY CAN BE WRONG, and the first draft checked only one.
+    MEMBERSHIP — the integer names no method here — was the measured face: of
+    eight blobs on one developer machine, five were keyed that way, all written
+    by a process whose id bound was an order of magnitude past a fresh std
+    build's, which is exactly the state `_prepared_builtins`' docstring says the
+    pair must not be stored from. But two generations can just as well make an
+    integer name the WRONG method: with `Command.output` at 20 here and
+    `Command.status` at 10, a stale table keyed 10 for `Command.output` passes a
+    membership test, leaves `output` unseeded, and attributes its causes to
+    `status` — a MISDIRECTED seed, which is worse than a missing one because the
+    wrong method now reports a suspension the std body does not have. So the
+    question is IDENTITY, not membership: the entry says which method it is
+    about, and the key must name that method.
+
+    Cheap: one walk of the std extensions, once per cache MISS.
+    """
+    if not table:
+        return {}
+    by_id, _by_name = std_method_index(builtin_ast)
+    bad = {}
+    for key, entry in table.items():
+        wanted = seed_identity(entry)
+        named = by_id.get(key)
+        if named is None:
+            bad[key] = (f"names no method in this std AST; the entry is about "
+                        f"`{wanted[0]}.{wanted[1]}`")
+        elif named != wanted:
+            bad[key] = (f"names `{named[0]}.{named[1]}` in this std AST, and "
+                        f"the entry is about `{wanted[0]}.{wanted[1]}`")
+    return bad
+
+
+def _pair_is_consistent(builtin_ast, builtin_ns):
+    """Is this pair's design-206 seed table keyed to THIS ast? (SL-327)
+
+    Both failure modes, because both cost the same diagnostic — see
+    `unsound_seed_keys`. Rather than police the callers, the publication checks
+    what it is about to publish.
+    """
+    table = getattr(builtin_ns, "_std_really_suspending_methods", None)
+    return not unsound_seed_keys(table, builtin_ast)
+
+
 def store(key, builtin_ast, builtin_ns):
     """Publish the pair, write-once and atomically. Best effort — a cache that
-    cannot be written is not a compile failure."""
+    cannot be written is not a compile failure.
+
+    SL-327: a pair whose seed table is keyed to a different AST generation is
+    NOT published. Declining to write costs one cold std build; writing it costs
+    every later compile a diagnostic, silently, until the blob ages out.
+    """
     from ast_nodes import current_node_id_bound
     path = _blob_path(key)
     if os.path.exists(path):
+        return
+    if not _pair_is_consistent(builtin_ast, builtin_ns):
         return
     tmp = f"{path}.tmp.{os.getpid()}"
     try:

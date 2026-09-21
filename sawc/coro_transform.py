@@ -162,6 +162,9 @@ from typechecker.effects import _first_pristine
 # imported here any more — it is the ledger's composer, with one caller, and
 # `tools/test_coro_discovery.py` is what keeps it that way.
 import coro_ledger
+# design 275 U2: THE SHAPE TABLE — the one chokepoint every split / hoist /
+# refuse decision goes through, and the reason there is no fourth outcome.
+import coro_shapes
 from ast_walk import (child_nodes, control_blocks, control_heads, map_nodes,
                       pattern_binding_names)
 
@@ -1792,11 +1795,21 @@ def _analyze_nesting(start_key, anchor, ledger):
         return
     if cyc is not None:
         chain = " -> ".join(ledger.node_label(k) for k in cyc)
+        # ANCHOR AT THE RECURSIVE FUNCTION'S DECLARATION, not at the root the
+        # walk started from — the anchor note SL-280's landing asked for, and
+        # design 275 §3 ruling 2's other half. `anchor` is whichever root seeded
+        # the walk, which for a `__saw_drive` in `main` is `func main`: a line
+        # the author cannot act on, about a cycle several hops away. The cycle's
+        # first member IS the function to break, so that is where the caret
+        # goes; `anchor` stays the fallback for a member whose declaration this
+        # unit does not hold.
         raise CoroTransformError(
             f"suspending recursion is not allowed: the suspending-call cycle "
             f"`{chain}` has no compile-time frame size (design 44 embeds callee "
             f"frames by value). Break the cycle or drive the inner call "
-            f"separately.", anchor)
+            f"separately. "
+            f"{coro_shapes.pending_note(coro_shapes.PENDING_RECURSION)}",
+            ledger.cycle_member_decl(cyc[0]) or anchor)
 
 
 # --------------------------------------------------------------------------- #
@@ -4610,48 +4623,52 @@ class _FrameBuilder:
                 head = getattr(owner, field)
                 if self._spans_suspension(head):
                     self._reject_container_head(head)
-            # PER-CONTAINER semantics, so this one keeps its own dispatch rather
-            # than `ast_walk.control_blocks`: an `if let`/`guard let` is
-            # descended only when design 104 marked it `_coro_split`, and a
-            # `try { … } catch { … }` only when it is being split into states
-            # (design 196 unit 3). A container NOT listed here falls through to
-            # the rejection below on purpose — a suspension the state machine
-            # cannot express is refused, never silently blocked. See `ast_walk`'s
-            # `CONTAINER_KINDS` for the full list this is choosing from.
+            # design 275 U2: THE SHAPE TABLE decides. This dispatch used to be a
+            # hand-written `isinstance` chain — one of three independent
+            # enumerations of the container kinds (`ast_walk.control_blocks` and
+            # `_hoist_container_heads` were the others), which is how a container
+            # (`TryCatchExpr`, DF-193a) and a container HEAD (a `match`
+            # scrutinee, DF-224a) each came to be skipped in silence by a walk
+            # that listed every other one. `coro_shapes.CONTAINERS` is the one
+            # table now: it says SPLIT (and under which guard) or REFUSE, and a
+            # construct that owns a block and has NO row is an invariant failure
+            # naming the AST class, never a fall-through.
             ctrl = s.expression if isinstance(s, ExpressionStatement) else s
-            if isinstance(ctrl, IfExpr):
-                visit_block(ctrl.then_branch)
-                if ctrl.else_branch is not None:
-                    visit_block(ctrl.else_branch)
-            elif isinstance(ctrl, IfLetExpr) and getattr(ctrl, '_coro_split', False):
-                # design 104 item 1: a split `if let` body is CFG-split — recurse so
-                # nested suspending calls in the branches are embedded (not rejected).
-                visit_block(ctrl.then_branch)
-                if ctrl.else_branch is not None:
-                    visit_block(ctrl.else_branch)
-            elif isinstance(s, GuardLetStatement) and getattr(s, '_coro_split', False):
-                # design 104 item 1: recurse into the split `guard let` else-branch;
-                # the guard's continuation is visited by the enclosing block loop.
-                visit_block(s.else_branch)
-            elif isinstance(ctrl, WhileExpr):
-                visit_block(ctrl.body)
-            elif isinstance(ctrl, MatchExpr):
-                for arm in ctrl.arms:
-                    if isinstance(arm.body, Block):
-                        visit_block(arm.body)
-            elif isinstance(s, ForLoop):
-                visit_block(s.body)
-            elif isinstance(ctrl, TryCatchExpr) and self._is_split(ctrl):
-                self._check_try_catch_splittable(ctrl)
-                visit_block(ctrl.try_block)
-                visit_block(ctrl.catch_block)
+            blocks = control_blocks(s)
+            coro_shapes.unclassified_container(ctrl, blocks)
+            row = coro_shapes.container_of(ctrl)
+            if (row is not None and row.disposition == coro_shapes.SPLIT
+                    and self._shape_guard_holds(row, ctrl)):
+                if isinstance(ctrl, TryCatchExpr):
+                    self._check_try_catch_splittable(ctrl)
+                for b in blocks:
+                    visit_block(b)
             elif not _is_suspend_stmt(s):
                 # A bare suspension-point statement is a legal state boundary; any
-                # OTHER leaf holding a suspending call in an expression position is
-                # not expressible and is rejected.
+                # OTHER leaf holding a suspending call in an expression position —
+                # and every REFUSE row (the inline `try … catch`, a closure body) —
+                # is refused by the ONE rejector, which renders the table's message.
                 self._reject_buried_suspend_call(s)
 
         visit_block(self.func.body)
+
+    def _shape_guard_holds(self, row, ctrl):
+        """Does the SPLIT row's guard hold for this construct?
+
+        A SPLIT row is conditional for exactly two constructs, and the table
+        names which stamp each waits on rather than leaving the condition inside
+        the dispatch: an `if let` / `guard let` becomes a resume target only once
+        `_mark_optional_binding_splits` has minted a frame field for its binding
+        (design 104 item 1), and a `try { } catch { }` only when `_is_split` says
+        so (design 196 unit 3). An unguarded row is unconditional, and a guard
+        that does NOT hold falls to the one rejector with the row's `unguarded`
+        reason — never to an in-place lowering of a suspension.
+        """
+        if row.guard is None:
+            return True
+        if row.guard == "_is_split":
+            return self._is_split(ctrl)
+        return bool(getattr(ctrl, row.guard, False))
 
     # ------------------------------------------------------------------ #
     # Phase 1: layout. Compute the frame's fields (params + across-suspension
@@ -5378,13 +5395,26 @@ class _FrameBuilder:
         contain, about a closure the author can see. The limit is real and
         documented (a closure body is not driven; LANGUAGE_SPEC's closure-body
         section), so this says THAT, with the two spellings that work.
+
+        design 275 U2: the TEXT moved to `coro_shapes.CONTAINERS[ClosureExpr]`,
+        which is the shape table's REFUSE row for a closure body. One row, one
+        message — this method is the row's renderer and no longer its author.
         """
-        return (f"coroutine transform: the suspending call {what} appears "
-                f"inside a CLOSURE BODY in driven `{self.name}`, and a closure "
-                f"body is not driven — its suspension has no frame to park in. "
-                f"Call it outside the closure and pass the result in, or move "
-                f"the whole closure body into a named function the driven body "
-                f"calls.")
+        return coro_shapes.refusal_of(
+            coro_shapes.CONTAINERS[ClosureExpr], self.name, what)
+
+    def _suspend_in_inline_catch_message(self, what):
+        """THE message for a suspension in an INLINE `try EXPR catch { }` block
+        (`coro_shapes.CONTAINERS[TryExpr]`, REFUSE pending SL-215).
+
+        Its own row because the BLOCK form splits and the inline form does not,
+        and the author's fix is to write the other spelling — which the generic
+        "nested/expression position" text never said. Design 275 U3 owns the
+        split; until it lands the message names the issue rather than the
+        position, so the refusal is a pointer instead of a dead end.
+        """
+        return coro_shapes.refusal_of(
+            coro_shapes.CONTAINERS[TryExpr], self.name, what)
 
     def _reject_buried_suspend_call(self, stmt):
         """A suspending call in a position the flat state split cannot express —
@@ -5404,32 +5434,50 @@ class _FrameBuilder:
         — so flagging method calls here rejects only genuinely inexpressible shapes."""
         found = []
 
-        def scan(n, in_closure=False):
+        def scan(n, in_closure=False, where=None):
             # design 223 unit 3: WHERE the offending call sits decides what the
             # author is told. A suspension inside a CLOSURE LITERAL's body is a
             # different shape from one in an `if let` branch — the closure body
             # is not driven at all (LANGUAGE_SPEC's closure-body limit) — and
             # telling its author to "restructure to a plain `if`/`else`" names a
             # construct that is not in their program.
+            #
+            # design 275 U2: `where` is the SHAPE TABLE's REFUSE row for the
+            # innermost enclosing shape, and it is what picks the message. Two
+            # rows have one: `ClosureExpr` (the closure body, above) and
+            # `TryExpr` (the INLINE `try … catch`, SL-215) — the second used to
+            # take the generic "nested/expression position" text, which never
+            # told its author that the BLOCK spelling one line away works.
             if isinstance(n, ClosureExpr):
                 in_closure = True
+                where = ClosureExpr
             if isinstance(n, FunctionCall) and (
                     self._ledger.free_call_frame(n) is not None
                     or n.name in _SUSPEND_CALLS):
-                found.append(("fn", n, in_closure))
+                found.append(("fn", n, in_closure, where))
+            # SL-287, design 275 U2: a callee the ledger recorded as DECLINED —
+            # it owns a suspension and discovery built no frame for it. Before
+            # this arm the classifiers read the same `None` a non-suspending
+            # callee gets and lowered a PLAIN CALL, which is the third outcome
+            # the epic exists to delete. Refused here, with the ledger's own
+            # recorded reason, at the call the author wrote.
+            elif (isinstance(n, FunctionCall)
+                  and self._ledger.unbuildable_callee(n) is not None):
+                found.append(("unbuildable", n, in_closure, where,
+                              self._ledger.unbuildable_callee(n)))
             # design 103 (A6): a blocking-extern call in a position the offload
             # desugar cannot occupy (buried in a larger expression, a `try!`, an
             # `if let`/`guard let` body). Reject cleanly, ANCHORED AT THE USER CALL
             # SITE — never let it fall through to lower as a direct call and trip the
             # synthesized `resume`'s sync check anchored at `__Frame_*.resume`.
             elif isinstance(n, FunctionCall) and self._is_blocking_extern(n.name):
-                found.append(("blk", n, in_closure))
+                found.append(("blk", n, in_closure, where))
             # design 62 G3: a cooperative `receive()` buried in an expression /
             # nested position (only a top-level `let v = ch.receive()` or bare
             # `ch.receive()` is supported) is rejected rather than miscompiled.
             elif isinstance(n, MethodCall) and getattr(n, 'is_chan_recv', False):
                 found.append(("recv", _FakeCall("receive", n.line, n.column),
-                              in_closure))
+                              in_closure, where))
             # SL-208 / DF-300e: a module-qualified FREE-FUNCTION call (`mod.f(...)`)
             # in an inexpressible position is a free call, not a method — report
             # it with the free-function message and the callee's own name, so the
@@ -5439,28 +5487,82 @@ class _FrameBuilder:
             elif (isinstance(n, MethodCall)
                   and self._module_free_call_suspends(n)):
                 found.append(("fn", _FakeCall(
-                    self._ledger.key_of(n), n.line, n.column), in_closure))
+                    self._ledger.key_of(n), n.line, n.column), in_closure,
+                    where))
+            # SL-287's module-qualified twin: the same recorded decline reached
+            # through the `mod.f(...)` spelling, which parses as a `MethodCall`.
+            elif (isinstance(n, MethodCall)
+                  and self._ledger.unbuildable_callee(n) is not None):
+                found.append(("unbuildable", _FakeCall(
+                    self._ledger.key_of(n), n.line, n.column), in_closure,
+                    where, self._ledger.unbuildable_callee(n)))
             # design 101: a suspending METHOD call in a position no hoist lifted and
             # the CFG walk cannot split (an `if let`/`guard let` body). Reject with
             # the same workaround the top-level buried-method rejection names.
             elif isinstance(n, MethodCall) and self._method_call_suspends(n):
-                found.append(("method", n, in_closure))
+                found.append(("method", n, in_closure, where))
             if isinstance(n, ASTNode):
+                # design 275 U2: the INLINE `try EXPR catch { }` is the one
+                # container whose block this walk enters with a shape of its
+                # own — the table's `TryExpr` REFUSE row (SL-215). Descend its
+                # catch block under that row and everything else under the
+                # enclosing one, so the message names the construct the author
+                # wrote rather than "a nested/expression position".
+                catch = (n.catch_block if isinstance(n, TryExpr) else None)
                 for c in _child_nodes(n):
-                    scan(c, in_closure)
+                    scan(c, in_closure,
+                         TryExpr if (catch is not None and c is catch) else where)
 
         scan(stmt)
         if found:
             entry = found[0]
             kind, g = entry[0], entry[1]
             in_closure = entry[2]
+            where = entry[3]
+            # design 275 U2: the SHAPE the call sits in is asked FIRST, before
+            # its kind. Both orders refuse, and only this one names the shape
+            # the author can act on — design 223 unit 3 established that for the
+            # closure body and SL-306 widened it to every kind; the inline
+            # `try … catch` row joins it here for the same reason.
             if kind == "method":
-                if in_closure:
-                    raise self._error(
-                        self._suspend_in_closure_message(
-                            f"`{self._ledger.method_target(g).owner or '?'}"
-                            f".{g.method_name}(...)`"),
-                        g)
+                what = (f"`{self._ledger.method_target(g).owner or '?'}"
+                        f".{g.method_name}(...)`")
+            elif kind == "recv":
+                what = "`receive()`"
+            else:
+                what = f"`{g.name}(...)`"
+            if kind == "unbuildable" and not in_closure and where is None:
+                # SL-287: the callee OWNS a suspension and discovery built no
+                # frame for it. Not a position problem — a statement-level `let
+                # x = g(...)` reaches here too — so it gets the ledger's own
+                # reason rather than the "bind it to a `let`" advice, which
+                # would send the author to rewrite a statement that is already
+                # the right shape. In a closure body or an inline catch the
+                # SHAPE is the better answer and the rows above take it.
+                raise self._error(
+                    coro_shapes.unbuildable_message(
+                        self.name, g.name, entry[4]), g)
+            if in_closure:
+                # SL-306: a suspension inside a CLOSURE LITERAL's body, reported
+                # in the closure's own terms whatever KIND it is. design 223
+                # unit 3 gave the method arm this message and left the other
+                # three telling the author to bind the call to its own `let` — a
+                # fix that does nothing, because the position that cannot host
+                # the suspension is the closure body, not the statement.
+                #
+                # Reachable for every kind since SL-306: a callee that suspends
+                # only by the conservative closure-call rule is no longer
+                # embedded, so a `v.each { yield_now() }` in a driven body is
+                # refused HERE (by the caller's own scan of the body its author
+                # wrote) rather than from inside a frame built around `each`.
+                raise self._error(self._suspend_in_closure_message(what), g)
+            if where is TryExpr:
+                # The table's `TryExpr` REFUSE row — the INLINE
+                # `try EXPR catch { }`, whose catch block does not CFG-split
+                # (SL-215 owns the split; design 275 U3 flips this row).
+                raise self._error(
+                    self._suspend_in_inline_catch_message(what), g)
+            if kind == "method":
                 tgt = self._ledger.method_target(g)
                 if tgt.kind == 'unsupported':
                     # design 223: the frame could not be NAMED, which is a
@@ -5477,22 +5579,6 @@ class _FrameBuilder:
                     f"(an `if let`/`guard let` body). Restructure to a plain "
                     f"`if`/`else` or `match`, or drive the method directly.",
                     g)
-            if in_closure:
-                # SL-306: a suspension inside a CLOSURE LITERAL's body, reported
-                # in the closure's own terms whatever KIND it is. design 223
-                # unit 3 gave the method arm this message and left the other
-                # three telling the author to bind the call to its own `let` — a
-                # fix that does nothing, because the position that cannot host
-                # the suspension is the closure body, not the statement.
-                #
-                # Reachable for every kind since SL-306: a callee that suspends
-                # only by the conservative closure-call rule is no longer
-                # embedded, so a `v.each { yield_now() }` in a driven body is
-                # refused HERE (by the caller's own scan of the body its author
-                # wrote) rather than from inside a frame built around `each`.
-                what = (f"`{g.name}(...)`" if kind != "recv"
-                        else "`receive()`")
-                raise self._error(self._suspend_in_closure_message(what), g)
             if kind == "blk":
                 raise self._error(
                     f"coroutine transform: the blocking-extern call `{g.name}(...)` "
@@ -6571,10 +6657,17 @@ class _FrameBuilder:
         single-iteration `3..=3` ran none at all — silently, since the sync
         twin of the same loop was right."""
         if not isinstance(s.iterable, RangeExpr):
+            # design 275 U2: the shape table's ForLoop row is SPLIT for the
+            # RANGE form and this is the sub-shape the routine has no split for
+            # — a collection `for` makes the iterator frame state and re-enters
+            # the loop head through `next()`. `coro_shapes.SPLIT_LIMITS` records
+            # it beside the row so the table states the limit rather than
+            # implying a split that is not there, and the message names the
+            # issue that owns the missing one.
             raise self._error(
                 f"coroutine transform: a suspension inside a `for` over a "
                 f"non-range iterable in `{self.name}` is not supported; "
-                f"use a `while` loop", s)
+                f"use a `while` loop over an index. (Pending SL-317.)", s)
         var = s.variable
         inclusive = bool(s.iterable.is_inclusive)
         end_name = f"__end_{var}"
@@ -9213,20 +9306,24 @@ def _default_expr_suspends(expr, ledger):
     UNSUPPORTED method target counts as suspending too, because it is a
     suspension this transform cannot express either way.
 
-    design 275 U1: the BROAD answer, asked of the ledger
-    (`might_suspend_free`), which is exactly what this read before through the
-    effect node's own `suspends`. SL-324 records that the refusal this feeds is
-    about a FRAME and so probably wants `frame_boundary` instead — a body whose
-    only cause is the conservative closure call is framed nowhere, and telling
-    its author about a coroutine frame is a message about something that does not
-    exist. That is a WIDENING flip and it belongs to U2; preserving it here is
-    what keeps this unit behaviour-identical."""
+    design 275 U2 — SL-324: THE FRAMING ANSWER (`callee_owns_suspension`), not
+    the broad one. U1 preserved the `might_suspend_free` read this inherited
+    from the effect node's own `suspends`, and recorded why it is the wrong
+    question: the refusal it feeds is about a COROUTINE FRAME, and a body whose
+    only cause is the conservative closure call is framed nowhere. So a default
+    whose expression called any closure-taking helper was refused although the
+    expression never parks, and the message told its author about a frame that
+    does not exist — with "pass the argument explicitly" as the named
+    workaround, which runs the SAME expression and compiles. That the two
+    spellings disagreed is the tell.
+
+    A WIDENING flip: strictly more programs compile, none fewer."""
 
     def walk(n):
         if n is None:
             return False
         if isinstance(n, FunctionCall):
-            if ledger.might_suspend_free(ledger.key_of(n)):
+            if ledger.callee_owns_suspension(ledger.key_of(n)):
                 return True
         elif isinstance(n, MethodCall):
             if (getattr(n, 'is_yield_intrinsic', False)
@@ -9235,7 +9332,7 @@ def _default_expr_suspends(expr, ledger):
             # A module-qualified free call (SL-208's `mod.f(...)`) wears a
             # `MethodCall`'s shape; the ledger's composer is what tells the two
             # apart, answering None for a genuine method.
-            if ledger.might_suspend_free(ledger.key_of(n)):
+            if ledger.callee_owns_suspension(ledger.key_of(n)):
                 return True
             if ledger.method_target(n).is_suspension:
                 return True
@@ -10522,8 +10619,34 @@ def _consume_templates_naming_removed(program, removed, readded, ledger,
     suspends only CONDITIONALLY — through a type-parameter method — names no
     consumed callee and is untouched, so its sync instantiations stay reachable.
 
-    Runs to a FIXPOINT: consuming one template can leave a second one naming it
-    (a generic root whose nested callee is itself generic).
+    TWO FIXPOINTS, NOT ONE — design 275 U2, SL-331. The first draft ran ONE
+    loop that asked, of each template in turn, "does anything still call it?"
+    and then "does it name a consumed callee?". That order cannot consume a
+    CHAIN, because the two questions deadlock across it: with an entry-module
+    `outer<T> -> inner<T> -> leaf` (`leaf` suspending, so consumed), `inner` is
+    called by the surviving `outer` and is therefore kept, while `outer` names
+    no consumed callee DIRECTLY and is therefore never a candidate — so `inner`
+    survives naming a function that has left the program, and the author gets
+    ``undefined function `leaf` `` inside their own template, plus the
+    undefined-variable cascade for the binding it feeds. The SYNC twin of that
+    program compiles, and so does the IMPORTED twin (a dependency's templates
+    are not in the entry AST the re-check walks), which is what made the cell
+    look like a namespace bug rather than this.
+
+    So the two questions are separated:
+
+      A. THE CANDIDATE CLOSURE — every template that names a consumed callee,
+         directly OR through another candidate. Transitive, because the rule's
+         own soundness argument is: an instantiation of such a template is
+         unconditionally suspending, every driven use was promoted to a
+         concrete function before the transform ran, and no sync instantiation
+         can exist. That argument composes along a chain, which is exactly why
+         the chain is consumable as a unit.
+      B. WHAT A REAL SURVIVOR STILL CALLS. A candidate something OUTSIDE the
+         doomed set still calls is KEPT — consuming it would trade a re-check
+         error for a codegen one. The shape that reaches here is a nested
+         generic call the promotion DECLINED. Keeping one can make its own
+         callees reachable again, so B runs to a fixpoint too.
 
     `readded` is the set of names the transform puts BACK under their own name —
     a suspending `main` becomes its own entry executor — which are therefore not
@@ -10534,27 +10657,41 @@ def _consume_templates_naming_removed(program, removed, readded, ledger,
     templates = {ledger.key_of(f): f for f in program.functions   # SL-280
                  if getattr(f, 'type_params', None)
                  and ledger.key_of(f) not in removed}
+
+    # ---- A. the candidate closure ----------------------------------------
+    candidates = set()
     changed = True
     while changed:
         changed = False
-        live = _names_the_survivors_call(program, removed, extra_decls, ledger)
-        for name, decl in list(templates.items()):
-            if name in live:
-                # SOMETHING STILL CALLS IT, so consuming it would trade a
-                # re-check error for a codegen one. The shape that reaches
-                # here is a nested generic call the promotion DECLINED — a
-                # template that suspends unconditionally without calling a
-                # type-parameter method has no instantiation effect node, so
-                # `_promote_nested_generic_calls` leaves the call naming the
-                # template and codegen's late monomorphization is what serves
-                # it. That is a known limit (drive such a generic directly),
-                # and this rule does not get to make it worse.
+        gone = consumed | candidates
+        for name, decl in templates.items():
+            if name in candidates:
                 continue
-            if _names_a_consumed_call(decl, consumed, ledger):
-                removed.add(name)
-                consumed.add(name)
-                del templates[name]
+            if _names_a_consumed_call(decl, gone, ledger):
+                candidates.add(name)
                 changed = True
+
+    # ---- B. what a real survivor still calls ------------------------------
+    kept = set()
+    changed = True
+    while changed:
+        changed = False
+        live = _names_the_survivors_call(
+            program, removed | (candidates - kept), extra_decls, ledger)
+        for name in candidates:
+            if name not in kept and name in live:
+                kept.add(name)
+                changed = True
+
+    for name in candidates - kept:
+        removed.add(name)
+        consumed.add(name)
+        del templates[name]
+
+    # The METHOD half of the symmetry, to its own fixpoint beside them.
+    changed = True
+    while changed:
+        changed = False
         for name in _consume_method_templates_naming(
                 program, consumed, required_by_conformance, ledger):
             if name not in consumed:
@@ -10623,8 +10760,24 @@ def _promote_nested_generic_calls(program, ledger, seed_names, typechecker):
 
     def maybe_promote(fc):
         """If `fc` is a suspending generic free-function call, splice + rewrite it.
-        Returns the mangled name of a newly-reachable callee body to scan, or None."""
-        if not isinstance(fc, FunctionCall) or not getattr(fc, 'type_args', None):
+        Returns the mangled name of a newly-reachable callee body to scan, or None.
+
+        BOTH CALL SHAPES (design 275 U2, SL-330). A bare `g<Int>(x)` is a
+        `FunctionCall`; the module-qualified `mod.g<Int>(x)` is a `MethodCall`
+        carrying SL-208's `module_free_call` stamp, and the ledger's composer is
+        what tells it from a genuine method (which answers None). This walk
+        tested `isinstance(fc, FunctionCall)`, so the qualified spelling was
+        never promoted: the driven frame's resume plain-called the
+        instantiation and the post-transform `sync` check then refused a sound
+        program, blaming the author's `sync` context for a frame the transform
+        declined to build. SL-208 taught the non-generic classifiers about the
+        stamp and the promotion was not in that sweep.
+        """
+        if not getattr(fc, 'type_args', None):
+            return None
+        if not (isinstance(fc, FunctionCall)
+                or (isinstance(fc, MethodCall)
+                    and ledger.key_of(fc) is not None)):
             return None
         args = fc.type_args
         if resolve is not None:
@@ -10637,7 +10790,8 @@ def _promote_nested_generic_calls(program, ledger, seed_names, typechecker):
         # and `mangle_function(fc.name, ...)` named an instance nobody had — the
         # promotion silently declined and the author got ``cannot suspend in
         # `sync func` method: `__Frame_s6_entry.resume` calls `s6_helper$1$Int` ``.
-        mangled = mangle_function(ledger.key_of(fc) or fc.name, args)
+        mangled = mangle_function(
+            ledger.key_of(fc) or getattr(fc, 'name', None), args)
         if not ledger.instantiation_is_boundary(mangled):
             return None
         # Adopt phase 2's instance (idempotent by presence in the entry AST).
@@ -10662,49 +10816,39 @@ def _promote_nested_generic_calls(program, ledger, seed_names, typechecker):
         ledger.rename_call_to(fc, mangled)
         return mangled
 
-    def scan_call_stmt(s):
-        """A drivable nested-call position mirrors `_classify_call`: a top-level
-        `let x = g(...)`, a bare `g(...)`, or the design-83 tail `return g(...)`.
-
-        The TAIL forms were missing until DF-138a's audit. `_classify_call`
-        accepts `return g(args)`, so the call reached the embedding machinery as
-        a still-generic call — which is rejected — but only AFTER the promotion
-        had declined to splice its instantiation. What surfaced was neither: the
-        template stayed a plain call in a body that had become a resume method,
-        so the user got `cannot suspend in a sync func: __Frame_caller.resume`,
-        naming a method the compiler had synthesized, about a `sync` region they
-        had not written. `let r = g<A>(x); return r` compiled and `return g<A>(x)`
-        did not."""
-        fc = None
-        if isinstance(s, LetStatement) and isinstance(s.value, FunctionCall):
-            fc = s.value
-        elif (isinstance(s, ExpressionStatement)
-              and isinstance(s.expression, FunctionCall)):
-            fc = s.expression
-        elif isinstance(s, ReturnStatement) and isinstance(s.value, FunctionCall):
-            fc = s.value
-        if fc is not None:
-            return maybe_promote(fc)
-        return None
-
     def scan_block(block, out):
-        # A block's last bare expression is parked in `final_expr`; design 83's
-        # tail normalization turns a suspending one into `return <expr>`, but
-        # that runs inside `prepare`, long after this walk. So reach it here too
-        # — otherwise `func f() -> Int { g<A>(x) }` is the same missed promotion
-        # as the `return` form, one line shorter.
-        tail = getattr(block, 'final_expr', None)
-        if isinstance(tail, FunctionCall):
-            promoted = maybe_promote(tail)
+        """EVERY POSITION, design 275 U2 (SL-326).
+
+        This walk used to enumerate the DRIVABLE statement positions —
+        `let x = g<A>(..)`, a bare `g<A>(..)`, the design-83 tail
+        `return g<A>(..)`, and the same inside a control-flow block — which was
+        the position set design 74 shape 3 was written against. Design 120 then
+        gave EVERY expression position an ANF hoist and design 224 widened it
+        again to container heads, so a generic call in one of those was lifted
+        into a temporary by the hoist while the INSTANTIATION it names was never
+        adopted: the hoisted call was a plain call to a body the transform never
+        framed, and the author got ``cannot suspend in `sync func` method:
+        `__Frame_main.resume` calls `warp$1$Int` `` — a `sync` region and two
+        frames they never wrote. The promotion walk is DISCOVERY and the hoist
+        is LOWERING; nothing reconciled their position sets, which is design
+        275's own diagnosis one site over.
+
+        So discovery stops guessing where a call may sit: an edge to a generic
+        instance is a DEMAND whatever position the call is written in, and the
+        hoist is what makes the position drivable afterwards. Promotion is
+        gated on `instantiation_is_boundary` either way, so a non-suspending
+        generic call is untouched and goes to codegen's ordinary
+        monomorphization exactly as before.
+        """
+        def visit(n):
+            promoted = maybe_promote(n)
             if promoted is not None:
                 out.append(promoted)
-        for s in block.statements:
-            promoted = scan_call_stmt(s)
-            if promoted is not None:
-                out.append(promoted)
-                continue
-            for inner in control_blocks(s):
-                scan_block(inner, out)
+            if isinstance(n, ASTNode):
+                for c in _child_nodes(n):
+                    visit(c)
+
+        visit(block)
 
     worklist = list(seed_names)
     scanned = set()
@@ -11018,31 +11162,36 @@ def _assign_bt_indices(frame_structs, builders):
             lit.value = index
 
 
-def _declined_edge_reason(target, is_free_edge, ledger):
-    """WHY the closure walk followed a suspension-carrying edge nowhere.
+def _unbuilt_edge_answer(target, is_free_edge, ledger):
+    """WHY the closure walk followed a suspension-carrying edge nowhere, as a
+    `(decision, reason)` pair.
 
-    Analysis-only (design 275 U1): the reason string a DECLINED frame row
-    carries, so the dump says which of the three shapes a decline is rather than
-    leaving the reader to infer it from the key. Three, and each is a distinct
-    fix in U2: a generic TEMPLATE (its instantiations are keyed separately, and a
-    decline here is normal), a callee body neither table holds (the SL-287 /
-    SL-316 shape — the one U2 turns into a refusal), and a method edge no
-    registered AST answers.
+    U1 answered with a reason STRING alone and filed all three shapes under one
+    word, `declined`. The corpus sweep then showed the word covered two
+    unrelated facts, which is why design 275 U2 splits it here: a generic
+    TEMPLATE owes no frame BY CONSTRUCTION (64 of the 67 rows — nothing is
+    wrong), while a callee body neither table holds, and a method edge no
+    registered AST answers, are a suspension with no frame — `refused`, and a
+    call to one is SL-287's compile error.
     """
     if not is_free_edge:
-        return "no registered method AST answers this effect edge"
+        return (coro_ledger.DECISION_REFUSED,
+                "no registered method AST answers this effect edge")
     body = ledger.free_or_imported_body(target[1])
     if body is not None and getattr(body, 'type_params', None):
-        return ("a generic template owns no frame; its suspending "
+        return (coro_ledger.DECISION_TEMPLATE,
+                "a generic template owns no frame; its suspending "
                 "instantiations are keyed and built separately")
-    return "neither body table holds this callee, so no frame can be built for it"
+    return (coro_ledger.DECISION_REFUSED,
+            "neither body table holds this callee, so no frame can be built "
+            "for it")
 
 
 def _record_frame_decisions(ledger, *, typechecker, structurally_suspends,
                             roots, spawn_roots, method_roots, entry_ext_ids,
-                            declined_frames):
+                            unbuilt_frames):
     """design 275 U1 — CLOSE the ledger: one recorded decision per callee, one
-    recorded outcome per suspension position.
+    recorded outcome per suspension position. design 275 U2 made it TOTAL.
 
     RUNS ON EVERY COMPILE, not only under `--emit-frame-ledger` (codex's P1 on
     SL-318.p4 r1). The first draft filled these tables only when the dump was
@@ -11059,15 +11208,24 @@ def _record_frame_decisions(ledger, *, typechecker, structurally_suspends,
       1. the frames discovery BUILT — the free closure, the embedded methods,
          and the driven method ROOTS (whose declarations the builder resolved
          into `method_root_decls` after the walk, codex's P2);
-      2. the keys discovery DECLINED, with the reason the walk recorded;
+      2. the keys discovery did NOT build, each with the walk's own answer —
+         `template` (no frame was owed) or `refused` (one was, and there is
+         none), which is design 275 U2's split of U1's one `declined` word;
       3. the SITE census, a read-only walk of every body that will be lowered —
          which also closes the frame table, because a callee it meets with no
          decision yet gets one: `no-frame-owed` when it owns no suspension, and
-         `declined` when it does and the walk never reached it. That third case
-         is SL-287/SL-316's shape; U1 records it and lowers exactly as before.
+         `refused` when it does and the walk never reached it. That third case
+         is SL-287/SL-316's shape, and `FrameLedger.unbuildable_callee` is what
+         turns it into the compile error at the call.
 
     Called before `_instrument_loop_backedges` runs, so the positions are the
     author's and not design 127's.
+
+    AND ITS COVERAGE IS CHECKED (design 275 U2, totality check (a)): once the
+    census has decided, `_verify_site_coverage` re-walks the same bodies with an
+    independent suspension predicate and fails the compile on any position the
+    census left undecided — so a NEW AST shape cannot join the corpus as a
+    silent fall-through.
     """
     ns = (getattr(typechecker, "_entry_module_ns", None)
           or getattr(typechecker, "namespace", None))
@@ -11092,7 +11250,8 @@ def _record_frame_decisions(ledger, *, typechecker, structurally_suspends,
             causes=ledger.causes_of_free(key),
             boundary=_free_boundary(key),
             decision=decision,
-            buildable=(decision != coro_ledger.DECISION_DECLINED),
+            buildable=(decision in (coro_ledger.DECISION_FRAMED,
+                                    coro_ledger.DECISION_NO_FRAME)),
             reason=reason,
             home_module=coro_ledger.home_module_of(
                 key, getattr(fn, 'source_file', None)),
@@ -11121,7 +11280,8 @@ def _record_frame_decisions(ledger, *, typechecker, structurally_suspends,
             boundary=ledger.method_owns_suspension(
                 owner, getattr(mast, 'name', None)),
             decision=decision,
-            buildable=(decision != coro_ledger.DECISION_DECLINED),
+            buildable=(decision in (coro_ledger.DECISION_FRAMED,
+                                    coro_ledger.DECISION_NO_FRAME)),
             reason=reason,
             # A METHOD key is `{owner}_{method}` (design 95's resolved symbol
             # when overloaded), and design 144 tags the OWNER — so the key reads
@@ -11147,18 +11307,28 @@ def _record_frame_decisions(ledger, *, typechecker, structurally_suspends,
         _method_row(_fkey, _owner, _mast, _ext, coro_ledger.DECISION_FRAMED,
                     mono=_recv is not None)
 
-    # --------------------------------------------------- 2. what was declined
-    for _key, _kind, _reason, _decl in declined_frames:
+    # ----------------------------------------------- 2. what was NOT built
+    # design 275 U2: the walk's own answer per key, `template` or `refused` —
+    # U1 filed both under `declined`, and the corpus showed the word covered
+    # two unrelated facts.
+    for _key, _kind, _decision, _reason, _decl in unbuilt_frames:
         if ledger.has_frame_row(_key):
             continue
         if _kind == coro_ledger.KIND_FREE:
-            _free_row(_key, coro_ledger.DECISION_DECLINED, reason=_reason)
+            _free_row(_key, _decision, reason=_reason)
         else:
-            _method_row(_key, None, _decl, None,
-                        coro_ledger.DECISION_DECLINED, reason=_reason)
+            _method_row(_key, None, _decl, None, _decision, reason=_reason)
 
     # ------------------------------------------------------- 3. the site census
+    # design 275 U2, totality check (a): every node the census DECIDED about,
+    # by identity. The verification pass below re-walks the same bodies with an
+    # INDEPENDENT suspension predicate and requires a decision for each — a site
+    # with none is the coverage gap the unit exists to make impossible, and
+    # `id()` rather than a position because the transform itself moves positions.
+    _decided = set()
+
     def _emit(node, callee, context, outcome, src):
+        _decided.add(id(node))
         ledger.record_site(coro_ledger.SiteRow(
             file=coro_ledger.basename_of(src),
             line=getattr(node, 'line', 0) or 0,
@@ -11167,6 +11337,11 @@ def _record_frame_decisions(ledger, *, typechecker, structurally_suspends,
 
     _IN_CLOSURE = ("refuse(a suspension inside a closure literal is not "
                    "driven — the closure body is not a frame)")
+    # design 275 U2: these two outcomes were `declined(...)` — the transform
+    # lowered a plain call and said nothing. They are REFUSALS now, raised by
+    # the one rejector out of `FrameLedger.unbuildable_callee`.
+    _REFUSE_NO_FRAME = "refuse(no frame was built for this callee)"
+    _REFUSE_NO_METHOD_FRAME = "refuse(no frame was built for this method)"
     _NO_FRAME = "no suspension is owed for this callee"
     _UNREACHED = "the discovery walk did not reach this callee"
     _NO_METHOD_AST = "no registered method AST answers this frame key"
@@ -11184,7 +11359,10 @@ def _record_frame_decisions(ledger, *, typechecker, structurally_suspends,
             # question, and `free_call_frame` answers None by design.
             return
         if _free_boundary(key):
-            _free_row(key, coro_ledger.DECISION_DECLINED, reason=_UNREACHED)
+            # SL-287: it OWES a frame and the walk built none. A call to it from
+            # a driven body is a compile error carrying this reason
+            # (`FrameLedger.unbuildable_callee`), where U1 lowered a plain call.
+            _free_row(key, coro_ledger.DECISION_REFUSED, reason=_UNREACHED)
         else:
             _free_row(key, coro_ledger.DECISION_NO_FRAME)
 
@@ -11203,8 +11381,7 @@ def _record_frame_decisions(ledger, *, typechecker, structurally_suspends,
                     _emit(n, key, ctx,
                           _IN_CLOSURE if in_closure else "embed", src)
                 elif key is not None and _free_boundary(key):
-                    _emit(n, key, ctx,
-                          "declined(no frame was built for this callee)", src)
+                    _emit(n, key, ctx, _REFUSE_NO_FRAME, src)
                 elif _blocking_extern(n.name):
                     _emit(n, n.name, ctx,
                           _IN_CLOSURE if in_closure else "inline", src)
@@ -11218,8 +11395,7 @@ def _record_frame_decisions(ledger, *, typechecker, structurally_suspends,
                     _emit(n, mfree, ctx,
                           _IN_CLOSURE if in_closure else "embed", src)
                 elif mfree is not None and _free_boundary(mfree):
-                    _emit(n, mfree, ctx,
-                          "declined(no frame was built for this callee)", src)
+                    _emit(n, mfree, ctx, _REFUSE_NO_FRAME, src)
                 else:
                     # Asked BEFORE the freeze, so `_checked_embed`'s own read
                     # cannot fire here — the census is what closes the row it
@@ -11230,9 +11406,8 @@ def _record_frame_decisions(ledger, *, typechecker, structurally_suspends,
                         built = ledger.is_built(tgt.frame_key)
                         _emit(n, tgt.frame_key, ctx,
                               _IN_CLOSURE if in_closure
-                              else ("embed" if built else
-                                    "declined(no frame was built for this "
-                                    "method)"), src)
+                              else ("embed" if built
+                                    else _REFUSE_NO_METHOD_FRAME), src)
                     elif tgt.kind == 'unsupported':
                         _emit(n, f"{tgt.owner or '?'}.{n.method_name}", ctx,
                               f"refuse({tgt.reason})", src)
@@ -11254,19 +11429,79 @@ def _record_frame_decisions(ledger, *, typechecker, structurally_suspends,
         entry = ledger.method_entry_for_key(key)
         if entry is None:
             _method_row(key, None, None, None,
-                        coro_ledger.DECISION_DECLINED, reason=_NO_METHOD_AST)
+                        coro_ledger.DECISION_REFUSED, reason=_NO_METHOD_AST)
         else:
             _owner, _mast, _ext = entry
             _method_row(key, _owner, _mast, _ext,
-                        coro_ledger.DECISION_DECLINED, reason=_UNREACHED)
+                        coro_ledger.DECISION_REFUSED, reason=_UNREACHED)
 
     _scanned = set()
+    _walked = []          # (body, frame) — totality check (a)'s input
 
-    def _scan_once(body, context, src):
+    def _scan_once(body, context, src, frame):
         if body is None or id(body) in _scanned:
             return
         _scanned.add(id(body))
+        _walked.append((body, frame))
         _scan_sites(body, context, src)
+
+    def _verify_site_coverage():
+        """design 275 U2, TOTALITY CHECK (a): every reachable suspension SITE
+        has a recorded decision, and every shape it sits in is classified.
+
+        The census above is the PRODUCER and this is its check, so the predicate
+        here is deliberately NOT the census's `elif` chain: it asks, directly,
+        "does a suspension reach this position?" and then requires that the
+        census decided about it. A node that answers yes with no decision is the
+        third outcome — a suspension the transform neither embeds nor refuses —
+        and it fails the compile as an invariant rather than reaching codegen,
+        where an io park stops the executor's own thread and a `yield_now()` is
+        dropped (SL-287, SL-316).
+
+        The SHAPE half rides the same walk: a construct that owns a Block and
+        that `coro_shapes.CONTAINERS` does not classify raises there, so a NEW
+        AST shape fails this check until the table answers for it — which is the
+        property a dispatch written as an `isinstance` chain could never have.
+        """
+        for _body, _frame in _walked:
+            _verify_body(_body, _frame)
+
+    def _verify_body(body, frame):
+        def is_site(n):
+            if isinstance(n, FunctionCall):
+                if n.name in _SUSPEND_CALLS or _blocking_extern(n.name):
+                    return True
+                _k = ledger.key_of(n)
+                return bool(_k and _free_boundary(_k))
+            if isinstance(n, MethodCall):
+                if getattr(n, 'is_chan_recv', False):
+                    return True
+                _k = ledger.key_of(n)
+                if _k and _free_boundary(_k):
+                    return True
+                return ledger.method_target(n).is_suspension
+            return False
+
+        def visit(n):
+            # `control_blocks` unwraps an `ExpressionStatement` to the
+            # expression that holds the construct, so the table is asked about
+            # the same node `_collect_calls` asks it about.
+            if not isinstance(n, ExpressionStatement):
+                coro_shapes.unclassified_container(n, control_blocks(n))
+            if is_site(n) and id(n) not in _decided:
+                raise coro_ledger.LedgerMiss(
+                    f"the coroutine transform reached a suspension at "
+                    f"`{coro_ledger.basename_of(getattr(n, 'source_file', None))}"
+                    f":{getattr(n, 'line', 0)}:{getattr(n, 'column', 0)}` in "
+                    f"`{frame}` that no site decision covers. Every suspension "
+                    f"position is SPLIT, HOIST, INLINE, EMBED or REFUSE — a "
+                    f"position with no decision is the silent decline design "
+                    f"275 exists to end (U2 totality check (a))")
+            if isinstance(n, ASTNode):
+                for c in _child_nodes(n):
+                    visit(c)
+
+        visit(body)
 
     for _key in ledger.closure:
         _fn = ledger.free_body(_key)
@@ -11279,7 +11514,7 @@ def _record_frame_decisions(ledger, *, typechecker, structurally_suspends,
         else:
             _ctx = coro_ledger.CONTEXT_EMBEDDED
         _scan_once(getattr(_fn, 'body', None), _ctx,
-                   getattr(_fn, 'source_file', None))
+                   getattr(_fn, 'source_file', None), _key)
     # A method that is BOTH a root and an embedded callee is one frame and one
     # body; the roots run first so it is reported as the root it is.
     for _fkey, (_owner, _mast, _ext, _recv) in ledger.method_root_decls.items():
@@ -11287,20 +11522,142 @@ def _record_frame_decisions(ledger, *, typechecker, structurally_suspends,
                    coro_ledger.CONTEXT_DRIVEN_ROOT,
                    getattr(_mast, 'source_file', None)
                    or (getattr(_ext, 'source_file', None)
-                       if _ext is not None else None))
+                       if _ext is not None else None), _fkey)
     for _mid, (_owner, _mast, _ext) in ledger.method_closure.items():
         _fkey = ledger.method_key_of_decl(_owner, _mast.name, _mast)
         _ctx = (coro_ledger.CONTEXT_DRIVEN_ROOT if _fkey in method_roots
                 else coro_ledger.CONTEXT_EMBEDDED)
         _scan_once(getattr(_mast, 'body', None), _ctx,
                    getattr(_mast, 'source_file', None)
-                   or getattr(_ext, 'source_file', None))
+                   or getattr(_ext, 'source_file', None), _fkey)
+    # design 275 U2: the census has decided about every body that will be
+    # lowered. TOTALITY CHECK (a) now requires that those decisions COVER every
+    # suspension in them.
+    _verify_site_coverage()
+
+
+def _verify_resume_totality(resume_extensions, ledger):
+    """design 275 U2, TOTALITY CHECK (b): no `frame_boundary` call survives as a
+    PLAIN CALL in any generated resume body.
+
+    THE RUNTIME-FACING HALF. Check (a) and the `corodiscovery` lane are both
+    static: they police the decisions discovery records and the raw inputs a
+    consumer may read. Neither can prove the LOWERING then carried every
+    decision out. This can, and it asks the question at the only place where a
+    miss still costs something: a suspending call left in a resume body runs
+    with no frame around it, which is where a `yield_now()` codegens to nothing
+    and an io park reaches codegen's out-of-frame fallback and stops the
+    cooperative executor's own OS thread on one idle socket (K102, SL-287).
+
+    It is `closure_calls_permitted`'s question (`typechecker/effects.py`) made
+    TOTAL: that flag lets a synthesized frame method be judged by
+    `frame_boundary` rather than `might_suspend`, which is the right question
+    and is asked only of the bodies the sync checker happens to visit, only
+    after the post-transform re-typecheck, and with a diagnostic that blames the
+    author's `sync` region for a frame the transform declined to build. This
+    runs for EVERY frame, immediately, and names the frame and the callee.
+
+    WHAT A RESUME BODY MAY LEGALLY CALL: the sub-frame `resume`/`__release`
+    methods the transform minted, the `__saw_*` runtime seams, and any callee
+    that owns no suspension. Everything else is the third outcome, and that is
+    what this raises on.
+
+    IT ASKS THE LEDGER TWICE, because a call has two shapes and the ledger has
+    two decisions. `key_of`/`callee_owns_suspension` is the FREE-function
+    question — it covers the plain call and the module-qualified free call,
+    which wears a `MethodCall`'s shape — and it answers None for a GENUINE
+    method by design. `method_target` is the method decision, and it was not
+    asked at all: the method loop tested `key_of` and `is_chan_recv` and
+    nothing else, so an instance or static method call left plain in a resume
+    body was invisible to the very check that exists to catch it (codex,
+    SL-318.p6 r1 P1b). `tools/test_coro_shapes.py` injects the real typed node
+    for each of the three method families beside the free-call injection.
+    """
+    for ext in resume_extensions:
+        for m in getattr(ext, 'methods', None) or ():
+            body = getattr(m, 'body', None)
+            if body is None:
+                continue
+            frame = (f"{getattr(ext, 'struct_name', '?')}"
+                     f".{getattr(m, 'name', '?')}")
+            for fc in _iter_function_calls(body):
+                if fc.name in _SUSPEND_CALLS:
+                    raise coro_ledger.LedgerMiss(
+                        f"the coroutine transform left the suspension "
+                        f"primitive `{fc.name}(...)` in the generated resume "
+                        f"body `{frame}`, where it runs outside every frame "
+                        f"(design 275 U2 totality check (b))")
+                key = ledger.key_of(fc)
+                if ledger.callee_owns_suspension(key):
+                    raise coro_ledger.LedgerMiss(
+                        f"the coroutine transform left a PLAIN CALL to the "
+                        f"suspending callee `{key}` in the generated resume "
+                        f"body `{frame}`. A suspending call embeds or errors; "
+                        f"it never silently blocks (designs 96/101/104) — a "
+                        f"park reached this way stops the cooperative "
+                        f"executor's own thread (design 275 U2 totality "
+                        f"check (b))")
+            for mc in _iter_method_calls(body):
+                key = ledger.key_of(mc)
+                if ledger.callee_owns_suspension(key):
+                    raise coro_ledger.LedgerMiss(
+                        f"the coroutine transform left a PLAIN module-qualified "
+                        f"call to the suspending callee `{key}` in the "
+                        f"generated resume body `{frame}` (design 275 U2 "
+                        f"totality check (b))")
+                # THE GENUINE METHOD. `key_of` answers None here BY DESIGN — a
+                # method is not a free-function key question — so the loop above
+                # covered only the module-qualified free call wearing a
+                # `MethodCall`'s shape, and an instance or static method left as
+                # a plain call was invisible to the check that exists to catch
+                # exactly that (codex, SL-318.p6 r1 P1b: the real typed
+                # `c.step()` node injected into a resume body passed, while the
+                # ledger answered `MethodTarget(kind='embed',
+                # frame_key='Counter_step')` for it). `method_target` is the
+                # ledger's method decision and the only authority on it; both
+                # of its non-`none` answers raise, because an UNSUPPORTED
+                # suspending call left plain is the same runtime fact as an
+                # un-embedded EMBED.
+                #
+                # WHAT A RESUME BODY MAY STILL CALL, and why this does not
+                # refuse it: the sub-frame `resume`/`__release` methods and the
+                # `Slot`/runtime helpers the transform itself minted. Those are
+                # SYNTHESIZED after discovery, so no census holds their owner
+                # and `method_target` answers `none` for them twice over — the
+                # receiver carries no resolved type, and the frame struct is in
+                # neither method census.
+                target = ledger.method_target(mc)
+                if target.is_suspension:
+                    _named = (f"`{target.owner}.{mc.method_name}`"
+                              if target.owner else f"`{mc.method_name}`")
+                    _frame_note = (f"whose frame is `{target.frame_key}`"
+                                   if target.frame_key
+                                   else f"which this site could not name "
+                                        f"({target.reason})")
+                    raise coro_ledger.LedgerMiss(
+                        f"the coroutine transform left a PLAIN CALL to the "
+                        f"suspending method {_named} {_frame_note} in the "
+                        f"generated resume body `{frame}`. A suspending call "
+                        f"embeds or errors; it never silently blocks (designs "
+                        f"96/101/104) — a park reached this way stops the "
+                        f"cooperative executor's own thread (design 275 U2 "
+                        f"totality check (b))")
+                if getattr(mc, 'is_chan_recv', False):
+                    raise coro_ledger.LedgerMiss(
+                        f"the coroutine transform left a cooperative "
+                        f"`receive()` in the generated resume body `{frame}`, "
+                        f"where its park has no frame (design 275 U2 totality "
+                        f"check (b))")
 
 
 def _build_frame_ledger(program, typechecker, imported_ast, *, roots,
                         method_roots, spawn_roots, all_exts, entry_ext_ids):
-    """THE discovery pass (design 275 U1). Returns a FROZEN `FrameLedger`, or
-    None when this program has no coroutine root at all.
+    """THE discovery pass (design 275 U1). Returns a FROZEN `FrameLedger`.
+
+    A program with no coroutine root gets a ROOTLESS one (`has_coroutine_root`
+    is False): the body tables and the cause set, no frames, no sites. The
+    caller lowers nothing from it and asks it exactly one thing — SL-316's
+    closure question, which is about a body rather than about a frame.
 
     ONE AUTHORITATIVE ANALYSIS, not one traversal: a WORKLIST runs to
     stabilization, because an imported body or a generic instance can reveal
@@ -11353,7 +11710,24 @@ def _build_frame_ledger(program, typechecker, imported_ast, *, roots,
                      and ledger.free_body("main") is not None)
     ledger.main_suspends = main_suspends
     if not roots and not method_roots and not spawn_roots and not main_suspends:
-        return None
+        # NO COROUTINE ROOT — nothing will be framed, and the walk below has
+        # nothing to walk. It still returns a LEDGER rather than None, because
+        # one question this module must answer is about a BODY and not about a
+        # frame: SL-316's "does this closure body suspend", which
+        # `_refuse_undriven_suspending_closures` asks of every body the compile
+        # holds. Answering it needs the cause set and the body tables and
+        # nothing else, and both are already here — so the rootless ledger
+        # carries the imported free bodies too (the offending closure is often
+        # in a dependency's helper) and freezes, and the refusal walk runs on
+        # this path exactly as it does on the framed one. It was conditional on
+        # a frame ledger existing, which made an unsupported closure's
+        # rejection depend on an unrelated drive site elsewhere in the file
+        # (codex, SL-318.p6 r1 P1).
+        for _f in (getattr(imported_ast, 'functions', None) or []):
+            ledger.register_imported_free_body(_f)
+        ledger.freeze()
+        return ledger
+    ledger.has_coroutine_root = True
 
     # DF-190b: canonicalize a FULLY-LABELED call (`f(a: 1)`, a `StructInit` by
     # parse) back into the `FunctionCall` the typechecker already resolved it
@@ -11803,12 +12177,12 @@ def _build_frame_ledger(program, typechecker, imported_ast, *, roots,
             work.append(("fn", _m))
 
     # design 275 U1: the frames discovery reached and did NOT build, each with
-    # the reason. Recorded for the `--emit-frame-ledger` dump and for nothing
-    # else — the transform's behaviour at these keys is exactly what it was.
-    # Three ways a key lands here, all of them a `continue` in the walk below: a
-    # generic TEMPLATE (its instantiations are keyed separately), a callee body
-    # neither body table holds, and a method edge no registered AST answers.
-    declined_frames = []   # (key, kind, reason, decl)
+    # its answer and the reason. Three ways a key lands here, all of them a
+    # `continue` in the walk below, and design 275 U2 splits them by what they
+    # MEAN rather than by where they were found: a generic TEMPLATE owes no
+    # frame (`template`), while a callee body neither table holds and a method
+    # edge no registered AST answers both OWE one and have none (`refused`).
+    unbuilt_frames = []   # (key, kind, decision, reason, decl)
     seen = set()
     # `promoted` is a SET of instantiation names, so iterating it directly puts
     # string-hash order — which Python randomizes per process — into the work
@@ -11852,8 +12226,9 @@ def _build_frame_ledger(program, typechecker, imported_ast, *, roots,
                 # generic AST call and is rejected — with a workaround and a
                 # user-anchored line — by `_classify_call` when its caller lowers.
                 if coro_ledger.capture_enabled():
-                    declined_frames.append((
+                    unbuilt_frames.append((
                         key, coro_ledger.KIND_FREE,
+                        coro_ledger.DECISION_TEMPLATE,
                         "a generic template owns no frame; its suspending "
                         "instantiations are keyed and built separately", func))
                 continue
@@ -11895,11 +12270,12 @@ def _build_frame_ledger(program, typechecker, imported_ast, *, roots,
                     and (getattr(mast, 'type_params', None)
                          or getattr(ext, 'type_params', None))):
                 if coro_ledger.capture_enabled():
-                    declined_frames.append((
+                    unbuilt_frames.append((
                         fbkey,
                         (coro_ledger.KIND_STATIC
                          if getattr(mast, 'is_static', False)
                          else coro_ledger.KIND_METHOD),
+                        coro_ledger.DECISION_TEMPLATE,
                         "a generic method template owns no frame; the call site "
                         "is refused by `_reject_suspending_method_call` unless "
                         "an instantiation was promoted for it", mast))
@@ -11957,17 +12333,19 @@ def _build_frame_ledger(program, typechecker, imported_ast, *, roots,
                 elif coro_ledger.capture_enabled():
                     # design 275 U1: the edge CARRIES a suspension and the walk
                     # follows it nowhere — neither body table holds the callee
-                    # and no registered method AST answers the id. Today the
-                    # caller lowers the call PLAINLY; recorded here, changed by
-                    # U2. This is SL-287/SL-316's own shape, read off the walk
-                    # rather than reconstructed from a symptom.
-                    declined_frames.append((
+                    # and no registered method AST answers the id. U1 recorded
+                    # it and the caller lowered a PLAIN CALL; U2 records WHICH
+                    # of the two facts it is (`template` / `refused`), and the
+                    # census records the same key again for the ordinary
+                    # compile, which is where the refusal is spent.
+                    _dec, _why = _unbuilt_edge_answer(
+                        _target, is_free_edge, ledger)
+                    unbuilt_frames.append((
                         _target[1] if is_free_edge
                         else f"<method {ledger.node_label(_target)}>",
                         coro_ledger.KIND_FREE if is_free_edge
                         else coro_ledger.KIND_METHOD,
-                        _declined_edge_reason(_target, is_free_edge, ledger),
-                        None))
+                        _dec, _why, None))
 
     # SL-227: a driven method ROOT is a frame by definition — `method_roots` is
     # what builds it, so the walk above never put it in `method_closure`. Tell the
@@ -12014,13 +12392,112 @@ def _build_frame_ledger(program, typechecker, imported_ast, *, roots,
         ledger, typechecker=typechecker,
         structurally_suspends=_structurally_suspends,
         roots=roots, spawn_roots=spawn_roots, method_roots=method_roots,
-        entry_ext_ids=entry_ext_ids, declined_frames=declined_frames)
+        entry_ext_ids=entry_ext_ids, unbuilt_frames=unbuilt_frames)
     # The structural answers go with the freeze: a CHECKED read has to be able
     # to ask design 96's question, which the effect graph cannot answer.
     ledger.freeze(structural=_struct_susp_cache)
     if coro_ledger.capture_enabled():
         coro_ledger.record_dump(ledger.dump())
     return ledger
+
+
+def _refuse_undriven_suspending_closures(program, ledger, all_exts):
+    """SL-316: refuse a suspending CLOSURE BODY in a body nothing frames.
+
+    THE MECHANISM, named per obligation 4. `_reject_buried_suspend_call`'s
+    closure arm (design 223 unit 3, widened by SL-306) is the refusal — and it
+    runs only inside a `_FrameBuilder`, i.e. only over bodies the transform
+    FRAMES. A closure whose enclosing function carries only the conservative
+    `closure_call` cause is in no frame, so no builder ever scans it: SL-316's
+    entry-module twin was refused and its imported twin compiled and printed
+    `0` where two drive steps were owed. Same program shape, one file boundary
+    apart, two outcomes — and the silent one is the third outcome designs
+    96/101/104 rule out.
+
+    So the question is asked of the CLOSURE, not of its caller. Every body the
+    compile holds is walked — the entry module's functions, every extension's
+    methods (entry and imported alike) and the importable free bodies — and a
+    closure whose own effect node is a `frame_boundary` is refused at the
+    closure. Bodies a frame builder WILL scan are skipped, because the builder's
+    message names the driven function the author is inside and this one cannot;
+    two messages for one rule would be the drift this epic exists to end, and
+    the division is by which pass can say more, not by which fires first.
+
+    RUNS AFTER EVERY FRAME IS BUILT, for that same reason: the builders raise
+    first wherever they can say more, so a closure written in the driven body
+    the author is reading about keeps the message design 223 unit 3 gave it, and
+    this one speaks only for the bodies nothing else will ever look at.
+
+    ONE WALK, TWO ENTRY POINTS, MUTUALLY EXCLUSIVE (obligation 1; codex's
+    SL-318.p6 r1 P1). `transform_program` calls this exactly once per compile,
+    on whichever of its two paths that compile takes:
+
+      * a program WITH a coroutine root — after every frame is built, for the
+        precedence reason above;
+      * a program with NO root — immediately, out of the rootless ledger, since
+        no frame builder will run at all and this is the only pass that will
+        ever look at those bodies.
+
+    The second entry is the cell codex found open: the refusal used to sit
+    behind the frame-construction path, so `each_yield_public`'s suspending
+    closure was refused in a file that happened to hold a `__saw_drive_steps`
+    call elsewhere and compiled, printing `2`, in a file that did not. The
+    question is the closure's, so the answer cannot be the drive site's.
+    """
+    def _walk(decl, owner_label):
+        body = getattr(decl, 'body', None)
+        if body is None:
+            return
+        for cexpr in _iter_closures(body):
+            if not ledger.closure_owns_suspension(
+                    getattr(cexpr, 'node_id', None)):
+                continue
+            raise CoroTransformError(
+                f"coroutine transform: this closure body suspends, and a "
+                f"closure body is not driven — it is called through a function "
+                f"value, so its suspension has no frame to park in. Move the "
+                f"suspending work into a named function `{owner_label}` calls "
+                f"directly, or call it outside the closure and pass the result "
+                f"in.",
+                cexpr,
+                source_file=(getattr(decl, 'source_file', None)))
+
+    for f in program.functions:
+        if ledger.is_built(("fn", ledger.key_of(f))):
+            continue
+        _walk(f, getattr(f, 'name', '?'))
+    # SOURCE ORDER, not key order: several offending closures can sit in one
+    # module and the first refusal is the one an author reads, so it should be
+    # the first one they wrote. Deterministic either way — the key is the
+    # tie-break — which is what the dump's stability needs.
+    for _key, _fn in sorted(
+            ledger.imported_free_bodies.items(),
+            key=lambda kv: (coro_ledger.basename_of(
+                getattr(kv[1], 'source_file', None)),
+                getattr(kv[1], 'line', 0) or 0, kv[0])):
+        if ledger.is_built(("fn", _key)):
+            continue
+        _walk(_fn, _key)
+    for ext in all_exts:
+        for m in getattr(ext, 'methods', None) or ():
+            if ledger.is_built(getattr(m, 'node_id', None)):
+                continue
+            _walk(m, f"{getattr(ext, 'struct_name', '?')}.{m.name}")
+
+
+def _iter_closures(node):
+    """Every `ClosureExpr` in `node`, in a deterministic pre-order walk."""
+    out = []
+
+    def visit(n):
+        if isinstance(n, ClosureExpr):
+            out.append(n)
+        if isinstance(n, ASTNode):
+            for c in _child_nodes(n):
+                visit(c)
+
+    visit(node)
+    return out
 
 
 def transform_program(program, typechecker, imported_ast=None):
@@ -12060,12 +12537,19 @@ def transform_program(program, typechecker, imported_ast=None):
     # lowered. Everything below reads the ledger it returns and derives nothing —
     # which of twenty-odd predicates answered "does this callee suspend / what key
     # names its frame / can I build it" was the whole of the week's findings, and
-    # there is one answer now. None means this program has no coroutine root.
+    # there is one answer now.
     ledger = _build_frame_ledger(
         program, typechecker, imported_ast, roots=roots,
         method_roots=method_roots, spawn_roots=spawn_roots,
         all_exts=_all_exts, entry_ext_ids=_entry_ext_ids)
-    if ledger is None:
+    if not ledger.has_coroutine_root:
+        # Nothing to lower — and therefore nothing else in this compile will
+        # ever look at a body. The SL-316 refusal is asked HERE, out of the
+        # rootless ledger, for exactly that reason: this is the one walk over
+        # the program's closures (the framed path runs the same function once,
+        # below, after every frame is built), and whether an unsupported
+        # closure is rejected must not depend on an unrelated drive site.
+        _refuse_undriven_suspending_closures(program, ledger, _all_exts)
         return False
     # Names for the ledger's OWN tables, not copies of them — the lowering half
     # below reads the same dicts and lists discovery filled, and a copy is what
@@ -12461,6 +12945,18 @@ def transform_program(program, typechecker, imported_ast=None):
     # design 158: every frame exists now, so the table order — and each frame's
     # `bt_desc` answer — can be fixed.
     _assign_bt_indices(new_structs, all_builders)
+
+    # SL-316, design 275 U2: a CLOSURE LITERAL whose body really suspends is
+    # refused wherever it is written — the shape table's `ClosureExpr` REFUSE
+    # row, applied to the bodies NO frame builder ever scanned. Every builder
+    # has run by here, so a closure in a DRIVEN body has already been refused
+    # with the message that names its driven function.
+    _refuse_undriven_suspending_closures(program, ledger, _all_exts)
+
+    # design 275 U2, TOTALITY CHECK (b): every resume body is final now, so the
+    # runtime-facing half of the promise can be asserted — nothing that slipped
+    # every static check reaches the executor as a blocking call.
+    _verify_resume_totality(new_extensions, ledger)
 
     # DF-218e: consumption symmetry — a generic TEMPLATE naming a consumed
     # callee is consumed with it.

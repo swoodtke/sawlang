@@ -6555,10 +6555,21 @@ are written exactly as before. What the reference spelling changes is
 **forwarding**: a closure handing its element to another `&T` parameter writes
 `&n`, not `n`.
 
-The closure parameter is not `sync`, so a **suspending** transform works. The
-element borrow may then span a suspension: the method holds `&self` for its
-whole run, so the Law of Exclusivity forbids any `&var self`, and therefore any
-`push` and its reallocation, from reaching the buffer under a live borrow.
+The closure parameter is not `sync`, but that does not make the closure body
+drivable. A closure is reached through a function value, so its body is not a
+coroutine frame and a suspension written there has nowhere to park; the compiler
+refuses one at the closure:
+
+```
+error: coroutine transform: the suspending call `slow_double(...)` appears
+inside a CLOSURE BODY in driven `traverse`, and a closure body is not driven —
+its suspension has no frame to park in. Call it outside the closure and pass the
+result in, or move the whole closure body into a named function the driven body
+calls.
+```
+
+The refusal does not depend on where the closure is written: a closure in an
+imported module's helper is refused exactly as one in the entry module.
 
 `iter` and `enumerated` keep `T: Copy`; `VectorIterator` and
 `EnumeratedIterator` conform to `Iterator` under `T: ExplicitCopy`. Theirs is a
@@ -7150,6 +7161,37 @@ Observable rules:
   compiled, ran, printed the right answer and never suspended — no frame was
   built anywhere in the program, so the `yield_now()` inside the conformance
   body ran outside a frame, where it is a no-op.
+
+  The refusal is **pending, not permanent**, and it says so: what it needs is a
+  heap-allocated frame with an indirect resume. Suspending RECURSION — a cycle
+  in the suspending-call graph, refused for the same reason a dispatch is, since
+  a cycle has no compile-time frame size either — needs the same runtime shape,
+  so the two are one design and their refusals cite it together.
+
+  **A dispatch whose every implementation is sync frames nothing.** Because the
+  refusal above fires first, the only dispatches that reach the framing question
+  name methods no conformance suspends in — so a dispatch is one of the two
+  CONSERVATIVE suspension sources, beside a call through a non-`sync` function
+  value. Both say "not provably suspension-free" and neither owns a park: a
+  `sync` body is refused for either, and neither builds a frame. So an ordinary
+  erased-parameter helper is callable from a driven body:
+
+  ```saw-fragment
+  func via_existential(g: &any Greeter) -> Int { g.greet() }   // no frame
+
+  func root() -> Int {
+      let a = A(n: 5)
+      let x = via_existential(&a)
+      yield_now()
+      x + 1
+  }
+  ```
+
+  Before Sep 20 the dispatch counted as a frame boundary, so `via_existential`
+  joined the driven set and its erased parameter was then refused by the rule
+  below — a reference that spans a suspension lives in the frame as a handle to
+  its referent, and an erased referent has no size. A build that refuses the
+  helper above predates the fix.
   Driven methods on *generic structs* (`__saw_drive(b.run())` for `b: Holder<Int>`,
   design 74 shape 2) and *nested suspending generic calls* from a driven body
   (design 74 shape 3) are also supported: a generic-struct method is monomorphized
@@ -7228,6 +7270,15 @@ Observable rules:
   when the transform moved it, so `ch.send(count)` on a `Channel<Int?>` inside a
   driven body was a compiler crash reporting a type mismatch at the author's
   line. Treat all three as working now and SUSPECT in older builds.
+  A suspending GENERIC call takes the rewrite at every one of these positions
+  too. `print("entry {warp<Int>(1, 0)}")`, `take(1, warp<Int>(n))` and
+  `1 + warp<Int>(n)` all embed; the module-qualified spelling
+  `mod.warp<Int>(n)` embeds with them, and so does an entry-module template
+  chain whose innermost hop names a suspending free function. Each of those was
+  refused before Sep 20, and the diagnostic blamed a `sync` region the author
+  never wrote for a frame the compiler had declined to build — binding the call
+  to a statement-level `let` was the workaround, so a build that needs one
+  predates the fix.
 - **Container head position (design 224).** A control-flow construct also
   evaluates one expression OUTSIDE all of its blocks, and a suspending call may
   sit there too: an `if` or `while` condition, a `for` range (either endpoint),

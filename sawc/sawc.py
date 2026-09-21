@@ -687,8 +687,12 @@ def build_builtin_namespace(verbose: bool = False, freestanding: bool = False,
 
     # SL-306: a THIRD census of the same bodies, asked the question the coroutine
     # transform's call-site classifier needs — "does this method suspend for a
-    # reason of its OWN?", i.e. everything except the conservative closure-call
-    # cause (`frame_boundary`). Carried as NAME PAIRS, like
+    # reason of its OWN?", i.e. everything except the CONSERVATIVE causes
+    # (`frame_boundary`). The attribute's name says `ignoring_closure_calls`
+    # because that was the only conservative cause when SL-306 minted it;
+    # SL-323's ruling put `existential_dispatch` beside it, and the one
+    # derivation is what both of them ride, so the set is right and the NAME is
+    # the half that is now narrow. Carried as NAME PAIRS, like
     # `_std_suspending_methods` above and for the same reason: a std method has
     # no node in the entry graph, so a name is all that crosses.
     #
@@ -750,6 +754,99 @@ def _prepared_builtins(verbose, freestanding, runtime_build, target_triple,
                                        target_triple=target_triple)
     stdcache.store(key, *builtins)
     return builtins
+
+
+def _rekeyed_std_seed(table, builtin_ast):
+    """The design-206 std seed table, keyed to THIS compile's AST (SL-327).
+
+    THE PROBLEM. The table is keyed by `Method.node_id` and
+    `EffectsMixin._effect_seed_std_methods` mints a leaf under each key, which
+    the entry graph's edges then find — but only if those keys are the SAME
+    GENERATION as the ids the edges carry. A node id is meaningless against a
+    different AST, and a restored pair can hold two generations: measured, five
+    of eight cached blobs on one machine were keyed to an AST that was not the
+    one stored beside them (`Command.output` keyed 20761 in the table and 62190
+    in the AST and the namespace symbol alike). `stdcache` now refuses to
+    publish such a pair, and this makes the ones already on disk harmless.
+
+    WHAT IT COSTS WHEN IT GOES WRONG, which is why it is worth two walks: the
+    seed is missed, a `sync` violation reached through a std method is not
+    reported at the settling that should have caught it, and the pipeline stops
+    after a settling that reported errors — so any compile with another error in
+    it loses that diagnostic silently. `examples/errors/thread_body_reports_both_violations.saw`
+    is the standing test, and it fails on an inconsistent blob.
+
+    WHY `(owner, method)` IS THE RIGHT FALLBACK KEY. Every OTHER std suspension
+    census the compiler keeps — `_std_suspending_methods`,
+    `_std_suspending_methods_ignoring_closure_calls`, and the transform's method
+    tables built from them — is a NAME PAIR already (design 84: a std method has
+    no node in the entry graph, so a name is all that crosses). The node id
+    exists here for one reason, to let an effect EDGE find the leaf, so
+    re-keying by name and back onto this AST's ids loses nothing the rest of the
+    pipeline has. An overloaded pair re-keys onto EVERY matching declaration,
+    which is the conservative direction and the granularity the name-pair
+    censuses already work at.
+
+    IDENTITY, NOT MEMBERSHIP (codex, SL-318.p6 r1 P2). The first draft trusted
+    a key whenever that INTEGER existed among the AST's methods and preserved a
+    surviving integer unconditionally — but two id generations can make an
+    integer name the WRONG method as well as no method. With `Command.output`
+    at 20 here and `Command.status` at 10, a stale table keyed 10 for
+    `Command.output` passed that test: `output` stayed unseeded and its causes
+    were attributed to `status`, which is a MISDIRECTED seed and worse than a
+    missing one. `stdcache.unsound_seed_keys` is the one reading of "does this
+    key name the method its entry is about", shared with the publication gate,
+    and both cases re-key here.
+
+    IT TAKES THE UNFILTERED std AST, and that is part of the contract. Its one
+    caller has `_filter_std_ast` in front of it, which drops the std files this
+    program does not compile in (design 82 Part B) — so judged against the
+    NARROWED ast every excluded module's entry would look like a keying fault,
+    and the table would be rebuilt on almost every compile with those entries
+    silently thrown away. The two ASTs are one generation, so an id found in the
+    unfiltered one is the same id the entry graph's edges carry.
+
+    AN UNRESOLVABLE IDENTITY IS AN INVARIANT FAILURE, never a dropped seed. A
+    seed whose `(owner, method)` names no method in the whole std AST cannot be
+    placed at all, and dropping it silently is precisely the lost diagnostic
+    this function exists to prevent. It should be unreachable — the table and
+    the AST come from one std build of one set of sources, so the NAMES agree
+    however the ids were minted, and a restored pair that fails the check is
+    discarded at `stdcache.load` before it ever gets here — so if it happens it
+    is a compiler bug and reports as one, naming the entry.
+
+    A table whose keys all name their own method is returned UNCHANGED, so the
+    ordinary path (a fresh build, or a consistent blob) does no work beyond one
+    walk.
+    """
+    import stdcache
+    if not table:
+        return table
+    unsound = stdcache.unsound_seed_keys(table, builtin_ast)
+    if not unsound:
+        return table
+    _by_id, by_name = stdcache.std_method_index(builtin_ast)
+    rekeyed = {}
+    for key, entry in table.items():
+        if key not in unsound:
+            rekeyed[key] = entry
+            continue
+        ident = stdcache.seed_identity(entry)
+        ids = by_name.get(ident)
+        if not ids:
+            _report_ice(RuntimeError(
+                f"the cached std suspension seed holds an entry for "
+                f"`{ident[0]}.{ident[1]}` (key {key}, which "
+                f"{unsound[key]}), and this std AST declares no such method — "
+                f"so the seed can be placed nowhere. Delete "
+                f".build/stdcache/ and rebuild (SL-327)"), None)
+        # An overloaded pair re-keys onto EVERY matching declaration, which is
+        # the conservative direction and the granularity the name-pair censuses
+        # already work at. `setdefault` so a correctly-keyed entry, which the
+        # branch above assigned outright, always wins the id it owns.
+        for nid in ids:
+            rekeyed.setdefault(nid, entry)
+    return rekeyed
 
 
 def _strip_line_comments(text: str) -> str:
@@ -1669,8 +1766,17 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
     # design 206: and the REALLY-suspending half of the same census, which the
     # effect fixpoint seeds itself with (`_effect_seed_std_methods`) so the entry
     # graph knows that `listener.accept()` / `ch.receive()` is a suspension.
-    typechecker._std_really_suspending_methods = getattr(
-        builtin_ns, '_std_really_suspending_methods', {})
+    # SL-327: RE-KEYED against the AST this compile actually holds — see
+    # `_rekeyed_std_seed`. Against the UNFILTERED one (`reentry_builtin_ast`),
+    # which is the whole stdlib: `_filter_std_ast` above drops the std files
+    # this program does not compile in, and an entry for one of those names a
+    # method that is legitimately absent rather than a key that is wrong. Both
+    # ASTs are one generation, so an id found in the unfiltered one is the same
+    # id the entry graph's edges carry; judging the table against the narrowed
+    # AST instead would call every excluded module's entry a keying fault.
+    typechecker._std_really_suspending_methods = _rekeyed_std_seed(
+        getattr(builtin_ns, '_std_really_suspending_methods', {}),
+        reentry_builtin_ast)
     # SL-306: and the census asked WITHOUT the conservative closure-call source,
     # as name pairs — what the coroutine transform's call-site classifier reads
     # to tell a real park from a method that only calls a closure.
@@ -1954,10 +2060,19 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
     # sites, so the recursive pass finds NO driven roots and proceeds straight to
     # codegen — a natural base case. Non-driven programs never enter this branch,
     # so the transform is OFF by construction and their path is unchanged.
+    #
+    # design 275 U2 (codex, SL-318.p6 r1 P1): a program with no root enters it
+    # too when a CLOSURE BODY owns a suspension. That refusal (SL-316) is about
+    # a body rather than about a frame — a closure is reached through a function
+    # value, so its park has nowhere to live whoever calls it — and gating it
+    # behind a root made the rejection depend on an unrelated drive site
+    # elsewhere in the same file. The transform builds a ROOTLESS ledger for
+    # such a program, runs the one closure walk and lowers nothing.
     driven = (getattr(typechecker, "_driven_roots", None)
               or getattr(typechecker, "_driven_method_roots", None)
               or getattr(typechecker, "_spawn_roots", None)
-              or getattr(typechecker, "_main_suspends", False))
+              or getattr(typechecker, "_main_suspends", False)
+              or getattr(typechecker, "_has_suspending_closure_body", False))
     if driven:
         from coro_transform import transform_program, CoroTransformError
         # design 266 step 4's input, taken BEFORE the transform runs: what the
@@ -1970,15 +2085,19 @@ def _prepare_codegen(source_path: str, entry_ast, entry_source: str, verbose: bo
                                   or []}
                           for field in _decl_lists(entry_ast)}
         import coro_ledger
+        import coro_shapes
         try:
             changed = transform_program(entry_ast, typechecker,
                                         imported_ast=merged_ast)
-        except coro_ledger.LedgerMiss as e:
+        except (coro_ledger.LedgerMiss, coro_shapes.UnclassifiedShape) as e:
             # design 275 U1: a consumer asked the discovery ledger for a frame it
-            # holds no row for, or wrote to it after the freeze. Both are
-            # INVARIANT failures — never permission to emit a plain call — and
-            # they report as design 192 unit 2's internal compiler error, with the
-            # key in the message.
+            # holds no row for, or wrote to it after the freeze. design 275 U2
+            # adds the two totality failures beside them — a suspension position
+            # no site decision covers, and a container the shape table does not
+            # classify. All of them are INVARIANT failures — never permission to
+            # emit a plain call — and they report as design 192 unit 2's
+            # internal compiler error, with the key or the AST class in the
+            # message.
             _report_ice(e, None)
         except CoroTransformError as e:
             # design 74 (A8): anchor the coroutine-transform rejection at the
@@ -2397,7 +2516,8 @@ Examples:
                              "built and why not, home module, where the body "
                              "came from) and one SITE row per suspension "
                              "position (the context it sits in and the outcome "
-                             "it gets: embed, inline, refuse, or declined). "
+                             "it gets: embed, inline, or refuse — design 275 U2 "
+                             "deleted the fourth). "
                              "Deterministically ordered and path-free, so two "
                              "compilers' dumps diff. Writes to -o, else stdout. "
                              "Analysis only; a program with no driven root "
