@@ -10,7 +10,7 @@
 import std.task.*
 struct C { n: Int }
 extension C {
-    func slot(&self) borrows -> Int {
+    func slot(&self) borrows -> &Int {
         yield_now()
         lend self.n
     }

@@ -53,7 +53,7 @@ class ReferenceTypeArgument(CommittedGenericError):
 class TypeParsingMixin:
     """Mixin providing type parsing methods for Parser."""
 
-    def parse_return_clause(self, what: str) -> SawType:
+    def parse_return_clause(self, what: str, lends: bool = False) -> SawType:
         """Parse an optional `-> T` return clause, defaulting to `Void`.
 
         Every declaration that has a signature funnels its return type through
@@ -61,12 +61,25 @@ class TypeParsingMixin:
         func` — so the parameters-only rule below is stated once and holds in
         every position. The function-TYPE grammar has its own arrow (it is not
         optional there) and calls `reject_reference_return` directly.
+
+        `lends=True` is the ONE exception, and it is the `borrows` signature
+        (SL-333 R5): a `borrows` accessor does not RETURN a reference, it LENDS
+        a place for a window, and the signature now says which mode the window
+        may take — `borrows -> &T` opens shared windows only, `borrows -> &var
+        T` opens either. The reference is legal only at the TOP LEVEL of such a
+        clause: `borrows -> (Int, &Int)` still escapes a pointer exactly as any
+        other return would, so the nested walk below keeps refusing it.
         """
         if not self.match(TokenType.ARROW):
             return SawType(TypeKind.VOID)
         self.advance()
         anchor = self.current()
         return_type = self.parse_type()
+        if lends and return_type.kind == TypeKind.REFERENCE:
+            # The lent type itself is walked for nested references — `borrows ->
+            # &(Int, &Int)` is refused on the inner one.
+            self.reject_reference_return(return_type.inner_type, anchor, what)
+            return return_type
         self.reject_reference_return(return_type, anchor, what)
         return return_type
 
@@ -92,7 +105,7 @@ class TypeParsingMixin:
         if found is None:
             return
         value = found.inner_type if found.inner_type is not None else "T"
-        lends = f"`... borrows -> {value}`"
+        lends = f"`... borrows -> &var {value}`"
         if found is return_type:
             names_it = "is a reference"
             fix = f"Return the value instead (`-> {value}`)"
@@ -123,8 +136,8 @@ class TypeParsingMixin:
     @staticmethod
     def _lend_out(value) -> str:
         """The second way out: lend the storage instead of naming a pointer."""
-        return (f"declare a `borrows` accessor (`... borrows -> {value}` with "
-                f"`lend`, design 141), which lends the place for a window "
+        return (f"declare a `borrows` accessor (`... borrows -> &var {value}` "
+                f"with `lend`, design 141), which lends the place for a window "
                 f"rather than letting a pointer out")
 
     def reject_reference_field(self, field_name: str, struct_name: str,

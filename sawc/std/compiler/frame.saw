@@ -103,7 +103,7 @@ extension Slot<T> {
     /// payload in the slot's own storage, so nothing is copied on the way.
     ///
     /// Panics if the slot is empty.
-    public func value(&self) borrows -> T {
+    public func value(&var self) borrows -> &var T {
         guard let _ = self.v else { panic("Slot.value: slot is empty") }
         lend self.v!
     }
@@ -148,7 +148,7 @@ extension UnsafeRef<T> {
     /// `let`-bound handle is refused, a `var`-bound one goes through. Field
     /// reads and writes, method calls and further place hops all work on the
     /// referent's own storage.
-    public func deref(&self) unsafe borrows -> T {
+    public func deref(&var self) unsafe borrows -> &var T {
         lend self.p[0]
     }
 

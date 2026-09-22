@@ -1871,6 +1871,18 @@ class MethodCall(Expression):
     # this call opens — not the accessor's `&self` declaration — says whether
     # the root is borrowed shared or exclusively.
     place_window_exclusive: bool = annotation(False)
+    # SL-333 R4: how this window call borrows its RECEIVER, which is a second
+    # fact from the window's own mode. A shared window through a SHARED-ELIGIBLE
+    # accessor borrows the receiver shared (so it works on a `let` root and two
+    # such windows compose); a window of either flavor through an EXCLUSIVE-ONLY
+    # one borrows it exclusively, reads included. Stamped by the one window
+    # funnel (`place_uses._window_call`) out of the declaration's recorded
+    # `place_receiver_mutation`, and read by the checker where a `&var self`
+    # call's receiver mode is read.
+    place_receiver_exclusive: bool = annotation(False)
+    # SL-333 R4: the mutating construct that made the accessor exclusive-only,
+    # for the diagnostic that refuses it on a `let` root.
+    place_receiver_mutation: Optional[str] = annotation(None)
     # DF-184a: this call resolved to a STATIC method (`Struct.make(...)`), and
     # `static_receiver` is the name of the type that owns it. A static call has
     # no receiver EXPRESSION, so `object.resolved_type` — the thing every
@@ -2282,6 +2294,44 @@ class ForLoop(Statement):
 
 
 @dataclass
+class ScopedBlock(Expression):
+    """A block that RUNS UNCONDITIONALLY, carries its own scope, and YIELDS ITS
+    BLOCK'S VALUE (SL-333).
+
+    The language has no syntax for one — the parser never produces this. The
+    `#lend_var` fold does: when it selects a branch whose body BINDS something,
+    it cannot lift those statements into the enclosing block (a `let` would
+    shadow the enclosing binding of the same name and its deinit would move to
+    the wrong boundary), and it cannot leave an `if` of any condition either
+    (the selected branch would then read as conditional to the lend-coverage
+    rule, which is exactly what it is not). So the selected branch becomes
+    THIS: one block, always entered, with its own lexical and destruction
+    boundaries.
+
+    IT IS AN EXPRESSION because the branch it replaces was one. A `#lend_var`
+    branch can be the tail of a block in VALUE position — `let slot = if
+    #lend_var { let s = 0  s } else { let s = 1  s }` — and a fold that turned
+    that into a statement turned a value-producing block into `Void`, which is
+    not behaviour preservation however it is disclosed (codex, SL-333.p1 r3).
+    The value is the block's own `final_expr`, read by the SAME paths a
+    value-carrying `if` branch already uses: `_check_block` for the type,
+    `_generate_block` for the value, and that is also where the branch's locals
+    are destroyed — the cleanup scope pops after the tail is evaluated, so the
+    value leaves an already-closed scope. In statement position it is the same
+    node with its value unused.
+
+    Being a container that owns a `Block`, it joins `ast_walk.CONTAINER_KINDS`
+    and `coro_shapes.CONTAINERS` like every other — that enumeration is the one
+    design 275 U2 made total, and a shape outside it is an invariant failure.
+    Its split is the simplest there is: one block, no branch, no merge. Being
+    an EXPRESSION, it joins the producer taxonomy too, as a BRANCHES node with
+    one arm: the value is the tail's, judged where the tail is written, which
+    is exactly the answer the `if` branch it came from already gave.
+    """
+    block: 'Block' = None
+
+
+@dataclass
 class Block(ASTNode):
     statements: List[Statement]
     final_expr: Optional[Expression] = None
@@ -2599,6 +2649,25 @@ class Method(ASTNode):
     # that followed it would visit the same subtree twice.
     place_type: Optional['SawType'] = annotation(None)
     place_optional: bool = annotation(False)
+    # SL-333 R1/R2. `place_lend_declared_mutable` is the MAXIMUM window mode the
+    # author wrote after `borrows ->`: True for `&var T` (either flavor may be
+    # opened), False for `&T` (shared only, and a write through one is refused
+    # at the use site). It is the same on both specializations, because it is a
+    # property of the DECLARATION. `place_lend_mutable` is THIS
+    # specialization's own mode — False in the shared copy, True in the
+    # exclusive twin, and the declared maximum for an accessor that compiles
+    # once — and it is what the `lend` hands `__window`.
+    place_lend_declared_mutable: bool = annotation(False)
+    place_lend_mutable: bool = annotation(False)
+    # SL-333 R4: the RECEIVER ACCESS this accessor requires at a call, as a fact
+    # about its BODY rather than about the window it opens. None while unknown;
+    # a string naming the mutating construct once the checker has seen one, in
+    # which case the accessor is EXCLUSIVE-ONLY — every use site borrows the
+    # receiver exclusively, reads included. Recorded by the receiver-permission
+    # funnel (`_self_borrow_is_exclusive`'s entry points) while the SHARED
+    # specialization's body is checked, so `#lend_var`-gated bookkeeping folded
+    # out of that copy does not make ordinary reads exclusive.
+    place_receiver_mutation: Optional[str] = annotation(None)
     # Set with `place_type` on a lowered borrows METHOD: its receiver travels as
     # a POINTER even when the author wrote `&self`, because the window may write
     # through it (design 146, DF-146b). See `self_by_pointer`.
@@ -2822,6 +2891,12 @@ class Function(ASTNode):
     is_borrows: bool = False
     place_type: Optional[SawType] = annotation(None)
     place_optional: bool = annotation(False)
+    # See Method.place_lend_declared_mutable / place_lend_mutable (SL-333).
+    place_lend_declared_mutable: bool = annotation(False)
+    place_lend_mutable: bool = annotation(False)
+    # See Method.place_receiver_mutation (SL-333 R4). Always None here: a free
+    # `borrows` function has no receiver to require access to.
+    place_receiver_mutation: Optional[str] = annotation(None)
     # See Method.place_lend_paths (design 200). Always empty here: a free
     # `borrows` function has no receiver, so it can lend nothing that outlives
     # its frame — `_check_rooted_in_receiver` refuses every such body.

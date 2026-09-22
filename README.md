@@ -534,7 +534,24 @@ points, and a reference you receive can be passed on to another function.
 A method can also hand out storage, not just a value: a `borrows` accessor
 gives the caller direct access to an element or field inside the receiver,
 which is how `v[i] += 1` writes a `Vector` element where it sits. The access
-lasts for one expression; the spec calls these places.
+lasts for one expression; the spec calls these places. The signature says what
+a caller may do with one — `borrows -> &var T` lends a place a use site may
+read or write, `borrows -> &T` lends a view — and the use site narrows within
+what the declaration allows:
+
+```saw-fragment
+extension Document {
+    // A read-only lend: callers reach the section where it sits, and nothing
+    // they write reaches this storage.
+    public func section(&self, name: String) borrows -> &Section? {
+        if let i = self._section_index(name) {
+            lend self.sections[i]
+        } else {
+            return None
+        }
+    }
+}
+```
 
 A method can also END its receiver. `consumes` says so at the declaration, and
 `move` says so at the call:

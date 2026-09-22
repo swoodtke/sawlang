@@ -14,7 +14,7 @@ struct Table { slot: Slot }
 extension Table {
     func fresh(&self) -> Slot { Slot.Filled(n: 1) }
 
-    public func at(&self) borrows -> Int? {
+    public func at(&self) borrows -> &Int? {
         let built = self.fresh()
         match built {
             case Filled(n) -> { lend n },

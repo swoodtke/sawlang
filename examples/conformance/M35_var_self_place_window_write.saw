@@ -15,7 +15,7 @@
 struct Grid { cells: [Int; 4] }
 
 extension Grid {
-    func [](&self, i: Int) borrows -> Int {
+    func [](&var self, i: Int) borrows -> &var Int {
         if i < 0 || i >= 4 { panic("Grid.[]: index out of range") }
         lend self.cells[i]
     }

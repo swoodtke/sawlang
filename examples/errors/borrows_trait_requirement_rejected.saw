@@ -7,7 +7,7 @@
 // methods on concrete types only.
 
 trait Indexed {
-    func at(&self, i: Int) borrows -> Int
+    func at(&var self, i: Int) borrows -> &var Int
 }
 
 func main() { print("unreached") }

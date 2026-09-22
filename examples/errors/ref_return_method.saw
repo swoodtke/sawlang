@@ -1,12 +1,16 @@
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: Parse error at 14:25: method `peek` may not return a reference
-// EXPECT-ERROR-CONTAINS: declare a `borrows` accessor (`... borrows -> Int`
+// EXPECT-ERROR-CONTAINS: Parse error at 18:25: method `peek` may not return a reference
+// EXPECT-ERROR-CONTAINS: declare a `borrows` accessor (`... borrows -> &var Int`
 //
 // An extension method is the position where returning a reference reads most
 // plausible -- "hand the caller my field" is a real thing to want. It is also
 // the position Saw already answers, so the fixit is not a consolation prize:
-// `borrows -> Int` with `lend` gives out the storage itself for a window,
+// `borrows -> &var Int` with `lend` gives out the storage itself for a window,
 // which is strictly more than a pointer could and stays sound (design 141).
+//
+// SL-333 R5 is what keeps the two apart: a reference type is legal in a return
+// position IFF the declaration is `borrows`, because then it is the lent place
+// rather than a pointer that escapes. A plain `-> &Int` is still refused here.
 
 struct Counter { n: Int }
 

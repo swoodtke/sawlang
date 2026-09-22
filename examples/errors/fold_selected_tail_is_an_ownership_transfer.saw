@@ -1,0 +1,102 @@
+// SL-333: the `#lend_var` fold's selected tail is an ownership TRANSFER, and
+// is judged as one — the same judgment it received as an `if` branch.
+//
+// `ScopedBlock` is a one-arm value branch, so the transfer checkpoint must
+// visit its tail exactly as it visits an `if` branch's. Classifying the node in
+// the producer taxonomy was not enough on its own: the checkpoint asked a
+// SECOND enumeration of the same shape set (a hand-written `isinstance` chain
+// in `_value_branch_arm_results`), that chain had no case for the new node, and
+// a `NoCopy` binding yielded from a selected branch was copied with nothing
+// written (codex, SL-333.p1 r4). One table says both now.
+//
+// THE CELLS. `outer` yields a binding declared OUTSIDE the branch — the shape
+// codex found, where the copy would leave a live second owner and the deinit
+// would run twice. `inner` constructs inside each selected branch and yields it
+// bare, which is the same transfer one scope in. `ceremonial` is the
+// EXPLICITCOPY face: a tier that CAN duplicate, and refuses to do it silently.
+// All three refuse in BOTH specializations, which is what the two diagnostics
+// per accessor say — the judgment is the tail's, so the specialization it is
+// compiled into never enters into it.
+//
+// The positive controls are in `borrows_fold_preserves_lexical_scope.saw`: the
+// explicit `move` of the same shape compiles and runs, a `Copy` tail retains
+// and leaves both bindings live, and an `ExplicitCopy` tail compiles with
+// `.copy()` written.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot copy value of type `Owned` which implements NoCopy
+// EXPECT-ERROR-CONTAINS: use `move` to transfer ownership instead
+// EXPECT-ERROR-CONTAINS: cannot copy value of type `Ceremony` which implements ExplicitCopy
+// EXPECT-ERROR-CONTAINS: use .copy() for an explicit deep copy, or `move` to transfer ownership
+
+struct Owned { id: Int }
+
+extension Owned: NoCopy {
+    func deinit(&var self) { print("drop {self.id}") }
+}
+
+struct Ceremony { n: Int }
+
+extension Ceremony: ExplicitCopy {
+    func copy(&self) -> Ceremony { Ceremony(n: self.n) }
+}
+
+struct Bag { cells: [Int; 2] }
+
+extension Bag {
+    func outer(&var self, i: Int) borrows -> &var Int {
+        let source = Owned(id: 7)
+        let picked = if i >= 0 {
+            if #lend_var {
+                let marker = 0
+                source
+            } else {
+                let marker = 1
+                source
+            }
+        } else {
+            Owned(id: 9)
+        }
+        print("{picked.id}")
+        lend self.cells[0]
+    }
+
+    func inner(&var self, i: Int) borrows -> &var Int {
+        let picked = if i >= 0 {
+            if #lend_var {
+                let made = Owned(id: 7)
+                made
+            } else {
+                let made = Owned(id: 8)
+                made
+            }
+        } else {
+            Owned(id: 9)
+        }
+        print("{picked.id}")
+        lend self.cells[0]
+    }
+
+    func ceremonial(&var self, i: Int) borrows -> &var Int {
+        let source = Ceremony(n: 5)
+        let picked = if i >= 0 {
+            if #lend_var {
+                let marker = 0
+                source
+            } else {
+                let marker = 1
+                source
+            }
+        } else {
+            Ceremony(n: 9)
+        }
+        print("{picked.n}")
+        lend self.cells[0]
+    }
+}
+
+func main() {
+    var b = Bag(cells: [3, 4])
+    print("{b.outer(0)}")
+    print("{b.inner(0)}")
+    print("{b.ceremonial(0)}")
+}

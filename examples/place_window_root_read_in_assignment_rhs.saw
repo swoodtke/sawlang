@@ -34,7 +34,7 @@ extension Cell {
 struct Holder { cell: Cell, tag: Int }
 extension Holder: NoCopy {}
 extension Holder {
-    func at(&self) borrows -> Cell { lend self.cell }
+    func at(&var self) borrows -> &var Cell { lend self.cell }
     func count(&self) -> Int { self.tag }
 }
 

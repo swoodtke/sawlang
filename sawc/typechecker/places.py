@@ -206,8 +206,8 @@ class PlacesMixin:
     def _check_lend_statement(self, stmt: LendStatement) -> None:
         decl = self.current_method or self.current_function
         name = getattr(decl, 'name', None) if decl is not None else None
-        fixit = (f"func {name}(...) borrows -> T" if name
-                 else "func f(...) borrows -> T")
+        fixit = (f"func {name}(&var self, ...) borrows -> &var T" if name
+                 else "func f(&var self, ...) borrows -> &var T")
 
         from errors import ErrorKind
         self._error(

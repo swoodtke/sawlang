@@ -12,7 +12,7 @@
 struct Bag { cells: Vector<Int> }
 extension Bag: NoCopy {}
 extension Bag {
-    func at(&var self, i: Int) consumes borrows -> Int { lend self.cells[i] }
+    func at(&var self, i: Int) consumes borrows -> &var Int { lend self.cells[i] }
 }
 
 func main() { print("{}", 1) }

@@ -1,0 +1,31 @@
+// SL-333 R1 (conformance row K126): the bare `borrows -> T` spelling is an
+// ERROR with a fixit, not a second accepted spelling.
+//
+// Before SL-333 the declaration said nothing about what a use site might do
+// with the place, so a reader had no way to tell a read-only accessor from a
+// writable one — and after design 275 U3 `borrows -> X` would have meant two
+// different things depending on whether `X` is declared `borrows struct`
+// somewhere else. Accepting both spellings would leave that ambiguity in the
+// language for the price of a migration, which is the silent-degradation the
+// no-degradation doctrine refuses. The message names both replacements and says
+// what each one means.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a `borrows` declaration names the LENT REFERENCE and its mode, not a returned value
+// EXPECT-ERROR-CONTAINS: write `borrows -> &Cell` if a use site may only READ through the place
+// EXPECT-ERROR-CONTAINS: `borrows -> &var Cell` if it may also WRITE through it
+// EXPECT-ERROR-CONTAINS: `borrows -> Cell` says neither
+
+struct Cell { n: Int }
+struct Grid { cells: [Cell; 4] }
+
+extension Grid {
+    public func at(&self, i: Int) borrows -> Cell {
+        if i < 0 || i >= 4 { panic("Grid.at: index out of range") }
+        lend self.cells[i]
+    }
+}
+
+func main() {
+    let g = Grid(cells: [Cell(n: 1), Cell(n: 2), Cell(n: 3), Cell(n: 4)])
+    print("{g.at(0).n}")
+}

@@ -26,7 +26,7 @@ extension Counter {
 extension Wrap {
     // The other answer: lend the place for a window, and the use site picks
     // whether that window is shared or exclusive.
-    func slot(&self) borrows -> Counter { lend self.c }
+    func slot(&var self) borrows -> &var Counter { lend self.c }
 }
 
 func read_one(x: &Int) -> Int { x }

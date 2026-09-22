@@ -157,7 +157,7 @@ extension TomlSection {
     // The inline table named `key`, as an optional PLACE. `TomlTable` is
     // NoCopy, so it is reached IN the section rather than handed out:
     // `sec.table("git")!.get("url")`.
-    public func table(&self, key: String) borrows -> TomlTable? {
+    public func table(&self, key: String) borrows -> &TomlTable? {
         if let i = self._table_index(key) {
             lend self.tables[i]
         } else {
@@ -351,7 +351,7 @@ extension TomlDoc {
 
     // The section at `index`, as a PLACE. Panics if `index` is outside
     // `0..<section_count()`.
-    public func section_at(&self, index: Int) borrows -> TomlSection {
+    public func section_at(&self, index: Int) borrows -> &TomlSection {
         if index < 0 || index >= self.sections.len() {
             panic("TomlDoc.section_at: index out of range")
         }
@@ -367,7 +367,7 @@ extension TomlDoc {
     // handed back a non-retained alias of storage the document still owned —
     // two lookups destroyed one section twice (DF-132a). Pair it with
     // `has_section` when absence is not an error.
-    public func section(&self, name: String) borrows -> TomlSection? {
+    public func section(&self, name: String) borrows -> &TomlSection? {
         if let i = self._section_index(name) {
             lend self.sections[i]
         } else {

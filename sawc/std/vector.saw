@@ -111,7 +111,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     /// compile error.
     ///
     /// Panics if `index` is outside `0..<len()`. `get` is the `None`-returning twin.
-    public func [](&self, index: Int) unsafe borrows -> T {
+    public func [](&var self, index: Int) unsafe borrows -> &var T {
         if index < 0 || index >= self.length {
             panic("Vector.[]: index out of range: {} (len {})", index, self.length)
         }
@@ -135,7 +135,7 @@ extension Vector<T, A: Allocator = GlobalAllocator> {
     /// Reading the place out as a value follows the element's copy tier: trivial
     /// copies bitwise, `Copy` retains, and `ExplicitCopy`/`NoCopy` is
     /// refused with the ways out named.
-    public func get(&self, index: Int) unsafe borrows -> T? {
+    public func get(&var self, index: Int) unsafe borrows -> &var T? {
         if index < 0 || index >= self.length {
             return None
         }

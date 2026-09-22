@@ -925,7 +925,7 @@ class TypeUtilsMixin:
             line, column,
             hint=f"use the value type (`{value}`), or — to hand out storage a "
                  f"type already owns — declare a `borrows` accessor "
-                 f"(`... borrows -> {value}` with `lend`, design 141)")
+                 f"(`... borrows -> &var {value}` with `lend`, design 141)")
 
     # THE POSITION MATRIX for the no-escape rule (design 193 unit 5 — the
     # process rule applied to its own worst offender). One row per place a
@@ -4306,12 +4306,12 @@ class TypeUtilsMixin:
         cast.resolved_type = merged
         return cast
 
-    # DF-299b — the nodes whose value IS one of several block tails they hand
-    # on: a value `if` / `if let`, a value `match`, an inline `catch`'s handler
-    # block, and a `try { } catch { }` block. Design 195 rule 2 already says
-    # each arm of one of these is a TRANSFER into one merged home; this is that
-    # sentence's ownership half.
-    _VALUE_BRANCH_TYPES = (IfExpr, IfLetExpr, MatchExpr, TryExpr, TryCatchExpr)
+    # DF-299b's list of value-branch node types lived here as a THIRD copy of
+    # the set `producers.BRANCH_ARM_SOURCES` now owns, and nothing read it —
+    # `_value_branch_arm_results` enumerated the classes inline instead. Both
+    # are gone: the taxonomy is the one table, and `branch_arm_sources` the one
+    # answer to "where are this node's arms" (SL-333, codex r4).
+    #
     # The auto-wraps an arm result can already be sitting inside by the time the
     # checkpoint runs: `_wrap_tail_into_optional` distributes the tail's
     # optional wrap INTO the arms (DF-289d), and the match reconciler wraps an
@@ -4329,28 +4329,19 @@ class TypeUtilsMixin:
         A diverging arm (a `panic`, a block whose every path returned) has no
         final expression and contributes nothing, which is the same filter
         `_merge_value_branch_types`' callers apply.
+
+        WHICH BLOCKS THOSE ARE is `producers.branch_arm_sources`' answer, not
+        this method's. It used to be a hand-written `isinstance` chain here —
+        a second enumeration of the shape set `PRODUCER_BRANCHES` already is —
+        and the two drifted the first time a branching form was added:
+        SL-333's `ScopedBlock` joined the taxonomy, this chain answered `None`
+        for it, and a `NoCopy` binding yielded from a selected `#lend_var`
+        branch was copied with nothing written (codex, SL-333.p1 r4). One
+        table now says both that a node branches and where its arms live.
         """
         arms = []
-        if isinstance(expr, (IfExpr, IfLetExpr)):
-            blocks = [expr.then_branch, expr.else_branch]
-        elif isinstance(expr, MatchExpr):
-            blocks = []
-            for arm in expr.arms:
-                blocks.append(arm.body)
-        elif isinstance(expr, TryExpr):
-            # Only the CATCH handler. A `try` is the one node in TWO producer
-            # buckets (design 269): its catch handler is a branch ARM and its Ok
-            # value PROJECTS out of the subject's storage, so the two are judged
-            # by two different rules. This returns the arm; the checkpoint asks
-            # the producer question about the subject, which is what SL-219 was
-            # — the comment that used to sit here said the subject "is that
-            # expression's question", and nothing ever asked it.
-            if expr.catch_block is None:
-                return None
-            blocks = [expr.catch_block]
-        elif isinstance(expr, TryCatchExpr):
-            blocks = [expr.try_block, expr.catch_block]
-        else:
+        blocks = producers.branch_arm_sources(expr)
+        if blocks is None:
             return None
         for block in blocks:
             if block is None:
@@ -5180,11 +5171,21 @@ class TypeUtilsMixin:
             if isinstance(node, MemberAccess):
                 projections.append(('field', node.member))
                 node = node.object
-            elif isinstance(node, (BindOptional, OptionalEvalExpr)):
+            elif isinstance(node, (BindOptional, OptionalEvalExpr, ForceUnwrap)):
                 # An `?.` hop / chain wrapper (design 111) is transparent for
                 # access-path purposes: the root and its field/index projections
                 # are what determine overlap; the optional unwrap adds no path
                 # component.
+                #
+                # `!` is the same unwrap written the panicking way (SL-333's
+                # sibling sweep) and was the ONE step this walk did not take, so
+                # it fell through to `return None` and a `!`-headed place never
+                # joined the access set AT ALL: `setboth(&var m[k]!, &var m[k2]!)`
+                # — two exclusive windows on one root, the shape design 188
+                # exists to refuse — compiled, and so did one beside a `&var` of
+                # the root itself. Pre-existing, reproduced on the design-141
+                # spelling; found here because R4 gave the `!` head a second way
+                # to be exclusive.
                 node = node.expr
             elif isinstance(node, TupleIndex):
                 projections.append(('tuple', node.index))
@@ -5248,6 +5249,12 @@ class TypeUtilsMixin:
             # access since design 188 unit 2, so it has to render.
             return (f"{self._render_lvalue_path(expr.object)}."
                     f"{expr.method_name}(…)")
+        if isinstance(expr, ForceUnwrap):
+            # `m[k]!` — the panicking spelling of a conditional lend's presence,
+            # and an access path since SL-333's sweep reached it.
+            return f"{self._render_lvalue_path(expr.expr)}!"
+        if isinstance(expr, (BindOptional, OptionalEvalExpr)):
+            return self._render_lvalue_path(expr.expr)
         return "<expr>"
 
     def _render_index(self, expr: Expression) -> str:
@@ -5827,16 +5834,20 @@ class TypeUtilsMixin:
 
         if param_types is None:
             param_types = []
+        # The by-reference entries whose mode may still change, with the node
+        # that decides it — see `_reference_access_mode` and the deferred
+        # re-evaluation `_settle_place_access_modes` runs at end of module.
+        place_entries = []
         for i, value in enumerate(values):
             if isinstance(value, ReferenceExpr):
                 path = self._build_access_path(value.expr)
                 if path is None:
                     continue
-                # Mutability comes from the sigil; `_check_reference_sigils` has
-                # already ensured it agrees with the parameter (design 34).
-                is_mut = bool(value.mutable)
-                entries.append(('mut' if is_mut else 'imm', path, value.expr,
+                kind, place, _mutation = self._reference_access_mode(value)
+                entries.append((kind, path, value.expr,
                                 value.line, value.column))
+                if kind == 'imm' and place is not None:
+                    place_entries.append((len(entries) - 1, value))
             elif isinstance(value, MoveExpr):
                 if getattr(value, 'consumes_field', None) is not None:
                     # design 260 §3: `move self.<field>` inside a consuming
@@ -5901,8 +5912,10 @@ class TypeUtilsMixin:
                 if path is None:
                     continue
                 nested_entries.add(id(ref.expr))
-                entries.append(('mut' if ref.mutable else 'imm', path,
-                                ref.expr, ref.line, ref.column))
+                kind, place, _mutation = self._reference_access_mode(ref)
+                entries.append((kind, path, ref.expr, ref.line, ref.column))
+                if kind == 'imm' and place is not None:
+                    place_entries.append((len(entries) - 1, ref))
 
         # design 189: a live task-capture borrow is an access that OUTLIVES this
         # statement, so every by-reference access this call makes is checked
@@ -5954,9 +5967,13 @@ class TypeUtilsMixin:
                     m_expr, m_line, m_col = ej, lj, cj
                     other = ei
                 # A place window is not an ordinary path, so it gets the
-                # diagnostic that says what it holds (design 188 unit 2).
-                place = next((e for e in (m_expr, other)
-                              if self._place_use_receiver(e) is not None), None)
+                # diagnostic that says what it holds (design 188 unit 2). The
+                # place may sit UNDER a `!` or a `?.` hop (SL-333's sweep), so
+                # the head is found by the same walk the access path takes
+                # rather than by testing the argument node itself.
+                place = next((p for p in
+                              (self._place_head(m_expr), self._place_head(other))
+                              if p is not None), None)
                 if place is not None:
                     root = self._render_lvalue_path(
                         self._place_use_receiver(place))
@@ -6010,6 +6027,298 @@ class TypeUtilsMixin:
                     hint="disjoint access paths are allowed (e.g. `&var p.x` with `&p.y`); "
                          "give the mutable reference exclusive access"
                 )
+
+        # SL-333 R4: an entry whose mode still reads 'imm' but which reaches its
+        # root through a PLACE may yet turn out exclusive — the accessor's
+        # eligibility is a fact about its BODY, and a module checks its free
+        # functions before its extension methods, so a use site can be reached
+        # first. Keep the call's access set and settle those pairs at end of
+        # module, where every body has been checked and the forwarded-lend
+        # closure has run. Nothing here is re-reported: the settlement looks
+        # only at pairs BOTH sides of which read 'imm' above.
+        if place_entries:
+            self._deferred_place_access.append((entries, place_entries))
+
+    def _reference_access_mode(self, ref):
+        """THE mode a by-reference argument borrows its ROOT at, and the place
+        that decides it (SL-333 R4).
+
+        Design 188 charges a place borrow to its ROOT and, until SL-333, read
+        the MODE off the SIGIL — `&v[i]` shared, `&var v[i]` exclusive. R4 adds
+        the second fact: an accessor whose body mutates `self` outside the place
+        it lends borrows its receiver EXCLUSIVELY at every use site, a read-only
+        window included. So `pair(&b[0], &b.tally(1))` is a shared borrow of `b`
+        beside an exclusive one, exactly as `pair(&b[0], &var b[1])` is, and the
+        pairwise root-charge test below compares the two the same way.
+
+        Returns `(kind, place_node_or_None, mutation_text_or_None)`. The place
+        node is what the diagnostic names; the mutation text is what made it
+        exclusive-only.
+        """
+        place, mutation = self._place_receiver_mutation(
+            getattr(ref, 'expr', None))
+        if getattr(ref, 'mutable', False):
+            return 'mut', place, mutation
+        return ('mut' if mutation is not None else 'imm'), place, mutation
+
+    def _place_head(self, expr):
+        """The first PLACE on this access path, or None — the head a window
+        diagnostic names. `m[k]` is one; so is `m[k]!`, whose `!` is the
+        conditional lend's presence rather than a path component."""
+        return self._place_receiver_mutation(expr)[0]
+
+    def _place_receiver_mutation(self, expr):
+        """`(place node, the construct that makes its accessor exclusive-only)`
+        for the first such place on this access path, else `(first place, None)`
+        or `(None, None)`.
+
+        Walks the same chain `_build_access_path` walks — through `_place_use_
+        receiver` at every place — so the mode and the path answer about ONE
+        root. A nested pair (`b[0][1]`) charges `b`, and either window being
+        exclusive-only makes that charge exclusive.
+        """
+        first = None
+        node = expr
+        guard = 0
+        while node is not None and guard < 64:
+            guard += 1
+            receiver = self._place_use_receiver(node)
+            if receiver is not None:
+                if first is None:
+                    first = node
+                mutation = self._place_accessor_mutation(node)
+                if mutation is not None:
+                    return node, mutation
+                node = receiver
+                continue
+            node = self._access_path_parent(node)
+        return first, None
+
+    @staticmethod
+    def _access_path_parent(node):
+        """One step toward the root along an access path, or None at it."""
+        if isinstance(node, MemberAccess):
+            return node.object
+        if isinstance(node, (BindOptional, OptionalEvalExpr)):
+            return node.expr
+        if isinstance(node, TupleIndex):
+            return node.tuple_expr
+        if isinstance(node, ArrayIndex):
+            return node.array_expr
+        if isinstance(node, ForceUnwrap):
+            return node.expr
+        return None
+
+    def _place_accessor_mutation(self, place):
+        """SL-333 R4's recorded bit, read off the accessor this place calls."""
+        info = self.namespace.lookup_method(place.place_struct,
+                                            place.place_method)
+        decl = getattr(info, 'ast_node', None) if info is not None else None
+        return getattr(decl, 'place_receiver_mutation', None)
+
+    def _settle_place_access_modes(self) -> None:
+        """Re-run the pairwise root-charge test over the calls whose place
+        entries could not be settled when they were checked (SL-333 R4).
+
+        A module checks its free functions before its extension methods, so a
+        use site is routinely reached before the accessor whose body decides
+        whether it borrows its receiver exclusively. The answer is a fact about
+        a DECLARATION, so it is settled here — after every body in the module
+        has been checked and after the forwarded-lend closure has run — rather
+        than guessed at the use site.
+
+        Only pairs BOTH sides of which read 'imm' at the call are looked at:
+        everything else was already decided, and reported if it was a
+        violation. This is the same overlap test with the same charge; what
+        changed is one entry's MODE.
+        """
+        pending = self._deferred_place_access
+        self._deferred_place_access = []
+        for entries, place_entries in pending:
+            upgraded = {}
+            for index, ref in place_entries:
+                _kind, place, mutation = self._reference_access_mode(ref)
+                if mutation is not None:
+                    upgraded[index] = (place, mutation)
+            if not upgraded:
+                continue
+            n = len(entries)
+            for i in range(n):
+                ki, pi, ei, li, ci = entries[i]
+                if ki != 'imm':
+                    continue
+                for j in range(i + 1, n):
+                    kj, pj, ej, lj, cj = entries[j]
+                    if kj != 'imm':
+                        continue
+                    if i not in upgraded and j not in upgraded:
+                        continue
+                    if not self._paths_overlap(pi, pj):
+                        continue
+                    index = i if i in upgraded else j
+                    place, mutation = upgraded[index]
+                    line, col = (li, ci) if index == i else (lj, cj)
+                    self._report_exclusive_only_overlap(
+                        place, mutation, pi[0], line, col)
+                    break
+
+    def _report_exclusive_only_overlap(self, place, mutation, root,
+                                       line, column) -> None:
+        """Design 188's overlap diagnostic for the pair R4 decides (SL-333)."""
+        self._error(
+            ErrorKind.EXCLUSIVITY_VIOLATION,
+            f"exclusive access violation: the place "
+            f"`{self._render_lvalue_path(place)}` borrows `{root}` EXCLUSIVELY "
+            f"even though this window only reads — "
+            f"`{place.place_struct}.{place.place_method}` mutates `self` "
+            f"outside the place it lends ({mutation}) — and `{root}` is "
+            f"accessed by reference a second time in the same call",
+            line, column,
+            hint="a read-only RESULT is not a shared receiver BORROW: an "
+                 "accessor whose body mutates the receiver takes it "
+                 "exclusively at every use site, so this is the same conflict "
+                 "two `&var` windows would be. Open the accesses in SEPARATE "
+                 "statements, or move the bookkeeping behind `#lend_var` so "
+                 "the shared specialization does not need an exclusive "
+                 "receiver")
+
+    def close_place_receiver_requirement(self, program) -> None:
+        """Close SL-333 R4's eligibility over EVERY receiver-rooted window an
+        accessor's shared body opens.
+
+        A window on storage reached through `self` borrows that storage for its
+        extent, and a place borrow charges its ROOT — so a window that borrows
+        `self.<path>` EXCLUSIVELY is a mutation through this accessor's
+        receiver, exactly like a field write or a `&var self` call, and the
+        accessor is exclusive-only. It becomes exclusive that way for one
+        reason: the accessor the window calls is itself exclusive-only.
+
+        THE WINDOW CALL IS THE ONE CONSTRUCT THE RECEIVER RULE DOES NOT JUDGE.
+        `_reject_var_self_call_on_shared_self` steps over it on purpose (it is
+        synthesized, not written), which is why this closure exists — and why
+        it must cover every SHAPE a window comes in, not one. The first draft
+        recorded only a `from_lend` reference whose immediate operand was a
+        place, so an ordinary accessor read in the prologue
+        (`let _ = self.inner.tally()`) and a PROJECTION through a forwarded
+        place (`lend self.inner[i].n`) both escaped it and stamped the outer
+        accessor shared-eligible over an inner that mutates receiver storage —
+        codex's SL-333.p1 r1 findings A and B, each of which mutated a `let`
+        root. The walk below asks the ONE question instead: is this a place use
+        whose access path is rooted at `self`? Every opener shape answers it,
+        and every accessor hop of a projected or nested path is its own place
+        use, so `self.inner[i].n` and `self.a[i][j]` are covered by the same
+        clause that covers `self.inner.tally()`.
+
+        The EXCLUSIVITY that comes from the USE SITE rather than from the inner
+        accessor — a write through a receiver-rooted place, a `&var` of one — is
+        not this closure's: those are ordinary constructs the receiver-
+        permission funnel judges, and they reach it through `_access_path_root`
+        (which steps through a place exactly as `_build_access_path` does).
+
+        The direction matters for a FORWARDED lend. A SHARED specialization
+        forwards SHARED (its `lend` hands over `&X`), so it inherits only the
+        inner's shared answer — which is why a nested copy-on-write read costs
+        nothing. The exclusive twin forwards exclusively, but its own
+        eligibility is never asked: only an exclusive use site reaches it.
+
+        Run per module at the end of its check, so every accessor it can reach
+        has been checked — a module's dependencies are checked before it, and
+        its own chains settle in the fixpoint below.
+        """
+        edges = []
+        self._collect_place_receiver_edges(program, edges)
+        if not edges:
+            return
+        changed = True
+        while changed:
+            changed = False
+            for decl, struct, method, exclusive, line, forwarded in edges:
+                if getattr(decl, 'place_receiver_mutation', None) is not None:
+                    continue
+                if not exclusive:
+                    info = self.namespace.lookup_method(struct, method)
+                    inner = (getattr(info, 'ast_node', None)
+                             if info is not None else None)
+                    if getattr(inner, 'place_receiver_mutation', None) is None:
+                        continue
+                what = ("the forwarded lend through" if forwarded
+                        else "the exclusive window on" if exclusive
+                        else "the window on")
+                decl.place_receiver_mutation = (
+                    f"{what} `{struct}.{method}` at line {line}")
+                changed = True
+
+    def _collect_place_receiver_edges(self, program, edges) -> None:
+        """One edge per PLACE USE rooted at `self` in an accessor's shared body.
+
+        A forwarded lend is not a separate shape here — it is a place use that
+        happens to sit under the `from_lend` reference, and the only thing that
+        reference adds is the specialization's own MODE, which makes the
+        exclusive twin's forward exclusive whatever the inner accessor is.
+        """
+        for ext in (getattr(program, 'extensions', None) or []):
+            for decl in (getattr(ext, 'methods', None) or []):
+                if getattr(decl, 'place_type', None) is None:
+                    continue
+                if getattr(decl, 'place_var_twin', False):
+                    continue      # only an exclusive use site reaches the twin
+                # `mode` is the window mode the enclosing position forces, or
+                # None where the use site decides it. THREE positions force
+                # one, and each is read from what it ACTUALLY says rather than
+                # from which construct it is: a REFERENCE (its sigil — a `&var`
+                # opens an exclusive window, a `&` a shared one, and a `lend`'s
+                # own reference carries this specialization's mode), and a
+                # WRITE TARGET (exclusive, by design 141's rule). `lent`
+                # records whether the reference was a `lend`'s, for the
+                # diagnostic only — reading `from_lend` as the MODE's own gate
+                # is what let an ordinary `&var self.inner.plain()` argument
+                # through (codex, SL-333.p1 r2).
+                stack = [(getattr(decl, 'body', None), None, False)]
+                seen = set()
+                while stack:
+                    node, mode, lent = stack.pop()
+                    if node is None or id(node) in seen:
+                        continue
+                    seen.add(id(node))
+                    child_mode, child_lent = mode, lent
+                    if isinstance(node, ReferenceExpr):
+                        child_mode = bool(node.mutable)
+                        child_lent = bool(getattr(node, 'from_lend', False))
+                    target = getattr(node, 'target', None)
+                    for child in child_nodes(node):
+                        stack.append((child,
+                                      True if child is target else child_mode,
+                                      child_lent))
+                    if self._place_use_receiver(node) is None:
+                        continue
+                    if self._access_path_root(
+                            self._place_use_receiver(node)) != "self":
+                        # An indirection out of the receiver (`buf[i]` for a
+                        # `buf` read out of `self.buffer`) is not the
+                        # receiver's own value, so borrowing it says nothing
+                        # about `self`.
+                        continue
+                    edges.append((decl, node.place_struct, node.place_method,
+                                  mode is True, node.line, lent))
+        for decl in (getattr(program, 'module_decls', None) or []):
+            body = getattr(decl, 'body', None)
+            if body is not None:
+                self._collect_place_receiver_edges(body, edges)
+
+    def _access_path_root(self, expr):
+        """The NAME an access path is rooted at, or None."""
+        node = expr
+        guard = 0
+        while node is not None and guard < 64:
+            guard += 1
+            if isinstance(node, Identifier):
+                return node.name
+            if isinstance(node, SelfExpr):
+                return "self"
+            receiver = self._place_use_receiver(node)
+            node = (receiver if receiver is not None
+                    else self._access_path_parent(node))
+        return None
 
     def _render_move(self, expr: Expression) -> str:
         if isinstance(expr, MoveExpr):

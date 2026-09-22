@@ -18,7 +18,7 @@ from ast_nodes import (
     Identifier, MemberAccess, ArrayIndex, TupleIndex, MoveExpr, IntLiteral,
     ForceUnwrap, BindOptional, OptionalEvalExpr, NoneLiteral,
     FunctionCall, StructInit, SelfExpr, ClosureExpr,
-    IfExpr, IfLetExpr, MatchExpr, MethodCall, TryExpr,
+    IfExpr, IfLetExpr, MatchExpr, MethodCall, ScopedBlock, TryExpr,
     SawType, TypeKind,
     ResultOkWrap, ResultErrWrap, OptionalWrap,
     WildcardPattern, BindingPattern, TuplePattern,
@@ -984,6 +984,15 @@ class StatementsMixin:
                     branch.final_expr = self._wrap_tail_into_optional(
                         branch.final_expr, target)
             return tail
+        if isinstance(tail, ScopedBlock):
+            # SL-333: a one-arm value branch whose arm IS its block. Wrapping
+            # the tail rather than the node keeps the distribution DF-289d
+            # wants — each arm judged at its own type by the transfer
+            # checkpoint — for the one arm this node has.
+            if tail.block.final_expr is not None:
+                tail.block.final_expr = self._wrap_tail_into_optional(
+                    tail.block.final_expr, target)
+            return tail
         if isinstance(tail, MatchExpr):
             for arm in tail.arms:
                 body = arm.body
@@ -1615,6 +1624,23 @@ class StatementsMixin:
         A compiler-inserted `ResultOkWrap`/`ResultErrWrap` is skipped: the
         author wrote a non-Result there and the return-type auto-wrap made it
         one, so "you discarded a Result" would describe code nobody wrote.
+
+        `ScopedBlock` FORWARDS too (SL-333), and it is here rather than read
+        out of `producers.branch_arm_sources` because this walk asks a NARROWER
+        question than the taxonomy's: which constructs hand on a value they do
+        not consume. A `try` is in the taxonomy and deliberately not here — it
+        CONSUMES its subject's Result and produces the Ok payload, which is its
+        own culprit when that payload is itself a Result.
+
+        REACH, measured rather than assumed: a ScopedBlock arrives here only
+        from statement position, where its block carries no `final_expr` at all
+        (the parser leaves an `if` branch's trailing expression a statement), so
+        every producer inside it is already reported by `_check_block` at its
+        own line; in value position the node's value is consumed and this rule
+        does not apply. The case is written anyway because that first sentence
+        is a fact about the PARSER that nothing here states, and the r4 defect
+        this commit closes was exactly a consumer resting on a fact it did not
+        own.
         """
         out = []
         seen = set()
@@ -1630,6 +1656,9 @@ class StatementsMixin:
                 visit(getattr(node.then_branch, 'final_expr', None), depth + 1)
                 if node.else_branch is not None:
                     visit(getattr(node.else_branch, 'final_expr', None), depth + 1)
+                return
+            if isinstance(node, ScopedBlock):
+                visit(getattr(node.block, 'final_expr', None), depth + 1)
                 return
             if isinstance(node, MatchExpr):
                 for arm in node.arms:
@@ -2255,11 +2284,63 @@ class StatementsMixin:
           * `_check_self_replacement_assign` — design 110's `self = v`.
           * `_check_reference_expr`, both arms — `&var self` re-borrowed whole,
             and a `&var self.<field>` projection out of it.
+
+        Each entry also RECORDS what it found when the receiver is exclusive and
+        the body is a `borrows` accessor's — SL-333 R4's eligibility bit, which
+        is the same question read the other way round: an accessor is
+        SHARED-ELIGIBLE exactly when no entry of this funnel fired in its shared
+        specialization. `_note_receiver_mutation` below is that recording.
         """
         method = getattr(self, 'current_method', None)
         if method is None or not getattr(method, 'self_mutable', False):
             return False
         return not getattr(self, '_shared_self_capture_depth', 0)
+
+    def _reaches_self_storage(self, expr) -> bool:
+        """SL-333 R4's question: is this storage reached through the RECEIVER,
+        place hops included?
+
+        Design 200's `_writes_into_self_storage` asks a narrower one — "would a
+        write here land in the `&self` copy rather than in the caller's value"
+        — and carves out the storage a receiver merely POINTS AT, because a
+        write there does reach the caller. R4 is not about where the write
+        lands: an exclusive borrow of `self.<path>` is an exclusive borrow of
+        `self` whichever side of that carve-out the storage falls on, and a
+        place borrow charges its ROOT. So this is the access-path walk
+        (`_access_path_root`), which steps through a place use exactly as
+        `_build_access_path` does, asking only where the path bottoms out.
+        """
+        return self._access_path_root(expr) == "self"
+
+    def _note_receiver_mutation(self, what: str, line, column) -> None:
+        """SL-333 R4: this site mutates through the accessor's RECEIVER.
+
+        The receiver access an accessor REQUIRES at a call is a property of its
+        BODY, not of the window it hands out. A `&var self` accessor whose
+        shared specialization neither writes `self`, nor calls a `&var self`
+        method on it, nor re-borrows it `&var`, is SHARED-ELIGIBLE: a shared use
+        of it borrows the receiver shared, so it works on a `let` root and two
+        such windows compose. One that does any of those is EXCLUSIVE-ONLY, and
+        every use site of it — a read-only window included — borrows the
+        receiver exclusively.
+
+        The question is asked ONCE, here, by the receiver-permission funnel
+        itself rather than by a second syntactic "writes self" scan: the rule
+        that would REFUSE the construct in a `&self` body is exactly the rule
+        that classifies it here, so the two can never drift. The first
+        construct found is kept, because it is the one the diagnostic names.
+        """
+        method = getattr(self, 'current_method', None)
+        if method is None or not getattr(method, 'is_borrows', False):
+            return
+        if getattr(method, 'place_var_twin', False):
+            # The exclusive twin is only ever reached from an exclusive use
+            # site, which borrows the receiver exclusively whatever its body
+            # does. R4 is decided on the SHARED specialization.
+            return
+        if getattr(method, 'place_receiver_mutation', None) is not None:
+            return
+        method.place_receiver_mutation = f"{what} at line {line}"
 
     def _reject_shared_self_write(self, target, line, column, compound=False):
         """DF-175a: a WRITE into the receiver of a plain `&self` method.
@@ -2291,9 +2372,21 @@ class StatementsMixin:
         # diagnostic in `_check_self_replacement_assign`.
         if isinstance(target, SelfExpr):
             return False
-        if not self._writes_into_self_storage(target):
-            return False
         if getattr(self, 'current_method', None) is None:
+            return False
+        # SL-333 R4 asks a BROADER question than design 200's refusal does, and
+        # asks it first. "Does the write land in a copy the caller never sees"
+        # (`_writes_into_self_storage`, with its carve-out for storage the
+        # receiver only points at) is not "does this body take its receiver
+        # exclusively" — a write through a receiver-rooted PLACE takes it
+        # exclusively whether the element lives in the receiver's own bytes or
+        # on its heap, and the place walk is where the two questions part.
+        if self._reaches_self_storage(target):
+            if self._self_borrow_is_exclusive():
+                self._note_receiver_mutation(
+                    "a write into receiver storage", line, column)
+                return False
+        if not self._writes_into_self_storage(target):
             return False
         if self._self_borrow_is_exclusive():
             return False
@@ -2318,8 +2411,8 @@ class StatementsMixin:
                     "it exclusively (the method's own receiver is already "
                     "`&var self`)")
         return ("declare the method `&var self` to mutate through the "
-                "receiver, or `borrows -> T` to lend the place and let each "
-                "use site choose the window's flavor")
+                "receiver, or `&var self ... borrows -> &var T` to lend the "
+                "place and let each use site choose the window's flavor")
 
     def _reject_var_self_call_on_shared_self(self, expr, method_info) -> bool:
         """A `&var self` method called on `self` — or on a FIELD of it — from
@@ -2362,7 +2455,7 @@ class StatementsMixin:
         if getattr(method_info, "is_init", False):
             return False
         method = getattr(self, 'current_method', None)
-        if method is None or self._self_borrow_is_exclusive():
+        if method is None:
             return False
         # A window call the PLACE lowering synthesized is not a call anyone
         # wrote: `place_uses` picks the accessor and its flavor by the design
@@ -2373,9 +2466,25 @@ class StatementsMixin:
         # by the rule below would reject the forwarding shape by the NAME of a
         # method the source never mentions. The place window has its own
         # unclosed half of this bug — DF-176c — which wants its own ruling.
+        #
+        # SL-333 R7 reads the SAME shape for eligibility instead: a forwarded
+        # lend whose inner window borrows `self.inner` EXCLUSIVELY is a
+        # mutation through this accessor's receiver, so it is recorded below
+        # (by `_note_forwarded_receiver_borrow`, from the window's own stamp)
+        # rather than judged here.
         if getattr(expr, 'place_lowered', False):
             return False
         receiver = getattr(expr, 'object', None)
+        # SL-333 R4 first, on the broader walk (see `_reaches_self_storage`):
+        # `self.inner.plain(0).bump()` takes `self` exclusively through a place
+        # hop the design-200 walk below stops at.
+        if self._self_borrow_is_exclusive():
+            if isinstance(receiver, _SelfExpr) or self._reaches_self_storage(
+                    receiver):
+                self._note_receiver_mutation(
+                    f"the `&var self` call `{expr.method_name}`",
+                    expr.line, expr.column)
+            return False
         if isinstance(receiver, _SelfExpr):
             what = "a `&self` receiver"
         else:
@@ -3279,8 +3388,8 @@ class StatementsMixin:
                     ErrorKind.TYPE_MISMATCH,
                     f"`{name}` does not lend a place, so it cannot be assigned to",
                     stmt.line, stmt.column,
-                    hint="declare it `borrows -> T` to lend storage the caller "
-                         "may write through")
+                    hint="declare it `borrows -> &var T` to lend storage the "
+                         "caller may write through")
             return
         if isinstance(target, ForceUnwrap) and not getattr(
                 subject, 'place_optional', False):
@@ -3369,6 +3478,8 @@ class StatementsMixin:
                            "replace `self`")
             )
             return
+        self._note_receiver_mutation("the `self = …` replacement",
+                                     stmt.line, stmt.column)
         self_info = self.current_scope.lookup("self")
         referent = self_info.type if self_info is not None else None
         self._check_replacement_rhs(stmt, referent)

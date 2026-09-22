@@ -31,8 +31,8 @@ a checker's back-reference and judge it twice.
 
 from ast_nodes import (
     ASTNode, Argument, BindingPattern, Block, EnumPattern, ExpressionStatement,
-    ForLoop, GuardLetStatement, IfExpr, IfLetExpr, MatchExpr, TryCatchExpr,
-    TryExpr, TuplePattern, WhileExpr,
+    ForLoop, GuardLetStatement, IfExpr, IfLetExpr, MatchExpr, ScopedBlock,
+    TryCatchExpr, TryExpr, TuplePattern, WhileExpr,
     structural_fields,
 )
 
@@ -130,7 +130,7 @@ CONTAINER_KINDS = (
     "IfExpr (then/else)", "IfLetExpr (then/else)", "WhileExpr (body)",
     "ForLoop (body)", "MatchExpr (block-bodied arms)",
     "GuardLetStatement (else)", "TryCatchExpr (try/catch)",
-    "TryExpr (inline catch)",
+    "TryExpr (inline catch)", "ScopedBlock (block)",
 )
 
 
@@ -156,6 +156,8 @@ def control_blocks(stmt):
                    if isinstance(arm.body, Block))
     elif isinstance(ctrl, GuardLetStatement):
         out.append(ctrl.else_branch)
+    elif isinstance(ctrl, ScopedBlock):
+        out.append(ctrl.block)
     elif isinstance(ctrl, TryCatchExpr):
         out.append(ctrl.try_block)
         out.append(ctrl.catch_block)

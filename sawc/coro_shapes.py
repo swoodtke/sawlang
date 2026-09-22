@@ -56,8 +56,8 @@ from typing import NamedTuple, Optional
 
 from ast_nodes import (ClosureExpr, ExpressionStatement, ForLoop,
                        GuardLetStatement, IfExpr, IfLetExpr, LetStatement,
-                       MatchExpr, ReturnStatement, TryCatchExpr, TryExpr,
-                       WhileExpr)
+                       MatchExpr, ReturnStatement, ScopedBlock, TryCatchExpr,
+                       TryExpr, WhileExpr)
 
 
 # --------------------------------------------------------------------------- #
@@ -120,6 +120,14 @@ CONTAINERS = {
     WhileExpr: ShapeRow("WhileExpr", "body", SPLIT, "_split_while"),
     ForLoop: ShapeRow("ForLoop", "body", SPLIT, "_split_for"),
     MatchExpr: ShapeRow("MatchExpr", "arms[].body", SPLIT, "_split_match"),
+    # SL-333: the `#lend_var` fold's selected branch. One block, always
+    # entered, so the split is the simplest of the set — no condition to
+    # evaluate, no branch, no merge. It carries a row because it OWNS A BLOCK
+    # and the enumeration is total; a `borrows` body is `sync` (design 141's
+    # v1 fence), so no suspension can sit in one today and the splitter is the
+    # shape table's answer rather than a path the corpus walks.
+    ScopedBlock: ShapeRow("ScopedBlock", "block", SPLIT,
+                          "_split_scoped_block"),
     TryCatchExpr: ShapeRow("TryCatchExpr", "try_block/catch_block", SPLIT,
                            "_split_try_catch", guard="_is_split",
                            unguarded="a `try { } catch { }` that neither spans "

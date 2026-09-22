@@ -1579,7 +1579,7 @@ extension JsonValue {
     /// projection, not a `match self { case ... (items) -> }` binding; see
     /// this unit's landing report for the repro). `as_array()` plus
     /// `Vector`'s own subscript is the working spelling.
-    public func as_array(&self) borrows -> Vector<JsonValue>? {
+    public func as_array(&var self) borrows -> &var Vector<JsonValue>? {
         match self {
             case Array(items) -> { lend items },
             case _ -> { return None }
@@ -1595,7 +1595,7 @@ extension JsonValue {
     /// hits the identical "cannot open an exclusive place window" error, so
     /// this is NOT about `Map`'s subscript being conditional (`Vector`'s
     /// unconditional one hits it too).
-    public func as_object(&self) borrows -> Map<String, JsonValue>? {
+    public func as_object(&var self) borrows -> &var Map<String, JsonValue>? {
         match self {
             case Object(fields) -> { lend fields },
             case _ -> { return None }

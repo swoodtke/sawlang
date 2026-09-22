@@ -19,11 +19,11 @@ struct Counter {
 }
 
 extension Counter {
-    func pick(&self, fallback: Int) borrows -> Int {
+    func pick(&self, fallback: Int) borrows -> &Int {
         lend fallback
     }
 
-    func relay(&self, other: &var Int) borrows -> Int {
+    func relay(&self, other: &var Int) borrows -> &Int {
         lend other
     }
 }

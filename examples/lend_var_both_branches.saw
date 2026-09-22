@@ -31,7 +31,7 @@ extension Grid {
         print("shared path")
     }
 
-    public func [](&self, i: Int) borrows -> Int {
+    public func [](&var self, i: Int) borrows -> &var Int {
         if i < 0 || i >= 4 {
             panic("Grid.[]: index out of range")
         }

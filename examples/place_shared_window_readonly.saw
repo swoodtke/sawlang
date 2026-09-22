@@ -36,14 +36,14 @@ struct Row { cells: [Cell; 2] }
 struct Bag { rows: [Row; 2] }
 
 extension Row {
-    public func [](&self, i: Int) borrows -> Cell {
+    public func [](&var self, i: Int) borrows -> &var Cell {
         if i < 0 || i >= 2 { panic("Row.[]: index out of range") }
         lend self.cells[i]
     }
 }
 
 extension Bag {
-    public func [](&self, i: Int) borrows -> Row {
+    public func [](&var self, i: Int) borrows -> &var Row {
         if i < 0 || i >= 2 { panic("Bag.[]: index out of range") }
         lend self.rows[i]
     }

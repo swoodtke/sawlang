@@ -48,7 +48,7 @@ struct Slotted { cells: Vector<Int> }
 extension Slotted: NoCopy {}
 
 extension Slotted {
-    public func slot(&self, i: Int) borrows -> Int {
+    public func slot(&var self, i: Int) borrows -> &var Int {
         if i < 0 || i >= self.cells.len() { panic("Slotted.slot: out of range") }
         lend self.cells[i]
     }

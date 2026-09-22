@@ -90,7 +90,7 @@ annotations already stamped on it, which is what lets the identity walk in
 and had to be kept in step by hand).
 """
 
-from typing import Dict, FrozenSet, Optional, Type
+from typing import Callable, Dict, FrozenSet, Optional, Type
 
 from ast_nodes import (
     ArrayIndex, ArrayLiteral, BinaryOp, BindOptional, BoolLiteral, CastExpr,
@@ -99,9 +99,10 @@ from ast_nodes import (
     IfLetExpr, IntLiteral, LendVarLiteral, MapLiteral, MatchExpr, MemberAccess,
     MethodCall, MoveExpr, NilCoalesce, NoneLiteral, OptionalChain,
     OptionalChainAssign, OptionalEvalExpr, OptionalWrap, RangeExpr,
-    ReferenceExpr, ResultErrWrap, ResultOkWrap, SelfExpr, SetLiteral,
-    SourceLocationLiteral, StringInterpolation, StringLiteral, StructInit,
-    TryCatchExpr, TryExpr, TupleIndex, TupleLiteral, UnaryOp, WhileExpr,
+    ReferenceExpr, ResultErrWrap, ResultOkWrap, ScopedBlock, SelfExpr,
+    SetLiteral, SourceLocationLiteral, StringInterpolation, StringLiteral,
+    StructInit, TryCatchExpr, TryExpr, TupleIndex, TupleLiteral, UnaryOp,
+    WhileExpr,
 )
 
 
@@ -172,16 +173,58 @@ PRODUCER_REWRAPS: Dict[Type[Expression], str] = {
     ErasedErrWrap: 'value',
 }
 
-#: Nodes whose value is one of several arm results (DF-299b). Design 195 rule 2
-#: already says each arm of one of these is a transfer into one merged home;
-#: this is that sentence's ownership half.
-PRODUCER_BRANCHES: FrozenSet[Type[Expression]] = frozenset({
-    IfExpr,
-    IfLetExpr,
-    MatchExpr,
-    TryExpr,           # the CATCH handler only; the Ok value PROJECTS
-    TryCatchExpr,
-})
+#: Nodes whose value is one of several arm results (DF-299b), AND WHERE THOSE
+#: ARMS ARE. Design 195 rule 2 already says each arm of one of these is a
+#: transfer into one merged home; this is that sentence's ownership half.
+#:
+#: ONE TABLE, TWO QUESTIONS, BECAUSE THEY ARE ONE FACT. Classifying a node as
+#: BRANCHES and knowing which blocks carry its arm results were two
+#: enumerations of the same shape set — this set here, and a hand-written
+#: `isinstance` chain in `types.py::_value_branch_arm_results` — and SL-333's
+#: `ScopedBlock` was added to the first and not the second. The taxonomy then
+#: said "judge each arm" while the consumer answered `None`, so the transfer
+#: checkpoint never reached the tail and a `NoCopy` binding yielded from a
+#: selected `#lend_var` branch was copied silently (codex, SL-333.p1 r4). Both
+#: gates stayed green throughout: `producertaxonomy` establishes that every
+#: value-position node is CLASSIFIED and `transferdecisions` that every
+#: decision reached is RECORDED, and neither is a claim that a given tail is
+#: judged. Membership is DERIVED from this table below, so a new branching form
+#: cannot be classified without saying where its arms live.
+#:
+#: Each entry maps the class to a function from the node to the blocks (or bare
+#: expressions) whose results it forwards, or to `None` where this node is not
+#: acting as a branch at all.
+BRANCH_ARM_SOURCES: Dict[Type[Expression], Callable] = {
+    IfExpr: lambda e: [e.then_branch, e.else_branch],
+    IfLetExpr: lambda e: [e.then_branch, e.else_branch],
+    MatchExpr: lambda e: [arm.body for arm in e.arms],
+    # The CATCH handler only. A `try` is the one node in TWO producer buckets
+    # (design 269): its catch handler is a branch ARM and its Ok value PROJECTS
+    # out of the subject's storage, so the two are judged by two different
+    # rules. `None` here means "not branching" — a `try` with no catch.
+    TryExpr: lambda e: ([e.catch_block] if e.catch_block is not None else None),
+    TryCatchExpr: lambda e: [e.try_block, e.catch_block],
+    # SL-333: the `#lend_var` fold's selected branch — ONE arm, which is the
+    # degenerate case of this bucket rather than a sixth kind. Its value is
+    # its block's tail, and the transfer is judged where that tail is written,
+    # which is exactly the answer the `if` branch it was folded out of already
+    # gave.
+    ScopedBlock: lambda e: [e.block],
+}
+
+PRODUCER_BRANCHES: FrozenSet[Type[Expression]] = frozenset(BRANCH_ARM_SOURCES)
+
+
+def branch_arm_sources(expr: Expression):
+    """The blocks whose results this value-branch node forwards, or None.
+
+    THE ONE ANSWER, read by `types.py::_value_branch_arm_results` (which peels
+    the auto-wraps and hands the checkpoint each arm result) and by nothing
+    else. `None` means the node is not a value branch here — either it is not
+    in the taxonomy at all, or it is a `try` with no catch handler.
+    """
+    source = BRANCH_ARM_SOURCES.get(type(expr))
+    return None if source is None else source(expr)
 
 #: Nodes the checkpoint answers ahead of the producer question, because they
 #: STATE the ownership answer instead of producing a value.

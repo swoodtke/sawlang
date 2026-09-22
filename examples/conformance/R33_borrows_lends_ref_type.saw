@@ -1,10 +1,27 @@
-// Conformance row R33 — `borrows -> &Int` (a place whose type is a reference)
+// Conformance row R33 — a reference type in a RETURN position is legal iff the
+// declaration is `borrows` (SL-333 R5)
 //
-// A `borrows` accessor lends a PLACE, and the arrow names the place's type.
-// Naming a reference there would hand a pointer out of the window.
+// A `borrows` accessor lends a PLACE, and since SL-333 the arrow NAMES that
+// place as the reference it is: `-> &T` for a read-only lend, `-> &var T` for
+// one a use site may write through. That is not an escaping pointer — the
+// window's extent is an expression, and the accessor is still on the stack for
+// all of it. Every other return position keeps the design-163a refusal: the
+// pointer would outlive the frame that made it.
+//
+// One rule, two sides, checked here together.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: may not return a reference
+// EXPECT-ERROR-CONTAINS: `plain` may not return a reference
 
 struct C { n: Int }
-extension C { func slot(&self) borrows -> &Int { lend self.n } }
+
+extension C {
+    // Legal: the lend names its own mode.
+    func slot(&self) borrows -> &Int { lend self.n }
+    func writable(&var self) borrows -> &var Int { lend self.n }
+
+    // Refused: an ordinary method handing a pointer back out of the call.
+    func plain(&self) -> &Int { &self.n }
+}
+
 func main() { print(1) }

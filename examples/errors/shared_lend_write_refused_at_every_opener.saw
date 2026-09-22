@@ -1,0 +1,57 @@
+// SL-333 R1, the refused half of conformance row K123's matrix: a write through
+// a `borrows -> &T` lend is refused at EVERY window opener that can write.
+//
+// The declaration states the maximum mode of the window it hands out; the use
+// site narrows within it and may never widen. `place_uses._window_call` is the
+// one chokepoint every window goes through, so the refusal is stated once and
+// reaches all of them — this file is the proof, one write per entry of that
+// funnel, not the one entry the rule was first written for.
+//
+//   subscript write        `v[0] = 1`         (entry: `_assignment`)
+//   named-accessor write   `v.at(0) = 1`      (entry: `_assignment`)
+//   compound through a chain `v.at(1).n += 1` (entry: `_assignment`)
+//   `?.` chain assignment  `v.pair(0)?.n = 1` (entry: `_chain_assign_window`)
+//   `!` head write         `v.pair(0)!.n = 1` (entry: `_assignment`)
+//   `&var` argument        `bump(&var v[0])`  (entry: `_span_call`)
+//   forwarded `lend`       inside an exclusive specialization (entry:
+//                          `_span_call`, R7 — see
+//                          `forwarded_lend_cannot_upgrade_an_inner_shared_lend.saw`)
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot write through `v[…]`: `View.[]` is declared `borrows -> &Int`, which lends the place READ-ONLY
+// EXPECT-ERROR-CONTAINS: cannot write through `v.at(…)`: `View.at` is declared `borrows -> &Cell`
+// EXPECT-ERROR-CONTAINS: cannot write through `v.pair(…)`: `View.pair` is declared `borrows -> &Cell?`
+// EXPECT-ERROR-CONTAINS: declare the accessor `borrows -> &var Int` to let a use site write through the place it lends
+
+struct Cell { n: Int }
+
+struct View { cells: [Int; 4], rows: [Cell; 2] }
+
+extension View {
+    public func [](&self, i: Int) borrows -> &Int {
+        if i < 0 || i >= 4 { panic("View.[]: index out of range") }
+        lend self.cells[i]
+    }
+
+    public func at(&self, i: Int) borrows -> &Cell {
+        if i < 0 || i >= 2 { panic("View.at: index out of range") }
+        lend self.rows[i]
+    }
+
+    public func pair(&self, i: Int) borrows -> &Cell? {
+        if i < 0 || i >= 2 { return None }
+        lend self.rows[i]
+    }
+}
+
+func bump(n: &var Int) { n = n + 1 }
+
+func main() {
+    var v = View(cells: [1, 2, 3, 4], rows: [Cell(n: 5), Cell(n: 6)])
+    v[0] = 9                    // subscript write
+    v.at(0).n = 9               // named-accessor write, through a field
+    v.at(1).n += 1              // compound through a chain
+    v.pair(0)?.n = 9            // `?.` chain assignment
+    v.pair(1)!.n = 9            // `!` head write
+    bump(&var v[1])             // `&var` reference argument
+}

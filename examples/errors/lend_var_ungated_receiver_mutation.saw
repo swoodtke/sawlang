@@ -1,24 +1,26 @@
-// Design 179, the semantics of the SHARED specialization: it is checked as a
-// genuinely non-mutating `&self` body, and `#lend_var` buys no exemption from
-// that — it only decides which code is IN the body.
+// Design 179's fold, re-keyed by SL-333 R4: a receiver mutation the SHARED
+// specialization keeps costs EXCLUSIVITY at every use site, and the refusal
+// lands where a caller can act on it.
 //
 // The mutation here sits under `not #lend_var`, so it is pruned out of the
-// exclusive copy and KEPT in the shared one, which is where a receiver mutation
-// is a hard error. That is also the sharpest test of the fold: get the negation
-// wrong and this file compiles, and a pure read through a `let` root silently
-// mutates it (in a borrows body the receiver travels by pointer, so the write
-// lands rather than vanishing).
-//
-// The hint names `#lend_var` because in an accessor it is usually the answer.
+// exclusive copy and KEPT in the shared one. That is still the sharpest test of
+// the fold — get the negation wrong and the shared body is clean, `let frozen`
+// compiles, and a pure read silently mutates it (in a borrows body the receiver
+// travels by pointer, so the write lands rather than vanishing). What changed
+// is WHERE it is caught: R2 lets a `&var self` accessor mutate its own
+// bookkeeping, R4 records that the shared specialization does, and every use
+// site — a read-only window included — then borrows the receiver exclusively.
+// A `let` root is refused by name, with the mutating line quoted.
 // EXPECT: error
-// EXPECT-ERROR-CONTAINS: cannot call `&var self` method `run_gate` on a `&self` receiver
+// EXPECT-ERROR-CONTAINS: cannot read through the place window `[]` opens on immutable variable `frozen`
+// EXPECT-ERROR-CONTAINS: the `&var self` call `run_gate`
 
 struct Grid { cells: [Int; 4], gates: Int }
 
 extension Grid {
     func run_gate(&var self) { self.gates = self.gates + 1 }
 
-    public func [](&self, i: Int) borrows -> Int {
+    public func [](&var self, i: Int) borrows -> &var Int {
         if i < 0 || i >= 4 { panic("Grid.[]: index out of range") }
         if not #lend_var {
             self.run_gate()

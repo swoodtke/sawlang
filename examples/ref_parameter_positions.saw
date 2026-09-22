@@ -26,7 +26,7 @@ struct Bin { c: Cell, v: Vector<Int> }
 extension Bin: NoCopy {}
 
 extension Bin {
-    func slot(&self) borrows -> Cell { lend self.c }
+    func slot(&var self) borrows -> &var Cell { lend self.c }
 }
 
 extension Cell {

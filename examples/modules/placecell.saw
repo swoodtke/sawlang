@@ -20,12 +20,12 @@ extension Bag {
     }
 
     // The unconditional lend.
-    public func at(&self, index: Int) borrows -> Cell {
+    public func at(&var self, index: Int) borrows -> &var Cell {
         lend self.cells[index]
     }
 
     // …and the conditional one, whose absent path opens no window.
-    public func maybe(&self, index: Int) borrows -> Cell? {
+    public func maybe(&var self, index: Int) borrows -> &var Cell? {
         if index < self.cells.len() {
             lend self.cells[index]
         } else {

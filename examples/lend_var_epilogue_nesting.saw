@@ -36,7 +36,7 @@ extension Row {
         self.closes = self.closes + 1
     }
 
-    public func [](&self, i: Int) borrows -> Cell {
+    public func [](&var self, i: Int) borrows -> &var Cell {
         if i < 0 || i >= 2 {
             panic("Row.[]: index out of range")
         }
@@ -70,7 +70,7 @@ extension Grid {
         self.closes = self.closes + 1
     }
 
-    public func [](&self, i: Int) borrows -> Row {
+    public func [](&var self, i: Int) borrows -> &var Row {
         if i < 0 || i >= 2 {
             panic("Grid.[]: index out of range")
         }

@@ -58,7 +58,7 @@ extension Bin {
 struct Bag { slot: Bin }
 extension Bag: NoCopy {}
 extension Bag {
-    func at(&self) borrows -> Bin { lend self.slot }
+    func at(&var self) borrows -> &var Bin { lend self.slot }
 }
 
 // A conditional lend. Its payload is trivially copyable so the ABSENT path is
@@ -70,7 +70,7 @@ extension Counter {
 }
 struct Ledger { c: Counter }
 extension Ledger {
-    func at(&var self, i: Int) borrows -> Counter? {
+    func at(&var self, i: Int) borrows -> &var Counter? {
         if i != 0 { return None }
         lend self.c
     }
@@ -177,7 +177,7 @@ extension DeepBin {
 struct DeepBag { slot: DeepBin }
 extension DeepBag: NoCopy {}
 extension DeepBag {
-    func at(&self) borrows -> DeepBin { lend self.slot }
+    func at(&var self) borrows -> &var DeepBin { lend self.slot }
 }
 
 struct ShallowBin { held: Vector<Shallow> }
@@ -189,7 +189,7 @@ extension ShallowBin {
 struct ShallowBag { slot: ShallowBin }
 extension ShallowBag: NoCopy {}
 extension ShallowBag {
-    func at(&self) borrows -> ShallowBin { lend self.slot }
+    func at(&var self) borrows -> &var ShallowBin { lend self.slot }
 }
 
 func explicit_tier_row() {

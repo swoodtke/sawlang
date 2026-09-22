@@ -29,7 +29,7 @@ struct Bag {
 
 extension Bag {
     /// The element at `i` if it exists -- an optional place.
-    public func get(&self, i: Int) borrows -> Cell? {
+    public func get(&var self, i: Int) borrows -> &var Cell? {
         if i < 0 || i >= 3 {
             return None
         }
@@ -39,7 +39,7 @@ extension Bag {
     /// An optional place with an EPILOGUE. It runs only on the path that
     /// actually lent: the absent path never opens a window, so it never closes
     /// one either.
-    public func tracked(&var self, i: Int) borrows -> Cell? {
+    public func tracked(&var self, i: Int) borrows -> &var Cell? {
         if i < 0 || i >= 3 {
             return None
         }

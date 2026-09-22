@@ -2,13 +2,14 @@
 
 `lend` is a SUSPENSION, not a return. A `borrows` function runs to its `lend`,
 PAUSES there with its frame alive while the caller's window code runs, and then
-RESUMES through whatever follows — the epilogue — before it finishes. `-> T`
-names the type of the place it lends, not the type of a returned value.
+RESUMES through whatever follows — the epilogue — before it finishes.
+`-> &var T` / `-> &T` names the reference the window binds and the MAXIMUM mode
+a use site may open it at (SL-333 R1), not the type of a returned value.
 
 That is exactly the shape of a scoped-borrow callback, so that is what a
 borrows declaration lowers to:
 
-    func [](&self, i: Int) borrows -> T {         func [](&self, i: Int,
+    func [](&var self, i: Int) borrows -> &var T { func [](&var self, i: Int,
         if i < 0 || i >= self.length {                    __window: (&var T) sync -> __R
             panic("...")                     =>          ) sync -> __R {
         }                                         if i < 0 || i >= self.length {
@@ -18,7 +19,7 @@ borrows declaration lowers to:
                                               }
 
 so the common case emits exactly what `with_ref` emits today: one direct call,
-one stack frame, nothing dynamic. A conditional lend (`borrows -> T?`) takes a
+one stack frame, nothing dynamic. A conditional lend (`borrows -> &var T?`) takes a
 second closure for the absent path, so `return None` becomes `return
 __absent()` and the window simply never opens.
 
@@ -64,27 +65,37 @@ scrutinee is read out as a VALUE, which is exactly what lending an enum payload
 exists to avoid. An epilogue keeps the tail form too: the sequence simply ends
 in `__wr` instead of returning it.
 
-**`#lend_var`: one authored accessor, two specializations** (design 179). The
-body cannot see which window flavor is coming, but the COMPILER can — every use
-site's flavor is static. A body that names the constant is therefore emitted
+**One authored accessor, two specializations** (design 179, re-keyed by SL-333
+R6). The body cannot see which window flavor is coming, but the COMPILER can —
+every use site's flavor is static. A WRITABLE accessor (`-> &var T`, which is
+exactly the declaration a use site may open either way) is therefore emitted
 TWICE, here, before the checker runs:
 
-    func [](&self, i) borrows -> UInt8 {          func [](&self, i) borrows -> UInt8 {
+    func [](&var self, i) borrows -> &var UInt8 { func [](&var self, i) borrows -> &UInt8 {
         if #lend_var {                     =>        <bounds check>
             self.separate_if_shared()                lend ...
         }                                        }
-        <bounds check>                           func __lend_var_[](&var self, i) borrows -> UInt8 {
+        <bounds check>                           func __lend_var_[](&var self, i) borrows -> &var UInt8 {
         lend ...                                     self.separate_if_shared()
     }                                                <bounds check>
                                                      lend ...
                                                  }
 
-The authored declaration keeps `&self` and folds the constant FALSE, so the
-gate is gone from the tree before anything checks it and the copy is an
-honestly non-mutating `&self` body a `let` root may call. The twin takes
-`&var self`, folds TRUE, and keeps the gate; `place_uses` retargets an
-exclusive use site at it, and the re-check that already follows the use-site
-lowering checks the retarget like any other call.
+The authored declaration IS the shared specialization: it folds `#lend_var`
+FALSE, so whatever the constant gated is gone from the tree before anything
+checks it, and it lends `&T`. The twin folds TRUE, keeps the gate, and lends
+`&var T`; `place_uses` retargets an exclusive use site at it, and the re-check
+that already follows the use-site lowering checks the retarget like any other
+call. A `-> &T` accessor opens shared windows only, so it compiles ONCE and
+`#lend_var` in one is the always-constant error design 179 gave for the
+receiver spelling it used to key on.
+
+The split is what makes SL-333 R4 and R7 answerable. R4 asks whether the
+accessor mutates its receiver OUTSIDE the lent place, and asks it of the SHARED
+body — so a copy-on-write gate folded out of that copy does not make an
+ordinary read demand an exclusive receiver. R7 asks what mode a FORWARDED lend
+(`lend self.inner[i]`) reaches the inner accessor at, and the answer is the
+specialization's own: shared forwards shared.
 
 Nothing here needs a per-specialization checking mode, because the
 specialization set is {shared, exclusive} — fixed, and known with no caller
@@ -110,7 +121,8 @@ from ast_nodes import (
     FunctionCall, GuardLetStatement, Identifier, IfExpr, IfLetExpr,
     LendStatement, LendVarLiteral, LetStatement, MatchExpr, MemberAccess,
     MethodCall, NoneLiteral, Parameter, Program, ReferenceExpr, ReturnStatement,
-    SawType, SelfExpr, TupleIndex, TypeKind, TypeParameter, UnaryOp, WhileExpr,
+    SawType, ScopedBlock, SelfExpr, TupleIndex, TypeKind, TypeParameter,
+    UnaryOp, WhileExpr,
     structural_fields,
 )
 from errors import ErrorKind
@@ -161,6 +173,8 @@ class _PlaceTransform:
         self.source_file = source_file
         self.changed = False
         self._epilogue_counter = 0
+        # The mode the specialization currently being lowered lends at (SL-333).
+        self._lend_mutable = False
 
     # -- traversal ---------------------------------------------------------
 
@@ -171,20 +185,25 @@ class _PlaceTransform:
                     self._error(
                         func,
                         "`#lend_var` chooses between a SHARED and an EXCLUSIVE "
-                        "receiver, so it belongs in an accessor that has one. "
-                        "A free `borrows` function has no receiver to borrow "
-                        "either way")
+                        "window, so it belongs in an accessor that can open "
+                        "both. A free `borrows` function has no receiver to "
+                        "lend out of at all")
                     _fold_lend_var(func.body, False)
-                self._lower(func, is_method=False)
+                sig = self._signature(func)
+                if sig is not None:
+                    self._lower(func, sig, is_method=False)
         for ext in getattr(program, 'extensions', []) or []:
             twins = []
             for method in list(getattr(ext, 'methods', []) or []):
                 if not getattr(method, 'is_borrows', False):
                     continue
-                twin = self._specialize(method)
-                self._lower(method, is_method=True)
+                sig = self._signature(method)
+                if sig is None:
+                    continue          # reported; left un-lowered on purpose
+                twin = self._specialize(method, sig)
+                self._lower(method, sig, is_method=True)
                 if twin is not None:
-                    self._lower(twin, is_method=True)
+                    self._lower(twin, sig, is_method=True)
                     twins.append(twin)
             if twins:
                 ext.methods.extend(twins)
@@ -194,25 +213,80 @@ class _PlaceTransform:
             if body is not None:
                 self.run(body)
 
-    # -- `#lend_var`: the two specializations (design 179) ------------------
+    # -- the signature: what is lent, and in which mode (SL-333 R1/R2/R5) ---
 
-    def _specialize(self, decl):
-        """Fold `#lend_var` and hand back the exclusive twin, or None.
+    def _signature(self, decl):
+        """`(lent type, optional?, declared maximum mode)`, or None after
+        reporting a malformed `borrows ->` clause.
 
-        An accessor whose body never names the constant compiles ONCE, exactly
-        as it did before — this returns None and nothing else happens, so the
-        unflavored majority pays no code-size tax by construction.
+        SL-333 R1: the clause names the LENT REFERENCE and its MODE. `-> &var T`
+        is the accessor that may be written through, so a use site opens either
+        flavor; `-> &T` is the read-only lend, and a write through one is
+        refused at the use site. `?` rides the lent type and is the LEND's own
+        presence, exactly as it was for the bare spelling: `-> &var T?` is the
+        conditional lend of a writable place.
 
-        One that DOES name it compiles TWICE:
+        The bare `-> T` is an ERROR with a fixit rather than a second accepted
+        spelling: a reader would have no way to tell a read-only lend from a
+        writable one, which is the whole of what R1 buys.
+        """
+        declared = decl.return_type
+        if declared is None or declared.kind == TypeKind.VOID:
+            self._error(decl,
+                        "a `borrows` declaration must name the place it lends "
+                        "— write `borrows -> &T` for a lend a use site may only "
+                        "read, or `borrows -> &var T` for one it may also write "
+                        "through. There is no such thing as a window onto "
+                        "nothing")
+            return None
+        if declared.kind != TypeKind.REFERENCE:
+            self._error(
+                decl,
+                f"a `borrows` declaration names the LENT REFERENCE and its "
+                f"mode, not a returned value: write `borrows -> &{declared}` if "
+                f"a use site may only READ through the place, or `borrows -> "
+                f"&var {declared}` if it may also WRITE through it. "
+                f"`borrows -> {declared}` says neither")
+            return None
+        mutable = bool(declared.reference_mutable)
+        lent = declared.inner_type
+        if lent is None:
+            self._error(decl, "a `borrows -> &T` declaration must name `T`")
+            return None
+        place_optional = lent.kind == TypeKind.OPTIONAL
+        if place_optional:
+            lent = lent.inner_type
+            if lent is None:
+                self._error(decl,
+                            "a `borrows -> &T?` declaration must name `T`")
+                return None
+        return (lent, place_optional, mutable)
 
-          * the authored declaration keeps its `&self` receiver and is folded
-            with the constant FALSE. Whatever the constant gated is gone from
-            the tree before the checker sees it, so the copy is checked as an
-            ordinary non-mutating `&self` body by machinery that needs to know
-            nothing about any of this — and a `let` root can call it;
-          * a synthesized sibling under a reserved name takes `&var self` and is
-            folded TRUE, keeping the gate. `place_uses` retargets an exclusive
-            use site at it, and pass 2 re-checks the retarget honestly.
+    # -- the two specializations (design 179, re-keyed by SL-333 R6) --------
+
+    def _specialize(self, decl, sig):
+        """Hand back the exclusive twin of a writable accessor, or None.
+
+        THE SPLIT KEY IS THE DECLARED MODE (SL-333 R6), not the receiver
+        spelling design 179 keyed it on and not the presence of `#lend_var`.
+        `-> &var T` is precisely the declaration that can be used BOTH ways, so
+        it is precisely the one whose body has two flavors to be compiled for:
+
+          * the AUTHORED declaration is the SHARED specialization. `#lend_var`
+            folds FALSE in it and whatever the constant gated is REMOVED from
+            the tree, so a copy-on-write gate is not there to be checked, is not
+            there to run, and — R4 — is not there to make an ordinary read
+            demand an exclusive receiver. Its `lend` hands `__window` a `&T`,
+            so a forwarded lend reaches the inner accessor SHARED (R7);
+          * a synthesized sibling under a reserved name is the EXCLUSIVE one:
+            same body folded TRUE, gate kept, `lend` handing over `&var T`.
+            `place_uses` retargets an exclusive use site at it, and pass 2
+            re-checks the retarget honestly.
+
+        `-> &T` opens shared windows only, so it has ONE specialization and
+        `#lend_var` decides nothing in it — which is the design-179 rule about
+        an always-constant gate, re-keyed from the receiver spelling onto the
+        mode, since the mode is now what says how a use site may borrow.
 
         The specialization set is fixed at {shared, exclusive} and known with no
         caller information at all — unlike a const generic, whose set is
@@ -220,22 +294,32 @@ class _PlaceTransform:
         duplication in a pass that already runs before the type checker rather
         than a per-specialization checking mode the checker does not have.
         """
-        if not _mentions_lend_var(decl.body):
-            return None
-        if getattr(decl, 'self_mutable', False):
-            # In a `&var self` accessor every use site is already exclusive, so
-            # the constant is always true and the branch always live. A silently
-            # always-true constant reads as a live decision, which would mislead
-            # every later reader of the body.
-            self._error(
-                decl,
-                "`#lend_var` is always true in a `&var self` accessor — every "
-                "use site of one already borrows the receiver exclusively, so "
-                "there is only one specialization and the constant decides "
-                "nothing. Declare the receiver `&self` to get both")
-            _fold_lend_var(decl.body, True)
+        _lent, _optional, mutable = sig
+        if not mutable:
+            if _mentions_lend_var(decl.body):
+                self._error(
+                    decl,
+                    "`#lend_var` is always false in a `borrows -> &T` accessor "
+                    "— a read-only lend opens shared windows only, so there is "
+                    "one specialization and the constant decides nothing. "
+                    "Declare the place `borrows -> &var T` to get both")
+                _fold_lend_var(decl.body, False)
             return None
         twin = copy.deepcopy(decl)
+        # The twin is a SIBLING TEMPLATE, not a descendant of the authored one.
+        # `ASTNode.__deepcopy__` stamps `origin_node_id` because its other two
+        # callers — monomorphization and trait-default synthesis — produce
+        # SPECIALIZATIONS, and design 270's audit hops back along that stamp to
+        # check that a clone resolved what its template deferred. This copy
+        # resolves nothing: it is the same generic body compiled for the other
+        # window flavor, so its own abstract deferrals are a template's and
+        # belong to it. Leaving the stamp on made every mono instance of a
+        # GENERIC accessor's twin look like a specialization that had inherited
+        # its template's deferral (`Map.__lend_var_[]`, the `transferdecisions`
+        # lane). Clearing it puts the twin in the universe as what it is — a
+        # template whose own instances hop back to IT.
+        for node in _walk(twin):
+            node.origin_node_id = None
         twin.name = var_twin_name(decl.name)
         twin.self_mutable = True
         twin.place_var_twin = True
@@ -247,22 +331,36 @@ class _PlaceTransform:
 
     # -- lowering ----------------------------------------------------------
 
-    def _lower(self, decl, is_method: bool) -> None:
-        declared = decl.return_type
-        place_optional = declared is not None and declared.kind == TypeKind.OPTIONAL
-        if declared is None or declared.kind == TypeKind.VOID:
-            self._error(decl,
-                        "a `borrows` declaration must name the place it lends "
-                        "— write `borrows -> T`. There is no such thing as a "
-                        "window onto nothing")
-            return
-        inner = declared.inner_type if place_optional else declared
-        if inner is None:
-            self._error(decl, "a `borrows -> T?` declaration must name `T`")
-            return
+    def _lower(self, decl, sig, is_method: bool) -> None:
+        lent, place_optional, declared_mutable = sig
+        inner = lent
 
         if is_method and not self._validate_receiver(decl):
             return
+
+        # R2: the RECEIVER MODE BOUNDS the return mode. An exclusive place
+        # cannot be projected out of a shared receiver — design 106's
+        # no-upgrade rule, one position over.
+        if (declared_mutable and is_method
+                and not getattr(decl, 'self_mutable', False)):
+            self._error(
+                decl,
+                f"`borrows -> &var {inner}` lends a place a use site may WRITE "
+                f"through, and an exclusive place cannot be projected out of a "
+                f"shared receiver — declare the accessor `&var self`. (A `&self` "
+                f"accessor may still lend read-only: `borrows -> &{inner}`.)")
+            return
+
+        # THIS specialization's own mode. The shared copy of a writable
+        # accessor lends `&T` and the exclusive twin lends `&var T`; an accessor
+        # that compiles once lends at its declared mode.
+        if getattr(decl, 'place_var_twin', False):
+            lend_mutable = True
+        elif getattr(decl, 'place_lend_var', False):
+            lend_mutable = False
+        else:
+            lend_mutable = declared_mutable
+        self._lend_mutable = lend_mutable
 
         if not self._validate(decl, place_optional):
             return
@@ -270,14 +368,17 @@ class _PlaceTransform:
         result_ty = SawType(TypeKind.TYPE_PARAM,
                             type_param_name=RESULT_TYPE_PARAM)
 
-        # `__window` receives the place as `&var T` whatever the use site does
-        # with it. Shared-versus-exclusive is a property of the USE SITE, not of
-        # the declaration — one body serves both flavors — and it is settled by
-        # the Law of Exclusivity where the window opens, not by this signature.
+        # `__window` receives the place at THIS SPECIALIZATION's mode (SL-333
+        # R1/R3). The shared copy of a writable accessor hands out a `&T`, so
+        # nothing inside a shared window can write through it and a forwarded
+        # lend reaches the inner accessor shared; the exclusive twin hands out a
+        # `&var T`. An accessor that compiles once hands out its declared mode,
+        # and a shared use site of a writable one narrows the BINDING to `&T`
+        # where the closure is bound (DF-175b).
         window_ty = SawType(
             TypeKind.FUNCTION,
             param_types=[SawType(TypeKind.REFERENCE, inner_type=inner,
-                                 reference_mutable=True)],
+                                 reference_mutable=lend_mutable)],
             func_return_type=result_ty,
             func_is_sync=True)
         params = list(decl.parameters) + [
@@ -307,6 +408,8 @@ class _PlaceTransform:
         decl.is_sync = True
         decl.place_type = inner
         decl.place_optional = place_optional
+        decl.place_lend_declared_mutable = declared_mutable
+        decl.place_lend_mutable = lend_mutable
         decl.place_lend_paths = tuple(self._lend_paths)
         # The receiver travels as a POINTER from here on, whichever flavor the
         # author spelled (design 146, DF-146b): the place this body lends is
@@ -384,6 +487,13 @@ class _PlaceTransform:
         """Recurse into a control-flow statement that lends on some path."""
         ctrl = _ctrl(stmt)
 
+        if isinstance(ctrl, ScopedBlock):
+            # Always entered, so the continuation belongs INSIDE it — the same
+            # rewrite an `if` branch gets, minus the branch.
+            ctrl.block = self._rewrite_block(ctrl.block, cont, place_optional,
+                                             tail)
+            return stmt
+
         if isinstance(ctrl, (IfExpr, IfLetExpr)):
             ctrl.then_branch = self._rewrite_block(ctrl.then_branch, cont,
                                                    place_optional)
@@ -410,7 +520,9 @@ class _PlaceTransform:
         """Rewrite `return None` inside a statement that does not lend."""
         ctrl = stmt.expression if isinstance(stmt, ExpressionStatement) else stmt
 
-        if isinstance(ctrl, (IfExpr, IfLetExpr)):
+        if isinstance(ctrl, ScopedBlock):
+            ctrl.block = self._rewrite_block(ctrl.block, [], place_optional)
+        elif isinstance(ctrl, (IfExpr, IfLetExpr)):
             ctrl.then_branch = self._rewrite_block(ctrl.then_branch, [],
                                                    place_optional)
             if ctrl.else_branch is not None:
@@ -428,10 +540,21 @@ class _PlaceTransform:
         return stmt
 
     def _window_expr(self, stmt: LendStatement) -> FunctionCall:
-        """`lend X` as the call that opens the window."""
+        """`lend X` as the call that opens the window.
+
+        The reference carries THIS SPECIALIZATION's mode (SL-333 R7). Where `X`
+        is itself a place — a FORWARDED lend, `lend self.inner[i]` — that mode
+        is what the use-site lowering reads to open the inner window, so the
+        shared specialization forwards SHARED (no copy-on-write separation
+        inside a nested read) and the exclusive one forwards exclusively. The
+        two refusals fall out of the same fact: an exclusive forward onto an
+        inner `-> &T` accessor is a write through a read-only lend, and an
+        exclusive-only inner accessor makes THIS one exclusive-only through the
+        receiver rule.
+        """
         return _call(
             WINDOW_PARAM,
-            [ReferenceExpr(expr=stmt.place, mutable=True,
+            [ReferenceExpr(expr=stmt.place, mutable=self._lend_mutable,
                            in_argument_position=True, from_lend=True,
                            line=stmt.place.line, column=stmt.place.column)],
             stmt)
@@ -503,16 +626,16 @@ class _PlaceTransform:
             self._error(
                 decl,
                 "a `borrows` accessor lends storage out of a receiver, so it "
-                "needs one — declare it `func name(&self, ...) borrows -> T`")
+                "needs one — declare it `func name(&self, ...) borrows -> &T`")
             return False
         if not getattr(decl, 'self_is_reference', False):
             self._error(
                 decl,
                 "a `borrows` accessor must take its receiver BY REFERENCE — "
-                "write `&self` (the receiver is then borrowed with each use "
-                "site's window flavor) or `&var self` (every use site borrows "
-                "it exclusively). A by-value `self` is a copy, and the place "
-                "lent out of it would be gone before the window opened")
+                "write `&self` (which may lend read-only, `borrows -> &T`) or "
+                "`&var self` (which may also lend `borrows -> &var T`). A "
+                "by-value `self` is a copy, and the place lent out of it would "
+                "be gone before the window opened")
             return False
         return True
 
@@ -538,13 +661,13 @@ class _PlaceTransform:
                     "not every path through this `borrows` body lends. Each "
                     "path must `lend` a place"
                     + (", `return None`, or diverge first" if place_optional
-                       else " or diverge first — declare the place `-> T?` if "
+                       else " or diverge first — declare the place `-> &T?` if "
                             "it can be absent"))
             else:
                 self._error(
                     decl,
                     "a `borrows` body must `lend` a place — this one never "
-                    "does. `borrows -> T` promises the caller a window onto "
+                    "does. `borrows -> &T` promises the caller a window onto "
                     "storage of type `T`, and without a `lend` there is "
                     "nothing to open it onto")
             self._ok = False
@@ -608,6 +731,14 @@ class _PlaceTransform:
 
         if _diverges(ctrl):
             return _DIVERGE
+
+        if isinstance(ctrl, ScopedBlock):
+            # The `#lend_var` fold's selected branch: one block, ALWAYS
+            # entered. Its outcome is the body's — no join, because there is no
+            # second path. That is why the fold emits a block rather than an
+            # `if` of any condition: coverage needs no special case for
+            # "selected", it just walks an unconditional block.
+            return self._walk_block(ctrl.block, in_loop)
 
         if isinstance(ctrl, (IfExpr, IfLetExpr)):
             then_out = self._walk_block(ctrl.then_branch, in_loop)
@@ -745,7 +876,7 @@ class _PlaceTransform:
                 f"onto it would open on a frame that dies when the function "
                 f"resumes. A `borrows` declaration lends storage its RECEIVER "
                 f"already owns — declare it as a method (`func name(&self, ...) "
-                f"borrows -> T`) and lend a place reached through `self`")
+                f"borrows -> &T`) and lend a place reached through `self`")
             self._ok = False
             return
         self._error(
@@ -820,7 +951,8 @@ class _PlaceTransform:
                 self._error(
                     stmt,
                     "`return None` needs an optional place — declare the "
-                    "accessor `borrows -> T?` and this becomes the absent path "
+                    "accessor `borrows -> &T?` (or `-> &var T?`) and this "
+                    "becomes the absent path "
                     "of a conditional lend, where no window opens and no "
                     "epilogue runs. As declared, every path must lend")
                 self._ok = False
@@ -853,8 +985,8 @@ class _PlaceTransform:
                 "lending. Every path through a `borrows` body lends exactly "
                 "once"
                 + (", returns None, or diverges" if self._optional
-                   else " or diverges — declare the place `-> T?` if it can be "
-                        "absent"))
+                   else " or diverges — declare the place `-> &T?` if it can "
+                        "be absent"))
             self._ok = False
 
     def _reject_in_epilogue(self, stmt) -> None:
@@ -912,14 +1044,33 @@ def _fold_lend_var(block: Block, flavor: bool) -> None:
     Substituting the constant is not enough on its own. A branch left standing
     behind a `false` condition is still CHECKED, and the whole point of the
     shared specialization is that the copy-on-write gate — a `&var self` call
-    inside a `&self` body — is not there to be checked. So the untaken branch
-    has to leave no trace in the tree at all.
+    inside it — is not there to be checked. So the untaken branch has to leave
+    no trace in the tree at all.
 
-    An `if` STATEMENT whose condition folds to a constant is therefore REPLACED
+    An `if` STATEMENT WHOSE CONDITION THE CONSTANT DECIDES is therefore replaced
     by the branch it takes, spliced into the enclosing statement list. That is
     also what makes a lending branch work (`if #lend_var { lend a } else
     { lend b }`): the coverage rule then sees one unconditional `lend`, which is
     the truth about the specialization it is looking at.
+
+    TWO FENCES, both earned by codex's SL-333.p1 r1 review, and both about the
+    difference between folding a constant and rewriting a program:
+
+    - ONLY `#lend_var` DECIDES A PRUNE. The question is asked of the condition
+      the author wrote, not of the substituted one, because after substitution
+      a folded constant and an author's own `if true` are the same literal.
+      Every writable accessor passes through this fold since the split was
+      re-keyed onto the declared mode, so an author's `if true` was being
+      rewritten too.
+    - A SPLICE MAY NOT ERASE A SCOPE — OR A VALUE. Lifting a branch's
+      statements into its parent is meaning-preserving only when the branch
+      binds nothing at its own level; otherwise the branch keeps its block, as
+      a `ScopedBlock`, and only the untaken side is dropped. A leaked `let`
+      shadows the enclosing block's binding of the same name and moves its
+      deinit to the wrong boundary. `ScopedBlock` is an EXPRESSION because the
+      branch it replaces was one: this fold runs on blocks nested in value
+      expressions too, so a selected branch that binds AND yields must keep
+      both — turning one into `Void` rejects valid programs.
 
     Everywhere else the constant is an ordinary compile-time `Bool` —
     `let writing = #lend_var` folds and works — because pruning needs a
@@ -941,8 +1092,8 @@ def _fold_block(block: Block, flavor: bool) -> None:
     # too, not only in a `borrows` body.
     tail = block.final_expr
     while isinstance(tail, IfExpr):
+        taken = _lend_var_const(tail.condition, flavor)
         tail.condition = _fold_node(tail.condition, flavor)
-        taken = _const_bool(tail.condition)
         if taken is None:
             break
         kept = tail.then_branch if taken else tail.else_branch
@@ -950,6 +1101,23 @@ def _fold_block(block: Block, flavor: bool) -> None:
             tail = None
             break
         _fold_block(kept, flavor)
+        if not _splice_is_scope_free(kept):
+            # The branch's BLOCK survives as a block, exactly as it does in the
+            # statement path — never as an `if` of any condition, which would
+            # make a SELECTED branch read as one path of two to lend coverage
+            # and, for a selected `else`, run under a false condition.
+            #
+            # AND IT KEEPS THE VALUE. A tail `if` is this block's VALUE, and a
+            # block reached here is not always a void epilogue: `_fold_block`
+            # runs on blocks nested in value expressions too, so `let slot = if
+            # #lend_var { let s = 0  s } else { let s = 1  s }` arrives with a
+            # value its enclosing expression consumes. `ScopedBlock` is an
+            # expression carrying its block's own tail, so scope and value are
+            # both kept rather than traded (codex, SL-333.p1 r3).
+            block.statements = out
+            block.final_expr = ScopedBlock(block=kept, line=tail.line,
+                                           column=tail.column)
+            return
         out.extend(kept.statements)
         tail = kept.final_expr
     block.statements = out
@@ -960,13 +1128,31 @@ def _fold_statement(stmt, flavor: bool) -> List:
     """One statement, folded — as a LIST, because a pruned `if` may vanish."""
     ctrl = _ctrl(stmt)
     if isinstance(ctrl, IfExpr):
+        # Asked of the condition the AUTHOR wrote, before the substitution:
+        # only `#lend_var` decides a prune, never an `if true` of the author's
+        # own (see `_lend_var_const`).
+        taken = _lend_var_const(ctrl.condition, flavor)
         ctrl.condition = _fold_node(ctrl.condition, flavor)
-        taken = _const_bool(ctrl.condition)
         if taken is not None:
             kept = ctrl.then_branch if taken else ctrl.else_branch
             if kept is None:
                 return []
             _fold_block(kept, flavor)
+            if not _splice_is_scope_free(kept):
+                # The branch's BLOCK survives, as a block: the untaken side is
+                # gone either way — which is what the shared copy needs — and
+                # the taken side keeps its scope and its destruction boundary.
+                # NOT as an `if` of any condition: the branch is SELECTED, so a
+                # condition would make the lend-coverage rule read it as one
+                # path of two and a selected `else` run under a false one.
+                #
+                # In STATEMENT position the block's value is unused, exactly as
+                # the `if`'s was; the node is the same one the tail path uses,
+                # where the value is not.
+                return [ExpressionStatement(
+                    expression=ScopedBlock(block=kept, line=stmt.line,
+                                           column=stmt.column),
+                    line=stmt.line, column=stmt.column)]
             spliced = list(kept.statements)
             if kept.final_expr is not None:
                 spliced.append(ExpressionStatement(
@@ -1000,28 +1186,58 @@ def _fold_node(node, flavor: bool):
     return node
 
 
-def _const_bool(expr):
-    """The compile-time `Bool` this condition folds to, or None.
+def _lend_var_const(expr, flavor):
+    """The compile-time `Bool` `#lend_var` decides this condition to, or None.
 
-    Only what the constant itself can decide: the bare literal, `not`, and the
-    short-circuit operators whose LEFT side is already constant. A condition
+    ONLY THE CONSTANT DECIDES. Asked of the condition as the AUTHOR wrote it,
+    before the substitution — because after it a folded `#lend_var` and an
+    author's own `if true` are the same `BoolLiteral`, and the fold has no
+    business touching the second. It did: every writable accessor passes
+    through the fold since the split was re-keyed onto the declared mode, so an
+    ordinary `if true` got its block spliced into the parent and a legal
+    refining shadow inside it (`let slot = slot + 1`) leaked past its scope and
+    changed which place the accessor lent — codex's SL-333.p1 r1 reproducer,
+    which printed 1 then 4 where the same program prints 1 then 3 both before
+    this brief and after this fix.
+
+    What the constant can decide: the bare literal, `not`, and the
+    short-circuit operators whose LEFT side it already decides. A condition
     that still depends on the receiver stays a runtime condition in the
     specialization that keeps it — which is right, and is how
     `if #lend_var && self.shared` means "gate, but only when it is shared".
     """
-    if isinstance(expr, BoolLiteral):
-        return expr.value
+    if isinstance(expr, LendVarLiteral):
+        return flavor
     if isinstance(expr, UnaryOp) and expr.op == 'not':
-        inner = _const_bool(expr.operand)
+        inner = _lend_var_const(expr.operand, flavor)
         return None if inner is None else (not inner)
     if isinstance(expr, BinaryOp) and expr.op in ('&&', '||'):
-        left = _const_bool(expr.left)
+        left = _lend_var_const(expr.left, flavor)
         if left is None:
             return None
         if expr.op == '&&':
-            return _const_bool(expr.right) if left else False
-        return True if left else _const_bool(expr.right)
+            return _lend_var_const(expr.right, flavor) if left else False
+        return True if left else _lend_var_const(expr.right, flavor)
     return None
+
+
+def _splice_is_scope_free(block: Block) -> bool:
+    """May this branch's statements be lifted into the enclosing block?
+
+    Only if the branch BINDS NOTHING at its own level. A splice erases the
+    branch's scope: a `let` inside it would outlive the branch, shadow whatever
+    the enclosing block already bound under that name, and have its deinit run
+    at the wrong boundary. A branch that binds nothing has no scope to erase,
+    which is what makes the lift provably meaning-preserving — and is the shape
+    a `#lend_var` gate takes (`if #lend_var { self._make_ready(…) }`).
+
+    A binding NESTED inside the branch (an `if let`'s, a loop variable's) lives
+    in its own block and comes with it, so only this level is asked about.
+    """
+    for stmt in block.statements:
+        if isinstance(stmt, (LetStatement, GuardLetStatement)):
+            return False
+    return True
 
 
 # ---------------------------------------------------------------------------

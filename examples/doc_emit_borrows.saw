@@ -13,10 +13,15 @@
 // `sync` is not rendered on a borrows accessor: it is implied by `borrows` (a
 // place window may not span a suspension) and the author never writes it.
 //
-// The receiver is reported as `"window"`, not `"borrows"` (design 146). A
-// `borrows` accessor spelled `&self` is borrowed with the WINDOW's flavor,
-// chosen at each use site -- shared for a read, exclusive for a write -- so
-// calling it shared-only in generated docs would say the opposite of the truth.
+// SL-333 puts BOTH facts a caller needs into the entry. `returns` carries the
+// declared window mode -- `&var Int` may be written through, `&Int` may only be
+// read -- and `"self"` carries R4's receiver eligibility: `"window"` for an
+// accessor whose receiver is borrowed with the window's own flavor (so a `let`
+// root may read through it), `"borrows-var"` for an EXCLUSIVE-ONLY one, whose
+// body mutates `self` outside the place it lends and which therefore takes the
+// receiver exclusively at every use site, reads included. Neither is readable
+// off the sigil, which is why reporting the sigil would say the opposite of the
+// truth.
 
 // EXPECT: docs
 // COMPILE-FLAGS: --emit-docs
@@ -39,7 +44,7 @@
 //             {
 //               "kind": "method",
 //               "name": "[]",
-//               "signature": "public func [](&self, i: Int) borrows -> Int",
+//               "signature": "public func [](&var self, i: Int) borrows -> &var Int",
 //               "visibility": "public",
 //               "generics": [],
 //               "params": [
@@ -49,17 +54,17 @@
 //                   "type": "Int"
 //                 }
 //               ],
-//               "returns": "Int",
+//               "returns": "&var Int",
 //               "effect": "sync",
 //               "self": "window",
 //               "static": false,
 //               "doc": "The element at `i`, as a place.",
-//               "line": 106
+//               "line": 151
 //             },
 //             {
 //               "kind": "method",
 //               "name": "get",
-//               "signature": "public func get(&self, i: Int) borrows -> Int?",
+//               "signature": "public func get(&var self, i: Int) borrows -> &var Int?",
 //               "visibility": "public",
 //               "generics": [],
 //               "params": [
@@ -69,16 +74,56 @@
 //                   "type": "Int"
 //                 }
 //               ],
-//               "returns": "Int?",
+//               "returns": "&var Int?",
 //               "effect": "sync",
 //               "self": "window",
 //               "static": false,
 //               "doc": "The element at `i` if it exists -- an optional place.",
-//               "line": 114
+//               "line": 159
+//             },
+//             {
+//               "kind": "method",
+//               "name": "peek",
+//               "signature": "public func peek(&self, i: Int) borrows -> &Int",
+//               "visibility": "public",
+//               "generics": [],
+//               "params": [
+//                 {
+//                   "name": "i",
+//                   "label": "i",
+//                   "type": "Int"
+//                 }
+//               ],
+//               "returns": "&Int",
+//               "effect": "sync",
+//               "self": "window",
+//               "static": false,
+//               "doc": "The element at `i`, READ-ONLY -- a shared lend.",
+//               "line": 167
+//             },
+//             {
+//               "kind": "method",
+//               "name": "tally",
+//               "signature": "public func tally(&var self, i: Int) borrows -> &var Int",
+//               "visibility": "public",
+//               "generics": [],
+//               "params": [
+//                 {
+//                   "name": "i",
+//                   "label": "i",
+//                   "type": "Int"
+//                 }
+//               ],
+//               "returns": "&var Int",
+//               "effect": "sync",
+//               "self": "borrows-var",
+//               "static": false,
+//               "doc": "The element at `i`, counting the visit -- EXCLUSIVE-ONLY.",
+//               "line": 175
 //             }
 //           ],
 //           "doc": null,
-//           "line": 104,
+//           "line": 149,
 //           "module": "doc_emit_borrows"
 //         },
 //         {
@@ -91,7 +136,7 @@
 //           "conformances": [],
 //           "fields": [],
 //           "doc": null,
-//           "line": 102,
+//           "line": 147,
 //           "module": "doc_emit_borrows"
 //         }
 //       ]
@@ -99,11 +144,11 @@
 //   ]
 // }
 
-struct Bag { items: [Int; 4] }
+struct Bag { items: [Int; 4], visits: Int }
 
 extension Bag {
     /// The element at `i`, as a place.
-    public func [](&self, i: Int) borrows -> Int {
+    public func [](&var self, i: Int) borrows -> &var Int {
         if i < 0 || i >= 4 {
             panic("Bag.[]: index out of range")
         }
@@ -111,10 +156,27 @@ extension Bag {
     }
 
     /// The element at `i` if it exists -- an optional place.
-    public func get(&self, i: Int) borrows -> Int? {
+    public func get(&var self, i: Int) borrows -> &var Int? {
         if i < 0 || i >= 4 {
             return None
         }
         lend self.items[i]
+    }
+
+    /// The element at `i`, READ-ONLY -- a shared lend.
+    public func peek(&self, i: Int) borrows -> &Int {
+        if i < 0 || i >= 4 {
+            panic("Bag.peek: index out of range")
+        }
+        lend self.items[i]
+    }
+
+    /// The element at `i`, counting the visit -- EXCLUSIVE-ONLY.
+    public func tally(&var self, i: Int) borrows -> &var Int {
+        if i < 0 || i >= 4 {
+            panic("Bag.tally: index out of range")
+        }
+        lend self.items[i]
+        self.visits = self.visits + 1
     }
 }

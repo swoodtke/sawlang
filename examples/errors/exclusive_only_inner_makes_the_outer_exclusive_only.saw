@@ -1,0 +1,92 @@
+// SL-333 R4 (conformance row K125): an accessor that opens a
+// RECEIVER-ROOTED window on an EXCLUSIVE-ONLY accessor is exclusive-only too,
+// however that window is spelled.
+//
+// A window on storage reached through `self` borrows that storage for its
+// extent, and a place borrow charges its ROOT — so a window that borrows
+// `self.<path>` exclusively is a mutation through this accessor's receiver,
+// exactly like a field write or a `&var self` call. The window call is the ONE
+// construct the receiver-permission rule steps over on purpose (it is
+// synthesized, not written), which is why the eligibility closure exists.
+//
+// THE CELLS, one outer accessor each — and the point is that they are one
+// question, not four rules. Every one of them is "a place use whose access path
+// is rooted at `self`":
+//
+//   `ordinary`  an ordinary accessor read in the PROLOGUE
+//   `projected` a PROJECTION through a forwarded place (`lend self.inner[i].n`)
+//   `forced`    a read through a `!` head
+//   `written`   an exclusive window, through a SHARED-ELIGIBLE inner — the
+//               exclusivity is the write's, not the inner accessor's
+//
+// The first two are codex's SL-333.p1 r1 reproducers A and B, each of which
+// compiled and mutated a `let` root. `K125_receiver_access_is_a_second_fact.saw`
+// carries the `var`-root controls that must stay legal, and the control that
+// says a SHARED window on a shared-eligible inner costs nothing.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot read through the place window `ordinary` opens on immutable variable `o`
+// EXPECT-ERROR-CONTAINS: the window on `Inner.tally` at line 66
+// EXPECT-ERROR-CONTAINS: cannot read through the place window `projected` opens on immutable variable `o`
+// EXPECT-ERROR-CONTAINS: the forwarded lend through `Inner.[]` at line 71
+// EXPECT-ERROR-CONTAINS: cannot read through the place window `forced` opens on immutable variable `o`
+// EXPECT-ERROR-CONTAINS: the window on `Inner.opt` at line 75
+// EXPECT-ERROR-CONTAINS: cannot read through the place window `written` opens on immutable variable `o`
+// EXPECT-ERROR-CONTAINS: the exclusive window on `Inner.plain` at line 80
+
+struct Cell { n: Int }
+
+struct Inner { cells: [Cell; 2], n: Int, hits: Int }
+
+extension Inner {
+    // EXCLUSIVE-ONLY: the prologue mutates the receiver.
+    func tally(&var self) borrows -> &var Int {
+        self.hits = self.hits + 1
+        lend self.n
+    }
+
+    func [](&var self, i: Int) borrows -> &var Cell {
+        self.hits = self.hits + 1
+        lend self.cells[i]
+    }
+
+    func opt(&var self, i: Int) borrows -> &var Cell? {
+        if i < 0 || i >= 2 { return None }
+        self.hits = self.hits + 1
+        lend self.cells[i]
+    }
+
+    // SHARED-ELIGIBLE: it lends and does nothing else.
+    func plain(&var self, i: Int) borrows -> &var Cell { lend self.cells[i] }
+}
+
+struct Outer { inner: Inner, n: Int }
+
+extension Outer {
+    func ordinary(&var self) borrows -> &var Int {
+        let _ = self.inner.tally()
+        lend self.n
+    }
+
+    func projected(&var self, i: Int) borrows -> &var Int {
+        lend self.inner[i].n
+    }
+
+    func forced(&var self) borrows -> &var Int {
+        let _ = self.inner.opt(0)!.n
+        lend self.n
+    }
+
+    func written(&var self) borrows -> &var Int {
+        self.inner.plain(0).n = 9
+        lend self.n
+    }
+}
+
+func main() {
+    let o = Outer(inner: Inner(cells: [Cell(n: 3), Cell(n: 4)], n: 1, hits: 0),
+                  n: 2)
+    print("{o.ordinary()}")
+    print("{o.projected(0)}")
+    print("{o.forced()}")
+    print("{o.written()}")
+}

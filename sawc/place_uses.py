@@ -196,6 +196,27 @@ class _PlaceUses:
             if body is not None:
                 self.run(body)
 
+    # -- R4's recorded eligibility, READ here ------------------------------
+    #
+    # The bit itself is decided in the CHECKER: the receiver-permission funnel
+    # records what each of its entry points finds while a body is checked, and
+    # `propagate_forwarded_place_eligibility` closes it over the forwarding
+    # graph at end of module — before this pass runs, and before the pairwise
+    # root-charge test settles the pairs that turn on it. This pass only reads
+    # the answer, at the one window funnel.
+
+    def _exclusive_only(self, struct_name, method_name) -> bool:
+        """SL-333 R4: does this accessor require an EXCLUSIVE receiver at every
+        call, whatever flavor of window the use site opens?"""
+        node = self._accessor_node(struct_name, method_name)
+        return getattr(node, 'place_receiver_mutation', None) is not None
+
+    def _accessor_node(self, struct_name, method_name):
+        if struct_name is None or method_name is None:
+            return None
+        info = self.ns.lookup_method(struct_name, method_name)
+        return getattr(info, 'ast_node', None) if info is not None else None
+
     def _decl(self, decl, ext=None) -> None:
         body = getattr(decl, 'body', None)
         if body is None:
@@ -892,12 +913,33 @@ class _PlaceUses:
         """The accessor call that opens one window.
 
         THE ONE CHOKEPOINT every window goes through, which is why design 200's
-        receiver-copy check sits here rather than at each shape. Entry points:
-        `_assignment` (a write), `_chain_window` (a read or a chain, and the
-        nesting wrap this method makes of its own result), `_span_call` (a
-        `&`/`&var` argument), `_chain_assign_window` (`m[k]?.f = v`),
-        `_presence_condition` (`if let _ = …`) and `_borrow_match`.
+        receiver-copy check sits here rather than at each shape, and why
+        SL-333's two declaration-driven rules do too: R1 (a write through a
+        `-> &T` lend is refused) and R4 (how the window borrows its RECEIVER).
+
+        ENTRY POINTS (obligation 1), as the AUTHOR spells them, each through the
+        one internal caller named beside it:
+
+          * a SUBSCRIPT read or chain, `v[i]` / `v[i].n`     — `_chain_window`
+          * a NAMED accessor call, `c.at(i)` / `c.at(i).n`   — `_chain_window`
+          * a WRITE through either, `v[i] = x` / `v[i].n += 1`
+                                                             — `_assignment`
+          * the `?.` head of a chain assignment, `m[k]?.f = v`
+                                                     — `_chain_assign_window`
+          * the `!` head that promises a conditional lend is there,
+            `m[k]!.f = v` / `v.get(i)!.m()`  — `_assignment`/`_chain_window`
+          * a `match`/`if let` on a place, whose arm may lend the PAYLOAD
+            (DF-146d)                — `_borrow_match`, `_presence_condition`
+          * a REFERENCE ARGUMENT, `f(&v[i])` / `f(&var v[i])`, whose window
+            spans the whole call                                — `_span_call`
+          * the FORWARDED lend inside another accessor, `lend self.inner[i]`,
+            which reaches here as that same reference argument at the
+            enclosing specialization's mode (R7)                — `_span_call`
+
+        plus the nesting wrap this method makes of its own result, which is
+        what orders `b[0][1]`'s two windows LIFO.
         """
+        self._reject_write_through_shared_lend(place, exclusive)
         if exclusive:
             self._reject_shared_self_window_write(place)
         closure = ClosureExpr(
@@ -926,6 +968,13 @@ class _PlaceUses:
             line=place.line, column=place.column)
         call.place_lowered = True
         call.place_window_exclusive = exclusive
+        # SL-333 R4: the receiver's borrow mode is a SECOND fact. A shared
+        # window through a shared-eligible accessor borrows the receiver shared;
+        # anything through an exclusive-only one borrows it exclusively, reads
+        # included.
+        mutation = self._receiver_mutation(place, exclusive)
+        call.place_receiver_exclusive = exclusive or mutation is not None
+        call.place_receiver_mutation = mutation
         call.resolved_type = result_type
         self.changed = True
         # The RECEIVER may itself be a place — `b[0][1]` is two windows, not
@@ -971,6 +1020,58 @@ class _PlaceUses:
             parameters=[], body=Block(statements=[], final_expr=body_expr,
                                       line=place.line, column=place.column),
             line=place.line, column=place.column)
+
+    def _receiver_mutation(self, place, exclusive: bool):
+        """SL-333 R4, read at the use site: the construct that makes this
+        accessor EXCLUSIVE-ONLY, or None when it is shared-eligible.
+
+        The bit was computed ONCE, from the accessor's SHARED specialization,
+        by the receiver-permission funnel while that body was checked
+        (`_note_receiver_mutation`) and closed over forwarded lends before this
+        pass lowered anything. It is read here and nowhere else, so an IMPORTED
+        or GENERIC accessor carries it to its callers instead of having a
+        "writes self" scan re-derived against each of them.
+
+        An exclusive window borrows the receiver exclusively whatever the body
+        does, so the question is only asked of a shared one.
+        """
+        if exclusive:
+            return None
+        node = self._accessor_node(place.place_struct, place.place_method)
+        return getattr(node, 'place_receiver_mutation', None)
+
+    def _reject_write_through_shared_lend(self, place, exclusive: bool) -> None:
+        """SL-333 R1: a write through a `borrows -> &T` lend.
+
+        The declaration states the MAXIMUM mode of the window it hands out, and
+        the use site narrows within it. `-> &var T` may be opened either way;
+        `-> &T` is the read-only lend, and every way of writing through one —
+        `g.at(4).weight += 1`, `v[i] = x`, `&var v[i]` as an argument, a
+        forwarded `lend` inside an exclusive specialization — is refused here,
+        at the one chokepoint every window goes through.
+        """
+        if not exclusive:
+            return
+        node = self._accessor_node(place.place_struct, place.place_method)
+        if node is None or getattr(node, 'place_type', None) is None:
+            return
+        if getattr(node, 'place_lend_declared_mutable', False):
+            return
+        lent = getattr(node, 'place_type', None)
+        opt = "?" if getattr(node, 'place_optional', False) else ""
+        spelling = self._place_spelling(place)
+        self.reporter.error(
+            ErrorKind.IMMUTABLE_ASSIGNMENT,
+            f"cannot write through `{spelling}`: "
+            f"`{place.place_struct}.{place.place_method}` is declared "
+            f"`borrows -> &{lent}{opt}`, which lends the place READ-ONLY — a "
+            f"use site may narrow a declared window mode, never widen it",
+            place.line, place.column or 1,
+            f"declare the accessor `borrows -> &var {lent}{opt}` to let a use "
+            f"site write through the place it lends (its receiver must then be "
+            f"`&var self`), or reach the storage through a `&var self` method "
+            f"of `{place.place_struct}`",
+            self._file)
 
     def _flavored_method(self, place, exclusive: bool) -> str:
         """The accessor this use site calls — the retarget of design 179.
@@ -1436,17 +1537,33 @@ class _PlaceUses:
         node = expr
         while node is not place:
             if isinstance(node, MethodCall):
-                if getattr(node, 'place_window_exclusive', False):
-                    # An already-lowered INNER window that writes. Windows nest
+                if getattr(node, 'place_lowered', False):
+                    # An already-lowered INNER window. It makes the containing
+                    # window exclusive when it WRITES — windows nest
                     # (`b[0][1].count += 1` is two), and the write reaches the
-                    # outer place's storage, so the outer window is exclusive
-                    # too. Reading only `_method_mutates` here answered "shared"
-                    # for every containing window: the outer borrow of `b` was
-                    # joined as a shared one, and a `let` root would have taken
-                    # the write. Harmless only because the window closure was
-                    # `&var` regardless — which is the coupling DF-175b removed.
-                    return True
-                if self._method_mutates(node):
+                    # outer place's storage — and, since SL-333 R4, also when it
+                    # borrows its RECEIVER exclusively, because that receiver IS
+                    # the outer place. Reading only `_method_mutates` here
+                    # answered "shared" for every containing window: the outer
+                    # borrow of `b` was joined as a shared one, and a `let` root
+                    # would have taken the write. Harmless only because the
+                    # window closure was `&var` regardless — which is the
+                    # coupling DF-175b removed.
+                    if (getattr(node, 'place_window_exclusive', False)
+                            or getattr(node, 'place_receiver_exclusive', False)):
+                        return True
+                elif is_place(node):
+                    # An INNER ACCESSOR not yet lowered. Its own window flavor
+                    # is decided by what sits ABOVE it, which this same walk has
+                    # already found not to write — so all it can contribute is
+                    # R4's receiver requirement. Reading `self_mutable` here
+                    # instead said "writes" for EVERY accessor the moment R2
+                    # made a writable one `&var self`, which turned every
+                    # `v.as_array()!.get(i)` read into an exclusive window.
+                    if self._exclusive_only(node.place_struct,
+                                            node.place_method):
+                        return True
+                elif self._method_mutates(node):
                     return True
                 node = node.object
             elif isinstance(node, MemberAccess):
@@ -1630,6 +1747,8 @@ class _PlaceUses:
 
 def _is_expr(node) -> bool:
     return isinstance(node, Expression)
+
+
 
 
 # Kinds whose methods are registered under their display name — the design-57

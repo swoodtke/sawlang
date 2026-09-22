@@ -1,0 +1,31 @@
+// SL-333 R4 (conformance row K125, refused half 1 of 2): an EXCLUSIVE-ONLY
+// accessor is refused on a `let` root even when the window it opens only READS,
+// and the diagnostic names the line that made it exclusive-only.
+//
+// Two read-only results never imply two compatible receiver borrows, and a
+// read-only RESULT never implies a shared RECEIVER either. The accessor's body
+// mutates `self` outside the place it lends — the epilogue counts the visit —
+// so every call takes the whole receiver exclusively, exactly as a `&var self`
+// method does. What the caller sees is not "you may not write this", which
+// would be about the window; it is "this accessor cannot be used on an
+// immutable binding at all", which is about the body, so the body's line is in
+// the message.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: cannot read through the place window `tally` opens on immutable variable `frozen`
+// EXPECT-ERROR-CONTAINS: the accessor borrows its receiver exclusively at every use site, because its body mutates `self`
+// EXPECT-ERROR-CONTAINS: a write into receiver storage at line 24
+
+struct Bag { cells: [Int; 4], visits: Int }
+
+extension Bag {
+    public func tally(&var self, i: Int) borrows -> &var Int {
+        if i < 0 || i >= 4 { panic("Bag.tally: index out of range") }
+        lend self.cells[i]
+        self.visits = self.visits + 1
+    }
+}
+
+func main() {
+    let frozen = Bag(cells: [10, 20, 30, 40], visits: 0)
+    print("{frozen.tally(0)}")
+}

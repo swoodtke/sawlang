@@ -80,7 +80,7 @@ extension Box<T, A: Allocator = GlobalAllocator>: NoCopy {
 // existential for a method its trait does not declare. Lending the storage is the
 // answer the surface wanted all along; nothing copies, so nothing has to.
 extension Box<T, A: Allocator = GlobalAllocator> {
-    public func value(&self) unsafe borrows -> T {
+    public func value(&var self) unsafe borrows -> &var T {
         lend self.ptr[0]
     }
 }

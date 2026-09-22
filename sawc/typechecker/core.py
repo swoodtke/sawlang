@@ -655,6 +655,11 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # every join point — a borrow released on only one branch comes back at
         # the end of the branch, because the other path never joined.
         self._task_borrows: List['TaskCaptureBorrow'] = []
+        # SL-333 R4: the access sets of calls whose PLACE entries could not be
+        # settled where they were checked, because the accessor's receiver
+        # requirement is a fact about a body this module may not have reached
+        # yet. Settled at end of module by `_settle_place_access_modes`.
+        self._deferred_place_access: List[tuple] = []
         # The borrows the spawn in the statement being checked just opened,
         # waiting for the `let h = ...` binding that will carry them. Cleared at
         # every statement boundary, so nothing else can claim them.
@@ -4806,6 +4811,16 @@ class TypeChecker(ExpressionsMixin, StatementsMixin, RegistrationMixin, TypeUtil
         # Type check method bodies
         for extension in module_ast.extensions:
             self._check_extension(extension)
+
+        # SL-333 R4/R7, in this order and here for one reason: both answers are
+        # facts about DECLARATIONS, and a module checks its free functions
+        # before its extension methods, so a use site is routinely reached
+        # before the accessor it names. The receiver-requirement closure first
+        # (an accessor can become exclusive-only by inheriting it from an
+        # accessor it opens a receiver-rooted window on), then the pairwise
+        # root-charge test over the access sets that were left pending.
+        self.close_place_receiver_requirement(module_ast)
+        self._settle_place_access_modes()
 
         # design 70 (A5): build + re-check every queued generic instantiation so
         # its effect node (keyed by the mangled symbol) is populated before the

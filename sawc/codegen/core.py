@@ -4317,6 +4317,16 @@ class CodeGenerator(ResultsMixin, MatchMixin, StructsMixin, CollectionsMixin, Ca
     def visit_FunctionCall(self, expr: FunctionCall):
         return self._generate_function_call(expr)
 
+    def visit_ScopedBlock(self, expr):
+        """SL-333: the `#lend_var` fold's selected branch — one block, always
+        entered, whose value is the block's own.
+
+        `_generate_block` is the SAME path a value-carrying `if` branch takes,
+        and it is where the ordering the node exists for already lives: the
+        cleanup scope pops after the tail has been evaluated, so the branch's
+        locals are destroyed before the value leaves."""
+        return self._generate_block(expr.block)
+
     def visit_IfExpr(self, expr: IfExpr):
         return self._generate_if_expression(expr)
 

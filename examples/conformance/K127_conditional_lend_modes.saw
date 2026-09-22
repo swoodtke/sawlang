@@ -1,0 +1,78 @@
+// Conformance row K127 — the conditional lend carries a mode too:
+// `borrows -> &var T?` and `borrows -> &T?` (SL-333 R1)
+//
+// `?` rides the LENT TYPE and is the lend's own presence, exactly as it was for
+// the bare spelling — so the four spellings are `-> &T`, `-> &var T`, `-> &T?`
+// and `-> &var T?`, and the optional one adds nothing to the mode rule. The
+// matrix this file covers is present/absent × shared/exclusive, for both modes:
+//
+//                       present, shared   present, exclusive   absent
+//   `-> &var Cell?`     read                 write             None / no window
+//   `-> &Cell?`         read                 REFUSED (see
+//                                            `shared_lend_write_refused_at_every_opener.saw`)
+//
+// The absent path opens no window and runs no epilogue, so it is mode-free by
+// construction; it is here because "no window" must keep meaning "no window"
+// under a rule that is about window modes.
+// EXPECT: success
+// EXPECT-OUTPUT:
+// writable present, shared 5
+// writable present, exclusive 6
+// writable absent: none, epilogues 0
+// readable present, shared 5
+// readable absent: none
+// presence test on a writable lend: yes
+// presence test on a readable lend: yes
+// epilogues after four present lends: 4
+// -- done
+
+struct Cell { n: Int }
+
+struct Bag { rows: [Cell; 2], closes: Int }
+
+extension Bag {
+    // The WRITABLE conditional lend. The epilogue counts window CLOSES, which
+    // is how the absent path proves it ran none.
+    public func slot(&var self, i: Int) borrows -> &var Cell? {
+        if i < 0 || i >= 2 { return None }
+        lend self.rows[i]
+        self.closes = self.closes + 1
+    }
+
+    public func closes_seen(&self) -> Int { self.closes }
+}
+
+struct View { rows: [Cell; 2] }
+
+extension View {
+    // The READ-ONLY conditional lend.
+    public func slot(&self, i: Int) borrows -> &Cell? {
+        if i < 0 || i >= 2 { return None }
+        lend self.rows[i]
+    }
+}
+
+func main() {
+    var b = Bag(rows: [Cell(n: 5), Cell(n: 9)], closes: 0)
+    print("writable present, shared {b.slot(0)!.n}")
+
+    b.slot(0)!.n = 6
+    print("writable present, exclusive {b.slot(0)!.n}")
+
+    var absent = Bag(rows: [Cell(n: 5), Cell(n: 9)], closes: 0)
+    let missing = if let _ = absent.slot(7) { "some" } else { "none" }
+    print("writable absent: {missing}, epilogues {absent.closes_seen()}")
+
+    let v = View(rows: [Cell(n: 5), Cell(n: 9)])
+    print("readable present, shared {v.slot(0)!.n}")
+    let vmissing = if let _ = v.slot(7) { "some" } else { "none" }
+    print("readable absent: {vmissing}")
+
+    let present = if let _ = b.slot(1) { "yes" } else { "no" }
+    print("presence test on a writable lend: {present}")
+    let vpresent = if let _ = v.slot(1) { "yes" } else { "no" }
+    print("presence test on a readable lend: {vpresent}")
+
+    print("epilogues after four present lends: {b.closes_seen()}")
+    print("-- done")
+}

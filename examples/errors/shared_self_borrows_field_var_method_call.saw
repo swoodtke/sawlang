@@ -5,6 +5,12 @@
 // The prologue of a `borrows` accessor is ordinary `&self` code (design 146),
 // so the field form is the same hard error here as in a plain method. The hint
 // names `#lend_var` because in an accessor it is usually the answer.
+//
+// SL-333: the accessor lends READ-ONLY (`&self ... borrows -> &Int`), which is
+// the declaration this rule is about. Declaring it `&var self ... -> &var Int`
+// instead makes the call legal and the accessor EXCLUSIVE-ONLY (R4), which is a
+// different refusal at a different place — see
+// `lend_var_ungated_receiver_mutation.saw`.
 // EXPECT: error
 // EXPECT-ERROR-CONTAINS: cannot call `&var self` method `run` on storage reached through a `&self` receiver
 
@@ -17,7 +23,7 @@ extension Gate {
 struct Grid { cells: [Int; 4], gate: Gate }
 
 extension Grid {
-    public func [](&self, i: Int) borrows -> Int {
+    public func [](&self, i: Int) borrows -> &Int {
         if i < 0 || i >= 4 { panic("Grid.[]: index out of range") }
         self.gate.run()
         lend self.cells[i]

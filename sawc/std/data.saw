@@ -221,7 +221,7 @@ extension Data {
     /// honest at the cost of `d[i] = 42` — a literal does not adopt into a
     /// distinct alias. Writing bytes is what a subscript is for, so the write
     /// wins here; `get`, `pop` and iteration carry the strict read side.
-    public func [](&self, index: Int) unsafe borrows -> UInt8 {
+    public func [](&var self, index: Int) unsafe borrows -> &var UInt8 {
         if index < 0 || index >= self.length {
             panic("Data.[]: index out of range: {} (len {})", index, self.length)
         }

@@ -34,7 +34,7 @@ extension Holder {
         Holder(cells: move v)
     }
 
-    func at(&self, i: Int) borrows -> Cell {
+    func at(&self, i: Int) borrows -> &Cell {
         if i < 0 || i >= self.cells.len() {
             panic("Holder.at: index out of range")
         }
@@ -42,7 +42,7 @@ extension Holder {
     }
 
     // A conditional lend, for the absent path through a struct field.
-    func find(&self, i: Int) borrows -> Cell? {
+    func find(&self, i: Int) borrows -> &Cell? {
         if i < 0 || i >= self.cells.len() {
             return None
         }

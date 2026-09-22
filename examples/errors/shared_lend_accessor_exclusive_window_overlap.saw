@@ -1,0 +1,43 @@
+// SL-333 R4 (conformance row K125): the overlap twin of
+// `exclusive_window_in_a_shared_lend_accessor.saw`.
+//
+// R4's bit is read in two places — the `let`-root refusal and design 188's
+// pairwise root charge — so every way of setting it wrongly has to be checked
+// in both, or a fixed `let` root leaves a compiling overlap behind. Here the
+// outer accessor is declared `&self ... borrows -> &Int` and becomes
+// exclusive-only because of a `&var` REFERENCE ARGUMENT in its body, which is
+// the shape whose stamp was wrong; both orders, because the pairwise test
+// reads one mode per entry.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation: the place `o.arg(…)` borrows `o` EXCLUSIVELY even though this window only reads
+// EXPECT-ERROR-CONTAINS: `Outer.arg` mutates `self` outside the place it lends (the `&var self.…` projection at line 31)
+// EXPECT-ERROR-CONTAINS: a read-only RESULT is not a shared receiver BORROW
+
+struct Inner { n: Int }
+
+extension Inner {
+    func plain(&var self) borrows -> &var Int { lend self.n }
+}
+
+func bump(n: &var Int) { n += 1 }
+func pair(a: &Int, b: &Int) -> Int { a + b }
+
+struct Outer { inner: Inner, n: Int, m: Int }
+
+extension Outer {
+    // EXCLUSIVE-ONLY: the `&var` argument opens an exclusive window on
+    // receiver-rooted storage, whatever this receiver sigil says.
+    func arg(&self) borrows -> &Int {
+        bump(&var self.inner.plain())
+        lend self.n
+    }
+
+    // SHARED-ELIGIBLE.
+    func plain2(&self) borrows -> &Int { lend self.m }
+}
+
+func main() {
+    var o = Outer(inner: Inner(n: 1), n: 2, m: 3)
+    print("{pair(&o.arg(), &o.plain2())}")    // exclusive-only first
+    print("{pair(&o.plain2(), &o.arg())}")    // shared-eligible first
+}

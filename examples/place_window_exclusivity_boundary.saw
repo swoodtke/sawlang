@@ -35,7 +35,7 @@ struct Pair {
 }
 
 extension Pair {
-    func at(&self, i: Int) borrows -> Int {
+    func at(&var self, i: Int) borrows -> &var Int {
         if i == 0 { lend self.a } else { lend self.b }
     }
 }

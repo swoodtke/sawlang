@@ -460,17 +460,24 @@ class DocsBuilder:
                 # contract, the same mistake `window` exists to avoid one arm
                 # down.
                 self_kind = "consumes"
+            elif is_borrows:
+                # design 146 (DF-146b), re-keyed by SL-333 R4: a `borrows`
+                # accessor's receiver is NOT borrowed at the sigil's mode. The
+                # window's flavor is chosen at each use site — a read borrows
+                # shared, a write borrows exclusively — so reporting "borrows"
+                # or "borrows-var" from the spelling would tell a reader the
+                # opposite of the truth. `window` is the honest answer, and the
+                # only receiver kind that means "it depends on the caller".
+                #
+                # Unless the accessor is EXCLUSIVE-ONLY: its body mutates `self`
+                # outside the place it lends, so every use site — a read
+                # included — borrows the receiver exclusively, and
+                # "borrows-var" is then exactly right.
+                self_kind = ("borrows-var"
+                             if getattr(node, "place_receiver_mutation", None)
+                             else "window")
             elif getattr(node, "self_mutable", False):
                 self_kind = "borrows-var"
-            elif is_borrows:
-                # design 146 (DF-146b): a `borrows` accessor spelled `&self`
-                # does NOT borrow its receiver shared-only. The window's flavor
-                # is chosen at each use site — a read borrows shared, a write
-                # borrows exclusively — so reporting "borrows" here would tell
-                # a reader the opposite of the truth. `window` is the honest
-                # answer, and the only receiver kind that means "it depends on
-                # the caller".
-                self_kind = "window"
             elif getattr(node, "self_is_reference", False):
                 self_kind = "borrows"
             else:
@@ -499,6 +506,12 @@ class DocsBuilder:
         head = ("init" if is_init else "%sfunc %s" % (static_txt, name)) + gen
         self_txt = {"borrows-var": "&var self", "borrows": "&self",
                     "window": "&self", "consumes": "self"}.get(self_kind)
+        if is_borrows and self_kind in ("window", "borrows-var"):
+            # SL-333 R2: the RECEIVER a `borrows` accessor declares bounds the
+            # mode it may lend at, so the rendered signature shows the sigil the
+            # author wrote rather than the one `self_kind` names.
+            self_txt = ("&var self" if getattr(node, "self_mutable", False)
+                        else "&self")
         rendered = ([self_txt] if self_txt else [])
         for e in param_entries:
             text = "%s: %s" % (e["name"], e["type"])
@@ -506,10 +519,15 @@ class DocsBuilder:
                 text += " = " + e["default"]
             rendered.append(text)
         if is_borrows:
+            # SL-333 R1: the arrow names the LENT REFERENCE and its maximum
+            # window mode, which is half of what a caller needs to know about an
+            # accessor — the other half is `self`, above.
             place = getattr(node, "place_type", None)
             ret = _type_str(place)
             if getattr(node, "place_optional", False):
                 ret += "?"
+            ret = ("&var " if getattr(node, "place_lend_declared_mutable", False)
+                   else "&") + ret
         else:
             ret = _type_str(node.return_type)
         # designs 136/141: the effects ride the post-parameter slot in the

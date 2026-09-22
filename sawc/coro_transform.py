@@ -144,7 +144,7 @@ from ast_nodes import (
     BreakStatement, ContinueStatement,
     ExpressionStatement, LetStatement, AssignStatement, WhileExpr,
     CompoundAssignStatement,
-    GuardLetStatement, TryExpr, TryCatchExpr,
+    GuardLetStatement, TryExpr, TryCatchExpr, ScopedBlock,
     Function, Struct, StructField, Enum, EnumVariant, Extension, Method,
     Parameter, SawType, TypeKind, Visibility, ClosureExpr, CaptureSpec,
     DestructuringLet, TuplePattern, BindingPattern, WildcardPattern, TupleIndex,
@@ -6422,6 +6422,9 @@ class _FrameBuilder:
         if isinstance(ctrl, MatchExpr) and self._is_split(ctrl):
             self._split_match(ctrl, loop_ctx)
             return
+        if isinstance(ctrl, ScopedBlock) and self._spans_suspension(ctrl):
+            self._split_scoped_block(ctrl, loop_ctx)
+            return
         if isinstance(ctrl, TryCatchExpr) and self._is_split(ctrl):
             self._split_try_catch(ctrl, loop_ctx)
             return
@@ -6443,6 +6446,12 @@ class _FrameBuilder:
         # Non-suspending statement (incl. non-spanning control flow): lower in
         # place — identifier→frame-field rewrites, drop-flag clears, returns→done.
         self._emit(self._lower_inplace(s))
+
+    def _split_scoped_block(self, s, loop_ctx):
+        """SL-333: the `#lend_var` fold's selected branch — one block, always
+        entered. No condition, no branch, no merge; the block's own statements
+        carry whatever splits they need."""
+        self._lower_block(s.block, loop_ctx)
 
     def _split_if(self, e, loop_ctx):
         forgets = []

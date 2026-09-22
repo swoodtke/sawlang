@@ -61,7 +61,7 @@ extension Table {
     /// The match reads `self.slots[i]` where it sits and `lend r` hands the
     /// payload out of the arm; the Empty arm is the conditional lend's absent
     /// path, which opens no window at all.
-    public func at(&self, i: Int) borrows -> Res? {
+    public func at(&var self, i: Int) borrows -> &var Res? {
         if i < 0 || i >= self.slots.len() {
             return None
         }
@@ -79,7 +79,7 @@ struct Dense { slots: Vector<Slot> }
 extension Dense: NoCopy {}
 
 extension Dense {
-    public func at(&self, i: Int) borrows -> Res {
+    public func at(&self, i: Int) borrows -> &Res {
         if i < 0 || i >= self.slots.len() {
             panic("Dense.at: index out of range")
         }
@@ -97,7 +97,7 @@ struct Counted { slots: Vector<Slot>, reads: Int }
 extension Counted: NoCopy {}
 
 extension Counted {
-    public func at(&var self, i: Int) borrows -> Res? {
+    public func at(&self, i: Int) borrows -> &Res? {
         if i < 0 || i >= self.slots.len() {
             return None
         }
@@ -118,7 +118,7 @@ struct Log { notes: Vector<Note> }
 extension Log: NoCopy {}
 
 extension Log {
-    public func at(&self, i: Int) borrows -> String? {
+    public func at(&self, i: Int) borrows -> &String? {
         if i < 0 || i >= self.notes.len() {
             return None
         }

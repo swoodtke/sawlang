@@ -9,7 +9,7 @@
 
 struct Rec { tag: String, a: Int, b: Int }
 extension Rec {
-    func at(&self, i: Int) borrows -> Int {
+    func at(&self, i: Int) borrows -> &Int {
         if i == 0 {
             lend self.a
         } else {

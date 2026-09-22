@@ -24,7 +24,7 @@
 struct Cell { n: Int }
 struct Plain { c: Cell }
 extension Plain {
-    func at(&self) borrows -> Cell { lend self.c }
+    func at(&var self) borrows -> &var Cell { lend self.c }
 }
 
 func setboth(x: &var Int, y: &var Int) { x = 50  y = 60 }

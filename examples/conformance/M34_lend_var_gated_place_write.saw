@@ -17,7 +17,7 @@
 struct Counters { hits: [Int; 2] }
 
 extension Counters {
-    func [](&self, i: Int) borrows -> Int {
+    func [](&var self, i: Int) borrows -> &var Int {
         if i < 0 || i >= 2 { panic("Counters.[]: index out of range") }
         lend self.hits[i]
     }
@@ -26,7 +26,7 @@ extension Counters {
 struct Log { counters: Counters, slots: [Int; 4] }
 
 extension Log {
-    func at(&self, i: Int) borrows -> Int {
+    func at(&var self, i: Int) borrows -> &var Int {
         if #lend_var {
             self.counters[0] += 1
         }

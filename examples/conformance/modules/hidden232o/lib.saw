@@ -36,7 +36,7 @@ extension Carrier {
         self.slot
     }
 
-    public func at(&self, index: Int) borrows -> Hidden {
+    public func at(&self, index: Int) borrows -> &Hidden {
         lend self.cells[index]
     }
 }

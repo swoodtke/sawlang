@@ -22,7 +22,7 @@ from ast_nodes import (
     OptionalChainAssign, MethodCall, SelfExpr,
     SourceLocationLiteral,
     EnumInit, MatchExpr, WhileExpr, RangeExpr, ForLoop, ClosureExpr,
-    TryExpr, TryCatchExpr,
+    ScopedBlock, TryExpr, TryCatchExpr,
     Block, LetStatement, AssignStatement, ReturnStatement, ExpressionStatement,
     CompoundAssignStatement, GuardLetStatement, BreakStatement,
     SawType, TypeKind, specialization_key,
@@ -461,9 +461,9 @@ class ExpressionsMixin:
             "window, `true` for the exclusive one), and a declaration that "
             "lends no place has no specializations",
             expr.line, expr.column,
-            hint="declare the accessor `func name(&self, ...) borrows -> T` if "
-                 "it means to lend a place; a runtime condition is an ordinary "
-                 "`Bool` expression")
+            hint="declare the accessor `func name(&var self, ...) borrows -> "
+                 "&var T` if it means to lend a place a use site may write "
+                 "through; a runtime condition is an ordinary `Bool` expression")
         return SawType(TypeKind.BOOL)
 
     def _source_location_file(self, expr: SourceLocationLiteral) -> str:
@@ -747,6 +747,15 @@ class ExpressionsMixin:
 
     def visit_FunctionCall(self, expr: FunctionCall) -> Optional[SawType]:
         return self._check_function_call(expr)
+
+    def visit_ScopedBlock(self, expr) -> Optional[SawType]:
+        """SL-333: the `#lend_var` fold's selected branch — one block, always
+        entered, whose value is the block's own.
+
+        Checked through the SAME chokepoint an `if` branch is: `_check_block`
+        pushes the scope, checks the statements, and answers with the tail's
+        type. Nothing about this node is conditional, so nothing here joins."""
+        return self._check_block(expr.block)
 
     def visit_IfExpr(self, expr: IfExpr) -> Optional[SawType]:
         return self._check_if_expr(expr)
@@ -1196,7 +1205,7 @@ class ExpressionsMixin:
                 hint=f"a reference cannot be stored or bound: pass it straight "
                      f"to a `{sigil}` parameter, or — to hand out storage a "
                      f"value already owns — declare a `borrows` accessor "
-                     f"(`... borrows -> T` with `lend`, design 141), which "
+                     f"(`... borrows -> &var T` with `lend`, design 141), which "
                      f"lends the place for a window rather than letting a "
                      f"pointer out"
             )
@@ -1314,7 +1323,10 @@ class ExpressionsMixin:
                         hint=self._shared_self_hint()
                     )
                     return None
-            elif self._projects_from_self(expr.expr):
+                if not getattr(expr, 'from_lend', False):
+                    self._note_receiver_mutation(
+                        "the `&var self` re-borrow", expr.line, expr.column)
+            elif not getattr(expr, 'from_lend', False):
                 # A `&self` receiver arrives BY VALUE, so a `&var` projection out
                 # of it addresses the callee's own copy: the write compiles, runs,
                 # and is thrown away with the copy (DF-146b — live in the tree
@@ -1325,15 +1337,38 @@ class ExpressionsMixin:
                 # The one exception is the `&var` the place transform builds out
                 # of a `lend`: a borrows accessor's receiver travels by pointer
                 # exactly so its window can write through, and that reference is
-                # marked `from_lend`.
-                if (not self._self_borrow_is_exclusive()
-                        and not getattr(expr, 'from_lend', False)):
+                # marked `from_lend` — the arm is not entered for it at all.
+                #
+                # THE TWO QUESTIONS PART HERE (SL-333 R4). The REFUSAL is design
+                # 146's and keeps its own walk: would the write land in the
+                # copy. The RECORDING is R4's and takes the broader one: a `&var`
+                # of storage reached through the receiver — a place hop included
+                # (`&var self.inner.plain(0)`) — borrows `self` exclusively
+                # whether or not the write would have landed.
+                #
+                # AND IT DOES NOT ASK THE RECEIVER'S OWN MODE. An exclusive
+                # window rooted at `self` is a receiver mutation whatever the
+                # declaration says — design 146's whole point is that a
+                # `borrows` accessor's receiver is borrowed with the WINDOW's
+                # flavor, not the sigil's — so gating the recording on
+                # `_self_borrow_is_exclusive` made the requirement depend on
+                # the spelling again: `&self ... borrows -> &Int` with
+                # `bump(&var self.inner.plain())` in it stayed shared-eligible
+                # and mutated a `let` root (codex, SL-333.p1 r2). Recording
+                # says nothing about a PLAIN method: `_note_receiver_mutation`
+                # answers only for a `borrows` declaration.
+                if self._reaches_self_storage(expr.expr):
+                    self._note_receiver_mutation(
+                        "the `&var self.…` projection",
+                        expr.line, expr.column)
+                if (self._projects_from_self(expr.expr)
+                        and not self._self_borrow_is_exclusive()):
                     self._error(
                         ErrorKind.TYPE_MISMATCH,
                         "cannot take a mutable reference into a `&self` "
                         "receiver: `self` is borrowed SHARED here, so `&var "
-                        "self....` would hand out a mutable reference to a copy "
-                        "and the write would be lost",
+                        "self....` would hand out a mutable reference to a "
+                        "copy and the write would be lost",
                         expr.line, expr.column,
                         hint=self._shared_self_hint()
                     )
@@ -6566,6 +6601,15 @@ class ExpressionsMixin:
             self._apply_literal_expected_type(
                 getattr(value_expr, 'final_expr', None), rt)
             return
+        # SL-333: the `#lend_var` fold's selected branch is a one-arm value
+        # branch whose arm IS its block, so every walk that descends a branch's
+        # arms descends this the same way its `Block` case does. Stated here
+        # rather than left to luck: the expectation must reach the tail, or a
+        # bare literal in a selected branch keeps platform width.
+        if isinstance(value_expr, ScopedBlock):
+            self._apply_literal_expected_type(
+                getattr(value_expr.block, 'final_expr', None), rt)
+            return
 
         # (4) Tuple literal into a tuple type: element-wise. Keep the tuple
         #     expectation on the literal, not only its element types —
@@ -8199,6 +8243,12 @@ class ExpressionsMixin:
         elif isinstance(expr, Block):
             if expr.final_expr:
                 self._propagate_optional_type(expr.final_expr, expected_type)
+        elif isinstance(expr, ScopedBlock):
+            # SL-333: a one-arm value branch whose arm IS its block — the same
+            # descent the `Block` case just made.
+            if expr.block.final_expr:
+                self._propagate_optional_type(expr.block.final_expr,
+                                              expected_type)
 
     def _annotate_none_in_block(self, block: Block, resolved_type: SawType):
         """Annotate any NoneLiteral in the block's final expression with its resolved type."""
@@ -11365,20 +11415,43 @@ class ExpressionsMixin:
         # though the accessor declares `&self` — one body serves both flavors,
         # and the use site picks. So `let v` plus `v[0].n = 1` is the same
         # immutable-binding error a `&var self` method would give.
+        # SL-333 R4: a window call's RECEIVER mode is stamped by the one window
+        # funnel out of the accessor's recorded eligibility, and is a second
+        # fact from the window's own flavor — a read-only window through an
+        # accessor whose body mutates `self` still borrows the receiver
+        # exclusively, and a shared window through a shared-eligible `&var self`
+        # accessor borrows it shared. For every call nobody synthesized, the
+        # receiver mode is the declaration's, exactly as before.
+        is_window = getattr(expr, 'place_lowered', False)
         window_exclusive = getattr(expr, 'place_window_exclusive', False)
+        receiver_exclusive = (getattr(expr, 'place_receiver_exclusive', False)
+                              if is_window
+                              else getattr(method_info, "self_mutable", False))
         self._reject_var_self_call_on_shared_self(expr, method_info)
         # design 260: the consuming-receiver funnel, entry point 2 of 2.
         self._check_consuming_receiver(expr, method_info)
-        if ((getattr(method_info, "self_mutable", False) or window_exclusive)
-                and not method_info.is_init):
+        if receiver_exclusive and not method_info.is_init:
             imm_root = self._immutable_receiver_root(expr.object)
             if imm_root is not None:
-                what = (f"open an exclusive place window on"
-                        if window_exclusive
-                        else f"call `&var self` method `{expr.method_name}` on")
+                if is_window and not window_exclusive:
+                    # The window only READS, so the refusal is about the
+                    # accessor's own body — name the line that makes it so.
+                    mutation = getattr(expr, 'place_receiver_mutation', None)
+                    what = (f"read through the place window "
+                            f"`{expr.method_name}` opens on")
+                    because = (f": the accessor borrows its receiver "
+                               f"exclusively at every use site, because its "
+                               f"body mutates `self` — {mutation}"
+                               if mutation else "")
+                elif is_window:
+                    what = "open an exclusive place window on"
+                    because = ""
+                else:
+                    what = f"call `&var self` method `{expr.method_name}` on"
+                    because = ""
                 self._error(
                     ErrorKind.IMMUTABLE_ASSIGNMENT,
-                    f"cannot {what} immutable variable `{imm_root}`",
+                    f"cannot {what} immutable variable `{imm_root}`{because}",
                     expr.line, expr.column,
                     hint="consider using `var` instead of `let` to make it mutable",
                 )
@@ -11390,7 +11463,7 @@ class ExpressionsMixin:
             [a.value for a in expr.arguments],
             aligned_types,
             receiver=expr.object if not method_info.is_init else None,
-            receiver_mutable=method_info.self_mutable or window_exclusive,
+            receiver_mutable=receiver_exclusive,
             param_names=aligned_names,
         )
         return_type = method_info.return_type
@@ -13076,8 +13149,8 @@ class ExpressionsMixin:
             line, column,
             hint=f"yield the value instead (drop the `&`, so the closure returns "
                  f"`{value}`), or — to hand out storage something already owns — "
-                 f"declare a `borrows` accessor (`... borrows -> {value}` with "
-                 f"`lend`, design 141), which lends the place for a window "
+                 f"declare a `borrows` accessor (`... borrows -> &var {value}` "
+                 f"with `lend`, design 141), which lends the place for a window "
                  f"rather than letting a pointer out")
         return found.inner_type if found is return_type else return_type
 

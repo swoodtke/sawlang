@@ -44,7 +44,7 @@ extension Probe: NoCopy {}
 
 extension Probe {
     /// A conditional lend over a move-only element.
-    public func at(&self, i: Int) borrows -> Slot? {
+    public func at(&self, i: Int) borrows -> &Slot? {
         if i < 0 || i >= self.slots.len() {
             return None
         }

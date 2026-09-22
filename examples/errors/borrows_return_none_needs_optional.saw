@@ -10,7 +10,7 @@
 struct Bag { items: [Int; 4] }
 
 extension Bag {
-    public func at(&self, i: Int) borrows -> Int {
+    public func at(&self, i: Int) borrows -> &Int {
         if i < 0 || i >= 4 {
             return None
         }

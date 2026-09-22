@@ -1,0 +1,37 @@
+// Design 188's root charge reaches a place spelled through a `!` HEAD.
+//
+// SL-334: a PRE-EXISTING hole, reproduced on the design-141 spelling before
+// SL-333 touched anything and found by its sibling sweep. The access-path walk
+// stepped through a `?.` hop and NOT through a `!`, so it fell out to "not a
+// path" and a `!`-headed place never joined the call's access set AT ALL. Two
+// exclusive windows on one root — the exact shape design 188 unit 2 exists to
+// refuse, and which it refuses when the same lend is spelled `m[k]` — compiled
+// and both writes went in; so did a window beside a `&var` of its own root.
+//
+// `!` is the panicking spelling of a conditional lend's presence, so it adds no
+// path component for the same reason `?.` adds none: the root and its
+// projections are what decide overlap. One clause in the one walk.
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: exclusive access violation: the place `b.opt(…)` borrows `b` for the whole window, and `b` is accessed by reference a second time in the same call
+// EXPECT-ERROR-CONTAINS: a place borrow charges its ROOT
+
+struct Cell { n: Int }
+struct Bag { rows: [Cell; 2] }
+
+extension Bag {
+    public func opt(&var self, i: Int) borrows -> &var Cell? {
+        if i < 0 || i >= 2 { return None }
+        lend self.rows[i]
+    }
+
+    public func first(&var self) -> Int { self.rows[0].n }
+}
+
+func setboth(a: &var Cell, b: &var Cell) { a.n = 1  b.n = 2 }
+func setroot(a: &var Cell, r: &var Bag) { a.n = r.first() }
+
+func main() {
+    var b = Bag(rows: [Cell(n: 5), Cell(n: 6)])
+    setboth(&var b.opt(0)!, &var b.opt(1)!)
+    setroot(&var b.opt(0)!, &var b)
+}

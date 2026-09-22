@@ -324,7 +324,7 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
     /// While the window is open the whole map is borrowed, so inserting or
     /// removing inside one is a compile error rather than an invalidated
     /// reference.
-    public func [](&self, key: K) borrows -> V? {
+    public func [](&var self, key: K) borrows -> &var V? {
         let bucket = self._find(key)
         if bucket < 0 {
             return None
@@ -352,7 +352,7 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
     /// move-only `V`, a non-retained alias that two lookups double-freed
     /// (DF-146j). Reach a move-only value through the window
     /// (`m.get(k)!.method()`), or take it out with `remove`.
-    public func get(&self, key: K) borrows -> V? {
+    public func get(&var self, key: K) borrows -> &var V? {
         let bucket = self._find(key)
         if bucket < 0 {
             return None
@@ -563,7 +563,11 @@ extension Map<K: Hashable + Equatable + ExplicitCopy, V: ExplicitCopy, A: Alloca
     // `lend` the payload binding so the caller's `!` chains a borrow method
     // call (`.copy()`) directly off the place instead of reading it out.
     // These two are the INDEX-keyed twins of `[]`/`get`'s KEY-keyed lend.
-    func _key_ref(&self, idx: Int) borrows -> K? {
+    // Read-only lends (SL-333 R1): a KEY may never be written through — the
+    // bucket's position is a function of its hash — and the value side here is
+    // the COPY path's reader, not a mutation point. `[]`/`get` are the writable
+    // spellings; these two are views.
+    func _key_ref(&self, idx: Int) borrows -> &K? {
         match self.slots[idx] {
             case Occupied(k, _) -> { lend k },
             case Empty -> { return None },
@@ -571,7 +575,7 @@ extension Map<K: Hashable + Equatable + ExplicitCopy, V: ExplicitCopy, A: Alloca
         }
     }
 
-    func _value_ref(&self, idx: Int) borrows -> V? {
+    func _value_ref(&self, idx: Int) borrows -> &V? {
         match self.slots[idx] {
             case Occupied(_, v) -> { lend v },
             case Empty -> { return None },

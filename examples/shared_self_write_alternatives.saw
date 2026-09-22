@@ -31,7 +31,7 @@ extension Grid {
     }
 
     // An epilogue that counts reads is what `&var self` is for.
-    func [](&var self, i: Int) borrows -> Int {
+    func [](&var self, i: Int) borrows -> &var Int {
         if i < 0 || i >= self.cells.len() { panic("Grid.[]: index out of range") }
         lend self.cells[i]
         self.reads = self.reads + 1

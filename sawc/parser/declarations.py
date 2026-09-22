@@ -138,7 +138,7 @@ class DeclarationsMixin:
                 "value and `move` at the call site")
 
         # Return type (optional, defaults to void)
-        return_type = self.parse_return_clause(f"`func {name}`")
+        return_type = self.parse_return_clause(f"`func {name}`", lends=is_borrows)
 
         self.skip_newlines()
         body = self.parse_block()
@@ -980,12 +980,12 @@ class DeclarationsMixin:
             self.error(
                 "a `[]` subscript must be `borrows` — `v[i]` names a PLACE in "
                 "the container, not a value read out of it. Write "
-                "`func [](&self, ...) borrows -> T`; a value-returning lookup "
+                "`func [](&var self, ...) borrows -> &var T`; a value-returning lookup "
                 "is an ordinary named method")
 
         # Return type (optional, defaults to void)
         return_type = self.parse_return_clause(
-            "`init`" if is_init else f"method `{name}`")
+            "`init`" if is_init else f"method `{name}`", lends=is_borrows)
 
         self.skip_newlines()
         body = self.parse_block()

@@ -33,7 +33,7 @@
 struct Grid { cells: [Int; 4] }
 
 extension Grid {
-    func [](&self, i: Int) borrows -> Int {
+    func [](&var self, i: Int) borrows -> &var Int {
         if i < 0 || i >= 4 { panic("Grid.[]: index out of range") }
         lend self.cells[i]
     }
@@ -42,7 +42,7 @@ extension Grid {
 enum Slot { case Filled(n: Int), case Empty }
 
 extension Slot {
-    func at(&self) borrows -> Int? {
+    func at(&self) borrows -> &Int? {
         match self {
             case Filled(n) -> { lend n },
             case Empty -> { return None }
@@ -59,7 +59,7 @@ extension Cell {
 struct CellGrid { slots: [Cell; 2] }
 
 extension CellGrid {
-    func [](&self, i: Int) borrows -> Cell {
+    func [](&self, i: Int) borrows -> &Cell {
         if i < 0 || i >= 2 { panic("CellGrid.[]: index out of range") }
         lend self.slots[i]
     }

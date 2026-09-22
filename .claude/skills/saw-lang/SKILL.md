@@ -815,32 +815,51 @@ var u = w.copy()       // explicit duplicate
   forwarded — a twice-forwarded `&var` mutation is visible at the root);
   exclusivity is by root path (`g(&var r, &r)` in one call is rejected). This
   is what lets `net.read_into` forward its `&var Data` to a helper.
-- **PLACES: `borrows` / `lend` (design 141/146).** A `borrows` method hands out
-  STORAGE instead of a value — the element/field stays where it is and the
-  caller reads or writes it there. `borrows` rides the effect slot
+- **PLACES: `borrows` / `lend` (design 141/146, SL-333).** A `borrows` method
+  hands out STORAGE instead of a value — the element/field stays where it is and
+  the caller reads or writes it there. `borrows` rides the effect slot
   (`unsafe sync borrows`); `[]` is a declarable method name, so a `borrows []`
   is the subscript; any named method may be `borrows` too.
   ```saw-fragment
   extension Grid {
-      public func [](&self, i: Int) borrows -> Cell {
+      public func [](&var self, i: Int) borrows -> &var Cell {
           if i < 0 || i >= 9 { panic("Grid.[]: index out of range") }
           lend self.cells[i]              // window opens here
-          self.reads = self.reads + 1     // EPILOGUE (needs `&var self`)
+          self.reads = self.reads + 1     // EPILOGUE — and see EXCLUSIVE-ONLY
       }
   }
   g[4].weight += 1                        // writes the element in place
   ```
+  **THE ARROW NAMES THE LENT REFERENCE AND ITS MODE** (SL-333): four spellings,
+  `-> &T` / `-> &var T` / `-> &T?` / `-> &var T?`. `-> &var T` may be opened
+  shared OR exclusive by a use site; `-> &T` is the READ-ONLY lend and a write
+  through one is a clean error naming the accessor and the `-> &var T` fixit.
+  The bare `borrows -> T` is an error with a fixit. THE RECEIVER BOUNDS IT:
+  `-> &var T` requires `&var self` (`&self ... -> &var T` is the teaching
+  error); `&var self ... -> &T` is legal and is the accessor that keeps its own
+  bookkeeping and still lends read-only. A reference type is legal in a RETURN
+  position iff the declaration is `borrows`.
   **`lend` is a SUSPENSION, not a return.** The accessor runs to its `lend`,
   PAUSES with its frame alive, the caller's window code runs inside that pause,
-  and the epilogue runs on resume. `-> T` names the type of the PLACE, so
+  and the epilogue runs on resume. `-> &var T` names the PLACE, so
   `return <value>` in a borrows body is a clean error. Every path lends EXACTLY
   once or diverges first (`panic` before the lend is the bounds-check shape);
   `lend` inside a loop is rejected (lend once, after the loop picks the place).
-  **The USE SITE picks the flavor**: a read opens a shared window, a write or a
-  `&var` argument opens an exclusive one, out of ONE declaration. A SHARED
-  window lends the element READ-ONLY (`&T`), so a write inside one is a compile
-  error (design 176 — before that the window was `&var` whichever flavor was
-  picked, and a misclassified use site wrote through it silently). Window extent
+  **The USE SITE picks the flavor WITHIN the declared mode**: a read opens a
+  shared window, a write or a `&var` argument opens an exclusive one, out of ONE
+  `-> &var T` declaration. A use site NARROWS a declared mode and never widens
+  it. A SHARED window lends the element READ-ONLY (`&T`), so a write inside one
+  is a compile error (design 176 — before that the window was `&var` whichever
+  flavor was picked, and a misclassified use site wrote through it silently).
+  **EXCLUSIVE-ONLY (SL-333 R4)**: the window's mode and the RECEIVER's required
+  access are two facts. An accessor whose body mutates `self` outside the place
+  it lends — a prologue counter, an epilogue update, a `&var self` call on
+  `self` — borrows the receiver EXCLUSIVELY at every use site, reads included:
+  refused on a `let` root (the diagnostic quotes the mutating line), and two
+  read-only windows through one on a `var` root conflict as two exclusive
+  borrows. An accessor that only lends is SHARED-ELIGIBLE, so `let g` plus
+  `g[4].weight` compiles even though the accessor is `&var self`. Gate the
+  bookkeeping on `#lend_var` to stay shared-eligible. Window extent
   = the smallest expression that turns the place back into a value; windows
   NEST (`b[0][1].n += 1` is two, epilogues LIFO) and a nested WRITE makes every
   containing window exclusive too, so an immutable root is refused by NAME. A place borrow charges its
@@ -886,7 +905,7 @@ var u = w.copy()       // explicit duplicate
   window, so each needs a `var` root. A method call is an assignment target only
   when it lends a place; anything else is refused naming the method. Fence: a
   second `?` hop past the lend (`m[k]?.a?.b = v`) is not supported — bind first.
-  **`borrows -> T?` is the CONDITIONAL lend**: each path either `lend`s or
+  **`borrows -> &T?` / `-> &var T?` is the CONDITIONAL lend**: each path either `lend`s or
   plainly `return None`. The absent path opens NO window and runs NO epilogue —
   `if let x = d.at(i)` sees `None`, and `d.at(i)!.m()` panics (the `!` is the
   promise the window keeps). `lend` may not be in a LOOP, so a body that has to
@@ -927,7 +946,7 @@ var u = w.copy()       // explicit duplicate
   which must separate shared storage before lending a writable place and must
   not separate for a read:
   ```saw-fragment
-  public func [](&self, index: Int) unsafe borrows -> UInt8 {
+  public func [](&var self, index: Int) unsafe borrows -> &var UInt8 {
       if index < 0 || index >= self.length {
           panic("Data.[]: index out of range: {} (len {})", index, self.length)
       }
@@ -938,25 +957,35 @@ var u = w.copy()       // explicit duplicate
       lend bytes[index]
   }
   ```
-  The accessor compiles TWICE and the gated branch is REMOVED from the shared
-  copy, not skipped in it — which is why that copy is honest `&self` code a
-  `let` root may call. It PRUNES as the condition of an `if` STATEMENT (`not`,
-  `&&`, `||` fold with it); anywhere else it is a plain compile-time `Bool`.
-  Clean errors outside a `borrows` body and in a `&var self`-DECLARED accessor
-  (always true there — declare `&self` to get both). An accessor that never
-  names it compiles once, exactly as before. Gate placement is yours: in a
-  `borrows -> T?` the prologue runs on the ABSENT path too, so a gate above the
-  presence test separates on a MISS — put it below.
+  A `-> &var T` accessor compiles TWICE — that is exactly the declaration a use
+  site may open either way — and the gated branch is REMOVED from the shared
+  copy, not skipped in it. That is what keeps the shared copy SHARED-ELIGIBLE,
+  so `let frozen = load()` then `frozen[0]` needs no `var` and separates
+  nothing. It PRUNES as the condition of an `if` STATEMENT (`not`, `&&`, `||`
+  fold with it); anywhere else it is a plain compile-time `Bool`. ONLY the
+  CONSTANT prunes — an `if true` of your own is an ordinary branch and keeps
+  its scope and its destruction order — and a pruned branch that BINDS anything
+  keeps its block rather than being lifted into its parent: it still runs
+  unconditionally, still yields its last expression's value (so a gate in VALUE
+  position works: `let slot = if #lend_var { let c = 0  c } else { let c = 1  c }`),
+  and still destroys its locals before that value leaves. Clean errors
+  outside a `borrows` body and in a `-> &T` accessor (always FALSE there — a
+  read-only lend has one specialization; declare `-> &var T` to get both). Gate
+  placement is yours: in a `borrows -> &var T?` the prologue runs on the ABSENT
+  path too, so a gate above the presence test separates on a MISS — put it
+  below.
+  **A FORWARDED lend (`lend other[i]`) carries the enclosing specialization's
+  mode** (SL-333 R7): shared inside the shared copy, exclusive inside the other,
+  so a shared read of a nested CoW buffer does NOT copy. Two refusals follow —
+  an outer `-> &var T` backed by an inner `-> &T` is refused at the `lend`, and
+  an EXCLUSIVE-ONLY inner accessor makes the outer one exclusive-only too.
   v1 fences: a borrows body is `sync` (a window never spans a suspend —
   `with_ref`/`with_var_ref` stay the long-window spelling), no borrows function
-  VALUES or existentials, no trait requirements, no way to declare an accessor
-  SHARED-ONLY (the flavor is always the use site's — which is why `Set` gets no
-  element accessor: a write would change an element's hash), and a borrows body
-  cannot FORWARD another conditional place (`lend other.get(k)!` is not
-  expressible — split the search out and lend your own storage instead). A body
-  that DOES forward an unconditional one (`lend other[i]`) reaches the inner
-  accessor EXCLUSIVELY whichever specialization is running, so a shared read of
-  a nested CoW buffer copies — sound, but worth knowing.
+  VALUES or existentials, no trait requirements, and a borrows body cannot
+  FORWARD another CONDITIONAL place (`lend other.get(k)!` is not expressible —
+  split the search out and lend your own storage instead). `Set` still gets no
+  element accessor: a write would change an element's hash, and a `-> &Element`
+  view is not what an element accessor is for.
 - Deterministic LIFO destruction (`Deinit` trait); never call
   `deinit()` manually. You almost never WRITE one either (design 128): any
   struct/enum owning something gets a memberwise `deinit` synthesized — fields
@@ -1894,7 +1923,8 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
   `to_json_string()`. Its readers answer `None` rather than trapping:
   `is_null()`, `as_bool()`, `as_int()`, `as_float()`, `as_text()`, and the two
   place accessors `as_array()` / `as_object()`, which LEND their container
-  (`borrows -> T?`) rather than copying it:
+  (`borrows -> &var T?`, so `doc.as_object()!.insert(...)` reaches it in place)
+  rather than copying it:
   ```saw-body
   import std.json.{JsonValue}
 
@@ -3853,27 +3883,28 @@ construct in the owner and lend `&driver` down.
   pointing at `&var self`; a bare `self` is likewise rejected. `consumes`
   (design 260) does NOT add a third mode — it rides the effect slot beside a
   `&var self` receiver; see CONSUMING RECEIVERS in the ownership section.
-- **`borrows` CHANGES WHAT `&self` MEANS** (design 146) — read this before
-  writing an accessor. On a `borrows` method the receiver is borrowed with the
-  WINDOW's flavor, decided at each USE SITE: `print(g[4].n)` borrows `g` shared,
-  `g[4].n += 1` borrows it exclusively, out of the same `&self` declaration.
-  This is the ONE place in Saw where a `&self` spelling does not mean
-  shared-only, and it is deliberate (design 141 decision 3: one body serves both
-  flavors). The polymorphism reaches the `lend` and NOTHING else — the rest of
-  the body is ordinary `&self` code, so a field write or a `&var self.<field>`
-  in the prologue/epilogue is the same hard error it is in any other `&self`
-  method. Write the accessor `&var self` when the body genuinely mutates the
-  receiver (an epilogue that bumps a counter); that is legal and STRICTER —
-  every use site then borrows the receiver exclusively, reads included, so a
-  `let` root stops working. `--emit-docs` reports a `&self` borrows receiver as
-  `"self": "window"`, not `"borrows"`.
+- **`borrows` CHANGES WHAT THE RECEIVER SIGIL MEANS** (design 146, SL-333) —
+  read this before writing an accessor. On a `borrows` method the receiver is
+  borrowed with the WINDOW's flavor, decided at each USE SITE:
+  `print(g[4].n)` borrows `g` shared, `g[4].n += 1` borrows it exclusively, out
+  of the same `&var self ... -> &var Cell` declaration. This is the ONE place in
+  Saw where the sigil does not settle the mode, and it is what lets a `let` root
+  read through a writable accessor. It holds while the body borrows nothing more
+  than the place it lends: an accessor that writes a field, calls a `&var self`
+  method on `self`, or re-borrows `self` `&var` — anywhere outside the `lend` —
+  is EXCLUSIVE-ONLY, so every use site borrows the receiver exclusively, a read
+  included, and a `let` root is refused with the mutating line quoted. Gate the
+  bookkeeping on `#lend_var` to keep the shared specialization clean.
+  `--emit-docs` reports a shared-eligible borrows receiver as `"self":
+  "window"` and an exclusive-only one as `"borrows-var"`.
 - **A `&self` METHOD MAY NOT WRITE ITS RECEIVER** (design 146 + 176). `&self`
   is a SHARED borrow: read the receiver, never write it. Both spellings are
   compile errors: the DIRECT write
   (`self.hits = self.hits + 1`, `self.hits += 1` — unchecked until design 176,
   a silent no-op for years) and the `&var self.<field>` PROJECTION that hands
-  the write to someone else. Fix: declare `&var self`, or `borrows -> T` if you
-  meant to lend the place. The rule covers storage INSIDE the receiver — a
+  the write to someone else. Fix: declare `&var self`, or
+  `&var self ... borrows -> &var T` if you meant to lend the place.
+  The rule covers storage INSIDE the receiver — a
   field, a nested field, a tuple element, an optional payload, an inline
   `[T; N]` element. Storage the receiver only POINTS AT is not covered:
   `self.cells[i] = v` on a `Vector` field writes the caller's element and is
@@ -4213,7 +4244,7 @@ construct in the owner and lend `&driver` down.
   `swap_out(i, v)` moves a slot out; `with_ref`/`with_var_ref(i, body)` are
   still the multi-statement / long-window spellings (a place window is ONE
   expression) and the only way to hold a borrow across several statements.
-  **`Map` has the subscript too** (DF-146d): `m["k"] borrows -> V?`, a
+  **`Map` has the subscript too** (DF-146d): `m["k"] borrows -> &var V?`, a
   conditional lend over the slot's enum payload. `m["k"]!.n += 1` writes the
   stored value, `m["k"]!.push(x)` grows a `Vector` value where it sits (no
   read-modify-write of the whole entry), `m["k"] ?? d` and `if let _ = m["k"]`
