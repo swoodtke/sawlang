@@ -1,5 +1,5 @@
 ---
-{"acceptance":[],"assignee":"agent:claude-sl2-u0","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":19,"sequence":1356,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790195387"}
+{"acceptance":[],"assignee":"agent:claude-sl2-u0","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":20,"sequence":1364,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790197884"}
 ---
 
 
@@ -114,4 +114,76 @@ U0′ SCOPE NOTE (lead, Sep 23): R1 split at the implementer's ownership-guard s
 
 <!-- sawtracker:comment {"author":"agent:claude-sawlang","body_bytes":146,"created":"1790195387","id":"c15"} -->
 N2 RULED (user, Sep 23): refuse the ambiguity with a learning note — contract and pins on SL-309; U0′ implements its N2 cells, none stay OPEN.
+
+<!-- sawtracker:comment {"author":"agent:claude-sl2-u0","body_bytes":3703,"created":"1790197884","id":"c16"} -->
+## Proposed prototype edits for codex's deliberate merge
+
+agent:claude-sl2-u0, SL-2 U0′. `prototypes/parser/**` is reverted in my
+worktree (chat m100) and ships nothing. These are the edits U0′ would have
+made, each with the change it follows from, for codex to merge or discard on
+the M21 base. I keep running the harness locally as the second oracle.
+
+Verified on my tip with the edits applied, before reverting them:
+
+    test_canonical.py --debt-probe            1 case passed, Python compared 1
+    test_canonical.py (full)                 27 cases passed, Python compared 19
+    test_parser.py                           88 cases passed [VM, O0, O2, ASan, sawc]
+    unittest discover prototypes/parser/tests 42 tests, OK
+    inventory.py --check                      clean after regeneration
+    compare_examples.py                       64/64 candidates
+
+### 1. `fixtures/canonical_cases.json` — two oracle flags
+
+Both are the flips design 274 U0′ owes; codex reports (m101) they are already
+flipped on its base, so this is confirmation rather than a request.
+
+* `grouped-identifier-callee`, field `python_oracle`: `false` → `true`.
+  Follows from **R1**: `parse_postfix` now folds a `(args)` after a
+  parenthesized `Identifier` into the plain `FunctionCall`, so
+  `tools/dump_ast.py` on `func use() -> Int { (f)(1) }` emits the fixture's
+  bytes exactly.
+* `assignment-multiline-rhs`, field `python_oracle`: `false` → `true`, and the
+  sibling field `python_oracle_exclusion` (`"SL-83: the Python parser rejects a
+  newline after a binary operator"`) DELETED. Follows from **R3**: a line
+  ending in a binary operator continues, so `x = g(\n 1,\n) +\n 2` parses.
+
+`general-callee-refusal` stays `python_oracle: false`. Its exclusion is not
+Python-side — it is a `render_error` fixture, which the oracle skips whatever
+the flag says, and what the canonical schema should say for a non-name callee
+is design 274 §3 U2′'s ruling.
+
+### 2. `test_parser.py` — one error expectation
+
+    -Case("error-lex-unterminated-string", b'"unterminated', error=(1, 14, "Unterminated string")),
+    +Case("error-lex-unterminated-string", b'"unterminated',
+    +     error=(1, 1, "unterminated string literal")),
+
+Follows from **N7**: an unterminated string now anchors at the quote that
+opened it instead of at EOF, in BOTH lexers — `sawc/lexer.py` and
+`selfhost/lexer/src/lib.saw`, which `tools/lexdiff.py` compares positions
+between. The prototype parser embeds the selfhost lexer, so its expectation
+moves with it. Without this edit the case fails on all five engines with
+`error (1, 1, 'unterminated string literal, opened at this quote'), expected
+anchor (1, 14)`.
+
+### 3. `README.md` — three paragraphs of prose
+
+No behavior. The SL-73 grouped-callee debt is gone (R1), the Python-compared
+count goes 17 → 19, and the depth cases' exclusion reason changes: the Python
+PARSER now reaches 256, but a pass behind it does not (SL-369), so the
+independently authored expectations stay for a different reason.
+
+### 4. `examples_inventory.{json,md}` — regenerated
+
+Pure `inventory.py` output. U0′ adds 20 files under `examples/` (the R1/R3/R6/
+R7′ pins, the six 257-refusal pins, the two 256-acceptance pins, and the
+reserved-word / unclosed-brace / float-literal / unterminated-string
+diagnostics), so the snapshot is stale against my tip and `inventory.py
+--check` fails until it is re-run. This is design 274 U5′'s CHURN-vs-SPLIT
+question arriving early; it needs no decision from me, only a re-run on
+whichever base the examples land on.
+
+The full diff including the inventory is `.build/scratch/u0_prototype_edits.diff`
+in my worktree (5673 lines, 5522 of them the snapshot).
+
 
