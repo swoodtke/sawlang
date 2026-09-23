@@ -18,7 +18,7 @@ func run_int(body: () sync -> Int) -> Int { body() }
 struct Counter { n: Int }
 
 extension Counter {
-    func narrow(&var self) -> Int { run_int({ [&self] in self.n = 9  self.n }) }
+    func narrow(&var self) -> Int { run_int({ [&self] in self.n = 9; self.n }) }
 }
 
 func main() {

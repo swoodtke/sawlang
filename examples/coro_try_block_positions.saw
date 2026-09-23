@@ -244,7 +244,7 @@ func tail_value(n: Int) -> Int {
 
 // 13 — value position: the block initializes a `let`
 func let_value(n: Int) -> Int {
-    let r = try { let a = try compute(n > 0, n)  a + 20 } catch { -2 }
+    let r = try { let a = try compute(n > 0, n); a + 20 } catch { -2 }
     r
 }
 

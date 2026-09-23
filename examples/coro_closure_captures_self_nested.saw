@@ -105,7 +105,7 @@ extension Counter {
     // reaches the caller's storage.
     func bump(&var self) -> Int {
         yield_now()
-        run_int({ self.n += 10  self.n })
+        run_int({ self.n += 10; self.n })
     }
 }
 

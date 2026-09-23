@@ -35,6 +35,6 @@ func main() {
     filler.join()
 
     var total = 0
-    let adder = Task.spawn(run({ [&var total] in total = total + 1  total }))
+    let adder = Task.spawn(run({ [&var total] in total = total + 1; total }))
     adder.join()
 }

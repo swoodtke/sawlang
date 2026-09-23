@@ -14,9 +14,10 @@ below.
 ```saw-fragment
 let x = 42                 // immutable binding (must initialize)
 var n = 0                  // mutable
-n += 1                     // …and there are NO semicolons: a newline ends it
+n += 1                     // no TERMINATORS: a newline separates two statements
+let w = 3; let h = 4       // …and `;` separates two that share a line (SL-347)
 func f(a: Int, b: Int = 2) -> Int { a * b }   // default param (trailing)
-f(5)  f(5, 3)  f(5, b: 3)  // labels optional; required only on ambiguity
+f(5); f(5, 3); f(5, b: 3)  // labels optional; required only on ambiguity
 struct Point { x: Int, y: Int }
 extension Point { func mag(&self) -> Int { self.x * self.x } }
 extension Point { init(m: Int) -> Point { Point(x: m, y: m) } }
@@ -398,7 +399,53 @@ print("{#file}:{#line} - msg")  // #file/#line/#function: definition-site consts
 - Escapes: exactly `\\ \" \n \t \r \0 \u{1F600}` + `\{ \}` (brace forms);
   `\0` is an interior NUL that `len()` counts. Any other escape is a lex
   error (no silent drop). Strings are immutable UTF-8, refcounted.
-- Comments `//`. No semicolons. `not` for logical negation.
+- Comments `//`. `not` for logical negation.
+- **`;` IS THE ONE-LINE STATEMENT SEPARATOR, and Saw has no TERMINATORS
+  (SL-347).** A newline separates two statements; a `;` separates two that
+  share a line — `if done { print("ok"); return }`, `{ c in c = c + n; c }`.
+  It JOINS, so a `;` that separates nothing is a clean error where it stands:
+  before a newline, before the block's `}`, at end of file, doubled, or at the
+  start of a line, all of them ``a `;` joins two statements on one line; it
+  does not end one — remove it``. Module scope takes newlines only
+  (``declarations are not joined by `;` — put each declaration on its own
+  line``). The `;` in `[Int; 3]` and `[0; 3]` is untouched: it sits inside
+  brackets, where no statement can begin. BARE JUXTAPOSITION — two statements
+  on one line with NOTHING between them — is REFUSED, in every block a
+  statement list sits in (function/method body, `borrows` body, `if`/`else`/
+  `while`/`for` body, a `match` arm's BLOCK body, both blocks of
+  `try { } catch { }`, `guard … else { }`, a closure body) — and in the four
+  DECLARATION lists, which take a newline per unit and are never joined by a
+  `;` at all, so they get the declarations message instead: module scope, an
+  inline `module m { … }` body, an extension's MEMBERS, a trait's
+  REQUIREMENTS, and an `extern "C" { … }` block. A COMMA-delimited list is
+  untouched (a newline means nothing inside one — design 129/147): a struct's
+  fields, an enum's cases, a `match`'s arms, a map/set literal, an import's
+  symbol list, every parameter/argument/generic list. The diagnostic names both
+  statements' first tokens:
+  ```saw-error
+  // error-contains: two statements on one line need a `;` between them
+  func main() {
+      let width = 3 print(width)
+  }
+  // error: two statements on one line need a `;` between them: the first
+  // begins with `let`, the second with `print` — write `;` where they meet
+  ```
+  A `match` arm's BARE body is untouched: it is an EXPRESSION rather than a
+  statement list, so it never reaches the rule. The arm grammar owns its own
+  separator and SL-347 did not tighten it — the comma between arms is OPTIONAL
+  today, so `case 0 -> 1 case _ -> 2` on one line compiles as it always did.
+  Bare juxtaposition COMPILED until Sep 22,
+  so a build that accepts `{ c in c = c + n  c }` predates the refusal — and
+  the two-space spelling the skill used to show was a convention, never
+  grammar.
+- **STYLE (user ruling, Sep 22): a brace body is ONE LINE or FULLY BROKEN,
+  never half-way.** Either the whole body sits on the brace's line
+  (`if done { return }`, `{ c in c = c + n; c }`), or the opening brace ends
+  its line, every statement has its own line, and the closing brace stands
+  alone. `{ help()` + newline + `return }` is the shape the rule exists to
+  catch, and it stays DISALLOWED BY STYLE even though the grammar accepts it
+  (the newline is a legal separator). Prefer the broken form as soon as a body
+  carries a `return`/`break`/`continue` beside anything else.
 - Line breaks (design 129): a statement ends at end-of-line, but a newline
   between `(`/`)`, `[`/`]`, or inside a COMMITTED generic `<...>` is
   insignificant — so argument lists, parameter lists, tuples, collection
@@ -967,7 +1014,7 @@ var u = w.copy()       // explicit duplicate
   its scope and its destruction order — and a pruned branch that BINDS anything
   keeps its block rather than being lifted into its parent: it still runs
   unconditionally, still yields its last expression's value (so a gate in VALUE
-  position works: `let slot = if #lend_var { let c = 0  c } else { let c = 1  c }`),
+  position works: `let slot = if #lend_var { let c = 0; c } else { let c = 1; c }`),
   and still destroys its locals before that value leaves. Clean errors
   outside a `borrows` body and in a `-> &T` accessor (always FALSE there — a
   read-only lend has one specialization; declare `-> &var T` to get both). Gate
@@ -1245,13 +1292,13 @@ record(42)                               // and in ARGUMENT position, same rule
 let rows: Vector<Result<Int, String>> = [1, 2]   // …and every declared slot
 // There is no `Ok(x)`/`Err(e)` to write: the wrap IS the construction. `T == E`
 // is the one ambiguity, and it is a compile error — spell the variant then.
-try! f()   try? f()   try f() catch { fallback }
-let x = try f() catch { print("{error}")  return -1 }   // the GUARD form: the
+try! f(); try? f(); try f() catch { fallback }
+let x = try f() catch { print("{error}"); return -1 }   // the GUARD form: the
 // catch binds `error` and its body may DIVERGE (return/continue/break/panic)
 // instead of supplying a fallback — a diverging block satisfies any expected
 // type (design 228) — so "bind on Ok, handle-and-exit on Err" needs no `match`
 try(as LocalError.Alloc) alloc(4096)     // ROUTE the error channel (design 234)
-try { let a = try f()  let b = try g() } catch {
+try { let a = try f(); let b = try g() } catch {
     match error { case ParseError(e) -> ..., case IoError(e) -> ... }
 }   // multi-type: error is an ephemeral union (can't escape the catch)
 func load() -> Result<Cfg, Box<any Error>> {   // erased: any error type
@@ -2069,7 +2116,7 @@ try! v.map<String>({ $0.to_string() })  // the closure's return; explicit still 
 ```saw-fragment
 import std.task.*                                 // design 114: `yield_now` lives here
                                                   // (`import std.task` -> task.yield_now())
-func work(n: Int) -> Int { yield_now()  n * n }  // any call may suspend
+func work(n: Int) -> Int { yield_now(); n * n }  // any call may suspend
 func main() {
     var group = TaskGroup()
     let a = group.spawn(work(3))
@@ -2297,7 +2344,7 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   so a build that accepts an unlisted capture at a spawn brace predates it.
 - **A `Thread.spawn` BODY IS `sync`, AND MAY BLOCK ON FFI (design 242 rulings
   8/9).** A spawned thread runs no executor, so a suspension there has nothing
-  to resume it: `Thread.spawn { yield_now()  7 }` is a clean error naming
+  to resume it: `Thread.spawn { yield_now(); 7 }` is a clean error naming
   `TaskGroup(threads: 1)`, which is suspending work on a dedicated thread WITH
   an executor. The one permitted source is a `blocking` extern, directly or
   through a helper — it runs as a plain call and blocks that thread, which is
@@ -2332,7 +2379,7 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   ```saw-fragment
   func drain(ch: Channel<Job>) -> Result<Int, ChannelError> {
       var n = 0
-      while let job = try ch.try_receive() { run(job)  n = n + 1 }
+      while let job = try ch.try_receive() { run(job); n = n + 1 }
       return n
   }
   ```
@@ -2355,7 +2402,7 @@ dump_tasks()                // every live task's logical backtrace (std.task)
       var going = true
       while going {
           match orders.receive() {
-              case Ok(order) -> { fulfil(order)  handled = handled + 1 },
+              case Ok(order) -> { fulfil(order); handled = handled + 1 },
               case Err(_) -> { going = false }   // closed AND drained
           }
       }
@@ -2759,9 +2806,9 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   and a method that SATISFIES A TRAIT REQUIREMENT — entry-module and
   cross-module alike:
   ```saw-fragment
-  extension Color { func label(&self) -> String { yield_now()  "red" } }
-  extension Box2<T> { func describe(&self) -> String { yield_now()  "boxed" } }
-  extension Person: Greeter { func greet(&self) -> String { yield_now()  self.n } }
+  extension Color { func label(&self) -> String { yield_now(); "red" } }
+  extension Box2<T> { func describe(&self) -> String { yield_now(); "boxed" } }
+  extension Person: Greeter { func greet(&self) -> String { yield_now(); self.n } }
   ```
   Treat all five as working now and SUSPECT in older builds, where the failures
   were not alike: the enum receiver was a codegen ICE, the generic-struct
@@ -2868,7 +2915,8 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   ```saw-fragment
   while let job = try ch.try_receive() { run(job) }   // in a spawned task
   guard let cfg = try load(path) else { return 0 }
-  if (try grab(n)) > 0 { … }        for i in 0..(try count()) { … }
+  if (try grab(n)) > 0 { … }
+  for i in 0..(try count()) { … }
   ```
   Until then a `try` written in a head was refused with ``cannot propagate
   errors from a function returning `Poll` `` — a type the author never wrote —
@@ -2979,7 +3027,7 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   import std.mutex.{Mutex}
 
   func add(shared: Arc<Mutex<Int>>, n: Int) -> Int {
-      shared.lock({ &var c in c = c + n  c })   // captures `n`, the parameter
+      shared.lock({ &var c in c = c + n; c })   // captures `n`, the parameter
   }
   // group.spawn(add(shared.copy(), 1))
   ```
@@ -3005,7 +3053,7 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   the internal park, so a reader ACCUMULATES successive chunks into ONE growing
   buffer with no per-chunk allocation; returns the byte count, 0 = EOF).
 - **TWO SPELLINGS REACH THE SPAWNER, ONE RULE COVERS BOTH (designs 188/189/201).**
-  A borrow CAPTURE (`group.spawn(run({ [&var n] in n = n + 1  n }))`) and a
+  A borrow CAPTURE (`group.spawn(run({ [&var n] in n = n + 1; n }))`) and a
   `&`/`&var` ARGUMENT of the spawned call (`group.spawn(bump(&var n))`) are the
   same borrow, and everything below applies to each. The argument spelling is
   what a worker filling a caller's buffer wants:
@@ -3041,7 +3089,7 @@ dump_tasks()                // every live task's logical backtrace (std.task)
   // error-contains: `n` cannot be written here — the task
   var n = 0
   var group = TaskGroup()
-  let h = group.spawn(run({ [&var n] in n = n + 100  n }))
+  let h = group.spawn(run({ [&var n] in n = n + 100; n }))
   n = 5                    // error: `n` cannot be written here — the task
                            //   spawned at line 3 holds `&var n` until
                            //   `h.join()` releases it
@@ -3529,7 +3577,7 @@ OWN result** — `lock<R>(body: (&var T) sync -> R) -> R`, the same shape
 `SpinLock.lock` has (M1 landed; DF-123c is closed, and `Arc<Mutex<T>>`
 forwarding reaches the method-generic `lock` too):
 ```saw-fragment
-let n = shared.lock({ c in c = c + 5  c })   // shared: Arc<Mutex<Int>> -> n == 5
+let n = shared.lock({ c in c = c + 5; c })   // shared: Arc<Mutex<Int>> -> n == 5
 ```
 
 ## Systems/embedded corner
@@ -4210,7 +4258,7 @@ construct in the owner and lend `&driver` down.
   body alike.
 - **Writing to a by-value capture is a compile error** (design 132). The env is
   immutable and each plain/`move`/`copy` capture is loaded into a per-call
-  local, so `{ n = n + 1  n }` would count in a copy that dies with the call.
+  local, so `{ n = n + 1; n }` would count in a copy that dies with the call.
   The error names the two working spellings: `[&var n]` (borrow capture — only
   in a closure passed directly to a non-escaping parameter) and `Arc<Mutex<T>>`
   (escaping, shared instead of captured). READS are untouched, and so are the
@@ -4227,7 +4275,7 @@ construct in the owner and lend `&driver` down.
   ```saw-fragment
   extension Counter {
       func viaFree(&self) -> Int { run_int({ self.n + 1 }) }
-      func bump(&var self) -> Int { run_int({ self.n = self.n + 10  self.n }) }
+      func bump(&var self) -> Int { run_int({ self.n = self.n + 10; self.n }) }
   }
   ```
   ONE rule over three spellings, because a receiver IS a reference: **a capture
@@ -4350,8 +4398,8 @@ construct in the owner and lend `&driver` down.
   for the other — so the copy tier never comes into it and a move-only element
   prints and compares like an `Int` one:
   ```saw-fragment
-  print("{v[0]}")   print(v[0])   print("{}", v[0])    // every rendering slot
-  v[0] == w[0]      v[0] < w[0]                        // all six operators
+  print("{v[0]}"); print(v[0]); print("{}", v[0])    // every rendering slot
+  v[0] == w[0]; v[0] < w[0]                        // all six operators
   ```
   Rendering covers an interpolation operand anywhere, a single-argument `print`
   of a `Printable`, and the format arguments of `print`/`panic`/`assert`. Treat

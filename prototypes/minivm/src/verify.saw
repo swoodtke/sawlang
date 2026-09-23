@@ -374,7 +374,7 @@ func check_function(p: &Program, f: &FuncIR) -> Result<Void, ProtoError> {
     }
     var visited = Vector<Bool>()
     n = 0
-    while n < f.code.len() { try! visited.push(false) n = n + 1 }
+    while n < f.code.len() { try! visited.push(false); n = n + 1 }
     var pending = Vector<Int>()
     try! pending.push(0)
     while let pc = pending.pop() {

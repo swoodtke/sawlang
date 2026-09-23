@@ -100,9 +100,9 @@ enum LocalError {
 extension LocalError: Printable {
     func format(&self, into: &var StringBuilder) {
         match self {
-            case Alloc(e) -> { try! into.append("alloc/")  e.format(into: &var into) },
-            case Parse(e) -> { try! into.append("parse/")  e.format(into: &var into) },
-            case Dep(e) -> { try! into.append("dep/")  e.format(into: &var into) }
+            case Alloc(e) -> { try! into.append("alloc/"); e.format(into: &var into) },
+            case Parse(e) -> { try! into.append("parse/"); e.format(into: &var into) },
+            case Dep(e) -> { try! into.append("dep/"); e.format(into: &var into) }
         }
     }
 }

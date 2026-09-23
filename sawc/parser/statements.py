@@ -44,15 +44,19 @@ class StatementsMixin:
     def parse_block(self) -> Block:
         start = self.current()
         self.expect(TokenType.LBRACE)
-        self.skip_newlines()
+        # SL-347: the block's statement gaps all run through the separator
+        # chokepoint, this first call covering the gap before the first
+        # statement (it skips the newlines `skip_newlines` used to).
+        self.expect_statement_end()
 
         statements = []
         final_expr = None
 
         while not self.match(TokenType.RBRACE, TokenType.EOF):
+            stmt_start = self.current()
             stmt = self.parse_statement()
             statements.append(stmt)
-            self.skip_newlines()
+            self.expect_statement_end(stmt_start)
 
         self.expect(TokenType.RBRACE)
 
@@ -344,7 +348,7 @@ class StatementsMixin:
         """
         start = self.advance()  # consume 'lend'
 
-        if self.match(TokenType.NEWLINE, TokenType.RBRACE, TokenType.EOF):
+        if self.at_statement_end():
             self.error("`lend` needs a place to lend — write `lend "
                        "self.buffer[i]` or `lend self.field`")
 
@@ -359,7 +363,7 @@ class StatementsMixin:
         start = self.advance()  # consume return
 
         value = None
-        if not self.match(TokenType.NEWLINE, TokenType.RBRACE, TokenType.EOF):
+        if not self.at_statement_end():
             value = self.parse_expression()
 
         return ReturnStatement(
@@ -523,7 +527,7 @@ class StatementsMixin:
 
         # Check if there's a value to break with
         value = None
-        if not self.match(TokenType.NEWLINE, TokenType.RBRACE, TokenType.EOF):
+        if not self.at_statement_end():
             value = self.parse_expression()
 
         return BreakStatement(

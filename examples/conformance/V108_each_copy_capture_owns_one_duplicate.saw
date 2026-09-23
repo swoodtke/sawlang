@@ -104,7 +104,7 @@
 
 struct Dup { n: Int }
 extension Dup: ExplicitCopy {
-    func copy(&self) -> Dup { print("copy {} -> {}", self.n, self.n + 1)  Dup(n: self.n + 1) }
+    func copy(&self) -> Dup { print("copy {} -> {}", self.n, self.n + 1); Dup(n: self.n + 1) }
     func deinit(&var self) { print("drop {}", self.n) }
 }
 

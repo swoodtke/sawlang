@@ -1100,6 +1100,11 @@ class ExpressionsMixin:
             then_branch = self.parse_block()
 
             else_branch = None
+            # Peek across newlines for the `else`, and REWIND when none
+            # follows (SL-347): the newline after the then-branch's `}` is the
+            # statement's own terminator, and eating it here would leave the
+            # next statement looking as if it shared this one's line.
+            else_peek = self.pos
             self.skip_newlines()
             if self.match(TokenType.ELSE):
                 self.advance()
@@ -1116,6 +1121,8 @@ class ExpressionsMixin:
                     )
                 else:
                     else_branch = self.parse_block()
+            else:
+                self.pos = else_peek
 
             return IfLetExpr(
                 name=iflet_name,
@@ -1137,6 +1144,9 @@ class ExpressionsMixin:
         then_branch = self.parse_block()
 
         else_branch = None
+        # Same rewind as the `if let` arm above (SL-347): a peek must not eat
+        # the newline that ends this statement.
+        else_peek = self.pos
         self.skip_newlines()
         if self.match(TokenType.ELSE):
             self.advance()
@@ -1153,6 +1163,8 @@ class ExpressionsMixin:
                 )
             else:
                 else_branch = self.parse_block()
+        else:
+            self.pos = else_peek
 
         return IfExpr(
             condition=condition,
@@ -1411,7 +1423,10 @@ class ExpressionsMixin:
         expr = self.parse_expression()
         self.allow_trailing_closure = saved_trailing
 
-        # Check for inline catch
+        # Check for inline catch — peeking across newlines, and REWINDING when
+        # no `catch` follows (SL-347), so a bare `try f()` keeps the newline
+        # that ends its statement.
+        catch_peek = self.pos
         self.skip_newlines()
         if self.match(TokenType.CATCH):
             self.advance()
@@ -1425,6 +1440,7 @@ class ExpressionsMixin:
                 line=start.line,
                 column=start.column
             )
+        self.pos = catch_peek
 
         return TryExpr(
             expr=expr,
@@ -1850,16 +1866,17 @@ class ExpressionsMixin:
         final_expr = None
         start = self.current()
 
+        # SL-347: every gap between the body's statements runs through the
+        # separator chokepoint, this first call covering the gap before the
+        # first one.
+        self.expect_statement_end()
         while not self.match(TokenType.RBRACE) and not self.match(TokenType.EOF):
-            self.skip_newlines()
-            if self.match(TokenType.RBRACE):
-                break
-
             # Try to parse a statement
+            stmt_start = self.current()
             stmt = self._parse_closure_statement()
             if stmt:
                 statements.append(stmt)
-            self.skip_newlines()
+            self.expect_statement_end(stmt_start)
 
         # Check if last statement is expression (implicit return)
         if statements and isinstance(statements[-1], ExpressionStatement):
@@ -1883,7 +1900,7 @@ class ExpressionsMixin:
             start = self.current()
             self.advance()
             value = None
-            if not self.match(TokenType.NEWLINE) and not self.match(TokenType.RBRACE):
+            if not self.at_statement_end():
                 value = self.parse_expression()
             return ReturnStatement(value=value, line=start.line, column=start.column)
         elif self.match(TokenType.WHILE):

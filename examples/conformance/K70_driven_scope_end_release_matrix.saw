@@ -224,7 +224,7 @@ func sc7_sync() {
 
 func sc7_driven() {
     match Held.Has(r: Res(name: "m1")) {
-        case Has(r) -> { yield_now()  print("arm {r.name}") },
+        case Has(r) -> { yield_now(); print("arm {r.name}") },
         case Empty -> { print("arm empty") }
     }
     print("after match")

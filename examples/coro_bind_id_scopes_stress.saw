@@ -27,7 +27,7 @@ func pick(k: Int) -> Step {
     return Step.Stop
 }
 
-func slow(n: Int) -> Int { yield_now()  return n }
+func slow(n: Int) -> Int { yield_now(); return n }
 func fast(n: Int) sync -> Int { return n }
 
 struct Boom { code: Int }
@@ -60,7 +60,7 @@ func catches() -> Int {
         print("pre: {error}")
     }
     let error = 1000                  // collides with it, so this one is renamed
-    let got = try fails() catch { print("caught: {error}")  5 }
+    let got = try fails() catch { print("caught: {error}"); 5 }
     yield_now()
     return error + got
 }

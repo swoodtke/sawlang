@@ -37,7 +37,7 @@ extension Counter {
     func viaMethod(&self) -> Int { self.lend_n({ v in self.n + v }) }
 
     // A `&var self` receiver is the caller's storage: the write lands there.
-    func bump(&var self) -> Int { run_int({ self.n = self.n + 10  self.n }) }
+    func bump(&var self) -> Int { run_int({ self.n = self.n + 10; self.n }) }
 }
 
 enum Color { case Red, case Blue }

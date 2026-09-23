@@ -15,7 +15,7 @@ func in_statement(flag: Bool) {
 
 // A DIVERGING sibling arm keeps the value `if` valid — the arm exits.
 func with_early_return(flag: Bool) -> Int {
-    if flag { return 2 } else { let x = 7  x }
+    if flag { return 2 } else { let x = 7; x }
 }
 
 func with_panic(flag: Bool) -> Int {

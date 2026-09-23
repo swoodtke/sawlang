@@ -23,7 +23,7 @@ struct Pair { a: Tag, b: Tag }
 extension Pair: NoCopy {}
 extension Pair {
     func looped(&var self) consumes -> Int {
-        for i in 0..2 { let t = move self.a  print("{}", t.id) }
+        for i in 0..2 { let t = move self.a; print("{}", t.id) }
         0
     }
     func after(&var self) consumes -> Int {

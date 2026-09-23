@@ -68,19 +68,19 @@ func check_endpoint() {
                       nums: move nums, inner: move inner)
     let text = match encode_endpoint(&ep) {
         case Ok(t) -> t,
-        case Err(e) -> { print("endpoint encode failed: {}", e) return }
+        case Err(e) -> { print("endpoint encode failed: {}", e); return }
     }
     print("endpoint text: {}", text)
 
     var dec = match JsonDecoder.open(text: text) {
         case Ok(d) -> move d,
-        case Err(e) -> { print("endpoint decoder refused: {}", e) return }
+        case Err(e) -> { print("endpoint decoder refused: {}", e); return }
     }
     match Endpoint.deserialize(from: &var dec) {
         case Ok(back) -> {
             match dec.finish() {
                 case Ok(_) -> {},
-                case Err(e) -> { print("endpoint trailing content: {}", e) return }
+                case Err(e) -> { print("endpoint trailing content: {}", e); return }
             }
             let tag = back.tag ?? "none"
             print("endpoint back: port={} secure={} name={} tag={} nums={},{},{} inner={}:{}",
@@ -108,16 +108,16 @@ func check_empty_vector() {
     var enc = JsonEncoder()
     match n.serialize(to: &var enc) {
         case Ok(_) -> {},
-        case Err(e) -> { print("empty vector encode failed: {}", e) return }
+        case Err(e) -> { print("empty vector encode failed: {}", e); return }
     }
     let text = match enc.finish() {
         case Ok(t) -> t,
-        case Err(e) -> { print("empty vector finish failed: {}", e) return }
+        case Err(e) -> { print("empty vector finish failed: {}", e); return }
     }
     print("empty vector text: {}", text)
     var dec = match JsonDecoder.open(text: text) {
         case Ok(d) -> move d,
-        case Err(e) -> { print("empty vector decoder refused: {}", e) return }
+        case Err(e) -> { print("empty vector decoder refused: {}", e); return }
     }
     match Nums.deserialize(from: &var dec) {
         case Ok(back) -> print("empty vector back len: {}", back.v.len()),
@@ -129,15 +129,15 @@ func check_track(t: Track, label: String) {
     var enc = JsonEncoder()
     match t.serialize(to: &var enc) {
         case Ok(_) -> {},
-        case Err(e) -> { print("{} encode failed: {}", label, e) return }
+        case Err(e) -> { print("{} encode failed: {}", label, e); return }
     }
     let text = match enc.finish() {
         case Ok(s) -> s,
-        case Err(e) -> { print("{} finish failed: {}", label, e) return }
+        case Err(e) -> { print("{} finish failed: {}", label, e); return }
     }
     var dec = match JsonDecoder.open(text: text) {
         case Ok(d) -> move d,
-        case Err(e) -> { print("{} decoder refused: {}", label, e) return }
+        case Err(e) -> { print("{} decoder refused: {}", label, e); return }
     }
     match Track.deserialize(from: &var dec) {
         case Ok(back) -> {

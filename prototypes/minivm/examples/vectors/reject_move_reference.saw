@@ -1,3 +1,5 @@
 func bad(v: &var Vector<Int>) { let x = move v }
-func main() { var v = Vector<Int>()
-bad(&var v) }
+func main() {
+    var v = Vector<Int>()
+    bad(&var v)
+}

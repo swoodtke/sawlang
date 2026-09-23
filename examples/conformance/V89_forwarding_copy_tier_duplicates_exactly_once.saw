@@ -36,7 +36,7 @@
 
 struct Counted { n: Int }
 extension Counted: Copy {
-    func copy(&self) -> Counted { print("copy {}", self.n)  Counted(n: self.n) }
+    func copy(&self) -> Counted { print("copy {}", self.n); Counted(n: self.n) }
 }
 
 enum Bad { case Nope }
@@ -49,7 +49,7 @@ extension Counted {
     // S1 at the Copy tier — the receiver read, returned.
     func self_return(&self) -> Counted { self }
     // S3 at the Copy tier — the receiver read into a local the body owns.
-    func self_binding(&self) -> Int { let b = self  b.n }
+    func self_binding(&self) -> Int { let b = self; b.n }
 }
 
 func made(n: Int) -> Result<Counted, Bad> { Counted(n: n) }

@@ -4,9 +4,14 @@
 // separate closure literal and the call collapses to a field access.
 //
 // XFAIL: DF-259c — a trailing closure is not recognized inside a `try`/`try!`/
-// `try?` operand, so `try! v.map { ... }` is `struct `Vector` has no field
-// `map``. The parenthesized argument is the workaround the corpus and the docs
-// use meanwhile.
+// `try?` operand. Since SL-347 the symptom is earlier: the split call reads as
+// two statements sharing a line, so the refusal is ``two statements on one
+// line need a `;` between them`` where it used to be `struct `Vector` has no
+// field `map``. Same defect, reported at the seam instead of past it — the
+// spellings below are DELIBERATELY left without a `;`, since inserting one
+// would freeze the misreading and this pin could never XPASS. The
+// parenthesized argument is the workaround the corpus and the docs use
+// meanwhile.
 //
 // EXPECT: success
 // EXPECT-OUTPUT:

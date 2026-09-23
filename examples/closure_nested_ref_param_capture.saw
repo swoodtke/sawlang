@@ -51,12 +51,12 @@ func peek(x: &Int) -> Int { x }
 func main() {
     // The control: the borrow capture written out. This one is correct today.
     print("explicit borrow capture: root {}",
-          outer({ &var c in inner({ [&var c] in c = c + 41  c }) }))
+          outer({ &var c in inner({ [&var c] in c = c + 41; c }) }))
 
     // The ARGUMENT spelling of the same write — no assignment, so design 132's
     // capture-write rule never asks, and the write is lost.
     print("argument face: root {}",
-          outer({ &var c in inner({ bump(&var c)  c }) }))
+          outer({ &var c in inner({ bump(&var c); c }) }))
 
     // A shared reference parameter reads through the copy, which is right here
     // only because nothing wrote to it.

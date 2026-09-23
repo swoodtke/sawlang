@@ -1,0 +1,118 @@
+// SL-347 R1 — `;` is the one-line statement SEPARATOR, in every block kind.
+//
+// Saw has no statement terminators: a newline separates two statements, and a
+// `;` separates two statements that share a line. Nothing about the separator
+// is context-dependent, so this pins one `;`-joined one-liner per entry of the
+// parser's statement-end chokepoint: a function body, a method body, the two
+// branches of an `if`, a `while` body, a `for` body, a `match` arm's BLOCK
+// body, a closure body (whose last statement is the closure's TAIL), the two
+// blocks of `try { } catch { }`, a `guard … else { }`, and a `borrows` body.
+// The `else` and the `catch` each carry TWO `;`-joined statements on a branch
+// the program really enters — a body that only parses proves less than one
+// whose second statement shows up in the output.
+//
+// R4 rides along: the `;` inside `[Int; 3]` and `[0; 3]` is the array-length
+// and repeat-count separator, in a position where no statement can begin, and
+// it is untouched by any of this.
+//
+// EXPECT: success
+// EXPECT-OUTPUT:
+// sum 3
+// less
+// second on the line
+// not less
+// else second on the line
+// tick 1
+// tick 2
+// step 0 doubled 0
+// step 1 doubled 2
+// closure 12
+// buffer 7 of 3
+// one
+// still one
+// bumped 1 then 2
+// ok 6
+// caught bad
+// catch second on the line
+// empty guard
+// first 11
+// lent 41
+
+struct Counter { n: Int }
+
+extension Counter {
+    func bump(&var self) -> Int { self.n += 1; self.n }
+}
+
+struct Grid { cells: Vector<Int> }
+extension Grid: NoCopy {}
+
+extension Grid {
+    func at(&var self, i: Int) borrows -> &var Int {
+        if i < 0 || i >= self.cells.len() {
+            panic("Grid.at: index out of range: {} (len {})", i, self.cells.len())
+        }
+        let slot = i; lend self.cells[slot]
+    }
+}
+
+enum Fault { case Bad }
+
+extension Fault: Printable {
+    func format(&self, into: &var StringBuilder) { try! into.append("bad") }
+}
+
+extension Fault: Error {}
+
+func checked(n: Int) -> Result<Int, Fault> {
+    if n < 0 { return Fault.Bad }
+    return n * 2
+}
+
+func run(body: (Int) sync -> Int) -> Int { body(5) }
+
+func first_positive(v: &Vector<Int>) -> Int {
+    guard let head = v.get(0) else { print("empty guard"); return -1 }
+    head
+}
+
+func main() {
+    let a = 1; let b = 2
+    print("sum {}", a + b)
+
+    // BOTH branches carry two `;`-joined statements, and the second `if` is
+    // written so its ELSE is the branch that runs — an `else` whose body the
+    // program never enters would pin the parse and nothing else.
+    if a < b { print("less"); print("second on the line") } else { print("x"); print("y") }
+    if b < a { print("x"); print("y") } else { print("not less"); print("else second on the line") }
+
+    var n = 0
+    while n < 2 { n += 1; print("tick {}", n) }
+
+    for i in 0..2 { let d = i * 2; print("step {} doubled {}", i, d) }
+
+    print("closure {}", run({ x in let y = x + 1; y * 2 }))
+
+    var buf: [Int; 3] = [0; 3]
+    buf[0] = 7; print("buffer {} of {}", buf[0], buf.len())
+
+    match a {
+        case 1 -> { print("one"); print("still one") },
+        case _ -> { print("other") }
+    }
+
+    var c = Counter(n: 0)
+    let first = c.bump(); let second = c.bump()
+    print("bumped {} then {}", first, second)
+
+    try { let ok = try checked(3); print("ok {}", ok) } catch { print("x"); print("y") }
+    try { let bad = try checked(-1); print("unreachable {}", bad) } catch { print("caught {error}"); print("catch second on the line") }
+
+    var empty: Vector<Int> = []
+    let _ = first_positive(&empty)
+    try! empty.push(11)
+    print("first {}", first_positive(&empty))
+
+    var g = Grid(cells: [40, 50])
+    g.at(0) += 1; print("lent {}", g.at(0))
+}

@@ -36,7 +36,7 @@ func main() {
     var solo = try! Arc<Counter>(value: Counter(n: 0))
 
     // Unique: the body runs and its own result comes back.
-    print("unique -> {solo.with_unique({ c in c.bump()  c.n }) ?? -1}")
+    print("unique -> {solo.with_unique({ c in c.bump(); c.n }) ?? -1}")
 
     // R = Void instantiates too — a critical section that computes nothing.
     if let _ = solo.with_unique({ c in c.bump() }) {
@@ -45,7 +45,7 @@ func main() {
 
     // Shared: None, and the body does NOT run (n stays 2 below).
     let theirs = solo.copy()
-    if let v = solo.with_unique({ c in c.bump()  c.n }) {
+    if let v = solo.with_unique({ c in c.bump(); c.n }) {
         print("BAD: a shared payload was written, n = {v}")
     } else {
         print("shared -> None (body did not run)")

@@ -50,7 +50,7 @@ func read_through(c: &var Counter) unsafe -> Int {
 // and the mutation lands where the caller can see it.
 func bump_through(c: &var Counter) unsafe -> Int {
     var h = mint(&var c)
-    run_int({ [move h] in h.deref().bump()  h.deref().n })
+    run_int({ [move h] in h.deref().bump(); h.deref().n })
 }
 
 // A NESTED closure mints its own handle from the outer one, at a statement.

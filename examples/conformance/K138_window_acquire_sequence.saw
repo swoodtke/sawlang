@@ -108,7 +108,7 @@ struct Holder {
 extension Holder: NoCopy {}
 
 extension Holder {
-    func chosen(&self) -> Int { print("a")  0 }
+    func chosen(&self) -> Int { print("a"); 0 }
 }
 
 func order_sync(h: &Holder) -> Int {

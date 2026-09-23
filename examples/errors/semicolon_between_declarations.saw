@@ -1,0 +1,13 @@
+// SL-347 R2 — a `;` between two DECLARATIONS.
+//
+// `;` joins two STATEMENTS that share a line. Module scope holds declarations,
+// not statements, and a declaration takes a line of its own — so the `;` here
+// does separate something and is refused for the other half of the rule, with
+// the answer the author needs.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: declarations are not joined by `;` — put each declaration on its own line
+
+func one() -> Int { 1 }; func two() -> Int { 2 }
+
+func main() { print("{}", one() + two()) }

@@ -50,7 +50,7 @@ extension Counter: NoCopy {
 extension Counter: Iterator {
     type Item = Int
     func next(&var self) -> Int? {
-        if self.index == 0 { self.index = 1  7 } else { None }
+        if self.index == 0 { self.index = 1; 7 } else { None }
     }
 }
 
@@ -58,7 +58,7 @@ struct Words { text: String, index: Int }      // the automatic Copy tier
 extension Words: Iterator {
     type Item = Int
     func next(&var self) -> Int? {
-        if self.index < self.text.len() { self.index = self.index + 1  self.index }
+        if self.index < self.text.len() { self.index = self.index + 1; self.index }
         else { None }
     }
 }
@@ -74,7 +74,7 @@ extension Shared: Copy {}
 extension Shared: Iterator {
     type Item = Int
     func next(&var self) -> Int? {
-        if self.index < 2 { self.index = self.index + 1  self.index } else { None }
+        if self.index < 2 { self.index = self.index + 1; self.index } else { None }
     }
 }
 
@@ -82,7 +82,7 @@ struct Closed { f: () sync -> Int, index: Int }   // a closure env: Copy tier
 extension Closed: Iterator {
     type Item = Int
     func next(&var self) -> Int? {
-        if self.index < 2 { self.index = self.index + 1  self.f() } else { None }
+        if self.index < 2 { self.index = self.index + 1; self.f() } else { None }
     }
 }
 
@@ -109,7 +109,7 @@ func move_sync() sync {
 func move_driven() -> Int {
     let it = Counter(index: 0)
     var total = 0
-    for n in move it { yield_now()  total = total + n }
+    for n in move it { yield_now(); total = total + n }
     print("after move driven")
     total
 }
@@ -132,8 +132,8 @@ func copy_tier_sync(n: Int) sync {
 func copy_tier_driven(n: Int) {
     let it = Words(text: "abc {n}", index: 0)
     var t = 0
-    for x in it { yield_now()  t = t + x }
-    for x in it { yield_now()  t = t + x }
+    for x in it { yield_now(); t = t + x }
+    for x in it { yield_now(); t = t + x }
     print("copy tier driven {t} {it.text} {it.index}")
 }
 
@@ -148,8 +148,8 @@ func arc_sync(cell: Arc<Res>) sync {
 func arc_driven(cell: Arc<Res>) {
     let it = Shared(cell: cell.copy(), index: 0)
     var t = 0
-    for x in it { yield_now()  t = t + x }
-    for x in it { yield_now()  t = t + x }
+    for x in it { yield_now(); t = t + x }
+    for x in it { yield_now(); t = t + x }
     print("arc driven {t} {it.index} {cell.strong_count()}")
 }
 
@@ -164,8 +164,8 @@ func closure_sync(k: Int) sync {
 func closure_driven(k: Int) {
     let it = Closed(f: { k * 10 }, index: 0)
     var t = 0
-    for x in it { yield_now()  t = t + x }
-    for x in it { yield_now()  t = t + x }
+    for x in it { yield_now(); t = t + x }
+    for x in it { yield_now(); t = t + x }
     print("closure driven {t} {it.index}")
 }
 

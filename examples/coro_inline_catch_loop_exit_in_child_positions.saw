@@ -169,9 +169,9 @@ extension Bag {
     func add(&self, x: Int) sync -> Int { self.n + x }
 }
 
-func fail(x: Int) sync -> Result<Int, Bad> { if x == 2 { return Bad(n: x) }  x }
-func failb(x: Int) sync -> Result<Bool, Bad> { if x == 2 { return Bad(n: x) }  true }
-func failbag(x: Int) sync -> Result<Bag, Bad> { if x == 2 { return Bad(n: x) }  Bag(n: x) }
+func fail(x: Int) sync -> Result<Int, Bad> { if x == 2 { return Bad(n: x) }; x }
+func failb(x: Int) sync -> Result<Bool, Bad> { if x == 2 { return Bad(n: x) }; true }
+func failbag(x: Int) sync -> Result<Bag, Bad> { if x == 2 { return Bad(n: x) }; Bag(n: x) }
 func id(n: Int) sync -> Int { n }
 func idl(n: Int) sync -> Int { n }
 func read(p: &Int) sync -> Int { p }
@@ -334,7 +334,7 @@ func direct_suspend_while_driven(v: &Vector<Int>) -> Int {
         let x = i
         i = i + 1
         yield_now()
-        let n = try fail(x) catch { respond()  3 }
+        let n = try fail(x) catch { respond(); 3 }
         total = total + n
     }
     total + 100
@@ -497,7 +497,7 @@ func call_arg_suspend_while_driven(v: &Vector<Int>) -> Int {
         let x = i
         i = i + 1
         yield_now()
-        let n = id(try fail(x) catch { respond()  3 })
+        let n = id(try fail(x) catch { respond(); 3 })
         total = total + n
     }
     total + 100
@@ -660,7 +660,7 @@ func call_arg_labeled_suspend_while_driven(v: &Vector<Int>) -> Int {
         let x = i
         i = i + 1
         yield_now()
-        let n = idl(n: try fail(x) catch { respond()  3 })
+        let n = idl(n: try fail(x) catch { respond(); 3 })
         total = total + n
     }
     total + 100
@@ -823,7 +823,7 @@ func method_arg_suspend_while_driven(v: &Vector<Int>) -> Int {
         let x = i
         i = i + 1
         yield_now()
-        let n = bag.add(try fail(x) catch { respond()  3 })
+        let n = bag.add(try fail(x) catch { respond(); 3 })
         total = total + n
     }
     total + 100
@@ -986,7 +986,7 @@ func receiver_suspend_while_driven(v: &Vector<Int>) -> Int {
         let x = i
         i = i + 1
         yield_now()
-        let n = (try failbag(x) catch { respond()  Bag(n: 3) }).n
+        let n = (try failbag(x) catch { respond(); Bag(n: 3) }).n
         total = total + n
     }
     total + 100
@@ -1149,7 +1149,7 @@ func receiver_method_suspend_while_driven(v: &Vector<Int>) -> Int {
         let x = i
         i = i + 1
         yield_now()
-        let n = (try failbag(x) catch { respond()  Bag(n: 3) }).add(0)
+        let n = (try failbag(x) catch { respond(); Bag(n: 3) }).add(0)
         total = total + n
     }
     total + 100
@@ -1312,7 +1312,7 @@ func struct_field_suspend_while_driven(v: &Vector<Int>) -> Int {
         let x = i
         i = i + 1
         yield_now()
-        let n = Pair(a: try fail(x) catch { respond()  3 }, b: 1).a
+        let n = Pair(a: try fail(x) catch { respond(); 3 }, b: 1).a
         total = total + n
     }
     total + 100
@@ -1484,7 +1484,7 @@ func map_key_suspend_while_driven(v: &Vector<Int>) -> Int {
         let x = i
         i = i + 1
         yield_now()
-        let m: Map<Int, Int> = {try fail(x) catch { respond()  3 }: x}
+        let m: Map<Int, Int> = {try fail(x) catch { respond(); 3 }: x}
         let n = m.get(x) ?? 0
         total = total + n
     }
@@ -1657,7 +1657,7 @@ func map_value_suspend_while_driven(v: &Vector<Int>) -> Int {
         let x = i
         i = i + 1
         yield_now()
-        let m: Map<Int, Int> = {1: try fail(x) catch { respond()  3 }}
+        let m: Map<Int, Int> = {1: try fail(x) catch { respond(); 3 }}
         let n = m.get(1) ?? 0
         total = total + n
     }
@@ -1830,7 +1830,7 @@ func tuple_elem_suspend_while_driven(v: &Vector<Int>) -> Int {
         let x = i
         i = i + 1
         yield_now()
-        let t = (try fail(x) catch { respond()  3 }, 1)
+        let t = (try fail(x) catch { respond(); 3 }, 1)
         let n = t.0
         total = total + n
     }
@@ -2003,7 +2003,7 @@ func array_elem_suspend_while_driven(v: &Vector<Int>) -> Int {
         let x = i
         i = i + 1
         yield_now()
-        let a = [try fail(x) catch { respond()  3 }, 1]
+        let a = [try fail(x) catch { respond(); 3 }, 1]
         let n = a[0]
         total = total + n
     }
@@ -2176,7 +2176,7 @@ func vector_elem_suspend_while_driven(v: &Vector<Int>) -> Int {
         let x = i
         i = i + 1
         yield_now()
-        let v2: Vector<Int> = [try fail(x) catch { respond()  3 }]
+        let v2: Vector<Int> = [try fail(x) catch { respond(); 3 }]
         let n = v2[0]
         total = total + n
     }
@@ -2340,7 +2340,7 @@ func index_suspend_while_driven(v: &Vector<Int>) -> Int {
         let x = i
         i = i + 1
         yield_now()
-        let n = table[try fail(x) catch { respond()  3 }]
+        let n = table[try fail(x) catch { respond(); 3 }]
         total = total + n
     }
     total + 100
@@ -2503,7 +2503,7 @@ func ref_place_suspend_while_driven(v: &Vector<Int>) -> Int {
         let x = i
         i = i + 1
         yield_now()
-        let n = read(&table[try fail(x) catch { respond()  3 }])
+        let n = read(&table[try fail(x) catch { respond(); 3 }])
         total = total + n
     }
     total + 100
@@ -2666,7 +2666,7 @@ func interpolation_suspend_while_driven(v: &Vector<Int>) -> Int {
         let x = i
         i = i + 1
         yield_now()
-        let n = "{try fail(x) catch { respond()  3 }}".to_int() ?? 0
+        let n = "{try fail(x) catch { respond(); 3 }}".to_int() ?? 0
         total = total + n
     }
     total + 100
@@ -2838,7 +2838,7 @@ func return_value_suspend_while_driven(v: &Vector<Int>) -> Int {
         let x = i
         i = i + 1
         yield_now()
-        if x >= 2 { return try fail(x) catch { respond()  3 } }
+        if x >= 2 { return try fail(x) catch { respond(); 3 } }
         let n = x
         total = total + n
     }
@@ -3002,7 +3002,7 @@ func coalesce_suspend_while_driven(v: &Vector<Int>) -> Int {
         let x = i
         i = i + 1
         yield_now()
-        let n = none_int ?? try fail(x) catch { respond()  3 }
+        let n = none_int ?? try fail(x) catch { respond(); 3 }
         total = total + n
     }
     total + 100
@@ -3174,7 +3174,7 @@ func and_operand_suspend_while_driven(v: &Vector<Int>) -> Int {
         let x = i
         i = i + 1
         yield_now()
-        let b = flag && (try failb(x) catch { respond()  true })
+        let b = flag && (try failb(x) catch { respond(); true })
         let n = if b { x } else { 0 }
         total = total + n
     }
@@ -3347,7 +3347,7 @@ func or_operand_suspend_while_driven(v: &Vector<Int>) -> Int {
         let x = i
         i = i + 1
         yield_now()
-        let b = flagf || (try failb(x) catch { respond()  true })
+        let b = flagf || (try failb(x) catch { respond(); true })
         let n = if b { x } else { 0 }
         total = total + n
     }
@@ -3511,7 +3511,7 @@ func nested_catch_suspend_while_driven(v: &Vector<Int>) -> Int {
         let x = i
         i = i + 1
         yield_now()
-        let n = try fail(x) catch { try fail(x) catch { respond()  3 } }
+        let n = try fail(x) catch { try fail(x) catch { respond(); 3 } }
         total = total + n
     }
     total + 100
@@ -3674,7 +3674,7 @@ func value_if_let_suspend_while_driven(v: &Vector<Int>) -> Int {
         let x = i
         i = i + 1
         yield_now()
-        let n = if x == 2 { respond()  3 } else { x }
+        let n = if x == 2 { respond(); 3 } else { x }
         total = total + n
     }
     total + 100
@@ -3837,7 +3837,7 @@ func value_if_arg_suspend_while_driven(v: &Vector<Int>) -> Int {
         let x = i
         i = i + 1
         yield_now()
-        let n = id(if x == 2 { respond()  3 } else { x })
+        let n = id(if x == 2 { respond(); 3 } else { x })
         total = total + n
     }
     total + 100
@@ -4000,7 +4000,7 @@ func value_match_arg_suspend_while_driven(v: &Vector<Int>) -> Int {
         let x = i
         i = i + 1
         yield_now()
-        let n = id(match x { case 2 -> { respond()  3 }, case _ -> x })
+        let n = id(match x { case 2 -> { respond(); 3 }, case _ -> x })
         total = total + n
     }
     total + 100

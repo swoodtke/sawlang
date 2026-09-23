@@ -42,7 +42,7 @@ func consume(args: Vector<String>) -> Int {
 
 func execute(plan: &Plan) -> Int {
     match plan.job {
-        case Idle -> { print("idle")  0 },
+        case Idle -> { print("idle"); 0 },
         case Run(args) -> { consume(args.copy()) }
     }
 }

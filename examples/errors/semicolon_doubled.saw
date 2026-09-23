@@ -1,0 +1,13 @@
+// SL-347 R2 — a DOUBLED `;`.
+//
+// A separator wants a statement on each side, and the first `;` here has only
+// another `;` to its right — so it is the one that separates nothing, and the
+// one the diagnostic anchors on.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a `;` joins two statements on one line; it does not end one — remove it
+
+func main() {
+    let a = 1;; let b = 2
+    print("{}", a + b)
+}

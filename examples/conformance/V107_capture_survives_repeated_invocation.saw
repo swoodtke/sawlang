@@ -68,7 +68,7 @@
 
 struct Dup { n: Int }
 extension Dup: ExplicitCopy {
-    func copy(&self) -> Dup { print("copy {} -> {}", self.n, self.n + 1)  Dup(n: self.n + 1) }
+    func copy(&self) -> Dup { print("copy {} -> {}", self.n, self.n + 1); Dup(n: self.n + 1) }
     func deinit(&var self) { print("drop {}", self.n) }
 }
 
@@ -84,7 +84,7 @@ func run_twice(body: () sync -> Int) -> Int { body() + body() }
 // A/B — the row the regression was in: a NON-escaping env, where a `move`
 // re-typing would select the deferred one-shot.
 func a_sync(d: Dup) -> Int   { run_twice({ [copy d] in d.n }) }
-func b_driven(d: Dup) -> Int { __saw_suspend()  run_twice({ [copy d] in d.n }) }
+func b_driven(d: Dup) -> Int { __saw_suspend(); run_twice({ [copy d] in d.n }) }
 
 // C/D — the ESCAPING twin. Here the heap env must OWN the duplicate, since the
 // materialized local dies with the frame; it must still release it once at
@@ -102,8 +102,8 @@ func d_driven(d: Dup) -> Int {
 // E — the neighbouring modes that are also supposed to be reusable, driven,
 // two calls each. Neither is touched by SL-267's fix; they are here so the
 // invocation dimension is covered across the mode axis rather than at one cell.
-func e_plain(t: Tick) -> Int  { __saw_suspend()  run_twice({ t.n }) }
-func e_borrow(t: Tick) -> Int { __saw_suspend()  run_twice({ [&t] in t.n }) }
+func e_plain(t: Tick) -> Int  { __saw_suspend(); run_twice({ t.n }) }
+func e_borrow(t: Tick) -> Int { __saw_suspend(); run_twice({ [&t] in t.n }) }
 
 func main() {
     print("-- A non-escaping [copy], sync, 2 calls")

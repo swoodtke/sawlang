@@ -157,8 +157,8 @@ enum Step { case Go(n: Int), case Halt(n: Int), case Stop }
 // list and its `pattern` are two views of THAT one binding.
 func r7(s: Step) -> Int {
     match s {
-        case Go(k) -> { yield_now()  return k + 1 },
-        case Halt(k) -> { yield_now()  return k + 2 },
+        case Go(k) -> { yield_now(); return k + 1 },
+        case Halt(k) -> { yield_now(); return k + 2 },
         case Stop -> 0
     }
 }

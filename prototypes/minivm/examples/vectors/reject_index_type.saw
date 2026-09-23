@@ -1,2 +1,4 @@
-func main() { let v = Vector<Int>()
-print(v[true]) }
+func main() {
+    let v = Vector<Int>()
+    print(v[true])
+}

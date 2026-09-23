@@ -19,8 +19,8 @@ func run(f: () -> Int) -> Int {
 func main() {
     var n = 0
     var group = TaskGroup()
-    let a = group.spawn(run({ [&var n] in n = n + 1  n }))
-    let b = group.spawn(run({ [&var n] in n = n + 10  n }))
+    let a = group.spawn(run({ [&var n] in n = n + 1; n }))
+    let b = group.spawn(run({ [&var n] in n = n + 10; n }))
     print("a saw {a.join()}")
     print("b saw {b.join()}")
     print("n is {n}")

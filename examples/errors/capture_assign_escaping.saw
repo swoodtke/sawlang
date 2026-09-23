@@ -11,8 +11,10 @@
 
 func make_counter() -> () -> Int {
     var n = 0
-    { n = n + 1
-      n }
+    {
+        n = n + 1
+        n
+    }
 }
 
 func main() {

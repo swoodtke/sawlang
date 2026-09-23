@@ -50,7 +50,7 @@ extension Plain {
     func at(&var self) borrows -> &var Cell { lend self.c }
 }
 
-func setboth(x: &var Int, y: &var Int) { x = 50  y = 60 }
+func setboth(x: &var Int, y: &var Int) { x = 50; y = 60 }
 
 func main() {
     var h = Holder(c: Cell(n: 1))

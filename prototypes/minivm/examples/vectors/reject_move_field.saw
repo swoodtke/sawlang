@@ -1,4 +1,6 @@
 struct Box { values: Vector<Int> }
 extension Box: NoCopy {}
-func main() { let b = Box(values: Vector<Int>())
-let v = move b.values }
+func main() {
+    let b = Box(values: Vector<Int>())
+    let v = move b.values
+}

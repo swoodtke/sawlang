@@ -43,8 +43,8 @@ func main() {
     var log: Vector<Int> = []
     var group = TaskGroup()
 
-    let a = group.spawn(run({ [&var left] in left = left + 1  left }))
-    let b = group.spawn(run({ [&var right] in right = right + 1  right }))
+    let a = group.spawn(run({ [&var left] in left = left + 1; left }))
+    let b = group.spawn(run({ [&var right] in right = right + 1; right }))
     print("left {a.join()} right {b.join()}")
     print("roots after join: {left} {right}")
 
@@ -54,7 +54,7 @@ func main() {
     print("doubled {c.join()} tripled {d.join()}")
 
     for i in 0..3 {
-        let h = group.spawn(run({ [&var log] in try! log.push(i)  log.len() }))
+        let h = group.spawn(run({ [&var log] in try! log.push(i); log.len() }))
         print("iteration {i} len {h.join()}")
     }
     print("log len {log.len()}")

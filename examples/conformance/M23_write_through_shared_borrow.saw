@@ -7,6 +7,6 @@
 
 func main() {
     var v: Vector<Int> = [1, 2, 3]
-    let r = v.with_ref(0, { e in e = 9  e })
+    let r = v.with_ref(0, { e in e = 9; e })
     print(r)
 }

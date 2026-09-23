@@ -68,7 +68,7 @@ import std.task.*
 
 struct Counted { n: Int }
 extension Counted: Copy {
-    func copy(&self) -> Counted { print("copy {}", self.n)  Counted(n: self.n) }
+    func copy(&self) -> Counted { print("copy {}", self.n); Counted(n: self.n) }
 }
 
 enum Bad { case Nope }

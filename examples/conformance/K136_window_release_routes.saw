@@ -78,14 +78,14 @@ func exhaustion_driven(v: &var Vector<Int>) -> Int {
 
 func break_plain_sync(v: &var Vector<Int>) -> Int {
     var total = 0
-    for x in v.iter() { total = total + x  break }
+    for x in v.iter() { total = total + x; break }
     let _ = v.push(9)
     total
 }
 
 func break_plain_driven(v: &var Vector<Int>) -> Int {
     var total = 0
-    for x in v.iter() { total = total + slow(x)  break }
+    for x in v.iter() { total = total + slow(x); break }
     let _ = v.push(9)
     total
 }

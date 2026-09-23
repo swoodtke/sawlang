@@ -62,8 +62,8 @@ func note(r: &Res) -> Int { r.name.len() }
 func fail_index() sync -> Result<Int, Bad> { Bad(n: 1) }
 func ok_index() sync -> Result<Int, Bad> { 0 }
 func sink_ref(value: &Int, r: Res) sync -> Int { value + 1 }
-func sink_var(value: &var Int, r: Res) sync -> Int { value = value + 1  value }
-func sink_var_rev(r: Res, value: &var Int) sync -> Int { value = value + 1  value }
+func sink_var(value: &var Int, r: Res) sync -> Int { value = value + 1; value }
+func sink_var_rev(r: Res, value: &var Int) sync -> Int { value = value + 1; value }
 func sink_cell(value: &Cell, r: Res) sync -> Int { value.n }
 
 // J: the index of a `&` argument (codex r2 #4's program), a Vector place

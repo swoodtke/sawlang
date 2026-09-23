@@ -59,7 +59,7 @@ func noisy() -> Int {
 
 func set_one(d: &var Doc, k: Int) { d.n = d.n + k }
 func read_one(d: &Doc, k: Int) -> Int { d.n + k }
-func set_two(a: &var Doc, b: &var Doc, k: Int) { a.n = a.n + k  b.n = b.n + k }
+func set_two(a: &var Doc, b: &var Doc, k: Int) { a.n = a.n + k; b.n = b.n + k }
 func set_after(k: Int, d: &var Doc) { d.n = d.n + k }
 func set_mixed(a: &var Doc, k: Int, m: Int) { a.n = a.n + k + m }
 func depth(n: Int) -> Int { n }

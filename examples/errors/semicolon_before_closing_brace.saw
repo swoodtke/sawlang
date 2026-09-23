@@ -1,0 +1,12 @@
+// SL-347 R2 — a `;` before the block's `}`.
+//
+// The other face of "a separator ends nothing": the block's closing brace is
+// already the end of the last statement, so the `;` ahead of it joins the
+// statement to nothing.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a `;` joins two statements on one line; it does not end one — remove it
+
+func main() {
+    let a = 1
+    print("{}", a); }

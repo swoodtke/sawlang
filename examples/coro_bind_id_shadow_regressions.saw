@@ -43,7 +43,7 @@ enum Step { case Go(n: Int), case Stop }
 
 func inner(s: Step) -> Int {
     match s {
-        case Go(k) -> { yield_now()  return k * 3 },
+        case Go(k) -> { yield_now(); return k * 3 },
         case Stop -> { return 0 }
     }
 }

@@ -23,7 +23,7 @@ func mint(c: &var Counter) unsafe -> UnsafeRef<Counter> {
 
 func through_let(c: &var Counter) unsafe -> Int {
     let h = mint(&var c)
-    run_int({ [move h] in h.deref().bump()  h.deref().n })
+    run_int({ [move h] in h.deref().bump(); h.deref().n })
 }
 
 func main() {

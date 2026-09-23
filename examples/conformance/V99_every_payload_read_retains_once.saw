@@ -39,7 +39,7 @@
 
 struct Counted { n: Int }
 extension Counted: Copy {
-    func copy(&self) -> Counted { print("copy {}", self.n)  Counted(n: self.n) }
+    func copy(&self) -> Counted { print("copy {}", self.n); Counted(n: self.n) }
 }
 
 // A payload-free enum is trivially copyable, which keeps `Holder` on the

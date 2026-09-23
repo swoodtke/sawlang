@@ -38,7 +38,7 @@ extension Shared: NoCopy {}
 
 extension Shared {
     func probe(&self) -> Bool { self.cell.is_locked() }
-    func add(&self, v: Int) -> Int { self.cell.lock({ n in n = n + v  n }) }
+    func add(&self, v: Int) -> Int { self.cell.lock({ n in n = n + v; n }) }
 }
 
 // 3. INDIRECTION. A `Vector` field's heap elements are shared by the copy, not

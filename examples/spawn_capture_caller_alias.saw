@@ -23,7 +23,7 @@ func run(f: () -> Int) -> Int {
 func main() {
     var n = 0
     var group = TaskGroup()
-    let h = group.spawn(run({ [&var n] in n = n + 100  n }))
+    let h = group.spawn(run({ [&var n] in n = n + 100; n }))
     n = 5
     let seen = n
     print("caller wrote 5, read {seen}")

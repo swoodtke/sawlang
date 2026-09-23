@@ -29,7 +29,7 @@ func main() {
     let base = 12
     var group = TaskGroup()
 
-    let h = group.spawn(run({ [&var n] in n = n + 1  n }))
+    let h = group.spawn(run({ [&var n] in n = n + 1; n }))
     print("task saw {h.join()}")
     print("n is now {n}")
 

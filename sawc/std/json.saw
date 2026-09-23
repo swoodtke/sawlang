@@ -1496,7 +1496,7 @@ extension JsonValue {
                     // `write_text`, and `v` is only borrowed by `_write`.
                     match enc.write_text(k) {
                         case Ok(_) -> {},
-                        case Err(e) -> { first_err = e  return }
+                        case Err(e) -> { first_err = e; return }
                     }
                     match v._write(enc: &var enc) {
                         case Ok(_) -> {},

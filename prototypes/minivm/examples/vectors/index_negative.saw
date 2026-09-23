@@ -1,2 +1,4 @@
-func main() { var v = Vector<Int>()
-print(v[-1]) }
+func main() {
+    var v = Vector<Int>()
+    print(v[-1])
+}

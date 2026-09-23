@@ -35,7 +35,7 @@ extension Cursor {
     }
 }
 
-func slow(n: Int) -> Int { yield_now()  return n }
+func slow(n: Int) -> Int { yield_now(); return n }
 
 func at_most(v: Int, cap: Int) sync -> Int? {
     if v > cap { return None }

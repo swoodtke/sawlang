@@ -27,8 +27,8 @@ extension Plain {
     func at(&var self) borrows -> &var Cell { lend self.c }
 }
 
-func setboth(x: &var Int, y: &var Int) { x = 50  y = 60 }
-func setthree(x: &var Int, y: &var Int, z: &var Int) { x = 1  y = 2  z = 3 }
+func setboth(x: &var Int, y: &var Int) { x = 50; y = 60 }
+func setthree(x: &var Int, y: &var Int, z: &var Int) { x = 1; y = 2; z = 3 }
 
 func main() {
     var a = Plain(c: Cell(n: 0))

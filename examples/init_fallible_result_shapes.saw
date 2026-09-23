@@ -27,8 +27,10 @@ enum MakeError { case DoesNotFit(cap: Int), case Empty }
 extension MakeError: Printable {
     func format(&self, into: &var StringBuilder) {
         match self {
-            case DoesNotFit(cap) -> { try! into.append("does not fit ")
-                                      try! into.append(cap) },
+            case DoesNotFit(cap) -> {
+                try! into.append("does not fit ")
+                try! into.append(cap)
+            },
             case Empty -> try! into.append("empty")
         }
     }

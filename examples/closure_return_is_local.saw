@@ -33,7 +33,7 @@ func might_fail(n: Int) -> Result<Int, E> {
 }
 
 func call_sync(body: (Int) sync -> Int) -> Int { body(5) }
-func each_sync(body: (Int) sync -> Void) { body(1)  body(-2)  body(3) }
+func each_sync(body: (Int) sync -> Void) { body(1); body(-2); body(3) }
 func call_susp(body: (Int) -> Int) -> Int { body(5) }
 func call_res(body: (Int) sync -> Result<Int, E>) -> Result<Int, E> { body(5) }
 

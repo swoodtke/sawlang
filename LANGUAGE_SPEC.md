@@ -53,7 +53,100 @@ chaining directly on array literals, which is separate and still planned.
 
 ### Statement Boundaries
 
-A statement ends at the end of its line. There are no semicolons.
+Two statements are separated by a newline, or by a `;` when they share a line.
+Saw has no statement terminators: a `;` joins the statement on its left to the
+statement on its right, so one that ends nothing is rejected.
+
+```saw
+func main() {
+    let width = 3; let height = 4
+    print(width * height)       // prints: 12
+    if width < height { print("portrait"); print("done") }
+}
+```
+
+```saw-error
+// error-contains: it does not end one
+func main() {
+    let width = 3;
+    print(width)
+}
+// error: Parse error at 3:18: a `;` joins two statements on one line; it does
+// not end one — remove it
+```
+
+The rejection covers every position where a `;` separates nothing: before a
+newline, before the block's closing `}`, at the end of the file, doubled, and
+standing at the start of a line. Module scope takes newlines only. Declarations
+are never joined by a `;`, and one written between two of them reports that
+each declaration takes its own line.
+
+The `;` inside `[Int; 3]` and `[0; 3]` is the array-length and repeat-count
+separator. It sits inside brackets, where no statement can begin, and none of
+this reaches it.
+
+Writing two statements on one line with nothing between them is rejected. The
+separator would be invisible there, so `let a = b (c)` and `x -1` read as one
+statement and are two. The diagnostic names both statements' first tokens,
+because on a crowded line the reader's question is which two the compiler ran
+together.
+
+```saw-error
+// error-contains: two statements on one line need a `;` between them
+func main() {
+    let width = 3 print(width)
+}
+// error: Parse error at 2:19: two statements on one line need a `;` between
+// them: the first begins with `let`, the second with `print` — write `;`
+// where they meet
+```
+
+It is rejected in every block a statement list can sit in: function and method
+bodies, a `borrows` body, the bodies of `if`, `else`, `while` and `for`, a
+`match` arm's block body, both blocks of `try { } catch { }`, a `guard … else`
+block, and a closure body.
+
+A declaration list takes a newline per unit and is never joined by a `;` at
+all, so two units of one on a line report that each takes its own line instead.
+There are four: module scope, an inline `module m { … }` body, an extension's
+members, a trait's requirements, and an `extern "C" { … }` block.
+
+A list whose separator is a comma rather than a newline is unaffected, since a
+line break carries no meaning inside one: a struct's fields, an enum's cases, a
+`match`'s arms, a map or set literal's elements, an import's symbol list, and
+every parameter, argument and generic list. A `match` arm's bare body is an
+expression rather than a statement list, so it never reaches the rule at all —
+the arm grammar owns its own separator, and how strict that separator is has
+not changed: the comma between arms is optional today, so `case 0 -> 1 case _
+-> 2` on one line compiles as it always did.
+
+#### Layout
+
+A brace body is one line, or fully broken. Either the whole body sits on the
+brace's line, or the opening brace ends its line, every statement has its own
+line, and the closing brace stands alone.
+
+```saw-fragment
+if done { return }                          // one line
+{ c in c = c + n; c }                       // one line
+
+if pending.len() == 0 {                     // fully broken
+    report("nothing to do")
+    return
+}
+```
+
+Half-broken is what the rule exists to catch — an opening line that carries
+the first statement while the last one shares the closing brace's line:
+
+```saw-fragment
+if arg == "--help" { help()
+    return }
+```
+
+The grammar accepts that (the newline is a legal separator) and the style rule
+does not. Prefer the broken form as soon as a body carries a `return`,
+`break` or `continue` beside anything else.
 
 Inside brackets a line break carries no meaning, so a list that does not fit on
 one line wraps. This holds between `(` and its matching `)`, between `[` and
@@ -3826,7 +3919,7 @@ extension Counter {
     func viaFree(&self) -> Int { run_int({ self.n + 1 }) }
 
     func bump(&var self) -> Int {
-        run_int({ self.n = self.n + 10  self.n })   // the write lands on the caller's value
+        run_int({ self.n = self.n + 10; self.n })   // the write lands on the caller's value
     }
 }
 ```
@@ -3866,7 +3959,7 @@ The capture may also be written out loud, behind a borrow sigil:
 ```saw-fragment
 extension Counter {
     func viaFree(&self) -> Int { run_int({ [&self] in self.n + 1 }) }
-    func bump(&var self) -> Int { run_int({ [&var self] in self.n += 10  self.n }) }
+    func bump(&var self) -> Int { run_int({ [&var self] in self.n += 10; self.n }) }
 }
 ```
 
@@ -4072,7 +4165,7 @@ changes.
   here is that a spawn does not create a reference the law cannot see.
 
 ```saw-fragment
-let h = group.spawn(run({ [&var n] in n = n + 1  n }))
+let h = group.spawn(run({ [&var n] in n = n + 1; n }))
 let seen = n
 // error: exclusive access violation: `n` cannot be read here — the task spawned
 //        at line 1 holds `&var n` until `h.join()` releases it
@@ -7221,7 +7314,7 @@ multiple threads (design 75) — carrying the coroutine transform, suspending
   say. This is what lets a closure take an early exit:
 
   ```saw
-  func each_sync(body: (Int) sync -> Void) { body(1)  body(-2)  body(3) }
+  func each_sync(body: (Int) sync -> Void) { body(1); body(-2); body(3) }
 
   func report(v: &Vector<Int>) -> String {
       each_sync({ e in
@@ -7454,7 +7547,7 @@ Observable rules:
   trait Greeter { func greet(&self) -> String }
 
   extension Person: Greeter {
-      func greet(&self) -> String { yield_now()  self.n }
+      func greet(&self) -> String { yield_now(); self.n }
   }
 
   func shout(g: &any Greeter) -> String {
@@ -8157,7 +8250,7 @@ struct Pool { workers: Vector<VoidThread> }
 extension Pool: NoCopy {
     func deinit(&var self) {
         while self.workers.len() > 0 {
-            if let held = self.workers.pop() { var h = move held  h.join() }
+            if let held = self.workers.pop() { var h = move held; h.join() }
         }
     }
 }
@@ -8269,7 +8362,7 @@ A `Thread.spawn { ... }` body is a `sync` context: a spawned thread runs no
 executor, so there is nothing on it to resume a suspension.
 
 ```saw-fragment
-var t = Thread.spawn { yield_now()  7 }
+var t = Thread.spawn { yield_now(); 7 }
 // error: cannot suspend in a `Thread.spawn { ... }` body: closure calls
 //        yield_now
 ```
@@ -8532,7 +8625,7 @@ through a closure the task runs; a `&`/`&var` **argument** of the spawned call
 reaches it directly:
 
 ```saw-fragment
-let h = group.spawn(run({ [&var n] in n = n + 1  n }))   // capture
+let h = group.spawn(run({ [&var n] in n = n + 1; n }))   // capture
 let g = group.spawn(bump(&var n))                        // argument
 ```
 
@@ -8543,7 +8636,7 @@ declared ahead of the group is still alive when the join runs:
 ```saw-fragment
 var n = 7
 var group = TaskGroup()
-let h = group.spawn(run({ [&var n] in n = n + 1  n }))
+let h = group.spawn(run({ [&var n] in n = n + 1; n }))
 print(h.join())        // 8
 print(n)               // 8 — the task's write is visible at the root
 ```
@@ -8556,7 +8649,7 @@ a compile error naming the order, in either spelling:
 // error-contains: cannot capture `&var n` into a task: `n` is declared AFTER the group
 var group = TaskGroup()
 var n = 7
-let h = group.spawn(run({ [&var n] in n = n + 1  n }))
+let h = group.spawn(run({ [&var n] in n = n + 1; n }))
 // error: cannot capture `&var n` into a task: `n` is declared AFTER the group
 //        `group` it is spawned into …, and destruction is LIFO
 
@@ -8597,7 +8690,7 @@ root belongs to the task:
 // error-contains: exclusive access violation: `n` cannot be written here — the task
 var n = 0
 var group = TaskGroup()
-let h = group.spawn(run({ [&var n] in n = n + 100  n }))
+let h = group.spawn(run({ [&var n] in n = n + 100; n }))
 n = 5
 // error: exclusive access violation: `n` cannot be written here — the task
 //        spawned at line 3 holds `&var n` until `h.join()` releases it
@@ -8647,7 +8740,7 @@ slot — silently, exit 0.
 ```saw-fragment
 var buf: Vector<Int> = [1, 2, 3]
 var group = TaskGroup()
-let h = group.spawn(run({ [&var buf] in try! buf.push(9)  buf.len() }))
+let h = group.spawn(run({ [&var buf] in try! buf.push(9); buf.len() }))
 let taken = consume(move buf)
 // error: cannot `move` `buf` while a spawned task borrows it: the task spawned
 //        at line 3 holds `&var buf` until `h.join()` releases it

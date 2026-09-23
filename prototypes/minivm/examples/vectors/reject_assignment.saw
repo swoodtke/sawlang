@@ -1,3 +1,5 @@
-func main() { var a = Vector<Int>()
-let b = Vector<Int>()
-a = move b }
+func main() {
+    var a = Vector<Int>()
+    let b = Vector<Int>()
+    a = move b
+}

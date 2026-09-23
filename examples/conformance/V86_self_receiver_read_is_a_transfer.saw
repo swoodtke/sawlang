@@ -51,9 +51,9 @@ extension Res {
     // The ARGUMENT face: `self` handed to a by-value parameter.
     func hand_on(&self) -> Int { sink(self) }
     // The BINDING face: `self` read into a local the body then owns.
-    func to_local(&self) -> Int { let b = self  b.w }
+    func to_local(&self) -> Int { let b = self; b.w }
     // The AGGREGATE face: `self` stored into a struct field.
-    func to_field(&self) -> Int { let h = Holder(r: self)  h.r.w }
+    func to_field(&self) -> Int { let h = Holder(r: self); h.r.w }
 }
 
 func main() {

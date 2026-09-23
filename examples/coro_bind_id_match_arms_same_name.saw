@@ -37,15 +37,15 @@ func pick_mixed(k: Int) -> Mixed {
 
 func same_type(k: Int) {
     match pick(k) {
-        case A(v) -> { yield_now()  print("A: {v}") },
-        case B(v) -> { yield_now()  print("B: {v}") }
+        case A(v) -> { yield_now(); print("A: {v}") },
+        case B(v) -> { yield_now(); print("B: {v}") }
     }
 }
 
 func mixed_type(k: Int) {
     match pick_mixed(k) {
-        case A(v) -> { yield_now()  print("flag A: {v}") },
-        case B(v) -> { yield_now()  print("flag B: {v}") }
+        case A(v) -> { yield_now(); print("flag A: {v}") },
+        case B(v) -> { yield_now(); print("flag B: {v}") }
     }
 }
 

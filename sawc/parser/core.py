@@ -345,6 +345,133 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
         while self.match(TokenType.NEWLINE):
             self.advance()
 
+    # ---- the statement-separator chokepoint (SL-347) -----------------------
+
+    # The tokens that may stand where a statement ENDS: a newline, the `;` that
+    # joins it to the next statement on the SAME line, the enclosing block's
+    # `}`, or end of file.
+    _STATEMENT_ENDERS = (TokenType.NEWLINE, TokenType.SEMICOLON,
+                         TokenType.RBRACE, TokenType.EOF)
+
+    SEPARATOR_NOT_TERMINATOR = (
+        "a `;` joins two statements on one line; it does not end one — "
+        "remove it")
+
+    DECLARATIONS_TAKE_A_NEWLINE = (
+        "declarations are not joined by `;` — put each declaration on its own "
+        "line")
+
+    JUXTAPOSITION_NEEDS_A_SEMICOLON = (
+        "two statements on one line need a `;` between them")
+
+    def expect_statement_end(self, previous_start: Optional[Token] = None, *,
+                             declarations: bool = False):
+        """THE statement-separator chokepoint (SL-347).
+
+        Saw has no statement TERMINATORS. A newline separates two statements,
+        and a `;` separates two statements that share one line (R1) — so a `;`
+        that ends nothing is refused where it is written (R2): one sitting
+        before a newline, before the block's `}`, at end of file, doubled, or
+        standing at the start of a line.
+
+        Called once per GAP between statements, including the gap BEFORE a
+        list's first statement — there `previous_start` is None, nothing
+        precedes, and only the line-start half of R2 can fire. ENTRY POINTS,
+        all of them — every loop in the parser that reads a NEWLINE-SEPARATED
+        list of statements or declarations is here:
+
+          * `StatementsMixin.parse_block` — the one block-body funnel, which is
+            why this covers function and method bodies, `borrows` bodies,
+            `if`/`else`/`while`/`for` bodies, a `match` arm's BLOCK body, both
+            blocks of `try { } catch { }`, and `guard … else { }`.
+          * `ExpressionsMixin._parse_closure_body` — closure bodies.
+
+        and the four DECLARATION lists, whose units take a newline each and are
+        never joined by a `;` (`declarations=True`):
+
+          * `Parser.parse` — top-level module scope.
+          * `Parser.parse_module_decl` — an inline `module m { … }` body, which
+            is the same declaration list one brace in.
+          * `DeclarationsMixin.parse_extension` — an extension's MEMBERS.
+          * `DeclarationsMixin.parse_trait` — a trait's REQUIREMENTS.
+          * `DeclarationsMixin.parse_extern_block` — an `extern "C" { … }`
+            block's function declarations.
+
+        The lists that are COMMA-delimited rather than newline-separated are
+        deliberately NOT here, because a newline carries no meaning inside one
+        (design 129/147): a struct's fields, an enum's cases, a `match`'s arms,
+        a map or set literal's elements, an import's symbol list, and every
+        parameter, argument and generic list. A `match` arm's BARE body is an
+        expression rather than a statement list, so it never reaches here
+        either: `ExpressionsMixin.parse_match` owns the arm separator, and how
+        strict that separator is has not changed — the comma between arms is
+        OPTIONAL in today's grammar (`case 0 -> 1 case _ -> 2` on one line
+        compiles), which predates SL-347 and is untouched by it.
+
+        `at_statement_end` is the lookahead half of the same rule, for the
+        statement forms whose operand is optional.
+
+        R3 — bare JUXTAPOSITION — is refused here too: with a statement behind
+        it, this position takes a NEWLINE, a `;`, the block's `}` or EOF, and
+        anything else is a second statement that never said where the first
+        one ended.
+        """
+        if previous_start is not None and self.match(TokenType.SEMICOLON):
+            semi = self.current()
+            self.advance()
+            # A `;` is a separator, so something must FOLLOW it on this line.
+            if self.match(*self._STATEMENT_ENDERS):
+                self.error_at(semi, self.SEPARATOR_NOT_TERMINATOR)
+            if declarations:
+                # It does separate — but the units at module scope are
+                # declarations, and those take a line each.
+                self.error_at(semi, self.DECLARATIONS_TAKE_A_NEWLINE)
+            return
+        if previous_start is not None and not self.at_statement_end():
+            self._juxtaposition_error(previous_start, declarations)
+        self.skip_newlines()
+        if self.match(TokenType.SEMICOLON):
+            self.error(self.SEPARATOR_NOT_TERMINATOR)
+
+    def _statement_head_text(self, token: Token) -> str:
+        """How a statement's FIRST token is quoted back to its author."""
+        if token.type in (TokenType.STRING, TokenType.INTERP_STRING):
+            return '"…"'
+        return token.value if token.value else token.type.name.lower()
+
+    def _juxtaposition_error(self, previous_start: Token, declarations: bool):
+        """R3's refusal, anchored at the SECOND statement's first token.
+
+        The separator is missing exactly where the second statement begins, so
+        that is where the caret goes; the message names BOTH statements' first
+        tokens, because on a crowded line the reader's question is which two
+        the compiler ran together.
+        """
+        nxt = self.current()
+        first = self._statement_head_text(previous_start)
+        second = self._statement_head_text(nxt)
+        if declarations:
+            self.error_at(
+                nxt,
+                f"two declarations on one line: the first begins with "
+                f"`{first}`, the second with `{second}` — "
+                f"{self.DECLARATIONS_TAKE_A_NEWLINE}")
+        self.error_at(
+            nxt,
+            f"{self.JUXTAPOSITION_NEEDS_A_SEMICOLON}: the first begins with "
+            f"`{first}`, the second with `{second}` — write `;` where they "
+            f"meet")
+
+    def at_statement_end(self) -> bool:
+        """True if the current token could END the statement being parsed.
+
+        The lookahead half of `expect_statement_end` (SL-347), for the four
+        statement forms that carry an OPTIONAL operand and so have to ask
+        whether anything is left on the line: `return`, `break`, the closure
+        body's `return`, and `lend` (which refuses the empty case outright).
+        """
+        return self.match(*self._STATEMENT_ENDERS)
+
     def match_ident(self, value: str) -> bool:
         """Check if current token is IDENT with the given value (for context-sensitive keywords)."""
         return self.current().type == TokenType.IDENT and self.current().value == value
@@ -1052,10 +1179,15 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
         # claimed here, before the first declaration is parsed. A `//!` anywhere
         # else stays unclaimed and is reported by the sweep below.
         program.module_doc = self._take_module_docs()
+        # SL-347: module scope is a statement list too — a `;` may not stand at
+        # the head of a line here either.
+        self.expect_statement_end()
 
         while not self.match(TokenType.EOF):
             try:
+                decl_start = self.current()
                 self._parse_toplevel_decl(program)
+                self.expect_statement_end(decl_start, declarations=True)
             except SyntaxError as e:
                 # Batch syntax errors: record this one, then synchronize to the
                 # next top-level declaration and keep parsing so a single file
@@ -1275,9 +1407,13 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
         self.expect_ident("module")
         name_token = self.expect(TokenType.IDENT, "Expected module name")
 
-        # Check for inline module: module name { ... }
+        # Check for inline module: module name { ... }. Peek across newlines
+        # and REWIND when no `{` follows (SL-347): a bare `module name`
+        # declaration ends at its newline, and eating it here would leave the
+        # next declaration looking as if it shared this one's line.
         is_inline = False
         body = None
+        brace_peek = self.pos
         self.skip_newlines()
         if self.match(TokenType.LBRACE):
             is_inline = True
@@ -1289,11 +1425,18 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
             # file-level `parse()` loop, which synchronizes past the whole
             # `module { ... }` — so the dispatch call is unguarded.
             body = Program(structs=[], functions=[])
+            # SL-347: an inline module's body is a DECLARATION list exactly as
+            # the file's is, so its gaps go through the same chokepoint —
+            # including the gap before the first declaration.
+            self.expect_statement_end()
             while not self.match(TokenType.RBRACE, TokenType.EOF):
+                decl_start = self.current()
                 self._parse_toplevel_decl(body)
-                self.skip_newlines()
+                self.expect_statement_end(decl_start, declarations=True)
 
             self.expect(TokenType.RBRACE)
+        else:
+            self.pos = brace_peek
 
         return ModuleDecl(
             name=name_token.value,

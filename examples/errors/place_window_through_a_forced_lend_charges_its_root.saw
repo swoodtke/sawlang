@@ -27,7 +27,7 @@ extension Bag {
     public func first(&var self) -> Int { self.rows[0].n }
 }
 
-func setboth(a: &var Cell, b: &var Cell) { a.n = 1  b.n = 2 }
+func setboth(a: &var Cell, b: &var Cell) { a.n = 1; b.n = 2 }
 func setroot(a: &var Cell, r: &var Bag) { a.n = r.first() }
 
 func main() {

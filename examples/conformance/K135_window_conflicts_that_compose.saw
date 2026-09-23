@@ -96,7 +96,7 @@ func nested_over_one_root(v: &Vector<Int>) -> Int {
 }
 
 func observe(v: &Vector<Int>) -> Int { v.len() }
-func bump(n: &var Int) -> Int { n = n + 1  n }
+func bump(n: &var Int) -> Int { n = n + 1; n }
 
 func shared_extent_composes(v: Vector<Int>) -> Int {
     var owned = move v
@@ -207,7 +207,7 @@ extension Holder {
 extension Wrapper<T: Copy> {
     func walk(&self) -> Int {
         var n = 0
-        for _x in self.held.iter() { yield_now()  n = n + 1 }
+        for _x in self.held.iter() { yield_now(); n = n + 1 }
         n
     }
 }

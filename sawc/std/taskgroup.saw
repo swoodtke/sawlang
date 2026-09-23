@@ -1186,7 +1186,7 @@ extension TaskGroup {
         // the `Void` task's terms.
         let detached = self.cells.with_ref<Bool>(slot, { c in c!.__is_detached() })
         if detached {
-            let _ = self.cells.with_var_ref<Bool>(slot, { c in c!.__drop_result()  true })
+            let _ = self.cells.with_var_ref<Bool>(slot, { c in c!.__drop_result(); true })
         }
         var keeps = false
         if not detached {
@@ -1208,9 +1208,9 @@ extension TaskGroup {
     func __detach_slot(&var self, slot: Int, generation: Int) unsafe {
         self.__lock()
         if not self.__stale(slot, generation) {
-            let _ = self.cells.with_var_ref<Bool>(slot, { c in c!.__detach_now()  true })
+            let _ = self.cells.with_var_ref<Bool>(slot, { c in c!.__detach_now(); true })
             if self.done.get(slot)! {
-                let _ = self.cells.with_var_ref<Bool>(slot, { c in c!.__drop_result()  true })
+                let _ = self.cells.with_var_ref<Bool>(slot, { c in c!.__drop_result(); true })
                 self.__recycle(slot)
             }
         }
@@ -1226,7 +1226,7 @@ extension TaskGroup {
         while i < self.tasks.len() {
             let d = self.done.get(i)!
             if not d {
-                let _ = self.cells.with_var_ref<Bool>(i, { c in c!.__cancel_now()  true })
+                let _ = self.cells.with_var_ref<Bool>(i, { c in c!.__cancel_now(); true })
             }
             i = i + 1
         }

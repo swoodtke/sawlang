@@ -1,7 +1,11 @@
-func index() -> Int { print("index")
-0 }
-func value() -> Int { print("value")
-9 }
+func index() -> Int {
+    print("index")
+    0
+}
+func value() -> Int {
+    print("value")
+    9
+}
 
 func main() {
     var v = Vector<Int>()

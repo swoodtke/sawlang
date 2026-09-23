@@ -1,0 +1,28 @@
+// SL-347 R3 — bare JUXTAPOSITION is refused: the CLOSURE body and MODULE
+// SCOPE, the chokepoint's other two entry points.
+//
+// `parse_block` is one of three callers of `Parser.expect_statement_end`. The
+// other two are `ExpressionsMixin._parse_closure_body`, whose body is a
+// statement list of its own, and `Parser.parse`, whose units are
+// DECLARATIONS — and a declaration takes a line, so two on one line get the
+// declarations message rather than an offer of a `;`.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: two statements on one line need a `;` between them: the first begins with `c`, the second with `c`
+// EXPECT-ERROR-CONTAINS: write `;` where they meet
+// EXPECT-ERROR-CONTAINS: two declarations on one line: the first begins with `static`, the second with `static`
+// EXPECT-ERROR-CONTAINS: declarations are not joined by `;` — put each declaration on its own line
+
+func run(body: (Int) sync -> Int) -> Int { body(1) }
+
+// ROW 12 — a CLOSURE body.
+func closure_body_row() -> Int {
+    run({ c in c = c + 1 c })
+}
+
+// ROW 13 — MODULE SCOPE: two declarations on one line.
+static ALPHA: Int = 1 static BETA: Int = 2
+
+func main() {
+    print("{}", closure_body_row())
+}

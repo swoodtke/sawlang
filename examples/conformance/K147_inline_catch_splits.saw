@@ -120,7 +120,7 @@ func variants_sync(x: Int) -> Int {
 func variants_driven(x: Int) -> Int {
     let a = try! fallible(x)
     let b = try? fallible(x)
-    let c = try fallible(0 - x) catch { respond()  8 }
+    let c = try fallible(0 - x) catch { respond(); 8 }
     a + (b ?? 0) + c
 }
 
@@ -130,7 +130,7 @@ func variants_driven(x: Int) -> Int {
 // own (the pair is refused at the `try`), so the row is that the two coexist.
 func routed(x: Int) -> Result<Int, Wrapped> {
     let a = try(as Wrapped.Inner) fallible(x)
-    let b = try fallible(0 - x) catch { respond()  5 }
+    let b = try fallible(0 - x) catch { respond(); 5 }
     a + b
 }
 

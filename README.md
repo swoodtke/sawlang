@@ -682,8 +682,17 @@ redeclare.
 
 See [Module System](LANGUAGE_SPEC.md#8-module-system) in the spec.
 
-### Four smaller rules
+### Five smaller rules
 
+- **A newline separates two statements, and so does `;`.** Saw has no
+  statement terminators. A `;` joins the statement on its left to the one on
+  its right, which is what a one-line body needs: `if done { print("ok"); return }`.
+  A `;` that separates nothing — before a newline, before `}`, at the end of
+  the file, doubled, at the start of a line — is a compile error, and so is
+  running two statements together on one line with nothing between them: the
+  separator would be invisible, so `let a = b (c)` reads as one statement and
+  is two. See
+  [Statement boundaries](LANGUAGE_SPEC.md#statement-boundaries).
 - **A method's kind is declared.** A method with no receiver is written
   `static func` and called on its type, `Point.origin()`. Leaving the keyword
   off is a compile error whose fixit names both readings, because a forgotten

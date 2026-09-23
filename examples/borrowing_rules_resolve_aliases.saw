@@ -93,7 +93,7 @@ extension Pt {
 extension Pt: Iterator {
     type Item = Int
     func next(&var self) unsafe -> Int? {
-        if self.done { None } else { self.done = true  self.poke()  self.source.n + self.peek() }
+        if self.done { None } else { self.done = true; self.poke(); self.source.n + self.peek() }
     }
 }
 
@@ -112,7 +112,7 @@ func alias_field(o: &Owner) {
 }
 
 func alias_field_driven(o: &Owner) {
-    for n in o.jter() { yield_now()  print("jt driven {n}") }
+    for n in o.jter() { yield_now(); print("jt driven {n}") }
 }
 
 func pointer_write() unsafe {

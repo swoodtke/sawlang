@@ -414,7 +414,11 @@ class DeclarationsMixin:
 
         methods = []
         associated_types = []
+        # SL-347: a trait body is a REQUIREMENT list, newline-separated exactly
+        # as module scope is, so its gaps go through the same chokepoint.
+        self.expect_statement_end()
         while not self.match(TokenType.RBRACE, TokenType.EOF):
+            member_start = self.current()
             member_doc = self._take_doc()
             # Design 258 ruling 3: a trait REQUIREMENT carries no visibility of
             # its own (the trait's tier is the bar), so `private` on one is the
@@ -446,7 +450,7 @@ class DeclarationsMixin:
                 methods.append(method)
             else:
                 self.error(f"Expected 'type' or 'func' in trait, got {self.current().type.name}")
-            self.skip_newlines()
+            self.expect_statement_end(member_start, declarations=True)
 
         self.expect(TokenType.RBRACE)
 
@@ -613,7 +617,11 @@ class DeclarationsMixin:
 
         methods = []
         type_assignments = []
+        # SL-347: an extension body is a MEMBER list, newline-separated exactly
+        # as module scope is, so its gaps go through the same chokepoint.
+        self.expect_statement_end()
         while not self.match(TokenType.RBRACE, TokenType.EOF):
+            member_start = self.current()
             member_doc = self._take_doc()
             # Design 258 ruling 3 (see `_reject_private_modifier`): checked at
             # the member HEAD, ahead of the kind dispatch — a misused modifier is
@@ -668,7 +676,7 @@ class DeclarationsMixin:
                 self._reject_attribute_position("methods")
             else:
                 self.error(f"Expected 'type', 'func', or 'init' in extension, got {self.current().type.name}")
-            self.skip_newlines()
+            self.expect_statement_end(member_start, declarations=True)
 
         self.expect(TokenType.RBRACE)
 
@@ -792,9 +800,14 @@ class DeclarationsMixin:
         self.skip_newlines()
 
         functions = []
+        # SL-347: an `extern "C" { }` block is a DECLARATION list, newline-
+        # separated exactly as module scope is, so its gaps go through the same
+        # chokepoint.
+        self.expect_statement_end()
         while not self.match(TokenType.RBRACE, TokenType.EOF):
+            decl_start = self.current()
             functions.append(self.parse_extern_function())
-            self.skip_newlines()
+            self.expect_statement_end(decl_start, declarations=True)
 
         self.expect(TokenType.RBRACE)
 

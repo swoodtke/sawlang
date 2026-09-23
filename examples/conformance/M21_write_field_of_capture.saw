@@ -9,6 +9,6 @@
 struct S { n: Int }
 func main() {
     var s = S(n: 0)
-    let f = { s.n = 1  s.n }
+    let f = { s.n = 1; s.n }
     print(f())
 }

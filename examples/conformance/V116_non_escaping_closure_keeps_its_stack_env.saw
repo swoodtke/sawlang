@@ -55,6 +55,6 @@ func main() {
     // acceptance is a second witness that this slot is classified non-escaping
     // — the borrow gate and the escape analysis read the same bit.
     var counter = 10
-    let _ = run_now({ [&var counter] in counter = counter + 1  counter })
+    let _ = run_now({ [&var counter] in counter = counter + 1; counter })
     print("borrow-capture {}", counter)
 }

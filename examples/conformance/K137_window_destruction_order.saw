@@ -150,7 +150,7 @@ extension Counter: NoCopy {
 extension Counter: Iterator {
     type Item = Int
     func next(&var self) -> Int? {
-        if self.index < 3 { self.index = self.index + 1  self.index } else { None }
+        if self.index < 3 { self.index = self.index + 1; self.index } else { None }
     }
 }
 
@@ -163,28 +163,28 @@ func walk_sync(b: &Bag) -> Int {
 
 func walk_driven(b: &Bag) -> Int {
     var total = 0
-    for x in b.iter() { yield_now()  total = total + x }
+    for x in b.iter() { yield_now(); total = total + x }
     print("after driven loop")
     total
 }
 
 func walk_break(b: &Bag) -> Int {
     var total = 0
-    for x in b.iter() { total = total + x  break }
+    for x in b.iter() { total = total + x; break }
     print("after break loop")
     total
 }
 
 func walk_driven_break(b: &Bag) -> Int {
     var total = 0
-    for x in b.iter() { yield_now()  total = total + x  if x == 2 { break } }
+    for x in b.iter() { yield_now(); total = total + x; if x == 2 { break } }
     print("after driven break")
     total
 }
 
 func walk_driven_return(b: &Bag) -> Int {
     var total = 0
-    for x in b.iter() { yield_now()  total = total + x  if x == 2 { return total } }
+    for x in b.iter() { yield_now(); total = total + x; if x == 2 { return total } }
     print("unreached")
     total
 }
@@ -194,7 +194,7 @@ func walk_driven_continue_outer(b: &Bag) -> Int {
     var round = 0
     while round < 2 {
         round = round + 1
-        for x in b.iter() { yield_now()  total = total + x  if x == 2 { continue } }
+        for x in b.iter() { yield_now(); total = total + x; if x == 2 { continue } }
         print("after inner {round}")
     }
     print("after outer")
@@ -203,21 +203,21 @@ func walk_driven_continue_outer(b: &Bag) -> Int {
 
 func walk_driven_try(b: &Bag) -> Result<Int, Bad> {
     var total = 0
-    for x in b.iter() { let k = try fails(x)  total = total + k }
+    for x in b.iter() { let k = try fails(x); total = total + k }
     print("unreached")
     total
 }
 
 func walk_owned_driven() -> Int {
     var total = 0
-    for n in Counter(index: 0) { yield_now()  total = total + n  if n == 1 { break } }
+    for n in Counter(index: 0) { yield_now(); total = total + n; if n == 1 { break } }
     print("after owned loop")
     total + 6
 }
 
 func walk_owned_driven_break() -> Int {
     var total = 0
-    for n in Counter(index: 0) { yield_now()  total = total + n  if n == 2 { break } }
+    for n in Counter(index: 0) { yield_now(); total = total + n; if n == 2 { break } }
     print("after owned break")
     total
 }

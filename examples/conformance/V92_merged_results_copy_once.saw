@@ -54,7 +54,7 @@
 
 struct Counted { n: Int }
 extension Counted: Copy {
-    func copy(&self) -> Counted { print("copy {}", self.n)  Counted(n: self.n) }
+    func copy(&self) -> Counted { print("copy {}", self.n); Counted(n: self.n) }
 }
 
 enum Bad { case Nope }
@@ -86,7 +86,7 @@ func value_match(n: Int) -> Int {
 // value.
 func try_block_ok(n: Int) -> Int {
     let fallback = Counted(n: 90 + n)
-    let got = try { let g = try made(n)  g } catch { fallback }
+    let got = try { let g = try made(n); g } catch { fallback }
     got.n
 }
 
@@ -94,7 +94,7 @@ func try_block_ok(n: Int) -> Int {
 // form's counterpart of V91's leaking cell.
 func try_block_catch(n: Int) -> Int {
     let fallback = Counted(n: n)
-    let got = try { let g = try fails()  g } catch { fallback }
+    let got = try { let g = try fails(); g } catch { fallback }
     got.n
 }
 

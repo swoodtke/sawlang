@@ -28,14 +28,14 @@ func run(f: () -> Int) -> Int {
 func discarded() {
     var n = 0
     var group = TaskGroup()
-    let _ = group.spawn(run({ [&var n] in n = n + 1  n }))
+    let _ = group.spawn(run({ [&var n] in n = n + 1; n }))
     print("n is {n}")
 }
 
 func conditional(flag: Bool) {
     var m = 0
     var group = TaskGroup()
-    let h = group.spawn(run({ [&var m] in m = m + 1  m }))
+    let h = group.spawn(run({ [&var m] in m = m + 1; m }))
     if flag {
         print("joined early: {h.join()}")
     }

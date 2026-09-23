@@ -89,7 +89,7 @@ func guard_spanning_driven() -> Int {
     while i < 10 {
         match next(i) {
             case Value(g) if g == 2 -> { return total },
-            case Value(n) -> { slow()  total += n },
+            case Value(n) -> { slow(); total += n },
             case Done -> { return total }
         }
         i += 1
@@ -118,7 +118,7 @@ func guard_shared_driven() -> Int {
     while i < 10 {
         match next(i) {
             case Value(n) if n == 2 -> { return total },
-            case Value(n) -> { slow()  total += n },
+            case Value(n) -> { slow(); total += n },
             case Done -> { return total }
         }
         i += 1

@@ -22,15 +22,15 @@ func check_short_escapes() {
     var enc = JsonEncoder()
     match enc.write_text(s) {
         case Ok(_) -> {},
-        case Err(e) -> { print("short_escapes write failed: {}", e) return }
+        case Err(e) -> { print("short_escapes write failed: {}", e); return }
     }
     let text = match enc.finish() {
         case Ok(t) -> t,
-        case Err(e) -> { print("short_escapes finish failed: {}", e) return }
+        case Err(e) -> { print("short_escapes finish failed: {}", e); return }
     }
     var dec = match JsonDecoder.open(text: text) {
         case Ok(d) -> move d,
-        case Err(e) -> { print("short_escapes open failed: {}", e) return }
+        case Err(e) -> { print("short_escapes open failed: {}", e); return }
     }
     match dec.read_text() {
         case Ok(back) -> {
@@ -49,7 +49,7 @@ func check_short_escapes() {
 func check_decodes_to_scalar(label: String, text: String) {
     var dec = match JsonDecoder.open(text: text) {
         case Ok(d) -> move d,
-        case Err(e) -> { print("{} open failed: {}", label, e) return }
+        case Err(e) -> { print("{} open failed: {}", label, e); return }
     }
     match dec.read_text() {
         case Ok(back) -> {
@@ -90,7 +90,7 @@ func to_hex(n: Int) -> String {
 func check_reject(label: String, text: String) {
     var dec = match JsonDecoder.open(text: text) {
         case Ok(d) -> move d,
-        case Err(e) -> { print("{}: {}", label, e) return }
+        case Err(e) -> { print("{}: {}", label, e); return }
     }
     match dec.read_text() {
         case Ok(back) -> print("{}: unexpectedly accepted -> {}", label, back),

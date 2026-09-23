@@ -13,7 +13,7 @@
 
 import std.task.*
 
-func slow(n: Int) -> Int { yield_now()  return n }
+func slow(n: Int) -> Int { yield_now(); return n }
 func fast(n: Int) sync -> Int { return n }
 
 func suspending(c: Bool) {

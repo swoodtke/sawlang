@@ -1,0 +1,47 @@
+// SL-347 R3 — bare JUXTAPOSITION is refused: FUNCTION, METHOD and `borrows`
+// bodies.
+//
+// After a statement the parser takes a NEWLINE, a `;`, the block's `}` or EOF
+// and nothing else — anything else is a second statement that never said
+// where the first one ended. `StatementsMixin.parse_block` is the one funnel
+// every block body goes through; the position matrix is one row per SHAPE of
+// block, so the rule is shown to reach each of them rather than one lucky
+// caller. This file carries three of those rows, its siblings the rest:
+//
+//   statement_juxtaposition_in_control_flow_bodies.saw
+//   statement_juxtaposition_in_match_guard_and_try_blocks.saw
+//   statement_juxtaposition_in_closure_and_module_scope.saw
+//
+// Each row sits in its own TOP-LEVEL declaration, because the file-level parse
+// loop batches one error per declaration and synchronizes past it. Every row
+// names a DIFFERENT pair of first tokens, so no row's expectation can be
+// satisfied by another row's error.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: two statements on one line need a `;` between them: the first begins with `let`, the second with `print`
+// EXPECT-ERROR-CONTAINS: two statements on one line need a `;` between them: the first begins with `self`, the second with `print`
+// EXPECT-ERROR-CONTAINS: two statements on one line need a `;` between them: the first begins with `let`, the second with `lend`
+// EXPECT-ERROR-CONTAINS: write `;` where they meet
+
+// ROW 1 — a FUNCTION body.
+func function_body_row() {
+    let a = 1 print("{}", a)
+}
+
+struct Counter { n: Int }
+
+// ROW 2 — a METHOD body.
+extension Counter {
+    func bump(&var self) { self.n = 1 print("{}", self.n) }
+}
+
+struct Cells { items: Vector<Int> }
+
+// ROW 3 — a `borrows` body.
+extension Cells {
+    func at(&var self, i: Int) borrows -> &var Int { let j = i lend self.items[j] }
+}
+
+func main() {
+    function_body_row()
+}

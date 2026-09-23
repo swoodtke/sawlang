@@ -25,7 +25,7 @@ func read_through(r: &Thing) -> Int {
 
 // A mutable borrow: the closure writes through it, into the CALLER's storage.
 func write_through(m: &var Thing) -> Int {
-    once({ m.x = m.x + 36  m.x })
+    once({ m.x = m.x + 36; m.x })
 }
 
 func main() {

@@ -58,7 +58,7 @@ extension Res: NoCopy {
 }
 
 func consume_bool(r: Res) -> Bool { true }
-func src(k: Int) -> Int? { if k > 0 { return k } return None }
+func src(k: Int) -> Int? { if k > 0 { return k }; return None }
 
 // The body always RETURNS: one condition evaluation, one destruction.
 func always_returns() -> Int {

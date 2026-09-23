@@ -116,14 +116,14 @@ func fail() sync -> Result<Int, Bad> { Bad(n: 1) }
 func ok() sync -> Result<Int, Bad> { 1 }
 func g(n: Int) sync -> Int { n + 10 }
 func two(a: Int, b: Int) sync -> Int { a + b }
-func sink(n: Int, r: Res) sync -> Int { print("sink {}", r.name)  n }
-func sink_rev(r: Res, n: Int) sync -> Int { print("sink_rev {}", r.name)  n }
-func sink3(a: Int, r: Res, b: Int) sync -> Int { print("sink3 {}", r.name)  a + b }
-func sink4(a: Int, r: Res, b: Int, q: Res) sync -> Int { print("sink4 {} {}", r.name, q.name)  a + b }
-func eat(r: Res) sync -> Int { print("eat {}", r.name)  1 }
-func take_res(r: Res) sync -> Result<Int, Bad> { print("take_res {}", r.name)  Bad(n: 2) }
+func sink(n: Int, r: Res) sync -> Int { print("sink {}", r.name); n }
+func sink_rev(r: Res, n: Int) sync -> Int { print("sink_rev {}", r.name); n }
+func sink3(a: Int, r: Res, b: Int) sync -> Int { print("sink3 {}", r.name); a + b }
+func sink4(a: Int, r: Res, b: Int, q: Res) sync -> Int { print("sink4 {} {}", r.name, q.name); a + b }
+func eat(r: Res) sync -> Int { print("eat {}", r.name); 1 }
+func take_res(r: Res) sync -> Result<Int, Bad> { print("take_res {}", r.name); Bad(n: 2) }
 struct Box2 { k: Int }
-extension Box2 { func use(&self, r: Res) -> Int { print("use {}", r.name)  self.k } }
+extension Box2 { func use(&self, r: Res) -> Int { print("use {}", r.name); self.k } }
 func mk_fail() sync -> Result<Box2, Bad> { Bad(n: 3) }
 
 func row1() -> Result<Int, Bad> {

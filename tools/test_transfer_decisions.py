@@ -470,7 +470,7 @@ func main() {
     (
         "generic_body_defers_to_specialization",
         """
-func hold<T>(x: T) -> Int { let a = x  1 }
+func hold<T>(x: T) -> Int { let a = x; 1 }
 
 func main() { print(hold(5)) }
 """,

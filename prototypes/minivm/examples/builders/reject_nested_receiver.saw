@@ -1,2 +1,4 @@
-func main() { var b = StringBuilder()
-try! b.append(s: b.build()) }
+func main() {
+    var b = StringBuilder()
+    try! b.append(s: b.build())
+}

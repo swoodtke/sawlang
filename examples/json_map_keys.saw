@@ -31,7 +31,7 @@ extension Bag: Serialize {
             }
             match to.write_text(k) {
                 case Ok(_) -> {},
-                case Err(e) -> { first_err = e return }
+                case Err(e) -> { first_err = e; return }
             }
             match to.write_int(v) {
                 case Ok(_) -> {},
@@ -71,22 +71,22 @@ func check_map_roundtrip() {
     var enc = JsonEncoder()
     match bag.serialize(to: &var enc) {
         case Ok(_) -> {},
-        case Err(e) -> { print("bag encode failed: {}", e) return }
+        case Err(e) -> { print("bag encode failed: {}", e); return }
     }
     let text = match enc.finish() {
         case Ok(t) -> t,
-        case Err(e) -> { print("bag finish failed: {}", e) return }
+        case Err(e) -> { print("bag finish failed: {}", e); return }
     }
     print("bag text: {}", text)
     var dec = match JsonDecoder.open(text: text) {
         case Ok(d) -> move d,
-        case Err(e) -> { print("bag decoder refused: {}", e) return }
+        case Err(e) -> { print("bag decoder refused: {}", e); return }
     }
     match Bag.deserialize(from: &var dec) {
         case Ok(back) -> {
             match dec.finish() {
                 case Ok(_) -> {},
-                case Err(e) -> { print("bag trailing content: {}", e) return }
+                case Err(e) -> { print("bag trailing content: {}", e); return }
             }
             let a = back.m.get("a") ?? -1
             let b = back.m.get("b") ?? -1
@@ -102,7 +102,7 @@ func check_int_key_rejected() {
     var enc = JsonEncoder()
     match enc.begin_map(1) {
         case Ok(_) -> {},
-        case Err(e) -> { print("int_key_map: begin_map failed: {}", e) return }
+        case Err(e) -> { print("int_key_map: begin_map failed: {}", e); return }
     }
     match enc.write_int(7) {
         case Ok(_) -> print("int_key_map: unexpectedly accepted an Int key"),
@@ -116,7 +116,7 @@ func check_int_key_rejected() {
 func check_non_string_key_wire() {
     var dec = match JsonDecoder.open(text: "\{1:2}") {
         case Ok(d) -> move d,
-        case Err(e) -> { print("non_string_key_wire: open rejected: {}", e) return }
+        case Err(e) -> { print("non_string_key_wire: open rejected: {}", e); return }
     }
     match dec.begin_map() {
         case Ok(n) -> print("non_string_key_wire: unexpectedly opened -> {}", n),

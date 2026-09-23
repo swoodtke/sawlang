@@ -1,2 +1,4 @@
-func main() { let v = Vector<Int>()
-let x = v.get(value: 0) }
+func main() {
+    let v = Vector<Int>()
+    let x = v.get(value: 0)
+}

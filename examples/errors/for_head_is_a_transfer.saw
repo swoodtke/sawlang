@@ -31,7 +31,7 @@ extension Counter: NoCopy {
 extension Counter: Iterator {
     type Item = Int
     func next(&var self) -> Int? {
-        if self.index == 0 { self.index = 1  7 } else { None }
+        if self.index == 0 { self.index = 1; 7 } else { None }
     }
 }
 
@@ -58,7 +58,7 @@ func row_nocopy_sync() sync {
 func row_nocopy_driven() -> Int {
     let it = Counter(index: 0)
     var total = 0
-    for n in it { yield_now()  total = total + n }   // ROW: the driven twin
+    for n in it { yield_now(); total = total + n }   // ROW: the driven twin
     total
 }
 

@@ -11,5 +11,5 @@
 static LOCK: SpinLock<Int>
 
 func main() {
-    print(LOCK.lock({ c in c = c + 1  c }))
+    print(LOCK.lock({ c in c = c + 1; c }))
 }

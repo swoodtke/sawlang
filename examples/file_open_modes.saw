@@ -30,7 +30,7 @@ func write_to(f: &File, text: String) {
 func created(p: Path, text: String) {
     var f = match File.create(p) {
         case Ok(handle) -> move handle,
-        case Err(e) -> { print("create failed: {e}")  return }
+        case Err(e) -> { print("create failed: {e}"); return }
     }
     write_to(&f, text)
 }
@@ -38,7 +38,7 @@ func created(p: Path, text: String) {
 func appended(p: Path, text: String) -> Bool {
     var f = match File.open_append(p) {
         case Ok(handle) -> move handle,
-        case Err(e) -> { print("open_append failed: {e}")  return false }
+        case Err(e) -> { print("open_append failed: {e}"); return false }
     }
     write_to(&f, text)
     true
@@ -47,11 +47,11 @@ func appended(p: Path, text: String) -> Bool {
 func contents(p: Path) -> String {
     var f = match File.open(p) {
         case Ok(handle) -> move handle,
-        case Err(e) -> { print("open failed: {e}")  return "" }
+        case Err(e) -> { print("open failed: {e}"); return "" }
     }
     let bytes = match f.read() {
         case Ok(d) -> move d,
-        case Err(e) -> { print("read failed: {e}")  return "" }
+        case Err(e) -> { print("read failed: {e}"); return "" }
     }
     match bytes.to_string() {
         case Ok(text) -> text,

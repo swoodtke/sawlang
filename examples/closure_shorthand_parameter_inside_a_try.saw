@@ -35,5 +35,5 @@ func main() {
     // The subject: `$0` inside a `try!` operand.
     run({ print("forced {try! fallible($0)}") })
     // And as the whole body.
-    run({ let v = try! fallible($0)  print("bound {v}") })
+    run({ let v = try! fallible($0); print("bound {v}") })
 }

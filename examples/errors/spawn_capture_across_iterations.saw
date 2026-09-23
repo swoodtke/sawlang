@@ -23,7 +23,7 @@ func main() {
     var total = 0
     var group = TaskGroup()
     for i in 0..4 {
-        let h = group.spawn(run({ [&var total] in total = total + i  total }))
+        let h = group.spawn(run({ [&var total] in total = total + i; total }))
     }
     print("total {total}")
 }

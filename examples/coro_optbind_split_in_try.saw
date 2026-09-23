@@ -30,7 +30,7 @@ func maybe(n: Int) sync -> Int? {
     return None
 }
 
-func slow(n: Int) -> Int { yield_now()  return n }
+func slow(n: Int) -> Int { yield_now(); return n }
 
 func iflet_in_try(seed: Int) -> Int {
     var out = 0

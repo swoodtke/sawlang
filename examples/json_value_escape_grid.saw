@@ -19,7 +19,7 @@ func check_short_escapes() {
     let s = "\"\\/\u{8}\u{c}\n\r\t"
     let text = match JsonValue.Text(value: s).to_json_string() {
         case Ok(t) -> t,
-        case Err(e) -> { print("short_escapes: encode failed: {}", e) return }
+        case Err(e) -> { print("short_escapes: encode failed: {}", e); return }
     }
     match JsonValue.parse(text: text) {
         case Ok(v) -> {

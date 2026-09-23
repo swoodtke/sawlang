@@ -1,0 +1,14 @@
+// SL-347 R2 — a `;` at the START of a line.
+//
+// The newline above it already separated the two statements, so a `;` opening
+// the next line has nothing on its left to join. Same rule, read from the
+// other side; the chokepoint checks it once per statement gap, which is why
+// the very first statement of a block is covered too.
+//
+// EXPECT: error
+// EXPECT-ERROR-CONTAINS: a `;` joins two statements on one line; it does not end one — remove it
+
+func main() {
+    let a = 1
+    ; print("{}", a)
+}

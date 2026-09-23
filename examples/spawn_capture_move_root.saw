@@ -24,7 +24,7 @@ func consume(v: Vector<Int>) -> Int {
 func main() {
     var buf: Vector<Int> = [1, 2, 3]
     var group = TaskGroup()
-    let h = group.spawn(run({ [&var buf] in buf.push(9)  buf.len() }))
+    let h = group.spawn(run({ [&var buf] in buf.push(9); buf.len() }))
     let taken = consume(move buf)
     print("consumed len {taken}; task result {h.join()}")
 }

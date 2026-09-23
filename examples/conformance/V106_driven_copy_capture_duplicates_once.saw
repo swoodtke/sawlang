@@ -64,7 +64,7 @@
 
 struct Dup { n: Int }
 extension Dup: ExplicitCopy {
-    func copy(&self) -> Dup { print("copy {} -> {}", self.n, self.n + 1)  Dup(n: self.n + 1) }
+    func copy(&self) -> Dup { print("copy {} -> {}", self.n, self.n + 1); Dup(n: self.n + 1) }
     func deinit(&var self) { print("drop {}", self.n) }
 }
 
@@ -73,16 +73,16 @@ extension Dup: ExplicitCopy {
 // names (design 219), so one line is one duplication.
 struct Counted { n: Int }
 extension Counted: Copy {
-    func copy(&self) -> Counted { print("copy {}", self.n)  Counted(n: self.n) }
+    func copy(&self) -> Counted { print("copy {}", self.n); Counted(n: self.n) }
 }
 
 func run_int(body: () sync -> Int) -> Int { body() }
 
 func sync_cap(d: Dup) -> Int   { run_int({ [copy d] in d.n }) }
-func driven_cap(d: Dup) -> Int { __saw_suspend()  run_int({ [copy d] in d.n }) }
+func driven_cap(d: Dup) -> Int { __saw_suspend(); run_int({ [copy d] in d.n }) }
 
 func sync_quiet(c: Counted) -> Int   { run_int({ [copy c] in c.n }) }
-func driven_quiet(c: Counted) -> Int { __saw_suspend()  run_int({ [copy c] in c.n }) }
+func driven_quiet(c: Counted) -> Int { __saw_suspend(); run_int({ [copy c] in c.n }) }
 
 func main() {
     print("-- sync")
