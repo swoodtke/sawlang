@@ -1,58 +1,38 @@
-// Map<K, V, A> — THE dictionary type: an open-addressing hash table
-// (design 48, renamed from HashMap and made the sole Map by design 54).
+// Map<K, V, A>: an open-addressing hash table with linear probing and
+// tombstone deletion. Capacity is a power of two, so the bucket is
+// `hash & (cap - 1)`, which relies on `Hasher.finish` folding the high half of
+// its state into the low bits. The table doubles and rehashes once the load
+// factor would exceed 3/4.
 //
-// Collision resolution: OPEN ADDRESSING with linear probing and tombstone
-// deletion. Capacity is always a power of two, so the bucket index is a cheap
-// `hash & (cap - 1)` mask (well-mixed because `Hasher.finish` folds the high
-// half of the FNV state into the low bits). The table grows (doubling, rehash
-// all live entries) once the live-load factor would exceed 3/4.
+// Empty and Tombstone slots carry no payload, so a fresh table holds no
+// garbage K/V to drop; the slot vector's own deinit drops occupied slots.
+// Updates and removals move the old slot out with `Vector.swap_out`, so an
+// owning key or value is returned or dropped exactly once.
 //
-// SLOT REPRESENTATION: each slot is a `MapSlot<K, V>` enum. Empty and
-// Tombstone carry NO payload, so a freshly-filled table is deinit-safe even for
-// owning key/value types — there is never a garbage K/V to drop. An occupied
-// slot carries the key and value; when a Map is destroyed the backing
-// `Vector<MapSlot>`'s own deinit drops each occupied slot's key and value.
-// Slot updates/removals move the old slot out with `Vector.swap_out` (a
-// refcount-neutral move, never a copy), so an owning key/value is returned to
-// the caller or dropped exactly once — no leak, no double free.
-//
-// The old Vector-backed linear-scan Map is RETIRED (design 54): this hash table
-// is now the one `Map`. Iteration order is UNSPECIFIED (table order); sort a
-// `keys()` snapshot for deterministic output. Keys require `Hashable +
-// Equatable`; Map is ExplicitCopy when `K` and `V` both are (design 251) —
-// transfer with `move`, duplicate with a spelled `.copy()`/`try_copy()`. A
-// `Map<K, V>` whose key or value cannot be duplicated at all stays
-// implicitly move-only, since the copy conformance simply does not
-// instantiate for it.
+// Iteration order is table order and unspecified. Map is ExplicitCopy when
+// both `K` and `V` are; otherwise the conformance does not instantiate and the
+// map is move-only.
 
-// Slot state for open addressing. `Occupied` binds the key and value.
 enum MapSlot<K, V> {
     case Empty,
     case Tombstone,
     case Occupied(key: K, value: V)
 }
 
-// Map threads the allocator `A` (design 37) into its backing vector, so a
-// `Map<K, V, A>` allocates through the SAME allocator. `cap` is the number
-// of slots (a power of two, 0 before the first insert); `count` is the number
-// of live (Occupied) entries.
+// `cap` is the slot count (a power of two, 0 before the first insert); `count`
+// is the number of Occupied slots.
 public struct Map<K, V, A: Allocator = GlobalAllocator> {
     private slots: Vector<MapSlot<K, V>, A>
     private count: Int
     private cap: Int
 }
 
-// Lookup / insert / remove require hashing and comparing keys, so the whole
-// operations extension is bounded `K: Hashable + Equatable` (design 48). Every
-// key type used with these methods (Int, String, a `: Hashable`-declaring
-// struct, ...) satisfies both.
 extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
-    // Create an empty map (no allocation until the first insert).
+    // No allocation until the first insert.
     public init() -> Map<K, V, A> {
         Map<K, V, A>(slots: Vector<MapSlot<K, V>, A>(), count: 0, cap: 0)
     }
 
-    // Number of live entries.
     public func len(&self) -> Int {
         self.count
     }
@@ -63,27 +43,19 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
 
     // ---- internal helpers -------------------------------------------------
 
-    // The 64-bit hash digest of `key` (streamed through a fresh Hasher). Takes
-    // the key by value (a cheap retain for String, bitwise for Int — the same
-    // by-value key convention the map's methods use); the copy is dropped here.
     func _hash_code(&self, key: K) -> Int {
         var h = Hasher()
         key.hash(&var h)
         h.finish()
     }
 
-    // ---- probing through the slot, never out of it -------------------------
-    //
-    // Every helper below matches THROUGH the place (design 146): `self.slots[i]`
-    // is storage, so the match reads the tag — and, where it needs one, a
-    // payload — exactly where it sits. Nothing is copied out and nothing is
-    // dropped, which is what makes these correct for a key or value of ANY copy
-    // tier. `K` is `Hashable + Equatable`, NOT `Copy`, so reading a whole slot
-    // out as a value is not something the map is entitled to do (DF-146e rule
-    // 1); it also happens to be the faster spelling, since a probe that walks
-    // several buckets now retains nothing on the way past.
+    // The probing helpers match through the place `self.slots[i]`, reading the
+    // tag and any payload where it sits. Nothing is copied out or dropped, so
+    // they work for keys and values of any copy tier and a probe retains
+    // nothing on the way past. `K` is not `Copy`, so reading a whole slot out
+    // as a value is not allowed.
 
-    // Slot state at `idx`: 0 = empty, 1 = occupied, 2 = tombstone.
+    // 0 = empty, 1 = occupied, 2 = tombstone.
     func _slot_state(&self, idx: Int) -> Int {
         if idx < 0 || idx >= self.slots.len() {
             return 0
@@ -95,9 +67,7 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
         }
     }
 
-    // Does the occupied slot at `idx` hold a key equal to `key`? (Key by value,
-    // like `_hash_code`.) `k` binds the stored key IN PLACE and only compares
-    // it, so a probe past a live entry touches no refcount.
+    // `k` binds the stored key in place and only compares it.
     func _key_eq(&self, idx: Int, key: K) -> Bool {
         if idx < 0 || idx >= self.slots.len() {
             return false
@@ -109,29 +79,16 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
         }
     }
 
-    // NOTE (design 264): there is no `_get_value(idx) -> V?` / `_key_at(idx) ->
-    // K?` pair here any more, and deliberately none. Reading a payload OUT of
-    // the place is what minted the values the visitors used to hand out — a
-    // retained one at the Copy tier and a non-retained alias at the owning
-    // tiers — so the spelling is gone rather than merely unused. Every consumer
-    // that used them (`each`/`each_key`/`each_value`) now reaches the slot as a
-    // reference and matches that; `get`/`[]` lend the value through a `borrows`
-    // accessor. Reintroducing a payload read here would reopen DF-146j at the
-    // visitor position.
+    // There is deliberately no helper that reads a key or value out of a slot
+    // by value: at the owning tiers that read is an alias the map still owns,
+    // a double free waiting for its release. Reach payloads by reference or
+    // through a `borrows` accessor.
 
-    // The bucket holding `key`, or -1 if the key is absent.
-    //
-    // The search is a plain function because `lend` may not appear in a loop: a
-    // borrows body that has to SEARCH splits in two, with the finder here and
-    // the accessor lending the bucket it picked. `get`/`contains_key`/`remove`/
-    // `[]` are all this probe plus what they do with the answer.
-    // NOTE (design 219 B3): this body uses `key` by value three times, so its
-    // real requirement is the silent `Copy` tier — an UNWRITTEN one, the DF-217i
-    // shape. It cannot be written here: every caller (`get`, `contains_key`,
-    // `remove`, `[]`) sits in this same K-unbounded extension, so the bound has
-    // to hoist to the extension header, which makes it a Map-wide API change
-    // rather than one method's signature. Left for the wave that runs that
-    // consumer sweep; design 65's key-copyability gate is what holds meanwhile.
+    // The bucket holding `key`, or -1 if absent. A separate function because
+    // `lend` may not appear in a loop, so a searching `borrows` accessor finds
+    // the bucket here and lends it there. `key` is used by value more than
+    // once, a `Copy` requirement on `K` the extension header does not spell
+    // (design 219).
     func _find(&self, key: K) -> Int {
         if self.cap == 0 {
             return -1
@@ -153,8 +110,7 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
         -1
     }
 
-    // Extract the value out of a moved-in slot (Some for Occupied; the key is
-    // dropped), else None.
+    // The value of a moved-in Occupied slot (its key is dropped), else None.
     func _take_value(&self, slot: MapSlot<K, V>) -> V? {
         match slot {
             case Occupied(k, v) -> { return v },
@@ -163,29 +119,14 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
         }
     }
 
-    // Grow to a fresh power-of-two table (8, then doubling) and rehash all live
-    // entries. Tombstones are dropped in the process. A field cannot be moved
-    // out (partial moves are forbidden, design 35), so the new table is built in
-    // a local, each live entry is moved out of the old table with `swap_out`
-    // (leaving an Empty behind) and probed into the local, and finally the local
-    // is moved into `self.slots` — whose old (now all-Empty) buffer the field
-    // assignment releases.
-    // Design 123 had a `_grow` beside this one that PANICKED, because `insert`
-    // could not report a failure through its `V?` return. Design 234 gives it a
-    // `Result` to report through, so the panicking half is gone and this is the
-    // only grow.
-
-    // Returns whether the table grew; FALSE means the
-    // allocator refused and the map is untouched — the old table is still
-    // intact and every entry is still in it.
+    // Grows to a fresh power-of-two table (8, then doubling) and rehashes the
+    // live entries, dropping tombstones. A field cannot be partially moved, so
+    // the new table is built in a local, each entry is moved out of the old one
+    // with `swap_out`, and the local replaces `self.slots` at the end.
     //
-    // Before design 123 this could not fail SAFELY: the slot vector was built
-    // with `Vector(capacity:)` + `push`, both of which degraded silently, so a
-    // refused first grow left `self.cap` claiming 8 buckets over an EMPTY
-    // vector, and a refused later grow sent the rehash probe below into an
-    // infinite loop (`new_slots.get(b)` answering None never satisfies its exit
-    // condition — a hang, not a crash). Reserving the whole table up front is
-    // what makes the rest of this function allocation-free.
+    // `false` means the allocator refused and the map is untouched. The whole
+    // table is reserved before any entry moves, so everything after the
+    // reservation is allocation-free.
     func _try_grow(&var self) -> Bool {
         let new_cap = if self.cap == 0 { 8 } else { self.cap * 2 }
         let mask = new_cap - 1
@@ -200,9 +141,8 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
         }
         var f = 0
         while f < new_cap {
-            // The reserve above bought the whole table, so this cannot refuse —
-            // and answering `false` if it ever did keeps the "the map is
-            // untouched" contract instead of asserting it.
+            // Cannot refuse after the reserve; returning `false` if it did
+            // still keeps the map untouched.
             match new_slots.push(MapSlot<K, V>.Empty) {
                 case Ok(_) -> {},
                 case Err(_) -> { return false }
@@ -216,14 +156,11 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
             let slot = self.slots.swap_out(j, MapSlot<K, V>.Empty)
             match slot {
                 case Occupied(k, v) -> {
-                    // Probe the new table for the first empty slot (rehash keys
-                    // are unique and the table has no tombstones), then place.
+                    // Rehashed keys are unique and the new table has no
+                    // tombstones, so the first empty slot is the home.
                     var b = self._hash_code(k) & mask
                     var found = false
                     while not found {
-                        // Through the place: the tag of an already-placed entry
-                        // is read where it sits, so probing past one costs
-                        // nothing and touches no payload.
                         let is_empty = match new_slots[b] {
                             case Empty -> true,
                             case Occupied(_, _) -> false,
@@ -247,16 +184,13 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
         true
     }
 
-    // ---- public API -------------------------------------------------------
-
-    /// Inserts or updates, answering the previous value if the key was present.
+    /// Inserts or updates, returning the previous value if the key was present.
     ///
     /// Reports `Err(AllocError)` when the table must be rehashed and the
-    /// allocator refuses. On `Err` the map is UNTOUCHED: the rehash is attempted
-    /// first and refused before any entry moves, so every key that was in the
-    /// table still is. `key` and `value` are consumed either way.
+    /// allocator refuses. On `Err` the map is unchanged: the rehash is refused
+    /// before any entry moves, so every key that was in the table still is.
+    /// `key` and `value` are consumed either way.
     public func insert(&var self, key: K, value: V) -> Result<V?, AllocError> {
-        // Grow before inserting if empty or the load factor would exceed 3/4.
         if self.cap == 0 || (self.count + 1) * 4 > self.cap * 3 {
             if not self._try_grow() {
                 return self._grow_error()
@@ -269,7 +203,7 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
         while probes < self.cap {
             let st = self._slot_state(b)
             if st == 0 {
-                // Empty: key absent. Reuse the first tombstone if we passed one.
+                // Key absent: reuse the first tombstone passed, if any.
                 let target = if first_tomb >= 0 { first_tomb } else { b }
                 self.slots.set(target, MapSlot<K, V>.Occupied(key: move key, value: move value))
                 self.count = self.count + 1
@@ -280,7 +214,6 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
                 }
             } else {
                 if self._key_eq(b, key) {
-                    // Update in place: swap the new entry in, return the old value.
                     let old = self.slots.swap_out(b, MapSlot<K, V>.Occupied(key: move key, value: move value))
                     return self._take_value(move old)
                 }
@@ -288,36 +221,34 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
             b = (b + 1) & mask
             probes = probes + 1
         }
-        // Defensive: the load factor keeps at least one empty slot, so this is
-        // unreachable in practice; grow and retry to stay total.
+        // Unreachable while the load factor keeps an empty slot; grow and
+        // retry so the function stays total.
         if not self._try_grow() {
             return self._grow_error()
         }
         return self.insert(move key, move value)
     }
 
-    // The `AllocError` a refused rehash reports — the request the allocator
-    // turned down, sized and aligned, so an OOM site stays loggable with
-    // context (design 234 §1). One place computes it, so the two refusal points
-    // above cannot describe the same failure differently.
+    // The request a refused rehash turned down. One function, so both refusal
+    // points in `insert` describe the failure the same way.
     func _grow_error(&self) -> AllocError {
         let wanted = if self.cap == 0 { 8 } else { self.cap * 2 }
         AllocError(size: wanted * sizeof<MapSlot<K, V>>(),
                    align: alignof<MapSlot<K, V>>())
     }
 
-    /// The value stored under `key`, as a PLACE — the map's subscript.
+    /// Returns the value stored under `key` as a place; this is the map's
+    /// subscript.
     ///
     /// `m["k"]` names the value where it sits, so it is read or written inside
     /// the map rather than copied out: `m["k"]!.count += 1` writes the stored
     /// value, `m["k"]!.method()` borrows it, and `if let _ = m["k"]` asks only
-    /// whether the key is there. An absent key opens no window at all — the
-    /// conditional lend's absent path — so `if let v = m["k"]` sees `None` and
-    /// `m["k"]!` panics, which is what the `!` promised.
+    /// whether the key is there. An absent key opens no window, so
+    /// `if let v = m["k"]` sees `None` and `m["k"]!` panics.
     ///
-    /// Reading the place out as a VALUE follows the value's copy tier (design
-    /// 131): trivial copies bitwise, `Copy` retains, and
-    /// `ExplicitCopy`/`NoCopy` is refused with the ways out named.
+    /// Reading the place out as a value follows the value's copy tier: trivial
+    /// copies bitwise, `Copy` retains, and `ExplicitCopy`/`NoCopy` is refused
+    /// with the ways out named.
     ///
     /// `get` is the same lend under a named spelling.
     ///
@@ -329,11 +260,8 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
         if bucket < 0 {
             return None
         }
-        // Through the place: the slot is matched WHERE IT SITS and the arm
-        // lends the payload out of it, so nothing is copied and the map keeps
-        // owning the value. The Empty/Tombstone arms cannot be reached — the
-        // bucket came back occupied — but a `match` is total, and the absent
-        // path is already the right answer for them.
+        // The Empty and Tombstone arms are unreachable (the bucket is
+        // occupied), but a `match` is total.
         match self.slots[bucket] {
             case Occupied(_, v) -> { lend v },
             case Empty -> { return None },
@@ -341,17 +269,14 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
         }
     }
 
-    /// The value stored under `key`, as a PLACE — the named spelling of `[]`.
+    /// Returns the value stored under `key` as a place; the named spelling of
+    /// `[]`.
     ///
     /// `m.get(k)` and `m[k]` are one accessor under two names: both lend the
-    /// value where it sits, both open no window at all for an absent key, and
-    /// both follow design 131's copy tier when the place is read out as a value.
-    ///
-    /// It used to hand back an OWNED `V?` built by copying the slot, which is
-    /// the last copy-shaped exception the places model had — and, for a
-    /// move-only `V`, a non-retained alias that two lookups double-freed
-    /// (DF-146j). Reach a move-only value through the window
-    /// (`m.get(k)!.method()`), or take it out with `remove`.
+    /// value where it sits, both open no window for an absent key, and both
+    /// follow the value's copy tier when the place is read out as a value.
+    /// Reach a move-only value through the window (`m.get(k)!.method()`), or
+    /// take it out with `remove`.
     public func get(&var self, key: K) borrows -> &var V? {
         let bucket = self._find(key)
         if bucket < 0 {
@@ -364,13 +289,12 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
         }
     }
 
-    // Whether the map contains `key`.
     public func contains_key(&self, key: K) -> Bool {
         self._find(key) >= 0
     }
 
-    // Remove a key, returning its value if it was present. The slot becomes a
-    // tombstone so probing past it still reaches later entries.
+    // The slot becomes a tombstone so probing past it still reaches later
+    // entries.
     public func remove(&var self, key: K) -> V? {
         let bucket = self._find(key)
         if bucket < 0 {
@@ -383,44 +307,23 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
 }
 
 // =============================================================================
-// Iteration (design 57) — visitors + snapshots.
+// Iteration: visitors and snapshots
 // =============================================================================
 //
-// Saw's no-escape references mean an iterator object cannot borrow the map, so
-// there is no Iterator-over-a-borrow. Instead the map offers non-escaping
-// closure VISITORS (the zero-allocation primitive) and Vector SNAPSHOTS (the
-// convenience, built on the visitors).
+// Map has no iterator; it offers non-escaping closure visitors (no allocation)
+// and Vector snapshots built on them. Visitors walk the slot array in table
+// order, which is unspecified.
 //
-// ELEMENT PASSING: keys and values are LENT to the visitor as `&K` and `&V`
-// (design 264 ruling B). Visiting is observation, so nothing is handed out to
-// own: the walk reaches each slot as a `&MapSlot<K, V>` through `Vector.each`
-// and matches THAT reference, which makes the arm bindings aliases of the
-// stored key and value (DF-288a) rather than payload reads out of the place.
-// Nothing is retained, nothing is dropped, and the visitor works for a key or
-// value of ANY copy tier — an ExplicitCopy or move-only `V` is visitable now,
-// where the old by-value spelling supported only the trivial and Copy tiers.
+// Keys and values are lent as `&K` and `&V`: the walk reaches each slot as a
+// `&MapSlot<K, V>` through `Vector.each` and matches that reference, so the
+// arm bindings alias the stored entry. Nothing is retained or dropped, which
+// is what makes every copy tier visitable; reading the payload out by value
+// would leak at the Copy tier and alias at the owning tiers. The reference
+// match is not a place window because a window's body is `sync`, which would
+// force `sync` onto every visitor.
 //
-// The old spelling read the payload out of the place and `move`d the copy into
-// the closure. That was the source of two defects at once: at the Copy tier it
-// handed out a retained value the closure then leaked (DF-299c), and at the
-// ExplicitCopy tier it handed out a NON-RETAINED ALIAS the map still owned
-// (DF-146j's family), which a body-end release would have freed underneath the
-// map. Lending dissolves both — there is no ownership handed out to get wrong.
-//
-// The reference match is deliberately NOT a place window: a window is a
-// closure and is `sync`-enforced, which would push `sync` onto every visitor
-// body. Reaching the slot as a reference first keeps the visitor's effect slot
-// open, exactly as `Vector.each`'s `&T` lend does.
-//
-// ORDER IS UNSPECIFIED: visitors walk the backing slot array, skipping Empty
-// and Tombstone slots, so entries surface in table (bucket) order, NOT
-// insertion order. Do not depend on it; sort a `keys()` snapshot for
-// deterministic output.
-//
-// EXCLUSIVITY: `each*` borrow the map shared (`&self`) for the whole walk, so a
-// closure that also captures the SAME map mutably (to insert/remove during the
-// visit) is a static Law-of-Exclusivity error — see
-// examples/map_each_mutate_error.saw.
+// `each*` borrow the map for the whole walk, so a visitor that also captures
+// the map mutably is an exclusivity error (examples/map_each_mutate_error.saw).
 extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
     /// Visits each live entry in table order, lending the key and the value to
     /// `body` as a `&K` and a `&V`. Nothing is copied and nothing is
@@ -462,27 +365,12 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
     }
 }
 
-// Snapshots. Building a Vector of key/value COPIES duplicates elements that
-// stay live in the map, so the element must be copyable — `K: Copy` for
-// `keys()`, `V: Copy` for `values()` (the same bounded-extension mechanism
-// `Vector<T: Copy>: ExplicitCopy` uses). Built via the visitors. The returned
-// Vector uses the map's own allocator `A`. There is deliberately NO
-// `entries()` snapshot in v1 (a tuple-of-copies has containment wrinkles the
-// visitors already cover) — deferred.
+// Snapshots copy entries that stay live in the map, hence `K: Copy` for
+// `keys()` and `V: Copy` for `values()`. The result uses the map's allocator.
 extension Map<K: Hashable + Equatable + Copy, V, A: Allocator = GlobalAllocator> {
-    // A fresh Vector of all live keys (copies), in unspecified (table) order.
-    // Reports a refused allocation (design 234) — and reports it ONCE, up
-    // front. The capacity is the live-entry count and the visitor yields
-    // exactly the live entries, so no `push` inside the loop can grow the
-    // vector; the `try!` is the statement of that, in the one position a
-    // `(K) -> Void` visitor body leaves for it. The allocation that can
-    // actually fail is the one before the loop, and it propagates.
-    //
-    // The reservation is spelled `Vector<K, A>()` + `reserve` rather than
-    // `try Vector<K, A>(capacity:)` because of DF-257c: a propagating `try` in a
-    // body that monomorphizes TWICE extracts through the first instantiation's
-    // `Result`. The `match` is the same operation with the resolution written
-    // out; the citation is here so the spelling is not mistaken for taste.
+    // The one allocation that can fail is the up-front reserve, which is
+    // reported. The visitor yields exactly `count` entries, so no `push` can
+    // grow the vector; the `try!` states that in a `Void` visitor body.
     public func keys(&self) -> Result<Vector<K, A>, AllocError> {
         var out = Vector<K, A>()
         match out.reserve(self.count) {
@@ -495,9 +383,7 @@ extension Map<K: Hashable + Equatable + Copy, V, A: Allocator = GlobalAllocator>
 }
 
 extension Map<K: Hashable + Equatable, V: Copy, A: Allocator = GlobalAllocator> {
-    // A fresh Vector of all live values (copies), in unspecified (table) order.
-    // Reserved up front for `keys()`'s reason, spelled for `keys()`'s reason
-    // (DF-257c), and reporting for it.
+    // Reserved up front for the reason given on `keys()`.
     public func values(&self) -> Result<Vector<V, A>, AllocError> {
         var out = Vector<V, A>()
         match out.reserve(self.count) {
@@ -509,64 +395,25 @@ extension Map<K: Hashable + Equatable, V: Copy, A: Allocator = GlobalAllocator> 
     }
 }
 
-// Deinit applies to EVERY key/value type, not just ExplicitCopy ones:
-// destroying a Map must release each live key and value (drop glue) before
-// freeing the backing slots vector, otherwise an owning key or value leaks.
-// This conformance is deliberately unbounded (`<K, V>`, no `: ExplicitCopy`)
-// so it is instantiated even for a non-ExplicitCopy value type like
-// `Map<String, File>` — which has no `copy()` but still owns entries that
-// must be destroyed.
-//
-// design 131 (mirroring vector.saw's placement, design 251): Map's copy
-// POLICY is the bounded `ExplicitCopy` below, but its destruction is
-// unconditional. So the `deinit` body lives on the plain unconditional
-// extension rather than inside a conformance: `Deinit` is not declarable on
-// its own, and the bounded conformance is the wrong home for a requirement
-// that holds for every `K, V`.
-// The empty body suffices — the compiler appends the field cleanup, and the
-// slots Vector's own deinit drops every occupied slot's key/value and frees
-// the buffer.
+// Destruction is unconditional, so `deinit` lives on this unbounded extension
+// rather than in the bounded `ExplicitCopy` conformance below, as in
+// vector.saw. The body is empty: the compiler appends the field drops, and the
+// slot vector's deinit drops every occupied entry.
 extension Map<K, V, A: Allocator = GlobalAllocator> {
     public func deinit(&var self) {
     }
 }
 
-// Map is ExplicitCopy (design 251 — it used to be a blanket NoCopy, before
-// the container tier machinery Vector already uses existed): never
-// implicitly duplicated (a bitwise copy of the slots buffer would
-// double-free); transferring a Map requires `move`, and duplicating it is
-// always a visible `.copy()`, which builds a NEW table with each key and
-// value copied at its own tier. Iteration order and capacity are not part of
-// the contract.
-//
-// The bounds `<K: Hashable + Equatable + ExplicitCopy, V: ExplicitCopy>` are
-// what the body needs (design 219, judgment site 2, same reasoning as
-// Vector's own conformance below): `copy()` spells `k.copy()`/`v.copy()` and
-// re-inserts through `insert`, which itself demands `K: Hashable +
-// Equatable` — so both key and value must be duplicable, silently or with
-// ceremony, either is fine here because the ceremony is written. This is
-// also what keeps `Map<String, Int>.copy()` (both members silently Copy) and
-// `Map<String, Vector<Int>>.copy()` (a nested ExplicitCopy value) working:
-// every Copy-tier type satisfies `ExplicitCopy` too, so one bounded body
-// serves both.
-// A key or value that cannot be duplicated at all (`Map<String, File>`)
-// makes `.copy()` a compile error naming the type at monomorphization.
-// (The `deinit` body is on the unconditional extension above, so it covers
-// every `K, V`; the `ExplicitCopy: Deinit` requirement is satisfied by that
-// method.)
+// A bitwise copy of the slots buffer would double-free, so duplication is a
+// visible `.copy()` that builds a new table with each key and value copied at
+// its own tier. The bounds are what the body spells (`k.copy()`, `v.copy()`,
+// `insert`); every Copy-tier type satisfies `ExplicitCopy`, so one body serves
+// both, and an uncopyable key or value makes `.copy()` a compile error.
 extension Map<K: Hashable + Equatable + ExplicitCopy, V: ExplicitCopy, A: Allocator = GlobalAllocator>: ExplicitCopy {
-    // `self.slots[idx]` is a place whose payload's copy tier depends on `K`/
-    // `V` (design 146): a `match` arm that binds `k`/`v` and just USES them
-    // (`case Occupied(k, v) -> k.copy()`) is a VALUE READ of the binding, not
-    // a borrow, and is refused for an ExplicitCopy-tier `K`/`V` — the fix
-    // (design 146 DF-146d) is the same one `[]`/`get` above already use:
-    // `lend` the payload binding so the caller's `!` chains a borrow method
-    // call (`.copy()`) directly off the place instead of reading it out.
-    // These two are the INDEX-keyed twins of `[]`/`get`'s KEY-keyed lend.
-    // Read-only lends (SL-333 R1): a KEY may never be written through — the
-    // bucket's position is a function of its hash — and the value side here is
-    // the COPY path's reader, not a mutation point. `[]`/`get` are the writable
-    // spellings; these two are views.
+    // Index-keyed read-only lends for the copy path. A match arm that binds a
+    // payload and uses it is a value read, refused at the ExplicitCopy tier;
+    // lending the binding lets the caller chain `.copy()` off the place. A key
+    // is never writable through a lend, since its bucket depends on its hash.
     func _key_ref(&self, idx: Int) borrows -> &K? {
         match self.slots[idx] {
             case Occupied(k, _) -> { lend k },
@@ -583,23 +430,13 @@ extension Map<K: Hashable + Equatable + ExplicitCopy, V: ExplicitCopy, A: Alloca
         }
     }
 
-    // Regression guard, mirroring Vector's own (design 123, infallible
-    // tier): this must never silently come back missing entries.
-    //
-    // THE ONE PLACE DESIGN 234 LEAVES A PANIC IN A NAMED OPERATION (§5,
-    // conformance row A18, sibling of Vector's A17): `copy` is the
-    // `ExplicitCopy` HOOK, so its signature is the trait's and the compiler
-    // emits calls to it — a `Result` return would have to change the trait,
-    // and design 219's contract says the hook is infallible. The panic
-    // therefore stays, spelled by hand so it still NAMES the method rather
-    // than reading `try! failed` out of a std file the caller never opened.
-    // `try_copy` is the reporting spelling; DF-257b records that its prefix
-    // is the one §4 could not retire (unresolved by this brief — the naming
-    // is mirrored, not re-litigated).
+    // The ExplicitCopy hook is infallible by the trait's signature, so this
+    // panics on allocator refusal, never returns missing entries. The panic is
+    // spelled by hand so the message names the method (design 234).
     /// Duplicates the map into a new table, copying each live key and value
     /// at its own tier. Panics if the allocator refuses; `try_copy` reports
     /// the failure instead. Iteration order and capacity are not part of the
-    /// contract — only the live entries are.
+    /// contract, only the live entries are.
     public func copy(&self) -> Map<K, V, A> {
         var result = Map<K, V, A>()
         var i = 0
@@ -618,8 +455,7 @@ extension Map<K: Hashable + Equatable + ExplicitCopy, V: ExplicitCopy, A: Alloca
     }
 }
 
-// `try_copy` carries `copy`'s bound for `copy`'s reason: it spells the same
-// per-key/value `.copy()`, through the same `_key_ref`/`_value_ref` lends.
+// The reporting twin of `copy`; its `try_` name still owes a ruling (DF-257b).
 extension Map<K: Hashable + Equatable + ExplicitCopy, V: ExplicitCopy, A: Allocator = GlobalAllocator> {
     /// Duplicates the map, returning `Err(AllocError)` if the allocator
     /// refuses while rehashing the new table.

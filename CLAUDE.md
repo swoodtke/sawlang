@@ -286,6 +286,31 @@ heredocs/echo (not auto-approved). Instead:
   `git commit -F <file>`. Never pipe via stdin/heredoc.
 - `git add` explicit paths only — never `-A`/`.`.
 
+## Code comments (user, Sep 23 2026; SL-357)
+Comments are for the reader of the code as it is now, not a log of how it
+got here. They apply to sawc/ Python, C and every `.saw` file.
+1. Explain WHY: invariants, hazards, and non-obvious constraints a careful
+   reader would get wrong. Never narrate WHAT the next lines do.
+2. Present tense only. No "used to", "previously", "retired", "no longer",
+   dates, "before DF-x", or "RULED by the user". History lives in git log,
+   `designs/`, and the tracker.
+3. At most one design/DF/SL reference per comment, as a trailing pointer:
+   `(design 261)`. The comment must make sense without opening it; never
+   paraphrase the brief.
+4. Docstrings: a one-line summary, then at most ~8 lines. Longer reasoning
+   belongs in the design brief; point to it.
+5. Funnel docstrings (brief obligation 1) keep their ENTRY POINTS lists:
+   names only, one line each. The gate lanes read them.
+6. No line numbers, site counts, timings, or corpus statistics — they are
+   stale the day after they are written.
+7. Emphasis: at most one ALLCAPS word per comment, and only for a real
+   hazard.
+8. A regression guard states the invariant and names the pinning test; it
+   does not retell the bug.
+9. `///` and `//!` doc comments are published API (`--emit-docs`) and
+   follow the saw-docs skill; plain comments follow rules 1-8.
+10. Changing code next to a comment means checking that comment still holds.
+
 ## Sawtracker (issues + the merge gate)
 All issue tracking AND merge gating live in sawtracker, a webserver at
 `Mac-Studio.local:8787` (CLI: `~/bin/sawtracker`; env `SAWTRACKER_HOST`/
