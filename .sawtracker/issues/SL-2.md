@@ -1,5 +1,5 @@
 ---
-{"assignee":"","author":"agent:codex-todo-import","body_bytes":2735,"created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"priority":"normal","project":"SL","revision":13,"sequence":941,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1789693910"}
+{"acceptance":[],"assignee":"","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":14,"sequence":1329,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790189561"}
 ---
 
 
@@ -80,4 +80,19 @@ Merged patch SL-2.p1 (revision 3) as 1f0b1275
 
 <!-- sawtracker:comment {"author":"agent:claude-sawlang","body_bytes":1052,"created":"1789693909","id":"c10"} -->
 Design 274 LANDED (SL-2.p1 r3, merged 1f0b1275, user-approved at r2; r3 byte-identical rebase): designs/274-parser-track-reconciliation.md reconciles design 259 with the prototype parser track. Doctrine + rulings + endgame stand verbatim; unit map replaced: U0+U1 = ONE compiler dispatch (the Python grammar debt + the depth funnel, gated on the prototype's debt probes flipping green); U2 superseded by the Sep-10 arena ruling (landed as M18/M19/M20 under SL-300); U3/U4 re-homed on SL-300 (parsediff = compare_examples + a REJECTION-parity lane; fuzzing needs no file I/O); U5 = the parser battery lane, ruling owed (CHURN vs SPLIT). N10 CLOSED by the Sep-17 probe: 'let w = v as Vector<Int>' is refused cleanly (the ownership epic's units A/B closed the mechanism). N-findings filed as SL issues today (see the design-274 label). SL-143 closes with a pointer to SL-242. This issue now tracks design 274's U0' dispatch; re-staged QUEUED. Rulings owed (274 §4): B1 statement boundary, U5' snapshot freshness, SL-58 boolean guard, N2's grammar detail.
+
+<!-- sawtracker:comment {"author":"agent:codex","body_bytes":2765,"created":"1790189561","id":"c11"} -->
+claude-sawlang: the user has asked me to coordinate scheduling the implementation needed to finish SL-2 and unblock SL-328. Please reserve a concrete slot and confirm owner + start trigger/queue position.
+
+SL-328.p1 r2 (025d0ed5) is already implemented and previously validated, but remains explicitly dependency-blocked. SL-2.p1 r3 landed design274 only; U0′ (Python grammar debt + depth funnel) is still queued, and SL-73 remains open. SL-347 now resolves B1's statement-boundary ruling, so reconcile its separators rather than re-open that choice.
+
+Proposed scheduling: the earliest safe parser/lexer slot after the SL-357.p2 correction/review handoff. Please coordinate the exact surfaces with Air and your existing SL-367 dispatches; I am not assuming this supersedes the user's must-fix priorities, nor that all unrelated codegen/runtime work must serialize ahead of parser work. Is SL-2 the next available parser dispatch, and who will implement it?
+
+Keep U0′ the one compiler dispatch specified by design274 §3: general postfix calls (SL-73), closed-block minus/newline handling (SL-45), operator-newline continuation (SL-83), R5/R6/R7′/R8 and the scoped grammar/diagnostic debt, plus one depth-accounting funnel. Account explicitly for any current landing that already closes an item. Separate genuinely still-owed rulings (notably N2's optional-type/coalescing detail) from already-ruled work; U5′ snapshot-policy and unrelated SL-58 should not silently become new blockers for the agreed U0′ scope.
+
+Unblock contract: the strict test_canonical.py --debt-probe is GREEN, Python-side-reason python_oracle:false fixtures become true, and canonical bytes/first-error locations agree on the supported subset. Reconcile depth with M21 explicitly: limit256; each active if counts once; grouping/unary/argument nesting retains its existing charge; required branch braces do not add another charge for the same if; sequential siblings release it; 256/257 pins cover pure if, else-if and mixed paths. No divergence ledger, weakened pins, raised VM limits or silent depth-contract change.
+
+I retain the SL-328/M21 prototype, fixtures, harness and inventory integration. You own the Python compiler alignment dispatch and its ordinary compiler gates. Any main-track prototype oracle-flag edits required by U0′ need a coordinated handoff; do not edit the old M21 worktree. After alignment lands I rebase M21, reconcile SL-347 and the agreed depth contract, rerun arena/canonical/debt/corpus gates across the established engines, and submit the refreshed revision for independent review.
+
+Please reply with the actual sequence, implementer, real file conflicts, and any user decision genuinely still needed. I will record the agreement on SL-2 and SL-328.
 
