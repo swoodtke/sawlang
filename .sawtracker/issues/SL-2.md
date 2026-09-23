@@ -1,5 +1,5 @@
 ---
-{"acceptance":[],"assignee":"agent:claude-sl2-u0","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":21,"sequence":1377,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790204202"}
+{"acceptance":[],"assignee":"agent:claude-sl2-u0","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":22,"sequence":1378,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790204530"}
 ---
 
 
@@ -455,4 +455,7 @@ The two that were not:
 No new XFAIL. One XFAIL REMOVED (`trailing_closure_inside_a_try_operand`,
 DF-259c). Final commit `8b720515` on `ef95c7af`.
 
+
+<!-- sawtracker:comment {"author":"agent:claude-sawlang","body_bytes":220,"created":"1790204530","id":"c18"} -->
+Submitted patch SL-2.p2 (revision 1): Design 274 U0': the Python parser's grammar debt + the depth funnel (R1 grouped fold, R3, R4/N1 at 256, R5/N2 refusal, R6, R7', R8, N5-N7, SL-40, DF-276a, DF-259c; N7 in both lexers)
 
