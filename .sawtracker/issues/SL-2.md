@@ -1,5 +1,5 @@
 ---
-{"acceptance":[],"assignee":"agent:claude-sl2-u0","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":20,"sequence":1364,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790197884"}
+{"acceptance":[],"assignee":"agent:claude-sl2-u0","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":21,"sequence":1377,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790204202"}
 ---
 
 
@@ -185,5 +185,274 @@ whichever base the examples land on.
 
 The full diff including the inventory is `.build/scratch/u0_prototype_edits.diff`
 in my worktree (5673 lines, 5522 of them the snapshot).
+
+
+<!-- sawtracker:comment {"author":"agent:claude-sl2-u0","body_bytes":15446,"created":"1790204202","id":"c17"} -->
+## U0′ COMPLETE — design 274 §3, the Python grammar debt + the depth funnel
+
+agent:claude-sl2-u0, branch `sl2u0`, one commit `8b720515` on `ef95c7af`.
+Do not submit from here; the lead validates and submits.
+
+### Rebase
+
+`git fetch origin && git rebase origin/main` twice. The first, after SL-357.p2
+merged as `db5d3760`, SKIPPED the pre-applied commit `4acd3ac1` as already
+upstream — `warning: skipped previously applied commit`, no conflicts, the
+comment content identical. The second rebased onto `ef95c7af` (SL-371's tracker
+commit) before the terminal battery. Ended on `ef95c7af`.
+
+### Per item
+
+**R4 / N1 — the depth funnel.** `Parser.nested(opener)` in `sawc/parser/core.py`
+is the one chokepoint; `MAX_NESTING_DEPTH = 256` is the one named constant the
+diagnostic cites. Fifteen ENTRY POINTS, listed in its docstring:
+`parse_unary` (every prefix operator), `parse_primary` (`(`, `[`, `{`, `lends`,
+an interpolated string), `parse_postfix` (`[` subscript), `parse_arguments`
+(every call's argument list), `parse_if_expression`, `parse_match_expression`,
+`parse_try_expression`, `_parse_closure_expression`, `_parse_map_literal`,
+`_parse_set_literal`, `parse_while_statement`, `parse_for_statement`,
+`_parse_base_type` (`&`, `[`, `(` inner types), `_parse_type_args` (`<` lists),
+`_const_unary` / `_const_primary`. Accounting is codex's M21 agreement: an `if`
+charges once and its branch braces add nothing; grouping, unary and argument
+nesting keep their existing charge; siblings release. The refusal is
+`nesting exceeds the parser depth limit (256)` at the construct's OPENER.
+
+Two things the funnel needed beyond counting:
+* `NestingLimitExceeded` joins `CommittedGenericError` under a new
+  `UnrecoverableParseError` base, and the three speculative sites
+  (`parse_primary`, `_parse_dot_access`, `_parse_one_type_arg`) let it through
+  instead of backtracking. Without it the refusal was swallowed and re-reported
+  as `Expected '>' after type arguments`.
+* The funnel raises the interpreter's recursion limit to cover the budget,
+  PROCESS-WIDE and never given back. It first restored it, which left the
+  parser accepting 256 and every later walk of that tree on the default — that
+  is SL-369, which I filed and which this closes.
+
+PINS: `examples/nesting_limit_accepts_the_budget.saw` (six shapes at exactly
+256: groups, unary, calls, nested ifs, else-if chain, mixed) and six
+`examples/errors/nesting_limit_{groups,unary,calls,nested_ifs,else_if_chain,mixed}.saw`
+at 257.
+
+**R3 (SL-83) — binary-expression line wrapping.** One chokepoint,
+`Parser.take_binary_operator`, used by all eleven infix tiers plus the two
+constant-expression tiers; its docstring lists them. A line ENDING in an
+operator continues; a line STARTING with one stays a separate statement, per
+the ruling that spelling never depends on whitespace. PINS:
+`examples/binary_expression_wraps_after_a_trailing_operator.saw` (arithmetic,
+logical, bitwise, comparison, shift, range, after a multi-line call, each
+beside its one-line twin) and
+`examples/errors/leading_operator_is_a_new_statement.saw`.
+
+**R7′ (SL-59 + N4) — arm body = block | statement.** `_parse_match_arm_body`.
+No keyword list: the statement parser decides. An `ExpressionStatement` keeps
+its bare expression (so no existing arm's dump changes); anything else becomes
+the one-statement `Block` the braced spelling produces, so it checks and lowers
+exactly as its braced twin. The arm separator `,` ends a statement body through
+`_extra_statement_enders`, which `at_statement_end` reads beside the standing
+set — reconciled with SL-347's `expect_statement_end`, not reopened. PIN:
+`examples/match_arm_takes_a_single_statement.saw` — `return`/`break`/`continue`
+arms, a diverging `return` in a VALUE match beside its braced twin, an
+assignment arm, the inert `let` arm, comma-separated statement arms on one
+line, and a multi-statement block arm.
+
+**R5 / N2 (SL-309) — RULED and implemented, no cells left open.** `parse_type`
+gains `cast_target=True` (replacing `allow_nested_optional=False`): a cast
+target takes at most one `?`, and a `??` or a second `?` is refused at that
+token by `_error_cast_target_question`, naming `(<expr> as T) ?? <default>` and
+`as Optional<T>`. The matrix, all whitespace-blind:
+
+    n as Int? ?? 9    REFUSED at the `??`     (was: cast Int?, then coalesce)
+    n as Int?? 9      REFUSED at the `??`     (was: cast Int, then coalesce)
+    n as Int ?? 9     REFUSED at the `??`     (was: cast Int, then coalesce)
+    n as Int? ?       REFUSED at the 2nd `?`  (was: silent cast to Int??)
+    n as Int??<EOL>   REFUSED at the `??`     (was: Unexpected token: NEWLINE)
+    n as Int?         cast to Int?            unchanged
+    (n as Int?) ?? 9  cast then coalesce      unchanged
+    n as Optional<Int?>                       unchanged
+    x as Vector<Int??>  nested `??` untouched unchanged
+    let a: Int?? = None  annotation untouched unchanged
+
+PINS: four `examples/errors/cast_target_*.saw` refusals plus
+`examples/errors/cast_target_keeps_its_one_question.saw`, the control showing
+the single `?` still reaches the TYPE — its error is the typechecker's
+`cannot cast `Int?` to `Int?``, not the parser's. No positive compile-and-run
+pin is possible: the typechecker refuses every cast whose target is an
+Optional, and no tracked `.saw` file casts to one.
+
+**R1 (SL-73 + SL-352) — split at the ownership guard.** DONE, parser-only: the
+grouped-NAME callee. `parse_postfix` folds a `(args)` after a parenthesized
+`Identifier` into the plain `FunctionCall`, so `(f)(1)` dumps as
+`FunctionCall f()` — the `--debt-probe` case. PIN:
+`examples/grouped_name_callee_is_a_plain_call.saw` (bare, binary operand,
+argument, triple-grouped, method receiver).
+
+NOT DONE, SL-73's own unit per chat m96. Today's exact refusal per cell:
+
+    let x = { 1 }()          1:28 two statements on one line need a `;` … `let` / `(`
+    { print("hi") }()        1:30 two statements on one line need a `;` … `{` / `(`
+    print("{}", { 1 }())     1:32 Expected RPAREN, got LPAREN
+    { n in n + 1 }(2) + 1    1:35 two statements on one line need a `;` … `{` / `(`   (SL-352)
+    { 1 }().foo()            1:26 two statements on one line need a `;` … `{` / `(`
+    factory()(1)             1:30 two statements on one line need a `;` … `factory` / `(`
+    (1)(2)                   1:24 two statements on one line need a `;` … `(` / `(`
+
+Mechanism: `FunctionCall` carries `name: str` and `MethodCall` carries
+`method_name: str`; no node has an expression callee, so the parser has nothing
+to build. One mechanism, seven positions. DF-284b's silent `()`-drop is GONE —
+SL-347's juxtaposition refusal already turned it into a clean diagnostic.
+
+**R2 (SL-45) — ALREADY CLOSED by SL-347.** `if c { return 1 }` + a newline + `-2`
+parses as an `IfExpr` statement and a separate `UnaryOp(-)` final expression;
+the `internal compiler error … (BinaryOp)` is gone. Re-probed, no change owed.
+Covered by the statement-boundary work, not re-pinned here.
+
+**R6 (N3) — a bare trailing closure on a free function is a call.** The
+`spawn`-only carve-out in `parse_primary` is now the general rule, guarded by
+`allow_trailing_closure`, which the `if`/`while`/`guard` condition and the
+`for` iterable already clear. PIN:
+`examples/bare_trailing_closure_on_a_free_function.saw`, with those three as
+controls.
+
+**R8 (N8) — documented.** `docs/AST_DUMP.md` gains "Parse-time decisions the
+freeze makes permanent": the labelled call as `StructInit` (blessed as-is), the
+grouped-name callee folding away, a statement arm becoming its braced twin, and
+the nesting refusal being an `ERROR` record rather than a deeper tree.
+
+**N5 — an unclosed `{` reports at its opener.** `_index_brackets` now keeps
+every unclosed bracket, not only `(`/`[`; `expect` redirects through
+`_OPENER_FOR_CLOSER`; `_unclosed_bracket_error` renders all three and drops the
+line-break hint for `{`, which does not swallow newlines. `parse_block` reports
+it when a declaration keyword appears in statement position, since one can
+never begin a statement. PIN:
+`examples/errors/unclosed_brace_reports_at_its_opener.saw`.
+
+**DF-276a (SL-68) — an unrepresentable float literal is refused.**
+`_decode_float_literal`: a literal that would become `inf`, or `0.0` with a
+nonzero digit written, is refused at the literal. Rounding and subnormals are
+untouched. PINS: `examples/errors/float_literal_{overflows,underflows}.saw`,
+control `examples/float_literal_rounds_without_degrading.saw`. NOTE the tier:
+the integer twin is a LEXER error and this is a PARSE error, because a lexer
+check would owe `selfhost/lexer` a matching float scanner for lexdiff parity.
+
+**DF-259c (SL-41) — FIXED, the XFAIL flips.** `parse_try_expression` no longer
+clears `allow_trailing_closure` for the operand: the block form is decided
+before the operand is read and a catch block is introduced by `catch`, so a `{`
+there can only be the call's. The pin's `// XFAIL:` is removed and its
+`EXPECT-OUTPUT` corrected from three lines to four — it has four `print`s, and
+that mismatch was masking the XPASS. Neither known-ledger
+(`sawfuzz_known.txt`, `corodiff_known.txt`) carried a DF-259c entry.
+
+**SL-40 / DF-259b — a reserved word in a declaration-name slot.** The check
+lives in `Parser.expect`, so every `expect(IDENT, msg)` slot is covered at once
+rather than six of them by hand; the parameter slot was changed from a bare
+`error()` to `expect` to join them. Six PINS, one per slot (a file stops at its
+first parse error): function, struct, binding, parameter, field, enum case.
+
+**N6 — `.5`.** `parse_primary` teaches the missing whole digit the way the
+postfix parser already teaches the missing fractional one for `1.`. PIN:
+`examples/errors/float_literal_needs_a_digit_before_the_point.saw`.
+
+**N7 — an unterminated string anchors at its quote**, in THREE files:
+`sawc/lexer.py`, `selfhost/lexer/src/lib.saw` (whose `read_string` already
+captured `start_line`/`start_col`), and `selfhost/lexer/tests/errors.saw`,
+whose `expect_err(..., 1, 5, ...)` row becomes `1, 1`. Both lexers are needed
+because `tools/lexdiff.py` compares ERROR positions and the new pin is a
+lex-error file in the corpus; the test is what the `selfhostlex` lane caught.
+Message prose differs between the two lexers, which lexdiff allows. The
+`selfhost/lexer/` surface extension is announced in chat, as codex's m111
+asked. PIN: `examples/errors/unterminated_string_reports_at_its_quote.saw`.
+
+**B1 — settled by SL-347, nothing reopened.** `x = 1 y` and `let x = 1 y` are
+both refused at the second statement. The one interaction U0′ has with
+`expect_statement_end` is R7′'s arm separator, added through
+`_extra_statement_enders` rather than by touching the chokepoint's own set.
+
+**SL-333 / U3's parser bits** (`borrows struct`, `lends`, `borrows -> &T`) were
+already on main and are untouched.
+
+### The second oracle
+
+`prototypes/parser/**` is REVERTED in this worktree per the ownership change
+(chat m100) and ships nothing. The edits U0′ would have made are posted on SL-2
+as "proposed prototype edits for codex's deliberate merge", with the full diff
+at `.build/scratch/u0_prototype_edits.diff`. Measured with them applied, before
+reverting:
+
+    test_canonical.py --debt-probe            GREEN, 1 case, Python compared 1
+    test_canonical.py (full)                  27 cases, Python compared 19 (was 17)
+    test_parser.py                            88 cases [VM, O0, O2, ASan, sawc]
+    unittest discover prototypes/parser/tests 42 tests OK
+    inventory.py --check                      clean after regeneration
+    compare_examples.py                       64/64 candidates
+
+MAIN-TRACK FLAGS NAMED, for codex to merge deliberately:
+* `fixtures/canonical_cases.json`, case `grouped-identifier-callee`, field
+  `python_oracle`: false → true (R1).
+* `fixtures/canonical_cases.json`, case `assignment-multiline-rhs`, field
+  `python_oracle`: false → true, and the sibling field
+  `python_oracle_exclusion` deleted (R3).
+* `fixtures/canonical_cases.json`, case `general-callee-refusal`, field
+  `python_oracle`: STAYS false. Not a Python-side reason — it is a
+  `render_error` fixture the oracle skips whatever the flag says, and the
+  canonical schema for a non-name callee is design 274 §3 U2′'s ruling.
+* `test_parser.py`, case `error-lex-unterminated-string`, field `error`:
+  `(1, 14, "Unterminated string")` → `(1, 1, "unterminated string literal")`
+  (N7, both lexers).
+* `examples_inventory.{json,md}`: regenerated, because U0′ adds 25 files under
+  `examples/`.
+
+### Codex's nine, before → after
+
+Measured through `tools/dump_ast.py`, parse-only, exactly as codex's oracle
+runs it. All nine flip; the two controls it reports passing still pass, and the
+257 twins refuse cleanly.
+
+    grouped-identifier-callee      1:24 juxtaposition refusal  → parsed
+    assignment-multiline-rhs       3:4 Unexpected token NEWLINE → parsed
+    depth-groups-256               RecursionError               → parsed
+    depth-call-256                 RecursionError               → parsed
+    assignment-target-groups-256   RecursionError               → parsed
+    assignment-rhs-groups-256      RecursionError               → parsed
+    depth-if-256                   RecursionError               → parsed
+    depth-else-if-256              RecursionError               → parsed
+    depth-if-mixed-256             RecursionError               → parsed
+    depth-unary-256                parsed                       → parsed
+    long-left-chain                parsed                       → parsed
+    depth-groups-257               —  → refused 1:280  nesting exceeds … (256)
+    depth-if-257                   —  → refused 1:2584 nesting exceeds … (256)
+
+`depth-if-256` and `depth-else-if-256` were the two that needed the
+process-wide recursion limit: the PARSE already succeeded, and
+`tools/dump_ast.py` then failed walking the tree.
+
+### Filed
+
+**SL-369** — "Passes behind the parser ICE below the ruled nesting limit of
+256". Filed from the measurement (calls stopped at 245, `if` chains at 196),
+then CLOSED by this same branch once the funnel stopped restoring the limit; a
+resolution comment with the re-measured table is on the issue. It never reached
+main as an XFAIL. Left open for the lead to close at integration.
+
+### Gates
+
+    full compiler suite        2681 passed, 10 xfailed, 0 failed
+    freestanding (both arches) 36 passed across riscv32 + arm64
+    tools/battery.sh (full)    30 of 32 stages GREEN in 5619s
+
+The two that were not:
+
+* `selfhostlex` — MINE, and fixed. `selfhost/lexer/tests/errors.saw` pinned the
+  unterminated-string anchor at `1, 5` (EOF); N7 moves it to `1, 1` (the
+  quote). Re-run after the fix: `selfhostlex: 9 test(s), 0 failing`, and
+  `lexdiff` green beside it. The fix is in the commit.
+* `transferdecisions` — NOT mine, pre-existing on main. Two sites in
+  `sawc/codegen/structs.py` assign `needs_copy` / `payload_needs_copy` outside
+  `_stamp_retain`. Reproduced on the MAIN checkout at `41465de3` with no local
+  changes; this branch touches zero codegen files. Already filed by the lead as
+  SL-371; I filed SL-372 before seeing it and closed it as a duplicate with the
+  independence evidence.
+
+No new XFAIL. One XFAIL REMOVED (`trailing_closure_inside_a_try_operand`,
+DF-259c). Final commit `8b720515` on `ef95c7af`.
 
 
