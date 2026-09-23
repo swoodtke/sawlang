@@ -11910,6 +11910,7 @@ class ExpressionsMixin:
             # design 27 item 3: record "field init, no custom init" so codegen
             # builds the struct memberwise rather than dispatching to an init.
             expr.resolved_init_params = None
+            expr.resolved_field_inits = field_inits
             for field_name, field_value in field_inits:
                 expected_type = struct_sym.fields[field_name]
                 actual_type = self._check_init_field_value(field_value, expected_type)

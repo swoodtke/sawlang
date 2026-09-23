@@ -28,27 +28,67 @@ class CollectionsMixin:
 
     def _generate_tuple_literal(self, expr: TupleLiteral):
         """Generate code for a tuple literal."""
-        # Generate each element (honoring Copy needs_copy annotations), each
-        # coerced to the DECLARED element type — an annotated tuple's element
-        # widths are the annotation's, not the written elements' (DF-205a).
         declared = getattr(expr, 'resolved_type', None)
         elem_saws = (declared.element_types
                      if declared is not None and declared.element_types else None)
-        element_values = [self._gen_transfer_value(elem) for elem in expr.elements]
+
+        # A struct literal in a stored tuple element has a concrete memory
+        # destination.  Build the tuple in memory so that element can recurse
+        # through the struct materialization funnel; tuples without one retain
+        # the compact SSA path.
+        if any(self._can_materialize_struct_init(e) for e in expr.elements):
+            tuple_type = self._get_llvm_type(declared)
+            tuple_ptr = self._entry_alloca(tuple_type, name="tuple.init")
+            partial_scope = []
+            self.cleanup_stack.append(partial_scope)
+            try:
+                for i, elem in enumerate(expr.elements):
+                    elem_ptr = self.builder.gep(
+                        tuple_ptr,
+                        [ir.Constant(ir.IntType(32), 0),
+                         ir.Constant(ir.IntType(32), i)],
+                        inbounds=True, name=f"tuple.elem{i}")
+                    if self._can_materialize_struct_init(elem):
+                        if not self._materialize_wrapped_struct_init(
+                                elem, elem_ptr):
+                            raise ValueError(
+                                "tuple struct element refused its destination")
+                    else:
+                        value = self._gen_transfer_value(elem)
+                        if value is None and self.builder.block.is_terminated:
+                            return None
+                        if elem_saws is not None:
+                            value = self._coerce_element_int(
+                                value, elem, elem_saws[i])
+                        self._store_materialized_or_transfer(
+                            value, elem_ptr, final_use=True)
+                    if self.builder.block.is_terminated:
+                        return None
+                    elem_saw = (
+                        elem_saws[i] if elem_saws is not None else None)
+                    if elem_saw is not None and self._needs_cleanup(elem_saw):
+                        partial_scope.append((
+                            f"partial.tuple.{i}", elem_saw, elem_ptr, None))
+            finally:
+                popped = self.cleanup_stack.pop()
+                if popped is not partial_scope:
+                    raise ValueError(
+                        "tuple materialization cleanup scope was not innermost")
+            value = self.builder.load(tuple_ptr, name="tuple.value")
+            value.saw_materialized_source = tuple_ptr
+            return value
+
+        element_values = [self._gen_transfer_value(elem)
+                          for elem in expr.elements]
         if elem_saws is not None and len(elem_saws) == len(element_values):
             element_values = [
                 self._coerce_element_int(v, e, t)
                 for v, e, t in zip(element_values, expr.elements, elem_saws)]
-
-        # Create the tuple type
         element_types = [val.type for val in element_values]
         tuple_type = ir.LiteralStructType(element_types)
-
-        # Build the tuple value
         tuple_val = ir.Constant(tuple_type, ir.Undefined)
         for i, elem_val in enumerate(element_values):
             tuple_val = self.builder.insert_value(tuple_val, elem_val, i)
-
         return tuple_val
 
     def _generate_tuple_index(self, expr: TupleIndex):
@@ -115,6 +155,14 @@ class CollectionsMixin:
         self.variable_types[tmpname] = ct
         try:
             for arg_list in insert_arg_lists:
+                for i, value_expr in enumerate(arg_list):
+                    literal = self._as_memberwise_struct_init(value_expr)
+                    if literal is not None:
+                        # The synthesized insert/push call immediately places
+                        # this value in container storage.  Mark only this
+                        # adapter; ordinary authored by-value calls remain SSA.
+                        literal.materialize_for_transfer = True
+                        arg_list[i] = literal
                 obj = Identifier(name=tmpname, line=expr.line, column=expr.column)
                 obj.resolved_type = ct
                 mc = MethodCall(
@@ -175,6 +223,56 @@ class CollectionsMixin:
             ct, expr, "insert", [[e] for e in expr.elements],
             element_ok_type=SawType(TypeKind.BOOL))
 
+    def _materialize_array_literal_into(self, expr: ArrayLiteral, dest_ptr,
+                                        already_zeroed=False):
+        """Build an explicit fixed-array literal into `dest_ptr`.
+
+        Returns False for Vector and repeat literals, whose lowering has
+        different evaluation/copy semantics.  The caller then uses their normal
+        value path.
+        """
+        if expr.vector_container_type is not None or expr.repeat_count is not None:
+            return False
+        arr_saw = getattr(expr, 'resolved_type', None)
+        if arr_saw is None or arr_saw.kind != TypeKind.ARRAY:
+            return False
+        array_type = self._get_llvm_type(arr_saw)
+        if dest_ptr.type.pointee != array_type:
+            return False
+        elem_saw = arr_saw.array_element_type
+        zero = ir.Constant(ir.IntType(32), 0)
+        partial_scope = []
+        self.cleanup_stack.append(partial_scope)
+        try:
+            for i, elem in enumerate(expr.elements):
+                elem_ptr = self.builder.gep(
+                    dest_ptr, [zero, ir.Constant(ir.IntType(32), i)],
+                    inbounds=True, name=f"array.elem{i}")
+                if self._can_materialize_struct_init(elem):
+                    if not self._materialize_wrapped_struct_init(
+                            elem, elem_ptr,
+                            already_zeroed=already_zeroed):
+                        raise ValueError(
+                            "array struct element refused its destination")
+                else:
+                    value = self._gen_transfer_value(elem)
+                    if value is None and self.builder.block.is_terminated:
+                        return True
+                    value = self._coerce_element_int(value, elem, elem_saw)
+                    self._store_materialized_or_transfer(
+                        value, elem_ptr, final_use=True)
+                if self.builder.block.is_terminated:
+                    return True
+                if elem_saw is not None and self._needs_cleanup(elem_saw):
+                    partial_scope.append((
+                        f"partial.array.{i}", elem_saw, elem_ptr, None))
+        finally:
+            popped = self.cleanup_stack.pop()
+            if popped is not partial_scope:
+                raise ValueError(
+                    "array materialization cleanup scope was not innermost")
+        return True
+
     def _generate_array_literal(self, expr: ArrayLiteral):
         """Generate code for array literal.
 
@@ -195,26 +293,31 @@ class CollectionsMixin:
         if len(expr.elements) == 0:
             raise ValueError("Empty array literals not supported")
 
-        # Generate all element values (honoring Copy needs_copy annotations),
-        # each coerced to the DECLARED element type (DF-205a): the array's
-        # element type is the ANNOTATION's, not element 0's, so a literal whose
-        # first element is narrower than the annotation no longer builds a
-        # too-narrow array that the second element cannot be inserted into.
         arr_saw = getattr(expr, 'resolved_type', None)
         elem_saw = arr_saw.array_element_type if arr_saw is not None else None
-        element_values = [self._gen_transfer_value(elem) for elem in expr.elements]
+
+        # Only the position-quantified R1 case changes shape: if an element is a
+        # memberwise struct literal, the fixed array supplies its destination.
+        # Arrays without one retain the SSA sequence they already used.
+        if any(self._can_materialize_struct_init(e) for e in expr.elements):
+            array_type = self._get_llvm_type(arr_saw)
+            array_ptr = self._entry_alloca(array_type, name="array.init")
+            if not self._materialize_array_literal_into(expr, array_ptr):
+                raise ValueError("fixed-array materialization refused its layout")
+            value = self.builder.load(array_ptr, name="array.value")
+            value.saw_materialized_source = array_ptr
+            return value
+
+        element_values = [self._gen_transfer_value(elem)
+                          for elem in expr.elements]
         element_values = [self._coerce_element_int(v, e, elem_saw)
                           for v, e in zip(element_values, expr.elements)]
-
-        # Get the element type from the first element
         elem_type = element_values[0].type
         array_type = ir.ArrayType(elem_type, len(element_values))
-
-        # Build the array value by inserting elements
         array_val = ir.Constant(array_type, ir.Undefined)
         for i, val in enumerate(element_values):
-            array_val = self.builder.insert_value(array_val, val, i, name=f"arr_{i}")
-
+            array_val = self.builder.insert_value(
+                array_val, val, i, name=f"arr_{i}")
         return array_val
 
     # A constant repeat wider than this emits a splat loop rather than an
@@ -246,7 +349,14 @@ class CollectionsMixin:
         elem_saw = arr_saw.array_element_type if arr_saw is not None else None
         needs_cleanup = elem_saw is not None and self._needs_cleanup(elem_saw)
 
-        value = self._gen_transfer_value(expr.elements[0])
+        repeated_expr = expr.elements[0]
+        if self._as_memberwise_struct_init(repeated_expr) is not None:
+            value = self._materialize_struct_value(
+                repeated_expr, name="repeat.init")
+        else:
+            value = self._gen_transfer_value(repeated_expr)
+        if value is None and self.builder.block.is_terminated:
+            return None
         array_type = ir.ArrayType(value.type, count)
 
         if count == 0:
@@ -254,8 +364,11 @@ class CollectionsMixin:
             # somewhere — dropping it on the floor would leak.
             if needs_cleanup:
                 tmp = self._entry_alloca(value.type, name="repeat_unused")
-                self.builder.store(value, tmp)
-                self._emit_release_at(tmp, elem_saw)
+                self._store_materialized_or_transfer(
+                    value, tmp, final_use=True)
+                self._emit_drop_at(tmp, elem_saw)
+            else:
+                self._discard_unused_materialized_load(value)
             return ir.Constant(array_type, None)
 
         if isinstance(value, ir.Constant) and not needs_cleanup:
@@ -271,7 +384,8 @@ class CollectionsMixin:
         zero32 = ir.Constant(i32, 0)
         arr_ptr = self._entry_alloca(array_type, name="repeat")
         first = self.builder.gep(arr_ptr, [zero32, zero32], name="repeat_0")
-        self.builder.store(value, first)
+        self._store_materialized_or_transfer(
+            value, first, final_use=(count == 1))
 
         if count > 1:
             idx_ptr = self._entry_alloca(self.int_type, name="repeat_i")
@@ -290,7 +404,8 @@ class CollectionsMixin:
 
             self.builder.position_at_end(body_bb)
             elem_ptr = self.builder.gep(arr_ptr, [zero32, i], name="repeat_slot")
-            self.builder.store(value, elem_ptr)
+            self._store_materialized_or_transfer(
+                value, elem_ptr, final_use=True)
             if needs_cleanup:
                 self._emit_retain_at(elem_ptr, elem_saw)
             self.builder.store(
@@ -300,7 +415,9 @@ class CollectionsMixin:
 
             self.builder.position_at_end(done_bb)
 
-        return self.builder.load(arr_ptr, name="repeat_val")
+        result = self.builder.load(arr_ptr, name="repeat_val")
+        result.saw_materialized_source = arr_ptr
+        return result
 
     @classmethod
     def _is_zero_constant(cls, value) -> bool:

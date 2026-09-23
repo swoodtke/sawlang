@@ -16,7 +16,7 @@ from typing import Optional, List
 from llvmlite import ir
 from ast_nodes import (SawType, TypeKind, MoveExpr, Identifier, MemberAccess,
                        ArrayIndex, TupleIndex, SelfExpr,
-                       FunctionCall, MethodCall, StructInit, EnumInit,
+                       FunctionCall, MethodCall, EnumInit,
                        TupleLiteral, ArrayLiteral, MapLiteral, SetLiteral,
                        Expression, ForLoop,
                        PRIMITIVE_EXT_KINDS)
@@ -1542,7 +1542,7 @@ class ResourcesMixin:
                 name=f"tup_cp{idx}")
         return result
 
-    def _gen_transfer_value(self, value_expr):
+    def _gen_transfer_value(self, value_expr, *, apply_optional_wrap=True):
         """Generate a value being transferred into a new home (call argument,
         return value, aggregate element), honoring the typechecker's
         `needs_copy` annotation.
@@ -1592,12 +1592,29 @@ class ResourcesMixin:
             return self._erase_pointer_to_any(
                 data_ptr, value_expr.erase_concrete, erase_trait)
 
+        staged_struct = None
+        if getattr(value_expr, "materialize_for_transfer", False):
+            staged_struct = self._as_memberwise_struct_init(value_expr)
+        if staged_struct is not None:
+            # SL-350's by-value adapters have an actual memory home. Build both
+            # the memberwise value and its checked Optional/Result transfer
+            # wrappers there; returning the staged load directly avoids wrapping
+            # the same annotations a second time below.
+            value = self._materialize_struct_value(
+                value_expr, name="transfer.init",
+                apply_optional_wrap=apply_optional_wrap)
+            if value is None and self.builder.block.is_terminated:
+                return None
+            return value
         value = self._generate_expression(value_expr)
+        if value is None and self.builder.block.is_terminated:
+            return None
         if self._transfer_needs_copy(value_expr):
             value = self._generate_copy(value, self._expr_type(value_expr))
             # DF3 (design 57): a copied/retained value wrapped into an optional
             # parameter — the Some(...) owns the fresh reference.
-            return self._maybe_autowrap_optional(value_expr, value)
+            return self._maybe_autowrap_optional(
+                value_expr, value, apply_optional_wrap=apply_optional_wrap)
         elif getattr(value_expr, 'closure_lend', False):
             # An escaping closure LENT into a non-escaping (borrowing) slot (design
             # 73): the callee borrows and never drops it, so the caller KEEPS
@@ -1618,9 +1635,11 @@ class ResourcesMixin:
             if flag is not None:
                 self.builder.store(ir.Constant(ir.IntType(1), 0), flag)
             self.moved_variables.add(name)
-        return self._maybe_autowrap_optional(value_expr, value)
+        return self._maybe_autowrap_optional(
+            value_expr, value, apply_optional_wrap=apply_optional_wrap)
 
-    def _maybe_autowrap_optional(self, value_expr, value):
+    def _maybe_autowrap_optional(self, value_expr, value,
+                                 *, apply_optional_wrap=True):
         """Build the call-site auto-wrap the typechecker recorded on
         `value_expr`, around the already-materialized (and move/copy-resolved)
         `value`. Returns `value` unchanged when there is none.
@@ -1631,7 +1650,8 @@ class ResourcesMixin:
         design-57 spelling because every caller asks the same question — "does
         this transfer owe a wrapper" — and there is exactly one place to ask
         it."""
-        opt_type = getattr(value_expr, 'autowrap_to_optional', None)
+        opt_type = (getattr(value_expr, 'autowrap_to_optional', None)
+                    if apply_optional_wrap else None)
         if opt_type is not None:
             opt_llvm = self._get_llvm_type(opt_type)
             opt_val = ir.Constant(opt_llvm, ir.Undefined)

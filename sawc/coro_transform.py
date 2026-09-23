@@ -10066,6 +10066,23 @@ def _zeroed_value(enc, saw_type):
         return FunctionCall(name="TaskGroup", arguments=[])
     return _zero_of(saw_type)
 
+def _zeroed_value_is_all_zero(enc, saw_type):
+    """Semantic proof that zero bytes denote `_zeroed_value`'s state.
+
+    This is deliberately keyed by the encoding/type decision, never by a frame
+    or field name.  `Slot<T>.empty()` is `Slot(v: None)` in
+    `std.compiler.frame`: Optional's absent tag is zero and its inactive payload
+    is unspecified.  A memset is therefore a valid refinement to one concrete
+    empty representation, not a claim that the old constructor defined every
+    payload byte as zero.  Legacy optional encodings have the same inactive
+    payload rule; `ref` is an UnsafeRef around a null pointer; and `plain` is
+    restricted by `_is_pod` to integer/Bool fields.  TaskGroup's real
+    constructor state is excluded rather than guessed from its placeholder role.
+    """
+    if _enc_is_slot(enc) or _enc_cleanup(enc) or enc == "ref":
+        return True
+    return enc == "plain" and _is_pod(saw_type)
+
 
 def _frame_param_arg(p):
     """The expression that seeds a driver/spawn param into the frame field.
@@ -10309,69 +10326,91 @@ def _arity_arguments(call, params, callee, ledger, src_file=None):
 
 
 def _build_frame_init(fb: _FrameBuilder, param_values, fbs, recv_value=None,
-                      cellp_value=None):
-    """A `StructInit` for `fb`'s frame: param fields from `param_values` (an
-    opt-encoded param auto-wraps T -> Some), every local empty, every embedded
-    callee sub-frame zero-initialised (a dead frame, rebuilt with real args when
-    its call site is reached — the dead frame holds no live cleanup fields, so
-    the rebuild's assignment drops nothing), state 0, result empty. For a method
-    frame the receiver pointer `__recv` leads (Part 0c); for a spawn-root frame
-    `cellp_value` is the address of the group-owned cell that carries the result
-    and the cancel word in the frame's stead (design 134)."""
+                      cellp_value=None, _dead=False):
+    """Build a frame literal with an explicit, source-backed zero proof.
+
+    `zeroed_fields` contains only pure all-zero initializers proven by
+    `_zeroed_value_is_all_zero` or literal scheduler constants.  Codegen may
+    replace those initializers with one zero-fill of the whole destination, then
+    evaluate/store every remaining field in source order.  In particular,
+    TaskGroup construction, `__io_fd = -1`, live params/receivers/cell pointers,
+    and any nested frame containing one of those remain real stores/calls.
+
+    `present_optional_fields` is the matching live-parameter proof for encodings
+    that add an occupancy wrapper (`Slot`, `opt`, or `opt_closure`): codegen may
+    store that wrapper's present tag and payload directly.  Legacy `self_opt`
+    adds no wrapper; its incoming Optional tag remains an ordinary value store.
+
+    `_dead` is set only for recursively embedded placeholder frames.  It proves
+    their receiver and parameter seeds came from this function's own zero-value
+    construction; it is never inferred from a user-spoofable name.
+    """
     from ast_nodes import StructInit
     field_inits = []
+    zeroed_fields = []
+    present_optional_fields = []
+
+    def add(name, value, all_zero=False):
+        field_inits.append((name, value))
+        if all_zero:
+            zeroed_fields.append(name)
+
     if fb.has_recv:
-        # design 218 stage 3: callers hand a POINTER (the drive-site cast, the
-        # driver's parameter, or a null placeholder) and the field wraps it
-        # here — one construction site for every frame, so the handle can never
-        # be built anywhere the pointer was not already being taken.
-        field_inits.append(("__recv",
-                            _unsaferef_init(recv_value, fb.recv_pointee)))
+        add("__recv", _unsaferef_init(recv_value, fb.recv_pointee),
+            all_zero=_dead)
     for i, p in enumerate(fb.params):
-        field_inits.append((p.name, param_values[i]))
+        add(p.name, param_values[i],
+            all_zero=(_dead and
+                      _zeroed_value_is_all_zero(fb.encmap[p.name], p.type)))
+        if (not _dead
+                and (_enc_is_slot(fb.encmap[p.name])
+                     or _enc_unwraps(fb.encmap[p.name]))):
+            present_optional_fields.append(p.name)
     for lname, lt in fb.frame_locals:
-        field_inits.append((lname, _zeroed_value(fb.encmap[lname], lt)))
+        add(lname, _zeroed_value(fb.encmap[lname], lt),
+            all_zero=_zeroed_value_is_all_zero(fb.encmap[lname], lt))
     for c in fb.calls:
         sub_fb = fbs[c['callee']]
-        zvals = [_zeroed_value(sub_fb.encmap[p.name], p.type) for p in sub_fb.params]
-        # design 84: a method sub-frame's `__recv` in the DEAD (zero-init) state is a
-        # null pointer — the frame is rebuilt with the real receiver address when its
-        # call site is reached, so this placeholder is never dereferenced.
+        zvals = [
+            _zeroed_value(sub_fb.encmap[p.name], p.type)
+            for p in sub_fb.params
+        ]
         zrecv = (CastExpr(expr=_int(0), target_type=sub_fb.recv_ptr_type)
                  if sub_fb.has_recv else None)
-        field_inits.append((c['sub'],
-                            _build_frame_init(sub_fb, zvals, fbs, recv_value=zrecv)))
+        sub_init = _build_frame_init(
+            sub_fb, zvals, fbs, recv_value=zrecv, _dead=True)
+        add(c['sub'], sub_init, all_zero=sub_init.all_zero)
     for rc in getattr(fb, 'recv_calls', []):
-        field_inits.append((f"__have{rc['idx']}", BoolLiteral(value=False)))
+        add(f"__have{rc['idx']}", BoolLiteral(value=False), all_zero=True)
         if rc['target'] is None:
             rcv = f"__rcv{rc['idx']}"
-            field_inits.append((rcv, _zeroed_value(fb.encmap[rcv],
-                                                   rc['elem_type'])))
-    # design 103 (A6): each offloaded blocking call's `__blkjobN` handle starts 0
-    # (no job yet — start writes the real handle when the call site is reached).
+            add(rcv, _zeroed_value(fb.encmap[rcv], rc['elem_type']),
+                all_zero=_zeroed_value_is_all_zero(
+                    fb.encmap[rcv], rc['elem_type']))
     for bc in getattr(fb, 'blk_calls', []):
-        field_inits.append((f"__blkjob{bc['idx']}", _int(0)))
-    field_inits.append(("__state", _int(0)))
-    field_inits.append(("__wake", _int(0)))
-    field_inits.append(("__io_tok", _int(0)))   # design 91: reactor wake-word address
-    # design 272: no deadline until an `io_wait_until` stamps one.
-    field_inits.append(("__io_deadline", _int(0)))
+        add(f"__blkjob{bc['idx']}", _int(0), all_zero=True)
+    add("__state", _int(0), all_zero=True)
+    add("__wake", _int(0), all_zero=True)
+    add("__io_tok", _int(0), all_zero=True)
+    add("__io_deadline", _int(0), all_zero=True)
     if fb.arms_io:
-        # DF-134a: nothing armed yet.
-        field_inits.append(("__io_fd", _int(-1)))
-        field_inits.append(("__io_dir", _int(0)))
+        add("__io_fd", _int(-1))
+        add("__io_dir", _int(0), all_zero=True)
     if fb.is_spawn_root:
-        # design 222 unit 1: the cell address is wrapped into its handle HERE,
-        # at the one place a frame is built — the same discipline `__recv` has
-        # had since stage 3, so the handle can never be minted anywhere the
-        # pointer was not already being taken.
-        field_inits.append(("__cellp",
-                            _unsaferef_init(cellp_value, _cell_type(fb))))
+        add("__cellp", _unsaferef_init(cellp_value, _cell_type(fb)))
     else:
-        field_inits.append(("__cancel", BoolLiteral(value=False)))
+        add("__cancel", BoolLiteral(value=False), all_zero=True)
         if not fb.is_void:
-            field_inits.append(("__result", _zeroed_value(fb.result_enc, fb.ret)))
-    return StructInit(struct_name=fb.frame_name, field_inits=field_inits)
+            add("__result", _zeroed_value(fb.result_enc, fb.ret),
+                all_zero=_zeroed_value_is_all_zero(fb.result_enc, fb.ret))
+
+    init = StructInit(struct_name=fb.frame_name, field_inits=field_inits)
+    init.materialize_for_transfer = True
+    init.zero_initialize = True
+    init.zeroed_fields = tuple(zeroed_fields)
+    init.present_optional_fields = tuple(present_optional_fields)
+    init.all_zero = len(zeroed_fields) == len(field_inits)
+    return init
 
 
 def _read_frame_result(fb: _FrameBuilder, stmts):

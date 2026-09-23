@@ -10,8 +10,10 @@ Usage:
 """
 
 from llvmlite import ir
-from ast_nodes import (StructInit, MemberAccess, Identifier, EnumInit, TypeKind,
-                       SelfExpr, ArrayIndex)
+from ast_nodes import (StructInit, FunctionCall, MethodCall, MemberAccess,
+                       Identifier, MoveExpr, NoneLiteral, ForceUnwrap, EnumInit,
+                       TypeKind, SelfExpr, ArrayIndex, ArrayLiteral, OptionalWrap,
+                       ResultOkWrap, ResultErrWrap)
 from const_eval import INT_LIMIT_SPECS
 
 
@@ -24,123 +26,653 @@ class StructsMixin:
     """
 
     def _generate_struct_init(self, expr: StructInit):
-        """Generate code for struct initialization."""
-        # Design 66: the typechecker reinterpreted this `name(label: ...)` node
-        # as a fully-labeled FUNCTION call (the parser could not tell struct init
-        # from a labeled call). Emit the call instead of a struct build.
-        as_call = expr.as_function_call
-        if as_call is not None:
-            return self._generate_function_call(as_call)
-        # Handle generic struct instantiation
+        """Expression visitor entry; no caller-supplied destination."""
+        return self._materialize_struct_init(expr, None)
+
+    def _as_memberwise_struct_init(self, expr):
+        """Return the checked memberwise construction represented by `expr`.
+
+        Named bare construction parses as `StructInit`.  Empty bare construction
+        and module-qualified construction retain call-shaped AST nodes until
+        codegen, so destination routing must read their typechecker decisions
+        before `calls.py` performs the same conversion on the SSA path.
+        """
+        if isinstance(expr, (OptionalWrap, ResultOkWrap, ResultErrWrap)):
+            return self._as_memberwise_struct_init(expr.value)
+        if isinstance(expr, StructInit):
+            if (expr.as_function_call is None
+                    and expr.resolved_init_params is None):
+                return expr
+            return None
+
+        if isinstance(expr, FunctionCall):
+            resolved_symbol = getattr(expr, "resolved_symbol", None)
+            if (resolved_symbol in self.functions
+                    or resolved_symbol in self.generic_functions):
+                return None
+            struct_name = expr.resolved_type_identity or expr.name
+            if (struct_name not in self.struct_types
+                    and struct_name not in self.generic_structs):
+                return None
+            if expr.resolved_init_params is not None:
+                return None
+            field_inits = expr.resolved_field_inits
+            if field_inits is None:
+                return None
+            literal = StructInit(
+                struct_name=struct_name,
+                field_inits=list(field_inits),
+                type_args=expr.type_args,
+                line=expr.line,
+                column=expr.column,
+            )
+        elif isinstance(expr, MethodCall):
+            field_inits = expr.resolved_field_inits
+            if (field_inits is None
+                    or expr.resolved_init_params is not None):
+                return None
+            struct_name = expr.resolved_type_identity
+            if struct_name is None:
+                raise ValueError(
+                    "memberwise module constructor has no resolved identity")
+            resolved = getattr(expr, "resolved_type", None)
+            type_args = list(resolved.type_args) if (
+                resolved is not None and resolved.type_args) else None
+            literal = StructInit(
+                struct_name=struct_name,
+                field_inits=list(field_inits),
+                type_args=type_args,
+                line=expr.line,
+                column=expr.column,
+            )
+        else:
+            return None
+
+        literal.resolved_type = getattr(expr, "resolved_type", None)
+        literal.resolved_type_identity = getattr(
+            expr, "resolved_type_identity", None)
+        literal.autowrap_to_optional = expr.autowrap_to_optional
+        literal.autowrap_to_result = expr.autowrap_to_result
+        literal.autowrap_result_err = expr.autowrap_result_err
+        literal.expected_type = expr.expected_type
+        literal.needs_copy = expr.needs_copy
+        literal.closure_lend = expr.closure_lend
+        literal.payload_needs_copy = expr.payload_needs_copy
+        literal.materialize_for_transfer = getattr(
+            expr, "materialize_for_transfer", False)
+        return literal
+
+    def _can_materialize_struct_init(self, expr) -> bool:
+        """Whether `expr` is a checked memberwise construction."""
+        return self._as_memberwise_struct_init(expr) is not None
+
+    def _struct_init_info(self, expr):
+        """Resolve a memberwise literal's concrete LLVM layout and field types."""
+        materialized = self._as_memberwise_struct_init(expr)
+        if materialized is not None:
+            expr = materialized
         struct_name = expr.struct_name
         if expr.type_args:
-            # Substitute type parameters in type args if we're in a generic context
-            # e.g., Vector<T>(...) inside Vector<Int>.init() should become Vector<Int>(...)
-            resolved_type_args = []
-            for type_arg in expr.type_args:
-                if self.type_param_context:
-                    resolved = type_arg.substitute(self.type_param_context)
-                    resolved_type_args.append(resolved)
-                else:
-                    resolved_type_args.append(type_arg)
-            # This is a generic struct - ensure monomorphized version exists
-            struct_name = self._ensure_monomorphized_struct(expr.struct_name, resolved_type_args)
+            resolved_type_args = [
+                t.substitute(self.type_param_context)
+                if self.type_param_context else t
+                for t in expr.type_args
+            ]
+            struct_name = self._ensure_monomorphized_struct(
+                expr.struct_name, resolved_type_args)
         elif struct_name in self.generic_structs:
-            # A generic named with NO arguments: well-formed exactly when every
-            # parameter is defaulted (design 37, and design 148 for a const
-            # one). `Tag()` on a `struct Tag<T = Int>` used to arrive here bare
-            # and raise an internal compiler error.
             filled = self._fill_default_type_args(struct_name, [])
             if filled:
                 struct_name = self._ensure_monomorphized_struct(
                     expr.struct_name, filled)
-
         if struct_name not in self.struct_types:
             raise ValueError(f"Undefined struct: {struct_name}")
-
-        # Check if this is a custom init method call
-        if expr.resolved_init_params is not None:
-            # Custom init - call the init method
-            mangled_name = self._mangle_method_name(struct_name, "init", expr.resolved_init_params)
-            init_func = self.functions[mangled_name]
-
-            # Generate arguments in the order expected by the init method
-            args = []
-            param_to_value = {param_name: value for param_name, value in expr.field_inits}
-            for param_name in expr.resolved_init_params:
-                arg_value = self._gen_transfer_value(param_to_value[param_name])
-                args.append(arg_value)
-
-            # Call the init method
-            return self.builder.call(init_func, args)
-
-        # Field initialization (original behavior)
         llvm_struct_type, field_order = self.struct_types[struct_name]
+        field_types = {
+            name: self._struct_field_saw_type(struct_name, name)
+            for name in field_order
+        }
+        return struct_name, llvm_struct_type, field_order, field_types
 
-        # Get field types for Copy handling (use namespace)
-        field_types = self.namespace.get_struct_fields(struct_name) or {}
+    def _generate_custom_struct_init(self, expr, struct_name):
+        """Emit a real `init` call; it is never reinterpreted as field stores."""
+        mangled_name = self._mangle_method_name(
+            struct_name, "init", expr.resolved_init_params)
+        init_func = self.functions[mangled_name]
+        param_to_value = {
+            param_name: value for param_name, value in expr.field_inits
+        }
+        args = [
+            self._gen_transfer_value(param_to_value[param_name])
+            for param_name in expr.resolved_init_params
+        ]
+        return self.builder.call(init_func, args)
 
-        # Create a map from field name to value, handling Copy
-        field_values = {}
-        for field_name, value_expr in expr.field_inits:
-            value = self._generate_expression(value_expr)
+    def _prepare_struct_field_value(self, value_expr, field_type,
+                                    expected_llvm_type):
+        """Generate one field through the existing copy/coercion/wrap rules."""
+        value = self._generate_expression(value_expr)
+        if value is None and self.builder.block.is_terminated:
+            return None
 
-            # Check if this field needs copy() called
-            field_type = field_types.get(field_name)
+        if field_type is not None:
+            value = self._coerce_int_to_field(value, field_type, value_expr)
+        if (field_type is not None
+                and self._needs_copy_for_struct_init(value_expr, field_type)):
+            # The destination may be opt-encoded while the generated value is
+            # its bare payload.  Copy against the payload before wrapping.
+            value = self._generate_copy_for_dest(value, field_type)
+        if getattr(value_expr, 'autowrap_to_result', None) is not None:
+            value = self._maybe_autowrap_optional(value_expr, value)
+        fitted = self._fit_optional_slot(value, expected_llvm_type)
+        return self._mark_direct_move_source(
+            fitted, value_expr, expected_llvm_type)
 
-            # Coerce an integer value to the field's EXACT fixed width (design 65
-            # followup). A bare integer literal is materialized at the platform
-            # word (i64 on a hosted build), but a struct field has the field's
-            # concrete layout — an `Int8` field is an i8 slot — so inserting the
-            # i64 literal ICE'd ("Can only insert i8 ... got i64"). Retype the
-            # literal to the field width (an out-of-range literal is the standard
-            # range error, not an ICE); widen/narrow a runtime int to fit.
-            if field_type is not None:
-                value = self._coerce_int_to_field(value, field_type, value_expr)
+    def _mark_direct_move_source(self, value, value_expr, expected_llvm_type):
+        """Carry a moved local's storage pointer across its drop-flag store."""
+        if (isinstance(value_expr, MoveExpr)
+                and value_expr.path is None
+                and not value_expr.unwrap):
+            source = self.variables.get(value_expr.variable)
+            if (source is not None
+                    and source.type == expected_llvm_type.as_pointer()):
+                value.saw_materialized_source = source
+        return value
 
-            if field_type and self._needs_copy_for_struct_init(value_expr, field_type):
-                # An opt-encoded destination field is `T?` while the value is
-                # the bare payload — the wrap happens below, so the copy glue
-                # must be driven by the PAYLOAD's type, not the field's.
-                # `_generate_copy_for_dest` is that rule. It was written here as
-                # a design-124 special case (only a frame-field read
-                # `self.name!` got the payload type), but the hazard belongs to
-                # the DESTINATION, so an ordinary `Holder(o: s)` on a
-                # `String?` field hit it just the same (DF-151c).
-                value = self._generate_copy_for_dest(value, field_type)
+    def _materialize_present_optional_field(self, value_expr, field_ptr,
+                                            expected_llvm_type):
+        """Store a transform-proven present frame field without an SSA wrapper."""
+        optional_type = expected_llvm_type
+        optional_ptr = field_ptr
+        zero = ir.Constant(ir.IntType(32), 0)
+        is_slot_wrapper = (
+            isinstance(expected_llvm_type, ir.IdentifiedStructType)
+            and len(expected_llvm_type.elements) == 1
+        )
+        if is_slot_wrapper:
+            optional_type = expected_llvm_type.elements[0]
+            optional_ptr = self.builder.gep(
+                field_ptr, [zero, zero], inbounds=True,
+                name="present.slot.value")
+        if (not isinstance(optional_type, ir.LiteralStructType)
+                or len(optional_type.elements) != 2
+                or optional_type.elements[0] != ir.IntType(1)):
+            raise ValueError(
+                f"invalid proven-present frame field initializer: "
+                f"{expected_llvm_type}")
+        if is_slot_wrapper:
+            if (not isinstance(value_expr, MethodCall)
+                    or value_expr.method_name != "of"
+                    or len(value_expr.arguments) != 1):
+                raise ValueError(
+                    "invalid proven-present frame Slot initializer")
+            payload_expr = value_expr.arguments[0].value
+        else:
+            # Legacy opt stores its occupancy Optional directly.  The second
+            # check may express that one added layer structurally; consume only
+            # the wrap whose target is this exact frame field, leaving any
+            # Optional/Result wrappers inside the declared payload intact.
+            if (isinstance(value_expr, OptionalWrap)
+                    and value_expr.target_type is not None
+                    and self._get_llvm_type(
+                        value_expr.target_type) == expected_llvm_type):
+                payload_expr = value_expr.value
+            else:
+                payload_expr = value_expr
+        payload_type = optional_type.elements[1]
+        apply_optional_wrap = True
+        if not is_slot_wrapper:
+            marked_optional = getattr(
+                payload_expr, "autowrap_to_optional", None)
+            marked_result = getattr(payload_expr, "autowrap_to_result", None)
+            optional_target = (
+                self._get_llvm_type(marked_optional)
+                if marked_optional is not None else None)
+            result_target = (
+                self._get_llvm_type(marked_result)
+                if marked_result is not None else None)
+            # A legacy opt field's outer Optional is frame occupancy and is
+            # written below.  An Optional nested inside the actual payload
+            # (directly or inside Result) remains a semantic conversion.
+            apply_optional_wrap = (
+                optional_target == payload_type
+                or result_target == payload_type
+            )
+        tag_ptr = self.builder.gep(
+            optional_ptr, [zero, zero], inbounds=True,
+            name="present.tag.init")
+        payload_ptr = self.builder.gep(
+            optional_ptr, [zero, ir.Constant(ir.IntType(32), 1)],
+            inbounds=True, name="present.payload.init")
+        if self._materialize_wrapped_struct_init(
+                payload_expr, payload_ptr,
+                apply_optional_wrap=apply_optional_wrap):
+            if not self.builder.block.is_terminated:
+                self.builder.store(ir.Constant(ir.IntType(1), 1), tag_ptr)
+            return
+        payload = self._gen_transfer_value(
+            payload_expr, apply_optional_wrap=apply_optional_wrap)
+        if payload is None and self.builder.block.is_terminated:
+            return
+        payload = self._mark_direct_move_source(
+            payload, payload_expr, payload_type)
+        self._store_materialized_or_transfer(
+            payload, payload_ptr, final_use=True)
+        self.builder.store(ir.Constant(ir.IntType(1), 1), tag_ptr)
 
-            # DF-218f: a bare payload written into a `Result`-typed field. The
-            # optional wrap two blocks down is decided from the LLVM SHAPE,
-            # which cannot see this one — a Result is an enum, not `{i1, T}` —
-            # so the typechecker's mark is what carries it, and the shared
-            # builder applies the `Result<T?, E>` double wrap in order.
-            if getattr(value_expr, 'autowrap_to_result', None) is not None:
-                value = self._maybe_autowrap_optional(value_expr, value)
+    def _emit_zero_fill(self, dest_ptr, llvm_type):
+        """Zero every byte of a newly-materialized aggregate destination."""
+        size = self._abi_size(llvm_type)
+        if size == 0:
+            return
+        i8 = ir.IntType(8)
+        i8ptr = i8.as_pointer()
+        memset = self.module.declare_intrinsic(
+            "llvm.memset", [i8ptr, self.int_type])
+        raw = self.builder.bitcast(dest_ptr, i8ptr, name="zero_dst")
+        self.builder.call(memset, [
+            raw,
+            ir.Constant(i8, 0),
+            ir.Constant(self.int_type, size),
+            ir.Constant(ir.IntType(1), 0),
+        ])
 
-            field_values[field_name] = value
+    def _materialize_struct_value(self, expr, name="struct.init",
+                                  *, apply_optional_wrap=True):
+        """Build a memberwise literal and any transfer wrappers in memory."""
+        materialized = self._as_memberwise_struct_init(expr)
+        if materialized is None:
+            raise ValueError("only memberwise struct construction can be staged")
+        _, struct_type, _, _ = self._struct_init_info(materialized)
+        outer_saw = None
+        if isinstance(expr, OptionalWrap):
+            outer_saw = expr.target_type
+        elif isinstance(expr, (ResultOkWrap, ResultErrWrap)):
+            outer_saw = expr.result_type
+        else:
+            outer_saw = (
+                materialized.autowrap_to_result
+                or (materialized.autowrap_to_optional
+                    if apply_optional_wrap else None))
+        value_type = (self._get_llvm_type(outer_saw)
+                      if outer_saw is not None else struct_type)
+        slot = self._entry_alloca(value_type, name=name)
+        if not self._materialize_wrapped_struct_init(
+                expr, slot, apply_optional_wrap=apply_optional_wrap):
+            raise ValueError("struct transfer wrapper has incompatible layout")
+        if self.builder.block.is_terminated:
+            return None
+        value = self.builder.load(slot, name=f"{name}.value")
+        value.saw_materialized_source = slot
+        return value
 
-        # Build the struct value in the correct field order
-        struct_val = ir.Constant(llvm_struct_type, ir.Undefined)
-        for i, field_name in enumerate(field_order):
-            if field_name in field_values:
-                val = field_values[field_name]
-                # Wrap a bare `T` into `T?` when the field is optional. An optional
-                # is laid out `{ i1 is_some, T }`; wrap exactly when the field has
-                # that shape AND the value is the inner `T` (not already an
-                # optional). The old heuristic ("value is not a struct") misfired
-                # for struct/enum payloads — an enum value is itself a
-                # LiteralStructType, so it was wrongly treated as already-optional
-                # and stored unwrapped (design 52: enum params of a coroutine
-                # frame hit this).
-                expected_field_type = llvm_struct_type.elements[i]
-                if (isinstance(expected_field_type, ir.LiteralStructType)
-                        and len(expected_field_type.elements) == 2
-                        and expected_field_type.elements[0] == ir.IntType(1)
-                        and val.type == expected_field_type.elements[1]):
-                    val = self._wrap_in_optional(val)
-                struct_val = self.builder.insert_value(struct_val, val, i)
+    def _discard_unused_materialized_load(self, value):
+        """Erase a staged aggregate load after its source pointer was consumed."""
+        if (not isinstance(value, ir.LoadInstr)
+                or getattr(value, "saw_materialized_source", None) is None):
+            return
+        used = any(
+            operand is value
+            for block in self.builder.function.blocks
+            for instruction in block.instructions
+            if instruction is not value
+            for operand in instruction.operands
+        ) or any(
+            incoming is value
+            for block in self.builder.function.blocks
+            for instruction in block.instructions
+            if isinstance(instruction, ir.PhiInstr)
+            for incoming, _ in instruction.incomings
+        )
+        if not used:
+            if value.parent is self.builder.block:
+                self.builder.remove(value)
+            else:
+                value.parent.instructions.remove(value)
 
-        return struct_val
+    def _store_materialized_or_transfer(
+            self, value, dest_ptr, *, final_use=False):
+        """Move a staged aggregate without recreating an aggregate store.
+
+        ``final_use`` is an explicit codegen-liveness promise: this helper may
+        erase the otherwise dead staging load only after its last caller-side
+        use has been emitted.
+        """
+        source = getattr(value, "saw_materialized_source", None)
+        if (source is not None
+                and source is not dest_ptr
+                and source.type == dest_ptr.type):
+            self._emit_aggregate_memcpy(
+                dest_ptr, source, dest_ptr.type.pointee)
+            if final_use:
+                self._discard_unused_materialized_load(value)
+            return
+        self._store_transfer(value, dest_ptr)
+
+    def _store_none_optional_tag(self, value_expr, dest_ptr):
+        """Store semantic Optional/Slot absence without touching its payload."""
+        llvm_type = dest_ptr.type.pointee
+        if (not isinstance(value_expr, NoneLiteral)
+                or not isinstance(llvm_type, ir.LiteralStructType)
+                or len(llvm_type.elements) != 2
+                or llvm_type.elements[0] != ir.IntType(1)):
+            return False
+        zero = ir.Constant(ir.IntType(32), 0)
+        tag_ptr = self.builder.gep(
+            dest_ptr, [zero, zero], inbounds=True, name="none.tag")
+        self.builder.store(ir.Constant(ir.IntType(1), 0), tag_ptr)
+        return True
+
+    def _store_present_optional_value(self, value, dest_ptr):
+        """Store a staged payload through Optional layers without SSA wrappers."""
+        source = getattr(value, "saw_materialized_source", None)
+        if source is None or source.type != value.type.as_pointer():
+            return False
+        optional_type = dest_ptr.type.pointee
+        optional_ptr = dest_ptr
+        zero = ir.Constant(ir.IntType(32), 0)
+        if (isinstance(optional_type, ir.IdentifiedStructType)
+                and len(optional_type.elements) == 1):
+            optional_ptr = self.builder.gep(
+                dest_ptr, [zero, zero], inbounds=True,
+                name="present.slot.value")
+            optional_type = optional_type.elements[0]
+        tag_ptrs = []
+        while (isinstance(optional_type, ir.LiteralStructType)
+               and len(optional_type.elements) == 2
+               and optional_type.elements[0] == ir.IntType(1)):
+            tag_ptrs.append(self.builder.gep(
+                optional_ptr, [zero, zero], inbounds=True,
+                name="present.tag"))
+            payload_ptr = self.builder.gep(
+                optional_ptr, [zero, ir.Constant(ir.IntType(32), 1)],
+                inbounds=True, name="present.payload")
+            payload_type = optional_type.elements[1]
+            if payload_type == value.type:
+                for tag_ptr in tag_ptrs:
+                    self.builder.store(ir.Constant(ir.IntType(1), 1), tag_ptr)
+                self._emit_aggregate_memcpy(
+                    payload_ptr, source, value.type)
+                # The helper consumes `value` completely on its success path.
+                self._discard_unused_materialized_load(value)
+                return True
+            optional_ptr = payload_ptr
+            optional_type = payload_type
+        return False
+
+    def _materialize_wrapped_struct_init(
+            self, expr, dest_ptr, *, already_zeroed=False,
+            apply_optional_wrap=True):
+        """Build a memberwise struct through its checked Optional/Result wraps."""
+        wrappers = []
+        inner_expr = expr
+        while isinstance(
+                inner_expr, (OptionalWrap, ResultOkWrap, ResultErrWrap)):
+            if isinstance(inner_expr, OptionalWrap):
+                wrappers.append(("optional", inner_expr.target_type, False))
+            elif isinstance(inner_expr, ResultErrWrap):
+                wrappers.append(("result", inner_expr.result_type, True))
+            else:
+                wrappers.append(("result", inner_expr.result_type, False))
+            inner_expr = inner_expr.value
+
+        literal = self._as_memberwise_struct_init(inner_expr)
+        if literal is None:
+            return False
+        _, struct_type, _, _ = self._struct_init_info(literal)
+        if not wrappers:
+            result_saw = literal.autowrap_to_result
+            optional_saw = (
+                literal.autowrap_to_optional if apply_optional_wrap else None)
+            if result_saw is not None:
+                wrappers.append((
+                    "result", result_saw, literal.autowrap_result_err))
+            if optional_saw is not None:
+                wrappers.append(("optional", optional_saw, False))
+
+        final_type = (
+            self._get_llvm_type(wrappers[0][1])
+            if wrappers else struct_type)
+        destination_optional = False
+        if not wrappers and dest_ptr.type.pointee != struct_type:
+            probe = dest_ptr.type.pointee
+            while (isinstance(probe, ir.LiteralStructType)
+                   and len(probe.elements) == 2
+                   and probe.elements[0] == ir.IntType(1)):
+                probe = probe.elements[1]
+            if probe == struct_type:
+                final_type = dest_ptr.type.pointee
+                destination_optional = True
+        if dest_ptr.type.pointee != final_type:
+            return False
+
+        target_ptr = dest_ptr
+        zero = ir.Constant(ir.IntType(32), 0)
+        tag_commits = []
+        for index, (kind, saw_type, is_err) in enumerate(wrappers):
+            inner_type = (
+                self._get_llvm_type(wrappers[index + 1][1])
+                if index + 1 < len(wrappers) else struct_type)
+            if kind == "optional":
+                while target_ptr.type.pointee != inner_type:
+                    optional_type = target_ptr.type.pointee
+                    if (not isinstance(optional_type, ir.LiteralStructType)
+                            or len(optional_type.elements) != 2
+                            or optional_type.elements[0] != ir.IntType(1)):
+                        return False
+                    tag_ptr = self.builder.gep(
+                        target_ptr, [zero, zero], inbounds=True,
+                        name="wrapped.optional.tag")
+                    tag_commits.append((
+                        tag_ptr, ir.Constant(ir.IntType(1), 1)))
+                    target_ptr = self.builder.gep(
+                        target_ptr,
+                        [zero, ir.Constant(ir.IntType(32), 1)],
+                        inbounds=True, name="wrapped.optional.value")
+                continue
+
+            enum_name = self._get_result_enum_name(saw_type)
+            enum_type, variant_tags, variant_info = self.enum_types[enum_name]
+            variant = "Err" if is_err else "Ok"
+            params = variant_info[variant]
+            if (len(params) != 1
+                    or target_ptr.type.pointee != enum_type):
+                return False
+            tag_ptr = self.builder.gep(
+                target_ptr, [zero, zero], inbounds=True,
+                name="wrapped.result.tag")
+            tag_commits.append((
+                tag_ptr,
+                ir.Constant(ir.IntType(32), variant_tags[variant])))
+            payload_ptr = self.builder.gep(
+                target_ptr, [zero, ir.Constant(ir.IntType(32), 1)],
+                inbounds=True, name="wrapped.result.payload")
+            param_type = ir.LiteralStructType([
+                self._get_llvm_type(param_saw) for _, param_saw in params
+            ])
+            param_ptr = self.builder.bitcast(
+                payload_ptr, param_type.as_pointer(),
+                name="wrapped.result.variant")
+            target_ptr = self.builder.gep(
+                param_ptr, [zero, zero], inbounds=True,
+                name="wrapped.result.value")
+            if target_ptr.type.pointee != inner_type:
+                return False
+
+        if destination_optional:
+            while target_ptr.type.pointee != struct_type:
+                optional_type = target_ptr.type.pointee
+                if (not isinstance(optional_type, ir.LiteralStructType)
+                        or len(optional_type.elements) != 2
+                        or optional_type.elements[0] != ir.IntType(1)):
+                    return False
+                tag_ptr = self.builder.gep(
+                    target_ptr, [zero, zero], inbounds=True,
+                    name="wrapped.optional.tag")
+                tag_commits.append((
+                    tag_ptr, ir.Constant(ir.IntType(1), 1)))
+                target_ptr = self.builder.gep(
+                    target_ptr,
+                    [zero, ir.Constant(ir.IntType(32), 1)],
+                    inbounds=True, name="wrapped.optional.value")
+
+        if target_ptr.type.pointee != struct_type:
+            return False
+        self._materialize_struct_init(
+            literal, target_ptr, _already_zeroed=already_zeroed)
+        if not self.builder.block.is_terminated:
+            for tag_ptr, tag_value in reversed(tag_commits):
+                self.builder.store(tag_value, tag_ptr)
+        return True
+
+    def _materialize_struct_init(self, expr, dest_ptr,
+                                 _already_zeroed=False):
+        """Materialize one struct literal, optionally into caller-owned memory.
+
+        `dest_ptr=None` is the SSA-only path used by returns, ordinary by-value
+        call arguments and operands.  Every known-memory entry routes here:
+        let/var initializers and every assignment target in `statements.py`,
+        nested memberwise fields below, fixed-array/tuple stored elements in
+        `collections.py`, and compiler-marked collection or boxed-frame
+        transfers through `_gen_transfer_value`.
+
+        A parsed `name(label: value)` that the typechecker reinterpreted as a
+        function call, and a real custom `init`, remain calls.  With a
+        destination their returned value is stored; their bodies are never
+        replaced by memberwise construction.
+        """
+        materialized = self._as_memberwise_struct_init(expr)
+        if materialized is not None:
+            expr = materialized
+        if expr.as_function_call is not None:
+            value = self._generate_function_call(expr.as_function_call)
+            if dest_ptr is None:
+                return value
+            if value is not None:
+                self._store_transfer(value, dest_ptr)
+            return None
+
+        struct_name, llvm_struct_type, field_order, field_types = \
+            self._struct_init_info(expr)
+
+        if expr.resolved_init_params is not None:
+            value = self._generate_custom_struct_init(expr, struct_name)
+            if dest_ptr is None:
+                return value
+            self._store_transfer(value, dest_ptr)
+            return None
+
+        field_indices = {name: i for i, name in enumerate(field_order)}
+
+        if dest_ptr is None:
+            # Preserve the original SSA path exactly where no memory destination
+            # exists.  Evaluation follows source order; insertion follows layout.
+            field_values = {}
+            for field_name, value_expr in expr.field_inits:
+                i = field_indices[field_name]
+                value = self._prepare_struct_field_value(
+                    value_expr, field_types.get(field_name),
+                    llvm_struct_type.elements[i])
+                if value is None and self.builder.block.is_terminated:
+                    return None
+                field_values[field_name] = value
+            result = ir.Constant(llvm_struct_type, ir.Undefined)
+            for i, field_name in enumerate(field_order):
+                result = self.builder.insert_value(
+                    result, field_values[field_name], i)
+            return result
+
+        if dest_ptr.type.pointee != llvm_struct_type:
+            raise ValueError(
+                f"struct materialization destination has type "
+                f"`{dest_ptr.type.pointee}`, expected `{llvm_struct_type}`")
+
+        zeroed_fields = set(expr.zeroed_fields)
+        zero_destination = bool(expr.zero_initialize)
+        present_optional_fields = set(expr.present_optional_fields)
+        if zero_destination and not _already_zeroed:
+            self._emit_zero_fill(dest_ptr, llvm_struct_type)
+
+        # A destination materialization owns each completed field immediately.
+        # Keep those fields in a nested cleanup scope until the whole aggregate
+        # is complete.  A propagating `try` sees this scope and drops the
+        # initialized prefix in reverse order; success pops the bookkeeping
+        # without dropping because ownership has transferred to the aggregate.
+        partial_scope = []
+        self.cleanup_stack.append(partial_scope)
+        try:
+            # Source order is semantic. Nested memberwise construction recurses
+            # through direct, Optional, and Result destinations so only the
+            # wrapper tags/union packing remain around in-place field stores.
+            for field_name, value_expr in expr.field_inits:
+                if zero_destination and field_name in zeroed_fields:
+                    continue
+                i = field_indices[field_name]
+                field_ptr = self.builder.gep(
+                    dest_ptr,
+                    [ir.Constant(ir.IntType(32), 0),
+                     ir.Constant(ir.IntType(32), i)],
+                    inbounds=True, name=f"{field_name}.init")
+                expected = llvm_struct_type.elements[i]
+                if field_name in present_optional_fields:
+                    self._materialize_present_optional_field(
+                        value_expr, field_ptr, expected)
+                    if self.builder.block.is_terminated:
+                        return None
+                    field_type = field_types.get(field_name)
+                    if (field_type is not None
+                            and self._needs_cleanup(field_type)):
+                        partial_scope.append((
+                            f"partial.{field_name}", field_type,
+                            field_ptr, None))
+                    continue
+                if self._store_none_optional_tag(value_expr, field_ptr):
+                    continue
+                if self._materialize_wrapped_struct_init(
+                        value_expr, field_ptr,
+                        already_zeroed=(
+                            zero_destination or _already_zeroed)):
+                    if self.builder.block.is_terminated:
+                        return None
+                    field_type = field_types.get(field_name)
+                    if (field_type is not None
+                            and self._needs_cleanup(field_type)):
+                        partial_scope.append((
+                            f"partial.{field_name}", field_type,
+                            field_ptr, None))
+                    continue
+                if (isinstance(value_expr, ArrayLiteral)
+                        and hasattr(self, "_materialize_array_literal_into")
+                        and self._materialize_array_literal_into(
+                            value_expr, field_ptr,
+                            already_zeroed=(
+                                zero_destination or _already_zeroed))):
+                    if self.builder.block.is_terminated:
+                        return None
+                    field_type = field_types.get(field_name)
+                    if (field_type is not None
+                            and self._needs_cleanup(field_type)):
+                        partial_scope.append((
+                            f"partial.{field_name}", field_type,
+                            field_ptr, None))
+                    continue
+                value = self._prepare_struct_field_value(
+                    value_expr, field_types.get(field_name), expected)
+                if value is None and self.builder.block.is_terminated:
+                    return None
+                self._store_materialized_or_transfer(
+                    value, field_ptr, final_use=True)
+                field_type = field_types.get(field_name)
+                if (field_type is not None
+                        and self._needs_cleanup(field_type)):
+                    partial_scope.append((
+                        f"partial.{field_name}", field_type, field_ptr, None))
+        finally:
+            popped = self.cleanup_stack.pop()
+            if popped is not partial_scope:
+                raise ValueError(
+                    "struct materialization cleanup scope was not innermost")
+        return None
 
     _UNSIGNED_INT_KINDS = {
         TypeKind.UINT, TypeKind.UINT8, TypeKind.UINT16, TypeKind.UINT32, TypeKind.UINT64,
@@ -254,6 +786,9 @@ class StructsMixin:
             container_type = self._expr_type(expr.array_expr)
             return (container_type is not None
                     and getattr(container_type, 'array_size', None) is not None)
+        if isinstance(expr, ForceUnwrap):
+            return (bool(getattr(expr, "frame_place_read", False))
+                    and self._addressable_place(expr.expr))
         if isinstance(expr, MemberAccess):
             # Only a plain struct field nests. Every other MemberAccess meaning
             # — a folded constant, an integer limit, a named-tuple slot, an

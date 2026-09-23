@@ -7408,6 +7408,9 @@ is an ordinary compile-time struct size (the enabler for statically-allocated
 `.bss` task frames on freestanding targets — the Embassy model). Because the
 frame is a normal Saw struct, it is compiled by the same code generator and
 the same deterministic-destruction (`Deinit`) machinery as everything else.
+Frame initialization zero-fills storage, then writes live values and nonzero
+defaults in place, without changing field layout, initializer evaluation order,
+or destruction.
 
 Observable rules:
 

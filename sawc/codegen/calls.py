@@ -2374,6 +2374,28 @@ class CallsMixin:
                 self.builder.store(obj_val, self_alloca)
                 self_arg = self_alloca
 
+        # A by-pointer receiver is addressed from its place below; the eager
+        # value load used only to discover its struct type is otherwise dead.
+        # Removing it matters for coroutine frames whose flattened value can
+        # exceed LLVM's aggregate-value limit even though the method ABI is a
+        # pointer.
+        if (self_arg is not obj_val
+                and receiver_temp_slot is None
+                and isinstance(obj_val, ir.LoadInstr)
+                and self._receiver_path_is_lvalue(expr.object)
+                and not any(
+                    obj_val in instruction.operands
+                    or (isinstance(instruction, ir.PhiInstr)
+                        and any(incoming is obj_val
+                                for incoming, _ in instruction.incomings))
+                    for block in self.builder.function.blocks
+                    for instruction in block.instructions
+                    if instruction is not obj_val)):
+            if obj_val.parent is self.builder.block:
+                self.builder.remove(obj_val)
+            else:
+                obj_val.parent.instructions.remove(obj_val)
+
         # Reference receiver to a by-value (`&self`) method: `self_arg` is a
         # pointer to the struct (from a `&T` parameter), but an immutable-self
         # method takes the struct by value. Deref once so the LLVM types match.

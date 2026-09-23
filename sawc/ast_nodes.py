@@ -1535,6 +1535,25 @@ class StructInit(Expression):
     resolved_init_params: Optional[List[str]] = None  # None = field init, List = custom init params
     # The literal actually resolved to a custom `init`, i.e. a call (design 126 R1).
     as_function_call: Optional['FunctionCall'] = annotation(None)
+    # SL-350: compiler-synthesized aggregate materialization metadata.
+    #
+    # `materialize_for_transfer` names the few by-value consumers (frame boxing
+    # and collection insertion) that have a memory home even though their
+    # surface ABI is by value.  `zero_initialize` and `zeroed_fields` are the
+    # coroutine transform's semantic proof: the destination may be zero-filled
+    # before the remaining fields are evaluated, and the named initializers are
+    # pure all-zero values whose calls/stores may be omitted.
+    # `present_optional_fields` proves that a source value initializes the
+    # payload of an added frame-occupancy Optional/Slot wrapper, so
+    # materialization may write that wrapper's tag and payload directly.
+    # A legacy `self_opt` field that directly stores its declared Optional is
+    # not such a proof: its own tag must be preserved. Source syntax cannot set
+    # these annotations.
+    materialize_for_transfer: bool = annotation(False)
+    zero_initialize: bool = annotation(False)
+    zeroed_fields: tuple[str, ...] = annotation(())
+    present_optional_fields: tuple[str, ...] = annotation(())
+    all_zero: bool = annotation(False)
 
 
 @dataclass
@@ -1888,6 +1907,9 @@ class MethodCall(Expression):
     um_scalar_type: Optional['SawType'] = annotation(None)
     um_volatile: bool = annotation(False)
     resolved_init_params: Optional[List[str]] = annotation(None)
+    # Canonical memberwise fields for a module-qualified construction. `None`
+    # means this call is not a memberwise constructor.
+    resolved_field_inits: Optional[List[tuple]] = annotation(None)
     # A PLACE use (design 141/146): this call resolved to a named `borrows`
     # accessor (`v.get(i)`, `v.first()`), so it names storage rather than
     # returning a value. See ArrayIndex for what each field carries.

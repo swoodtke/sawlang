@@ -386,10 +386,14 @@ class ExistentialsMixin:
         cont_block = self.builder.append_basic_block("anybox_cont")
         self.builder.cbranch(is_some, ok_block, fail_block)
 
-        # Success: placement-move the value into the fresh chunk, build the fat ptr.
+        # Success: placement-move the value into the fresh chunk.  Route an
+        # aggregate load through the transfer-store funnel so a compiler-marked
+        # frame staged by SL-350 becomes one memcpy, not a backend-flattened
+        # aggregate load/store pair.
         self.builder.position_at_end(ok_block)
         typed = self.builder.bitcast(raw, concrete_llvm.as_pointer())
-        self.builder.store(value, typed)
+        self._store_materialized_or_transfer(
+            value, typed, final_use=True)
         fat = ir.Constant(fat_ty, ir.Undefined)
         fat = self.builder.insert_value(fat, raw, 0)
         fat = self.builder.insert_value(fat, vt_i8, 1)

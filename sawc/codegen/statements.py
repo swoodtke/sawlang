@@ -13,8 +13,8 @@ from llvmlite import ir
 from ast_nodes import (
     Statement, LetStatement, AssignStatement, CompoundAssignStatement, ReturnStatement,
     GuardLetStatement, BreakStatement, ContinueStatement, ExpressionStatement,
-    WhileExpr, ForLoop, Identifier, MemberAccess, ArrayIndex, SelfExpr,
-    TupleIndex, MoveExpr, NoneLiteral, SawType, TypeKind,
+    WhileExpr, ForLoop, Identifier, MemberAccess, ArrayLiteral, ArrayIndex,
+    SelfExpr, TupleIndex, MoveExpr, NoneLiteral, SawType, TypeKind,
     WildcardPattern, BindingPattern, TuplePattern,
     requested_align,
 )
@@ -272,9 +272,54 @@ class StatementsMixin:
                 and not self.builder.block.is_terminated):
             self._register_stmt_temp(value, self._expr_type(stmt.expression))
 
+    def _generate_memory_destination_rhs(self, value_expr, name):
+        """Generate an RHS for a caller that has a memory destination.
+
+        A memberwise struct literal is first built in a staging destination.
+        Replacement assignments require that staging slot: every RHS read and
+        side effect completes before the old destination is dropped, so
+        `x = Pair(a: x.b, b: x.a)` cannot clobber its own inputs.  Let/var
+        initialization uses the same path so frame construction never creates
+        an SSA insert chain.  Real custom initializers and function-call
+        reinterpretations remain ordinary value-producing calls.
+        """
+        if self._can_materialize_struct_init(value_expr):
+            return self._materialize_struct_value(value_expr, name=name)
+        return self._generate_expression(value_expr)
+
     def _generate_let_statement(self, stmt: LetStatement):
         """Generate code for a let binding."""
-        value = self._generate_expression(stmt.value)
+        # Exact memberwise struct lets have their final alloca before any field
+        # is generated, so the literal lands directly in its binding (the frame
+        # `__f` path).  Optional/result wrappers and real init calls fall through
+        # to the value path below.
+        if self._can_materialize_struct_init(stmt.value):
+            direct_annotation = (
+                self._resolve_type_alias(stmt.type_annotation)
+                if stmt.type_annotation else None)
+            direct_type = (
+                self._canonicalize_type_kind(direct_annotation)
+                if direct_annotation is not None
+                else self._expr_type(stmt.value))
+            direct_llvm = self._get_llvm_type(direct_type)
+            alloca = self._entry_alloca(
+                direct_llvm, name=stmt.name, align=requested_align(stmt))
+            if self._materialize_wrapped_struct_init(
+                    stmt.value, alloca):
+                if self.builder.block.is_terminated:
+                    return
+                # A derived same-scope redefinition still evaluates the whole
+                # RHS against the old binding before retiring it.
+                self._drop_redefined_same_scope(
+                    getattr(stmt, 'coro_redefines', None) or stmt.name)
+                self.variables[stmt.name] = alloca
+                self.void_variables.discard(stmt.name)
+                self.variable_types[stmt.name] = direct_type
+                if self.cleanup_stack and self._needs_cleanup(direct_type):
+                    self._register_cleanup(stmt.name, direct_type)
+                return
+        value = self._generate_memory_destination_rhs(
+            stmt.value, name=f"{stmt.name}.init")
 
         # The initializer DIVERGED (`let x = panic("...")`, and since design 177
         # `let x = while { }`): it produced no value and terminated the block
@@ -445,7 +490,8 @@ class StatementsMixin:
                                     align=requested_align(stmt))
         # design 261 U2: `let b = a` on an aggregate is a COPY, and one
         # `llvm.memcpy` is what it should be rather than a field walk.
-        self._store_transfer(value, alloca)
+        self._store_materialized_or_transfer(
+            value, alloca, final_use=True)
         self.variables[stmt.name] = alloca
         self.void_variables.discard(stmt.name)
 
@@ -514,7 +560,11 @@ class StatementsMixin:
 
     def _generate_assign_statement(self, stmt: AssignStatement):
         """Generate code for an assignment statement."""
-        value = self._generate_expression(stmt.value)
+        value = (None if isinstance(stmt.value, NoneLiteral)
+                 else self._generate_memory_destination_rhs(
+                     stmt.value, name="assign.init"))
+        if value is None and self.builder.block.is_terminated:
+            return
 
         if isinstance(stmt.target, Identifier):
             # Simple variable assignment — or a whole-value write to an
@@ -860,6 +910,11 @@ class StatementsMixin:
         llvmlite's verifier with `cannot store i64 to i32*` — one missing fit,
         reported four ways. A sixth store site is added by calling this.
         """
+        if self._store_none_optional_tag(value_expr, slot_ptr):
+            return
+        if (value is not None
+                and self._store_present_optional_value(value, slot_ptr)):
+            return
         slot_type = slot_ptr.type.pointee
         if (isinstance(value.type, ir.IntType)
                 and isinstance(slot_type, ir.IntType)
@@ -870,7 +925,8 @@ class StatementsMixin:
         # design 261 U2: this is the assignment funnel for all five target
         # kinds, so routing it here puts every aggregate assignment on the
         # memcpy without touching any of the arms.
-        self._store_transfer(value, slot_ptr)
+        self._store_materialized_or_transfer(
+            value, slot_ptr, final_use=True)
 
     def _tuple_element_saw_type(self, tuple_expr, index):
         """The SawType of element `index` of the tuple `tuple_expr` denotes, or

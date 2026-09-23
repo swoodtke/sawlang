@@ -620,8 +620,14 @@ class OptionalsMixin:
                                                 self._int_is_signed(node)),
                         field_ptr)
                     continue
-                # RHS is generated HERE, on the all-some path only.
-                value = self._generate_expression(expr.value)
+                # RHS is generated HERE, on the all-some path only.  A
+                # memberwise struct literal uses the same staging destination
+                # as ordinary replacement assignment: all reads/effects finish
+                # before the live field is dropped.
+                value = self._generate_memory_destination_rhs(
+                    expr.value, name="chain.assign.init")
+                if value is None and self.builder.block.is_terminated:
+                    break
                 if field_saw is not None and self._needs_cleanup(field_saw):
                     self._emit_drop_at(field_ptr, field_saw)
                 # The RHS is a TRANSFER into the payload field, so the retain is
@@ -634,9 +640,8 @@ class OptionalsMixin:
                 # Arc (refcount underflow)` at teardown.
                 if field_saw is not None and self._transfer_site_needs_copy(expr.value):
                     value = self._generate_copy_for_dest(value, field_saw)
-                expected_field_type = field_ptr.type.pointee
-                value = self._fit_optional_slot(value, expected_field_type)
-                self.builder.store(value, field_ptr)
+                self._store_assigned_value(
+                    value, field_ptr, expr.value)
             elif kind == 'field':
                 field_ptr, _, _ = self._chain_field_gep(base_ptr, node.member)
                 cur_ptr = field_ptr
@@ -651,13 +656,20 @@ class OptionalsMixin:
                 if res_saw is not None and self._needs_cleanup(res_saw):
                     chain_temps.append((slot, res_saw))
 
-        # Some-completion: drop temps, produce Some(unit).
-        self._drop_chain_temps(chain_temps)
-        some_val = ir.Constant(result_llvm, ir.Undefined)
-        some_val = self.builder.insert_value(some_val, ir.Constant(ir.IntType(1), 1), 0)
-        some_val = self.builder.insert_value(some_val, ir.Constant(ir.IntType(8), 0), 1)
-        some_end_bb = self.builder.block
-        self.builder.branch(merge_bb)
+        # Some-completion exists only when the all-present path produced a
+        # value. A diverging/propagating RHS may already have terminated it;
+        # the short-circuit None predecessor still reaches the merge.
+        some_val = None
+        some_end_bb = None
+        if not self.builder.block.is_terminated:
+            self._drop_chain_temps(chain_temps)
+            some_val = ir.Constant(result_llvm, ir.Undefined)
+            some_val = self.builder.insert_value(
+                some_val, ir.Constant(ir.IntType(1), 1), 0)
+            some_val = self.builder.insert_value(
+                some_val, ir.Constant(ir.IntType(8), 0), 1)
+            some_end_bb = self.builder.block
+            self.builder.branch(merge_bb)
 
         self.builder.position_at_start(none_bb)
         none_val = ir.Constant(result_llvm, ir.Undefined)
@@ -667,6 +679,7 @@ class OptionalsMixin:
 
         self.builder.position_at_start(merge_bb)
         phi = self.builder.phi(result_llvm, name="chainw_result")
-        phi.add_incoming(some_val, some_end_bb)
+        if some_val is not None:
+            phi.add_incoming(some_val, some_end_bb)
         phi.add_incoming(none_val, none_end_bb)
         return phi

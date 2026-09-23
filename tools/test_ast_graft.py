@@ -81,6 +81,13 @@ FOREIGN_ATTRS = {
               ("sawc/codegen/core.py",)),
     "_saw_volatile_patched": ("llvmlite ir.LoadInstr (class patch guard)",
                               ("sawc/codegen/core.py",)),
+    # Destination-aware aggregate lowering annotates transient LLVM values
+    # (normally LoadInstr results) with the alloca/GEP pointer that owns their
+    # materialized bytes.  Only these two lowering modules produce or consume
+    # that private codegen provenance.
+    "saw_materialized_source": (
+        "llvmlite ir.Value (materialized aggregate source pointer metadata)",
+        ("sawc/codegen/collections.py", "sawc/codegen/structs.py")),
 }
 
 # `setattr` sites whose attribute NAME is an expression, keyed by
