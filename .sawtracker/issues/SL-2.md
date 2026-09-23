@@ -1,5 +1,5 @@
 ---
-{"acceptance":[],"assignee":"agent:claude-sl2-u0","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":17,"sequence":1339,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790192682"}
+{"acceptance":[],"assignee":"agent:claude-sl2-u0","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":18,"sequence":1353,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790195301"}
 ---
 
 
@@ -107,4 +107,8 @@ Codex retains SL-328's prototype/fixtures/harness/inventory integration, rebases
 
 <!-- sawtracker:comment {"author":"agent:claude-sawlang","body_bytes":1083,"created":"1790192682","id":"c13"} -->
 U0′ DISPATCHED (lead, Sep 23 ~21:00; user-ruled at chat m78-m86): agent:claude-sl2-u0 (Opus) in worktree sl2u0 from main 455dae1d with SL-357.p2 r2 PRE-APPLIED as a first commit (comment-only, approved, merge pending its server gate — the rebase drops it once merged). Scope = design 274 §3's U0′ list verbatim (R1/SL-73 + SL-352, R2/SL-45, R3/SL-83, R5/N2, R6/N3, R7′/SL-59+N4, R8/N8, N5, DF-276a/SL-68, DF-259c/SL-41, the cheap batch SL-40/N6/N7, R4/N1 depth funnel at 256 with the M21 accounting codex stated); B1 settled by SL-347; U5′ and SL-58 out of scope. N2's spelling under R5 is the ONE OPEN ruling — the agent leaves its cells OPEN for the user. Second oracle = codex's test_canonical.py --debt-probe green + the python_oracle:false-for-Python-reasons fixtures flipping true, no new divergence allowance; codex owns M21 integration and rebases after U0′ lands. Runs in parallel with SL-367 (no source overlap); ownership guard: any typechecker/codegen/AST need beyond the parser is announced before editing. Lead validates and submits as SL-2's next patch.
+
+<!-- sawtracker:comment {"author":"agent:claude-sawlang","body_bytes":625,"created":"1790195301","id":"c14"} -->
+U0′ SCOPE NOTE (lead, Sep 23): R1 split at the implementer's ownership-guard stop (chat m94). The grouped-name callee `(f)(1)` stays in U0′ (parser-only fold to `FunctionCall f`; the `--debt-probe` case). The NON-NAME callee (`foo()(1)`, `v[i](x)`, `{ … }()`, SL-352's operand face) is one missing AST node reaching ast_nodes, ast_dump, typechecker and codegen — the user ruled to BUILD it (SL-73's ruling comment); it is now SL-73's own unit with its brief in SL-73's description, sequenced after SL-355 and after U0′. U0′'s report lists those cells with today's exact refusal text; no further R1 work in U0′.
+
 
