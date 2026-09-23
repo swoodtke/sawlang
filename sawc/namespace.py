@@ -23,15 +23,13 @@ class SymbolKind(Enum):
     STATIC = auto()
 
 
-# Symbol objects hold ONLY immutable declaration data. Builtin symbols (String,
-# Vector, Result, ...) are shared BY REFERENCE into every module namespace via
-# `Namespace.merge_into`, so any per-compilation mutable state written onto a
-# symbol would alias across all module views. Per-compilation codegen artifacts
-# therefore live in codegen-owned side tables keyed by canonical (mangled) name
-# — `Codegen.struct_types` / `enum_types` / `functions` (see codegen/core.py) —
-# never on these symbols. This keeps declaration symbols aliasing-safe and
-# unblocks per-module / incremental codegen (design 27 item 1). Do not add
-# codegen-populated fields here; extend the side tables instead.
+# Symbol objects hold only immutable declaration data. Builtin symbols (String,
+# Vector, Result, ...) are shared by reference into every module namespace via
+# `Namespace.merge_into`, so per-compilation state written onto a symbol would
+# alias across all module views. Codegen artifacts live in codegen-owned side
+# tables keyed by mangled name (`Codegen.struct_types` / `enum_types` /
+# `functions`). Do not add codegen-populated fields here; extend the side
+# tables instead.
 @dataclass
 class FunctionSymbol:
     """Symbol for a function or method."""
@@ -46,57 +44,55 @@ class FunctionSymbol:
     self_mutable: bool = False
     self_is_reference: bool = True  # True for '&self' or '&var self'
     is_variadic: bool = False
-    # design 22 effect system:
-    #  - is_sync: declared `sync func` (body checked suspension-free)
+    # Effects:
+    #  - is_sync: declared `sync` (body checked suspension-free)
     #  - is_blocking: `extern blocking func` (a suspension source)
     is_sync: bool = False
     is_blocking: bool = False
-    # design 130: declared `unsafe func` / `unsafe init`. The declaration is the
-    # obligation; the trigger rule checks it against the body.
+    # Declared `unsafe`. The declaration is the obligation; the trigger rule
+    # checks it against the body.
     is_unsafe: bool = False
-    # design 260: declared `consumes` — this `&var self` method ENDS its
-    # receiver, so the call site spells `(move b).m()` and the callee performs
-    # the release. Only ever true for an instance method with `&var self`; the
-    # parser refuses every other pairing.
+    # Declared `consumes`: this `&var self` method ends its receiver, so the
+    # call site spells `(move b).m()` and the callee performs the release. Only
+    # ever true for an instance method with `&var self`.
     is_consumes: bool = False
     visibility: Visibility = Visibility.PRIVATE
-    # Member visibility (design 80): the module that DEFINES this method, for the
-    # cross-module member-access gate. For std/builtin declarations this is a
-    # synthetic per-file id (the prelude is merged into one AST for codegen, so
-    # module_path alone cannot distinguish std from user code). Empty tuple = the
-    # entry/user module in the non-module compilation path.
+    # The module that defines this method, for the cross-module member-access
+    # gate. For std/builtin declarations this is a synthetic per-file id (the
+    # prelude is merged into one AST for codegen, so module_path alone cannot
+    # distinguish std from user code). Empty tuple = the entry/user module in
+    # the non-module compilation path.
     def_module: Tuple[str, ...] = ()
-    # True when this method satisfies a trait requirement of a conformed trait
-    # (design 80): such a method is callable wherever the conformance is visible,
-    # so it is exempt from the private-by-default method gate.
+    # True when this method satisfies a requirement of a conformed trait: it is
+    # callable wherever the conformance is visible, so it is exempt from the
+    # private-by-default method gate.
     satisfies_trait: bool = False
     # Type-param bounds from the enclosing extension, keyed by the extension's
     # type-param name (e.g. {"T": ["Copy"]} for `extension Vector<T: Copy>`).
     # A method with unmet bounds for a given instantiation does not exist there
     # (conditional conformance); the typechecker uses this to diagnose calls.
     extension_bounds: Dict[str, List[str]] = field(default_factory=dict)
-    # DF-216h: the OWNING extension's declared type parameters, in the type's
-    # own positional order — `[U]` for `extension Pair<U>` over
-    # `struct Pair<A>`. An extension may RENAME the parameters it re-declares,
-    # and this method's signature is written in ITS names, so a call site
-    # binding only the STRUCT's declared names leaves them unsubstituted.
-    # Empty for a non-generic or specialized extension (nothing to rename) and
-    # for a plain function.
+    # The owning extension's declared type parameters, in the type's
+    # positional order: `[U]` for `extension Pair<U>` over `struct Pair<A>`.
+    # An extension may rename the parameters, and this method's signature is
+    # written in its names, so a call site binding only the struct's names
+    # would leave them unsubstituted. Empty for a non-generic or specialized
+    # extension and for a plain function. (An `init` does not use it yet:
+    # DF-251c.)
     owner_type_params: List[TypeParameter] = field(default_factory=list)
     ast_node: Optional[Any] = None  # Function or Method AST node
-    # Overloading (design 55): when a name carries 2+ overloads, the mangler
-    # assigns each a type-signature-suffixed codegen symbol; `mangled_name` holds
-    # it (empty for the common single-declaration case, where the plain name is
-    # used). `decl_node` is the declaring AST Function/Method node, stamped with
-    # the same `mangled_symbol` so codegen emits the definition under it.
+    # Overloading: when a name carries 2+ overloads, the mangler assigns each a
+    # type-signature-suffixed codegen symbol; `mangled_name` holds it (empty for
+    # a single declaration, which uses the plain name). `decl_node` is the
+    # declaring AST node, stamped with the same `mangled_symbol` so codegen
+    # emits the definition under it.
     mangled_name: str = ""
     decl_node: Optional[Any] = None
-    # Design 249: the codegen BASE this declaration's symbols are built from.
-    # The plain name unless another MODULE in this compilation declares a free
-    # function of the same name, in which case it is `name$M$<module tag>` —
-    # two modules may now hold same-named free functions, and two definitions
-    # cannot share one LLVM symbol. Empty means "the plain name", so every
-    # single-owner program keeps byte-identical IR.
+    # The codegen base this declaration's symbols are built from: the plain
+    # name unless another module in this compilation declares a free function
+    # of the same name, in which case it is `name$M$<module tag>`, since two
+    # definitions cannot share one LLVM symbol. Empty means the plain name
+    # (design 249).
     symbol_base: str = ""
 
 
@@ -108,34 +104,33 @@ class StructSymbol:
     field_order: List[str] = field(default_factory=list)
     type_params: List[TypeParameter] = field(default_factory=list)
     methods: Dict[str, FunctionSymbol] = field(default_factory=dict)
-    # Overloading (design 55): name -> all overloads of that method. `methods`
-    # keeps the first-registered overload as the representative (for the many
-    # single-overload lookups); overloaded call sites resolve against this list.
+    # Overloading: name -> all overloads of that method. `methods` keeps the
+    # first-registered overload as the representative for single-overload
+    # lookups; overloaded call sites resolve against this list.
     method_overloads: Dict[str, List[FunctionSymbol]] = field(default_factory=dict)
     init_methods: List[FunctionSymbol] = field(default_factory=list)
     conformances: List[str] = field(default_factory=list)
     visibility: Visibility = Visibility.PRIVATE
-    # Member visibility (design 80): per-field visibility (name -> Visibility) and
-    # the module that DEFINES this struct (for the cross-module field-access gate).
-    # See FunctionSymbol.def_module for the std-synthetic-id rationale.
+    # Per-field effective visibility (name -> Visibility) and the module that
+    # defines this struct, for the cross-module field-access gate. See
+    # FunctionSymbol.def_module for the std synthetic id.
     field_visibility: Dict[str, Visibility] = field(default_factory=dict)
     def_module: Tuple[str, ...] = ()
-    # Design 144: this type's IDENTITY — `(def_module, name)` fused into one
-    # string (`Header$m$dep`), or the plain name for a root-module or std type.
-    # It is the namespace key, the codegen layout key, the monomorphization
-    # base and the method-mangling receiver; `type_identity.display_name`
-    # recovers the short name for diagnostics and docs.
+    # This type's identity: `(def_module, name)` fused into one string
+    # (`Header$m$dep`), or the plain name for a root-module or std type. It is
+    # the namespace key, the codegen layout key, the monomorphization base and
+    # the method-mangling receiver; `type_identity.display_name` recovers the
+    # short name (design 144).
     type_identity: str = ""
-    # `unsafe struct` (design 130): this type is unsafe, so naming/binding/
-    # receiving/returning one of its values makes a function unsafe. Held here
-    # rather than read off `ast_node`, which is None for a non-generic struct.
+    # `unsafe struct`: naming/binding/receiving/returning one of its values
+    # makes a function unsafe. Held here because `ast_node` is None for a
+    # non-generic struct.
     is_unsafe: bool = False
-    # `borrows struct` (design 275 U3): this type HOLDS A LENT PLACE, so its
-    # values live only inside a window and its reference field is legal. Held
-    # here for the same reason `is_unsafe` is — `ast_node` is None for a
-    # non-generic struct — and read off the TYPE IDENTITY rather than any
-    # visibility, so a user borrowing struct in another module is refused and
-    # admitted by exactly the same rules as std's.
+    # `borrows struct`: this type holds a lent place, so its values live only
+    # inside a window and its reference field is legal. Held here for the
+    # reason `is_unsafe` is, and keyed by type identity rather than
+    # visibility, so a user borrowing struct in another module follows exactly
+    # std's rules.
     is_borrowing: bool = False
     line: int = 0
     column: int = 0
@@ -149,37 +144,35 @@ class StructSymbol:
 class EnumSymbol:
     """Symbol for an enum type.
 
-    Design 145: an enum carries METHODS on exactly the same terms as a struct —
-    the method tables below mirror `StructSymbol`'s field for field, so every
-    lookup, overload resolver and visibility gate written against a struct
-    symbol works unchanged with an enum symbol. Enums had none of this, which is
-    why `extension SysError { func describe(&self) ... }` was rejected and every
-    error type in the tree became a struct to compensate.
+    An enum carries methods on the same terms as a struct: the method tables
+    mirror `StructSymbol`'s field for field, so every lookup, overload resolver
+    and visibility gate written against a struct symbol works unchanged with an
+    enum symbol. Keep the two in step.
     """
     kind: SymbolKind = SymbolKind.ENUM
     variants: Dict[str, List[Tuple[str, SawType]]] = field(default_factory=dict)
     variant_order: List[str] = field(default_factory=list)
     type_params: List[TypeParameter] = field(default_factory=list)
     visibility: Visibility = Visibility.PRIVATE
-    # The module that DEFINES this enum. Read by the design-142 orphan rule (a
+    # The module that defines this enum. Read by the orphan rule (a
     # conformance is declarable only where the type or the trait is defined);
-    # see FunctionSymbol.def_module for the std-synthetic-id rationale.
+    # see FunctionSymbol.def_module for the std synthetic id.
     def_module: Tuple[str, ...] = ()
-    # Design 144: see StructSymbol.type_identity.
+    # See StructSymbol.type_identity.
     type_identity: str = ""
     ast_node: Optional[SawEnum] = None
-    # --- method surface, mirroring StructSymbol (design 145) ---
+    # --- method surface, mirroring StructSymbol ---
     methods: Dict[str, FunctionSymbol] = field(default_factory=dict)
     method_overloads: Dict[str, List[FunctionSymbol]] = field(default_factory=dict)
-    # Enums have no `init` — the cases ARE the constructors (design 145 unit B),
-    # so this stays empty and exists only to keep the struct-shaped code paths
-    # uniform. `_register_extension` rejects an `init` with a teaching error.
+    # Enums have no `init` (the cases are the constructors), so this stays
+    # empty and exists only to keep the struct-shaped code paths uniform.
+    # `_register_extension` rejects an `init` with a teaching error.
     init_methods: List[FunctionSymbol] = field(default_factory=list)
     conformances: List[str] = field(default_factory=list)
     specialized_methods: Dict[Tuple[str, ...], Dict[str, FunctionSymbol]] = field(default_factory=dict)
     line: int = 0
     column: int = 0
-    # Raw integer backing (design 145 unit B2): the declared backing type of a
+    # Raw integer backing: the declared backing type of a
     # payload-free enum (`enum E: UInt8 { ... }`), or None. When set, every case
     # carries an explicit value in `raw_values` and the enum is `as`-castable to
     # the backing with a synthesized `E.from(raw:)` inverse.
@@ -196,41 +189,34 @@ class TraitMethodSymbol:
     return_type: Optional[SawType] = None
     self_mutable: bool = False
     self_is_reference: bool = True
-    # `sync` trait method (design 22/51): calls through `any` stay sync-callable.
+    # `sync` requirement: calls through `any` stay sync-callable.
     is_sync: bool = False
-    # `unsafe` trait method (design 130): every conformer's implementation is
-    # unsafe, and so is any call through the requirement.
+    # `unsafe` requirement: every conformer's implementation is unsafe, and so
+    # is any call through the requirement.
     is_unsafe: bool = False
-    # A STATIC requirement (design 169): declared with no `self`, so it is called
-    # on the TYPE. There is no receiver to dispatch on, which is what keeps a
-    # trait carrying one out of `any`.
+    # A static requirement, called on the type. There is no receiver to
+    # dispatch on, which keeps a trait carrying one out of `any`.
     is_static: bool = False
-    # Default method body (design 56): the parsed `TraitMethod` AST when the
-    # method declares a `{ ... }` default, else None. Carried so a conformer that
-    # omits the method can synthesize a per-conformer Method from this body.
+    # Default method body: the parsed `TraitMethod` AST when the method
+    # declares a `{ ... }` default, else None. A conformer that omits the
+    # method gets a per-conformer Method synthesized from this body.
     ast_node: Optional[Any] = None
-    # DECLARATION-TIME RESOLUTION (DF-239b). `param_types`/`return_type` above
-    # are stored RAW — the author's spelling — and a raw `data.Data` or a bare
-    # `Config` means whatever the DECLARING module's imports say it means. These
-    # are the same signature resolved once, at `_register_trait`, in that
-    # module's own context, carrying design-144 identities.
+    # Declaration-time resolution. `param_types`/`return_type` above are stored
+    # raw, and a raw `data.Data` or bare `Config` means whatever the declaring
+    # module's imports say. These are the same signature resolved once, at
+    # `_register_trait`, in that module's context. A foreign call site cannot
+    # do this itself: the prelude gate would run against the wrong module.
     #
-    # A foreign call site could not have done this for itself: resolving a
-    # requirement's parameter at the call site runs design 194's prelude gate
-    # against the WRONG module, so a trait whose module imports a gated type is
-    # unusable from a module that does not. That is what kept the deep argument
-    # check deferred (DF-239a's residue), and resolving here is what unblocks it.
-    #
-    # `None` means "not resolved" — the shallow `register_module_from_ast` path
-    # builds symbols without it — and every consumer falls back to deferral,
-    # which is the pre-DF-239b behaviour.
+    # `None` means "not resolved" (the shallow `register_module_from_ast` path
+    # builds symbols without it), and every consumer then defers the deep
+    # argument check.
     resolved_param_types: Optional[List[Optional[SawType]]] = None
     resolved_return_type: Optional[SawType] = None
     # The names in this requirement's signature that stay ABSTRACT at every call
     # site: the trait's associated types (own and inherited), the trait's own
     # type parameters, and the requirement's own. A parameter whose resolved type
     # names none of them (after `Self` is substituted to the receiver) is
-    # DECIDABLE and gets the ordinary argument check.
+    # decidable and gets the ordinary argument check.
     abstract_type_names: FrozenSet[str] = frozenset()
 
 
@@ -243,12 +229,12 @@ class TraitSymbol:
     associated_types: List[str] = field(default_factory=list)
     parent_traits: List[str] = field(default_factory=list)
     visibility: Visibility = Visibility.PRIVATE
-    # The module that DEFINES this trait — the other place design 142's orphan
-    # rule permits a conformance to be declared.
+    # The module that defines this trait, the other place the orphan rule
+    # permits a conformance to be declared.
     def_module: Tuple[str, ...] = ()
-    # Design 144: see StructSymbol.type_identity. A trait names a type in every
-    # way that matters downstream — `any Trait` erasure, conformance tables and
-    # vtable symbols are all keyed by it — so it qualifies on the same terms.
+    # See StructSymbol.type_identity. `any Trait` erasure, conformance tables
+    # and vtable symbols are all keyed by it, so a trait qualifies on the same
+    # terms as a type.
     type_identity: str = ""
 
 
@@ -258,23 +244,23 @@ class TypeAliasSymbol:
     kind: SymbolKind = SymbolKind.TYPE_ALIAS
     aliased_type: Optional[SawType] = None
     visibility: Visibility = Visibility.PRIVATE
-    # Design 144: see StructSymbol.type_identity.
+    # See StructSymbol.type_identity.
     type_identity: str = ""
     def_module: Tuple[str, ...] = ()
-    # The UNRESOLVED immediate alias target (`type A = B` stores `B` verbatim,
+    # The unresolved immediate alias target (`type A = B` stores `B` verbatim,
     # possibly itself an alias). `aliased_type` collapses the whole chain to the
     # final underlying; `immediate_type` preserves one hop so the distinct-type
-    # cast (design 63) can distinguish a partial projection toward an ancestor
+    # cast can distinguish a partial projection toward an ancestor
     # alias (`b as A` where `type B = A`) from a sibling-alias cast.
     immediate_type: Optional[SawType] = None
 
 
 @dataclass
 class StaticSymbol:
-    """Symbol for a module-level `static` declaration (design 41 + 149).
+    """Symbol for a module-level `static` declaration.
 
     Statics are const-initialized and immortal. An immutable one is Sync-only;
-    an `unsafe static var` (design 149) is mutable, exempt from Sync, and makes
+    an `unsafe static var` is mutable, exempt from Sync, and makes
     every function that names it `unsafe` through the trigger rule.
     `mangled_name` is the codegen identity — the LLVM global's name, prefixed so
     it never clashes with a function of the same name in the (shared) LLVM value
@@ -284,32 +270,27 @@ class StaticSymbol:
     type: Optional[SawType] = None
     mangled_name: str = ""
     visibility: Visibility = Visibility.PRIVATE
-    # design 149: declared `unsafe static var`. Assignment, `&var` lends and
-    # by-pointer receivers are permitted on one and refused on every other
-    # static; naming one is unsafe contact.
+    # Declared `unsafe static var`. Assignment, `&var` lends and by-pointer
+    # receivers are permitted on one and refused on every other static;
+    # naming one is unsafe contact.
     is_var: bool = False
     line: int = 0
     column: int = 0
-    # The module that declared this static (DF-140h). A PRIVATE static in a
-    # non-root module is nameable only from here, so it lives in the namespace's
+    # The module that declared this static. A private static in a non-root
+    # module is nameable only from there, so it lives in the namespace's
     # per-module overlay rather than the shared simple-name slot.
     def_module: Tuple[str, ...] = ()
-    # DF-172j: what this static means in a const-required position — the integer
-    # it folds to, or the reason it folds to nothing. Carried on the SYMBOL and
-    # not looked up from the declaration, because an import may bind the symbol
-    # under another name (`import kcore.{REGION_SIZE as RS}`) and the answer has
-    # to travel with it. Computed once, where the static is registered.
+    # What this static means in a const-required position: the integer it
+    # folds to, or the reason it folds to nothing. Carried on the symbol, not
+    # looked up from the declaration, because an import may bind it under
+    # another name (`import kcore.{REGION_SIZE as RS}`) and the answer has to
+    # travel with it. Computed once, at registration.
     const_value: Optional[int] = None
     const_reject: Optional[str] = None
-    # DF-294c: whether this static's own initializer was admitted as a CONSTANT
-    # (design 186 tier 2), at ANY type. `const_value` is the same question
-    # narrowed to the INTEGER domain — it is the number the evaluator folds, and
-    # a `Slot`-typed static has none — so a leaf naming one had no way to be
-    # recognized as constant and every aggregate face was refused: the repeat
-    # value `[ZERO_SLOT; N]`, the alias `static ALIAS: Slot = ZERO_SLOT`, and a
-    # struct-literal field. This is the answer for the rest of the domain, and it
-    # rides the symbol for the reason `const_value` does: an import may bind it
-    # under another name, and the answer has to travel with it.
+    # Whether this static's initializer was admitted as a constant at any
+    # type. `const_value` answers only in the integer domain, so a `Slot`-typed
+    # static needs this to be usable in `[ZERO_SLOT; N]`, a static alias, or a
+    # struct-literal field. Rides the symbol for the reason `const_value` does.
     const_init: bool = False
 
 
@@ -331,17 +312,15 @@ Symbol = Union[FunctionSymbol, StructSymbol, EnumSymbol, TraitSymbol, TypeAliasS
 
 @dataclass
 class VisibilityRefusal:
-    """A name a qualified reach FOUND and design 80's tier refused (DF-232j).
+    """A name a qualified reach found and the visibility tier refused.
 
-    Resolution answers None for two different facts — "no such name" and "not
-    yours" — and a caller that reports the first for the second teaches nothing
-    (the sweep's whole family of holes was invisible partly because the
-    refusals, when they finally came, said "has no symbol"). A caller passing a
-    `refusals` list to `Namespace.resolve` gets this instead, and can name the
-    tier and the module that owns it.
+    Resolution answers None for two different facts, "no such name" and "not
+    yours", and reporting the first for the second teaches nothing. A caller
+    passing a `refusals` list to `Namespace.resolve` gets this instead, and can
+    name the tier and the module that owns it.
 
-    `module_label` is the DEFINING module's dotted path — where a reader must
-    go to change the modifier — not the module the name was found through.
+    `module_label` is the defining module's dotted path (where a reader must
+    go to change the modifier), not the module the name was found through.
     """
     name: str
     visibility: Visibility
@@ -355,7 +334,7 @@ class Namespace:
     source of truth that both the type checker and code generator use.
     """
 
-    # Design 150: True only on the per-std-file view below. A bare-name
+    # True only on the per-std-file view below. A bare-name
     # cross-module fallback consults it to leave std's qualified-only surface
     # out of the bare-name search.
     is_std_leaf: bool = False
@@ -367,117 +346,101 @@ class Namespace:
         # Package root for public(package) visibility (e.g., () for top-level)
         self.package_root: Tuple[str, ...] = ()
 
-        # DF-232j: the top-level names bound by `--module-path name=dir`, one
-        # per package (ruled Aug 17, DF-232f). `visibility_relation_allows`
-        # roots `public(package)` at `(name,)` for a symbol defined under one,
-        # exactly as it roots std at `("<std>",)`. The set lives HERE, not only
-        # on the typechecker, because the qualified-reach decision is made in
-        # this layer (`_resolve_parts.is_visible`) and was answering with an
-        # empty root — which `check_visibility` reads as "same package, allow".
-        # Stamped by `TypeChecker.check_module` on every module namespace it
-        # builds, and inherited wherever `package_root` is inherited.
+        # The top-level names bound by `--module-path name=dir`, one per
+        # package. `visibility_relation_allows` roots `public(package)` at
+        # `(name,)` for a symbol defined under one, as it roots std at
+        # `("<std>",)`. It lives here, not only on the typechecker, because the
+        # qualified-reach decision is made in this layer
+        # (`_resolve_parts.is_visible`). Stamped by `TypeChecker.check_module`
+        # on every module namespace it builds, and inherited wherever
+        # `package_root` is inherited.
         self.mapped_packages: FrozenSet[str] = frozenset()
 
-        # DF-232n: module path -> PACKAGE IDENTITY, for every module this
-        # compile loaded. A mapped package name and std are identities the
-        # module path alone decides (`package_identity` below); everything else
-        # is a fact about where the file LIVES — its `Saw.toml` root, or the
-        # entry file's tree for a manifest-less one — which only the driver can
-        # compute, so it is handed in. Empty on a namespace nobody stamped,
-        # which `package_identity` answers with None and the funnel reads as
-        # "not the same package" (fail-CLOSED: the missing-root ALLOW arm this
-        # replaced is what made `public(package)` advisory across every
-        # relative-path import).
+        # Module path -> package identity, for every module this compile
+        # loaded. A mapped package and std are decided by the module path alone
+        # (`package_identity` below); everything else depends on where the file
+        # lives (its `Saw.toml` root, or the entry file's tree), which only the
+        # driver can compute, so it is handed in. On a namespace nobody
+        # stamped, `package_identity` answers None and the funnel reads that as
+        # "not the same package": fail closed, or `public(package)` would be
+        # advisory across relative-path imports.
         self.package_identities: Dict[Tuple[str, ...], str] = {}
 
         # Core symbol tables
         self.functions: Dict[str, FunctionSymbol] = {}
-        # Overloading (design 55): name -> all free-function overloads. The
-        # `functions` map above keeps the first-registered overload as the
-        # representative; overloaded call sites resolve against this list.
+        # Overloading: name -> all free-function overloads. The `functions` map
+        # above keeps the first-registered overload as the representative;
+        # overloaded call sites resolve against this list.
         self.function_overloads: Dict[str, List[FunctionSymbol]] = {}
-        # Design 249: free functions get MODULE IDENTITY, the last unkeyed
-        # symbol kind. Two acts, kept apart exactly as design 144 keeps them
-        # apart for types:
-        #   1. STORAGE, keyed by (defining module, name). Two modules' `encode`s
-        #      are two entries that can never overwrite or collide with each
-        #      other, which is what lets the declaration-site ambiguity check
-        #      (design 53/55) compare SAME-MODULE declarations only.
-        #   2. BINDING: `function_overloads` above is the name-as-written view
-        #      of THIS namespace, and `function_name_modules` records which
-        #      defining modules each bare name is actually bound to here. A
-        #      name may bind to SEVERAL modules — free functions overload, so
-        #      the merged set is the overload set (design 150's bare-import
-        #      rung), unlike a type name, which is simply ambiguous.
-        # Root module = the empty key, exactly as `module_statics` does.
+        # Free functions have module identity, in two separate acts (as types
+        # do):
+        #   1. Storage, keyed by (defining module, name). Two modules' `encode`s
+        #      are two entries that never collide, so the declaration-site
+        #      ambiguity check compares same-module declarations only.
+        #   2. Binding: `function_overloads` above is the name-as-written view
+        #      of this namespace, and `function_name_modules` records which
+        #      defining modules each bare name is bound to here. A name may
+        #      bind to several modules, since free functions overload, unlike a
+        #      type name, which is simply ambiguous.
+        # Root module = the empty key, as in `module_statics` (design 249).
         self.module_function_overloads: Dict[
             Tuple[str, ...], Dict[str, List[FunctionSymbol]]] = {}
         self.function_name_modules: Dict[str, List[Tuple[str, ...]]] = {}
-        # Design 144: the four TYPE tables are keyed by module-qualified type
-        # IDENTITY (`Header$m$dep`), not by the bare source name. Two modules'
-        # private `Header`s are two entries, hence two layouts, two
-        # monomorphizations and two method families. `type_names` below is the
-        # name -> identity view a SOURCE reference resolves through.
+        # The four type tables are keyed by module-qualified type identity
+        # (`Header$m$dep`), not the bare source name. Two modules' private
+        # `Header`s are two entries, hence two layouts, two monomorphizations
+        # and two method families. `type_names` below is the name -> identity
+        # view a source reference resolves through (design 144).
         self.structs: Dict[str, StructSymbol] = {}
         self.enums: Dict[str, EnumSymbol] = {}
         self.traits: Dict[str, TraitSymbol] = {}
         self.type_aliases: Dict[str, TypeAliasSymbol] = {}
         self.modules: Dict[str, ModuleSymbol] = {}
-        # Design 144: how a bare name spelled in THIS namespace's source
-        # resolves. Keyed by the name as written — which is the declaration's
-        # own name, or the local name an `import a.{Header as Hdr}` bound
-        # (design 53 aliasing is a pure local rename, so the identity it maps
-        # to is unchanged). Root-module and std types map a name to itself.
+        # How a bare name spelled in this namespace's source resolves, keyed by
+        # the name as written: the declaration's own name, or the local name
+        # an `import a.{Header as Hdr}` bound (a pure local rename, so the
+        # identity is unchanged). Root-module and std types map to themselves.
         self.type_names: Dict[str, str] = {}
-        # Design 204: the same view for the type names only ONE module may
-        # write — a std file's FILE-PRIVATE types, keyed by that file's module
-        # then by the name as written. A private std type is unnameable from
-        # outside its file, so it must not occupy the shared slot above: doing
-        # so made every internal type in std (`State`, `OpenMode`, `MapSlot`,
-        # `DataBuf`, ...) a reserved word for every program in the language,
-        # and made two std files unable to own one name between them. This is
-        # `module_statics` (DF-140h) for TYPES, and it is read through the same
-        # accessor-module-first rule.
+        # The same view for names only one module may write: a std file's
+        # file-private types, keyed by that file's module then by name. A
+        # private std type must not occupy the shared slot above, or every
+        # internal std type would be a reserved word for every program. The
+        # type counterpart of `module_statics`, read through the same
+        # accessor-module-first rule (design 204).
         self.module_type_names: Dict[Tuple[str, ...], Dict[str, str]] = {}
         # Source label (module path string) each type name was first bound
-        # from, and the names bound to two DIFFERENT identities. A bare
-        # reference to an ambiguous name is the design-142 use-site error; the
-        # binding stays first-wins so everything else behaves as before and the
-        # diagnostic is raised once, where the author wrote the name.
+        # from, and the names bound to two different identities. A bare
+        # reference to an ambiguous name is a use-site error; the binding stays
+        # first-wins so the diagnostic is raised once, where the author wrote
+        # the name.
         self.type_provenance: Dict[str, str] = {}
         self.ambiguous_types: Dict[str, Tuple[str, str, str]] = {}
-        # Design 255: the type names the BUILTIN MERGE bound here — the prelude
-        # core plus the std names an import gate keeps hidden (design 82 Part B).
-        # An ambient binding is not the same act as this file naming something,
-        # and `bind_type_name` needs to tell them apart: an explicit import
-        # SHADOWS a gated std name (SL-5) instead of tying with it, and any
-        # collision that does remain names a real module instead of `<unknown>`
-        # (SL-4). Filled by `note_builtin_type_bindings`, and a name leaves the
-        # set the moment something in this file claims it.
+        # The type names the builtin merge bound here: the prelude core plus
+        # the std names an import gate keeps hidden. An ambient binding is not
+        # this file naming something, and `bind_type_name` must tell them
+        # apart: an explicit import shadows a gated std name instead of tying
+        # with it, and a remaining collision names a real module instead of
+        # `<unknown>`. Filled by `note_builtin_type_bindings`; a name leaves the
+        # set once something in this file claims it (design 255).
         self.builtin_type_names: Set[str] = set()
-        # Module-level `static` declarations (design 41), keyed by simple name.
-        # Holds only the statics a simple name may legitimately resolve to from
-        # ANY module: the public ones, plus the root module's own (which has no
-        # module to qualify against). See `module_statics` for the rest.
+        # Module-level `static` declarations, keyed by simple name. Holds only
+        # the statics a simple name may resolve to from any module: the public
+        # ones, plus the root module's own. See `module_statics` for the rest.
         self.statics: Dict[str, StaticSymbol] = {}
-        # DF-140h: module-PRIVATE statics of a non-root module, keyed by their
-        # defining module then simple name. A private static is unnameable from
-        # outside its module, so it must not occupy the shared `statics` slot —
-        # doing so made every private constant in std (`ASCII_ZERO`, `SEEK_SET`,
-        # `AF_UNIX`, ...) a reserved word for every program in the language.
-        # Design 82 already gives each std FILE its own module identity; this is
-        # the namespace half of that model, matching the codegen half DF-140f
-        # landed for symbols.
+        # Module-private statics of a non-root module, keyed by defining module
+        # then simple name. A private static is unnameable outside its module,
+        # so it must not occupy the shared `statics` slot, or every private std
+        # constant (`SEEK_SET`, ...) would be a reserved word for every program.
         self.module_statics: Dict[Tuple[str, ...], Dict[str, StaticSymbol]] = {}
 
         # Type conformances: type_name -> {trait_name -> {assoc_type_name -> SawType}}
         self.conformances: Dict[str, Dict[str, Dict[str, SawType]]] = {}
 
-        # design 186: memo for `struct_is_cell_carrying`, asked once per method
-        # declaration and once per method body so the two always agree.
+        # Memo for `struct_is_cell_carrying`, asked once per method declaration
+        # and once per method body so the two always agree.
         self._cell_carrying_by_name: Dict[str, bool] = {}
 
-        # design 186: the DECLARED thread-safety assertions.
+        # The declared thread-safety assertions (design 186).
         #   type name -> {"UnsafeSend" | "UnsafeSync" -> [[bound, ...], ...]}
         # The inner list is positional over the type's own type parameters, so a
         # conditional header (`extension Vector<T: Send, A: Send>: UnsafeSend`)
@@ -496,10 +459,10 @@ class Namespace:
         # Tracks which monomorphized instantiations have been generated
         self.instantiated: set = set()
 
-        # Accessibility tracking for imports (Phase 2)
+        # Accessibility tracking for imports.
         # Symbols directly accessible without qualification
         self.directly_accessible: Set[str] = set()
-        # If True, all symbols are accessible (legacy/non-module mode)
+        # If True, all symbols are accessible (non-module mode)
         self.allow_all_access: bool = True
 
         # Provenance for merge collision reporting: symbol name -> source label
@@ -507,14 +470,13 @@ class Namespace:
         # label is supplied; used to name both sides of an ambiguity.
         self._provenance: Dict[str, str] = {}
 
-        # --- EXPORT CONTROL (design 229) -------------------------------------
-        # An import is PRIVATE BY DEFAULT. What an ordinary `import` binds here
-        # is this module's to use and nobody else's: an importer of this module
-        # reaches the names it DECLARES public and the ones it re-exports with
+        # --- export control (design 229) -------------------------------------
+        # An import is private by default: an importer of this module reaches
+        # the names it declares public and the ones it re-exports with
         # `public import`, and nothing more. These two tables are what an
-        # ordinary import bound — the bare names, and the module qualifiers —
-        # each mapped to the path it came from, so a refused reach can name the
-        # dependency the reader should import directly.
+        # ordinary import bound (bare names, module qualifiers), each mapped to
+        # its source path, so a refused reach can name the dependency the
+        # reader should import directly.
         self.import_private_names: Dict[str, str] = {}
         self.import_private_modules: Dict[str, str] = {}
         # The glob imports this namespace was built from: (label, source
@@ -522,49 +484,43 @@ class Namespace:
         # — and a bare name refused because the globbed module only imports it
         # would otherwise have no way to say so.
         self.glob_sources: List[Tuple[str, 'Namespace']] = []
-        # The SELECTIVE imports, on exactly the same terms (design 150 as
-        # amended by DF-247b). A selective import binds the names it lists and
-        # NO qualifier, so its source module left `modules` with the amendment —
-        # and the two questions `modules` was answering for it are not the
-        # qualifier question: whether a CONFORMANCE declared over there is
-        # visible here (design 142's orphan rule makes one coherent
-        # program-wide, so no import form may lose one — DF-238c), and which
-        # module is hiding a bare name this file cannot reach (design 229's
-        # teaching case). Both read this list beside `glob_sources`.
+        # The selective imports, on the same terms. A selective import binds
+        # the names it lists and no qualifier, so it is not in `modules`, yet
+        # two questions still need its source: whether a conformance declared
+        # there is visible here (the orphan rule makes conformances coherent
+        # program-wide, so no import form may lose one), and which module hides
+        # a bare name this file cannot reach. Both read this list beside
+        # `glob_sources`.
         self.selective_sources: List[Tuple[str, 'Namespace']] = []
-        # The names this file's selective and glob imports would have bound as
-        # qualifiers before the amendment: leaf -> (module path, form word).
-        # Nothing resolves through it — it exists so the refusal at a qualifier
-        # that is not bound can name the whole-module line that WOULD bind it,
-        # which is the one thing the author needs and cannot guess.
+        # The qualifiers this file's selective and glob imports do not bind:
+        # leaf -> (module path, form word). Nothing resolves through it; it
+        # lets the refusal at an unbound qualifier name the whole-module import
+        # line that would bind it.
         self.nonbinding_qualifiers: Dict[str, Tuple[str, str]] = {}
 
-        # --- the import gate's tables, wired in from outside (design 194 u1) --
-        # Filled by `sawc.py` on the BUILTIN namespace once std has been parsed,
-        # and read from there by the gate. They live on the namespace because
-        # that is the object every checker already has in hand; they were runtime
-        # grafts until the graft gate went in.
+        # --- the import gate's tables, wired in from outside -----------------
+        # Filled by `sawc.py` on the builtin namespace once std has been
+        # parsed, and read from there by the gate. They are declared here
+        # rather than grafted on at runtime (the astgraft lane's rule).
         #
-        # design 82: std FILE leaf -> the symbols that file defines (the set the
-        # glob form `import std.data.*` exposes bare), and its inverse.
+        # Std file leaf -> the symbols that file defines (the set
+        # `import std.data.*` exposes bare), and its inverse.
         self._std_file_symbols: Dict[str, Set[str]] = {}
         self._std_symbol_file: Dict[str, str] = {}
-        # design 204: the same two, over EVERY top-level declaration rather
-        # than the module's surface — a std file's private types are excluded
-        # from the pair above so nothing user-facing can reach them, and the
-        # design-82 codegen exclusion still has to account for them.
-        # `_std_file_keys` carries each declaration's codegen KEY (its
-        # design-144 identity) beside its name, because that is what the
-        # namespace tables are keyed by.
+        # The same two over every top-level declaration, not just the surface:
+        # a std file's private types are excluded from the pair above so
+        # nothing user-facing reaches them, but the codegen exclusion still
+        # has to account for them. `_std_file_keys` holds each declaration's
+        # codegen key (its type identity), which is what the tables use.
         self._std_file_all_names: Dict[str, Set[str]] = {}
         self._std_file_keys: Dict[str, Set[str]] = {}
-        # design 218 unit 1: the DECLARATION-ONLY subset of the above — traits
-        # and type aliases, which emit no code and which `_filter_std_ast`
-        # keeps whatever leaf they came from. The codegen exclusion reads this
-        # so naming one does not drag its whole module into the program.
+        # The declaration-only subset of the above: traits and type aliases,
+        # which emit no code and which `_filter_std_ast` keeps whatever leaf
+        # they came from. The codegen exclusion reads this so naming one does
+        # not drag its whole module into the program.
         self._std_file_decl_only_names: Dict[str, Set[str]] = {}
-        # design 150: the std modules and symbols that REQUIRE an import — the
-        # non-prelude surface. Constants from `sawc.py`, not per-namespace state.
+        # The std modules and symbols that require an import (the non-prelude
+        # surface). Constants from `sawc.py`, not per-namespace state.
         self._import_required_modules: Set[str] = set()
         self._import_required_symbols: Set[str] = set()
 
@@ -572,40 +528,33 @@ class Namespace:
     # Unified Resolution
     # =========================================================================
     #
-    # THE EXPORT GATE (design 229) — one predicate, named entry points.
+    # The export gate (design 229): one predicate, named entry points.
     #
-    # "Can an importer of module M reach the name X through M?" is a
-    # position-quantified rule: it has to hold at every spelling that crosses a
-    # module boundary. There is one decision procedure, `hidden_import`, and it
-    # is asked from exactly these places:
+    # "Can an importer of module M reach the name X through M?" must hold at
+    # every spelling that crosses a module boundary. The one decision
+    # procedure is `hidden_import`. ENTRY POINTS:
     #
-    #   * `_resolve_parts` under `through_import=True` — THE qualified reach.
-    #     Every `m.X`, every chain hop `m.q.X`, and every dotted `resolve()`
-    #     walk lands here; the typechecker's four member-access sites, its two
-    #     type-resolution sites and the qualified-trait lookup in
-    #     `registration.py` all call `resolve(..., through_import=True)` on the
-    #     foreign namespace, and the recursion sets it on each further hop.
-    #   * `TypeChecker.check_module`'s glob and selective import branches — THE
-    #     bare reach. A name M merely imports is not M's to hand on, so the copy
-    #     skips it (glob) or refuses it with the teaching diagnostic
-    #     (selective).
-    #   * `TypeChecker._cross_module_lookup` (typechecker/types.py) and the
-    #     imported-function fallback in `_check_function_call`
-    #     (typechecker/expressions.py) — the two bare-name searches that scan
-    #     imported namespaces for a name the current one does not have.
-    #   * `TypeChecker._import_hiding`, which asks it of every module the file
-    #     imports so the DIAGNOSTIC can name the one that hid the name. Reached
-    #     from the design-194 written-type funnel (every position a type is
-    #     written) and from the two bare expression positions that write no
-    #     type — a struct init and a function call.
+    #   * `_resolve_parts` under `through_import=True` — the qualified reach
+    #     (`m.X`, each chain hop `m.q.X`); typechecker callers reach it via
+    #     `resolve(..., through_import=True)` on the foreign namespace.
+    #   * `TypeChecker._resolve_qualified_symbol` (typechecker/types.py) — the
+    #     qualified-type walk, gating each module hop itself.
+    #   * `TypeChecker.check_module` glob and selective import branches — the
+    #     bare reach: skipped (glob) or refused with a diagnostic (selective).
+    #   * `TypeChecker._cross_module_lookup` (typechecker/types.py) and
+    #     `_check_function_call`'s imported-function fallback
+    #     (typechecker/expressions.py) — the bare-name searches.
+    #   * `TypeChecker._import_hiding`, `_not_reexported_hint`,
+    #     `_module_selectable_names`, `_report_qualified_not_reexported`
+    #     (typechecker/core.py) — diagnostics naming the module that hid it.
     #
-    # A module's OWN view is never gated: `through_import` is False for the
-    # namespace the code being checked lives in, which is what keeps design
-    # 229 a rule about what flows THROUGH a module rather than what it sees.
+    # A module's own view is never gated: `through_import` is False for the
+    # namespace the checked code lives in, so the rule governs what flows
+    # through a module, not what it sees.
     # =========================================================================
 
     def hidden_import(self, name: str, as_module: bool = False) -> Optional[str]:
-        """The path `name` was imported from, when THIS module merely imports it.
+        """The path `name` was imported from, when this module merely imports it.
 
         Returns the source path (`std.file`, `dep.wire`) for a name an ordinary
         `import` bound here — the reach an importer must be refused, and the
@@ -613,7 +562,7 @@ class Namespace:
         name is this module's own, was re-exported with `public import`, or is
         not bound here at all.
 
-        `as_module` asks the question of a module QUALIFIER instead of a bare
+        `as_module` asks the question of a module qualifier instead of a bare
         name; the two live in different tables and a program may legitimately
         use one spelling for both.
         """
@@ -641,13 +590,12 @@ class Namespace:
             check_access: If True, verify the symbol is accessible (respects imports)
             check_visibility: If True, check visibility rules for cross-module access
             accessor_module: The module path of the code doing the lookup (for visibility)
-            through_import: True when the lookup reaches INTO this namespace
-                from a module that imports it — design 229's export gate, above.
-            refusals: Optional out-list. A caller that passes one learns WHY a
-                None answer is None: a name refused by design 80's tier appends
-                a `VisibilityRefusal` here, so the diagnostic can say "`X` is
-                public(package) in `pkg.mod`" instead of "has no symbol `X`"
-                (DF-232j). An absent name appends nothing.
+            through_import: True when the lookup reaches into this namespace
+                from a module that imports it (the export gate, above).
+            refusals: Optional out-list. A name refused by its visibility tier
+                appends a `VisibilityRefusal`, so the diagnostic can say "`X`
+                is public(package) in `pkg.mod`" instead of "has no symbol
+                `X`". An absent name appends nothing.
 
         Returns:
             The resolved Symbol, or None if not found or not accessible
@@ -669,10 +617,10 @@ class Namespace:
             check_access: If True, verify the symbol is directly accessible (import checking)
             check_visibility: If True, check visibility rules for cross-module access
             accessor_module: The module path of the code doing the lookup
-            through_import: See `resolve`. Set on every hop INTO a module's
+            through_import: See `resolve`. Set on every hop into a module's
                 namespace, so a chain (`m.q.X`) is gated at each level.
             refusals: See `resolve`. Carried through every hop, so the reason a
-                CHAIN failed is the reason its last hop failed.
+                chain failed is the reason its last hop failed.
         """
         if not parts:
             return None
@@ -680,9 +628,9 @@ class Namespace:
         name = parts[0]
         remaining = parts[1:]
 
-        # Design 229: this namespace belongs to a module someone else imports,
-        # and `name` is one that module merely imports itself. It is not part of
-        # the surface, under either spelling.
+        # This namespace belongs to a module someone else imports, and `name`
+        # is one that module merely imports itself: not part of its surface,
+        # under either spelling.
         if through_import and self.hidden_import(name, as_module=bool(remaining)):
             return None
 
@@ -697,14 +645,13 @@ class Namespace:
                                                 refusals):
                         return None  # Module not visible
                 if module.namespace:
-                    # Cross-module access - check visibility with accessor
-                    # context, and the design-229 export gate: everything past
-                    # the first hop is being reached THROUGH a module.
+                    # Cross-module access: check visibility with accessor
+                    # context, and the export gate, since everything past the
+                    # first hop is reached through a module.
                     #
-                    # DF-232j: an accessor of `()` is the ENTRY module, not
-                    # "unknown" — the old `accessor_module or self.module_path`
-                    # read it as unknown and handed the hop the module's OWN
-                    # path, which makes every chain hop a same-module access.
+                    # An accessor of `()` is the entry module, not "unknown",
+                    # so test against None: falling back to this module's own
+                    # path would make every chain hop a same-module access.
                     return module.namespace._resolve_parts(
                         remaining, check_access=False, check_visibility=True,
                         accessor_module=(accessor_module
@@ -756,16 +703,14 @@ class Namespace:
                         accessor_module: Tuple[str, ...],
                         refusals: Optional[List['VisibilityRefusal']]) -> bool:
         """Whether `accessor_module` may reach `symbol` found in this namespace,
-        recording the refusal when it may not (DF-232j).
+        recording the refusal when it may not.
 
-        The module the relation is asked about is the symbol's OWN `def_module`,
-        not this namespace's path. A re-exported symbol is the very same object
-        as the one its defining module declared (design 229 shares symbols by
-        reference), so the tier RIDES the symbol: judging it by where it was
-        FOUND is what let one `public import` line republish a package-private
-        name to the world. Module qualifiers carry no `def_module` — a
-        qualifier IS a member of the namespace holding it — so they fall back
-        to this module's path.
+        The relation is asked about the symbol's own `def_module`, not this
+        namespace's path. A re-exported symbol is the same object its defining
+        module declared, so the tier rides the symbol; judging it by where it
+        was found would let a `public import` republish a package-private name.
+        Module qualifiers carry no `def_module` (a qualifier is a member of the
+        namespace holding it), so they fall back to this module's path.
         """
         def_module = tuple(getattr(symbol, 'def_module', ()) or ()) \
             or self.module_path
@@ -815,25 +760,25 @@ class Namespace:
     # =========================================================================
 
     def register_function(self, name: str, symbol: FunctionSymbol):
-        """Register a function symbol (design 55: appends to the overload set).
+        """Register a function symbol, appending it to the overload set.
 
         The first registration under a name is also the representative in
         `self.functions`; later overloads only extend `function_overloads`.
 
-        Design 249: the same act ALSO files the symbol under its identity
-        (defining module, name) and binds `name` here to that module. Every
-        registration path goes through this one method — a module's own
-        declarations and externs (`_register_function` /
-        `_register_extern_function`), each import form that binds a bare name
-        (glob, selective, std expose, parent-module inherit), and the module-AST
-        shim below — so the binding view is complete without a second act at
-        each site.
+        The same act files the symbol under its identity (defining module,
+        name) and binds `name` here to that module. ENTRY POINTS (every
+        registration path, so the binding view is complete):
+          * `_register_function` / `_register_extern_function` — own declarations
+          * `register_bare_function` — glob, selective, std expose and
+            parent-module import binding
+          * `_std_leaf_namespace` — the per-std-file qualifier view
+          * `register_module_from_ast` — the module-AST shim below
         """
         self.function_overloads.setdefault(name, []).append(symbol)
         key = tuple(getattr(symbol, 'def_module', ()) or ())
         bucket = self.module_function_overloads.setdefault(key, {})
         filed = bucket.setdefault(name, [])
-        # By IDENTITY: `FunctionSymbol` compares by value, and two declarations
+        # By identity: `FunctionSymbol` compares by value, and two declarations
         # are two declarations however alike their fields look.
         if not any(s is symbol for s in filed):
             filed.append(symbol)
@@ -842,17 +787,16 @@ class Namespace:
             self.functions[name] = symbol
 
     def register_bare_function(self, name: str, symbol: FunctionSymbol):
-        """Bind an ALREADY-DECLARED function symbol under the bare `name` here.
+        """Bind an already-declared function symbol under the bare `name` here.
 
-        DF-242b: an import binds the whole overload set, not the representative
-        — binding one member is what made a call only a sibling matches report a
-        type error about a candidate the author never wrote. Idempotent by
-        object identity, so two import lines naming one module bind each member
-        once. Callers: the glob, selective and parent-module binding arms of
-        `TypeChecker.check_module`."""
+        An import binds the whole overload set, not the representative, so a
+        call only a sibling matches still resolves. Idempotent by object
+        identity, so two import lines naming one module bind each member once.
+        Callers: the glob, selective and parent-module binding arms of
+        `TypeChecker.check_module`, and `_process_std_import`."""
         decl = getattr(symbol, 'decl_node', None)
         for bound in self.function_overloads.get(name, ()):
-            # Identity, or the same DECLARATION behind an aliasing copy
+            # Identity, or the same declaration behind an aliasing copy
             # (`import m.{f as g}` binds a `dataclasses.replace` of the symbol).
             if bound is symbol or (
                     decl is not None
@@ -861,10 +805,10 @@ class Namespace:
         self.register_function(name, symbol)
 
     def bind_function_module(self, name: str, module: Tuple[str, ...]):
-        """Bind the bare spelling `name` to `module`'s free functions HERE.
+        """Bind the bare spelling `name` to `module`'s free functions here.
 
-        Design 249's second act. `register_function` calls it for every symbol
-        it files; the std import path calls it directly, because an unaliased
+        `register_function` calls it for every symbol it files; the std import
+        path calls it directly, because an unaliased
         `import std.json.*` binds a name whose symbol is already present (the
         builtin namespace is merged wholesale into every module) and so never
         re-registers it.
@@ -876,46 +820,41 @@ class Namespace:
     def lookup_module_function_overloads(
             self, name: str,
             module: Tuple[str, ...]) -> List[FunctionSymbol]:
-        """The overloads `module` itself declares under `name` (design 249).
+        """The overloads `module` itself declares under `name`.
 
-        The identity-keyed read: it answers about ONE module's declarations and
-        never about what that module imported. Callers: the declaration-site
-        ambiguity check (`_register_function`), the per-std-file qualifier view
-        (`_std_leaf_namespace`), and the aliasing arm of the std import
-        (`_process_std_import._expose`). Two more read the table directly
-        because they walk it rather than query it — the codegen-symbol
-        stampings, `_stamp_overload_symbols` (every module of this pass) and
-        `_stamp_module_private_functions` (this module's own bucket)."""
+        The identity-keyed read: it answers about one module's declarations,
+        never about what that module imported. Callers:
+          * `_register_function` — the declaration-site ambiguity check
+          * `_std_leaf_namespace` — the per-std-file qualifier view
+          * `_process_std_import._expose` — the aliasing std import
+        `_stamp_overload_symbols` and `merge_into` walk the table directly
+        rather than query it."""
         return self.module_function_overloads.get(tuple(module), {}).get(name, [])
 
     def lookup_function_overloads(
             self, name: str,
             accessor_module: Optional[Tuple[str, ...]] = None
             ) -> List[FunctionSymbol]:
-        """THE free-function lookup funnel (design 55 + design 249).
+        """The free-function lookup funnel (design 249).
 
         Returns the overloads a reference to the bare `name` resolves against
-        in this namespace, following design 150's binding order: the accessor
-        module's OWN declarations plus the names imported bare into it. When
-        several modules bind one name, the MERGED set is the overload set and
-        resolution proceeds normally — a genuine tie is then the existing
-        ambiguity error AT THE CALL, naming both origins.
+        in this namespace: the accessor module's own declarations plus the
+        names imported bare into it. When several modules bind one name, the
+        merged set is the overload set; a genuine tie is the ambiguity error
+        at the call, naming both origins. The filter engages only when the
+        candidates span two or more defining modules.
 
-        The filter engages only when the candidates span 2+ defining modules,
-        which before design 249 could not happen: a single-owner name returns
-        exactly what it always did.
-
-        ENTRY POINTS (obligation 1). Every reader of the free-function registry
-        goes through here or through `lookup_module_function_overloads` above:
+        ENTRY POINTS (every reader of the free-function registry goes through
+        here or through `lookup_module_function_overloads` above):
           - `_check_function_call` — the bare call (typechecker/expressions.py)
           - `_check_module_qualified_call`'s two arms — `q.f(...)` and the
             chained `a.b.f(...)`, each asking the NAMED module's namespace
           - `_check_funcpointer_named_function` + `_check_identifier`'s
             FuncPointer arm — a named function in a `FuncPointer<F>` slot
           - `_reinterpret_struct_init_as_call` — the labeled-call reroute
-          - `check_module`'s three bare-binding arms — the glob, the selective
-            import and the parent-module inherit, each asking the SOURCE
-            namespace for the whole set a name stands for (DF-242b)
+          - `check_module`'s bare-binding arms — the glob, the selective
+            import and the parent-module inherit, each asking the source
+            namespace for the whole set a name stands for
           - `lookup_function` below, which is how every single-symbol reader
             (`get_function_info` and its callers) sees the same answer
         """
@@ -925,12 +864,11 @@ class Namespace:
         modules = {tuple(getattr(s, 'def_module', ()) or ()) for s in cands}
         if len(modules) < 2:
             return cands
-        # Design 249: a name several modules define is visible here only through
-        # the modules this namespace actually BOUND it from, plus the accessor's
-        # own declarations and the root/builtin module (which has no module to
-        # import). Fail CLOSED — an unbound name resolves to nothing, so the
-        # caller reports "not accessible"/"must be imported" rather than
-        # silently picking a module the source never named.
+        # A name several modules define is visible here only through the
+        # modules this namespace bound it from, plus the accessor's own
+        # declarations and the root/builtin module. Fail closed: an unbound
+        # name resolves to nothing, so the caller reports "must be imported"
+        # rather than silently picking a module the source never named.
         allowed = set(self.function_name_modules.get(name, ()))
         allowed.add(())
         if accessor_module is not None:
@@ -942,16 +880,16 @@ class Namespace:
     @staticmethod
     def _static_is_module_local(symbol: 'StaticSymbol') -> bool:
         """Whether `symbol` belongs in the per-module overlay rather than the
-        shared simple-name slot (DF-140h): a PRIVATE static of a non-root
-        module, which no other module can name."""
+        shared simple-name slot: a private static of a non-root module, which
+        no other module can name."""
         return (symbol.visibility == Visibility.PRIVATE
                 and bool(getattr(symbol, 'def_module', ()) or ()))
 
     def register_static(self, name: str, symbol: 'StaticSymbol'):
-        """Register a module-level static symbol (design 41).
+        """Register a module-level static symbol.
 
         A module-private static goes to its own module's overlay; everything
-        else takes the shared slot (DF-140h)."""
+        else takes the shared slot."""
         if self._static_is_module_local(symbol):
             key = tuple(symbol.def_module)
             self.module_statics.setdefault(key, {})[name] = symbol
@@ -968,9 +906,9 @@ class Namespace:
                    ) -> Optional['StaticSymbol']:
         """Look up a static by simple name, as seen from `module`.
 
-        The accessor module's OWN private statics win over the shared slot, so a
+        The accessor module's own private statics win over the shared slot, so a
         std file keeps reading its own `ASCII_ZERO` even when the program being
-        compiled declares one too (DF-140h)."""
+        compiled declares one too."""
         own = self.module_statics.get(tuple(module or ()))
         if own is not None and name in own:
             return own[name]
@@ -979,10 +917,10 @@ class Namespace:
     # =========================================================================
     # Type registration and name binding (design 144)
     #
-    # Two separate acts, and keeping them separate is the whole point:
-    #   1. The symbol is stored under its IDENTITY. Two modules' `Header`s are
+    # Two separate acts, which must stay separate:
+    #   1. The symbol is stored under its identity. Two modules' `Header`s are
     #      two entries that can never overwrite each other.
-    #   2. The name as WRITTEN is bound to that identity in this namespace's
+    #   2. The name as written is bound to that identity in this namespace's
     #      `type_names` view. That binding is per-namespace, so `Header` means
     #      dep's Header inside dep and the entry's Header inside the entry.
     # =========================================================================
@@ -998,11 +936,11 @@ class Namespace:
 
     @staticmethod
     def _type_is_module_local(symbol, identity: str) -> Optional[Tuple[str, ...]]:
-        """The module whose PRIVATE name view `identity` belongs in, or None.
+        """The module whose private name view `identity` belongs in, or None.
 
-        Design 204, mirroring `_static_is_module_local`: a std file's private
-        type is nameable only from that file, so its binding lives in the
-        per-module overlay rather than the shared simple-name slot."""
+        Mirrors `_static_is_module_local`: a std file's private type is
+        nameable only from that file, so its binding lives in the per-module
+        overlay rather than the shared simple-name slot."""
         from type_identity import is_module_local
         module = tuple(getattr(symbol, 'def_module', ()) or ())
         return module if is_module_local(identity, module) else None
@@ -1010,8 +948,8 @@ class Namespace:
     def _own_module_label(self) -> str:
         """This namespace's own module, spelled the way a reader would write it.
 
-        The label a binding made HERE carries, so a collision report names both
-        sides (design 255 / SL-4). The entry module has no path to spell."""
+        The label a binding made here carries, so a collision report names both
+        sides. The entry module has no path to spell."""
         module = tuple(self.module_path or ())
         if not module:
             return "this module"
@@ -1020,15 +958,14 @@ class Namespace:
         return ".".join(module)
 
     def note_builtin_type_bindings(self, builtin_ns):
-        """Mark every type name the builtin merge just bound here as AMBIENT,
+        """Mark every type name the builtin merge just bound here as ambient,
         and give it a real source label (design 255).
 
         Called once per namespace, straight after `merge_into(builtin_ns)` and
         the accessibility copy, so `type_names` still holds exactly what the
-        merge put there. The label distinguishes the two ambient tiers, because
-        they behave differently: a PRELUDE name is in scope with nothing
-        written, and a gated one is merely merged and needs `import std.<leaf>`
-        before a program may write it (design 82 Part B). `bind_type_name`
+        merge put there. The label distinguishes the two ambient tiers: a
+        prelude name is in scope with nothing written, and a gated one needs
+        `import std.<leaf>` before a program may write it. `bind_type_name`
         shadows the second and reports a collision with the first."""
         symbol_file = getattr(builtin_ns, '_std_symbol_file', {}) or {}
         for name in self.type_names:
@@ -1046,19 +983,17 @@ class Namespace:
         """Forget the ambient std entries this namespace merged in under
         `identity`, because a shadowing binding supersedes them here.
 
-        The counterpart of `hide_struct`, and needed for the same reason: the
-        type tables are keyed by IDENTITY and `_lookup_type` consults them
-        BEFORE the name view, so rebinding `type_names` alone leaves every use
-        of the spelling still answering with the std symbol. std's PUBLIC types
-        are exempt from qualification (design 144), so their identity IS the
-        spelling and the shortcut always hits.
+        The counterpart of `hide_struct`: the type tables are keyed by identity
+        and `_lookup_type` consults them before the name view, so rebinding
+        `type_names` alone would leave the spelling answering with the std
+        symbol. std's public types are unqualified, so their identity is the
+        spelling.
 
-        A QUALIFIED identity is left alone: it is unreachable by the spelling
+        A qualified identity is left alone: it is unreachable by the spelling
         anyway, and it may be one the compiler itself emits references to
-        (`Thread`, `Poll`, `Slot` — `COMPILER_EMITTED_STD_TYPES`), which must
-        keep resolving whatever a user program calls its own types. Every
-        namespace owns its own tables, so the removal is local to this
-        module's view."""
+        (`COMPILER_EMITTED_STD_TYPES`), which must keep resolving whatever a
+        user program names its own types. Every namespace owns its tables, so
+        the removal is local to this module's view."""
         if not identity or is_qualified(identity):
             return
         self.structs.pop(identity, None)
@@ -1068,23 +1003,19 @@ class Namespace:
         self.conformances.pop(identity, None)
 
     def _shadows_ambient_binding(self, local: str) -> bool:
-        """Whether binding `local` here SHADOWS an ambient std name rather than
-        colliding with it (design 255, the SL-5 ruling).
+        """Whether binding `local` here shadows an ambient std name rather than
+        colliding with it (design 255).
 
-        Two conditions, and both are the ruling: the current binding was made
-        by the builtin merge and nothing in this file has claimed the name
-        since, AND std keeps that name behind an import gate — it is not in
-        scope until a program writes `import std.<leaf>`. Such a name is the
-        weakest bare-name tier there is, so an author who writes
-        `import mine.{Thread}` gets theirs, exactly as an author who DECLARES
-        `struct Thread` already does (design 82 Part B's `rebind_type_name`).
+        Both must hold: the current binding was made by the builtin merge and
+        nothing in this file has claimed the name since, and std keeps the
+        name behind an import gate. That is the weakest bare-name tier, so
+        `import mine.{Thread}` gets the author's type, as declaring
+        `struct Thread` does (`rebind_type_name`).
 
-        A PRELUDE name is not shadowed: it is in scope with nothing written,
-        redeclaring one is a redefinition error (conformance row B12), and an
-        import that quietly won where a declaration is refused would be the
-        same asymmetry pointing the other way. Nor is a name an EARLIER import
-        bound: two explicit imports of one name are genuinely ambiguous, and
-        that is the design-142 use-site error, kept."""
+        A prelude name is not shadowed: redeclaring one is a redefinition
+        error (conformance row B12), and an import must not win where a
+        declaration is refused. Nor is a name an earlier import bound: two
+        explicit imports of one name are ambiguous at the use site."""
         return (local in self.builtin_type_names
                 and local not in self.directly_accessible)
 
@@ -1093,16 +1024,15 @@ class Namespace:
                        module_local: Optional[Tuple[str, ...]] = None):
         """Bind the source-visible name `local` to `identity` here.
 
-        First-wins, matching every other binding in this namespace, with ONE
-        exception: a binding over an ambient GATED std name shadows it
-        (`_shadows_ambient_binding`, design 255). Otherwise a second binding to
-        a DIFFERENT identity is recorded in `ambiguous_types` rather than
-        dropped silently: the name is genuinely ambiguous at any bare use,
-        which is the design-142 use-site error, raised once where it is written.
+        First-wins, like every other binding in this namespace, with one
+        exception: a binding over an ambient gated std name shadows it
+        (`_shadows_ambient_binding`). Otherwise a second binding to a different
+        identity is recorded in `ambiguous_types` rather than dropped: the name
+        is ambiguous at any bare use, an error raised once where it is written.
 
-        `module_local` (design 204) diverts the binding into that module's own
-        view: two std files may then each bind `State`, and neither binding is
-        visible to a user program or to the other file.
+        `module_local` diverts the binding into that module's own view: two std
+        files may each bind `State`, and neither binding is visible to a user
+        program or to the other file.
         """
         if module_local:
             self.module_type_names.setdefault(
@@ -1149,51 +1079,43 @@ class Namespace:
         """Point the spelling `local` at `identity` here, replacing whatever it
         was bound to and clearing any ambiguity recorded for it.
 
-        `bind_type_name` is first-wins, which is right for two IMPORTS racing
-        for a name. This is the other case: the module being registered
-        declares `local` ITSELF, over a hidden std name it never imported, so
-        the spelling is unambiguously the module's. It matters once a std
-        declaration's identity differs from its spelling (design 218 unit 1's
-        compiler-emitted types), because then first-wins leaves the name
-        pointing at std's identity and the user's declaration reads as an
-        ambiguity instead of a shadow.
+        `bind_type_name` is first-wins, which is right for two imports racing
+        for a name. This is the other case: the module declares `local` itself,
+        over a hidden std name it never imported, so the spelling is the
+        module's. It matters when a std declaration's identity differs from
+        its spelling (the compiler-emitted types); first-wins would make the
+        user's declaration read as an ambiguity instead of a shadow.
 
-        Design 255 gave this a second caller: `bind_type_name` performs the
-        same act when an explicit IMPORT lands on an ambient gated std name,
-        which is the whole of the SL-5 ruling — one act, two spellings of the
-        author's intent. The name leaves `builtin_type_names` either way: it is
-        this file's from here on, so a LATER binding of it collides normally
-        rather than shadowing a second time."""
+        Callers: type registration for a declaration, and `bind_type_name` when
+        an explicit import lands on an ambient gated std name. The name leaves
+        `builtin_type_names` either way, so a later binding collides normally
+        rather than shadowing again."""
         self.type_names[local] = identity
         self.ambiguous_types.pop(local, None)
         self.builtin_type_names.discard(local)
         self.type_provenance[local] = self._own_module_label()
 
     def hide_type_conformances(self, identity: str):
-        """Forget the conformances THIS namespace merged in for `identity`,
+        """Forget the conformances this namespace merged in for `identity`,
         because a declaration here supersedes the type that had them.
 
-        The design-82 hidden-std shadow replaces the SYMBOL (a user `struct
-        Once` overwrites the merged entry), and the conformance table is keyed
-        separately by identity — so without this the user's own type answered
-        yes to `Once: NoCopy` and every struct holding one was told to declare
-        a copy policy for a `NoCopy` field it does not have. The user type
-        registers its own conformances a pass later, so clearing here loses
-        nothing of theirs."""
+        The hidden-std shadow replaces the symbol (a user `struct Once`
+        overwrites the merged entry), but the conformance table is keyed
+        separately, so without this the user's type would inherit std's
+        conformances (`Once: NoCopy`). The user type registers its own
+        conformances a pass later, so clearing here loses nothing of theirs."""
         self.conformances.pop(identity, None)
 
     def hide_struct(self, identity: str):
-        """Drop a struct entry THIS namespace merged in, because a declaration
+        """Drop a struct entry this namespace merged in, because a declaration
         of the same name in another category supersedes it here.
 
-        The design-82 hidden-std shadow (a user declaring a name a gated std
-        module also declares) works by OVERWRITE when both are structs — the
-        user symbol lands on the same identity key. Across categories there is
-        no overwrite to rely on: registering an enum leaves the merged struct
-        entry in place, and a later `lookup_struct` would answer with the std
-        type the program cannot even name. Every namespace owns its own tables
-        (`merge_into` copies entries), so the removal is local to this module's
-        view and the builtin namespace is untouched."""
+        The hidden-std shadow works by overwrite when both are structs (the
+        user symbol lands on the same identity key). Across categories there
+        is no overwrite: registering an enum would leave the merged struct in
+        place for `lookup_struct` to find. Every namespace owns its tables
+        (`merge_into` copies entries), so the removal is local to this
+        module's view."""
         self.structs.pop(identity, None)
 
     def register_trait(self, name: str, symbol: TraitSymbol,
@@ -1215,7 +1137,7 @@ class Namespace:
     def _iter_types(self, table: Dict[str, Any]):
         """`(source name, identity, symbol)` for every type nameable here.
 
-        Iterating the table directly would yield IDENTITIES, which is the wrong
+        Iterating the table directly would yield identities, which is the wrong
         key for anything that re-binds a name in another namespace (an import
         binds `Header`, never `Header$m$dep`). Iterating `type_names` gives the
         spellings, one entry per way the type can be written here."""
@@ -1240,11 +1162,10 @@ class Namespace:
         Total by design: an unknown name resolves to itself, so every caller
         that only wants to canonicalize can call this unconditionally.
 
-        `module` is the module doing the looking (design 204). Its OWN private
-        type names win over the shared view, so `std/once.saw` keeps reading
-        its own `State` even when `std/spinlock.saw` declares one and the
-        program being compiled declares a third — the same precedence
-        `get_static` gives a module-private static."""
+        `module` is the module doing the looking. Its own private type names
+        win over the shared view, so `std/once.saw` keeps reading its own
+        `State` even when another std file and the program each declare one;
+        the same precedence `get_static` gives a module-private static."""
         if not name:
             return name
         if module:
@@ -1278,12 +1199,9 @@ class Namespace:
         mod_path = tuple(path) if path else ()
         mod_ns = Namespace(module_path=mod_path)
         mod_ns.package_root = self.package_root  # Inherit package root
-        # DF-232j: and the package NAMES, which is the other half of the same
-        # knowledge — a namespace that does not know them decides
-        # `public(package)` with no root at all.
+        # And the package names and identities: without them the namespace
+        # would decide `public(package)` with no root at all.
         mod_ns.mapped_packages = self.mapped_packages
-        # DF-232n: and the package IDENTITIES, which is how the same decision is
-        # made for a module that arrived by relative path.
         mod_ns.package_identities = self.package_identities
 
         # Register all symbols from the module AST
@@ -1363,9 +1281,9 @@ class Namespace:
                     module_map=module_map
                 )
 
-        # Register the module's own imports in its namespace (Phase 4.5)
-        # This allows the module's code to resolve its import references
-        # Note: These imports are PRIVATE - not exposed to importers of this module
+        # Register the module's own imports in its namespace, so its code can
+        # resolve its import references. These imports are private: not
+        # exposed to importers of this module.
         if module_map:
             for imp in getattr(module_ast, 'imports', []):
                 imp_path = tuple(imp.path)
@@ -1379,7 +1297,7 @@ class Namespace:
                         module_map=module_map
                     )
 
-        # Create and register the module symbol
+        # Create and register the module symbol.
         self.modules[alias] = ModuleSymbol(
             namespace=mod_ns,
             path=path or [],
@@ -1387,17 +1305,17 @@ class Namespace:
         )
 
     def method_owner(self, type_name: str):
-        """The symbol that carries methods for `type_name` — a struct or, since
-        design 145, an enum. Enums grew the same method tables, so every caller
-        below is written once against whichever owns the name."""
+        """The symbol that carries methods for `type_name`: a struct or an enum.
+        Both have the same method tables, so every caller below is written once
+        against whichever owns the name."""
         owner = self.lookup_struct(type_name)
         if owner is not None:
             return owner
         return self.lookup_enum(type_name)
 
     def register_method(self, struct_name: str, method_name: str, symbol: FunctionSymbol):
-        """Register a method on a struct or enum (design 55: appends to the
-        overload set).
+        """Register a method on a struct or enum, appending it to the overload
+        set.
 
         The first registration under a name is the representative in `methods`;
         later overloads only extend `method_overloads`.
@@ -1408,16 +1326,10 @@ class Namespace:
             if method_name not in s.methods:
                 s.methods[method_name] = symbol
 
-    # DELETED by design 256: `lookup_method_overloads(struct_name, method_name)`.
-    # It answered "the overloads of `method_name` on `struct_name`" by
-    # re-resolving the WRITTEN spelling through `method_owner`'s simple-name
-    # lookup, so every receiver whose type name is not bound as a simple name at
-    # the call site — a module qualifier, a value whose type the file never
-    # spells — got an EMPTY set and the call collapsed onto the first-registered
-    # overload (DF-280a). The question is now asked of the RESOLVED symbol, by
-    # `TypeChecker._receiver_method_overloads`, which reads the same
-    # `method_overloads` table off the receiver's own identity. Nothing is left
-    # here to key an overload set on a spelling again.
+    # There is deliberately no spelling-keyed "overloads of method M on type T"
+    # lookup here: the receiver's type name need not be bound as a simple name
+    # at the call site. Ask `TypeChecker._receiver_method_overloads`, which
+    # reads `method_overloads` off the resolved receiver symbol.
 
     def register_init_method(self, struct_name: str, symbol: FunctionSymbol):
         """Register an init method on a struct."""
@@ -1449,8 +1361,7 @@ class Namespace:
             self.conformances[type_name] = {}
         self.conformances[type_name][trait_name] = type_assignments or {}
 
-        # Also add to the type's own conformance list (struct or, since design
-        # 145, enum — both carry one).
+        # Also add to the type's own conformance list (struct or enum).
         owner = self.method_owner(type_name)
         if owner is not None:
             if trait_name not in owner.conformances:
@@ -1463,14 +1374,13 @@ class Namespace:
     def lookup_function(self, name: str,
                         accessor_module: Optional[Tuple[str, ...]] = None
                         ) -> Optional[FunctionSymbol]:
-        """Look up a function by name — the ONE declaration a bare use means.
+        """Look up a function by name: the one declaration a bare use means.
 
-        Design 249: routed through the overload funnel, then design 150's
-        ladder inside what it returns — the accessor module's OWN declaration
-        wins over anything merged or imported under the same name. The
-        representative in `self.functions` is only first-registration order,
-        which put std's `dump_tasks` ahead of the program's own (std is merged
-        into every module namespace before that module registers a thing)."""
+        Routed through the overload funnel; within what it returns, the
+        accessor module's own declaration wins over anything merged or imported
+        under the same name. The representative in `self.functions` reflects
+        only registration order, and std is merged into every namespace before
+        the module registers anything, so it cannot be used for this."""
         cands = self.lookup_function_overloads(name, accessor_module)
         if not cands:
             return self.functions.get(name)
@@ -1484,12 +1394,12 @@ class Namespace:
 
     def _lookup_type(self, table: Dict[str, Any], name: str,
                      module: Optional[Tuple[str, ...]] = None):
-        """Look a type up in `table` by IDENTITY or by source name (design 144).
+        """Look a type up in `table` by identity or by source name.
 
         The identity hit comes first: everything downstream of type checking
         (codegen keys, monomorphization, mangling) holds identities, and for an
         unqualified type the two spellings coincide anyway. `module` is the
-        looking module, whose own file-private names win (design 204)."""
+        looking module, whose own file-private names win."""
         sym = table.get(name)
         if sym is not None:
             return sym
@@ -1499,19 +1409,15 @@ class Namespace:
         return None
 
     def _lookup_own_type(self, table: Dict[str, Any], name: str):
-        """Look a type up in `table` by the SOURCE SPELLING `name`, as THIS
-        module writes it (design 255).
+        """Look a type up in `table` by the source spelling `name`, as this
+        module writes it.
 
-        The mirror of `_lookup_type`, which is identity-first. That order is
-        right for everything downstream of type checking, which holds
-        identities — and wrong for an importer, which holds a spelling. std's
-        PUBLIC types are exempt from qualification (design 144: their identity
-        IS their spelling), so the identity-first shortcut hands back the
-        MERGED std symbol for `File`, `Duration` or `Instant` before it ever
-        consults `type_names`, where this module's own declaration of that name
-        is bound. `import m.{File}` then bound std's `File` under the name,
-        silently, and the program failed later on a field the wrong type does
-        not have.
+        The mirror of `_lookup_type`, which is identity-first: right for
+        everything downstream of type checking, wrong for an importer holding a
+        spelling. std's public types are unqualified (identity = spelling), so
+        identity-first would return the merged std `File` before consulting
+        `type_names`, where this module's own `File` is bound, and
+        `import m.{File}` would silently bind the wrong type.
 
         Used by the selective-import binder, whose argument is always a name
         the author wrote in braces."""
@@ -1558,7 +1464,7 @@ class Namespace:
         return self._lookup_type(self.type_aliases, name, module)
 
     def lookup_method(self, struct_name: str, method_name: str) -> Optional[FunctionSymbol]:
-        """Look up a method on a struct or enum (design 145)."""
+        """Look up a method on a struct or enum."""
         owner = self.method_owner(struct_name)
         if owner:
             return owner.methods.get(method_name)
@@ -1587,8 +1493,8 @@ class Namespace:
         alias = self.lookup_type_alias(name)
         if alias is not None and alias.aliased_type:
             return alias.aliased_type
-        # Check structs / enums. The built type carries the IDENTITY, not the
-        # spelling (design 144) — everything downstream keys on it.
+        # Check structs / enums. The built type carries the identity, not the
+        # spelling, because everything downstream keys on it.
         struct = self.lookup_struct(name)
         if struct is not None:
             return SawType(kind=TypeKind.STRUCT,
@@ -1624,31 +1530,24 @@ class Namespace:
         return method.is_init if method else False
 
     def imported_search_sources(self):
-        """`(label, namespace)` for every module an ordinary NAME lookup may
-        fall through to (DF-247b).
+        """`(label, namespace)` for every module an ordinary name lookup may
+        fall through to.
 
-        THE ONE LIST for that question. Four walks used to iterate `modules`
-        directly and reach a selectively-imported module because the selective
-        form also bound a qualifier: `_lookup_struct_deep` and its type-alias
-        and enum twins, `trait_refines`' parent walk, and — the one the sos
-        kernel found — `_cross_module_lookup`, the bare-name fallback that
-        answers `ATTACHMENTS[a].kind` when the element's TYPE was never
-        selected beside the static that holds it.
+        The one list for that question. ENTRY POINTS (here or through
+        `imported_search_namespaces`): `_lookup_struct_deep` and its
+        type-alias and enum twins, `trait_refines`' parent walk,
+        `_cross_module_lookup`, and `_check_function_call`'s imported-function
+        fallback. A selective import binds no qualifier but its
+        source stays searchable, so `import m.{Child}` still finds `Child`'s
+        unselected parent in `m`.
 
-        The design 150 amendment took the QUALIFIER away and nothing else, so
-        these read this instead: `import m.{Child}` still finds `Child`'s
-        unselected PARENT over in `m`, and the only thing that changed is that
-        `m.Whatever` is no longer a spelling.
+        A glob source is deliberately not here: a glob copies the names it is
+        entitled to, so a name it did not copy is one this module may not see,
+        and widening the walk would reach the globbed module's private
+        declarations.
 
-        A GLOB source is deliberately NOT here, and that is the pre-existing
-        line: a glob COPIES the names it is entitled to, so a name it did not
-        copy is one this module may not see, and widening the walk would reach
-        the globbed module's private declarations. A selective import's source
-        was always reachable, so keeping it reachable is the conservative half.
-
-        The label is how a caller names the module in a diagnostic; a module
-        imported BOTH ways yields twice, which its callers already handle by
-        deduplicating symbol objects by identity.
+        The label names the module in a diagnostic; a module imported both
+        ways yields twice, and callers deduplicate symbols by identity.
         """
         for qualifier, module_sym in self.modules.items():
             ns = getattr(module_sym, 'namespace', None)
@@ -1662,12 +1561,10 @@ class Namespace:
         """The namespaces of `imported_search_sources`, for callers with no
         diagnostic to write.
 
-        Spelled out rather than delegating to `imported_search_sources` and
-        dropping the label: this is the hottest iteration in the checker (40M
-        yields on a six-module program), and a generator delegating to a
-        generator paid two Python frames per element for a label nobody here
-        reads. The two loops below are that function's two loops; the pair
-        must stay in step, which is why they sit adjacent.
+        Spelled out rather than delegating to `imported_search_sources`,
+        because this is the hottest iteration in the checker and a delegating
+        generator costs two Python frames per element. Keep the two loops in
+        step with `imported_search_sources`.
         """
         for module_sym in self.modules.values():
             ns = getattr(module_sym, 'namespace', None)
@@ -1678,34 +1575,24 @@ class Namespace:
                 yield ns
 
     def coherence_search_namespaces(self):
-        """Every namespace a COHERENCE query reaches from here (DF-238c).
+        """Every namespace a coherence query reaches from here.
 
-        THE ONE PLACE that answers "which imported modules can a conformance
-        have been declared in" (obligation 1). ENTRY POINTS: `type_conforms_to`
-        and `_lookup_thread_assertion` — the two queries about what a type was
-        DECLARED to be, as opposed to what a name resolves to.
+        The one place that answers "which imported modules can a conformance
+        have been declared in". ENTRY POINTS:
+          * `type_conforms_to`
+          * `_lookup_thread_assertion`
+        (the queries about what a type was declared to be, as opposed to what
+        a name resolves to).
 
-        The WHOLE-MODULE form binds a qualifier and lands in `modules`; the GLOB
-        and (since DF-247b's amendment to design 150) the SELECTIVE form bind
-        none and land in `glob_sources` / `selective_sources` instead. That is
-        the right answer for a NAME (a copying import brings the names it takes
-        straight into this namespace, and the ones it did not take are ones this
-        module may not see), and the wrong one for a CONFORMANCE: design 142
-        makes a conformance declared under the orphan rule coherent
-        PROGRAM-WIDE, so no import form may lose one. Before this walked
-        `glob_sources` too, `import m.*` lost every conformance `m` declares for
-        a type declared ELSEWHERE — the orphan rule's second half, the half
-        whose declaration site is the trait's module rather than the type's, and
-        therefore the half a glob of the TYPE's module cannot carry either. The
-        same gap hid the `UnsafeSync` a `static` slot needs, one query over.
-        `selective_sources` is that same list for the form the amendment moved:
-        the selective import's source used to be reachable only because it also
-        bound a qualifier, which was never what made the conformance visible.
+        The whole-module form lands in `modules`; the glob and selective forms
+        bind no qualifier and land in `glob_sources` / `selective_sources`.
+        All three are walked because the orphan rule makes a conformance
+        coherent program-wide, so no import form may lose one; in particular
+        `import m.*` must see a conformance `m` declares for a type declared
+        elsewhere.
 
-        Name lookups (`_lookup_struct_deep` and its enum/alias twins, the
-        trait-parent walk) are deliberately NOT routed here: those are questions
-        about visibility, where the copying import already did the right thing
-        and widening the search would reach that module's PRIVATE declarations.
+        Name lookups are deliberately not routed here: they are visibility
+        questions, where widening the search would reach private declarations.
         """
         for module_sym in self.modules.values():
             ns = getattr(module_sym, 'namespace', None)
@@ -1722,18 +1609,17 @@ class Namespace:
         """Check if a type conforms to a trait.
 
         Checks this namespace, then every namespace an import reaches
-        (`coherence_search_namespaces`) — conformances are registered per-module
-        at typecheck time and only merged for codegen, so a cross-module query —
-        e.g. a manifest module erasing a TomlError from the toml module — must
-        look through imports too (design 56). The visited set guards against
-        import cycles."""
+        (`coherence_search_namespaces`): conformances are registered per module
+        at typecheck time and only merged for codegen, so a cross-module query
+        must look through imports too. The visited set guards against import
+        cycles."""
         if type_name in self.conformances and trait_name in self.conformances[type_name]:
             return True
         if _visiting is None:
             _visiting = set()
         # `id()` here is a within-one-query cycle guard over Namespace objects,
-        # not the persistent node identity design 126 R2 replaced: the set dies
-        # with the recursion and must compare physical objects.
+        # not a persistent node identity: the set dies with the recursion and
+        # must compare physical objects.
         _visiting.add(id(self))
         for ns in self.coherence_search_namespaces():
             if id(ns) not in _visiting:
@@ -1748,36 +1634,30 @@ class Namespace:
         return list(self.conformances[type_name].keys())
 
     # =========================================================================
-    # THE COPY-TIER TRAIT NAME (design 219 unit B4) — one funnel, two forms.
+    # The copy-tier trait name (design 219): one funnel, two forms.
     #
-    # `Copy` is THE name of the silently-copyable tier. Every rule that asks
-    # "does this type DECLARE that tier?" goes through here. The question used
-    # to be asked as a bare `type_conforms_to(name, <the old spelling>)` at a
-    # dozen scattered sites, which is exactly the position-quantified rule brief
-    # obligation 1 says to funnel: a site that missed the rename would not
-    # error, it would silently answer "not on the tier" and drop a retain.
-    # The retired spelling is deliberately NOT accepted any more — with the
-    # builtin trait gone the name is available to user code, and a user trait
-    # of that name must not acquire tier semantics.
+    # `Copy` is the name of the silently-copyable tier. Every rule that asks
+    # "does this type declare that tier?" goes through here; a site that
+    # asked `type_conforms_to` by a hardcoded name would silently answer "not
+    # on the tier" if the name changed, and drop a retain. Anything checking
+    # the copy-tier trait by name goes through one of the two accessors.
     #
-    # Two accessors because callers hold the question in two shapes:
-    #   `declares_copy_tier(name)`  — the conformance LOOKUP form (searches
-    #     imported module namespaces too). Callers: `is_trivially_copyable`
-    #     (struct + enum disqualifier arms), `declared_copy_tier`,
-    #     `type_satisfies_explicit_copy_bound`, `_classify_enum_payload_field`,
-    #     and in the typechecker `_is_implicit_copy_type`, `_is_deinit_type`,
+    # ENTRY POINTS, by the shape the caller holds:
+    #   `declares_copy_tier(name)` — the conformance lookup form (searches
+    #     imported module namespaces too). Callers: `is_trivially_copyable`,
+    #     `declared_copy_tier`, `type_satisfies_explicit_copy_bound`,
+    #     `_payload_retainable`, and in the typechecker
+    #     `_is_implicit_copy_type`, `_is_deinit_type`,
     #     `_check_implicit_copy_containment`.
-    #   `names_copy_tier(conformances)` — the ALREADY-FETCHED form, for callers
+    #   `names_copy_tier(conformances)` — the already-fetched form, for callers
     #     holding a `get_conformances()` list. Callers: codegen's
-    #     `_get_cleanup_behavior`, `_generate_derived_copy_body`, and the
-    #     `.copy()` refusal in `calls.py`.
-    # Anything checking the copy-tier trait BY NAME goes through one of the two.
+    #     `_get_cleanup_behavior` and `_generate_derived_copy_body`.
     # =========================================================================
 
     COPY_TIER_TRAIT_NAMES = frozenset({"Copy"})
 
     def declares_copy_tier(self, type_name: str) -> bool:
-        """Whether `type_name` DECLARES the silently-copyable tier. See the
+        """Whether `type_name` declares the silently-copyable tier. See the
         block comment above for the caller list."""
         return any(self.type_conforms_to(type_name, trait)
                    for trait in self.COPY_TIER_TRAIT_NAMES)
@@ -1805,50 +1685,36 @@ class Namespace:
         TypeKind.FLOAT, TypeKind.BOOL,
     })
 
-    # Primitive kinds that register an extensible pseudo-struct (design 57), so a
-    # `extension Int: Fooable` conformance is keyed under this name — the same key
-    # trait-method dispatch resolves a primitive receiver's methods by.
-    #
-    # Every primitive is here since design 176 (DF-169d). It used to be Int and
-    # Float, which meant `extension UInt8: MyProto` either would not declare at
-    # all or declared and then failed a `<T: MyProto>` bound at `T = UInt8` —
-    # the wire-vocabulary case, and the whole point of conforming a fixed-width
-    # integer.
-    # DF-225d: derived from `ast_nodes.PRIMITIVE_EXT_KINDS` rather than written
-    # out again — this is that map inverted, and it went out of step with the
-    # typechecker's copy of the same fact once already.
+    # Primitive kinds that register an extensible pseudo-struct, so an
+    # `extension Int: Fooable` conformance is keyed under this name, the same
+    # key trait-method dispatch resolves a primitive receiver's methods by.
+    # Every primitive is here. Derived from `ast_nodes.PRIMITIVE_EXT_KINDS`
+    # (this map inverted) so the two cannot drift.
     _PRIMITIVE_CONFORMANCE_KEYS = {
         kind: name for name, kind in PRIMITIVE_EXT_KINDS.items()
     }
 
     def primitive_conformance_key(self, saw_type) -> Optional[str]:
-        """The pseudo-struct name for a PRIMITIVE type, or None if it is not one.
+        """The pseudo-struct name for a primitive type, or None if it is not one.
 
-        Also the answer to "can this type be erased to an existential" — it
-        cannot, and a primitive is exactly the set that cannot (DF-169d).
+        Also the answer to "can this type be erased to an existential": a
+        primitive is exactly the set that cannot.
         """
         if saw_type is None:
             return None
         return self._PRIMITIVE_CONFORMANCE_KEYS.get(saw_type.kind)
 
-    # THE DEEP-LOOKUP WALK (struct / type-alias / enum — one shape, three
+    # The deep-lookup walk (struct / type-alias / enum: one shape, three
     # tables). Each searches this namespace, then every namespace
     # `imported_search_namespaces` reaches, transitively.
     #
-    # `_seen` is a dedup set over namespace IDENTITY, and it is what keeps the
-    # walk linear in the import GRAPH rather than exponential in its PATHS. A
-    # module reached by two routes — the ordinary diamond, and the module
-    # imported both wholly and selectively, which `imported_search_sources`
-    # deliberately yields twice — used to be searched once per route, and every
-    # namespace below it once per route above it. On the sawtracker server
-    # (six modules over std) one `_lookup_type_alias_deep` call from the
-    # checker averaged 82 namespace visits; 243,542 calls became 19,986,260.
-    #
-    # Skipping a namespace already in `_seen` returns the same answer it
-    # returned the first time: the walk only continues past a namespace that
-    # answered None, so a second visit would answer None again. The set also
-    # makes the walk terminate on an import cycle, which `find_import_cycle`
-    # rejects earlier but which the recursion itself never guarded against.
+    # `_seen` is a dedup set over namespace identity, which keeps the walk
+    # linear in the import graph rather than exponential in its paths (a
+    # diamond, or a module imported both wholly and selectively, reaches one
+    # namespace by two routes). Skipping a seen namespace is sound because the
+    # walk only continues past a namespace that answered None, so a second
+    # visit would answer None again. The set also terminates the walk on an
+    # import cycle.
 
     def _lookup_struct_deep(self, name: str, _seen=None) -> Optional[StructSymbol]:
         """Look up a struct in this namespace or any imported module namespace."""
@@ -1900,8 +1766,8 @@ class Namespace:
         if kind == TypeKind.OPTIONAL:
             return saw_type.inner_type is not None and self.is_trivially_copyable(saw_type.inner_type)
         if kind == TypeKind.ARRAY:
-            # A fixed array `[T; N]` inherits T's copy class (design 33): it is
-            # trivially copyable iff its element type is.
+            # A fixed array `[T; N]` inherits T's copy class: it is trivially
+            # copyable iff its element type is.
             return (saw_type.array_element_type is not None
                     and self.is_trivially_copyable(saw_type.array_element_type))
         if kind == TypeKind.STRUCT:
@@ -1920,22 +1786,17 @@ class Namespace:
             if struct_sym is None:
                 # Unknown / opaque type parameter: not known to be trivial.
                 return False
-            # design 186: a cell FIELD contributes its `T` — see
-            # `member_copy_tier` for why the cell's own `NoCopy` stops here.
+            # A cell field contributes its `T`; see `member_copy_tier` for why
+            # the cell's own `NoCopy` stops here.
             return all(self.is_trivially_copyable(self.cell_payload(ft) or ft)
                        for ft in struct_sym.fields.values())
         if kind == TypeKind.ENUM:
-            # A PAYLOAD-FREE enum is a bare tag: it owns nothing, so a copy is
-            # bitwise and there is no deinit to double-run. This branch used to
-            # be missing entirely, so `Color` fell off the end as False and the
-            # Map/Set key check reported the false reason "owns a Deinit without
-            # a copy (it is move-only, not retainable)" for a type that owns
-            # nothing (design 132 unit E / DF-128b). The gate matches
-            # `is_equatable`'s auto-conformance exactly, which is what the spec
-            # promises: the auto-Copy set and the auto-Equatable set are one set.
-            # An enum carrying a payload keeps the old answer — its tier is
-            # derived structurally by `is_implicit_copy_enum` and the
-            # fall-through paths, and widening that is a separate question.
+            # A payload-free enum is a bare tag: it owns nothing, so a copy is
+            # bitwise and there is no deinit to double-run. The gate matches
+            # `is_equatable`'s auto-conformance exactly, as the spec promises
+            # (the auto-Copy set and the auto-Equatable set are one set). An
+            # enum carrying a payload answers False here; its tier is derived
+            # structurally by `is_implicit_copy_enum`.
             name = saw_type.enum_name
             if name is None:
                 return False
@@ -1952,18 +1813,18 @@ class Namespace:
 
     # The two questions the copy vocabulary answers, kept apart (design 219).
     #
-    # SILENTLY DUPLICABLE — the merged `Copy` tier: the compiler may duplicate
+    # Silently duplicable, the merged `Copy` tier: the compiler may duplicate
     # the value at a transfer with nothing written at the site. 'free' (bitwise)
-    # and 'implicit' (retain) are one tier to every rule above codegen; which of
-    # the two a given type uses is an EMISSION detail and stays one.
+    # and 'implicit' (retain) are one tier to every rule above codegen; which
+    # one a type uses is an emission detail.
     #
-    # DUPLICABLE AT ALL — the `ExplicitCopy` CONFORMANCE: the value can be
+    # Duplicable at all, the `ExplicitCopy` conformance: the value can be
     # duplicated, possibly at the cost of a spelled `.copy()`. Every silently
     # duplicable type is duplicable, so this is the wider family.
     #
-    # Before 219 one predicate answered both, which is what let an ExplicitCopy
-    # argument into a silently-copying generic body (S1 row 9d: a `Vector` passed
-    # at `T: Copy` was duplicated BITWISE — two owners, one buffer).
+    # One predicate must never answer both: an ExplicitCopy argument in a
+    # silently-copying generic body would be duplicated bitwise, giving two
+    # owners of one buffer.
     _SILENT_COPY_TIERS = frozenset({'free', 'implicit'})
 
     def is_silently_copyable(self, saw_type: SawType) -> bool:
@@ -1976,25 +1837,19 @@ class Namespace:
     def type_satisfies_copy_bound(self, saw_type: SawType) -> bool:
         """Whether a concrete type satisfies the merged `Copy` bound.
 
-        DERIVED-TIER, not declaration-gated (design 219 unit 1). Bounds used to
-        check declared conformances while tiers were a separate derivation, so
-        the two never met: `T: Copy` rejected the trivial `Int` AND an
-        auto-tier `struct Bag { s: String }`, the very type design 139 says is
-        on that tier with no declaration owed. Asking the tier answers both.
-
-        An escaping closure lands here as tier 'implicit' (design 73: copying it
-        retains the refcounted heap env), and a fixed array `[T; N]` as its
-        element's tier (design 33) — both through `copy_tier`, so neither needs
-        a special case any more.
+        Derived from the tier, not gated on a declaration: `Int` and an
+        undeclared `struct Bag { s: String }` are both on the tier with no
+        declaration owed (design 219). Escaping closures and fixed arrays get
+        their tiers through `copy_tier`, so neither needs a special case.
         """
         return self.is_silently_copyable(saw_type)
 
     def type_satisfies_explicit_copy_bound(self, saw_type: SawType) -> bool:
-        """Whether a concrete type satisfies the `ExplicitCopy` bound — the
-        whole DUPLICABLE family (design 219).
+        """Whether a concrete type satisfies the `ExplicitCopy` bound, the whole
+        duplicable family.
 
         Satisfied by every silently-copyable type (copying one for free is a
-        valid way to answer `copy()` — the blanket rule) and by anything
+        valid way to answer `copy()`, the blanket rule) and by anything
         declaring the conformance. This is the bound that licenses a spelled
         `.copy()` on an abstract `T`.
         """
@@ -2019,45 +1874,39 @@ class Namespace:
                 self.declares_copy_tier(name))
 
     # =========================================================================
-    # The copy tier (design 139) — one transfer class per type.
+    # The copy tier (design 139): one transfer class per type.
     #
     # Every type answers with exactly one tier, and every read consults it.
     # Ordered by how much ceremony a transfer costs, weakest first:
     #
-    #   'free'      the compiler handles the transfer with no ceremony from the
-    #               author — a POD bitwise copy, or an owning aggregate whose
-    #               retain codegen inserts on its own (an undeclared struct with
-    #               a String field).
-    #   'implicit'  duplicated by a refcount retain at every transfer.
+    #   'free'      a POD bitwise copy.
+    #   'implicit'  duplicated by a refcount retain at every transfer, with no
+    #               ceremony from the author (String, an escaping closure, an
+    #               undeclared struct with a String field).
     #   'explicit'  never duplicated implicitly: `move`, or a visible `.copy()`.
     #   'nocopy'    move-only.
-    #   'abstract'  DEMANDS A BOUND — the written type mentions an opaque type
-    #               PARAMETER, so its transfer class is a property of the
-    #               INSTANTIATION and cannot be read off the declaration. It
+    #   'abstract'  demands a bound: the written type mentions an opaque type
+    #               parameter, so its class belongs to the instantiation. It
     #               joins as the strongest tier because the unknown may be
-    #               move-only. Sites that must decide before monomorphization
-    #               (a place value read) answer it from the parameter's BOUNDS
-    #               and error eagerly when the bounds do not prove a copy;
-    #               sites that emit at the instantiation substitute first and
-    #               never see this answer (design 146, DF-146e).
+    #               move-only. Sites that decide before monomorphization (a
+    #               place value read) answer from the parameter's bounds and
+    #               error when they do not prove a copy; sites that emit at the
+    #               instantiation substitute first and never see it.
     #
-    # A WRAPPER is never weaker than what it wraps: an `Optional<T>`, a tuple, a
-    # fixed array, and an enum's payloads all JOIN their parts' tiers. That join
-    # is what closes DF-131a. Before design 139 `Optional<T>` had no tier at all
-    # — the checkpoint keyed every predicate off a struct/enum NAME, and an
-    # optional has neither — so a whole-optional read of a move-only payload fell
-    # past every arm to a silent bitwise alias that double-dropped.
+    # A wrapper is never weaker than what it wraps: an `Optional<T>`, a tuple, a
+    # fixed array, and an enum's payloads all join their parts' tiers. Without
+    # the join, a whole-optional read of a move-only payload would be a bitwise
+    # alias that double-drops.
     #
-    # A DECLARED conformance WINS over the structural join, which is what makes a
-    # user enum's policy its author's choice rather than something inferred out
-    # from under them. Registration refuses a bare enum whose join is 'explicit'
-    # or 'nocopy', so by the time this runs a declaration is always present where
+    # A declared conformance wins over the structural join, so a user type's
+    # policy is its author's choice. Registration refuses a bare enum whose
+    # join is 'explicit' or 'nocopy', so a declaration is always present where
     # one is owed.
     # =========================================================================
 
     _COPY_TIER_ORDER = ('free', 'implicit', 'explicit', 'nocopy', 'abstract')
 
-    # Names that reach the type predicates as a STRUCT-kinded SawType even
+    # Names that reach the type predicates as a struct-kinded SawType even
     # though they are compiler-known types, not type parameters. The parser
     # defaults an unknown capitalized name to STRUCT, so the "resolves to no
     # declaration" test that identifies a type parameter needs them excluded.
@@ -2073,8 +1922,8 @@ class Namespace:
         return a if order.index(a) >= order.index(b) else b
 
     def is_abstract_type_name(self, name: str) -> bool:
-        """True when `name` is an opaque type PARAMETER rather than a declared
-        type. A type parameter reaches here as a STRUCT-kinded SawType carrying
+        """True when `name` is an opaque type parameter rather than a declared
+        type. A type parameter reaches here as a struct-kinded SawType carrying
         its own name (`SawType.substitute` keys off exactly that), so the test
         is whether the name resolves to any declaration at all — the same
         "opaque / unresolved type parameter" reading `_send_sync` uses."""
@@ -2085,29 +1934,24 @@ class Namespace:
                 and self._lookup_type_alias_deep(name) is None)
 
     def _has_abstract_type_arg(self, saw_type: SawType, _visiting=None) -> bool:
-        """Does any type ARGUMENT of this instantiation mention a parameter?
+        """Does any type argument of this instantiation mention a parameter?
 
-        DF-261a: `_visiting` is threaded here like everywhere else under
-        `copy_tier`. This was the ONE recursion into it that started a FRESH
-        walk, and a cyclic type reaches it whenever a user generic sits on the
-        cycle — `enum E { case K(p: Pair<E>) }` asked whether `Pair`'s argument
-        `E` is abstract, which re-entered `copy_tier(E)` with an empty visiting
-        set, which asked about `Pair<E>` again. The guard the two structural
-        joins carry could never fire, so the query recursed until Python's
-        stack ran out and the compiler reported `internal compiler error:
-        maximum recursion depth exceeded`.
+        `_visiting` must be threaded through, as everywhere under `copy_tier`:
+        a cyclic type through a user generic (`enum E { case K(p: Pair<E>) }`)
+        re-enters `copy_tier(E)` here, and a fresh visiting set would recurse
+        without bound.
         """
         return any(self.copy_tier(arg, _visiting) == 'abstract'
                    for arg in (saw_type.type_args or [])
                    if arg is not None)
 
     # The interior-mutability cell (design 186). Named once, here, because two
-    # questions have to agree about it: what a cell IS, and what a cell field
+    # questions have to agree about it: what a cell is, and what a cell field
     # contributes to the type holding one.
     INTERIOR_CELL_NAME = "UnsafeMutableInterior"
 
     def cell_payload(self, saw_type: SawType) -> Optional[SawType]:
-        """`T` when `saw_type` IS an `UnsafeMutableInterior<T>`, else None."""
+        """`T` when `saw_type` is an `UnsafeMutableInterior<T>`, else None."""
         if saw_type is None or saw_type.kind != TypeKind.STRUCT:
             return None
         name = saw_type.struct_name
@@ -2119,27 +1963,20 @@ class Namespace:
         return args[0] if args else None
 
     def is_cell_carrying(self, saw_type: SawType, _visiting=None) -> bool:
-        """Does `saw_type` TRANSITIVELY contain an interior cell (design 186)?
+        """Does `saw_type` transitively contain an interior cell (design 186)?
 
-        Rust's internal `Freeze` analysis, inverted, and the one question that
-        replaced three lists of names the compiler used to keep. It drives four
-        behaviors, and every one of them is about the same fact — a value of
-        this type may be mutated through a SHARED borrow:
-
-          * a receiver or borrow of one always travels BY POINTER, so `&self`
-            reaches the caller's storage rather than a copy (`_self_by_pointer_for`);
+        Rust's `Freeze` analysis, inverted. A value of such a type may be
+        mutated through a shared borrow, so:
+          * a receiver or borrow of one always travels by pointer, so `&self`
+            reaches the caller's storage (`_self_by_pointer_for`);
           * a `static` of one never lands in a read-only segment;
-          * codegen may assume nothing immutable about storage behind a shared
-            borrow of one;
-          * structural `Sync` derivation is BLOCKED — sharing needs an argument,
-            spelled `UnsafeSync`.
+          * codegen assumes nothing immutable behind a shared borrow of one;
+          * structural `Sync` derivation is blocked (sharing needs `UnsafeSync`).
+        `Send` is unaffected: a cell moves fine.
 
-        `Send` is deliberately NOT on that list: a cell moves fine.
-
-        The walk goes through struct fields, enum payloads, tuples, optionals
-        and fixed arrays — every place a cell's storage can be INLINE. It stops
-        at an indirection: a `Box<Cell>` or a `Vector<Cell>` holds a pointer, and
-        the cell it names is not part of this value's own bytes.
+        The walk covers every place a cell's storage can be inline (struct
+        fields, enum payloads, tuples, optionals, fixed arrays) and stops at an
+        indirection: a `Box<Cell>` holds a pointer, not the cell's bytes.
         """
         if saw_type is None:
             return False
@@ -2207,7 +2044,7 @@ class Namespace:
         return False
 
     def struct_is_cell_carrying(self, struct_name: str) -> bool:
-        """`is_cell_carrying` asked of a struct by NAME.
+        """`is_cell_carrying` asked of a struct by name.
 
         The receiver-ABI decision is made at method declaration time, where the
         name — possibly a monomorphized `SpinLock$1$Int` — is what is in hand. A
@@ -2230,25 +2067,18 @@ class Namespace:
         return result
 
     def member_copy_tier(self, saw_type: SawType, _visiting=None) -> str:
-        """The copy tier a MEMBER of `saw_type` contributes to its container.
+        """The copy tier a member of `saw_type` contributes to its container.
 
-        Identical to `copy_tier` everywhere except on the interior-mutability
-        cell (design 186), which is `NoCopy` as a VALUE — a copied cell is a
-        second cell, so `let c = self.inner` must be refused — while a cell
-        FIELD contributes its `T`'s class instead of forcing `NoCopy` onto
-        whatever holds it. The container states its own policy in a line the
-        reader can see: `SpinLock<T>` and `Once<T>` say `NoCopy`, and so does
-        `Atomic<T>` since design 202 — a copied atomic is a second counter.
+        Identical to `copy_tier` except on the interior-mutability cell, which
+        is `NoCopy` as a value (a copied cell is a second cell, so
+        `let c = self.inner` is refused) while a cell field contributes its
+        `T`'s class. The container states its own policy visibly:
+        `SpinLock<T>`, `Once<T>` and `Atomic<T>` declare `NoCopy`.
 
-        That declaration is why the clause is narrow rather than gone. It fires
-        on the CELL ITSELF and nothing else, so a DECLARED policy on the type
-        holding the cell still wins: this function reaches `copy_tier`, which
-        consults `declared_copy_tier` before any structural join, and only a
-        field whose written type IS an `UnsafeMutableInterior<T>` takes the
-        payload branch. `Atomic<Int>` is therefore `nocopy` here (its own
-        declaration) while an undeclared user wrapper `struct C { cell:
-        UnsafeMutableInterior<Int> }` is still `free` (its cell field
-        contributes `Int`). Both directions are pinned by
+        The clause fires on the cell itself only, so a declared policy on the
+        holding type still wins (`copy_tier` consults `declared_copy_tier`
+        first): `Atomic<Int>` is `nocopy`, while an undeclared
+        `struct C { cell: UnsafeMutableInterior<Int> }` is `free`. Pinned by
         `examples/atomic_nocopy_cell_clause.saw`.
         """
         payload = self.cell_payload(saw_type)
@@ -2257,20 +2087,15 @@ class Namespace:
         return self.copy_tier(saw_type, _visiting)
 
     def declared_copy_tier(self, type_name: str) -> str:
-        """The tier a type NAME declares, or 'free' when it declares none.
+        """The tier a type name declares, or 'free' when it declares none.
 
-        ORDER IS THE RULE, and it became load-bearing when design 219 deleted
-        the Copy/ExplicitCopy exclusivity check: a type may now name
-        both, so one of them has to win. The TIER declaration does.
-        `Copy` says what a transfer costs;
+        The order is the rule. A type may declare both `Copy` and
+        `ExplicitCopy`, and `Copy` wins: it says what a transfer costs, while
         `ExplicitCopy` says only that a copy exists, which is true of every
-        silently-copyable type anyway. So a type declaring both is on the silent
-        tier with a `copy()` its author also chose to expose by name, and the
-        second declaration adds nothing rather than downgrading the first.
+        silently-copyable type anyway.
 
-        `NoCopy` still outranks both: it is the deliberate opt-OUT, and the one
-        declaration whose whole purpose is to be stricter than what the members
-        would have derived.
+        `NoCopy` outranks both: it is the deliberate opt-out, stricter than
+        what the members would derive.
         """
         if self.type_conforms_to(type_name, "NoCopy"):
             return 'nocopy'
@@ -2287,8 +2112,8 @@ class Namespace:
         saw_type = self._normalize_struct_enum(saw_type)
         kind = saw_type.kind
         if kind == TypeKind.FUNCTION:
-            # An escaping closure carries a refcounted heap env (design 73) and
-            # copies by retaining it; a non-escaping one borrows and owns nothing.
+            # An escaping closure carries a refcounted heap env and copies by
+            # retaining it; a non-escaping one borrows and owns nothing.
             return 'implicit' if getattr(saw_type, 'func_is_escaping', False) else 'free'
         if kind == TypeKind.STRING:
             return 'implicit'
@@ -2312,14 +2137,14 @@ class Namespace:
                 return self.copy_tier(alias_sym.aliased_type, _visiting)
             declared = self.declared_copy_tier(name)
             if declared != 'free':
-                # A DECLARED policy is instantiation-uniform by construction:
+                # A declared policy is instantiation-uniform by construction:
                 # `Vector<T>` is ExplicitCopy for every `T`. Nothing abstract
                 # about the arguments can weaken or strengthen it.
                 return declared
             if self.is_abstract_type_name(name):
                 return 'abstract'
             if self._has_abstract_type_arg(saw_type, _visiting):
-                # An undeclared struct's tier is a STRUCTURAL answer, and a
+                # An undeclared struct's tier is a structural answer, and a
                 # structural answer over abstract arguments is not knowable from
                 # the written type.
                 return 'abstract'
@@ -2335,23 +2160,14 @@ class Namespace:
         return 'free'
 
     def _struct_structural_copy_tier(self, saw_type: SawType, _visiting=None) -> str:
-        """The join of an undeclared struct's FIELD tiers (design 159).
+        """The join of an undeclared struct's field tiers.
 
-        The exact counterpart of `_enum_structural_copy_tier`, and the arm that
-        was missing. A struct whose owning members are all trivial or
-        Copy needs no declared policy — the containment checks exempt a
-        String field, a closure field and a fixed array of either, because the
-        compiler handles those retains itself. That exemption is the whole
-        point of the rule, but it left the TIER unanswered: this branch returned
-        a flat 'free', so `copy_tier` reported an undeclared `struct P { name:
-        String }` as trivially copyable while `_needs_cleanup` still registered
-        a per-binding drop for it. One allocation, N releases (DF-151b).
-
-        Joining the fields is what makes the two agree, and it says the same
-        thing the design-139 header above already claims for every other
-        composite: a wrapper is never weaker than what it wraps. A declared
-        policy still WINS (checked before this runs), so nothing about an
-        author's own choice is inferred out from under them.
+        The counterpart of `_enum_structural_copy_tier`. A struct whose owning
+        members are all trivial or Copy needs no declared policy, but its tier
+        must still be the join: an undeclared `struct P { name: String }` is
+        'implicit', and must agree with `_needs_cleanup`'s per-binding drop or
+        one allocation gets N releases. A declared policy wins (checked before
+        this runs).
         """
         name = saw_type.struct_name
         if _visiting is None:
@@ -2384,61 +2200,54 @@ class Namespace:
             return {}
         return {p.name: a for p, a in zip(params, args) if a is not None}
 
-    # The read policy — the ONE mapping from a copy tier to what a VALUE READ
-    # out of storage somebody else owns costs. Entry points (design 193 unit 1,
-    # the process rule's "a funnel names its entries"):
+    # The read policy: the one mapping from a copy tier to what a value read
+    # out of storage somebody else owns costs. ENTRY POINTS:
     #
-    #   * typechecker `_payload_read_policy` / `_check_payload_read` — design
-    #     131's optional-payload reads (`o!`, `??`'s left operand, an
+    #   * typechecker `_payload_read_policy` / `_check_payload_read` — the
+    #     optional-payload reads (`o!`, `??`'s left operand, an
     #     `if let`/`guard let` binding);
-    #   * `place_uses._value_read_ok` — the point a `borrows` place becomes a
-    #     value (it consults `copy_tier` directly because 'abstract' there is
-    #     answered from the type parameter's BOUNDS, not by this table);
+    #   * typechecker `_check_match_expr` — a match scrutinee;
+    #   * `place_uses._value_read_ok` / `_value_read_would_refuse` — the point
+    #     a `borrows` place becomes a value;
+    #   * `coro_transform._frame_read_policy` — a frame-slot read;
     #   * `codegen/match.py` `_generate_match_expr` — which enums a match
-    #     consumes and which it borrows-with-retain (DF-190d).
+    #     consumes and which it borrows-with-retain.
     #
-    # Three call sites used to hold three DIFFERENT answers to the same
-    # question: a policy built out of `_is_no_copy_type` / `_is_explicit_copy_type`
-    # / `is_trivially_copyable`, a bare `copy_tier` comparison, and codegen's
-    # `enum_has_owning` (which is not a tier at all). The last one is what made
-    # a Copy enum's payload die at the first arm's end.
+    # Every site must ask here: separately derived answers disagree, and one
+    # such disagreement freed a Copy enum's payload at the first match arm's
+    # end.
     _READ_POLICY_BY_TIER = {
         'free': 'trivial',
         'implicit': 'retain',
-        # design 219: the ExplicitCopy TIER dissolves into move-only. A value
-        # read out of storage its owner keeps is refused for both, and for the
-        # same reason — nothing here may duplicate the value unwritten. What
-        # separates them is only what the DIAGNOSTIC can offer, which is a
-        # question about the type's conformance (`.copy()` exists or it does
-        # not), asked at the refusal rather than carried as a second policy.
+        # The ExplicitCopy tier reads as move-only: nothing here may duplicate
+        # the value unwritten. What separates the two is only what the
+        # diagnostic can offer (`.copy()` exists or not), asked at the refusal
+        # rather than carried as a second policy.
         'explicit': 'nocopy',
         'nocopy': 'nocopy',
-        # An opaque type parameter's tier is unknowable from the declaration and
-        # each instantiation decides it. Sites that emit code substitute first
-        # and never see this; sites that must answer NOW keep the pre-131
-        # bitwise read rather than guess a retain a `Vector` instantiation would
-        # turn into a silent deep copy.
+        # An opaque type parameter's tier is decided per instantiation. Sites
+        # that emit code substitute first and never see this; sites that must
+        # answer now use a bitwise read rather than guess a retain that a
+        # `Vector` instantiation would turn into a silent deep copy.
         'abstract': 'trivial',
     }
 
     def read_policy(self, saw_type: SawType) -> str:
-        """What a VALUE READ of `saw_type` out of storage its owner keeps costs:
-        'trivial' (bitwise), 'retain', 'explicit' or 'nocopy'.
+        """What a value read of `saw_type` out of storage its owner keeps costs:
+        'trivial' (bitwise), 'retain' or 'nocopy'.
 
-        The one derivation of design 131's table from design 139's tiers — see
-        `_READ_POLICY_BY_TIER` above for the entry points that ask it."""
+        The one derivation from the copy tiers; see `_READ_POLICY_BY_TIER`
+        above for the entry points that ask it."""
         return self._READ_POLICY_BY_TIER.get(self.copy_tier(saw_type), 'trivial')
 
     def is_structurally_implicit_copy(self, saw_type: SawType, _visiting=None) -> bool:
-        """Is this composite Copy WITHOUT declaring it (design 159)?
+        """Is this composite Copy without declaring it?
 
         True for an undeclared struct or enum whose owning members are all
-        trivial or Copy — the automatic tier, which is by design and
-        user-ratified: no declaration is needed and none should be demanded.
-        Copying such a value RETAINS each refcounted member, and codegen has
-        always known how (`_generate_copy` falls through to the recursive
-        retain for any cleanup-owning aggregate). What was missing is the
-        predicate that tells it to.
+        trivial or Copy: the automatic tier, where no declaration is needed and
+        none may be demanded. Copying such a value retains each refcounted
+        member (`_generate_copy`'s recursive retain for any cleanup-owning
+        aggregate).
         """
         return self.copy_tier(saw_type, _visiting) == 'implicit'
 
@@ -2448,7 +2257,7 @@ class Namespace:
         This is what gives the compiler-owned wrappers their tier without a
         declaration to read: `Result`'s variants carry the opaque parameters
         `T`/`E`, so the payload types must be instantiated before they can be
-        classified at all. A USER enum reaches here only when it declares no
+        classified at all. A user enum reaches here only when it declares no
         policy, which registration permits exactly when this join is 'free' or
         'implicit'.
         """
@@ -2485,29 +2294,18 @@ class Namespace:
         return {p.name: a for p, a in zip(params, args) if a is not None}
 
     def is_implicit_copy_enum(self, saw_type: SawType, _visiting=None) -> bool:
-        """Structural Copy classification for enums (design 06 / DF12).
+        """Structural Copy classification for enums.
 
-        Enums cannot DECLARE a Copy-family conformance (only Equatable/Comparable/
-        Hashable opt-in), so their copy tier is derived from their payloads — the
-        same containment precedence a struct's fields impose. This predicate is
-        True iff the enum carries at least one OWNING (Copy, e.g. `String`/
-        `Arc`) payload AND every payload is cleanly retainable — trivially copyable
-        (POD, bitwise) or itself Copy. Such an enum copies by RETAINING its
-        active payload (a refcount bump), exactly like a Copy struct.
+        True iff the enum carries at least one owning Copy payload (`String`,
+        `Arc`) and every payload is cleanly retainable (POD or itself Copy).
+        Such an enum copies by retaining its active payload, like a Copy
+        struct; treating it as bitwise would release the shared payload once
+        per copy. An ExplicitCopy/NoCopy payload (`Vector`, `File`,
+        `Box<any …>`) makes this False: that enum is move-only.
 
-        A payload that is ExplicitCopy/NoCopy (e.g. `Vector`/`File`/`Box<any …>`)
-        makes this False: that enum is move-only and is NOT implicitly copied — it
-        keeps the pre-existing fall-through behavior (out of scope here). Without
-        this, a `DepSource { PathDep(String) }`-style enum was silently BITWISE
-        copied at every transfer while still releasing its payload at drop, so the
-        shared `String` was released once per copy -> double free (DF12).
-
-        The payload types are the enum's AS DECLARED, so a GENERIC enum must have
-        its type arguments substituted in before they can be classified at all —
-        `Slot<K>`'s payload is the opaque `K`, `Slot<Res>`'s is a real type with a
-        real tier. Judging the unsubstituted form answered False for every generic
-        enum, so a `Slot<Res>` value read emitted no copy while its binding was
-        still dropped: one release per read, which is DF-146e.
+        A generic enum's payload types must be substituted before they can be
+        classified: `Slot<K>`'s payload is the opaque `K`, `Slot<Res>`'s a
+        real type with a real tier.
         """
         saw_type = self._normalize_struct_enum(saw_type)
         if saw_type is None or saw_type.kind != TypeKind.ENUM:
@@ -2523,8 +2321,7 @@ class Namespace:
             # forces the whole enum non-retainable.
             return False
         _visiting = _visiting | {name}
-        # A declared move-only conformance (defensive — enums can't declare these)
-        # disqualifies implicit copying.
+        # A declared move-only conformance disqualifies implicit copying.
         if (self.type_conforms_to(name, "NoCopy")
                 or self.type_conforms_to(name, "ExplicitCopy")):
             return False
@@ -2587,7 +2384,7 @@ class Namespace:
 
     def _normalize_struct_enum(self, saw_type: SawType) -> SawType:
         """A type annotation like `-> Ordering` can reach the trait predicates as
-        a STRUCT-kinded SawType (the parser defaults an unknown capitalized name
+        a struct-kinded SawType (the parser defaults an unknown capitalized name
         to STRUCT, and not every path runs it through `_resolve_type`). If the
         name is actually a registered enum (and neither a struct nor an alias),
         rewrite it to an ENUM SawType so the enum branches fire."""
@@ -2624,12 +2421,12 @@ class Namespace:
         if kind == TypeKind.TUPLE:
             return all(self.is_equatable(e) for e in (saw_type.element_types or []))
         if kind == TypeKind.OPTIONAL:
-            # Design 40 item 4 (L9): `T?` is Equatable iff `T` is — None==None
-            # true, None vs Some false, payload-deep otherwise.
+            # `T?` is Equatable iff `T` is: None==None true, None vs Some
+            # false, payload-deep otherwise.
             return saw_type.inner_type is not None and self.is_equatable(saw_type.inner_type)
         if kind == TypeKind.ARRAY:
-            # Design 40 item 4 (L9): `[T; N]` is Equatable iff its element type
-            # is — compared element by element.
+            # `[T; N]` is Equatable iff its element type is, compared element
+            # by element.
             return (saw_type.array_element_type is not None
                     and self.is_equatable(saw_type.array_element_type))
         if kind == TypeKind.STRUCT:
@@ -2670,9 +2467,9 @@ class Namespace:
     })
 
     def is_comparable(self, saw_type: SawType) -> bool:
-        """Whether values of `saw_type` may be ordered with `< <= > >=` (design 48).
+        """Whether values of `saw_type` may be ordered with `< <= > >=`.
 
-        Integer types, Float, and String conform builtin. There is NO auto-
+        Integer types, Float, and String conform builtin. There is no auto-
         conformance for user types (field order is a semantic choice), so a
         struct/enum is Comparable only when it declares `extension T: Comparable`
         (empty-body synthesis or a hand-written `compare`). A type alias flows to
@@ -2697,7 +2494,7 @@ class Namespace:
         return False
 
     def is_hashable(self, saw_type: SawType) -> bool:
-        """Whether values of `saw_type` may be used as a hash-map key (design 48).
+        """Whether values of `saw_type` may be used as a hash-map key.
 
         Mirrors `is_equatable`'s gating exactly (the hash/== contract rides on
         Equatable): primitives and String conform builtin; trivial (POD) structs
@@ -2790,17 +2587,17 @@ class Namespace:
         return None
 
     def is_printable(self, saw_type: SawType) -> bool:
-        """Whether values of `saw_type` are Printable (design 56).
+        """Whether values of `saw_type` are Printable.
 
         Int/UInt + the fixed-width integer types, Float, Bool, and String conform
-        BUILTIN (the compiler renders them inline). There is NO auto-conformance
-        for user types — a struct/enum is Printable only when it declares
+        builtin (the compiler renders them inline). There is no auto-conformance
+        for user types: a struct/enum is Printable only when it declares
         `extension T: Printable` (or `extension T: Error`, which refines it) or a
         hand-written conformance. A type alias flows to its underlying type.
         """
         # An erased value (`any T` / `&any T` / `Box<any T, A>`) is Printable
-        # when its trait is Printable or refines it (Error) — `to_string`/`format`
-        # dispatch through the vtable (design 56, catch/erased-error interpolation).
+        # when its trait is Printable or refines it (Error); `to_string`/`format`
+        # dispatch through the vtable.
         erased_trait = self._erased_trait_of(saw_type)
         if erased_trait is not None:
             return self.trait_refines(erased_trait, "Printable")
@@ -2828,13 +2625,12 @@ class Namespace:
     def type_satisfies_bound(self, saw_type: SawType, bound: str) -> bool:
         """Whether a concrete type satisfies a single type-parameter bound.
 
-        `Copy` is TIER-DERIVED (design 219): the merged silently-copyable tier,
-        trivial and retain families alike, and nothing else — a type that copies
-        with ceremony no longer satisfies it. `ExplicitCopy` is the wider
-        duplicable family (every Copy type, plus the declared conformers).
-        `Send`/`Sync` are structural marker traits (design 21 item 1);
-        `Equatable` is structural too (auto-Copy set + declared conformers,
-        design 32); every other trait bound is an ordinary conformance lookup.
+        `Copy` is tier-derived: the merged silently-copyable tier and nothing
+        else, so a type that copies with ceremony does not satisfy it.
+        `ExplicitCopy` is the wider duplicable family (every Copy type, plus
+        the declared conformers). `Send`/`Sync` are structural marker traits;
+        `Equatable` is structural too (auto-Copy set + declared conformers);
+        every other trait bound is an ordinary conformance lookup.
         """
         if bound == "Copy":
             return self.type_satisfies_copy_bound(saw_type)
@@ -2862,33 +2658,30 @@ class Namespace:
         elif saw_type.kind == TypeKind.STRING:
             name = "String"
         else:
-            # A primitive that carries method extensions (design 57) conforms to
-            # a user trait through the SAME conformance key the trait-method
-            # dispatch uses for its pseudo-struct (`extension Int: Fooable`).
-            # Every primitive registers one since design 176 (DF-169d).
+            # A primitive conforms to a user trait through the same
+            # conformance key trait-method dispatch uses for its pseudo-struct
+            # (`extension Int: Fooable`).
             name = self._PRIMITIVE_CONFORMANCE_KEYS.get(saw_type.kind)
         if name is None:
             return False
         return self.type_conforms_to(name, bound)
 
     # =========================================================================
-    # Send / Sync structural derivation (design 21 item 1)
+    # Send / Sync structural derivation
     #
     # Compiler-known marker traits, auto-derived structurally (the auto-Copy
-    # pattern). No explicit `extension X: Send` is accepted; these two methods
-    # are the single source of truth for "is this concrete type Send / Sync",
-    # shared by the typechecker's bound checks and the spawn capture audit.
+    # pattern); `extension X: Send` is not accepted. These two methods are the
+    # single source of truth for "is this concrete type Send / Sync", shared
+    # by the typechecker's bound checks and the spawn capture audit.
     #
     #   - Primitives, Bool, Float: Send + Sync.
     #   - String: Send + Sync (immutable buffer, atomic refcount).
     #   - UnsafePointer<T>: neither (poisons its containers structurally).
     #   - Struct/enum: Send iff every field/payload is Send; Sync likewise.
-    #   - Name-keyed overrides for the concurrency wrappers, whose raw-pointer
-    #     fields would otherwise poison them structurally:
-    #       Arc<T>:     Send + Sync  iff  T: Send + Sync
-    #       Mutex<T>:   Send iff T: Send;   Sync iff T: Send
-    #       Channel<T>: Send + Sync  iff  T: Send   (an Arc-like shared handle)
-    #       Thread<T>:  Send + Sync  iff  T: Send
+    #   - A declared `UnsafeSend`/`UnsafeSync` conformance (with conditional
+    #     bounds re-checked per instantiation) answers before the structural
+    #     walk; that is how `Arc`, `Mutex`, `Channel` and the other wrappers
+    #     over raw pointers become thread-safe (design 186).
     # =========================================================================
 
     def is_send(self, saw_type: SawType) -> bool:
@@ -2897,11 +2690,10 @@ class Namespace:
     def is_sync(self, saw_type: SawType) -> bool:
         return self._send_sync(saw_type, want_sync=True, visiting=set())
 
-    # THE THREAD-CROSSING POSITIONS (design 193 unit 6). Every value that
-    # crosses from one thread to another does so at one of these, and each one
-    # asks `send_check` rather than pairing `is_send` with a
-    # `thread_safety_note` of its own — which is how the last row on this list
-    # came to be missing one.
+    # The thread-crossing positions. Every value that crosses from one thread
+    # to another does so at one of these, and each asks `send_check` rather
+    # than pairing `is_send` with a `thread_safety_note` of its own, so no
+    # position can lose the note.
     #
     #   spawn capture   `Thread.spawn { … }`'s captured values     [typechecker]
     #   spawn result    `Thread.spawn { … }`'s result, via join    [typechecker]
@@ -2919,18 +2711,16 @@ class Namespace:
 
         The caller owns the sentence naming what it is refusing (a capture, a
         parameter, a result) and its own reporting idiom — the typechecker
-        reports, the coroutine transform raises. What this owns is the QUESTION,
-        the thread-safety note that must ride with every refusal, and the list
-        of positions above.
+        reports, the coroutine transform raises. This owns the question, the
+        thread-safety note that must ride with every refusal, and the list of
+        positions above.
 
-        DF-219c: `assume` is the enclosing generic's DECLARED bounds, as the
-        `(send_names, sync_names)` pair `_assumed` reads. An abstract `T` has no
-        thread-safety of its own — the structural walk answers False for every
-        one, which is right at a CONCRETE boundary and wrong inside a generic
-        body, where `<T: Send>` is exactly the promise the caller was made to
-        keep (and `_check_type_param_bounds` is where it is collected). Passing
-        it makes the question "is this Send GIVEN what the signature declares",
-        which is the question a generic body's boundary is really asking.
+        `assume` is the enclosing generic's declared bounds, as the
+        `(send_names, sync_names)` pair `_assumed` reads. The structural walk
+        answers False for an abstract `T`, which is right at a concrete
+        boundary but wrong inside a generic body, where `<T: Send>` is the
+        caller's promise. Passing it asks "is this Send given what the
+        signature declares".
         """
         assert position in self.SEND_POSITIONS, position
         if self._send_sync(saw_type, want_sync=False, visiting=set(),
@@ -2950,10 +2740,8 @@ class Namespace:
         Looks through imported namespaces exactly as `type_conforms_to` does,
         and through the same funnel (`coherence_search_namespaces`): a
         conformance is registered in the module that declares it and the tables
-        are only merged for codegen, so the query has to walk. DF-238c's second
-        face was here — a globbed module's `extension Shared: UnsafeSync {}` was
-        invisible, so a `static SLOT: Shared` was refused as non-Sync while the
-        selective import of the same module compiled.
+        are only merged for codegen, so the query has to walk every import
+        form, a glob included.
         """
         table = self.thread_assertions.get(type_name)
         if table is not None and trait_name in table:
@@ -2971,7 +2759,7 @@ class Namespace:
 
     def _assertion_applies(self, name: str, saw_type: SawType,
                            want_sync: bool, assume, visiting=None) -> bool:
-        """Does `name`'s declared assertion hold for THIS instantiation?
+        """Does `name`'s declared assertion hold for this instantiation?
 
         A conditional header (`extension Vector<T: Send, A: Send>: UnsafeSend`)
         is a promise about the instantiations that satisfy its bounds and about
@@ -2984,10 +2772,9 @@ class Namespace:
             return False
         args = list(saw_type.type_args or [])
         if len(args) < len(bounds):
-            # A trailing argument left to its DEFAULT (design 37): `Vector<Int>`
-            # writes one argument and means two. The promise is about the type
-            # the reference denotes, so the default is what the bound is checked
-            # against — not a reason to withhold the assertion.
+            # A trailing argument left to its default: `Vector<Int>` writes one
+            # argument and means two. The promise is about the type the
+            # reference denotes, so the bound is checked against the default.
             base = declaration_base(name)
             sym = self._lookup_struct_deep(base) or self._lookup_enum_deep(base)
             params = list(getattr(sym, 'type_params', None) or []) if sym else []
@@ -3011,14 +2798,11 @@ class Namespace:
                                 visiting=None) -> bool:
         """One bound of a conditional assertion header, at one type argument.
 
-        DF-261b: `visiting` is threaded through from the walk that asked. This
-        was the one re-entry into `_send_sync` that started a FRESH set, and a
-        RECURSIVE type reaches it on every legal shape — `enum Json { case
-        Items(items: Vector<Json>) }` asks whether `Vector<Json>` is Send,
-        `Vector`'s conditional header (`extension Vector<T: Send, A: Send>:
-        UnsafeSend`) asks whether `Json` is, and with an empty set that walk
-        starts over. The `visiting` key carries `want_sync`, so sharing one set
-        between a Send question and a Sync question keeps each answer its own.
+        `visiting` must be threaded through from the walk that asked: a
+        recursive type re-enters here (`enum Json { case Items(items:
+        Vector<Json>) }` asks whether `Vector<Json>` is Send, whose header asks
+        whether `Json` is), and a fresh set would recurse without bound. The
+        key carries `want_sync`, so one set can serve both questions.
         """
         if bound == "Send":
             return self._send_sync(arg, False, visiting or set(), assume)
@@ -3028,7 +2812,7 @@ class Namespace:
 
     @staticmethod
     def _assumed(assume, want_sync: bool, name: str) -> bool:
-        """Is this type-parameter name ASSUMED thread-safe for this query?
+        """Is this type-parameter name assumed thread-safe for this query?
 
         Only the legality check passes an `assume`: it asks what the derivation
         would say if the header's own bounds held, which is the only way to tell
@@ -3040,16 +2824,14 @@ class Namespace:
 
     def unmet_conditional_bound(self, saw_type: SawType, want_sync: bool,
                                 assume=None):
-        """The first `(argument, bound)` of a DECLARED CONDITIONAL assertion
+        """The first `(argument, bound)` of a declared conditional assertion
         that this instantiation fails, or None.
 
         `extension Arc<T: Send + Sync>: UnsafeSend {}` is the shape: an `Arc`
-        shares its payload by construction, so its Send-ness is conditioned on
-        BOTH bounds together. When the payload is Send and not Sync the type is
-        correctly refused as not `Send`, and the actionable fact — the one the
-        author can do something about — is the SYNC bound the payload misses.
-        This is what lets a caller say which (DF-219c's adjacent finding,
-        recorded at conformance row K31).
+        shares its payload, so its Send-ness needs both bounds. When the
+        payload is Send but not Sync, the type is refused as not `Send`, and
+        the actionable fact is the Sync bound the payload misses; this lets a
+        caller name it (conformance row K31).
 
         Answers only for a type whose refusal really is a conditional
         assertion's; a structural refusal (a raw pointer, a plain non-Send
@@ -3078,13 +2860,12 @@ class Namespace:
         """Why this type is not Send/Sync, in one sentence, or "".
 
         Appended to every diagnostic that refuses a type at a thread boundary.
-        Two cases are worth explaining. A CONDITIONAL assertion's unmet bound
+        Two cases are worth explaining. A conditional assertion's unmet bound
         (`Arc<T: Send + Sync>` at a Send-but-not-Sync payload) is refused as
-        "not `Send`" and the author's lever is the SYNC bound, so the note
-        names it. A cell-carrying type has its derivation blocked ON PURPOSE
-        and there IS a way to say otherwise, so the message names the
-        declaration to write AND the field that made it necessary — without the
-        field, "declare `UnsafeSync`" reads as a magic word.
+        "not `Send`" but the author's lever is the Sync bound, so the note
+        names it. A cell-carrying type has its derivation blocked on purpose,
+        so the note names the declaration to write and the field that made it
+        necessary.
         """
         unmet = self.unmet_conditional_bound(saw_type, want_sync, assume)
         if unmet is not None:
@@ -3121,9 +2902,9 @@ class Namespace:
     def blocking_members(self, saw_type: SawType, want_sync: bool, assume=None):
         """The members that keep `saw_type` from deriving Send/Sync.
 
-        The evidence behind design 186's legality rule and behind the error a
-        cell-carrying type earns when it crosses a thread boundary with no
-        declaration: naming the FIELD is what makes either message actionable.
+        The evidence behind the assertion legality rule and behind the error a
+        cell-carrying type earns at a thread boundary with no declaration:
+        naming the field makes either message actionable.
         """
         out = []
         name = (saw_type.struct_name if saw_type.kind == TypeKind.STRUCT
@@ -3184,7 +2965,7 @@ class Namespace:
         # UnsafePointer<T> is neither; it poisons any container structurally.
         if kind == TypeKind.POINTER:
             return False
-        # References/closures are not user-nameable as Send/Sync bounds (v1);
+        # References/closures are not user-nameable as Send/Sync bounds;
         # closure-env Send-ness is audited at spawn sites, not here.
         if kind in (TypeKind.REFERENCE, TypeKind.FUNCTION):
             return False
@@ -3205,55 +2986,36 @@ class Namespace:
             if alias_sym and alias_sym.aliased_type:
                 return self._send_sync(alias_sym.aliased_type, want_sync,
                                        visiting, assume)
-            # design 186: a DECLARED `UnsafeSend`/`UnsafeSync` is the audited
-            # assertion, and it answers before any structural walk — that is
-            # what it is for. Its conditional bounds are re-checked here against
-            # this instantiation's arguments, so `extension Mutex<T: Send>:
-            # UnsafeSync {}` promises nothing about a `Mutex<File>`.
+            # A declared `UnsafeSend`/`UnsafeSync` is the audited assertion
+            # and answers before any structural walk. Its conditional bounds
+            # are re-checked against this instantiation's arguments, so
+            # `extension Mutex<T: Send>: UnsafeSync {}` promises nothing about a
+            # `Mutex<File>`. There is no name-keyed list: every std wrapper
+            # declares its assertion beside its type.
             if self._assertion_applies(name, saw_type, want_sync, assume,
                                        visiting):
                 return True
-            # A type PARAMETER the legality check is assuming thread-safe (see
+            # A type parameter the legality check is assuming thread-safe (see
             # `_assumed`): reached only while judging a conditional header.
             if self._assumed(assume, want_sync, name):
                 return True
-            # design 186, the property's fourth clause: structural `Sync`
-            # derivation is BLOCKED by an interior cell. Sharing a value that
-            # can be mutated through a shared borrow is exactly the claim the
-            # derivation cannot make — the cell's field looks immutable and is
-            # not. `Send` is untouched: a cell MOVES fine, and it is SHARING
-            # that needs an argument.
+            # Structural `Sync` derivation is blocked by an interior cell: a
+            # value mutable through a shared borrow cannot be shared without
+            # an argument. `Send` is untouched; a cell moves fine.
             #
-            # The block sits AT THE CELL rather than at every cell-carrying
-            # type, which is the difference between a rule and a tax. A type
-            # holding a cell directly must say `UnsafeSync` (that is `Atomic`,
-            # `SpinLock`, `Once`, a user `Cell`); a type holding one of THOSE
-            # derives normally, because the declaration it passes through is
-            # the argument. So `struct Stats { hits: Atomic<Int> }` is `Sync`
-            # with nothing written, exactly as it was, and a `static
-            # GLOBAL_STATS: Stats` keeps working.
+            # The block sits at the cell, not at every cell-carrying type. A
+            # type holding a cell directly must say `UnsafeSync` (`Atomic`,
+            # `SpinLock`, `Once`); a type holding one of those derives
+            # normally, because that declaration is the argument. So
+            # `struct Stats { hits: Atomic<Int> }` is `Sync` with nothing
+            # written.
             if want_sync and self.cell_payload(saw_type) is not None:
                 return False
-            # design 186: THE NAME LIST IS GONE. Every entry that used to sit
-            # here — `Arc`, `Mutex`, `Channel`, `Task`, `SpinLock`,
-            # `UnsafeMemory`, and DF-182e's `Vector`/`Map`/`Set`/`Data`/
-            # `StringBuilder` — is now a declared `UnsafeSend`/`UnsafeSync`
-            # conformance beside its own type, checked at the header and
-            # re-checked per instantiation by `_assertion_applies` above. Two
-            # of them turned out to need nothing at all: `UnsafeMemory` is a
-            # struct of one `Int` and DERIVES both, and the layout-transparent
-            # `ReadOnly`/`WriteOnly` markers derive from their inner type
-            # because that is literally their only field.
             struct_sym = self._lookup_struct_deep(name)
             if struct_sym is None:
-                # An ENUM reached through a struct-kind spelling (design 155,
-                # DF-155d). A field, payload or type argument written as a bare
-                # name arrives here with the generic STRUCT kind whether it names
-                # a struct or an enum, so `struct Check { verdict: Verdict }`
-                # used to be judged not-Send even though the payload-free
-                # `Verdict` is — and the only symptom was a spawn into a
-                # multi-threaded TaskGroup being refused for a type that has
-                # nothing unsendable in it.
+                # An enum reached through a struct-kind spelling: a field,
+                # payload or type argument written as a bare name arrives with
+                # the struct kind whether it names a struct or an enum.
                 enum_sym = self._lookup_enum_deep(name)
                 if enum_sym is not None:
                     return self._enum_send_sync(enum_sym, name, args,
@@ -3292,8 +3054,8 @@ class Namespace:
                         visiting: set, assume=None) -> bool:
         """An enum is Send/Sync iff every payload it can hold is.
 
-        Shared by both spellings that reach an enum — the ENUM kind, and the
-        struct-kind bare name a field or type argument carries (DF-155d).
+        Shared by both spellings that reach an enum: the ENUM kind, and the
+        struct-kind bare name a field or type argument carries.
         """
         key = (name, tuple(str(a) for a in args), want_sync)
         if key in visiting:
@@ -3368,13 +3130,11 @@ class Namespace:
         """
         Check if a symbol is accessible from another module.
 
-        THE RAW DECISION PROCEDURE. Do not call it directly: `public(package)`
-        is undecidable without a root, and a missing root is REFUSAL here
-        (DF-232n; it used to be "assume same package", which is what DF-232j
-        exploited and what left the tier unenforced across every relative-path
-        import). `visibility_relation_allows` is the one honest caller — it
-        computes the root from the symbol's defining module first, and answers
-        the rootless case by PACKAGE IDENTITY before ever reaching this arm.
+        The raw decision procedure. Do not call it directly: `public(package)`
+        is undecidable without a root, and a missing root is refusal here.
+        `visibility_relation_allows` is the one caller: it computes the root
+        from the symbol's defining module, and answers the rootless case by
+        package identity before reaching this arm.
 
         Args:
             visibility: The symbol's visibility modifier
@@ -3395,9 +3155,9 @@ class Namespace:
 
         # public(package) - accessible within the same package
         if visibility == Visibility.PACKAGE:
-            # DF-232n: no root, no package — REFUSE. The one caller decides the
-            # rootless case by identity first, so reaching here means nothing
-            # placed either module and "same package" cannot be claimed.
+            # No root, no package: refuse. The one caller decides the rootless
+            # case by identity first, so reaching here means nothing placed
+            # either module and "same package" cannot be claimed.
             if not package_root:
                 return False
             # Both must be under the package root
@@ -3419,60 +3179,41 @@ class Namespace:
                                    accessor: Tuple[str, ...],
                                    package_root: Optional[Tuple[str, ...]]
                                    = None) -> bool:
-        """Design 80's visibility relation between two NAMED modules, with the
-        package ROOT computed from the SYMBOL's defining module.
+        """The visibility relation between two named modules, with the package
+        root computed from the symbol's defining module.
 
-        THE FUNNEL (obligation 1). `check_visibility` above is the raw decision
-        procedure; this is the only honest way to ask it, because
-        `public(package)` is meaningless without a root and `check_visibility`
-        REFUSES a rootless one (DF-232n). Its entry points:
+        The visibility funnel: `check_visibility` above is the raw procedure,
+        and it refuses a rootless `public(package)`. ENTRY POINTS:
+          * `_resolve_parts.is_visible` (via `_symbol_visible`) — the
+            qualified reach (`m.X`, each chain hop, each dotted `resolve()`)
+          * `TypeChecker._visibility_relation_allows`, which delegates here
+            with no arms of its own; through it `_member_gate_allows` (the
+            field/method/type gate) and `check_module`'s selective-import and
+            glob arms (`_selection_visible`)
 
-          * `_resolve_parts.is_visible` — THE QUALIFIED REACH (every `m.X`,
-            every chain hop `m.q.X`, every dotted `resolve()` walk). Before
-            DF-232j this called `check_visibility` raw, with the FOUND-IN
-            module and the namespace's `package_root` — which is `()` for
-            every user namespace, so every package-tier symbol was reachable
-            from anywhere it could be spelled.
-          * `TypeChecker._visibility_relation_allows`, which delegates here and
-            adds no arms of its own. Through it: `_member_gate_allows` (the
-            field/method/type gate) and `check_module`'s SELECTIVE-IMPORT and
-            GLOB arms (`_selection_visible`, DF-229c/DF-232k).
-
-        The two package roots are conventions, not data on the symbol:
-        std is one package rooted at `("<std>",)` (design 82), and each
-        `--module-path name=dir` package is rooted at `(name,)` (DF-232f).
-        Anything else falls back to this namespace's own `package_root`.
-
-        DF-232n: those two roots are prefixes of the MODULE PATH, which a module
-        loaded by relative path does not have — its path says nothing about
-        which package its file lives in. When neither prefix arm applies (and
-        the namespace carries no root of its own), the tier is decided by
-        PACKAGE IDENTITY instead: the manifest root or the entry tree each
-        module was placed in. Equal identities are one package; anything else,
-        including an unplaceable module, is not.
+        std is one package rooted at `("<std>",)`, and each
+        `--module-path name=dir` package is rooted at `(name,)`; anything else
+        falls back to this namespace's `package_root`. A module loaded by
+        relative path has neither prefix, so the tier is then decided by
+        package identity (manifest root or entry tree). Equal identities are
+        one package; anything else, including an unplaceable module, is not.
         """
         def_module = tuple(def_module or ())
         accessor = tuple(accessor or ())
         if def_module == accessor:
             return True
-        # std is its own package (design 82): a `public(package)` member of one
-        # std file is reachable from any other std file. Root the package at
-        # `("<std>",)` when the member is std-defined, so cross-std-file package
-        # sharing works and a user module (not under `("<std>",)`) is excluded.
+        # std is its own package: a `public(package)` member of one std file is
+        # reachable from any other std file, and a user module is excluded.
         if def_module and def_module[0] == "<std>":
             package_root = ("<std>",)
-        # DF-232f: a `--module-path name=dir` package is a package too. Root it
-        # at `(name,)`, so every module under the mapped dir (`name`,
-        # `name.sub`, `name.a.b`) is inside and the entry file — whose module
-        # is never a mapped name — is outside. Same shape as std's arm above,
-        # one line lower in precedence because std is itself never mapped.
+        # A `--module-path name=dir` package: every module under the mapped
+        # dir is inside, and the entry file (never a mapped name) is outside.
         elif def_module and def_module[0] in self.mapped_packages:
             package_root = (def_module[0],)
         elif package_root is None:
             package_root = self.package_root
-        # DF-232n: the rootless `public(package)` question — every module that
-        # arrives by relative path — is answered by identity, not by refusing
-        # outright and not by assuming.
+        # The rootless `public(package)` question (a module that arrived by
+        # relative path) is answered by identity.
         if visibility == Visibility.PACKAGE and not package_root:
             own = self.package_identity(def_module)
             return own is not None and own == self.package_identity(accessor)
@@ -3482,25 +3223,21 @@ class Namespace:
 
     def package_identity(self, module_path: Tuple[str, ...]) -> Optional[str]:
         """The package a module belongs to, as an opaque token compared for
-        equality (DF-232n). None when nothing placed it.
+        equality. None when nothing placed it.
 
         Three sources, in precedence order:
-          1. std is one package (design 82) — every `("<std>", leaf)`.
-          2. a `--module-path name=dir` package (DF-232f) — every module path
-             under the mapped name. Stated here as well as in the funnel's
-             prefix arm above, so the ACCESSOR side of a comparison is placed
-             too.
+          1. std is one package: every `("<std>", leaf)`.
+          2. a `--module-path name=dir` package: every module path under the
+             mapped name (stated here too so the accessor side is placed).
           3. `package_identities`, the driver's map of the modules it loaded:
              the file's `Saw.toml` root, or the entry tree for a manifest-less
              one (`ModuleResolver.package_identity`).
 
-        A path the map does not hold falls back to its nearest ANCESTOR path,
-        which is what places an INLINE module: `check_module` gives one the path
-        `parent + (name,)`, and an inline module is part of the file that
-        declares it — the same package by construction. The entry's `()` is
-        always in the map, so the walk terminates there for any module this
-        compile actually loaded; an unstamped namespace has no map at all and
-        answers None, which the funnel reads as "not the same package".
+        A path the map does not hold falls back to its nearest ancestor, which
+        places an inline module (path `parent + (name,)`) in its file's
+        package. The entry's `()` is always in the map, so the walk terminates
+        for any loaded module; an unstamped namespace answers None, which the
+        funnel reads as "not the same package".
         """
         path = tuple(module_path or ())
         if path and path[0] == "<std>":
@@ -3552,12 +3289,11 @@ class Namespace:
         Merge another namespace's symbols into this one.
 
         Used for codegen when combining per-module namespaces into a unified
-        namespace. Existing symbols in this namespace are NOT overwritten.
+        namespace. Existing symbols in this namespace are not overwritten.
 
-        Collision policy (design 26 item 1): merging is a size-1-first-wins
-        operation, but a first-wins that silently drops a *different* symbol
-        object under an already-taken name is a genuine ambiguity — two modules
-        each defining `foo`. We surface those honestly. Builtins are shared by
+        Collision policy: merging is first-wins, but dropping a different
+        symbol object under an already-taken name is a genuine ambiguity (two
+        modules each defining `foo`), so it is reported. Builtins are shared by
         reference across every module namespace (each module clones them via
         `merge_into`), so re-merging the same object is benign and never flagged;
         only a name bound to a *distinct* object counts as a collision.
@@ -3573,25 +3309,21 @@ class Namespace:
                 module aliases or generic AST storage.
         """
         def _module_local(sym) -> bool:
-            """Whether `sym` is a module-PRIVATE declaration carrying a
-            module-local codegen symbol (DF-140f). Such a declaration cannot be
-            named from another module — no importer could be ambiguous about it
-            — and its definition no longer shares an LLVM name with a same-named
-            private declaration elsewhere, so a name it happens to share is not
-            a collision at all."""
+            """Whether `sym` is a module-private declaration carrying a
+            module-local codegen symbol. It cannot be named from another module
+            and does not share an LLVM name with a same-named private
+            declaration elsewhere, so a shared name is not a collision."""
             return (getattr(sym, 'visibility', None) == Visibility.PRIVATE
                     and bool(getattr(sym, 'mangled_name', "")))
 
         def _distinct_definitions(a, b) -> bool:
-            """Design 249: whether two same-named FREE FUNCTIONS from different
-            modules are two definitions the merge can hold at once.
+            """Whether two same-named free functions from different modules are
+            two definitions the merge can hold at once.
 
-            Since free functions carry module identity, two modules owning one
-            name is no more a merge event than two modules owning one `Header`
-            (design 144) — provided the two emit distinct LLVM symbols, which
-            `symbol_base` guarantees by module-tagging every name more than one
-            module declares. Same codegen symbol is still a real collision, and
-            still reported."""
+            Free functions carry module identity, so two modules owning one
+            name is not a merge event, provided they emit distinct LLVM symbols
+            (`symbol_base` module-tags every name more than one module
+            declares). The same codegen symbol is a real collision, reported."""
             amod = tuple(getattr(a, 'def_module', ()) or ())
             bmod = tuple(getattr(b, 'def_module', ()) or ())
             if amod == bmod:
@@ -3606,9 +3338,9 @@ class Namespace:
                    private_is_local: bool = False,
                    module_keyed: bool = False):
             for name, sym in src.items():
-                # design 82 Part B: a std symbol whose module is not compiled into
-                # this program (non-imported import-required std) is skipped, so a
-                # user type of the same name does not collide with it.
+                # A std symbol whose module is not compiled into this program
+                # (non-imported import-required std) is skipped, so a user type
+                # of the same name does not collide with it.
                 if exclude and name in exclude:
                     continue
                 existing = dst.get(name)
@@ -3627,62 +3359,54 @@ class Namespace:
                                        source_label if source_label is not None
                                        else "<unknown>"))
 
-        # Design 144: these four tables are keyed by module-qualified type
-        # IDENTITY, so two modules' `Header`s land on two keys and never meet
-        # here. What remains a genuine collision is one identity bound to two
-        # distinct symbols — the same module declaring a name twice — which is
-        # still worth reporting. The AMBIGUITY a bare `Header` faces when two
-        # modules export one is not a merge event at all; it is the use-site
-        # error, carried by `type_names`/`ambiguous_types` below.
+        # The four type tables are keyed by type identity, so two modules'
+        # `Header`s never meet here. A genuine collision is one identity bound
+        # to two distinct symbols (a module declaring a name twice). The
+        # ambiguity of a bare `Header` exported by two modules is not a merge
+        # event; it is the use-site error carried by `type_names` /
+        # `ambiguous_types` below.
         _merge("struct", self.structs, other.structs)
         _merge("enum", self.enums, other.enums)
         _merge("function", self.functions, other.functions,
                private_is_local=True, module_keyed=True)
-        # Overloading (design 55): carry each name's full overload set across the
-        # merge (first-wins per name, matching the representative merge above).
+        # Carry each name's full overload set across the merge (first-wins per
+        # name, matching the representative merge above).
         for _name, _lst in other.function_overloads.items():
             if _name not in self.function_overloads:
                 self.function_overloads[_name] = list(_lst)
-        # Design 249: the identity-keyed storage travels too, keyed by defining
-        # module, so a module's own declarations stay answerable after the merge
-        # and two modules' entries can never collide — the module path is part
-        # of the key. The BINDING view (`function_name_modules`) deliberately
-        # does NOT travel: what a bare name means is each namespace's own
-        # business, and carrying std's declaration bindings into a user module
-        # would bare-bind every std file's functions there.
+        # The identity-keyed storage travels too, keyed by defining module, so
+        # a module's own declarations stay answerable after the merge and two
+        # modules' entries never collide. The binding view
+        # (`function_name_modules`) deliberately does not travel: what a bare
+        # name means is each namespace's own business, and carrying std's
+        # bindings into a user module would bare-bind every std function there.
         for _mod, _tbl in other.module_function_overloads.items():
             _dst = self.module_function_overloads.setdefault(_mod, {})
             for _n, _lst in _tbl.items():
                 _dst.setdefault(_n, list(_lst))
         _merge("trait", self.traits, other.traits)
         _merge("type alias", self.type_aliases, other.type_aliases)
-        # Statics (design 41): same identity/collision rule (design 26) as the
-        # other value symbols — two modules each defining a distinct PUBLIC
-        # static of the same name is an unresolvable ambiguity, surfaced here.
-        # A module-private one is not (DF-140f): it is unnameable from outside
-        # and carries a module-local LLVM global, so the two never meet.
+        # Statics follow the same collision rule as the other value symbols:
+        # two modules each defining a distinct public static of one name is an
+        # ambiguity, reported. A module-private one is not: it is unnameable
+        # from outside and carries a module-local LLVM global.
         _merge("static", self.statics, other.statics, private_is_local=True)
-        # DF-140h: the per-module overlays travel too, keyed by defining module,
-        # so a std file's private constants stay reachable from that file's own
-        # bodies after the merge and from nowhere else. Two modules' overlays can
-        # never collide — the module path is part of the key.
+        # The per-module overlays travel too, keyed by defining module, so a
+        # std file's private constants stay reachable from that file's own
+        # bodies after the merge and from nowhere else.
         for _mod, _tbl in other.module_statics.items():
             _dst = self.module_statics.setdefault(_mod, {})
             for _n, _s in _tbl.items():
                 _dst.setdefault(_n, _s)
-        # Design 144: the source-name -> identity view travels too, so the
-        # merged namespace can still answer a bare-name query (codegen asks by
-        # identity, but the place lowering and the re-entered front half ask by
-        # name). Two modules binding one name to two identities marks the name
-        # ambiguous rather than silently picking the first.
+        # The source-name -> identity view travels too, so the merged namespace
+        # can still answer a bare-name query (codegen asks by identity, but the
+        # place lowering and the re-entered front half ask by name). Two modules
+        # binding one name to two identities marks the name ambiguous.
         for _n, _ident in other.type_names.items():
             if exclude and (_n in exclude or _ident in exclude):
                 continue
             self.bind_type_name(_n, _ident, "type", source_label)
-        # Design 204: the per-module private name views travel too, keyed by
-        # defining module, so a std file's private types stay reachable from
-        # that file's own bodies after the merge and from nowhere else. Two
-        # modules' views can never collide — the module path is part of the key.
+        # The per-module private type-name views travel the same way.
         for _mod, _tbl in other.module_type_names.items():
             _dst = self.module_type_names.setdefault(_mod, {})
             for _n, _ident in _tbl.items():
@@ -3692,14 +3416,11 @@ class Namespace:
         for name, sym in other.modules.items():
             if name not in self.modules:
                 self.modules[name] = sym
-        # Merge conformances. The design-82 exclusion applies here too: these
-        # tables are keyed by type name, and a std module this program does not
-        # compile in must contribute NOTHING under a name a user type may hold.
-        # Only the symbol tables above honoured `exclude`, so an excluded std
-        # type kept answering conformance and generic-template queries about a
-        # user type of the same name — `Once: NoCopy` reached a user's own
-        # `struct Once`, and the excluded generic template shadowed a user
-        # enum's LLVM type outright.
+        # Merge conformances. `exclude` applies to every table below too: they
+        # are keyed by type name, and a std module this program does not
+        # compile in must contribute nothing under a name a user type may hold
+        # (its conformances or generic template would attach to the user's
+        # type).
         def _excluded(key) -> bool:
             return bool(exclude) and key in exclude
 
@@ -3711,9 +3432,9 @@ class Namespace:
             for iface_name, assoc_types in iface_map.items():
                 if iface_name not in self.conformances[type_name]:
                     self.conformances[type_name][iface_name] = assoc_types
-        # design 186: the declared thread-safety assertions travel with the
-        # conformances they live beside — the orphan rule already pins each to
-        # one module, so first-wins can never drop a competing declaration.
+        # The declared thread-safety assertions travel with the conformances;
+        # the orphan rule pins each to one module, so first-wins can never drop
+        # a competing declaration.
         for type_name, trait_map in other.thread_assertions.items():
             if _excluded(type_name):
                 continue
@@ -3743,20 +3464,18 @@ class Namespace:
 class StdLeafNamespace(Namespace):
     """The namespace a std module qualifier resolves through (design 150).
 
-    Design 82 gave every std FILE its own module identity; design 150 lets
-    `import std.time` bind `time` as a qualifier over exactly that file's
-    declarations, the same way `import pkg.io` binds `io`. This view holds
-    those declarations — shared symbol objects, never copies, so identity and
-    mangling are unchanged.
+    Every std file is its own module; `import std.time` binds `time` as a
+    qualifier over exactly that file's declarations, as `import pkg.io` binds
+    `io`. This view holds those declarations as shared symbol objects, never
+    copies, so identity and mangling are unchanged.
 
     Visibility is membership. std's top-level declarations carry no `public`
-    marker: what decides whether user source may name one is the prelude gate
-    (design 82 Part B), not a modifier, so an ordinary check would refuse every
-    std type through its own qualifier. The names in this view are precisely
-    `_std_file_symbols[leaf]` — the same set the glob form exposes bare — so
-    being in it is the whole permission. Design 80's MEMBER gate is separate
-    and still applies: reaching `time.Instant` says nothing about which of its
-    fields and methods are public.
+    marker (the prelude gate decides whether user source may name one), so an
+    ordinary check would refuse every std type through its own qualifier. The
+    names here are exactly `_std_file_symbols[leaf]`, the set the glob form
+    exposes bare, so being in the view is the whole permission. The member
+    gate still applies: reaching `time.Instant` says nothing about which of
+    its fields and methods are public.
     """
 
     is_std_leaf: bool = True

@@ -118,15 +118,14 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
           a multi-statement closure passed as an argument still parses as a block.
         - `unclosed_openers` — the `(`/`[` tokens left open at EOF, in source
           order, paired with their token index. They anchor the unclosed-bracket
-          diagnostic at the OPENER instead of letting it drift (design 119's
-          interpolation-brace precedent). Because such an opener is never closed,
-          it encloses every later token, so "innermost opener before position p"
-          is just the last entry with index < p.
+          diagnostic at the opener instead of letting it drift. A never-closed
+          opener encloses every later token, so "innermost opener before
+          position p" is the last entry with index < p.
 
-        The bracket structure is purely positional, so it is computed once here
-        rather than tracked through the parser's many bracket sites (and through
-        its backtracking, which would corrupt a mutable stack). A closer that does
-        not match the open group is left for the parser's own diagnostics.
+        The structure is purely positional, so it is computed once rather than
+        tracked through the parser's bracket sites and backtracking, which would
+        corrupt a mutable stack. A mismatched closer is left for the parser's
+        own diagnostics.
         """
         n = len(self.tokens)
         nl_suppressed = [False] * n
@@ -229,10 +228,8 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
     def error(self, msg: str):
         token = self.current()
         # A parse that reaches `}` or EOF while a `(`/`[` is still open has run
-        # past the real mistake — those two tokens cannot occur inside a bracket
-        # group that eventually closes. Report the OPENER instead (design 129,
-        # mirroring the design-119 interpolation-brace precedent), since newline
-        # suppression is what let the parse get this far.
+        # past the real mistake, because newline suppression let it continue.
+        # Report the opener instead (design 129).
         if token.type in (TokenType.RBRACE, TokenType.EOF):
             opener = self._innermost_unclosed_opener()
             if opener is not None:
@@ -301,11 +298,10 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
 
     def expect(self, token_type: TokenType, msg: str = None) -> Token:
         if self.current().type != token_type:
-            # A closer that never arrives is reported at its OPENER (design 129):
-            # with newlines suppressed inside brackets, an unclosed `(`/`[` runs
-            # the parser far past the mistake, so "Expected ')'" would land on
-            # whatever token happened to stop it. Mirrors the design-119
-            # interpolation-brace precedent.
+            # A closer that never arrives is reported at its opener: with
+            # newlines suppressed inside brackets, an unclosed `(`/`[` runs the
+            # parser far past the mistake, so "Expected ')'" would land on
+            # whatever token happened to stop it (design 129).
             if token_type in (TokenType.RPAREN, TokenType.RBRACKET):
                 opener = self._innermost_unclosed_opener(
                     TokenType.LPAREN if token_type == TokenType.RPAREN
@@ -366,55 +362,29 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
 
     def expect_statement_end(self, previous_start: Optional[Token] = None, *,
                              declarations: bool = False):
-        """THE statement-separator chokepoint (SL-347).
+        """The statement-separator chokepoint (SL-347).
 
-        Saw has no statement TERMINATORS. A newline separates two statements,
-        and a `;` separates two statements that share one line (R1) — so a `;`
-        that ends nothing is refused where it is written (R2): one sitting
-        before a newline, before the block's `}`, at end of file, doubled, or
-        standing at the start of a line.
+        Saw has no statement terminators. A newline separates two statements
+        and a `;` separates two that share one line (R1), so a `;` that ends
+        nothing is refused (R2): before a newline, `}` or EOF, doubled, or at
+        the start of a line. Bare juxtaposition of two statements is refused
+        too (R3). Called once per gap between statements, including the gap
+        before the first, where `previous_start` is None.
 
-        Called once per GAP between statements, including the gap BEFORE a
-        list's first statement — there `previous_start` is None, nothing
-        precedes, and only the line-start half of R2 can fire. ENTRY POINTS,
-        all of them — every loop in the parser that reads a NEWLINE-SEPARATED
-        list of statements or declarations is here:
+        ENTRY POINTS (every newline-separated statement or declaration list):
+          * `StatementsMixin.parse_block` — every block body
+          * `ExpressionsMixin._parse_closure_body` — closure bodies
+        and, with `declarations=True` (units never joined by `;`):
+          * `Parser.parse` — module scope
+          * `Parser.parse_module_decl` — an inline `module m { … }` body
+          * `DeclarationsMixin.parse_extension` — extension members
+          * `DeclarationsMixin.parse_trait` — trait requirements
+          * `DeclarationsMixin.parse_extern_block` — extern function lists
 
-          * `StatementsMixin.parse_block` — the one block-body funnel, which is
-            why this covers function and method bodies, `borrows` bodies,
-            `if`/`else`/`while`/`for` bodies, a `match` arm's BLOCK body, both
-            blocks of `try { } catch { }`, and `guard … else { }`.
-          * `ExpressionsMixin._parse_closure_body` — closure bodies.
-
-        and the four DECLARATION lists, whose units take a newline each and are
-        never joined by a `;` (`declarations=True`):
-
-          * `Parser.parse` — top-level module scope.
-          * `Parser.parse_module_decl` — an inline `module m { … }` body, which
-            is the same declaration list one brace in.
-          * `DeclarationsMixin.parse_extension` — an extension's MEMBERS.
-          * `DeclarationsMixin.parse_trait` — a trait's REQUIREMENTS.
-          * `DeclarationsMixin.parse_extern_block` — an `extern "C" { … }`
-            block's function declarations.
-
-        The lists that are COMMA-delimited rather than newline-separated are
-        deliberately NOT here, because a newline carries no meaning inside one
-        (design 129/147): a struct's fields, an enum's cases, a `match`'s arms,
-        a map or set literal's elements, an import's symbol list, and every
-        parameter, argument and generic list. A `match` arm's BARE body is an
-        expression rather than a statement list, so it never reaches here
-        either: `ExpressionsMixin.parse_match` owns the arm separator, and how
-        strict that separator is has not changed — the comma between arms is
-        OPTIONAL in today's grammar (`case 0 -> 1 case _ -> 2` on one line
-        compiles), which predates SL-347 and is untouched by it.
-
-        `at_statement_end` is the lookahead half of the same rule, for the
-        statement forms whose operand is optional.
-
-        R3 — bare JUXTAPOSITION — is refused here too: with a statement behind
-        it, this position takes a NEWLINE, a `;`, the block's `}` or EOF, and
-        anything else is a second statement that never said where the first
-        one ended.
+        Comma-delimited lists (fields, cases, match arms, literals, import
+        lists, parameters, arguments, generics) are not entry points; a
+        newline means nothing inside them. `at_statement_end` is the lookahead
+        half of the same rule.
         """
         if previous_start is not None and self.match(TokenType.SEMICOLON):
             semi = self.current()
@@ -465,10 +435,10 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
     def at_statement_end(self) -> bool:
         """True if the current token could END the statement being parsed.
 
-        The lookahead half of `expect_statement_end` (SL-347), for the four
-        statement forms that carry an OPTIONAL operand and so have to ask
-        whether anything is left on the line: `return`, `break`, the closure
-        body's `return`, and `lend` (which refuses the empty case outright).
+        The lookahead half of `expect_statement_end`, for the statement forms
+        with an optional operand that must ask whether anything is left on the
+        line: `return`, `break`, the closure body's `return`, and `lend` (which
+        refuses the empty case).
         """
         return self.match(*self._STATEMENT_ENDERS)
 
@@ -518,34 +488,31 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
             self._generic_depth -= 1
         return params
 
-    # The narrowing spelling (design 258 ruling 2). CONTEXTUAL — an ordinary
-    # identifier everywhere else, so `let private = 3`, a parameter labelled
-    # `private:` and a field NAMED `private` all keep compiling. It is a word the
-    # parser recognizes by POSITION, never a token type: adding one would change
-    # what the selfhost lexer must emit and break lexdiff parity over a word that
-    # is not a keyword.
+    # The narrowing field modifier (design 258). Contextual: an ordinary
+    # identifier everywhere else, so `let private = 3`, a `private:` label and
+    # a field named `private` all compile. It is recognized by position, never
+    # as a token type, which would change what the selfhost lexer must emit.
     _PRIVATE_MODIFIER = "private"
 
     def _at_private_modifier(self) -> bool:
-        """Is the parser looking at `private` USED AS A MODIFIER?
+        """Is the parser looking at `private` used as a modifier?
 
-        Two spellings share the token. `private buffer: T` is the modifier — an
-        identifier follows it. `private: Int` is a FIELD NAMED `private`, and a
-        colon follows. One token of lookahead separates them, and it has to,
-        because both are legal in exactly the same position.
+        `private buffer: T` is the modifier (an identifier follows);
+        `private: Int` is a field named `private` (a colon follows). Both are
+        legal in the same position, so one token of lookahead decides.
         """
         return (self.match(TokenType.IDENT)
                 and self.current().value == self._PRIVATE_MODIFIER
                 and self.peek(1).type == TokenType.IDENT)
 
     def _parse_field_visibility(self) -> Tuple[Visibility, bool]:
-        """A struct FIELD's visibility modifier — the one position `private` is
+        """A struct field's visibility modifier, the one position `private` is
         legal in (design 258).
 
-        Answers `(tier, written)`. The second half is the whole point: before
-        258 a bare field and an explicitly-private one were one state, and
-        inheritance needs them to be two. `effective_field_visibility` in
-        `ast_nodes` is what turns the pair into a tier.
+        Answers `(tier, written)`: a bare field and an explicitly private one
+        must stay distinct, because an unwritten field inherits its type's
+        tier. `effective_field_visibility` in `ast_nodes` turns the pair into a
+        tier.
         """
         if self._at_private_modifier():
             self.advance()
@@ -555,22 +522,18 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
         return (self._parse_visibility(), True)
 
     def _reject_private_modifier(self) -> None:
-        """`private` written on a declaration that is not a field (design 258
-        ruling 2) — a clean error naming the default it restates.
+        """`private` written on a declaration that is not a field (design 258):
+        a clean error naming the default it restates.
 
-        Called from every position that parses an optional visibility modifier
-        and is NOT a struct field: the top-level declaration loop and the
-        extension-member loop. Those are the two, because they are the two
-        places `_parse_visibility` is reached from with a declaration behind it;
-        a parameter, a local and an expression never look for a modifier at all,
-        which is what keeps the word ordinary there.
+        ENTRY POINTS (the top-level, extension-member and trait-requirement
+        heads; extern-block declarations go through `parse_extern_function`):
+          * `Parser._dispatch_toplevel_decl` — top-level declarations
+          * `DeclarationsMixin.parse_extension` — extension members
+          * `DeclarationsMixin.parse_trait` — trait requirements
 
-        No lookahead is owed HERE, unlike `_at_private_modifier`: a declaration
-        never begins with a bare identifier (`type` and `module` are matched by
-        name ahead of this, and a member head is `func` / `init` / `static` /
-        `type`), so an IDENT `private` in either position is the misuse and
-        nothing else. Reporting it as the ruling rather than as "expected a
-        declaration, got IDENT" is the whole value of the arm.
+        No lookahead is needed, unlike `_at_private_modifier`: a declaration
+        never begins with a bare identifier, so an IDENT `private` here is
+        always the misuse.
         """
         if not (self.match(TokenType.IDENT)
                 and self.current().value == self._PRIVATE_MODIFIER):
@@ -585,9 +548,9 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
     def _parse_visibility(self) -> Visibility:
         """Parse optional visibility modifier: public, public(package), public(parent).
 
-        Design 258: this is the NON-field door. A field goes through
-        `_parse_field_visibility`, which reports whether a modifier was written
-        at all and accepts the narrowing `private` beside the `public` family.
+        This is the non-field path. A field goes through
+        `_parse_field_visibility`, which also reports whether a modifier was
+        written and accepts the narrowing `private`.
         """
         if not self.match(TokenType.PUBLIC):
             return Visibility.PRIVATE
@@ -615,23 +578,14 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
         return Visibility.PUBLIC
 
     def _error_extension_visibility(self, vis_token):
-        """A visibility modifier on an EXTENSION head — refused (ruled Aug 20).
+        """A visibility modifier on an extension head is refused.
 
-        An extension is not a nameable entity: nothing imports it, nothing calls
-        it, and there is no name for a visibility to govern. Its MEMBERS are what
-        an importer reaches, and design 80 already gives each of them its own
-        modifier — which is what the marker on the head never did. It was parsed,
-        stored and read by exactly one consumer (the docs emitter's signature
-        string), so it was decoration that read like a rule: not a member
-        default, not a clamp, not a scoping input.
+        An extension is not a nameable entity, so there is nothing for a
+        visibility to govern; each member carries its own modifier. Refusing it
+        rather than giving it Swift's member-default meaning keeps an unmarked
+        member private whatever the head says.
 
-        Refusing it rather than giving it Swift's default-setter meaning is the
-        ruling, and the corpus is why: ~105 heads carried a decorative `public`,
-        so adopting the setter reading would have silently flipped every
-        unmarked member inside one from private to public.
-
-        Anchored at the modifier, not at `extension` — that is the token to
-        delete.
+        Anchored at the modifier, the token to delete.
         """
         self.error_at(
             vis_token,
@@ -641,12 +595,11 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
             "`public static func`, `public init`), and delete the modifier here")
 
     def _parse_bound_name(self, after: str) -> str:
-        """A trait bound name, which may be MODULE-QUALIFIED (`qual.Named`).
+        """A trait bound name, which may be module-qualified (`qual.Named`).
 
-        DF-150b: the bound grammar read a single identifier, so a trait brought
-        in by a whole-module import was unnameable in a bound — and design 150
-        makes the qualifier the only way to name one. `T: a.b.Trait` nests, for
-        the same reason a qualified type does.
+        A trait brought in by a whole-module import can only be named through
+        its qualifier (design 150). `T: a.b.Trait` nests, as a qualified type
+        does.
         """
         token = self.expect(TokenType.IDENT, f"Expected trait name after {after}")
         name = token.value
@@ -661,15 +614,11 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
         """Parse a single type parameter: T, T: Bound + OtherBound, or the const
         VALUE parameter `const N: Int` (design 148).
 
-        `const` stays a contextual identifier rather than becoming a keyword:
-        two adjacent identifiers can begin nothing else here, so the reading is
-        unambiguous, and making it a keyword would break every program with a
-        variable named `const` — and would need matching work in the Saw lexer
-        port that `tools/lexdiff.py` holds to byte parity.
-
-        The keyword is what keeps a value parameter visually distinct from a
-        trait-bounded type parameter, which is the whole reason `<N: Int>` was
-        confusing enough to file as a bug.
+        `const` is a contextual identifier, not a keyword: two adjacent
+        identifiers can begin nothing else here, and a keyword would break
+        every variable named `const` and need matching work in the selfhost
+        lexer. The word keeps a value parameter visually distinct from a
+        trait-bounded type parameter (`<N: Int>` reads as a bound).
         """
         start = self.current()
         is_const = False
@@ -711,10 +660,9 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                 self.advance()
                 bounds.append(self._parse_bound_name("'+'"))
 
-        # Parse optional default: `A: Allocator = Global` (design 37). Default
-        # type parameters — a TYPE after `=`, never a value. Enables the allocator
-        # to be omitted at hosted reference sites (`Vector<Int>`) while the type
-        # system still carries the full `Vector<Int, Global>` identity.
+        # Optional default: `A: Allocator = Global`. A type after `=`, never a
+        # value, so `Vector<Int>` still carries the full `Vector<Int, Global>`
+        # identity.
         default = None
         if self.match(TokenType.ASSIGN):
             self.advance()  # consume '='
@@ -734,12 +682,10 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
     def _parse_unsafe_modifier(self) -> bool:
         """Consume a prefix `unsafe` declaration modifier, if present.
 
-        Two declarations carry one, and for the same reason: neither has a
-        signature, so the effect slot every other declaration uses does not
-        exist for them. `unsafe struct` (design 136) is carried by its enforced
-        `Unsafe*` name; `unsafe static var` (design 149) is carried by the
-        trigger rule, which makes every function that names it say `unsafe` too.
-        A prefix in front of anything else is reported by
+        Two declarations carry one because neither has a signature, so the
+        effect slot does not exist for them: `unsafe struct` (enforced `Unsafe*`
+        name) and `unsafe static var` (every function that names it must be
+        `unsafe` too). A prefix anywhere else is reported by
         `_error_unsafe_prefix`.
         """
         if self.match(TokenType.UNSAFE):
@@ -750,15 +696,13 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
     def _parse_borrowing_modifier(self) -> bool:
         """Consume a prefix `borrows` STRUCT modifier, if present.
 
-        `borrows struct` (design 275 U3) is `unsafe struct`'s shape for the
-        same reason: a type declaration has no signature, so the effect slot
-        every other declaration uses does not exist for it. The word is the
-        SAME `borrows` the effect slot spells — a type that holds a lent place
-        and a function that lends one say the same thing about themselves — and
-        it is a keyword already, so nothing in either lexer changes.
+        `borrows struct` takes `unsafe struct`'s shape for the same reason: a
+        type declaration has no effect slot. It is the same `borrows` the slot
+        spells, since a type holding a lent place and a function lending one
+        say the same thing (design 275).
 
-        The prefix is legal in front of `struct` alone; `_error_borrows_prefix`
-        reports every other position with the fixit naming the effect slot.
+        The prefix is legal before `struct` alone; `_error_borrows_prefix`
+        reports every other position.
         """
         if self.match(TokenType.BORROWS):
             self.advance()
@@ -768,10 +712,8 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
     def _error_borrows_prefix(self) -> None:
         """A prefix `borrows` in front of a declaration that is not a `struct`.
 
-        The mirror of `_error_unsafe_prefix`, and it earns its own text: an
-        author who writes `borrows func iter(&self) -> It` has spelled the
-        effect in the wrong slot, and the fixit that names the right one is
-        the whole of the fix.
+        The mirror of `_error_unsafe_prefix`: `borrows func iter(&self) -> It`
+        spells the effect in the wrong slot, and the fixit names the right one.
         """
         if self.match(TokenType.FUNC, TokenType.INIT):
             keyword = "func" if self.match(TokenType.FUNC) else "init"
@@ -787,9 +729,9 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
 
     def _error_unsafe_prefix(self) -> None:
         """A prefix `unsafe` in front of a declaration that is not a `struct`
-        (design 136). A declaration's signature reads identically to its
-        function TYPE, so the effect rides the post-parameter slot beside
-        `sync` — the fixit names that position."""
+        or `static var`. A declaration's signature reads identically to its
+        function type, so the effect goes in the post-parameter slot beside
+        `sync`; the fixit names that position (design 136)."""
         if self.match(TokenType.FUNC, TokenType.INIT):
             keyword = "func" if self.match(TokenType.FUNC) else "init"
             head = "func name(...)" if keyword == "func" else "init(...)"
@@ -801,23 +743,20 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                    "slot (`func f(...) unsafe -> T`), got "
                    f"{self.current().type.name}")
 
-    # The declaration effect slot in canonical order (design 136 + 141). The
-    # function-TYPE grammar spells the same sequence with `escaping` third;
-    # `escaping` is meaningless on a declaration and gets its own teaching
-    # error, so the declaration sequence is these three.
+    # The declaration effect slot in canonical order. The function-type
+    # grammar also accepts `escaping`, which is meaningless on a declaration
+    # and gets its own teaching error.
     _EFFECT_SLOT_ORDER = ('consumes', 'unsafe', 'sync', 'borrows')
 
     def _parse_effect_slot(self):
-        """The post-parameter effect slot of a declaration (designs 136, 141,
-        260): `consumes`, then `unsafe`, then `sync`, then `borrows`, in the
-        order and spelling a function TYPE already uses
-        (`(T) unsafe sync borrows -> R`). All four are optional. `sync` and
-        `consumes` stay CONTEXTUAL — after the parameter list only `->`, `{`,
-        or a newline-then-`{` may follow, so a bare identifier here is
-        unambiguous (Swift's `throws`/`async` position), and both words stay
-        ordinary identifiers everywhere else. `unsafe` and `borrows` are
-        reserved words and match on token type. Returns
-        `(is_consumes, is_unsafe, is_sync, is_borrows)`.
+        """The post-parameter effect slot of a declaration: `consumes`, then
+        `unsafe`, then `sync`, then `borrows`, in the order and spelling a
+        function type uses (`(T) unsafe sync borrows -> R`). All are optional.
+        `sync` and `consumes` are contextual: after the parameter list only an
+        effect word, `->` or `{` (possibly after a newline) may follow, so a
+        bare identifier here is unambiguous, and
+        both stay ordinary identifiers elsewhere. `unsafe` and `borrows` are
+        reserved words. Returns `(is_consumes, is_unsafe, is_sync, is_borrows)`.
         """
         seen = {}
         while True:
@@ -850,16 +789,13 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                 'borrows' in seen)
 
     def _reject_escaping_in_decl_slot(self) -> None:
-        """`escaping` in a DECLARATION's effect slot (design 141).
+        """`escaping` in a declaration's effect slot is refused with a
+        teaching error.
 
-        The slot is shared with the function-type grammar, where `escaping` is
-        one of the four spellings, so writing it on a `func` reads plausible.
-        It is not: `escaping` describes what a caller may do with a function
-        VALUE — store it past the call that received it — and a named
-        declaration has no environment to outlive, so it is always free to
-        escape. Without this the slot parser simply left the identifier
-        unconsumed and the block parse failed with a bare `Expected LBRACE`,
-        pointing past the real mistake.
+        `escaping` describes what a caller may do with a function value; a
+        named declaration has no environment to outlive, so it may always
+        escape. Unchecked, the word would be left unconsumed and the block
+        parse would fail past the real mistake.
         """
         if self.match_ident('escaping'):
             self.error(
@@ -870,27 +806,19 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                 "`consumes`, `unsafe`, `sync` and `borrows`")
 
     def at_type_alias_start(self) -> bool:
-        """THE contextual read of `type` (DF-232b, ruled Aug 17).
+        """The contextual read of `type`.
 
-        `type` is not a lexer keyword. It means "a type alias declaration
-        begins here" in exactly one shape — the word `type` followed by an
-        IDENT — and is an ordinary identifier everywhere else: an argument
-        label (`clock_get(type: .Monotonic)`), a local or parameter binding, a
-        struct field, a field access `e.type`, a match binding, an
-        interpolation `{type}`.
+        `type` is not a lexer keyword. It begins a type alias in exactly one
+        shape, `type` followed by an IDENT, and is an ordinary identifier
+        everywhere else (a label, binding, field, `e.type`, `{type}`).
 
-        THREE ENTRY POINTS, which are the three places an alias can begin:
-          1. `_dispatch_toplevel_decl`  — `type X = Y` at module level, bare
-             or `public`-prefixed
+        ENTRY POINTS (the places an alias can begin):
+          1. `_dispatch_toplevel_decl`  — `type X = Y` at module level
           2. `parse_trait` body         — `type Item` (an associated type)
           3. `parse_extension` body     — `type Item = Int` (its assignment)
-        `_at_toplevel_start` / `_synchronize` consult it too, so error recovery
-        still treats an alias as a declaration boundary.
-
-        The two-token shape is what makes the read unambiguous, and `type`
-        never opens a statement, so unlike `lend` (see the lexer's note) a
-        contextual read cannot collide with a call to a function of that name.
-        A local `type X = Y` is not legal in Saw and stays a parse error.
+        `parse_statement` consults it to refuse a local alias, and
+        `_at_toplevel_start` / `_synchronize` so error recovery treats an
+        alias as a declaration boundary.
         """
         return (self.match_ident('type')
                 and self.peek(1).type == TokenType.IDENT)
@@ -942,8 +870,8 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
             first = False
 
     def _parse_toplevel_decl(self, p: Program):
-        """Parse ONE top-level declaration, attaching the `///` block in front of
-        it (design 121). The declaration itself is parsed by
+        """Parse one top-level declaration, attaching the `///` block in front of
+        it. The declaration itself is parsed by
         `_dispatch_toplevel_decl`; the doc lands on whichever declaration list
         grew, so attributes and a `public` prefix between the doc and the item
         make no difference. A doc in front of a non-documentable declaration
@@ -962,26 +890,22 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
         self._release_doc(block)
 
     def _dispatch_toplevel_decl(self, p: Program):
-        """Parse ONE top-level declaration at the current token and append it to
-        the matching list of `p` (design 40 item 8 — the dispatch shared by the
-        file-level `parse()` loop and inline-module bodies, so it lives in one
-        place). Raises SyntaxError on a token that cannot begin a declaration;
-        the caller owns loop control, the `EOF`/`RBRACE` terminator, and (in
-        `parse()` only) the batched error recovery around each call.
+        """Parse one top-level declaration at the current token and append it to
+        the matching list of `p`. Shared by the file-level `parse()` loop and
+        inline-module bodies. Raises SyntaxError on a token that cannot begin a
+        declaration; the caller owns loop control, the `EOF`/`RBRACE`
+        terminator, and (in `parse()` only) batched error recovery.
         """
-        # Attributes (design 58): zero or more `@name`/`@name("arg")` lines
-        # immediately preceding a declaration. Legal on a top-level func/static
-        # (`@export`, `@section`) and on an extension (`@synthesize`, design
-        # 128); anything else is a clean "attributes are not supported" error
-        # routed through `_parse_attributed_decl`.
+        # Attributes: zero or more `@name`/`@name("arg")` lines immediately
+        # preceding a declaration. Which kinds accept which attributes is
+        # decided in `_parse_attributed_decl`.
         if self.match(TokenType.AT):
             attrs = self.parse_attributes()
             self.skip_newlines()
             return self._parse_attributed_decl(p, attrs)
 
-        # Design 258 ruling 2: `private` is a struct-FIELD modifier and nothing
-        # else. Checked ahead of the kind dispatch, which would otherwise report
-        # the ruling as "expected a declaration, got IDENT".
+        # `private` is a struct-field modifier only. Checked ahead of the kind
+        # dispatch, which would otherwise report "expected a declaration".
         self._reject_private_modifier()
 
         if self.match_ident("import"):
@@ -1003,8 +927,8 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                 vis_token = self.current()
                 visibility = self._parse_visibility()
                 if self.match_ident("import"):
-                    # design 229: re-export is all-or-nothing. A scoped
-                    # visibility on an import has no meaning to give it.
+                    # Re-export is all-or-nothing; a scoped visibility on an
+                    # import has no meaning (design 229).
                     self.error("`public import` is the only re-export form — "
                                "a scoped visibility is not supported on an import")
                 unsafe = self._parse_unsafe_modifier()
@@ -1041,8 +965,7 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
             else:
                 self._error_unsafe_prefix()
         elif self.match(TokenType.BORROWS):
-            # `borrows struct It { ... }` — the type-level half of design 275
-            # U3's spelling, in the position `unsafe struct` uses.
+            # `borrows struct It { ... }`, in the position `unsafe struct` uses.
             self.advance()
             if self.match(TokenType.STRUCT):
                 p.structs.append(self.parse_struct(Visibility.PRIVATE, False,
@@ -1071,11 +994,10 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
     def _parse_attributed_decl(self, p: Program, attrs):
         """Parse the declaration following an attribute block and attach `attrs`.
 
-        design 58: attributes are legal on a top-level `func`/`static`
-        (`@export`, `@section`) and — since design 128 — on an `extension`
-        (`@synthesize`), each optionally `public`-prefixed. Everything else gets
-        a clean "attributes are not supported on X" error, and an attribute on
-        the wrong one of the two gets the misplacement error below.
+        Attributes are legal on a top-level `func`, `static` or `extension`,
+        each optionally `public`-prefixed. Any other declaration gets "attributes
+        are not supported on X", and an attribute on the wrong one of the three
+        gets the misplacement error from `_reject_misplaced_attributes`.
         """
         visibility = Visibility.PRIVATE
         vis_token = self.current()
@@ -1114,14 +1036,11 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
     def _reject_misplaced_attributes(self, attrs, allowed, where: str):
         """Error on any attribute in `attrs` that is not legal on `where`.
 
-        THE attribute POSITION funnel (obligation 1), for the case where the
-        attributes parsed and the declaration that followed turned out to be
-        the wrong kind. Position is a grammar property, so it is enforced here
-        rather than in the typechecker: `@export`/`@section` belong on a
-        func/static, `@synthesize` on an extension, `@align` on a static (its
-        other home, a local `let`/`var`, is reached through
-        `Parser.parse_statement` rather than through this method), and each is
-        a clean error in the other's place.
+        The attribute position funnel, for attributes that parsed ahead of the
+        wrong kind of declaration. Position is a grammar property, so it is
+        enforced here rather than in the typechecker: `@export`/`@section` on a
+        func/static, `@synthesize` on an extension, `@align` on a static or a
+        local `let`/`var` (checked from `_parse_attributed_local`).
         """
         for attr in attrs:
             if attr.name not in allowed:
@@ -1134,19 +1053,18 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
     def _reject_attribute_position(self, where: str):
         """Refuse an `@attribute` at a position that parses none at all.
 
-        The companion of `_reject_misplaced_attributes` (obligation 1's other
-        half): that one runs when the attributes PARSED and the declaration
-        after them was the wrong kind; this one runs at the positions the
-        grammar never reads an attribute in — a struct FIELD, a PARAMETER, an
-        extension METHOD, a statement that is not a `let`/`var`. Its entries
-        are exactly those four, and each passes its own noun.
+        The companion of `_reject_misplaced_attributes`, for positions the
+        grammar never reads an attribute in. ENTRY POINTS:
+          * `DeclarationsMixin.parse_struct` — struct fields
+          * `DeclarationsMixin.parse_extension` — extension methods
+          * `DeclarationsMixin.parse_parameters` — parameters
+          * `StatementsMixin._parse_attributed_local` — statements other than
+            `let`/`var`
 
-        The current token is the `@`, so the attribute NAME is one token
-        ahead. Reading it is what lets an `@align` written on a field or a
-        parameter say which surface v1 has instead of the bare "not
-        supported": those two positions are where an author reaching for an
-        aligned BUFFER TYPE would try first, and the answer they need is that
-        the type-carried form is a later design, not that they mistyped.
+        The current token is the `@`, so the attribute name is one token ahead.
+        Reading it lets an `@align` on a field or parameter point at the
+        surface that exists (`ALIGN_SURFACE_HINT`) instead of a bare "not
+        supported".
         """
         nxt = self.peek(1)
         name = nxt.value if nxt.type == TokenType.IDENT else None
@@ -1175,12 +1093,12 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
         program = Program(structs=[], functions=[])
         errors = []  # collected syntax error messages (batched recovery)
         self.skip_newlines()
-        # `//!` module doc (design 121): legal only at the very top, so it is
-        # claimed here, before the first declaration is parsed. A `//!` anywhere
-        # else stays unclaimed and is reported by the sweep below.
+        # `//!` module doc: legal only at the very top, so it is claimed here,
+        # before the first declaration. A `//!` anywhere else stays unclaimed
+        # and is reported by the sweep below.
         program.module_doc = self._take_module_docs()
-        # SL-347: module scope is a statement list too — a `;` may not stand at
-        # the head of a line here either.
+        # Module scope is a declaration list, so a `;` may not stand at the
+        # head of a line here either.
         self.expect_statement_end()
 
         while not self.match(TokenType.EOF):
@@ -1199,14 +1117,14 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
             self.skip_newlines()
 
         # Doc comments never silently vanish: a block no declaration claimed is
-        # reported alongside any syntax errors (design 121). Skipped when the
-        # parse already failed, since recovery skips over declarations.
+        # reported. Skipped when the parse already failed, since recovery skips
+        # over declarations.
         if not errors:
             errors.extend(self._unattached_doc_errors())
 
         if errors:
-            # Surface all collected errors. A single error reproduces the exact
-            # prior message; multiple are joined so every one reaches the report.
+            # Surface all collected errors, joined so every one reaches the
+            # report.
             raise SyntaxError("\n".join(errors))
 
         return program
@@ -1214,9 +1132,9 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
     def parse_import(self, is_public: bool = False) -> ImportDecl:
         """Parse import declaration: import path.to.module or import path.{A, B}
 
-        `is_public` is design 229's re-export marker, set by the caller when the
-        line reads `public import`. Every form takes it — whole-module,
-        selective and glob — so each of the three `ImportDecl`s below carries it.
+        `is_public` is the re-export marker, set by the caller when the line
+        reads `public import`. Every form (whole-module, selective, glob)
+        carries it.
         """
         start = self.current()
         self.expect_ident("import")
@@ -1246,21 +1164,16 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                     is_public=is_public
                 )
 
-            # Check for symbol set: import foo.{A, B as C} (design 53: per-symbol
-            # `as` aliases).
+            # Check for symbol set: import foo.{A, B as C}
             if self.match(TokenType.LBRACE):
                 self.advance()
                 symbols = []
                 symbol_aliases = {}
                 local_names = set()
-                # DF-140b: an import symbol list WRAPS across lines. Design 129
-                # left `{}` newline-significant on the grounds that a block or a
-                # closure is a statement container — which an import list is not.
-                # It is a delimited list exactly like an argument list, and a
-                # module exporting eleven names should not force a 120-column
-                # line. The allowance is LOCAL to this construct: `{}` everywhere
-                # else keeps design 129's rule, so a block or closure body still
-                # ends its statements at end-of-line.
+                # An import symbol list wraps across lines: unlike a block or
+                # closure, it is a delimited list, not a statement container.
+                # The allowance is local to this construct; every other `{}`
+                # keeps its newlines significant.
                 self.skip_newlines()
 
                 def parse_one_symbol():
@@ -1273,9 +1186,8 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
                                                 "Expected alias name after 'as'")
                         symbol_aliases[sym.value] = alias_tok.value
                         local = alias_tok.value
-                    # design 53: two entries of one selective import may not bind
-                    # the same local name (an alias colliding with another
-                    # imported name), reported with the offending local name.
+                    # Two entries of one selective import may not bind the same
+                    # local name (an alias colliding with another imported name).
                     if local in local_names:
                         self.error(f"imported name `{local}` is already bound by "
                                    f"this import")
@@ -1324,7 +1236,7 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
         )
 
     def parse_static_assert(self):
-        """Parse `static_assert(<const-expr>, "message")` (design 53). Legal at
+        """Parse `static_assert(<const-expr>, "message")`. Legal at
         top level and in statement position. The message must be a plain string
         literal (it is baked into the compile-time diagnostic)."""
         from ast_nodes import StaticAssert
@@ -1408,9 +1320,9 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
         name_token = self.expect(TokenType.IDENT, "Expected module name")
 
         # Check for inline module: module name { ... }. Peek across newlines
-        # and REWIND when no `{` follows (SL-347): a bare `module name`
-        # declaration ends at its newline, and eating it here would leave the
-        # next declaration looking as if it shared this one's line.
+        # and rewind when no `{` follows: a bare `module name` ends at its
+        # newline, and eating it would make the next declaration look as if it
+        # shared this one's line.
         is_inline = False
         body = None
         brace_peek = self.pos
@@ -1420,14 +1332,12 @@ class Parser(ExpressionsMixin, StatementsMixin, DeclarationsMixin, TypeParsingMi
             self.advance()
             self.skip_newlines()
             # Parse the inline module body as a Program, reusing the shared
-            # top-level dispatch (design 40 item 8). Inline modules do NOT run
-            # batched error recovery — a syntax error here propagates to the
-            # file-level `parse()` loop, which synchronizes past the whole
-            # `module { ... }` — so the dispatch call is unguarded.
+            # top-level dispatch. Inline modules do not run batched error
+            # recovery: a syntax error propagates to the file-level `parse()`
+            # loop, which synchronizes past the whole `module { ... }`.
             body = Program(structs=[], functions=[])
-            # SL-347: an inline module's body is a DECLARATION list exactly as
-            # the file's is, so its gaps go through the same chokepoint —
-            # including the gap before the first declaration.
+            # The body is a declaration list like the file's, so its gaps go
+            # through the same chokepoint, including the gap before the first.
             self.expect_statement_end()
             while not self.match(TokenType.RBRACE, TokenType.EOF):
                 decl_start = self.current()

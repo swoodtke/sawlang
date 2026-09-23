@@ -1,5 +1,5 @@
 //! `Float` <-> text: shortest round-trip formatting and correctly-rounded
-//! parsing, both in pure Saw (design 253).
+//! parsing, both in pure Saw.
 //!
 //! ```saw
 //! print(0.1 + 0.2)                  // 0.30000000000000004
@@ -7,30 +7,26 @@
 //! print(back == 0.1 + 0.2)          // true
 //! ```
 //!
-//! One module owns the whole story, in both directions, and every surface in
-//! it funnels through one routine per direction:
+//! Each direction has one routine:
 //!
-//!   * `StringBuilder.append(value: Float)` is THE formatter. `Float.to_string`
-//!     calls it, and so does every rendering the compiler emits — `print(f)`,
+//!   * `StringBuilder.append(value: Float)` is the formatter. `Float.to_string`
+//!     calls it, and so does every rendering the compiler emits: `print(f)`,
 //!     `"{f}"`, `print("{}", f)`, a `panic`/`assert` argument, and
-//!     `f.format(into:)` — through `_value_to_string`'s FLOAT arm in
-//!     `sawc/codegen/core.py`. There is no second float renderer anywhere.
-//!   * `String.to_float` is THE parser, and `std.json` reads its numbers
+//!     `f.format(into:)`.
+//!   * `String.to_float` is the parser, and `std.json` reads its numbers
 //!     through it.
 //!
-//! It is declared here rather than in `std.string` / `std.stringbuilder`
-//! because the two directions share the bit-level layer below, and splitting
-//! them would mean inventing a second public spelling for each just to cross
-//! a file boundary. Both of those files carry a pointer comment saying so.
+//! Both are declared here rather than in `std.string` / `std.stringbuilder`
+//! because the two directions share the bit-level layer below.
 //!
-//! **The text is exactly what a shortest round-trip is:** the produced decimal
-//! parses back to the identical bits, and no shorter decimal does. The layout
-//! is CPython's `repr` — see `StringBuilder.append(value: Float)` for the rule
-//! written out. `nan` / `inf` / `-inf` are the non-finite spellings; those are
-//! Saw-facing text and NOT JSON, whose own rules are in `sawc/std/JSON.md`.
+//! The text is the shortest round-trip: the produced decimal parses back to
+//! the identical bits, and no shorter decimal does. The layout is CPython's
+//! `repr` (see `StringBuilder.append(value: Float)`). `nan` / `inf` / `-inf`
+//! are the non-finite spellings; those are Saw-facing text and not JSON, whose
+//! own rules are in `sawc/std/JSON.md`.
 //!
 //! Allocation: the formatter writes bytes through `StringBuilder.append`, so a
-//! fixed builder renders a float with no allocator at all — which is what lets
+//! fixed builder renders a float with no allocator at all, which is what lets
 //! a `panic` message name one. `Float.to_string` allocates exactly once, for
 //! the `String` it returns.
 //!
@@ -54,8 +50,7 @@
 // Shape constants
 // =============================================================================
 
-// IEEE 754 binary64, which is what `Float` is (LANGUAGE_SPEC: "the one float
-// type"). Named rather than spelled inline, per the no-magic-numbers rule.
+// IEEE 754 binary64, which is what `Float` is.
 static FLOAT_MANTISSA_BITS: Int = 52
 static FLOAT_EXPONENT_BITS: Int = 11
 static FLOAT_EXPONENT_BIAS: Int = 1023
@@ -78,7 +73,7 @@ static FLOAT_MAX_DIGITS: Int = 17
 static FLOAT_TEXT_MAX: Int = 24
 
 // ASCII the renderer writes. `Byte`, so `StringBuilder.append` reaches the
-// raw-byte overload rather than the integer-rendering one (design 250 §4).
+// raw-byte overload rather than the integer-rendering one.
 static FLOAT_BYTE_MINUS: Byte = 45
 static FLOAT_BYTE_PLUS: Byte = 43
 static FLOAT_BYTE_DOT: Byte = 46
@@ -1436,7 +1431,7 @@ extension Float {
 //
 // Saw has no `UInt128` and no widening multiply, so the 64x64 -> 128 product
 // both algorithms rest on is assembled from 32-bit halves. No partial product
-// exceeds 64 bits, so these use the ORDINARY checked operators — a wrapping
+// exceeds 64 bits, so these use the ordinary checked operators: a wrapping
 // `&*` here would hide a real overflow rather than express one.
 // =============================================================================
 
@@ -1456,8 +1451,8 @@ func __float_mul_high(a: UInt64, b: UInt64) sync -> UInt64 {
     p3 + (p1 >> 32) + (p2 >> 32) + (mid >> 32)
 }
 
-// The low 64 bits of `a * b`. Wrapping is the DEFINITION here — the high half
-// is the caller's other question — so `&*` is the operator that says so.
+// The low 64 bits of `a * b`. Wrapping is the definition here, so `&*` is the
+// operator that says so.
 func __float_mul_low(a: UInt64, b: UInt64) sync -> UInt64 {
     a &* b
 }
@@ -1473,9 +1468,8 @@ func __float_mul_shift(m: UInt64, low: UInt64, high: UInt64, shift: Int) sync ->
     let lo = __float_mul_low(m, high)
     let sum_lo = lo &+ carry
     let sum_hi = if sum_lo < lo { hi + 1 } else { hi }
-    // Ryu only ever asks for 65..127 here (measured range 118..125), so the
-    // `== 64` case a shift of exactly one word would need cannot arise — and
-    // `x << 64` panics, so an unguarded one would be a live trap.
+    // Ryu only asks for 65..127 here, so `s` is never 0: `x << 64` panics,
+    // and a shift of exactly one word would hit it.
     let s = shift - 64
     (sum_hi << (64 - s)) | (sum_lo >> s)
 }
@@ -1533,7 +1527,7 @@ func __float_decimal_length(v: UInt64) sync -> Int {
 }
 
 extension Float {
-    // THE SHORTEST DECIMAL: `(digits, exponent)` with `digits * 10^exponent`
+    // The shortest decimal: `(digits, exponent)` with `digits * 10^exponent`
     // the shortest decimal that reads back as `self`, and the nearest such
     // when several are equally short.
     //
@@ -1564,7 +1558,7 @@ extension Float {
         }
 
         // An even mantissa owns its halfway points (round-half-to-even lands
-        // back here), so the interval is CLOSED for it and open otherwise.
+        // back here), so the interval is closed for it and open otherwise.
         let accept_bounds = (m2 % 2) == (0 as UInt64)
 
         // Step 2: the interval. `mv` is the value, `mv + 2` the upper halfway
@@ -1634,8 +1628,8 @@ extension Float {
         var last_removed: UInt64 = 0
         var output: UInt64 = 0
         if vm_is_trailing_zeros || vr_is_trailing_zeros {
-            // The exact-boundary case — around one value in two hundred, and
-            // the only one where a dropped digit can be exactly a half.
+            // The exact-boundary case, the only one where a dropped digit can
+            // be exactly a half.
             while vp / 10 > vm / 10 {
                 vm_is_trailing_zeros = vm_is_trailing_zeros && vm % 10 == (0 as UInt64)
                 vr_is_trailing_zeros = vr_is_trailing_zeros && last_removed == (0 as UInt64)
@@ -1700,21 +1694,18 @@ extension Float {
 extension StringBuilder {
     /// Appends the shortest decimal text that reads back as `value`.
     ///
-    /// THE float formatter. `Float.to_string` calls it, and so does every
-    /// rendering the compiler emits — `print(f)`, `"{f}"`, `print("{}", f)`,
-    /// a `panic`/`assert` format argument, and `f.format(into:)`. Adding a
-    /// second one would be adding a second answer to "what does this number
-    /// look like", which is how `%f` and `%g` came to disagree here before
-    /// design 253.
+    /// This is the one float formatter: `Float.to_string` calls it, and so
+    /// does every rendering the compiler emits (`print(f)`, `"{f}"`,
+    /// `print("{}", f)`, a `panic`/`assert` format argument, and
+    /// `f.format(into:)`).
     ///
-    /// The digits are the shortest that round-trip (Ryu); the LAYOUT is
-    /// CPython's `repr`, which is where this file's oracle comes from. Given
-    /// those digits and `decpt` — the decimal point's place, so the value is
-    /// `0.<digits> * 10^decpt`:
+    /// The digits are the shortest that round-trip (Ryu); the layout is
+    /// CPython's `repr`. Given those digits and `decpt`, the decimal point's
+    /// place (so the value is `0.<digits> * 10^decpt`):
     ///
     ///   * zero is `0.0` or `-0.0`, keeping its sign;
     ///   * `decpt <= -4` or `decpt > 16` uses the exponent form: one leading
-    ///     digit, then `.` and the rest only if there IS a rest, then `e`, a
+    ///     digit, then `.` and the rest only if there is a rest, then `e`, a
     ///     mandatory sign, and at least two exponent digits — `1e+16`,
     ///     `5e-324`, `1.5e-07`;
     ///   * otherwise the fixed form, with `0.` and zero padding when the
@@ -1725,7 +1716,7 @@ extension StringBuilder {
     ///     (`sawc/std/JSON.md`).
     ///
     /// Allocation-free in the sense every `append` overload is: it writes
-    /// bytes through the builder and stages nothing, so a FIXED builder
+    /// bytes through the builder and stages nothing, so a fixed builder
     /// renders a float with no allocator present. `Err(AllocError)` is the
     /// growable builder's own refusal, forwarded.
     public func append(&var self, value: Float) -> Result<Void, AllocError> {
@@ -1852,17 +1843,14 @@ extension StringBuilder {
     }
 }
 
-// THE COMPILER'S ENTRY into the formatter above.
-//
-// `_value_to_string`'s FLOAT arm in `sawc/codegen/core.py` calls this by
-// symbol, which is what routes `print(f)`, `"{f}"`, `print("{}", f)`, a
-// `panic`/`assert` argument and `f.format(into:)` through the one formatter.
-// It renders `value` into `out` — caller storage of at least `capacity` bytes,
-// NUL-terminated on the way out, since the C-string shape is what the
-// interpolation path already passes around — and answers the byte count.
+// The compiler's entry into the formatter above: `_value_to_string`'s FLOAT
+// arm in `sawc/codegen/core.py` calls it by symbol. It renders `value` into
+// `out`, caller storage of at least `capacity` bytes, NUL-terminated because
+// the interpolation path passes C strings, and returns the byte count.
 //
 // `capacity` must leave room: a fixed builder holds `capacity - 4` bytes of
-// text, and the widest rendering is `FLOAT_TEXT_MAX`. Codegen passes 32.
+// text, and the widest rendering is `FLOAT_TEXT_MAX`. Keep in step with
+// codegen's `FLOAT_TEXT_BUF`.
 func __float_to_chars(value: Float, out: UnsafePointer<Int8>,
                           capacity: Int) unsafe sync -> Int {
     var text = StringBuilder(bytes: out, capacity: capacity)
@@ -1880,8 +1868,7 @@ extension Float {
     ///
     /// Allocates exactly once, for the `String`: the digits are rendered into
     /// frame storage through a fixed builder first. Like every other producer
-    /// in the `String` layer, a refused allocation panics rather than
-    /// returning (design 234's documented boundary).
+    /// in the `String` layer, it panics if that allocation is refused.
     public func to_string(&self) unsafe -> String {
         // `FLOAT_TEXT_MAX` bytes of text plus the four a fixed builder holds
         // back for its truncation marker and terminator.
@@ -1901,11 +1888,10 @@ extension Float {
 // Eisel-Lemire (Lemire, "Number Parsing at a Gigabyte per Second", SPE 2021,
 // after Michael Eisel) computes `significand * 10^exponent` from ONE 128-bit
 // multiply against a truncated power of five, and knows when its own error
-// bound leaves the answer undecided. That is the whole trick: it never guesses.
-// It declines on roughly one input in a hundred and fifty here, plus every
-// input with more than nineteen significant digits.
+// bound leaves the answer undecided, so it never guesses. It also declines
+// every input with more than nineteen significant digits.
 //
-// What it declines to, the SIMPLE DECIMAL CONVERSION decides exactly
+// What it declines, the simple decimal conversion decides exactly
 // (Clinger, "How to read floating point numbers accurately", PLDI 1990, over
 // Steele and White's earlier machinery; Go's `strconv/decimal.go` is the
 // canonical modern rendering). A decimal digit buffer is shifted by powers of
@@ -2507,12 +2493,12 @@ extension String {
 
     /// Parses the whole string as a `Float`, correctly rounded, or `None`.
     ///
-    /// THE float parser, and the exact inverse of `Float.to_string`: every
-    /// finite input maps to the NEAREST double, ties to even, with overflow
-    /// saturating to an infinity and underflow to a subnormal or a signed zero,
-    /// per IEEE 754. `"0.30000000000000004".to_float()` is the same bits
-    /// `0.1 + 0.2` produces, and every one of the 2897 committed vectors round
-    /// trips both ways.
+    /// This is the one float parser, and the exact inverse of
+    /// `Float.to_string`: every finite input maps to the nearest double, ties
+    /// to even, with overflow saturating to an infinity and underflow to a
+    /// subnormal or a signed zero, per IEEE 754.
+    /// `"0.30000000000000004".to_float()` is the same bits `0.1 + 0.2`
+    /// produces.
     ///
     /// The grammar, whole-string with no trimming — the same contract
     /// `to_int`/`to_uint` keep:
@@ -2528,11 +2514,6 @@ extension String {
     ///
     /// Panic-free on every input, including a hostile one: an 800-digit
     /// significand and an exponent of `1e999999999` are both ordinary answers.
-    ///
-    /// It used to be a naive left-to-right accumulation in `Float` arithmetic,
-    /// documented as not correctly rounded — the last ULP could differ, and
-    /// long or extreme inputs were simply wrong. Nothing about the signature
-    /// changed.
     public func to_float(&self) -> Float? {
         if let bits = self._float_nonfinite() {
             return Float.from(bits: bits)

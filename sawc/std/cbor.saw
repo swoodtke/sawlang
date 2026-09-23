@@ -33,10 +33,6 @@
 //! Half- and single-precision stay out permanently under the shortest-form
 //! rule, which admits one spelling per value.
 
-// =============================================================================
-// The head byte
-// =============================================================================
-
 // The eight CBOR major types. They occupy the top three bits of an item's first
 // byte; the low five are the additional-info field.
 enum CborMajor: UInt8 {
@@ -72,20 +68,14 @@ static INFO_MASK: UInt8 = 31u8
 static BYTE_MASK: UInt = 255
 
 // The hosted defaults for the decoder limits are written as literals in the
-// signatures below, not as statics: a default value is substituted at the CALL
+// signatures below, not as statics: a default value is substituted at the call
 // site, and a std-module static is not visible there (DF-169i). They are 64
 // levels of nesting, 16 MiB of input, and 100000 items.
 
-// UTF-8 lead and continuation boundaries, from RFC 3629's table. These are byte
-// VALUES, so they are `Byte` (design 250's census row), like the `byte_at`
-// accessor `utf8_width` compares them against. A `static` adopts a bare literal
-// at a `Byte` slot, which is why none of them carries a suffix.
-//
-// Every one of these comparisons is ORDERED, which is what held this row until
-// design 252: an ordered comparison over a distinct alias with an unsigned
-// underlying used to lower SIGNED, so `b0 <= UTF8_ASCII_MAX` answered true for
-// every byte at or above 0x80 and this validator accepted the malformed input
-// it exists to reject.
+// UTF-8 lead and continuation boundaries, from RFC 3629's table. They are
+// `Byte`, like the `byte_at` values `utf8_width` compares them against, and
+// every comparison over them is ordered, so it must lower unsigned
+// (design 252).
 static UTF8_ASCII_MAX: Byte = 127
 static UTF8_LEAD_MIN: Byte = 194
 static UTF8_LEAD_3: Byte = 224
@@ -97,10 +87,6 @@ static UTF8_E0_MIN: Byte = 160
 static UTF8_ED_MAX: Byte = 159
 static UTF8_F0_MIN: Byte = 144
 static UTF8_F4_MAX: Byte = 143
-
-// =============================================================================
-// Encoder
-// =============================================================================
 
 // One open array or map. `remaining` counts the items still owed (a map owes
 // two per pair) and `start` is where the container's own head byte went, so a
@@ -131,15 +117,10 @@ public struct CborEncoder {
 
 extension CborEncoder: NoCopy {}
 
-// design 234: the buffer reports its own refusal now, and this file's two
-// domains each already have a word for it — `BufferFull` on the way out,
-// `TooLarge` on the way in. These map the leaf onto the domain rather than
-// re-enumerating it, which is what §1's "carry the leaf, never restate it"
-// asks of a compound that is a STRUCT rather than an enum (so the `try(as ...)`
-// routing clause, which names an enum case, does not apply here).
-//
-// FREE functions, not methods: the argument is a `&var self` call on a field,
-// and a `&self` receiver beside it would be an exclusivity violation.
+// Map an `AllocError` onto each direction's own word for it: `BufferFull` on
+// the way out, `TooLarge` on the way in. Free functions, not methods: the
+// argument is a `&var self` call on a field, and a `&self` receiver beside it
+// would be an exclusivity violation.
 func __cbor_encoded(r: Result<Void, AllocError>) sync -> Result<Void, EncodeError> {
     match r {
         case Ok(_) -> {},
@@ -279,7 +260,7 @@ extension CborEncoder {
     // Record that an item beginning at `at` and ending at the current output
     // position is complete. A map key is compared against the previous key
     // here, which is the first moment a container key's own bytes are whole. A
-    // level whose last item this was becomes an item of ITS parent, so the walk
+    // level whose last item this was becomes an item of its parent, so the walk
     // continues upward until a level still owes something.
     func item_done(&var self, at: Int) sync -> Result<Void, EncodeError> {
         var start = at
@@ -287,8 +268,6 @@ extension CborEncoder {
             let last = self.levels.len() - 1
             let rem = self.levels[last].remaining
             if self.levels[last].is_map && (rem % 2) == 0 {
-                // The RHS of a place write is read into a local first: a write
-                // whose RHS names `self` is an ICE today (DF-169f).
                 let here = self.out.len()
                 let prev_start = self.levels[last].key_start
                 if prev_start >= 0 {
@@ -335,7 +314,7 @@ extension CborEncoder {
         if self.levels.len() >= self.max_depth {
             return EncodeError(fault: EncodeFault.TooDeep)
         }
-        // Room for the level BEFORE the head goes out, so a refused allocation
+        // Room for the level before the head goes out, so a refused allocation
         // is a fault rather than a panic and leaves no half-written item.
         match self.levels.reserve(1) {
             case Ok(_) -> {},
@@ -438,12 +417,8 @@ extension CborEncoder: Encoder {
     }
 }
 
-// =============================================================================
-// Decoder
-// =============================================================================
-
 // A parsed item head: where it began, its major type, and its argument. For
-// major 7 the additional-info bits ARE the value, so `arg` carries them raw.
+// major 7 the additional-info bits are the value, so `arg` carries them raw.
 struct CborHead {
     start: Int
     major: CborMajor
@@ -451,7 +426,7 @@ struct CborHead {
 }
 
 // One open container in the up-front scan. The number of these on the work
-// stack IS the nesting depth, which is why the scan never recurses.
+// stack is the nesting depth, which is why the scan never recurses.
 struct CborScanFrame {
     remaining: Int
     is_map: Bool
@@ -627,11 +602,10 @@ extension CborDecoder {
             return DecodeError(offset: start, fault: DecodeFault.Malformed)
         }
         let info = b & INFO_MASK
-        // Neither of these two majors has an argument to parse. Major 7's
-        // additional-info bits ARE the value, and major 6 is outside the
-        // profile whatever its argument says — parsing one would report the
-        // argument's shape (`NotCanonical`, `Truncated`) instead of the tag,
-        // which is the wrong answer for a rule that admits no exceptions.
+        // Neither major has an argument to parse. Major 7's additional-info
+        // bits are the value, and major 6 is outside the profile whatever its
+        // argument says: parsing one would report the argument's shape
+        // (`NotCanonical`, `Truncated`) instead of the tag.
         if major == CborMajor.Simple || major == CborMajor.Tag {
             return CborHead(start: start, major: major, arg: info as UInt)
         }
@@ -715,10 +689,8 @@ extension CborDecoder {
     }
 
     // One byte of the input, for a position the caller has already bounded.
-    // `Byte`, like every other byte-valued read in std (design 250's census
-    // row); both callers ORDER what they read — `utf8_width`'s class
-    // boundaries and `compare_in`'s canonical key ordering — which is exactly
-    // what design 252 made answer unsigned.
+    // Both callers order what they read (`utf8_width`'s class boundaries,
+    // `compare_in`'s key ordering), which must compare unsigned: `Byte` does.
     func byte_at(&self, i: Int) sync -> Byte {
         self.input.get(i) ?? Byte(0)
     }
@@ -834,8 +806,6 @@ extension CborDecoder {
         let last = stack.len() - 1
         let rem = stack[last].remaining
         if stack[last].is_map && (rem % 2) == 0 {
-            // Read into a local first: a place write whose RHS names `self` is
-            // an ICE today (DF-169f).
             let here = self.pos
             let prev_start = stack[last].key_start
             if prev_start >= 0 {
@@ -882,7 +852,7 @@ extension CborDecoder {
     }
 
     // Push a level for a container's items. Depth is the stack's height and is
-    // checked HERE, before the descent, so the bound holds exactly.
+    // checked here, before the descent, so the bound holds exactly.
     func descend(&var self, stack: &var Vector<CborScanFrame>, h: CborHead,
                  owed: Int, is_map: Bool) sync -> Result<Void, DecodeError> {
         if owed == 0 {
@@ -1125,10 +1095,6 @@ extension CborDecoder: Decoder {
     }
 }
 
-// =============================================================================
-// One-call forms
-// =============================================================================
-
 /// Encodes one value and returns its bytes.
 ///
 /// The two-step form (`CborEncoder`, then `finish`) is what to reach for when
@@ -1139,10 +1105,9 @@ public func encode<T: Serialize>(value: &T) sync -> Result<Data, EncodeError> {
     return enc.finish()
 }
 
-// The matching `decode<T: Deserialize>(bytes:)` cannot be written yet: a static
-// trait requirement is not callable on a type PARAMETER (DF-169e), which is the
-// one call `Deserialize`'s static shape exists for. Read a value back through
-// the type's own name instead:
+// There is no `decode<T: Deserialize>(bytes:)` twin, because a static trait
+// requirement is not callable on a type parameter (DF-169e). Read a value back
+// through the type's own name instead:
 //
 //     var dec = try CborDecoder.open(bytes: move blob)
 //     let entry = try LockEntry.deserialize(from: &var dec)

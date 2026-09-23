@@ -22,67 +22,45 @@
 //!
 //! Hosted only, like `std.net`. A freestanding target has no signals to watch.
 
-// std.signal (design 272 unit 3, SL-228).
+// Delivery: the runtime installs a handler that writes an 8-byte generation
+// record to a pipe, and
+// the watch registers the pipe's read end with the reactor, so a parked watcher
+// is an ordinary io park with precise wakeup, cancellation and the op budget.
+// The pipe is one mechanism on both hosts, needs no new ABI seam, and, unlike
+// signalfd, does not require the signal blocked in every thread (rt/shim.c,
+// design 272).
 //
-// DELIVERY, and why it is not what the issue sketched. The runtime installs a
-// tiny handler that writes one byte to a pipe, and the watch handle registers
-// that pipe's read end with the reactor — so a parked watcher is an ORDINARY
-// io park and inherits everything design 76/91/102 already gives one:
-// precise wakeup, cancellation, the op budget, the deadlock walk's `anyio`.
+// SIGPIPE is not a case: the runtime suppresses it (per socket on macOS, per
+// send on Linux), so a write to a
+// hung-up peer is `Err(IoError)` with kind `BrokenPipe`.
 //
-// The alternative was kqueue's EVFILT_SIGNAL and Linux's signalfd. Three
-// reasons the pipe won, recorded here because the sketch pointed the other way:
-// it needs NO new frozen ABI seam (a pipe read end is just a readable fd, and
-// the `(fd, write, token)` seam already carries it); it is ONE mechanism on
-// both hosts rather than two wearing one seam; and it has no thread-ordering
-// hazard, where signalfd requires the signal blocked in every thread and cannot
-// retroactively block it in threads that already existed. See the block over
-// `__saw_signal_watch` in rt/shim.c for the full argument.
-//
-// SIGPIPE IS DELIBERATELY NOT A CASE BELOW. Sockets never raise it — the
-// runtime suppresses it per socket (design 272 unit 2) — so a write to a peer
-// that has hung up arrives as `Err(IoError)` with kind `BrokenPipe`, which is
-// an ordinary failure a handler can answer. The process-wide disposition is
-// left alone so pipes and child processes behave exactly as they always did.
-// There is nothing here for a program to watch.
-//
-// SIGCHLD IS NOT A CASE EITHER, and that one is load-bearing rather than tidy:
-// std.process reaps children with `waitpid`, and changing SIGCHLD's disposition
-// makes the kernel auto-reap, after which `waitpid` fails with ECHILD and
-// `Command.run` reports a launch failure for a child that ran perfectly well.
-// Two owners of one disposition is exactly what the double-watch refusal below
-// exists to prevent, and this is that bug with the std library as one owner.
+// SIGCHLD is not a case: std.process owns child reaping (with `waitpid`), so
+// its disposition is left to std.process rather than shared with a watcher.
 
 import std.net.{IoError, IoErrorKind}
 
 extern "C" {
-    // The portable signal TAG -> this host's number (rt/shim.c). The numbers
-    // diverge — SIGUSR1 is 30 on macOS and 10 on Linux — so Saw names a tag and
-    // the host says what it means, the same arrangement the socket options and
-    // the SysError space already use.
+    // Portable signal tag -> this host's number (rt/shim.c). The numbers
+    // differ between hosts (SIGUSR1 is 30 on macOS, 10 on Linux).
     func __saw_signal_number(tag: Int) -> Int
-    // Install the handler + pipe for `signo`; returns the READ end, or a
+    // Install the handler and pipe for `signo`; returns the read end, or a
     // negative refusal (-1 bad signal, -2 already watched, -3 the pipe or the
     // handler could not be installed).
     func __saw_signal_watch(signo: Int) -> Int
-    // Restore the disposition this watch replaced and drop the pipe.
+    // Restore the disposition this watch replaced and empty the pipe. The pipe
+    // is never closed (rt/shim.c, RULE 2).
     func __saw_signal_unwatch(signo: Int)
-    // Send a signal to THIS process.
+    // Send a signal to this process.
     func __saw_signal_raise(signo: Int) -> Int
-    // Take the deliveries belonging to the CURRENT watch off this signal's
-    // pipe: a positive count, or -1 for "nothing pending". Takes the SIGNAL
-    // rather than the descriptor because it also validates the generation tag —
-    // a byte written by a handler that was in flight across a teardown belongs
-    // to the previous watch and is discarded rather than reported as a
-    // delivery (rt/shim.c, RULE 2).
+    // Take the current watch's deliveries off this signal's pipe: a positive
+    // count, or -1 for nothing pending. Takes the signal rather than the fd
+    // because it also checks the generation tag: a record from a handler in
+    // flight across a teardown belongs to the previous watch and is discarded
+    // (rt/shim.c, RULE 3).
     //
-    // The read lives on the C side for the reason std.net keeps its own behind
-    // `__saw_rt_tcp_read`: an `extern "C" func read(...)` declaration is
-    // program-GLOBAL, so std declaring one collides with any program that
-    // declares `read` itself — the suite's offload tests declare it `blocking`,
-    // and two declarations of one symbol that disagree are a compile error in
-    // whichever program imports both. Keeping it here means std.signal declares
-    // no libc symbol at all.
+    // The read is on the C side because an `extern "C" func read(...)` is
+    // program-global: std declaring one would collide with any program that
+    // declares `read` differently (e.g. as `blocking`).
     func __saw_signal_drain(signo: Int) -> Int
 
     func __saw_rt_op_budget_tick() -> Int
@@ -178,7 +156,7 @@ extension SignalWatch {
 
     /// Suspends until the watched signal is delivered.
     ///
-    /// Returns once at least one delivery has arrived. Deliveries COALESCE: the
+    /// Returns once at least one delivery has arrived. Deliveries coalesce: the
     /// OS does not queue ordinary signals, so three `SIGTERM`s arriving between
     /// two calls may surface as one, and a count is not reported because the
     /// platform never had one to give.
@@ -195,13 +173,9 @@ extension SignalWatch {
             if n > 0 {
                 break                          // at least one delivery
             }
-            // Nothing pending FOR THIS WATCH: either the pipe was empty, or it
-            // held only bytes a handler stamped under a previous watch, which
-            // the drain discarded. Park either way — reporting a stale byte as
-            // a delivery would wake a shutdown task nobody signalled.
-            //
-            // There is no "the pipe is gone" case to handle: the write end is
-            // never closed (rt/shim.c, RULE 2), so a read on it cannot return 0.
+            // Nothing pending for this watch (the drain discards bytes stamped
+            // under a previous watch), so park. The write end is never closed
+            // (rt/shim.c, RULE 2), so there is no end-of-pipe case.
             io_wait(self.fd, 0)
             __saw_rt_op_budget_reset()
         }
@@ -231,13 +205,9 @@ extension Signal {
     /// ```saw
     /// try! Signal.Terminate.send_to_self()
     /// ```
-    ///
-    /// A METHOD rather than the free function POSIX would call `raise`, and
-    /// deliberately: a free function is emitted under its bare link symbol
-    /// (SL-274), so a std function named `raise` shadows libc's `raise` for the
-    /// whole program — including for the runtime's own C, which called it and
-    /// recursed into itself until the stack ran out. A method mangles by its
-    /// type and cannot collide.
+    // A method, not a free `raise`: a free function is emitted under its bare
+    // link symbol, so a std `raise` would shadow libc's for the whole program,
+    // including the runtime's own C (SL-274). A method mangles by its type.
     public func send_to_self(&self) -> Result<Void, IoError> {
         let signo = __saw_signal_number(signal_tag(self))
         if signo < 0 {

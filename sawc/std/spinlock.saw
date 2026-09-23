@@ -1,13 +1,12 @@
 //! A lock that costs one word and needs no operating system.
 //!
 //! `SpinLock<T>` guards a value behind an atomic word, so it can live anywhere
-//! its payload can: a local, a field, or a `static`. That last one is the point.
-//! `Mutex<T>` holds a `pthread_mutex_t` in an allocated block, which a `static`
-//! cannot construct and a freestanding target has no libc to provide, so global
-//! state that several threads share had no safe spelling before this.
+//! its payload can: a local, a field, or a `static`. Unlike `Mutex<T>`, it
+//! needs no runtime lock seam, which is the point: it works on a freestanding
+//! target with no operating system.
 //!
 //! ```saw
-//! import std.spinlock
+//! import std.spinlock.{SpinLock}
 //!
 //! struct Counters {
 //!     hits: Int,
@@ -26,16 +25,9 @@
 //! Hold it briefly. A waiter burns its core until the lock is free, so a
 //! critical section that runs long wastes exactly as much time as it takes.
 
-// The two states of the word. Named rather than spelled `0`/`1` at each use
-// site: which one means "held" is the whole invariant. UNLOCKED being ZERO is
-// what lets a `static SpinLock<T>` be declared with no initializer at all —
-// the whole value is zerofill storage, so an idle lock costs no image bytes.
-//
-// An enum rather than a family of Int statics because a closed set of states is
-// what an enum is for (design 153); `Atomic<Int>` is the v1 atomic, so each call
-// site projects with `as Int` and the enum stays the single source of the values
-// — the same shape std/once.saw's `State` has. (Named `LockState` rather than
-// `State` because a second std-module `State` collides today; see DF-153a.)
+// Unlocked must be zero: that lets a `static SpinLock<T>` be declared with no
+// initializer, as zerofill storage costing no image bytes. `Atomic<Int>` is the
+// only atomic, so each use site projects with `as Int`.
 enum LockState: Int {
     case Unlocked = 0,
     case Held = 1
@@ -53,14 +45,14 @@ static_assert((LockState.Unlocked as Int) == 0, "zero must mean UNLOCKED")
 ///
 /// Because `lock` is `sync` and its body is `sync`, a task cannot be
 /// interrupted while holding the lock. Two tasks on one thread therefore never
-/// contend, and contention means another THREAD or another core.
+/// contend, and contention means another thread or another core.
 ///
 /// `SpinLock` is `NoCopy` — a copied lock is two locks guarding two payloads,
 /// which is not a thing anyone wants. It is `Sync` when `T` is `Send`, on the
 /// same terms as `Mutex`: handing a `&var T` out under mutual exclusion is safe
 /// to share exactly when moving a `T` between threads is.
 ///
-/// Locking is NOT reentrant. Taking the lock again while holding it spins
+/// Locking is not reentrant. Taking the lock again while holding it spins
 /// forever, since the thread that would release it is the one spinning.
 ///
 /// Every operation is a compare-and-swap or a store, so the type needs a target
@@ -71,13 +63,10 @@ public struct SpinLock<T> {
     private value: UnsafeMutableInterior<T>
 }
 
-// The `Sync` this type has always had, said out loud (design 186). A `SpinLock`
-// carries an interior cell, so it derives none: handing out a `&var T` from
-// behind a `&self` is exactly the mutation-through-a-shared-borrow the
-// derivation cannot reason about. What makes it sound is the compare-and-swap
-// above the payload, which is code rather than a field. Sharing one is safe
-// exactly when MOVING a `T` between threads is, which is what the bound says.
-// `Send` needs no declaration — a cell moves fine, so it derives.
+// An interior cell derives no `Sync`: handing out a `&var T` from behind a
+// `&self` is mutation through a shared borrow. The compare-and-swap, which is
+// code rather than a field, makes it sound, so sharing one is safe exactly when
+// moving a `T` between threads is. `Send` derives (design 186).
 extension SpinLock<T: Send>: UnsafeSync {}
 
 extension SpinLock<T> {
@@ -128,15 +117,9 @@ extension SpinLock<T> {
     // The address of the guarded value. Sound only while the caller holds the
     // lock, which is why it is private and why both callers take it first.
     //
-    // The payload lives in an interior CELL, and handing out its address is the
-    // cell's one accessor (design 186). Every aggregate receiver reaches the
-    // caller's storage since design 261; what the cell-carrying property adds
-    // is the licence to WRITE through that address, which is why a
-    // cell-carrying receiver is the one the compiler leaves unmarked rather
-    // than stamping `noalias readonly`. The old spelling took the address of a
-    // plain field with `(&self.value) as UnsafePointer<T>`, which was the same
-    // bytes and none of the argument — it worked because `state` happened to be
-    // an `Atomic`.
+    // The payload lives in an interior cell, and handing out its address is the
+    // cell's one accessor. The cell is what licenses writing through it: a
+    // cell-carrying receiver is left unmarked rather than `noalias readonly`.
     func _payload(&self) unsafe -> UnsafePointer<T> {
         self.value.ptr()
     }

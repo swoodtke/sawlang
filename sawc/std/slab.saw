@@ -1,14 +1,9 @@
-// Slab allocator machinery — fixed-chunk allocation over a caller-owned static
-// region (design 42 item 2, design 19 §4 kernel idiom).
+// Slab allocation: fixed-size chunks from a contiguous byte region the caller
+// owns as a zero-initialized static. Freestanding: no libc, only `Atomic<Int>`
+// CAS loops and pointer arithmetic. The bookkeeping lives in a `SlabHead`
+// static, whose atomics mutate interiorly.
 //
-// This is freestanding-compatible: it touches no libc, only `Atomic<Int>` CAS
-// loops (design 41) and raw pointer arithmetic. A slab hands out fixed-size
-// chunks from a contiguous byte region the CALLER owns as a module static (a
-// bare-declared zero-init array — `.bss`, design 41 item 2). The slab keeps its
-// mutable bookkeeping in a `SlabHead` static (interior-mutable, so writable).
-//
-// WIRING (a user unit-struct allocator in ~10 lines) — see std docs / the
-// `kernel_slab_idiom` example:
+// Wiring a user allocator (see the `kernel_slab_idiom` example):
 //
 //     static TASK_REGION: [Int8; 64 * 4]                 // 4 chunks of 64 bytes
 //     static TASK_HEAD: SlabHead = SlabHead(bump: Atomic(0), free: Atomic(0))
@@ -21,15 +16,13 @@
 //             slab_dealloc(ptr, &TASK_HEAD)
 //         }
 //     }
-//     type TaskBox = Box<Task, TaskSlab>                 // the kernel idiom
+//     type TaskBox = Box<Task, TaskSlab>
 //
-// THREAD-SAFETY / ABA: alloc and dealloc are lock-free CAS loops over the head's
-// atomics. Because the free-list threads the *address* of the next free chunk
-// through each freed chunk's own first word, a classic ABA race is possible: a
-// chunk freed, re-allocated, and re-freed between one thread's load and CAS can
-// let a stale next-pointer be reinstated. This is ACCEPTABLE at this stage — the
-// required exhaustion test is single-threaded, and ABA-hardening (tagged
-// pointers / hazard pointers) is future work. Documented honestly, not hidden.
+// ABA hazard: alloc and dealloc are lock-free CAS loops, and the free-list
+// threads the next free chunk's address through each freed chunk's first word.
+// A chunk freed, reallocated and refreed between one thread's load and CAS can
+// reinstate a stale next pointer. Not yet hardened (no tagged or hazard
+// pointers), so concurrent use across threads is unsafe.
 
 // SlabHead — a slab's mutable bookkeeping, kept in a caller static.
 //   `bump` — number of chunks already handed out from the never-yet-used tail
@@ -44,8 +37,8 @@ public struct SlabHead {
     public free: Atomic<Int>
 }
 
-// Move-only, because `Atomic` is (design 202): a copied head is a second set of
-// bookkeeping over the SAME region, which would hand the same chunk out twice.
+// Move-only, as `Atomic` is: a copied head is a second set of bookkeeping over
+// the same region, which would hand the same chunk out twice.
 // The head is meant to be reached where it lives — a `static`, lent as `&` —
 // and every function here takes it that way.
 extension SlabHead: NoCopy {}
@@ -54,12 +47,12 @@ extension SlabHead: NoCopy {}
 //
 //   region      — start of the caller's byte region (`(&STATIC) as UnsafePointer<Int8>`)
 //   chunk_count — number of chunks the region holds
-//   chunk_size  — bytes per chunk; MUST be >= 8 so a freed chunk can store the
+//   chunk_size  — bytes per chunk; must be >= 8 so a freed chunk can store the
 //                 free-list next-address in its first word (and >= the payload)
 //   head        — the slab's bookkeeping static, lent immutably (its atomics
 //                 mutate interiorly)
 //
-// The returned chunk is UNINITIALIZED memory — the caller (e.g. `Box.make`)
+// The returned chunk is uninitialized memory: the caller (e.g. `Box.make`)
 // placement-moves a value into it. `None` is what `Box.make` turns into
 // `Err(AllocError)`.
 func slab_alloc(region: UnsafePointer<Int8>, chunk_count: Int, chunk_size: Int, head: &SlabHead) unsafe -> UnsafePointer<Int8>? {

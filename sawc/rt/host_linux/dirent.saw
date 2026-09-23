@@ -1,8 +1,7 @@
-// `struct dirent` name projection (design 122 unit F) — Linux (glibc/musl).
+// `struct dirent` name projection (design 122) — Linux (glibc/musl).
 //
-// See the macOS twin for why this is a seam: `d_name`'s offset is the one
-// OS-divergent part of the layout, and std used to hardcode the macOS value, so
-// every filename listed on Linux was two bytes off.
+// `d_name`'s offset is the host-specific fact this seam needs; see
+// host_macos/dirent.saw.
 //
 // Linux `struct dirent` (64-bit):
 //   d_ino    UInt64   @0

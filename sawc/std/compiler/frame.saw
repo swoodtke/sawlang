@@ -14,7 +14,7 @@
 //! let owned = s.take()        // the slot is empty again
 //! ```
 //!
-//! WHY IT IS PUBLIC. Generated code is held to the ordinary ownership rules,
+//! Why it is public: generated code is held to the ordinary ownership rules,
 //! so the transform may only emit code a programmer could have written. That
 //! rules out a private vocabulary: a `Slot` operation the transform can reach
 //! and you cannot would be an operation the checker judges by a second set of
@@ -22,7 +22,7 @@
 //! everyday code — reach for a plain `let` in ordinary Saw, and for `Slot`
 //! when you are writing storage whose occupancy a state machine decides.
 //!
-//! WHAT IT COSTS TO USE. `Slot` is ordinary safe Saw and the checker holds it
+//! What it costs to use: `Slot` is ordinary safe Saw and the checker holds it
 //! to the same rules as any other type. `UnsafeRef` is an `unsafe struct`, so
 //! a function that mints, holds or dereferences one is declared `unsafe` and
 //! carries the validity obligation stated on the type.
@@ -44,8 +44,8 @@
 /// A `NoMove` `T` therefore never belongs in one — `put` and `take` are moves,
 /// and a pinned value's storage is a plain field.
 public struct Slot<T> {
-    // Private (design 80): the tag is not separately addressable from the
-    // payload, which is the whole exactly-once argument.
+    // Private: the tag is not separately addressable from the payload, which
+    // is the exactly-once argument.
     private v: T?
 }
 
@@ -144,7 +144,7 @@ extension UnsafeRef<T> {
     /// Lends the referent where it sits.
     ///
     /// The use site picks the window, as with any other place accessor, and
-    /// the WRITE side additionally needs a mutable binding: a write through a
+    /// the write side additionally needs a mutable binding: a write through a
     /// `let`-bound handle is refused, a `var`-bound one goes through. Field
     /// reads and writes, method calls and further place hops all work on the
     /// referent's own storage.
@@ -154,21 +154,15 @@ extension UnsafeRef<T> {
 
 }
 
-// The conformance design 218a ruling 10 deferred to design 219, landed with the
-// collapse. `UnsafeRef` is exactly the trait's shape: move-only, duplicable on
-// request, spelled at the call site — and it can be said out loud now that
-// `ExplicitCopy` is an ordinary trait rather than a tier. The type stays
-// `NoCopy`, which is what keeps the handle move-only: the tier declaration wins,
-// and this conformance adds only the named `copy()`.
+// The type stays `NoCopy`, which keeps the handle move-only: the tier
+// declaration wins, and this conformance adds only the named `copy()`.
 //
-// EFFECT MATCHING (the wrinkle ruling 10 flagged, answered once here and for
-// `Arc` alike): the requirement is a plain `copy(&self) -> Self` and the
-// conformer is `unsafe`-marked, which is LEGAL. A conformer may be STRICTER
-// than its requirement, never looser — an `unsafe` marker describes the body,
-// and design 130 forces it onto any function naming an unsafe type, so refusing
-// it would make the trait unimplementable by exactly the types that need it.
-// The reverse direction stays refused (a safe conformer of an `unsafe`
-// requirement, conformance row U26).
+// The requirement is a plain `copy(&self) -> Self` and this conformer is
+// `unsafe`, which is legal: a conformer may be stricter than its requirement,
+// never looser. The marker is forced onto any function naming an unsafe type,
+// so refusing it would make the trait unimplementable by the types that need
+// it. The reverse (a safe conformer of an `unsafe` requirement) is refused,
+// conformance row U26 (design 219).
 extension UnsafeRef<T>: ExplicitCopy {
     /// Returns a second handle to the same referent.
     ///
@@ -203,10 +197,10 @@ public enum Poll {
 /// this conformance for it. Erasing a frame to `Box<any Resumable>` is what
 /// lets one run queue drive frames of many different types.
 ///
-/// CONFORMING BY HAND GRANTS NOTHING. Spawning and enqueuing are lowered by
-/// the compiler from `spawn` and `group.spawn(f(...))`, against frames it
-/// built itself; a hand-written conformer is a type with five methods and no
-/// way to reach a scheduler. What keeps a user conformance inert is that
+/// Conforming by hand grants nothing. Spawning and enqueuing are lowered by
+/// the compiler from `Task.spawn(f(...))` and `group.spawn(f(...))`, against
+/// frames it built itself; a hand-written conformer is a type with these
+/// methods and no way to reach a scheduler. What keeps a user conformance inert is that
 /// gate, not any unspellability in the signature — so the signature is
 /// spellable, types and names both, and a reader can write down exactly what
 /// the compiler synthesizes.
@@ -224,8 +218,10 @@ public trait Resumable {
 
     /// Why the frame stopped, read after a `Pending`.
     ///
-    /// 0 means ready — a yield, or a channel wait to retry — so the executor
-    /// requeues at once. A positive value is a sleep in milliseconds.
+    /// 0 means ready (a yield), so the executor requeues at once. A positive
+    /// value is a sleep span in nanoseconds, counted down by the executor. -1
+    /// is an io park, and a value
+    /// below -1 is a park on the readiness word at the negated address.
     func wake_reason(&self) sync -> Int
 
     /// This task's cooperative-cancel word.
@@ -240,25 +236,24 @@ public trait Resumable {
     /// nanoseconds, or 0 when the park carries no deadline.
     ///
     /// An io park and a sleep are different states of the wake word, so a wait
-    /// that is bounded by BOTH a file descriptor and a clock cannot be spelled
-    /// in that one word. It is spelled as a pair instead: the wake word stays
-    /// the io park and this says when to give up on it. A frame that never
-    /// arms a deadline answers 0, and the executor leaves it parked exactly as
-    /// it always did.
+    /// bounded by both a file descriptor and a clock is spelled as a pair: the
+    /// wake word stays the io park and this says when to give up on it. A frame
+    /// that never arms a deadline answers 0 and stays parked until the reactor
+    /// wakes it.
     func io_deadline(&self) sync -> Int
 
     /// This frame type's entry in the in-binary backtrace table, or -1 when
     /// the program carries none.
     ///
     /// A logical backtrace walks static tables from the frame's state word,
-    /// and the frame's TYPE is the one thing that walk cannot read out of the
+    /// and the frame's type is the one thing that walk cannot read out of the
     /// frame itself. Reaching it through the vtable keeps the descriptor out
     /// of every frame's storage.
     func bt_desc(&self) sync -> Int
 
     /// Drops everything the frame still owns, leaving it empty.
     ///
-    /// A task is a scope: its values die when the TASK completes, not when
+    /// A task is a scope: its values die when the task completes, not when
     /// its group is torn down, so a completed frame releases itself at its
     /// `Done` exit while the box it lives in may outlive that by a long way.
     /// The two are reconciled by the contract on this method — `release` may

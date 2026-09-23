@@ -1,32 +1,20 @@
-// Cooperative-scheduler fairness backstop (design 89-c / 113b / 225), in Saw.
+// Cooperative-scheduler fairness backstop (design 89), authored in Saw.
 //
-// A task that keeps completing suspending io ops WITHOUT ever parking (an
+// A task that keeps completing suspending io ops without ever parking (an
 // always-ready socket) would otherwise monopolize the executor. Each such op
 // charges a budget; when it hits zero the io primitive force-yields once (the
-// caller sees the `1`) and the budget resets. Op-count, not wall-clock —
-// deterministic and kernel-friendly.
+// caller sees the `1`) and the budget resets. Op-count, not wall-clock, so it
+// is deterministic and kernel-friendly.
 //
-// THE BUDGET IS PER-THREAD (design 225 D-d), and it used to be process-global.
-// That was defensible while an MT group only existed inside a fork-join drain:
-// the comment called it "a benign shared budget across MT workers", and the
-// drain was the only time there was more than one ticker. A LIVE worker pool
-// makes every worker and the thread running the ambient scheduler tick the same
-// counter for the whole life of the group, and a shared counter under N
-// tickers is not the backstop design 89-c specified — it force-yields each
-// task roughly N times too often, and one thread's reset discards another's
-// progress. Per-thread restores the specified behaviour exactly: each thread
-// gets 128 non-parking io ops before it is made to cede, whatever its peers
-// are doing.
+// The budget is per thread, so each worker gets its own allowance and its own
+// reset: a counter shared by N workers would couple them, and one thread's
+// reset would discard another's progress (design 225). The loop-backedge budget needs no
+// such care because it lives in the coroutine frame, so it is per task.
 //
-// The other budget, design 127's LOOP-BACKEDGE counter, needed nothing: it is
-// FRAME-resident (`__saw_loop_budget`, a field of the coroutine frame), so it
-// is per-TASK already and a task is on exactly one thread at a time.
-//
-// The storage is pthread thread-specific data rather than a `_Thread_local`,
-// because these bodies are Saw and Saw has no thread-local storage — which is
-// the one thing worth knowing here. Both encodings are biased by one so that
-// the all-zero initial state means "unset": a pthread key may legitimately be
-// 0, and a thread that has never ticked reads a NULL value.
+// Saw has no thread-local storage, so the budget lives in pthread
+// thread-specific data. Both encodings are biased by one so that all-zero
+// means "unset": a pthread key may legitimately be 0, and a thread that has
+// never ticked reads NULL.
 
 extern "C" {
     // pthread_key_t is `unsigned long` on macOS and `unsigned int` on glibc;

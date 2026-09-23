@@ -406,9 +406,11 @@ extension Vector<T: ExplicitCopy, A: Allocator = GlobalAllocator> {
 // The closure methods take non-escaping closures, so a closure passed directly
 // may borrow-capture enclosing locals. They lend each element as `&T`, so they
 // carry no copy bound. They lend out of the buffer directly rather than through
-// `with_ref`, whose `sync` body would forbid a suspending closure; the vector
-// is held `&self` for the whole method, so exclusivity still keeps a `push`
-// from reallocating under a live element borrow.
+// `with_ref`: the visitor parameter is not declared `sync`, and calling it
+// inside `with_ref`'s `sync` body would impose that requirement on its type.
+// (A closure body that actually suspends is refused either way.) The vector is
+// held `&self` for the whole method, so exclusivity keeps a `push` from
+// reallocating under a live element borrow.
 extension Vector<T, A: Allocator = GlobalAllocator> {
     /// Iterates over each element in order, lending it to `body` as a `&T`.
     /// Carries no copy bound: the element is borrowed where it sits, never

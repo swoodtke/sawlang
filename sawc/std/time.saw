@@ -12,20 +12,11 @@
 //! available in the freestanding profile. The `Duration` these methods return is
 //! in the prelude and needs no import of its own.
 
-// std.time (design 57 Part 4). HOSTED-ONLY: never loaded in the freestanding
-// profile (see HOSTED_STD_MODULES in sawc.py) — a kernel supplies its own timer.
-//
-// `Duration` used to live here; design 180 unit 2 moved it to std/duration.saw
-// so it could be prelude-visible in both profiles. `sleep` takes one and `sleep`
-// is a prelude builtin, so requiring an import for its argument type would have
-// put `import std.time` at the top of every file that naps.
+// Hosted-only: never loaded in the freestanding profile (HOSTED_STD_MODULES in
+// sawc.py); a kernel supplies its own timer.
 
-// =============================================================================
-// Clock seams (defined by the compiler — see codegen/core.py)
-// =============================================================================
-//
-// The macOS/Linux CLOCK_MONOTONIC constant difference and the `struct timespec`
-// layout live inside these compiler shims, so this module stays pure Saw.
+// The per-host CLOCK_MONOTONIC value and `struct timespec` layout live in the
+// runtime's clock seams (rt/host_*/clock.saw), so this module is host-neutral.
 extern "C" {
     // Monotonic clock, nanoseconds since an arbitrary epoch (only differences
     // are meaningful). Backs `Instant.now()`.
@@ -33,10 +24,6 @@ extern "C" {
     // Wall clock, seconds since the Unix epoch. Backs `unix_timestamp()`.
     func __saw_rt_unix_timestamp_secs() -> Int64
 }
-
-// =============================================================================
-// Instant — a point on the monotonic clock
-// =============================================================================
 
 /// A point on the monotonic clock.
 ///
@@ -78,10 +65,6 @@ extension Instant {
         Duration.ns((self.nanos - earlier.nanos) as UInt64)
     }
 }
-
-// =============================================================================
-// Wall-clock timestamp
-// =============================================================================
 
 /// Returns the seconds since the Unix epoch (1970-01-01T00:00:00Z).
 ///

@@ -17,36 +17,30 @@ from noescape import first_reference_in
 
 
 class CommittedGenericError(SyntaxError):
-    """A generic-list error the parser must REPORT rather than backtrack from.
+    """A generic-list error the parser must report rather than backtrack from.
 
-    The speculative "is this `<` a generic argument list or a comparison?"
-    lookahead in `parser/expressions.py` restores its position on any
-    `SyntaxError` and re-reads the `<` as an operator. That is right for a `<`
-    that was never a generic, and wrong for a list that IS one and is merely
-    ill-formed — backtracking there swallows the real diagnostic and reports
-    something unrecognizable from the comparison reading instead. Errors under
-    this base are let through by every speculative site.
+    The speculative "generic argument list or comparison?" lookahead in
+    `parser/expressions.py` restores its position on any `SyntaxError` and
+    re-reads the `<` as an operator. For a list that is generic but
+    ill-formed, that would swallow the real diagnostic. Every speculative site
+    lets errors under this base through.
     """
 
 
 class GenericListTrailingComma(CommittedGenericError):
-    """A `,` sitting directly before `>` in a generic list (design 129).
+    """A `,` directly before `>` in a generic list (design 129).
 
-    Trailing commas are allowed in the `()`/`[]` lists that the wrapping rule
-    exists to serve, and rejected in `<...>`, which has no wrapping idiom to
-    serve.
+    Trailing commas are allowed in `()`/`[]` lists, which wrap across lines,
+    and rejected in `<...>`, which has no wrapping idiom.
     """
 
 
 class ReferenceTypeArgument(CommittedGenericError):
-    """A generic argument that NAMES a reference — `Vector<&Int>`, `f<&Int>(x)`
-    (DF-163d).
+    """A generic argument that names a reference: `Vector<&Int>`, `f<&Int>(x)`.
 
-    References are parameters only, and a type argument is the one position that
-    smuggles one past every declaration-side rule: `Vector<&Int>` never writes a
-    `&` in a field or a return type, yet `v.push(&x)` is a genuine call argument
-    and the container outlives the call. So the refusal is at the ARGUMENT, not
-    at the call.
+    References are parameters only. `Vector<&Int>` writes no `&` in a field or
+    return type, yet `v.push(&x)` is a genuine call argument and the container
+    outlives the call, so the refusal is at the argument, not at the call.
     """
 
 
@@ -56,19 +50,16 @@ class TypeParsingMixin:
     def parse_return_clause(self, what: str, lends: bool = False) -> SawType:
         """Parse an optional `-> T` return clause, defaulting to `Void`.
 
-        Every declaration that has a signature funnels its return type through
-        here — `func`, extension method / `init`, trait requirement, `extern
-        func` — so the parameters-only rule below is stated once and holds in
-        every position. The function-TYPE grammar has its own arrow (it is not
-        optional there) and calls `reject_reference_return` directly.
+        ENTRY POINTS: every declaration with a signature (`func`, extension
+        method / `init`, trait requirement, `extern func`), so the
+        parameters-only rule holds in every position. The function-type grammar
+        has a mandatory arrow and calls `reject_reference_return` directly.
 
-        `lends=True` is the ONE exception, and it is the `borrows` signature
-        (SL-333 R5): a `borrows` accessor does not RETURN a reference, it LENDS
-        a place for a window, and the signature now says which mode the window
-        may take — `borrows -> &T` opens shared windows only, `borrows -> &var
-        T` opens either. The reference is legal only at the TOP LEVEL of such a
-        clause: `borrows -> (Int, &Int)` still escapes a pointer exactly as any
-        other return would, so the nested walk below keeps refusing it.
+        `lends=True` is the one exception, the `borrows` signature: it lends a
+        place for a window rather than returning a reference, and
+        `borrows -> &T` / `borrows -> &var T` say which window modes it opens.
+        The reference is legal only at the top level of the clause;
+        `borrows -> (Int, &Int)` still escapes a pointer and is refused.
         """
         if not self.match(TokenType.ARROW):
             return SawType(TypeKind.VOID)
@@ -85,21 +76,17 @@ class TypeParsingMixin:
 
     def reject_reference_return(self, return_type: SawType, anchor,
                                 what: str) -> None:
-        """A return type may not name a reference (DF-163a).
+        """A return type may not name a reference.
 
-        References in Saw are PARAMETERS ONLY: a `&T`/`&var T` borrows storage
-        the caller owns for exactly the duration of the call, and the Law of
-        Exclusivity is fully static only because of that — every live reference
-        was created at some call expression still on the stack (LANGUAGE_SPEC
-        "no-escape invariant", designs 88/106). A declared `-> &T` broke the
-        invariant silently: `func dangle() -> &Int { let local = 99
-        return &local }` compiled and printed 99 out of a dead frame.
+        References are parameters only: a `&T`/`&var T` borrows caller-owned
+        storage for exactly the duration of the call, and the Law of
+        Exclusivity is static only because every live reference was created at
+        a call still on the stack (LANGUAGE_SPEC "no-escape invariant").
 
-        The reference is refused wherever the return type NAMES one, not only at
-        the top level — a `(Int, &Int)` or a `&Int?` escapes the pointer exactly
-        as well. The walk deliberately stops at a nested function TYPE: its
-        parameters take references legitimately (`(&T) sync -> R` is the
-        `with_ref` callback), and its own return was checked when it was parsed.
+        The reference is refused wherever the return type names one, not only
+        at the top level: `(Int, &Int)` or `&Int?` escapes the pointer as well.
+        The walk stops at a nested function type, whose parameters take
+        references legitimately and whose return was checked when parsed.
         """
         found = self._first_reference_in(return_type)
         if found is None:
@@ -126,7 +113,7 @@ class TypeParsingMixin:
             f"with `lend`, design 141), which lends the place for a window "
             f"rather than letting a pointer out")
 
-    # The rule every parameters-only refusal states, in one place (DF-163a/d).
+    # The rule every parameters-only refusal states, in one place.
     PARAMETERS_ONLY = (
         "references in Saw are PARAMETERS ONLY — a reference borrows storage "
         "for the duration of one call and may not escape it (designs 88/106; "
@@ -143,34 +130,22 @@ class TypeParsingMixin:
     def reject_reference_field(self, field_name: str, struct_name: str,
                                field_type: SawType, anchor,
                                borrowing_struct: bool = False) -> None:
-        """A struct FIELD may not name a reference (DF-163d).
+        """A struct field may not name a reference.
 
-        A field is storage that outlives every call, so a reference in one is
-        the no-escape invariant broken by construction — and it is reachable
-        without ever writing a `&` in a signature, since a struct literal
-        (`Holder(r: &x)`) is not a call argument. Refusing the DECLARATION
-        closes the construction with it: no field has a reference type, so no
-        initializer can supply one.
+        A field is storage that outlives every call, so a reference in one
+        breaks the no-escape invariant by construction. Refusing the
+        declaration closes the struct-literal route (`Holder(r: &x)` is not a
+        call argument) too.
 
-        `borrowing_struct=True` is the ONE exception (design 275 U3, and R5's
-        FIELD clause: a reference type is legal as a return type iff the
-        function is `borrows`, and as a struct field iff the struct is
-        `borrows struct`). The premise the refusal rests on — "a field outlives
-        every call that could have created the reference" — is exactly what a
-        borrowing struct does not do: its values live only inside one window,
-        the window charges the referent's root for its whole extent, and the
-        origin is a checked compiler fact. The exception is TOP-LEVEL and
-        SHARED only:
-
-          * a NESTED reference (`pair: (Int, &T)`, `slot: &T?`) escapes the
-            pointer exactly as any other field would and keeps the refusal —
-            the window tracks a field's root, not a root buried in a tuple;
-          * a `&var T` field is refused with the rule named, because U3 is a
-            shared-window feature: an iterator carrying `&var Collection`
-            could reallocate the very collection an outer shared iterator is
-            reading through its own field, and recording the root alone would
-            not catch it. (Distinct from `next(&var self)`, which mutates the
-            iterator's OWN cursor.)
+        `borrowing_struct=True` is the one exception (design 275): a
+        `borrows struct` value lives only inside one window, which charges the
+        referent's root for its whole extent. The exception is top-level and
+        shared only:
+          * a nested reference (`pair: (Int, &T)`, `slot: &T?`) is refused,
+            because the window tracks a field's root, not one buried inside;
+          * a `&var T` field is refused, because it could reallocate storage
+            another shared reader is walking, which the root alone would not
+            catch.
         """
         if borrowing_struct and field_type.kind == TypeKind.REFERENCE:
             if field_type.reference_mutable:
@@ -188,8 +163,8 @@ class TypeParsingMixin:
                     f"it shared (`{field_name}: &{value}`); mutating this "
                     f"type's OWN state stays ordinary `&var self` on its "
                     f"methods")
-            # The lent type itself is still walked — `&(Int, &T)` is refused on
-            # the inner one, for the reason the outer one is now allowed.
+            # The lent type itself is still walked: `&(Int, &T)` is refused on
+            # the inner one.
             self.reject_reference_field(field_name, struct_name,
                                         field_type.inner_type, anchor)
             return
@@ -222,15 +197,11 @@ class TypeParsingMixin:
     def reject_reference_payload(self, payload_name: str, variant_name: str,
                                  enum_name: str, payload_type: SawType,
                                  anchor) -> None:
-        """An enum CASE PAYLOAD may not name a reference (DF-188a).
+        """An enum case payload may not name a reference.
 
-        A payload is storage on exactly the terms a struct field is — it lives in
-        the enum value, which outlives every call that could have created the
-        reference — and design 163d enumerated every position but this one. So a
-        one-case enum was a general bypass: `case Held(r: &Int)` is accepted,
-        `Slot.Held(r: &x)` inhabits it from an ordinary `&` parameter, and the
-        value goes straight into `Vector` storage that outlives the call. The
-        diagnostic is the field position's, because the position is the same one.
+        A payload is storage on exactly a struct field's terms: it lives in the
+        enum value, which outlives every call that could have created the
+        reference. Without this, a one-case enum would bypass the field rule.
         """
         found = self._first_reference_in(payload_type)
         if found is None:
@@ -253,13 +224,11 @@ class TypeParsingMixin:
             f"hand out storage this type already owns — {self._lend_out(value)}")
 
     def reject_reference_type_arg(self, arg: SawType, anchor) -> None:
-        """A generic ARGUMENT may not name a reference (DF-163d).
+        """A generic argument may not name a reference.
 
-        `Vector<&Int>` writes no `&` in any field or return type, yet
-        `v.push(&x)` fills it through a genuine call argument and the container
-        outlives that call — so the refusal belongs at the type argument, not at
-        the call. Covers both spellings a type argument has: a type position
-        (`let v: Vector<&Int>`) and an instantiation (`idn<&Int>(&x)`).
+        See `ReferenceTypeArgument` for why the refusal is at the argument.
+        Covers both spellings: a type position (`let v: Vector<&Int>`) and an
+        instantiation (`idn<&Int>(&x)`).
 
         Raised rather than reported so the speculative generic-vs-comparison
         lookahead reports it instead of backtracking (see
@@ -284,44 +253,29 @@ class TypeParsingMixin:
             f"— {self._lend_out(value)}")
 
     def _first_reference_in(self, t: SawType):
-        """The first reference type reachable from `t`, as WRITTEN.
+        """The first reference type reachable from `t`, as written.
 
         The parser's entry to the one no-escape walk (`noescape.py`). No
-        resolver: an alias is just a name here, and resolving one is the
-        typechecker's pass over the same positions (DF-188b).
+        resolver: an alias is just a name here; the typechecker resolves
+        aliases in its pass over the same positions.
         """
         return first_reference_in(t)
 
     def parse_type(self, allow_nested_optional: bool = True) -> SawType:
         """Parse a type annotation, including optional suffixes.
 
-        `?` NESTS (DF-174c): `Int??` is an optional of an optional, `String???`
-        three deep, and the sugar reaches every position a type is written
-        because every one of them funnels through here. `Optional<Int?>`
-        remains the generic spelling and parses to the identical type — the
-        typechecker resolves `Optional<T>` to `T?` (design 176 unit 9), so
-        neither spelling is privileged.
+        `?` nests: `Int??` is an optional of an optional, and every type
+        position funnels through here. `Optional<Int?>` parses to the identical
+        type.
 
-        The lexer's maximal munch makes `Int??` come through as one
-        DOUBLE_QUESTION token, so the loop below counts it as TWO layers rather
-        than asking the lexer to stop fusing. That is deliberate: `??` stays one
-        token for the nil-coalescing operator, both lexers keep byte-identical
-        token streams, and the lexdiff parity harness needs no change at all.
-        (The design-129 `<<` precedent splits in the other direction — the
-        lexer leaves `<` `<` apart so `Vector<Box<Int>>` closes naturally, and
-        the parser fuses them in expression position. Same principle, opposite
-        default: fuse where the common reading is, split where the rarer one
-        is.)
+        The lexer's maximal munch makes `Int??` one DOUBLE_QUESTION token, so
+        the loop counts it as two layers; `??` stays one token for the
+        nil-coalescing operator and both lexers stay in parity.
 
-        `allow_nested_optional=False` is the ONE position where the type
-        grammar and the expression grammar meet at a `??`: the target of an
-        `as` cast is followed by an expression continuation, so `x as Int? ?? y`
-        must read as a cast to `Int?` and then the coalescing operator. A cast
-        to a nested optional is not a thing anyone writes — `as` converts
-        numbers, projects aliases and takes addresses — so the operator wins
-        there and the suffix loop stops at a `?`. Nested types INSIDE the cast
-        target are unaffected (`x as Vector<Int??>` re-enters this function
-        without the restriction).
+        `allow_nested_optional=False` is for an `as` cast target, the one place
+        the type and expression grammars meet at `??`: `x as Int? ?? y` is a
+        cast to `Int?` then coalescing. Types nested inside the target
+        (`x as Vector<Int??>`) are unaffected.
         """
         # Parse base type
         base_type = self._parse_base_type()
@@ -348,7 +302,7 @@ class TypeParsingMixin:
         'Bool': TypeKind.BOOL,
         'String': TypeKind.STRING,
         'Void': TypeKind.VOID,  # explicit unit type, e.g. a `(T) -> Void` closure
-        'Never': TypeKind.NEVER,  # bottom type; a `-> Never` fn diverges (design 49/58)
+        'Never': TypeKind.NEVER,  # bottom type; a `-> Never` fn diverges
         'UInt': TypeKind.UINT,  # System-width unsigned integer
         # Fixed-width signed integers
         'Int8': TypeKind.INT8,
@@ -366,7 +320,6 @@ class TypeParsingMixin:
         """Parse a non-optional base type."""
         token = self.current()
 
-        # Check for `sync` function type: sync (T, ...) -> R (design 22).
         # Check for reference type: &T or &var T
         if token.type == TokenType.AMPERSAND:
             self.advance()  # consume '&'
@@ -383,21 +336,14 @@ class TypeParsingMixin:
             return SawType(TypeKind.REFERENCE, inner_type=inner_type, reference_mutable=is_mutable)
 
         if token.type == TokenType.LBRACKET:
-            # Array type: [Type; Size]. The size is a constant EXPRESSION since
-            # design 148 — a literal as before, but also a const generic
-            # parameter (`[UInt8; N]`) or arithmetic over them. A literal is
-            # resolved right here; anything else carries its expression until
-            # there is an environment to evaluate it in.
+            # Array type: [Type; Size]. The size is a constant expression: a
+            # literal, a const generic parameter (`[UInt8; N]`) or arithmetic
+            # over them. A literal is resolved here; anything else keeps its
+            # expression until there is an environment to evaluate it in.
             #
-            # design 185 unit 2: the FULL expression grammar, the same one the
-            # repeat count `[v; N]` takes. `]` closes this position, so none of
-            # what forced design 148's narrow grammar applies here — that was
-            # the generic-argument position, closed by `>`, where a general
-            # parser would read `FixedBuf<N + 1>` as a comparison and eat the
-            # delimiter. One rule spelled two ways had two failure modes: `<<`
-            # and `dep.SIZE` (DF-172l) were PARSE errors in a type and clean
-            # semantic ones in a repeat count. Now both positions parse
-            # everything and `const_eval` gives the one answer.
+            # It takes the full expression grammar, as the repeat count
+            # `[v; N]` does, because `]` closes it unambiguously; `const_eval`
+            # gives both positions the one answer.
             self.advance()  # consume '['
             element_type = self.parse_type()
             self.expect(TokenType.SEMICOLON, "Expected ';' in array type")
@@ -408,7 +354,7 @@ class TypeParsingMixin:
             # Could be tuple type: (Type, Type, ...) or function type: (Type, Type) -> ReturnType
             self.advance()
             element_types = []
-            field_names = []  # per-element name or None (design 63 named tuples)
+            field_names = []  # per-element name or None (named tuples)
 
             def _parse_tuple_element():
                 # `IDENT :` prefix marks a named field. `IDENT .` / `IDENT <` /
@@ -427,26 +373,19 @@ class TypeParsingMixin:
                 _parse_tuple_element()
                 while self.match(TokenType.COMMA):
                     self.advance()
-                    # Trailing comma (design 129).
+                    # Trailing comma.
                     if self.match(TokenType.RPAREN):
                         break
                     _parse_tuple_element()
             self.expect(TokenType.RPAREN)
 
-            # Post-parameter effect slot (designs 18/22/16/29/130): `(T) sync -> U`
-            # (checked suspension-free), `(T) escaping -> U` (escaping function
-            # value) and `(T) unsafe -> U` (design 130 — a closure whose own body
-            # names an unsafe type), composing in canonical order
-            # `(T) unsafe sync escaping -> U`. `sync`/`escaping` are CONTEXTUAL
-            # identifiers — after a parenthesized list only `->` (function type)
-            # or a closing delimiter (tuple) may follow, so a run of them is
-            # unambiguous only when terminated by `->`. Otherwise this is a tuple
-            # and the identifiers are left unconsumed. `unsafe` is a keyword and
-            # rides the same run so the three read as one slot. This is Swift's
-            # `throws`/`async` position.
-            # `borrows` (design 141) rides the same run, last in canonical
-            # order `unsafe sync escaping borrows`. It is a reserved word like
-            # `unsafe`, so it matches on token type.
+            # Post-parameter effect slot: `(T) unsafe sync escaping borrows -> U`.
+            # `sync`/`escaping`/`consumes` are contextual identifiers: after a
+            # parenthesized list only `->` (function type) or a closing
+            # delimiter (tuple) may follow, so a run of them counts only when
+            # terminated by `->`; otherwise this is a tuple and they are left
+            # unconsumed. `unsafe` and `borrows` are reserved words and match
+            # on token type.
             is_sync = False
             is_escaping = False
             is_unsafe = False
@@ -467,13 +406,9 @@ class TypeParsingMixin:
                 k += 1
             if run and self.peek(k).type == TokenType.ARROW:
                 if 'consumes' in run:
-                    # design 260 v1 fence: methods are not first-class values,
-                    # so there is no function TYPE that could carry `consumes`.
-                    # The word describes what happens to a RECEIVER, and a
-                    # function type has no receiver — `FuncPointer<F>` and the
-                    # closure grammar are explicitly out of scope. The grammar
-                    # accepts the run so the refusal can name the word instead
-                    # of failing as a syntax error.
+                    # `consumes` describes a receiver, and a function type has
+                    # none. The run is accepted so the refusal can name the
+                    # word instead of failing as a syntax error (design 260).
                     self.error(
                         "a function TYPE may not be `consumes` (design 260 "
                         "v1): `consumes` describes what happens to a method's "
@@ -481,12 +416,10 @@ class TypeParsingMixin:
                         "Methods are not first-class values — call the "
                         "consuming method at the use site instead")
                 if 'borrows' in run:
-                    # design 141 v1 fence: there are no borrows function
-                    # VALUES. A borrows call yields a PLACE for a window, and a
-                    # place is not a value — binding it, storing it in a field
-                    # or erasing it behind `any Trait` would all outlive the
-                    # window. The grammar accepts the run so the refusal can
-                    # name the word instead of failing as a syntax error.
+                    # No borrows function values: a borrows call yields a place
+                    # for a window, and binding, storing or erasing it would
+                    # outlive the window. The run is accepted so the refusal
+                    # can name the word (design 141).
                     self.error(
                         "a function TYPE may not be `borrows` (design 141 v1): "
                         "a borrows call yields a place for a window, and a "
@@ -522,8 +455,8 @@ class TypeParsingMixin:
                     fn_type.func_is_borrows = True
                 return fn_type
             else:
-                # All-or-nothing labeling (design 63): a partially-labeled tuple
-                # type is an error.
+                # All-or-nothing labeling: a partially-labeled tuple type is an
+                # error.
                 named = [n for n in field_names if n is not None]
                 tfn = None
                 if named:
@@ -539,13 +472,12 @@ class TypeParsingMixin:
             self.advance()
             name = token.value
 
-            # Contextual `any Trait` existential (design 51). `any` stays a valid
-            # identifier: it names an erased type ONLY when immediately followed by
-            # a trait name (two adjacent identifiers never form any other type), so
-            # `any` alone (or `any.Foo`, `any<...>`) still falls through to the
-            # normal named-type path below. The trait reference may be dotted
-            # (`any lib.Shape`); associated-type pinning (`any Iterator<Item=Int>`)
-            # is deferred, so no `<...>` is consumed here.
+            # Contextual `any Trait` existential. `any` names an erased type only
+            # when immediately followed by a trait name (two adjacent
+            # identifiers never form any other type); `any` alone, `any.Foo` or
+            # `any<...>` take the named-type path below. The trait may be dotted
+            # (`any lib.Shape`); associated-type pinning is not supported, so no
+            # `<...>` is consumed here.
             if name == "any" and self.match(TokenType.IDENT):
                 trait_tok = self.expect(TokenType.IDENT, "Expected trait name after 'any'")
                 trait_name = trait_tok.value
@@ -593,12 +525,10 @@ class TypeParsingMixin:
             # For now, parse as STRUCT - type checker will determine if it's
             # actually a type parameter or enum.
             #
-            # `written_name` records the spelling (design 194 unit 4): the
-            # typechecker rewrites `struct_name` to the design-144 identity in
-            # place, so this is the only surviving record of what the author
-            # actually typed here, and the prelude gate needs exactly that —
-            # a bare `Data` must be imported, a qualified `data.Data` reached
-            # the module through an import already.
+            # `written_name` records the spelling: the typechecker rewrites
+            # `struct_name` to the module-qualified identity in place, and the
+            # prelude gate needs what the author typed (a bare `Data` must be
+            # imported; `data.Data` already reached it through an import).
             return SawType(TypeKind.STRUCT, struct_name=name, type_args=type_args,
                            written_name=name, written_file=self.source_file,
                            written_line=token.line, written_column=token.column)
@@ -606,25 +536,19 @@ class TypeParsingMixin:
             self.error(f"Expected type, got {token.type.name}")
 
     # ---------------------------------------------------------------- design 148
-    # Constant expressions in a GENERIC ARGUMENT: `FixedBuf<2 * 128>`.
-    # Deliberately its own small grammar rather than `parse_expression`, for one
-    # reason that decides it: a generic argument list is closed by `>`, which is
-    # also a comparison operator, so a general expression parser would read
-    # `FixedBuf<N + 1>` as a comparison and eat the delimiter. Restricting the
-    # grammar to what a constant can actually be — literals, names, `+ - * / %`,
-    # parentheses, `sizeof`/`alignof` — makes `>` unambiguous by construction.
-    #
-    # design 185 unit 2 took the ARRAY LENGTH out of here: `[T; N]` is closed by
-    # `]`, so it can and does take the full expression grammar. This one keeps
-    # the narrow scope, and `<<`/`>>` are the reason it must — the shift tokens
-    # ARE the delimiter. A generic argument that needs them names a `static` or
-    # a const parameter folded from one.
+    # Constant expressions in a generic argument: `FixedBuf<2 * 128>`.
+    # Its own small grammar rather than `parse_expression`, because the list is
+    # closed by `>`, which a general parser would read as a comparison
+    # (`FixedBuf<N + 1>`). Restricting it to literals, names, `+ - * / %`,
+    # parentheses and `sizeof`/`alignof` makes `>` unambiguous. Shifts are
+    # excluded because `<<`/`>>` are the delimiters; a generic argument that
+    # needs one names a `static` or a const parameter instead.
 
     _CONST_ADD_OPS = None   # filled below (TokenType is imported at module load)
     _CONST_MUL_OPS = None
 
     def parse_const_expr(self, what: str = "constant"):
-        """Parse a constant expression (design 148). `what` names the position
+        """Parse a constant expression. `what` names the position
         for the error a malformed one raises."""
         return self._const_additive(what)
 
@@ -661,15 +585,8 @@ class TypeParsingMixin:
         token = self.current()
         if token.type == TokenType.INT:
             self.advance()
-            # DF-192e: through the shared decoder, not `int()`. This is DF-185a
-            # at the SECOND hand-rolled site — an INT token keeps its canonical
-            # text, prefix and all, so `FixedBuf<0x10>()` died here as an
-            # uncaught `invalid literal for int() with base 10: '0x10'`, a raw
-            # traceback with no location. Every other notation design 50 defines
-            # was equally dead. Found by the design-192 fuzzer on its first
-            # broad sweep, which is the same duplication family design 190
-            # counted: one rule, two implementations, and the fix to the first
-            # never reached the second.
+            # Through the shared decoder, never `int()`: an INT token keeps its
+            # canonical text, prefix included (`0x10`).
             return IntLiteral(value=self._decode_int_literal(token.value),
                               line=token.line, column=token.column)
         if token.type == TokenType.LPAREN:
@@ -694,20 +611,11 @@ class TypeParsingMixin:
     def _is_const_expr_start(token) -> bool:
         """Whether a generic ARGUMENT starting here is a value, not a type.
 
-        Only the shapes a type can never begin with commit on sight. A bare
-        identifier stays a type as far as the parser is concerned — `Foo<N>` is
-        ambiguous by design, and the typechecker decides it against the
-        parameter it lands on, which is the only place that knows.
-
-        DF-307a adds `sizeof`/`alignof` on the same test, not as an exception to
-        it: both are BUILT-IN names, a declaration of either is already a
-        duplicate-definition error, so neither can ever begin a type and there is
-        nothing to be ambiguous about. Without them the const-expr parser —
-        which has understood `sizeof<T>()` since design 148 — was simply never
-        ENTERED at a generic argument, so `Ring<sizeof<UInt64>()>` was
-        `Parse error: Expected '>' after type arguments` while
-        `Ring<0 + sizeof<UInt64>()>` parsed and folded. One leaf, one position,
-        two answers decided by a `0 +` the author had no reason to write.
+        Only shapes a type can never begin with commit on sight. A bare
+        identifier stays a type here: `Foo<N>` is ambiguous, and the
+        typechecker decides it against the parameter it lands on. `sizeof` and
+        `alignof` pass the same test, since they are built-in names that can
+        never begin a type.
         """
         if token.type == TokenType.IDENT:
             return token.value in ("sizeof", "alignof")
@@ -726,15 +634,14 @@ class TypeParsingMixin:
     def _parse_type_args(self) -> List[SawType]:
         """Parse type arguments: <Int, String, ...>
 
-        Reached only where the parser has COMMITTED to the generic reading, so
-        newlines inside the list are insignificant (design 129) — in type position
-        always, and in expression position (`f<Int>(x)`) once the speculative
-        lookahead in `parse_primary` has entered here. A `<` that turns out to be
-        a comparison never gets this far with its list intact: the lookahead
-        restores the position and the operator parses normally.
+        Reached only where the parser has committed to the generic reading, so
+        newlines inside the list are insignificant: always in type position,
+        and in expression position (`f<Int>(x)`) once the speculative lookahead
+        in `parse_primary` enters here. A `<` that is a comparison never gets
+        this far; the lookahead restores the position.
 
-        An argument may be a VALUE since design 148 (`FixedBuf<256>`), which is
-        what `_parse_one_type_arg` sorts out.
+        An argument may be a value (`FixedBuf<256>`); `_parse_one_type_arg`
+        sorts that out.
         """
         self.expect(TokenType.LT)
         self._generic_depth += 1
@@ -757,18 +664,16 @@ class TypeParsingMixin:
         return type_args
 
     def _parse_one_type_arg(self) -> SawType:
-        """Parse one generic argument, which may be a type or a VALUE (design 148).
+        """Parse one generic argument, which may be a type or a value.
 
-        Three cases, and the ordering is the whole trick:
+        Three cases, in this order:
         - It starts with something no type can start with (`256`, `-1`): a
           value, decided on sight.
         - It parses as a type and is then followed by an arithmetic operator
           (`N + 1`, `SIZE * 2`): the type reading was only a prefix of a
           constant expression, so restore and re-read it as one.
-        - Otherwise it is a type — including a bare `N`, which is genuinely
-          ambiguous here and stays a type until the typechecker matches it
-          against the parameter it lands on. That is the only place with enough
-          information to tell a type parameter from a const one.
+        - Otherwise it is a type, including a bare `N`, which stays a type until
+          the typechecker matches it against the parameter it lands on.
         """
         if self._is_const_expr_start(self.current()):
             return self._const_value_type(
@@ -778,9 +683,9 @@ class TypeParsingMixin:
         try:
             t = self.parse_type()
         except CommittedGenericError:
-            # A NESTED generic list already committed and failed (`Vector<Box<
-            # &Int>>`) — its diagnostic is the real one, so it must not be
-            # swallowed by the const-expression retry below.
+            # A nested generic list already committed and failed (`Vector<Box<
+            # &Int>>`); its diagnostic is the real one, so the const-expression
+            # retry below must not swallow it.
             raise
         except SyntaxError:
             self.pos = saved

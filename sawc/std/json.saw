@@ -15,39 +15,28 @@
 //! try dec.finish()   // rejects content left over after the value
 //! ```
 //!
-//! This file has two halves. Above is the token-stream seam:
-//! `JsonEncoder`/`JsonDecoder`, driven by any `Serialize`/`Deserialize`
-//! value. Below is `JsonValue` — a parsed-to-a-DOM JSON tree, `Null` /
-//! `Bool` / `Number` / `Text` / `Array(items: Vector<JsonValue>)` /
-//! `Object(fields: Map<String, JsonValue>)` — with `JsonValue.parse` and
-//! `JsonValue.to_json_string` on the same terms as the seam above. Recursive
-//! type support (design 246) is what makes the tree legal: the cycle
-//! through `Array` crosses `Vector`'s own heap indirection and the cycle
-//! through `Object` crosses `Map`'s, so `JsonValue` is written directly with
-//! no arena or side-table workaround — see its own doc comment below for
-//! the type, and `_write`'s for the one compiler defect (DF-267d) its
-//! serializer had to route around.
+//! The module has two halves: the token-stream seam (`JsonEncoder`/
+//! `JsonDecoder`, driven by any `Serialize`/`Deserialize` value) and
+//! `JsonValue`, a JSON tree with `JsonValue.parse` and
+//! `JsonValue.to_json_string` on the same terms as the seam.
 //!
-//! Encoding rules, mirroring `std.cbor`'s deterministic-profile discipline
-//! where JSON has an equivalent choice to make:
+//! Encoding rules, mirroring `std.cbor`'s deterministic profile where JSON has
+//! an equivalent choice to make:
 //! - Compact output: no extra whitespace between tokens.
-//! - A struct serializes as a JSON ARRAY of its fields (design 169 decision
-//!   2 — the shape is format-agnostic; it is not reinterpreted as an object
-//!   here).
+//! - A struct serializes as a JSON array of its fields; the shape is
+//!   format-agnostic and is not reinterpreted as an object here.
 //! - Every control character, `"` and `\` in a text string is escaped; a
 //!   `\uXXXX` escape is used only for a control character the short escapes
-//!   (`\n` etc.) do not name — everything else is written as its own UTF-8
+//!   (`\n` etc.) do not name. Everything else is written as its own UTF-8
 //!   bytes.
 //! - `write_uint`/`write_int` write a plain integer literal (no exponent, no
-//!   fraction). The SEAM still has no `write_float` — neither does
-//!   `std.cbor`'s, because what a `Float` looks like on a wire is a question
-//!   design 253 left open across the whole `std.serde` family — so a
-//!   `Serialize` value can never ask this encoder for one. `JsonValue`'s
-//!   `Float` case reaches its own `write_float` below, which is a TEXT
-//!   question and settled: the shortest decimal that reads back as the value.
-//! - A byte string (`begin_bytes`/`write_byte`) has no JSON representation
-//!   and is `EncodeFault.Unsupported` — JSON has no binary type and v1
-//!   invents no base64-style convention for one.
+//!   fraction). The seam has no `write_float`, as in `std.cbor`, because the
+//!   wire form of a `Float` is not settled across `std.serde`; `JsonValue`'s
+//!   `Float` case is written as the shortest decimal that reads back as the
+//!   value.
+//! - A byte string (`begin_bytes`/`write_byte`) is `EncodeFault.Unsupported`:
+//!   JSON has no binary type, and this module invents no base64-style
+//!   convention for one.
 //! - A map key that is not a string is `Unsupported` on encode and
 //!   `DecodeFault.Malformed` on decode (JSON object keys are always
 //!   strings, by grammar) — reported the moment a key position is about to
@@ -58,27 +47,17 @@
 //! trailing comma, no comment, no `NaN`/`Infinity`, a depth limit
 //! (`TooDeep`), and every escape validated including `\uXXXX` surrogate
 //! pairing (a lone or invalid surrogate is `Malformed`). Malformed input
-//! never panics — every rejection is `Err(DecodeError)` naming the byte
-//! offset that stopped it. Bare trailing content after the top-level value
-//! is `TrailingBytes`, reported by `JsonDecoder.finish` — see there for why
-//! that check is not part of `open`.
+//! never panics: every rejection is `Err(DecodeError)` naming the byte
+//! offset that stopped it. Trailing content after the top-level value is
+//! `TrailingBytes`, reported by `JsonDecoder.finish`.
 //!
-//! `JsonDecoder.open` does NOT pre-validate the whole input the way
-//! `CborDecoder.open` does — CBOR's containers declare their length in the
-//! header, so a single up-front scan can both validate and index it; JSON's
-//! do not; a container's item count is only known once its closing bracket
-//! is found. Building that index ahead of time would mean parsing the whole
-//! input into a tree just to validate it — which `open` deliberately never
-//! does (that commitment is `JsonValue.parse`'s, layered on top, below).
-//! Instead, `begin_array`/`begin_map` count their container's items
-//! with a bounded, ITERATIVE lookahead — no native recursion, so a hostile
-//! depth is caught by the same `max_depth` limit the real read observes
-//! before it can reach the call stack — and every byte is still fully
-//! grammar-validated the moment a typed read visits it.
-
-// =============================================================================
-// Byte constants — named per the house no-magic-numbers rule.
-// =============================================================================
+//! Unlike `CborDecoder.open`, `JsonDecoder.open` does not pre-validate the
+//! whole input: a JSON container does not declare its length, so an up-front
+//! index would mean parsing the whole input into a tree. Instead
+//! `begin_array`/`begin_map` count their container's items with a bounded,
+//! iterative lookahead (no native recursion, so a hostile depth hits
+//! `max_depth` before it can reach the call stack), and every byte is still
+//! fully validated when a typed read visits it.
 
 static BYTE_QUOTE: Int = 34        // '"'
 static BYTE_BACKSLASH: Int = 92    // '\'
@@ -118,16 +97,12 @@ static SURROGATE_LOW_MAX: Int = 0xDFFF
 static SURROGATE_BASE: Int = 0x10000
 static SURROGATE_SHIFT: Int = 0x400
 
-// Hosted defaults, written as literals at the call site (design 169's
-// std.cbor precedent — a std-module `static` is not visible at a default-value
-// position, DF-169i): 64 levels of nesting, 16 MiB of input.
+// Hosted defaults are written as literals at the call site, because a
+// std-module `static` is not visible at a default-value position: 64 levels
+// of nesting, 16 MiB of input (DF-169i).
 
-// =============================================================================
-// Allocator-failure plumbing — maps `AllocError` onto the fault vocabulary
-// this file's two directions already have a case for, mirroring
-// `std.cbor`'s `__cbor_encoded`/`__cbor_scanned`.
-// =============================================================================
-
+// Maps `AllocError` onto the fault vocabulary each direction already has, as
+// `std.cbor`'s `__cbor_encoded`/`__cbor_scanned` do.
 func __json_encoded(r: Result<Void, AllocError>) sync -> Result<Void, EncodeError> {
     match r {
         case Ok(_) -> {},
@@ -136,17 +111,11 @@ func __json_encoded(r: Result<Void, AllocError>) sync -> Result<Void, EncodeErro
     return
 }
 
-// A decode-side allocation is met while growing the container that holds the
-// ALREADY-VALIDATED text being read back out (the level stack) — not a fault
-// the input's shape caused, so `TooLarge` is the closest fit, exactly as
-// `std.cbor`'s `__cbor_scanned` maps the same failure for the same reason.
+// A decode-side allocation failure is not a fault the input's shape caused,
+// so `TooLarge` is the closest fit, as in `std.cbor`'s `__cbor_scanned`.
 func __json_alloc_decoded(at: Int) sync -> DecodeError {
     DecodeError(offset: at, fault: DecodeFault.TooLarge)
 }
-
-// =============================================================================
-// Encoder
-// =============================================================================
 
 // One open array or object being written. `remaining` counts the items still
 // owed (an object owes two per pair, key then value, matching `std.cbor`'s
@@ -158,13 +127,11 @@ struct JsonLevel {
     wrote_any: Bool
 }
 
-// The decoder's twin of `JsonLevel`, with one more bit of state: `at_null`
-// must PEEK past the item's own separator/colon without consuming the item
-// itself (`Decoder.at_null` is documented to consume nothing), so a real read
-// may follow it for the SAME pending item. `sep_taken` makes `before_value`
-// idempotent per item — the separator is consumed once, whichever of
-// `at_null` or a typed `read_*` reaches it first — and is reset by
-// `charge_item` the moment this level moves on to its next item.
+// The decoder's twin of `JsonLevel`. `at_null` must peek past the item's
+// separator without consuming the item, so a typed read may follow for the
+// same item. `sep_taken` makes `before_value` idempotent per item (the
+// separator is consumed once, by whichever call reaches it first) and is
+// reset by `charge_item` when the level moves to its next item.
 struct JsonDecLevel {
     remaining: Int
     is_map: Bool
@@ -175,8 +142,7 @@ struct JsonDecLevel {
 /// An `Encoder` that writes compact JSON text into a growable buffer.
 ///
 /// `finish` hands the text over once every open array/object is closed; an
-/// item still owed is `EncodeFault.CountMismatch`, exactly as
-/// `CborEncoder.finish` reports the same shape.
+/// item still owed is `EncodeFault.CountMismatch`, as in `CborEncoder.finish`.
 public struct JsonEncoder {
     private out: StringBuilder
     private levels: Vector<JsonLevel>
@@ -213,11 +179,9 @@ extension JsonEncoder {
 
     // ---- internals ----------------------------------------------------
 
-    // One raw byte of output. The parameter is `UInt8` rather than `Byte`
-    // because every caller here passes a punctuation LITERAL and this name has
-    // no digits sibling to be confused with — design 250 §5 Q4's sink rule. A
-    // `Byte` flows in unchanged, which is what the string copier at
-    // `write_json_string` relies on.
+    // The parameter is `UInt8` rather than `Byte` because callers pass
+    // punctuation literals; a `Byte` flows in unchanged, which
+    // `write_json_string` relies on (design 250).
     func raw_byte(&var self, b: UInt8) sync -> Result<Void, EncodeError> {
         __json_encoded(self.out.append(Byte(b)))
     }
@@ -226,9 +190,9 @@ extension JsonEncoder {
         __json_encoded(self.out.append(s))
     }
 
-    // Punctuation before a value: the comma/colon a level's current position
-    // needs, and the "a map key must be text" rule — checked structurally, so
-    // it fires whichever `write_*` method the caller reaches for.
+    // Writes the comma/colon the level's position needs and enforces "a map
+    // key must be text" structurally, so it fires whichever `write_*` the
+    // caller reaches for.
     func before_item(&var self, is_text: Bool) sync -> Result<Void, EncodeError> {
         if self.levels.len() == 0 {
             return
@@ -251,9 +215,8 @@ extension JsonEncoder {
         return
     }
 
-    // Charges the item just written against the current level, closing (and
-    // writing the closing bracket of) every level that becomes complete as a
-    // result, cascading upward — mirroring `CborEncoder.item_done`.
+    // Charges the item just written, closing every level that becomes
+    // complete, cascading upward (as `CborEncoder.item_done` does).
     func charge_and_close(&var self) sync -> Result<Void, EncodeError> {
         while self.levels.len() > 0 {
             let last = self.levels.len() - 1
@@ -300,19 +263,15 @@ extension JsonEncoder {
         return
     }
 
-    // Writes the text of a JSON string literal, including the quotes and
-    // every escape RFC 8259 requires. Everything else is copied through
-    // as-is — `s` is a Saw `String`, always valid UTF-8, so a multi-byte
-    // scalar's bytes travel unexamined and stay valid UTF-8 on the way out.
+    // Writes a JSON string literal with the escapes RFC 8259 requires. `s` is
+    // always valid UTF-8, so multi-byte scalars are copied through unexamined.
     func write_json_string(&var self, s: String) sync -> Result<Void, EncodeError> {
         try self.raw_byte(BYTE_QUOTE as UInt8)
         var i = 0
         let n = s.len()
         while i < n {
             let b = s.byte_at(i)
-            // The `BYTE_*` table is written at `Int` width, so the byte widens
-            // to meet it. This used to fold a negative `Int8` back into 0..255
-            // as well — the sign correction design 250 deleted.
+            // Widened to meet the `Int`-width `BYTE_*` table.
             let u = b as Int
             if u == BYTE_QUOTE {
                 try self.raw("\\\"")
@@ -348,20 +307,11 @@ extension JsonEncoder {
         return
     }
 
-    // Writes a JSON number from a `Float`, in its shortest round-trip form.
-    //
-    // NOT part of the `Encoder` seam: the serde seam has no `write_float`, and
-    // what a `Float` looks like on a WIRE is a question design 253 deliberately
-    // left open (`sawc/std/CBOR.md` refuses floats outright for the same
-    // reason). This is `JsonValue`'s own path to its `Float` case, which is a
-    // TEXT question and settled — `std.float` gives the shortest decimal that
-    // reads back as the value, and every spelling it produces for a finite
-    // number is a legal JSON number.
-    //
-    // The exception is the non-finite values, which JSON's grammar simply has
-    // no spelling for. Writing `Infinity` or `NaN` would produce a document
-    // most readers reject and some silently mis-read, so this reports
-    // `Unsupported` and the caller decides.
+    // Writes a `Float` in its shortest round-trip form. Not part of the
+    // `Encoder` seam, whose wire form for floats is unsettled (design 253);
+    // this is `JsonValue`'s path to its `Float` case. Every spelling
+    // `std.float` produces for a finite value is a legal JSON number. JSON has
+    // no spelling for NaN or an infinity, so those are `Unsupported`.
     func write_float(&var self, v: Float) sync -> Result<Void, EncodeError> {
         if not v.is_finite() {
             return EncodeError(fault: EncodeFault.Unsupported)
@@ -381,9 +331,7 @@ extension JsonEncoder {
 }
 
 extension JsonEncoder: Encoder {
-    // `StringBuilder.append(value:)` renders digits directly with no
-    // intermediate `String` — the same allocation-free path
-    // `append(value: Int)`/`append(value: UInt)` gives every other caller.
+    // `StringBuilder.append` renders the digits with no intermediate `String`.
     func write_uint(&var self, v: UInt) sync -> Result<Void, EncodeError> {
         try self.before_item(false)
         try __json_encoded(self.out.append(v))
@@ -418,7 +366,7 @@ extension JsonEncoder: Encoder {
         return self.charge_and_close()
     }
 
-    // JSON has no byte-string type and v1 invents no encoding for one.
+    // JSON has no byte-string type, and this module invents no encoding for one.
     func begin_bytes(&var self, count: Int) sync -> Result<Void, EncodeError> {
         EncodeError(fault: EncodeFault.Unsupported)
     }
@@ -439,18 +387,13 @@ extension JsonEncoder: Encoder {
     }
 }
 
-// =============================================================================
-// Decoder
-// =============================================================================
-
 /// A `Decoder` over JSON text.
 ///
-/// Unlike `CborDecoder.open`, this does NOT pre-validate the whole input in
-/// one pass — see the file header for why. Every byte is still fully
-/// validated the moment a typed read reaches it, and a container's item
-/// count is discovered by a bounded, non-recursive lookahead at
-/// `begin_array`/`begin_map` time, so hostile input still cannot reach the
-/// call stack or run unbounded.
+/// Unlike `CborDecoder.open`, this does not pre-validate the whole input in
+/// one pass (see the module documentation). Every byte is still fully
+/// validated when a typed read reaches it, and a container's item count is
+/// found by a bounded, non-recursive lookahead at `begin_array`/`begin_map`
+/// time, so hostile input cannot reach the call stack or run unbounded.
 public struct JsonDecoder {
     private input: String
     private pos: Int
@@ -483,13 +426,11 @@ extension JsonDecoder {
     /// Confirms nothing but trailing whitespace remains after the top-level
     /// value has been read.
     ///
-    /// `CborDecoder` checks this once, up front, because a CBOR item declares
-    /// its own length — `open` can validate "one top-level item" before any
-    /// typed read runs. A JSON value has no declared length, so the same
-    /// check can only be made from the OTHER end: call this after driving a
-    /// `Deserialize` (or a manual top-level read) to reject content left over
-    /// after it (`DecodeFault.TrailingBytes`). Skipped entirely by a caller
-    /// that means to read more than one value from the same text.
+    /// A JSON value has no declared length, so unlike `CborDecoder` this cannot
+    /// be checked when the decoder opens. Call it after driving a
+    /// `Deserialize` (or a manual top-level read) to reject leftover content
+    /// (`DecodeFault.TrailingBytes`); skip it to read more than one value from
+    /// the same text.
     public func finish(&var self) -> Result<Void, DecodeError> {
         self.skip_ws()
         if self.pos != self.len {
@@ -500,9 +441,7 @@ extension JsonDecoder {
 
     // ---- byte-level plumbing -------------------------------------------
 
-    // The byte at `i`, WIDENED to the `Int` the `BYTE_*` table is written at.
-    // It used to fold a negative `Int8` back into 0..255 as well — the sign
-    // correction design 250 deleted.
+    // The byte at `i`, widened to meet the `Int`-width `BYTE_*` table.
     func _ubyte_at(&self, i: Int) -> Int {
         self.input.byte_at(i) as Int
     }
@@ -559,17 +498,13 @@ extension JsonDecoder {
 
     // ---- container bookkeeping (mirrors JsonEncoder's, in reverse) -----
 
-    // Punctuation/key-shape check before a value is read: consumes the
-    // comma/colon a level's current position needs and confirms a map key
-    // position holds a string literal — structurally, from the bytes
-    // themselves, so it holds regardless of which typed `read_*` the caller
-    // reaches for.
+    // Consumes the comma/colon the level's position needs and confirms a map
+    // key position holds a string literal, from the bytes themselves, so it
+    // holds whichever typed `read_*` the caller reaches for.
     //
-    // IDEMPOTENT per pending item (`sep_taken`): `Decoder.at_null` is
-    // documented to consume nothing, so the derived Optional-field walk
-    // calls it to peek, then — on the non-null path — calls a typed
-    // `read_*` for the SAME item. Both go through here; only the first
-    // call may touch the separator.
+    // Idempotent per pending item (`sep_taken`): the derived Optional-field
+    // walk peeks with `at_null`, which consumes nothing, then calls a typed
+    // `read_*` for the same item. Only the first call may touch the separator.
     func before_value(&var self) sync -> Result<Void, DecodeError> {
         self.skip_ws()
         if self.levels.len() == 0 {
@@ -617,9 +552,8 @@ extension JsonDecoder {
         return
     }
 
-    // Charges the value just read against the current level, consuming (and
-    // requiring) the closing bracket of every level that becomes complete as
-    // a result, cascading upward.
+    // Charges the value just read, consuming and requiring the closing bracket
+    // of every level that becomes complete, cascading upward.
     func charge_item(&var self) sync -> Result<Void, DecodeError> {
         while self.levels.len() > 0 {
             let last = self.levels.len() - 1
@@ -646,14 +580,11 @@ extension JsonDecoder {
 
     // ---- the bounded, iterative lookahead --------------------------------
 
-    // Skips exactly one JSON value starting at `start` (already past leading
-    // whitespace), returning the offset just past it. Iterative, not
-    // recursive: a hostile deeply-nested input is bounded by `budget`
-    // (levels of `[`/`{` this skip may still open) rather than the native
-    // call stack. Performs STRUCTURAL skipping — bracket/string-aware, so a
-    // brace or comma inside a string literal never confuses it — plus the
-    // depth check; full grammar validation (number shape, escape validity)
-    // happens when a real typed read later visits these same bytes.
+    // Skips one JSON value starting at `start` (past leading whitespace) and
+    // returns the offset just past it. Iterative, so hostile nesting is
+    // bounded by `budget` (levels this skip may still open) rather than the
+    // call stack. The skip is structural only (bracket- and string-aware);
+    // full grammar validation happens when a typed read visits the bytes.
     func skip_value(&self, start: Int, budget: Int) -> Result<Int, DecodeError> {
         guard let b0 = self._peek_at(start) else {
             return DecodeError(offset: start, fault: DecodeFault.Truncated)
@@ -706,11 +637,8 @@ extension JsonDecoder {
         return pos
     }
 
-    // Skips a string literal starting exactly at its opening quote, honoring
-    // backslash escapes structurally (an escaped character can never be
-    // mistaken for the closing quote — a hex digit, `u` included, is never
-    // `"` or `\`, so a light two-byte skip past every `\X` introducer is
-    // sound here even for `\uXXXX`).
+    // Skips a string literal starting at its opening quote. A two-byte skip
+    // past every `\X` is sound even for `\uXXXX`: no hex digit is `"` or `\`.
     func skip_string_span(&self, start: Int) -> Result<Int, DecodeError> {
         var pos = start + 1
         while pos < self.len {
@@ -727,11 +655,9 @@ extension JsonDecoder {
         DecodeError(offset: start, fault: DecodeFault.Truncated)
     }
 
-    // Counts the top-level items in a container whose opening bracket has
-    // already been consumed and is not the immediately-empty case — `at` is
-    // positioned at the first key/element, past leading whitespace. Purely a
-    // count: the caller re-walks the same bytes token by token for the real,
-    // fully-validated reads, so this never advances `self.pos`.
+    // Counts the items of a non-empty container whose opening bracket is
+    // consumed; `at` is the first key/element, past whitespace. Never advances
+    // `self.pos`: the typed reads re-walk the same bytes and validate them.
     func lookahead_count(&self, at: Int, is_map: Bool, budget: Int) -> Result<Int, DecodeError> {
         var pos = at
         var count = 0
@@ -836,13 +762,10 @@ extension JsonDecoder {
         return v
     }
 
-    // Reads a JSON string literal (the receiver already positioned at the
-    // opening quote), fully validating and unescaping it: the short escapes,
-    // `\uXXXX` including surrogate-pair combination (a lone or invalid
-    // surrogate is `Malformed`), and rejecting a raw (unescaped) control
-    // character. Every OTHER byte is copied straight through — the source
-    // text is a Saw `String`, always valid UTF-8, so a multi-byte scalar
-    // that was not itself escaped needs no re-validation.
+    // Reads and unescapes a JSON string literal starting at its opening quote,
+    // combining surrogate pairs (a lone or invalid surrogate is `Malformed`)
+    // and rejecting a raw control character. The source is a valid-UTF-8
+    // `String`, so unescaped multi-byte scalars need no re-validation.
     func read_json_string(&var self) sync -> Result<String, DecodeError> {
         let start = self.pos
         self.pos = self.pos + 1   // opening quote
@@ -912,10 +835,8 @@ extension JsonDecoder {
                     } else if hi >= SURROGATE_LOW_MIN && hi <= SURROGATE_LOW_MAX {
                         return DecodeError(offset: esc_at, fault: DecodeFault.Malformed)
                     }
-                    // The surrogate arithmetic above lands inside the scalar
-                    // domain for every input this far, but the decoder answers
-                    // malformed input with an error and never a panic — so the
-                    // construction is matched, not `try!`d.
+                    // Unreachable for any input that got this far, but the
+                    // decoder never panics, so this is matched, not `try!`d.
                     let sc = match Scalar(value: scalar) {
                         case Ok(s) -> s,
                         case Err(_) -> {
@@ -997,9 +918,8 @@ extension JsonDecoder {
         return is_float
     }
 
-    // The integral magnitude of `self.input[start..end)` (no `.`/exponent),
-    // wrapping-overflow-checked exactly like `String._parse_int` — `None` on
-    // overflow past `Int`'s range.
+    // The integer value of `self.input[start..end)` (no `.`/exponent),
+    // overflow-checked like `String._parse_int`: `None` past `Int`'s range.
     func int_span(&self, start: Int, end: Int) -> Int? {
         var i = start
         var neg = false
@@ -1031,26 +951,18 @@ extension JsonDecoder {
         return pos
     }
 
-    // `self.input[start..end)` as the nearest `Float`, correctly rounded.
-    //
-    // `scan_number` has already checked the token against JSON's own grammar,
-    // which is a SUBSET of what `String.to_float` takes (JSON has no leading
-    // `+`, no bare `.5`, no `nan`) — so the substring is always a number this
-    // accepts, and the `None` below is unreachable rather than a shape JSON
-    // permits and Saw refuses. It is written out anyway: a silent zero would
-    // be exactly the "sentinel that collides with a valid value" the failable
-    // rule exists to prevent.
-    //
-    // Overflow saturates to an infinity here, per IEEE 754 — which is a value
-    // `to_json_string` then refuses to write, since JSON has no spelling for
-    // one. That asymmetry is JSON's, not Saw's.
+    // `self.input[start..end)` as the nearest `Float`. JSON's number grammar,
+    // already checked by `scan_number`, is a subset of what `String.to_float`
+    // accepts, so `None` is unreachable; it is kept rather than a sentinel
+    // zero. Overflow saturates to an infinity, which `to_json_string` then
+    // refuses to write.
     func float_span(&self, start: Int, end: Int) -> Float? {
         self.input.substring(start, end).to_float()
     }
 
-    // The unsigned magnitude of `self.input[start..end)` — no sign is
-    // present (checked by the caller), wrapping-overflow-checked like
-    // `String._parse_uint`. `None` on overflow past `UInt`'s range.
+    // The value of the unsigned `self.input[start..end)` (the caller has ruled
+    // out a sign), overflow-checked like `String._parse_uint`: `None` past
+    // `UInt`'s range.
     func uint_span(&self, start: Int, end: Int) -> UInt? {
         var i = start
         var acc: UInt = 0
@@ -1071,9 +983,8 @@ extension JsonDecoder {
     }
 }
 
-// Maps an `AllocError` met while unescaping a string INTO the fault
-// vocabulary, at the escape's own offset. A free function so it composes
-// with `try` inline the way `__cbor_encoded` does.
+// Maps an `AllocError` met while unescaping a string onto `DecodeError` at
+// `at`; a free function so it composes with `try` inline.
 func __json_encoded_local(r: Result<Void, AllocError>, at: Int) sync -> Result<Void, DecodeError> {
     match r {
         case Ok(_) -> {},
@@ -1217,10 +1128,6 @@ extension JsonDecoder {
     }
 }
 
-// =============================================================================
-// One-call forms
-// =============================================================================
-
 /// Encodes one value and returns its JSON text.
 ///
 /// The two-step form (`JsonEncoder`, then `finish`) is what to reach for when
@@ -1234,59 +1141,34 @@ public func encode<T: Serialize>(value: &T) sync -> Result<String, EncodeError> 
     return enc.finish()
 }
 
-// The matching `decode_json<T: Deserialize>(text:)` cannot be written yet,
-// for the same reason `std.cbor` has no `decode<T>` (DF-169e: a static trait
-// requirement is not callable on a type PARAMETER). Read a value back
-// through the type's own name instead:
+// There is no `decode<T: Deserialize>(text:)` twin, because a static trait
+// requirement is not callable on a type parameter (DF-169e). Read a value
+// back through the type's own name instead:
 //
 //     var dec = try JsonDecoder.open(text: input)
 //     let entry = try LockEntry.deserialize(from: &var dec)
 
-// =============================================================================
-// JsonValue — a JSON DOM tree (design 246 unit 1)
-// =============================================================================
-
-/// A JSON value, parsed to (or built as) a tree — the DOM half of this file,
-/// alongside the `JsonEncoder`/`JsonDecoder` seam above. Recursive-type
-/// support (design 246) is what makes this legal: the cycle through `Array`
-/// crosses `Vector`'s own heap indirection and the cycle through `Object`
-/// crosses `Map`'s, so `JsonValue` is written directly with no arena or
-/// side-table workaround.
+/// A JSON value, parsed to or built as a tree.
 ///
-/// `Object` is a `Map<String, JsonValue>` — **key order is not preserved**,
-/// exactly like every other `Map` in std. `Array` is a `Vector<JsonValue>`.
+/// `Array` holds a `Vector<JsonValue>` and `Object` a `Map<String, JsonValue>`;
+/// object key order is not preserved. Every finite case serializes, nested up
+/// to the encoder's `max_depth`.
 ///
-/// **`to_json_string` serializes every case, `Object` included** — see
-/// `_write`'s doc comment for the compiler-defect mechanism (DF-267d) its
-/// walk had to route around. `Null`/`Bool`/`Number`/`Text`/`Array`/`Object`
-/// all serialize fully, nested arbitrarily deep in any combination.
+/// A number becomes one of two cases, decided by the token rather than the
+/// value. A lexically integral token that fits `Int` is a `Number`; anything
+/// else (a fraction, an exponent form, an integer too large for `Int`) is a
+/// `Float`, correctly rounded. So `1` is `Number(1)`, `1.0` is `Float(1.0)`
+/// and `1e2` is `Float(100.0)`, and a `1.0` never quietly becomes an integer
+/// on a round trip.
 ///
-/// **A number arrives as one of TWO cases, and which one is decided by the
-/// token, not by the value.** A JSON number that is lexically integral AND
-/// fits `Int`'s range is a `Number`; everything else — a fraction, an
-/// exponent form, an integral token too large for `Int` — is a `Float`,
-/// correctly rounded to the nearest double. So `1` is `Number(1)`, `1.0` is
-/// `Float(1.0)` and `1e2` is `Float(100.0)`, and a document round trips
-/// through the tree without a `1.0` quietly becoming an integer.
+/// A non-finite `Float` cannot be serialized: JSON has no spelling for NaN or
+/// an infinity, so `to_json_string` reports `EncodeFault.Unsupported`.
+/// `parse` rejects `NaN` and `Infinity`, but a number too large for `Float`
+/// saturates to an infinity, and a decoder may accept deeper nesting than the
+/// encoder writes; either makes a parsed tree fail to write back out.
 ///
-/// The `Float` half was parked until design 253 gave std a correctly-rounded
-/// `Float`<->text surface; before that a fraction-shaped token was a decode
-/// error, which is what `examples/json_value_number_edges.saw` used to pin.
-///
-/// A `Float` that is NOT FINITE cannot be serialized: JSON's grammar has no
-/// spelling for a NaN or an infinity, so `to_json_string` reports
-/// `EncodeFault.Unsupported` rather than emitting one. Parsing is the mirror
-/// — `NaN` and `Infinity` are not JSON tokens and are rejected — so a tree
-/// that came from `parse` can always be written back out.
-///
-/// `ExplicitCopy` (design 251 — it used to be a forced `NoCopy`, before `Map`
-/// had a copy conformance for `Object`'s payload to lean on; see
-/// `examples/recursive_enum_through_vector_payload.saw` for the general
-/// owning-recursive-type shape). `@synthesize`d memberwise-deep: a `copy()`
-/// recurses through `Vector<JsonValue>.copy()` for `Array` and
-/// `Map<String, JsonValue>.copy()` for `Object`, exactly as
-/// `examples/recursive_enum_synthesized_deep_copy.saw` demonstrates for a
-/// smaller recursive enum. `move` still transfers ownership without copying.
+/// `JsonValue` is `ExplicitCopy`: `copy()` is deep, recursing through the
+/// `Vector` and `Map` payloads.
 public enum JsonValue {
     case Null,
     case Bool(value: Bool),
@@ -1302,9 +1184,7 @@ extension JsonValue: ExplicitCopy {}
 
 extension JsonValue {
     /// Parses `text` as one JSON value, rejecting anything left over
-    /// afterward (`DecodeFault.TrailingBytes`, via `JsonDecoder.finish` —
-    /// see its own doc comment for why that check happens at the far end
-    /// rather than up front).
+    /// afterward (`DecodeFault.TrailingBytes`).
     ///
     /// `max_depth`/`max_size` are `JsonDecoder.open`'s own limits, forwarded
     /// unchanged.
@@ -1316,14 +1196,9 @@ extension JsonValue {
         return move v
     }
 
-    // Reads exactly one JSON value at `dec`'s current position, driving
-    // JsonDecoder's own byte-level helpers directly — this is the SAME
-    // module, so its private methods (`peek`, `before_value`, ...) are in
-    // scope, and this reuses them rather than re-lexing anything. The
-    // peek-then-dispatch shape mirrors `JsonDecoder.at_null`'s own
-    // documented idiom: `before_value` is idempotent per pending item, so
-    // calling it here and then again inside whichever typed `read_*`/
-    // `begin_*` this dispatches to costs nothing extra.
+    // Reads one value at `dec`'s position through the decoder's own private
+    // helpers. `before_value` is idempotent per pending item, so calling it
+    // here and again inside the typed read it dispatches to is safe.
     static func _read(dec: &var JsonDecoder) sync -> Result<JsonValue, DecodeError> {
         try dec.before_value()
         guard let b = dec.peek() else {
@@ -1353,14 +1228,9 @@ extension JsonValue {
         return DecodeError(offset: dec.offset(), fault: DecodeFault.Malformed)
     }
 
-    // Reads one number token and picks the case the pinned rule names: a
-    // lexically integral token that fits `Int` is a `Number`, and everything
-    // else is a `Float`.
-    //
-    // It scans the token ONCE, through the same `scan_number` every typed
-    // `read_*` uses — so the grammar (no leading `+`, no leading zero except a
-    // lone `0`, a `.` needing digits on both sides) is enforced in exactly one
-    // place, and the span it advanced over is what both readings then convert.
+    // Reads one number token: a lexically integral token that fits `Int` is a
+    // `Number`, everything else a `Float`. The token is scanned once through
+    // `scan_number`, so the number grammar is enforced in one place.
     static func _read_number(dec: &var JsonDecoder) sync -> Result<JsonValue, DecodeError> {
         try dec.before_value()
         let start = dec.offset()
@@ -1371,9 +1241,7 @@ extension JsonValue {
             if let n = dec.int_span(start, end) {
                 return JsonValue.Number(value: n)
             }
-            // Integral, but past `Int`. The value is still exactly what the
-            // document said; only its Saw representation loses precision, and
-            // a rounded double is a better answer than a refusal.
+            // Integral but past `Int`: a rounded double beats a refusal.
         }
         guard let f = dec.float_span(start, end) else {
             return DecodeError(offset: start, fault: DecodeFault.Malformed)
@@ -1413,53 +1281,28 @@ extension JsonValue {
     }
 
     /// Serializes `self` to compact JSON text, through the same
-    /// `JsonEncoder` machinery a `Serialize` value writes through — the
-    /// escaping and number rendering are byte-for-byte the seam's own.
+    /// `JsonEncoder` a `Serialize` value writes through, so escaping and
+    /// number rendering match the seam byte for byte.
     public func to_json_string(&self) -> Result<String, EncodeError> {
         var enc = JsonEncoder()
         try self._write(enc: &var enc)
         return enc.finish()
     }
 
-    // `JsonValue._write` is necessarily self-recursive (an array/object
-    // element can itself be an array or object). DF-267d was a
-    // self-recursive `sawc/std/` function that ALSO transitively reaches a
-    // "maybe-suspending" closure API — one whose closure parameter carries
-    // no `sync`, deliberate per design 216, which every `Vector`/`Map`
-    // visitor (`each`/`each_key`/`each_value`/`keys`) is — failing the
-    // builtins pre-check with `internal compiler error: builtins failed to
-    // type-check` / `cannot suspend in a sync closure context`, even though
-    // the identical shape compiled and ran as an ordinary source file.
-    // Design 249's registration rework dissolved the ISOLATED shape (one
-    // self-recursive function, one visitor call), confirmed again by this
-    // landing — but re-probing the WHOLE-FUNCTION shape while building this
-    // encoder found one more face of the same "one effect signature per
-    // function" mechanism DF-267d named: `_write` recursing DIRECTLY (a
-    // plain `while` loop indexing `items[i]`, no closure at all) in one
-    // match arm while ALSO recursing THROUGH a visitor closure in another
-    // still hit the same builtins-pre-check refusal, on the direct-call
-    // arm's line — so both arms below recurse through a visitor closure
-    // (`Vector.each` for `Array`, `Map.each` for `Object`), which is what
-    // actually compiles. No new DF is filed for this: it is the same
-    // "unsound fixed point for a self-recursive function depending on a
-    // non-sync leaf API" mechanism DF-267d already named, not a new
-    // mechanism — this is simply the shape that reaches it.
+    // Both arms recurse through a visitor closure (`Vector.each`, `Map.each`)
+    // rather than a direct loop: under `sawc/std/`, a self-recursive function
+    // that recurses directly in one arm and through a non-`sync` visitor in
+    // another fails the builtins pre-check (DF-267d).
     //
-    // What is STILL open is DF-272c, a narrower sibling: a maybe-suspending
-    // call made INSIDE A PLACE WINDOW (a `borrows` lend such as
-    // `fields.get(k)!`) is refused under `sawc/std/` only. `Object` routes
-    // around it on purpose — `Map.each` hands each key/value PAIR to the
-    // closure BY VALUE (a `move`, never a lend), so no window is ever open
-    // while `_write` recurses into a value.
+    // `Object` never reads a value through a `borrows` lend such as
+    // `fields.get(k)!`: a maybe-suspending call inside a place window is
+    // refused under `sawc/std/` (DF-272c). `Map.each` passes plain references
+    // instead, so no window is open while `_write` recurses.
     //
-    // Every visitor closure here returns `Void` (the visitor shape carries
-    // no error channel and cannot short-circuit the walk), so a per-element
-    // `write_text`/`_write` failure is captured into `first_err` instead of
-    // propagated directly, and every closure invocation after the first
-    // failure is a no-op (checked at its own top) — once a write fails the
-    // encoder's level bookkeeping may already be inconsistent (see
-    // `JsonEncoder.open_container`'s `TooDeep` path), so nothing further may
-    // safely be written into it.
+    // The visitors return `Void` and cannot stop the walk, so the first
+    // failure is kept in `first_err` and every later invocation is a no-op:
+    // after a failed write the encoder's level bookkeeping may be
+    // inconsistent, so nothing more may be written into it.
     func _write(&self, enc: &var JsonEncoder) -> Result<Void, EncodeError> {
         match self {
             case Null -> { return enc.write_null() },
@@ -1491,9 +1334,8 @@ extension JsonValue {
                     if first_err.is_some() {
                         return
                     }
-                    // `k` and `v` are LENT by `Map.each` (design 264): `k` is
-                    // read out at the Copy tier for the by-value
-                    // `write_text`, and `v` is only borrowed by `_write`.
+                    // `k` is read out at the Copy tier for the by-value
+                    // `write_text`; `v` is only borrowed by `_write`.
                     match enc.write_text(k) {
                         case Ok(_) -> {},
                         case Err(e) -> { first_err = e; return }
@@ -1527,11 +1369,11 @@ extension JsonValue {
         }
     }
 
-    /// `self`'s value if it is an INTEGRAL JSON number, else `None`.
+    /// `self`'s value if it is an integral JSON number, else `None`.
     ///
     /// A number that arrived as a fraction, an exponent form, or an integral
-    /// token too large for `Int` is a `Float` case and answers `None` here —
-    /// `as_float` is the one that reads it. `as_number` takes either.
+    /// token too large for `Int` is a `Float` case and answers `None` here;
+    /// `as_float` reads it.
     public func as_int(&self) -> Int? {
         match self {
             case Number(value) -> value,
@@ -1539,15 +1381,12 @@ extension JsonValue {
         }
     }
 
-    /// `self`'s value if it is a NON-INTEGRAL JSON number, else `None`.
+    /// `self`'s value if it is a `Float` JSON number, else `None`.
     ///
     /// The mirror of `as_int`: this answers `None` for `1` and a value for
-    /// `1.0`, because which case a number landed in is decided by its TOKEN.
-    ///
-    /// There is no combined `as_number() -> Float?` yet, and the reason is a
-    /// language gap rather than a design choice: Saw has no `Int` -> `Float`
-    /// conversion in any spelling, so the `Number` case cannot be widened into
-    /// one. `match` on the two cases in the meantime.
+    /// `1.0`, because the token decides which case a number lands in. There is
+    /// no combined `as_number() -> Float?`, since Saw has no `Int` to `Float`
+    /// conversion; `match` on the two cases instead.
     public func as_float(&self) -> Float? {
         match self {
             case Float(value) -> value,
@@ -1563,22 +1402,14 @@ extension JsonValue {
         }
     }
 
-    /// Lends `self`'s array, if it is one, as a place — a `Vector<JsonValue>`
-    /// is NoCopy-tier here (its element is), so this hands out the storage
-    /// rather than a value. Reach `Vector`'s own accessors on the result:
-    /// `value.as_array()![0]` (panics out of range), `value.as_array()!.get(0)`
-    /// (`None` out of range), `value.as_array()!.len()`.
+    /// Lends `self`'s array, if it is one, as a place rather than a copy.
+    /// Reach `Vector`'s own accessors on the result: `value.as_array()![0]`
+    /// (panics out of range), `value.as_array()!.get(0)` (`None` out of
+    /// range), `value.as_array()!.len()`.
     ///
-    /// There is no combined `element(at:)` accessor (DF-267c): a
-    /// hand-written `borrows` body cannot `lend` a place reached by indexing
-    /// FURTHER into a `match`-bound payload — `lend items[at]` fails at this
-    /// declaration with "cannot open an exclusive place window on immutable
-    /// variable `items`" even though `items[at]` is `Vector`'s UNCONDITIONAL
-    /// subscript (the same shape the language docs' own `Grid.[]` example
-    /// shows working — the difference is that example lends off a `self.field`
-    /// projection, not a `match self { case ... (items) -> }` binding; see
-    /// this unit's landing report for the repro). `as_array()` plus
-    /// `Vector`'s own subscript is the working spelling.
+    /// There is no combined `element(at:)` accessor yet: a `borrows` body
+    /// cannot lend a place indexed further into a `match`-bound payload
+    /// (DF-267c).
     public func as_array(&var self) borrows -> &var Vector<JsonValue>? {
         match self {
             case Array(items) -> { lend items },
@@ -1588,13 +1419,10 @@ extension JsonValue {
 
     /// Lends `self`'s object, if it is one, as a place. Reach `Map`'s own
     /// accessor on the result: `value.as_object()!.get("key")`. Key order is
-    /// not preserved (`Map`'s own rule).
+    /// not preserved.
     ///
-    /// There is no combined `member(key:)` accessor, for the exact same
-    /// DF-267c reason `as_array` has no `element(at:)` — `lend fields[key]!`
-    /// hits the identical "cannot open an exclusive place window" error, so
-    /// this is NOT about `Map`'s subscript being conditional (`Vector`'s
-    /// unconditional one hits it too).
+    /// There is no combined `member(key:)` accessor yet, for the same reason
+    /// `as_array` has no `element(at:)` (DF-267c).
     public func as_object(&var self) borrows -> &var Map<String, JsonValue>? {
         match self {
             case Object(fields) -> { lend fields },

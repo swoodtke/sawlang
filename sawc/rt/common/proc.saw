@@ -1,35 +1,27 @@
-// Process spawn seams (design 122 unit C), authored in Saw.
+// Process spawn seams (design 122), authored in Saw.
 //
-// `std.process.Command` used to concatenate its arguments into ONE string and
-// hand it to `system()`, so every argument was re-split by the shell and any
-// metacharacter in it executed (`arg("; rm -rf ~")`). These seams replace that
-// with a real argv spawn: the caller passes a NULL-terminated `char**` and the
-// child is `execvp`'d directly — no shell is involved at any point, and one
-// element of the array is exactly one argument no matter what bytes it holds.
+// A real argv spawn: the caller passes a NULL-terminated `char**` and the child
+// is `execvp`'d directly. No shell is involved, so one array element is exactly
+// one argument whatever bytes it holds.
 //
-// The shape mirrors the offload family: `spawn` returns an opaque JOB handle (a
-// heap record owning the child's pid and, when capturing, the read end of its
-// stdout pipe); `read_stdout` drains that pipe; `try_wait` reaps the child,
-// releases the record and returns the RAW POSIX wait status (which std decodes —
-// a signal death must not read as exit 0). Single-owner discipline: spawn creates
-// the job, the reap destroys it.
+// `spawn` returns an opaque job handle (a heap record owning the child's pid
+// and, when capturing, the read end of its stdout pipe); `read_stdout` drains
+// that pipe; `try_wait` reaps the child, releases the record and returns the
+// raw POSIX wait status, which std decodes so a signal death never reads as
+// exit 0. Spawn creates the job; the reap or `release` destroys it.
 //
-// THE WAIT IS ZERO-THREAD (design 182). `try_wait` is `waitpid(WNOHANG)`, so it
-// answers `-WouldBlock` while the child is alive rather than sleeping; a caller
-// that has to wait asks for a DESCRIPTOR instead, and `wait_fd` hands back one
-// that goes readable when the child exits, so a cooperative task parks it on the
-// reactor exactly as it parks a socket. That descriptor is the ONE host-divergent
-// piece (`__saw_rt_proc_exit_fd`, host_macos/host_linux); everything else in this
-// file is identical POSIX on both hosts, as is the errno->tag mapping behind
-// `__saw_rt_last_syserror`.
+// The wait uses no thread (design 182). `try_wait` is `waitpid(WNOHANG)` and
+// answers `-WouldBlock` while the child is alive; a caller that must wait asks
+// `wait_fd` for a descriptor that goes readable when the child exits and parks
+// on the reactor as it would for a socket. That descriptor
+// (`__saw_rt_proc_exit_fd`) is the one host-divergent piece; the rest is
+// identical POSIX on both hosts.
 //
-// `read_stdout` is the one seam here that still blocks the calling thread, and
-// it has to: a pipe read has nothing else to be. std declares it `blocking`, so
-// design 183's machinery runs it on a worker thread while the task parks — which
-// is what closed the drain half of DF-181a (design 187 unit 11) and let the v1
-// blocking reap `__saw_rt_proc_wait` be deleted outright.
+// `read_stdout` blocks the calling thread, because this pipe descriptor is
+// blocking. std declares it `blocking`, so it runs on a worker thread while
+// the task parks.
 //
-// A kernel/sos runtime authors its own bodies for these names.
+// A freestanding runtime supplies its own bodies for these names.
 
 extern "C" {
     func malloc(size: Int) -> UnsafePointer<Int8>
@@ -47,17 +39,16 @@ extern "C" {
     // proc_wait.saw).
     func __saw_rt_proc_exit_fd(pid: Int) -> Int
 
-    // The process environment (design 155). Saw cannot name a C global, so the
-    // two accessors live in shim.c under DF-113a; see the comment there for why
-    // the child sets `environ` rather than calling `execve`.
+    // The process environment. Saw cannot name a C global, so the two
+    // accessors live in shim.c (DF-113a); see the comment there for why the
+    // child sets `environ` rather than calling `execve`.
     func __saw_environ_get() -> UnsafePointer<UnsafePointer<Int8>>
     func __saw_environ_set(env: UnsafePointer<UnsafePointer<Int8>>)
 }
 
-// The portable SysError tag space (ABI.md). A failing op returns the NEGATED tag.
-// A closed named set with frozen numbers is a backed enum, not a family of
-// statics (design 153); the whole space is declared here rather than the subset
-// this file branches on, so the enum says what the document says.
+// The portable SysError tag space (ABI.md). A failing op returns the negated
+// tag. The whole space is declared, not just the subset this file branches
+// on, so the enum matches the document.
 enum SysError: UInt8 {
     case Ok = 0,
     case WouldBlock = 1,
@@ -76,8 +67,7 @@ enum SysError: UInt8 {
     case Invalid = 14,
     case Exhausted = 15,
     case Other = 16,
-    // The REMOTE-reach failures (DF-215a). `Other` keeps 16 — the numbers are
-    // frozen — so these sit after it rather than beside their neighbours.
+    // Remote-reach failures sit after `Other` because the numbers are frozen.
     case HostUnreachable = 17,
     case NetUnreachable = 18,
     case TimedOut = 19,
@@ -102,12 +92,9 @@ static STDERR_FILENO: Int32 = 2
 static EXEC_FAILED_STATUS: Int32 = 127
 static NO_FD: Int32 = -1
 
-// The spawn `flags` word, one bit per redirection (ABI.md). `1` alone is what
-// the capture flag has always meant, so nothing that predates the bits changes.
-// The bits are a closed named set, so they are a backed enum (design 153/185);
-// a bit SET is the backing integer they are tags for, which is what `flags`
-// stays — the enum is the single source of the values, projected with `as`
-// where the mask is taken.
+// The spawn `flags` word, one bit per redirection (ABI.md). The enum is the
+// single source of the bit values; `flags` stays the plain integer set,
+// masked with `as` projections.
 enum RedirectFlag: UInt8 {
     case CaptureStdout = 1,
     case MergeStderr = 2
@@ -261,8 +248,8 @@ func proc_spawn_impl(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, envp:
     }
 
     if pid == (0 as Int32) {
-        // CHILD. Everything here is async-signal-safe (dup2/close/execvp/_exit),
-        // which is the whole contract for the window between fork and exec.
+        // Child. Everything here is async-signal-safe (dup2/close/execvp/_exit
+        // and a pointer store), as the window between fork and exec requires.
         if capture != 0 {
             let _ = close(fds.r)
             let _ = dup2(fds.w, STDOUT_FILENO)
@@ -271,20 +258,20 @@ func proc_spawn_impl(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, envp:
             }
             let _ = close(fds.w)
         } else if merge_stderr != 0 {
-            // Nothing to capture INTO, so the bit means what `2>&1` means: the
-            // child's stderr goes wherever its (inherited) stdout goes.
+            // Nothing to capture into, so the bit means what `2>&1` means: the
+            // child's stderr goes wherever its inherited stdout goes.
             let _ = dup2(STDOUT_FILENO, STDERR_FILENO)
         }
         if envp != NULL_ENVP {
             __saw_environ_set(envp as UnsafePointer<UnsafePointer<Int8>>)
         }
         let _ = execvp(path, argv)
-        // Only reachable when exec FAILED (bad path, not executable, ENOENT).
+        // Only reachable when exec failed (bad path, not executable, ENOENT).
         _exit(EXEC_FAILED_STATUS)
         return 0
     }
 
-    // PARENT: the write end belongs to the child now.
+    // Parent: the write end belongs to the child now.
     if capture != 0 {
         let _ = close(fds.w)
     }
@@ -306,11 +293,10 @@ func rt_proc_spawn(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, flags: 
     proc_spawn_impl(path, argv, NULL_ENVP, flags)
 }
 
-// The same spawn with environment OVERRIDES (design 155). `envp` is a
-// NULL-terminated `NAME=VALUE` array; the child gets this process's environment
-// with each of those names set to the given value, and everything else
-// inherited. The merge happens here, in the parent, before the fork — the child
-// only stores a pointer, which is what keeps the fork-to-exec window
+// The same spawn with environment overrides. `envp` is a NULL-terminated
+// `NAME=VALUE` array; the child inherits this process's environment with each
+// of those names set. The merge runs here in the parent, before the fork, so
+// the child only stores a pointer and the fork-to-exec window stays
 // async-signal-safe in a multi-threaded parent.
 @export("__saw_rt_proc_spawn_env")
 func rt_proc_spawn_env(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, envp: UnsafePointer<Int8>, flags: Int) unsafe -> Int {
@@ -328,10 +314,9 @@ func rt_proc_spawn_env(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, env
 // Read up to `len` bytes of the child's captured stdout. Returns the byte count
 // (0 = EOF, and 0 immediately for a job spawned without capture) or -tag.
 //
-// BLOCKS the calling thread until the child writes or closes: the pipe is a
-// blocking descriptor, and a child may write nothing for as long as it likes. It
-// is std's second `blocking` seam, so the caller is never the executor thread —
-// see rt/ABI.md for the contract that puts on an implementer.
+// Blocks the calling thread until the child writes or closes: the pipe is a
+// blocking descriptor. std declares the seam `blocking`, so the caller is never
+// the executor thread; rt/ABI.md states the contract for implementers.
 @export("__saw_rt_proc_read_stdout")
 func rt_proc_read_stdout(job: Int, buf: UnsafePointer<Int8>, len: Int) unsafe -> Int {
     let p = job as UnsafePointer<ProcJob>
@@ -348,9 +333,9 @@ func rt_proc_read_stdout(job: Int, buf: UnsafePointer<Int8>, len: Int) unsafe ->
 
 // A descriptor that becomes readable once the child has exited, so a waiting
 // task parks on the reactor instead of sitting in `waitpid`. Acquired on first
-// ask and cached; the JOB owns it and closes it with the rest of the record.
-// Returns the fd or -tag — a caller that cannot get one still has `try_wait`,
-// which is the honest degraded path (poll, never block).
+// ask and cached; the job owns it and closes it with the rest of the record.
+// Returns the fd or -tag; a caller that cannot get one can still poll
+// `try_wait`, which never blocks.
 @export("__saw_rt_proc_wait_fd")
 func rt_proc_wait_fd(job: Int) unsafe -> Int {
     let p = job as UnsafePointer<ProcJob>
@@ -366,11 +351,11 @@ func rt_proc_wait_fd(job: Int) unsafe -> Int {
     fd
 }
 
-// Reap the child if it has already exited. Returns the RAW POSIX wait status
-// (>= 0, decoded by std — the exit byte and the signal bits both matter),
-// `-WouldBlock` while the child is still running, or -tag.
+// Reap the child if it has already exited. Returns the raw POSIX wait status
+// (>= 0, decoded by std), `-WouldBlock` while the child is still running, or
+// -tag.
 //
-// The job is DESTROYED — descriptors closed, record freed — on every answer but
+// The job is destroyed (descriptors closed, record freed) on every answer but
 // `-WouldBlock`, which leaves it intact so the caller can park and ask again.
 @export("__saw_rt_proc_try_wait")
 func rt_proc_try_wait(job: Int) unsafe -> Int {
@@ -389,7 +374,7 @@ func rt_proc_try_wait(job: Int) unsafe -> Int {
             waiting = false
         } else {
             tag = __saw_rt_last_syserror()
-            // A signal delivered to US must not lose the child's status.
+            // A signal delivered to us must not lose the child's status.
             if tag != ((SysError.Interrupted as UInt8) as Int) {
                 waiting = false
             } else {
@@ -410,8 +395,8 @@ func rt_proc_try_wait(job: Int) unsafe -> Int {
 
 // Abandon the job without waiting for the child: close its descriptors and free
 // the record. One WNOHANG reap first, so a child that has already exited does not
-// linger as a zombie; a child still RUNNING keeps running (design 102 — cancelling
-// the wait cancels the WAIT, not the child) and this process never collects it.
+// linger as a zombie; a child still running keeps running (cancelling the wait
+// cancels the wait, not the child) and this process never collects it.
 @export("__saw_rt_proc_release")
 func rt_proc_release(job: Int) unsafe {
     let p = job as UnsafePointer<ProcJob>
@@ -420,10 +405,3 @@ func rt_proc_release(job: Int) unsafe {
     proc_job_close(p)
     free(job as UnsafePointer<Int8>)
 }
-
-// The v1 blocking reap `__saw_rt_proc_wait` lived here until design 187 unit 11.
-// It is GONE, not deprecated: `Command.run` parked on `wait_fd` + `try_wait`
-// from design 182, `Command.output` joined it once its drain became an offloaded
-// `blocking` seam, and a seam with no callers is a seam a new runtime should not
-// be asked to write. The blocking `waitpid(pid, &status, 0)` it wrapped is what
-// `try_wait` does with `WNOHANG` and a park.

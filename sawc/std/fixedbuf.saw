@@ -31,31 +31,25 @@ extension FixedBuf<N> {
 
     /// The address of the first byte.
     ///
-    /// The receiver is `&var self` because the pointer is a WRITE capability
-    /// into the buffer, and the call site should say so: an exclusive borrow is
-    /// what makes a write through the returned pointer legible to the reader
-    /// and to the Law of Exclusivity. A `&self` receiver would reach the
-    /// caller's storage just as well since design 261 — that is no longer the
-    /// reason for the spelling, and a build whose docs give the by-value one
-    /// predates it.
+    /// The receiver is `&var self` because the pointer is a write capability
+    /// into the buffer, and the call site should say so: an exclusive borrow
+    /// makes a write through the returned pointer visible to the reader and to
+    /// the Law of Exclusivity.
     ///
     /// The pointer is valid only while the buffer stays where it is. Storing one
     /// across a move of the owner leaves it addressing the old bytes, so take it
     /// where you use it rather than keeping it in a field.
     ///
-    /// The element type is `Byte` but the pointer is C's `char`: this is the
-    /// storage `StringBuilder(bytes:capacity:)` formats into, and that seam is
-    /// spelled `UnsafePointer<Int8>` at the FFI boundary (design 250 §2's
-    /// stays-list). The reinterpret is free — one byte is one byte.
+    /// The element type is `Byte` but the pointer is C's `char`, because this
+    /// is the storage `StringBuilder(bytes:capacity:)` formats into and that
+    /// boundary is spelled `UnsafePointer<Int8>`. The reinterpret is free.
     public func ptr(&var self) unsafe -> UnsafePointer<Int8> {
         (&self.data) as UnsafePointer<Int8>
     }
 
     /// Reads the byte at `i`, or `None` when `i` is outside `0..<N`.
     ///
-    /// The `None` is `Data.get`'s: a `get`-shaped accessor on a safe type
-    /// answers the absence rather than trapping on it, and `[]`-shaped and
-    /// `set` are where an out-of-range index is a bug worth a panic.
+    /// Like `Data.get`, this answers the absence; `set` panics instead.
     public func get(&self, i: Int) -> Byte? {
         if i < 0 || i >= N {
             return None
@@ -65,9 +59,8 @@ extension FixedBuf<N> {
 
     /// Writes `b` at `i`. Panics if `i` is out of range.
     ///
-    /// `b` is a `UInt8` on `Data.set`'s terms (design 250 §5 Q4's sink rule):
-    /// a `Byte`, a `UInt8` and a bare literal all pass, since there is no second
-    /// reading for a number arriving at a byte buffer.
+    /// `b` is a `UInt8`, as in `Data.set`, so a `Byte`, a `UInt8` and a bare
+    /// literal all pass.
     public func set(&var self, i: Int, b: UInt8) {
         if i < 0 || i >= N {
             panic("FixedBuf.set: index out of range: {} (len {})", i, N)
@@ -90,7 +83,7 @@ extension FixedBuf<N> {
 /// compile-time error.
 ///
 /// ```saw
-/// import std.fixedbuf
+/// import std.fixedbuf.{FixedStringBuilder}
 ///
 /// var out = FixedStringBuilder<64>()
 /// out.append("n = ")
@@ -121,14 +114,10 @@ extension FixedStringBuilder<N> {
         N
     }
 
-    // THE FOUR APPENDS BELOW KEEP A VOID SIGNATURE, deliberately, and design 234
-    // is the reason rather than an exception to it: a `FixedStringBuilder` wraps
-    // a FIXED-mode `StringBuilder`, and fixed storage has no allocator to refuse
-    // it — content that does not fit is CUT and marked, which `is_truncated()`
-    // reports. There is no allocation here to report, so a `Result` return would
-    // name a failure that cannot happen. The `try!` is the assertion of that: it
-    // is unreachable, and if the fixed/growable distinction ever leaks it says so
-    // loudly instead of silently dropping the write.
+    // The appends return `Void`: a fixed-mode `StringBuilder` never allocates
+    // (content that does not fit is cut and marked, and `is_truncated()`
+    // reports it), so a `Result` would name a failure that cannot happen. The
+    // `try!` asserts that and fails loudly if it ever stops holding.
 
     /// Appends the bytes of `s`, cutting and marking if they do not fit.
     public func append(&var self, s: String) unsafe {
@@ -152,7 +141,7 @@ extension FixedStringBuilder<N> {
     ///
     /// The `Byte` parameter is the discrimination against the `Int`/`UInt`
     /// siblings above, which render digits: `append(65)` writes `65` and
-    /// `append(Byte(65))` writes `A` (design 250 §4). This was `append_char`.
+    /// `append(Byte(65))` writes `A`.
     public func append(&var self, b: Byte) unsafe {
         self._aim()
         try! self.builder.append(b)
@@ -185,14 +174,12 @@ extension FixedStringBuilder<N> {
         self.builder.build()
     }
 
-    // Point the builder at THIS value's storage.
+    // Point the builder at this value's storage.
     //
-    // The builder holds a pointer into `storage`, and a Saw move copies bytes:
-    // moving a `FixedStringBuilder` leaves that pointer addressing the bytes it
-    // came from rather than the ones it now sits beside. Rather than forbid
-    // moving — which would make the type unreturnable, so `init` could not hand
-    // one back — every operation re-aims first. The pointer is then never read
-    // while stale, and the type moves like any other value.
+    // The builder holds a pointer into `storage`, and a move copies bytes, so
+    // after a move the pointer addresses the old location. Forbidding moves
+    // would make the type unreturnable from `init`; instead every operation
+    // re-aims first, so the pointer is never read while stale.
     func _aim(&var self) unsafe {
         self.builder.rebind(self.storage.ptr())
     }

@@ -298,13 +298,17 @@ got here. They apply to sawc/ Python, C and every `.saw` file.
    `(design 261)`. The comment must make sense without opening it; never
    paraphrase the brief.
 4. Docstrings: a one-line summary, then at most ~8 lines. Longer reasoning
-   belongs in the design brief; point to it.
+   belongs in the design brief; point to it. An entry-point list (rule 5)
+   does not count toward the limit.
 5. Funnel docstrings (brief obligation 1) keep their ENTRY POINTS lists:
-   names only, one line each. The gate lanes read them.
+   names only, one line each. Some gate lanes search source text (each
+   lane has its own method; none derives every list), so a list is kept
+   correct by hand and edited with care.
 6. No line numbers, site counts, timings, or corpus statistics — they are
    stale the day after they are written.
 7. Emphasis: at most one ALLCAPS word per comment, and only for a real
-   hazard.
+   hazard. Identifiers (EAGAIN, O_NONBLOCK) and named-invariant labels
+   (RULE 1) are not emphasis.
 8. A regression guard states the invariant and names the pinning test; it
    does not retell the bug.
 9. `///` and `//!` doc comments are published API (`--emit-docs`) and

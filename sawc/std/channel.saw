@@ -95,7 +95,8 @@ extension ChannelError: Printable {
 
 extension ChannelError: Error {}
 
-// `send` maps each outcome onto a `ChannelError` case.
+// `send` maps `Sent` to success and each other outcome to a `ChannelError`
+// case.
 enum __EnqueueOutcome {
     case Sent
     case Closed

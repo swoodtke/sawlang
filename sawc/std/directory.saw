@@ -12,48 +12,34 @@
 //!
 //! Part of the Saw standard library. POSIX system calls behind the runtime seams.
 
-// =============================================================================
-// FFI declarations for directory operations
-// =============================================================================
-
 extern "C" {
-    // Directory operations. opendir(3) goes through the seam so its failure
-    // CAUSE survives: the DIR* comes back raw (an exported return may not be
-    // optional, so the `?` is declared here) and the tag lands in `status_out`,
-    // 0 on success. readdir/closedir stay bare — readdir's end-of-stream is not
-    // an error and closedir's status is not actionable (design 132 unit G).
+    // opendir(3) goes through the seam so its failure cause survives: the tag
+    // lands in `status_out`, 0 on success (an exported return may not be
+    // optional, so the `?` is declared here). readdir/closedir stay bare:
+    // readdir's end-of-stream is not an error and closedir's status is not
+    // actionable.
     func __saw_rt_fs_opendir(name: UnsafePointer<Int8>, status_out: UnsafePointer<Int>) -> UnsafePointer<Int8>?
     func readdir(dirp: UnsafePointer<Int8>) -> UnsafePointer<Int8>?
     func closedir(dirp: UnsafePointer<Int8>) -> Int32
 
-    // The name inside a `struct dirent` (design 122 unit F). `d_name`'s offset
-    // is the ONLY OS-divergent part of a readdir walk (21 on macOS, 19 on
-    // Linux), so it lives behind the host split; this file used to hardcode the
-    // macOS number and mis-read every filename on Linux.
+    // The name inside a `struct dirent`. `d_name`'s offset differs between
+    // hosts (21 on macOS, 19 on Linux), so it lives behind the host split.
     func __saw_rt_fs_dirent_name(entry: UnsafePointer<Int8>) -> UnsafePointer<Int8>
 
-    // Directory manipulation (design 117: status-carrying, -SysError tag on fail).
+    // Status-carrying: 0 on success, the negated SysError tag on failure.
     func __saw_rt_fs_mkdir(path: UnsafePointer<Int8>, mode: Int) -> Int
     func __saw_rt_fs_rmdir(path: UnsafePointer<Int8>) -> Int
     func __saw_rt_fs_chdir(path: UnsafePointer<Int8>) -> Int
     func getcwd(buf: UnsafePointer<Int8>, size: Int) -> UnsafePointer<Int8>?
 
-    // Memory
     func malloc(size: Int) -> UnsafePointer<Int8>?
     func free(ptr: UnsafePointer<Int8>)
     func strlen(s: UnsafePointer<Int8>) -> Int
 
-    // Refcounted String runtime (defined by the compiler): copy a C string into
-    // an owned String with a proper { refcount, len, bytes } header. A bare
-    // `ptr as String` would produce a header-less pointer that corrupts on
-    // len()/release.
+    // Copies a C string into an owned String with a proper header. A bare
+    // `ptr as String` would be header-less and corrupt on len() or release.
     func __saw_string_from_bytes(src: UnsafePointer<Int8>, len: Int) -> String
 }
-
-// =============================================================================
-// Directory - Static methods for directory operations
-// =============================================================================
-// Note: Directory is a marker struct for static methods only
 
 // The first buffer `Directory.current` offers getcwd(2), and the largest it
 // will grow to before giving up. The floor is the common PATH_MAX; the ceiling
@@ -61,20 +47,16 @@ extern "C" {
 static GETCWD_INITIAL_BYTES: Int = 1024
 static GETCWD_MAX_BYTES: Int = 1048576
 
+// A namespace for static methods; never constructed.
 public struct Directory {
     private _unused: Int
 }
 
 extension Directory {
-    // =========================================================================
-    // Directory listing
-    // =========================================================================
-
     // List the entries in a directory, excluding `.` and `..`.
     //
-    // `Err` carries the errno cause of the failing opendir(3) — a missing
-    // directory and an unreadable one are different problems (design 92). An
-    // empty `Ok` means the directory is empty.
+    // `Err` carries the errno cause of the failing opendir(3). An empty `Ok`
+    // means the directory is empty.
     public static func list(path: Path) unsafe -> Result<Vector<Path>, IoError> {
         let path_ptr = path.as_str() as UnsafePointer<Int8>
         var status = 0
@@ -85,7 +67,6 @@ extension Directory {
             var done = false
             while not done {
                 if let entry = readdir(dir) {
-                    // `d_name`'s offset is host-divergent — the seam knows it.
                     let name_ptr = __saw_rt_fs_dirent_name(entry)
                     // Copy the entry's C string into an owned String (the dirent
                     // buffer has no String header and is reused by readdir).
@@ -104,10 +85,8 @@ extension Directory {
                     }
 
                     let full_path = path.join(name)
-                    // design 234: the listing's own allocator refusal, mapped
-                    // onto this domain's word for it. The directory handle is
-                    // closed on the way out — an `Err` must not leak the `DIR*`
-                    // the `Ok` path closes below.
+                    // Allocator refusal is `ResourcesExhausted`; the `Err` path
+                    // must close the `DIR*` too.
                     match result.push(full_path) {
                         case Ok(_) -> {},
                         case Err(_) -> {
@@ -127,12 +106,8 @@ extension Directory {
         return IoError.of("opendir", status)
     }
 
-    // =========================================================================
-    // Directory manipulation
-    // =========================================================================
-
-    // Create a directory with default permissions (0755). Ok on success, or the
-    // errno cause (design 92 — a Bool hid WHY, e.g. EEXIST vs EACCES vs ENOENT).
+    // Create a directory with permissions 0755. `Err` carries the errno cause
+    // of the failing mkdir(2).
     public static func create(path: Path) unsafe -> Result<Void, IoError> {
         let path_ptr = path.as_str() as UnsafePointer<Int8>
         let e = __saw_rt_fs_mkdir(path_ptr, 493)   // 0755 = 493 decimal
@@ -142,7 +117,8 @@ extension Directory {
         return
     }
 
-    // Remove an empty directory. Ok on success, Err(IoError) with the SysError cause.
+    // Remove an empty directory. `Err` carries the errno cause of the failing
+    // rmdir(2).
     public static func remove(path: Path) unsafe -> Result<Void, IoError> {
         let path_ptr = path.as_str() as UnsafePointer<Int8>
         let e = __saw_rt_fs_rmdir(path_ptr)
@@ -152,35 +128,22 @@ extension Directory {
         return
     }
 
-    // Works for both files and directories.
-    // Note: Uses access() from file.saw
+    // Works for both files and directories. `access` is declared in file.saw.
     public static func exists(path: Path) unsafe -> Bool {
         let ptr = path.as_str() as UnsafePointer<Int8>
         access(ptr, 0 as Int32) == (0 as Int32)
     }
 
-    // =========================================================================
-    // Working directory
-    // =========================================================================
-
-    // Get the current working directory.
+    // Get the current working directory. The buffer grows and the call is
+    // retried until the path fits, so a long path comes back whole.
     //
-    // The buffer grows and the call is retried until the path fits, so a long
-    // working directory comes back WHOLE. It used to be a fixed 1024 bytes, and
-    // anything longer came back as `None` — indistinguishable from a real
-    // getcwd(2) failure and a silent wrong answer besides (review M15).
+    // `None` means getcwd(2) failed for a reason growing the buffer cannot fix,
+    // or the path exceeded `GETCWD_MAX_BYTES`. Allocator exhaustion panics
+    // rather than joining that `None`.
     //
-    // `None` now means getcwd(2) failed for a reason growing the buffer cannot
-    // fix, or that the path exceeded `GETCWD_MAX_BYTES`. Allocator exhaustion
-    // PANICS rather than joining that `None` (design 123): it used to be a third
-    // meaning for the same answer.
-    //
-    // getcwd(2) reports a too-small buffer as ERANGE, but errno is not readable
-    // from std (rt/ABI.md: `__saw_rt_last_syserror` is runtime-internal, and
-    // this is a bare libc call). So the retry does not distinguish causes — it
-    // simply grows until the path fits or the ceiling is reached. A genuine
-    // failure such as EACCES costs a handful of doublings on a path that was
-    // already failing.
+    // errno is runtime-internal (rt/ABI.md) and this is a bare libc call, so
+    // the retry cannot tell ERANGE from a real failure; a failure such as
+    // EACCES costs a few doublings before `None`.
     public static func current() unsafe -> Path? {
         var cap = GETCWD_INITIAL_BYTES
         while cap <= GETCWD_MAX_BYTES {
@@ -199,8 +162,8 @@ extension Directory {
         None
     }
 
-    // Change the current working directory. Ok on success, Err(IoError) with the
-    // errno cause (design 92).
+    // Change the current working directory. `Err` carries the errno cause of
+    // the failing chdir(2).
     public static func set_current(path: Path) unsafe -> Result<Void, IoError> {
         let path_ptr = path.as_str() as UnsafePointer<Int8>
         let e = __saw_rt_fs_chdir(path_ptr)

@@ -38,12 +38,11 @@ from ast_nodes import (
 )
 from .types import CommittedGenericError
 
-# design 242: THE SPAWN FORMS. `Thread.spawn { ... }` (and, from unit 3,
-# `Task.spawn { ... }`) read as member accesses but are compiler-lowered
-# intrinsics — the namespace IS the engine, and neither type declares a `spawn`
-# static. The parser rewrites both to a `FunctionCall` named `<Namespace>.spawn`
-# so that everything downstream reads ONE node kind, exactly as the retired bare
-# `spawn { ... }` did. Adding an engine means adding a name here.
+# The spawn forms (design 242). `Thread.spawn { ... }` and `Task.spawn(f(x))`
+# read as member accesses but are compiler-lowered intrinsics: the namespace is
+# the engine, and neither type declares a `spawn` static. The parser rewrites
+# both to a `FunctionCall` named `<Namespace>.spawn`, so everything downstream
+# reads one node kind. Adding an engine means adding a name here.
 SPAWN_FORM_NAMESPACES = ("Thread", "Task")
 
 
@@ -51,10 +50,9 @@ class ExpressionsMixin:
     """Mixin providing expression parsing methods for Parser."""
 
     def parse_expression(self) -> Expression:
-        # design 130 removed the line-level `unsafe <expr>` marker: `unsafe` is a
-        # DECLARATION modifier and a function-type effect now, never an expression
-        # prefix. A stray one here reaches `parse_primary` and is reported as a
-        # token that cannot begin an expression.
+        # `unsafe` is never an expression prefix; a stray one reaches
+        # `parse_primary` and is reported as a token that cannot begin an
+        # expression.
         return self.parse_nil_coalesce()
 
     def parse_nil_coalesce(self) -> Expression:
@@ -107,7 +105,7 @@ class ExpressionsMixin:
 
         return left
 
-    # Bitwise tiers (design 50), C-family: `&` binds tighter than `^`, which
+    # Bitwise tiers, C-family: `&` binds tighter than `^`, which
     # binds tighter than `|`; all three sit between logical `&&` and the
     # comparison operators. Integer-only — enforced by the typechecker.
 
@@ -190,7 +188,7 @@ class ExpressionsMixin:
         return left
 
     def parse_shift(self) -> Expression:
-        """Parse bit shifts `<< >>` (design 50), tighter than comparison but
+        """Parse bit shifts `<< >>`, tighter than comparison but
         looser than `+ -` (C-family: `x << 2 + 1` == `x << (2 + 1)`).
 
         The lexer keeps bare `<`/`>` as individual tokens so nested generic
@@ -231,7 +229,9 @@ class ExpressionsMixin:
     @staticmethod
     def _decode_int_literal(text: str) -> int:
         """Decode an INT token's canonical text (prefix kept, underscores already
-        stripped by the lexer) into its integer value (design 50)."""
+        stripped by the lexer) into its integer value. Integer literal values
+        must be decoded here; `int()` rejects the prefixed notations. (Decimal
+        tuple indices use `int()` directly.)"""
         low = text[:2].lower()
         if low == '0x':
             return int(text, 16)
@@ -245,7 +245,7 @@ class ExpressionsMixin:
         left = self.parse_multiplicative()
 
         # `&+` / `&-` are the wrapping counterparts of `+` / `-` and share their
-        # precedence tier (design 31).
+        # precedence tier.
         while self.match(TokenType.PLUS, TokenType.MINUS,
                          TokenType.WRAP_ADD, TokenType.WRAP_SUB):
             op_token = self.advance()
@@ -300,23 +300,15 @@ class ExpressionsMixin:
             )
 
         if self.match(TokenType.STAR):
-            # PREFIX `*` — pointer dereference, DESUGARED HERE (design 219's
-            # wave-B rider). `*p` becomes exactly the place `p[0]` already
-            # names, so nothing downstream learns a new node kind: the
-            # typechecker, the place machinery and codegen all see the pointer
-            # place they have always handled, and `move *p`, `*p = v`,
-            # `(*p).field` and a `&*p` argument each work because the SAME
-            # production is behind them.
+            # Prefix `*` is pointer dereference, desugared here: `*p` becomes
+            # the place `p[0]` names, so nothing downstream learns a new node
+            # kind, and `move *p`, `*p = v`, `(*p).field` and `&*p` all work
+            # through the same production.
             #
-            # Disambiguated by POSITION exactly as unary `-` is: the binary
-            # parser consumes its own `*` before descending here, so a leading
-            # `*` can only be a prefix. This is not a general user-definable
-            # prefix operator — that surface stays closed.
-            #
-            # `p[0]` conflates array indexing with single-pointee deref; std's
-            # pointer sites are mostly single-object, where `*slot` states the
-            # intent. The SPAN is the `*` token's, so every diagnostic anchors
-            # on what the author wrote (the elaboration principle's invariant).
+            # Disambiguated by position as unary `-` is: the binary parser
+            # consumes its own `*` before descending here. It is not a
+            # user-definable prefix operator. The span is the `*` token's, so
+            # diagnostics anchor on what the author wrote.
             star_token = self.advance()
             operand = self.parse_unary()
             return ArrayIndex(
@@ -328,7 +320,7 @@ class ExpressionsMixin:
             )
 
         if self.match(TokenType.TILDE):
-            # Unary bitwise complement `~x` (design 50); integer-only, enforced
+            # Unary bitwise complement `~x`; integer-only, enforced
             # by the typechecker.
             op_token = self.advance()
             operand = self.parse_unary()
@@ -341,29 +333,22 @@ class ExpressionsMixin:
 
         if self.match(TokenType.MOVE):
             move_token = self.advance()
-            # `move *p` — the prefix-deref spelling of `move p[0]`, and the
-            # fourth move-out family member in its most readable form (wave A
-            # legalized the transfer; the rider gives it this spelling). The
-            # star is consumed HERE rather than by the prefix arm above because
-            # `move` parses its own path: the projection loop below builds the
-            # place, and this just seeds it with the `[0]` hop.
+            # `move *p`, the prefix-deref spelling of `move p[0]`. The star is
+            # consumed here rather than by the prefix arm above because `move`
+            # parses its own path: this seeds it with the `[0]` hop.
             deref_star = None
             if self.match(TokenType.STAR):
                 deref_star = self.advance()
-            # move must be followed by an identifier (the root binding) — or by
-            # `self`, which is the root of design 260 §3's `move self.<field>`.
-            # The parser accepts the shape; the typechecker decides whether the
-            # consuming carve-out licenses it or the no-partial-moves refusal
-            # (design 35) stands, exactly as it does for `move p.x`.
+            # `move` takes a root binding or `self` (for `move self.<field>` in
+            # a consuming method). The parser accepts the shape; the
+            # typechecker decides whether the consuming carve-out licenses it
+            # or the no-partial-moves refusal stands, as for `move p.x`.
             if not self.match(TokenType.IDENT, TokenType.SELF):
                 raise SyntaxError(f"Expected identifier after 'move' at line {move_token.line}")
             base_token = self.advance()
-            # Consume any member/tuple/index projections so a partial move like
-            # `move p.x`, `move p.x.y`, or `move arr[i]` parses cleanly. Partial
-            # moves are forbidden (design 35); the typechecker rejects the path
-            # with a diagnostic naming the field and base. Accepting the syntax
-            # here avoids a bare parse error (`move p.x`) or silent mis-handling
-            # (`move arr[i]` used to drop the index).
+            # Consume member/tuple/index projections so a partial move like
+            # `move p.x.y` or `move arr[i]` parses in full and the typechecker
+            # can reject it with a diagnostic naming the field and base.
             if base_token.type == TokenType.SELF:
                 node = SelfExpr(line=base_token.line, column=base_token.column)
             else:
@@ -401,21 +386,17 @@ class ExpressionsMixin:
                     is_partial = True
                 else:
                     break
-            # design 131: a trailing `!` makes this `move o!` — the move at an
-            # optional projection. Consumed here (rather than left to the
-            # postfix parser) so the whole thing stays ONE MoveExpr: the move
-            # retires the binding `o`, and the `!` only picks the payload out of
-            # the value it yields.
+            # A trailing `!` makes this `move o!`. Consumed here rather than by
+            # the postfix parser so it stays one MoveExpr: the move retires `o`,
+            # and the `!` picks the payload out of the value it yields.
             unwrap = False
             if self.match(TokenType.EXCLAIM):
                 self.advance()
                 unwrap = True
             if base_token.type == TokenType.SELF and not is_partial:
-                # A bare `move self` is not a spelling: the receiver is a
-                # BORROW of storage the caller owns, and design 260's consuming
-                # method ends that storage through the reference rather than
-                # relocating it. The projected `move self.<field>` is the one
-                # `self`-rooted move there is.
+                # A bare `move self` is not a spelling: the receiver borrows
+                # storage the caller owns, and a consuming method ends it
+                # through the reference rather than relocating it.
                 self.error(
                     "`move self` is not a receiver spelling — a receiver "
                     "borrows storage the caller owns. Inside a `consumes` "
@@ -458,8 +439,7 @@ class ExpressionsMixin:
             as_token = self.advance()
             # `x as Int? ?? y` is a cast followed by the coalescing operator,
             # not a cast to `Int???`. This is the only place the type grammar
-            # and the expression grammar meet at a `??` (DF-174c) — everywhere
-            # else a type is followed by `=`, `,`, `)`, `>`, `{` or a newline.
+            # and the expression grammar meet at a `??`.
             target_type = self.parse_type(allow_nested_optional=False)
             expr = CastExpr(
                 expr=expr,
@@ -471,18 +451,12 @@ class ExpressionsMixin:
         return expr
 
     def _parse_dot_access(self, base_expr: Expression, dot_token, member_name: str) -> Expression:
-        """Build a `.member` / `.method(args)` access on `base_expr` (design 111
-        shares this between plain `.` and the `?.` optional hop). `member_name` is
-        already consumed; this handles explicit `<...>` type args, a `(args)` call,
-        a trailing-closure call, or a bare field access."""
-        # design 242: `Thread.spawn { ... }` is the thread engine's spawn FORM,
-        # not a static method — it takes a closure the compiler lowers, exactly
-        # as the retired bare `spawn { ... }` did. Rewriting it to the same
-        # `FunctionCall` shape here means every downstream consumer (the
-        # typechecker's `_check_spawn`, the coroutine transform, spawn codegen)
-        # keeps reading ONE node kind. The call is caught in the `(` spelling
-        # too so the arity diagnostic comes from `_check_spawn` rather than from
-        # `Thread` failing to resolve as a value.
+        """Build a `.member` / `.method(args)` access on `base_expr`, shared by
+        plain `.` and the `?.` optional hop. `member_name` is already consumed;
+        this handles explicit `<...>` type args, a `(args)` call, a
+        trailing-closure call, or a bare field access."""
+        # A spawn form (see `SPAWN_FORM_NAMESPACES`), rewritten to a
+        # `FunctionCall` so downstream consumers read one node kind.
         if (member_name == "spawn"
                 and isinstance(base_expr, Identifier)
                 and base_expr.name in SPAWN_FORM_NAMESPACES
@@ -491,7 +465,7 @@ class ExpressionsMixin:
                      or (self.allow_trailing_closure and self.match(TokenType.LBRACE)))):
             return self._parse_spawn_form(base_expr.name, dot_token)
 
-        # Explicit method-level type arguments (brief 36):
+        # Explicit method-level type arguments:
         # `v.map<Int>(...)` or the trailing-closure form
         # `v.map<Int> { ... }`. Same backtracking ambiguity as a free
         # generic call — keep the `<...>` only if it is genuinely
@@ -508,9 +482,9 @@ class ExpressionsMixin:
                     self.pos = saved_pos
                     method_type_args = None
             except CommittedGenericError:
-                # A committed generic list that is ill-formed — a trailing comma
-                # (design 129) or a reference argument (DF-163d). Report it
-                # rather than backtracking into a nonsense comparison.
+                # A committed generic list that is ill-formed (a trailing comma
+                # or a reference argument). Report it rather than backtracking
+                # into a nonsense comparison.
                 raise
             except SyntaxError:
                 self.pos = saved_pos
@@ -561,15 +535,13 @@ class ExpressionsMixin:
             )
 
     def _parse_spawn_form(self, namespace: str, dot_token) -> Expression:
-        """One of design 242's engine spawn forms, as a `FunctionCall`.
+        """An engine spawn form, as a `FunctionCall` (design 242).
 
-        `namespace` is the engine that spelled it (`Thread`, and `Task` from
-        unit 3); the node's name is `<namespace>.spawn`, which is both what the
-        typechecker dispatches on and what its diagnostics print. Both
-        spellings are accepted here — the closure form `Thread.spawn { … }`,
-        which is the one that exists, and the parenthesized `Thread.spawn(…)`,
-        which does not, so that the arity diagnostic comes from the spawn
-        checker instead of from `Thread` failing to resolve as a value.
+        The node's name is `<namespace>.spawn`, which the typechecker
+        dispatches on and prints in diagnostics. Both spellings are accepted
+        for every engine: `Thread.spawn { … }` and `Task.spawn(f(x))` are the
+        real forms, and the others parse so the spawn checker, not a failed
+        name lookup, reports the misuse.
         """
         if self.match(TokenType.LPAREN):
             self.advance()
@@ -591,10 +563,10 @@ class ExpressionsMixin:
     def parse_postfix(self) -> Expression:
         expr = self.parse_primary()
 
-        # `saw_chain` is True while an optional-chain postfix run is open (design
-        # 111): a `?.` opens it; further `.`/`?.` extend it; `!`, `[`, and a tuple
-        # `.N` CLOSE it (wrapping the run in an OptionalEvalExpr) so they apply to
-        # the resulting Optional — `a?.b!` is `(a?.b)!`. One short-circuit skips the
+        # `saw_chain` is True while an optional-chain postfix run is open: a `?.`
+        # opens it; further `.`/`?.` extend it; `!`, `[`, and a tuple `.N` close
+        # it (wrapping the run in an OptionalEvalExpr) so they apply to the
+        # resulting Optional: `a?.b!` is `(a?.b)!`. One short-circuit skips the
         # whole run.
         saw_chain = False
 
@@ -628,10 +600,10 @@ class ExpressionsMixin:
                     self.advance()
                     expr = self._parse_dot_access(expr, dot_token, member_name)
                 else:
-                    # Design 161: the number scanner no longer swallows a dot that
-                    # no digit follows (which is what broke `7.to_string()`), so a
-                    # trailing-dot float now arrives here as INT + DOT. Teach the
-                    # spelling instead of reporting a bare "got NEWLINE".
+                    # The number scanner leaves a dot that no digit follows (so
+                    # `7.to_string()` works), and a trailing-dot float arrives
+                    # here as INT + DOT. Teach the spelling instead of reporting
+                    # a bare "got NEWLINE".
                     if isinstance(expr, IntLiteral):
                         self.error(
                             f"Expected field name or tuple index after '.', got "
@@ -681,17 +653,13 @@ class ExpressionsMixin:
     def _lends_opens_a_place(self) -> bool:
         """Is the `lends` at the parse position the unary origin form?
 
-        THE DISCRIMINATOR for design 275 U3's contextual keyword, and the ONLY
-        place the question is asked. A place head is `self` or a NAME, and two
-        adjacent name-ish tokens are not an expression in any other reading —
-        so `lends self`, `lends self.cells[i]` and `lends buf` take the unary
-        form, while every ordinary use of an identifier that happens to be
-        spelled `lends` keeps it: a bare read (`print(lends)`, `lends`, a
-        `lends,` element), a call (`lends(3)`), an operand (`lends + 1`), an
-        argument label (`f(lends: 3)`), an assignment target (`lends = 7`).
-        A field read (`x.lends`) and a declaration name (`let lends = 7`,
-        `struct E { lends: Int }`) never reach here at all — the postfix and
-        declaration parsers consume the token themselves.
+        The one place the contextual keyword is decided (design 275). A place
+        head is `self` or a name, and two adjacent name-ish tokens form no
+        other expression, so `lends self`, `lends self.cells[i]` and
+        `lends buf` take the unary form while every ordinary use of an
+        identifier named `lends` (a read, call, operand, label or assignment
+        target) keeps it. A field read (`x.lends`) and a declaration name never
+        reach here.
         """
         nxt = self.peek(1)
         return nxt.type in (TokenType.SELF, TokenType.IDENT)
@@ -700,18 +668,11 @@ class ExpressionsMixin:
         token = self.current()
 
         if self.match_ident("lends") and self._lends_opens_a_place():
-            # `lends self` (design 275 U3) — the origin proof at a borrowing
-            # struct's construction. A CONTEXTUAL keyword: `lends` is an
-            # ordinary identifier everywhere else, and the pair `lends <place>`
-            # is a parse error in every position today, so nothing that
-            # compiles now stops compiling and neither lexer's keyword table
-            # grows an entry.
-            #
-            # The parser accepts `lends <place>` in general and the TYPECHECKER
-            # refuses everything but `lends self`, because the refusal has to
-            # name what the author wrote ("U3 admits the receiver as the only
-            # borrow origin") rather than leave a bare parse error on a
-            # spelling the follow-up brief may widen.
+            # `lends self`: the origin proof at a borrowing struct's
+            # construction. A contextual keyword, so neither lexer's keyword
+            # table has an entry. The parser accepts `lends <place>` in general
+            # and the typechecker refuses everything but `lends self`, so the
+            # refusal can name what the author wrote.
             lends_token = self.advance()
             place = self.parse_unary()
             return LendsExpr(place=place, line=lends_token.line,
@@ -744,17 +705,16 @@ class ExpressionsMixin:
             return SelfExpr(line=token.line, column=token.column)
 
         elif self.match(TokenType.HASH_DIRECTIVE):
-            # `#file` / `#line` / `#function` source-location literal (design 98).
-            # The source file is stamped here (definition site: the file the
-            # token appears in); the typechecker resolves the value from the
-            # token's own line + enclosing-function context. `source_file` is ""
-            # for an interpolation sub-parser lacking it — the enclosing string
-            # token's file, threaded through `_parse_expression_from_string`.
+            # `#file` / `#line` / `#function` source-location literal. The
+            # source file is stamped here (definition site); the typechecker
+            # resolves the value from the token's line and enclosing function.
+            # An interpolation sub-parser gets the enclosing string's file
+            # through `_parse_expression_from_string`.
             self.advance()
             if token.value == 'lend_var':
-                # `#lend_var` (design 179) is the other magic literal: it names
-                # the SPECIALIZATION a `borrows` body is being compiled as, not
-                # anything about the source position, so it carries no payload.
+                # `#lend_var` names the specialization a `borrows` body is
+                # being compiled as, not a source position, so it carries no
+                # payload.
                 return LendVarLiteral(line=token.line, column=token.column)
             return SourceLocationLiteral(
                 kind=token.value,
@@ -763,8 +723,7 @@ class ExpressionsMixin:
 
         elif self.match(TokenType.STRING):
             self.advance()
-            # The lexer fully decoded it (design 268): a brace in the value is
-            # just a brace, so there is nothing left to un-encode here.
+            # The lexer fully decoded it: a brace in the value is just a brace.
             return StringLiteral(value=token.value, line=token.line,
                                  column=token.column)
 
@@ -792,9 +751,9 @@ class ExpressionsMixin:
                         self.pos = saved_pos
                         type_args = None
                 except CommittedGenericError:
-                    # A committed generic list that is ill-formed — a trailing
-                    # comma (design 129) or a reference argument (DF-163d).
-                    # Report it rather than backtracking into a comparison.
+                    # A committed generic list that is ill-formed (a trailing
+                    # comma or a reference argument). Report it rather than
+                    # backtracking into a comparison.
                     raise
                 except SyntaxError:
                     # Failed to parse type args, restore position
@@ -808,12 +767,10 @@ class ExpressionsMixin:
                     return self.parse_struct_init(token, type_args)
                 else:
                     return self.parse_function_call(token, type_args)
-            # The RETIRED bare `spawn { ... }` (design 21 item 5, replaced by
-            # `Thread.spawn { ... }` in design 242). Still PARSED, so the
-            # typechecker can answer it with the fixit naming the new spelling
-            # rather than with a bare-identifier syntax error. Restricted to the
-            # `spawn` name so a bare `ident {` in other positions is never
-            # mis-parsed as a call (it may open a block or struct-literal context).
+            # A bare `spawn { ... }` is not a spawn form, but it still parses so
+            # the typechecker can answer with a fixit naming `Thread.spawn`.
+            # Restricted to the `spawn` name so a bare `ident {` elsewhere is
+            # never misread as a call.
             if (token.value == "spawn" and self.allow_trailing_closure
                     and self.match(TokenType.LBRACE)):
                 trailing_closure = self._parse_closure_expression()
@@ -834,7 +791,7 @@ class ExpressionsMixin:
                 self.advance()
                 return TupleLiteral(elements=[], line=start.line, column=start.column)
 
-            # Named tuple literal (design 63): `(x: 3, y: 4)`. A leading `IDENT :`
+            # Named tuple literal: `(x: 3, y: 4)`. A leading `IDENT :`
             # (inside a grouping/tuple paren — NOT a call's argument list) begins
             # one. All-or-nothing labeling is enforced per element.
             if (self.current().type == TokenType.IDENT
@@ -895,11 +852,10 @@ class ExpressionsMixin:
             return self.parse_for_statement()
 
         elif self.match(TokenType.LBRACKET):
-            # Array literal: [1, 2, 3] — or the REPEAT literal [v; N] (design
-            # 148), N copies of one value. The `;` after the first element is
-            # what tells them apart, and it can mean nothing else inside `[ ]`,
-            # so no lookahead or backtracking is needed. It reads like the array
-            # TYPE it produces: `[0; 256]` has type `[Int; 256]`.
+            # Array literal `[1, 2, 3]`, or the repeat literal `[v; N]` (N copies
+            # of one value). The `;` after the first element tells them apart
+            # and means nothing else inside `[ ]`, so no lookahead is needed.
+            # `[0; 256]` has type `[Int; 256]`.
             start = self.current()
             self.advance()  # consume '['
 
@@ -924,8 +880,8 @@ class ExpressionsMixin:
 
         elif self.match(TokenType.LBRACE):
             # A `{` opens a closure/block, a map literal `{k: v}` / `{:}`, or a
-            # set literal `{a, b, ...}` (design 54). Bounded lookahead (no
-            # backtracking) picks which; `{}` and `{expr}` are ALWAYS a
+            # set literal `{a, b, ...}`. Bounded lookahead (no
+            # backtracking) picks which; `{}` and `{expr}` are always a
             # closure/block, and `{ x in ... }` closure params are unambiguous.
             kind = self._classify_brace_literal()
             if kind == 'map':
@@ -942,10 +898,8 @@ class ExpressionsMixin:
             return Identifier(name=param_token.value, line=param_token.line, column=param_token.column)
 
         elif self.match(TokenType.UNSAFE):
-            # design 130 removed design 81's line-level marker. Saw code written
-            # against the old model puts `unsafe` in front of a pointer
-            # expression, and a bare "unexpected token" would leave the reader to
-            # work out that the whole model changed under them.
+            # `unsafe` in front of an expression gets a teaching error naming
+            # where the marker belongs, rather than "unexpected token".
             self.error("`unsafe` is not an expression prefix — mark the "
                        "enclosing declaration instead (`func f(...) unsafe`), "
                        "and delete the marker here")
@@ -988,7 +942,7 @@ class ExpressionsMixin:
             value = self.parse_expression()
             name = None
         # A `&`/`&var` reference at the top of an argument is the one legal
-        # position for a reference (design 34). Mark it so the typechecker can
+        # position for a reference. Mark it so the typechecker can
         # reject `&var` used anywhere else.
         if isinstance(value, ReferenceExpr):
             value.in_argument_position = True
@@ -1036,8 +990,8 @@ class ExpressionsMixin:
 
         self.expect(TokenType.RPAREN)
 
-        # Design 66: a trailing closure after `name(label: value, ...)` is an
-        # unambiguous FUNCTION call (structs never take trailing closures). The
+        # A trailing closure after `name(label: value, ...)` is an
+        # unambiguous function call (structs never take trailing closures). The
         # `IDENT COLON` lookahead routed us here, but with a trailing `{` this is
         # a fully-labeled call — build a FunctionCall (labeled args + the closure
         # bound to the last parameter) so the typechecker resolves it as a call.
@@ -1073,7 +1027,7 @@ class ExpressionsMixin:
             mutable = self.current().type == TokenType.VAR
             self.advance()  # consume 'let' or 'var'
 
-            # Tuple pattern over an Optional tuple (design 63): `if let (x, y) = ..`
+            # Tuple pattern over an Optional tuple: `if let (x, y) = ..`
             iflet_pattern = None
             iflet_name = ""
             if self.match(TokenType.LPAREN):
@@ -1086,8 +1040,8 @@ class ExpressionsMixin:
             saved_trailing = self.allow_trailing_closure
             self.allow_trailing_closure = False
             optional_expr = self.parse_expression()
-            # Design 111: `if let _ = x?.y = v { ... }` — an optional-chain
-            # ASSIGNMENT (type `Void?`) consumed by the binding.
+            # `if let _ = x?.y = v { ... }`: an optional-chain assignment
+            # (type `Void?`) consumed by the binding.
             if self.match(TokenType.ASSIGN) and isinstance(optional_expr, OptionalEvalExpr):
                 assign_tok = self.advance()
                 optional_assign_value = self.parse_expression()
@@ -1100,10 +1054,10 @@ class ExpressionsMixin:
             then_branch = self.parse_block()
 
             else_branch = None
-            # Peek across newlines for the `else`, and REWIND when none
-            # follows (SL-347): the newline after the then-branch's `}` is the
-            # statement's own terminator, and eating it here would leave the
-            # next statement looking as if it shared this one's line.
+            # Peek across newlines for the `else`, and rewind when none
+            # follows: the newline after the then-branch's `}` separates this
+            # statement from the next, and eating it would make the next
+            # statement look as if it shared this one's line.
             else_peek = self.pos
             self.skip_newlines()
             if self.match(TokenType.ELSE):
@@ -1144,8 +1098,8 @@ class ExpressionsMixin:
         then_branch = self.parse_block()
 
         else_branch = None
-        # Same rewind as the `if let` arm above (SL-347): a peek must not eat
-        # the newline that ends this statement.
+        # Same rewind as the `if let` arm above: a peek must not eat the
+        # newline that ends this statement.
         else_peek = self.pos
         self.skip_newlines()
         if self.match(TokenType.ELSE):
@@ -1194,8 +1148,8 @@ class ExpressionsMixin:
             arm_start = self.current()
             self.expect(TokenType.CASE, "Expected 'case' keyword in match arm")
 
-            # Parse the arm pattern (design 63 T1d: literals, ranges, tuples,
-            # bindings, and the classic enum-variant form).
+            # Parse the arm pattern (literals, ranges, tuples, bindings, and
+            # the enum-variant form).
             pattern = self.parse_pattern()
 
             # Optional guard: `case <pattern> if <cond> ->`
@@ -1207,9 +1161,9 @@ class ExpressionsMixin:
                 guard = self.parse_expression()
                 self.allow_trailing_closure = saved_tc
 
-            # Derive the legacy variant_name/bindings for the classic enum-switch
-            # lowering when the pattern is a plain enum-variant/wildcard with only
-            # binding/wildcard subpatterns (design 61 path stays byte-identical).
+            # Derive variant_name/bindings for the enum-switch lowering when the
+            # pattern is a plain enum-variant/wildcard with only
+            # binding/wildcard subpatterns.
             variant_name, bindings = self._legacy_arm_shape(pattern)
 
             # Parse arrow
@@ -1247,11 +1201,11 @@ class ExpressionsMixin:
         )
 
     def _legacy_arm_shape(self, pattern: 'Pattern'):
-        """Derive the legacy (variant_name, bindings) from a pattern when it is a
-        plain enum-variant / wildcard so the classic enum-switch lowering keeps
-        working unchanged. Returns ("", []) for pattern forms the general
-        if-chain lowering owns (literals, ranges, tuples, bare bindings, or an
-        enum pattern whose subpatterns are not all plain bindings)."""
+        """Derive (variant_name, bindings) from a pattern when it is a plain
+        enum-variant / wildcard, for the enum-switch lowering. Returns ("", [])
+        for pattern forms the general if-chain lowering owns (literals, ranges,
+        tuples, bare bindings, or an enum pattern whose subpatterns are not all
+        plain bindings)."""
         if isinstance(pattern, WildcardPattern):
             return "_", []
         if isinstance(pattern, EnumPattern):
@@ -1288,7 +1242,7 @@ class ExpressionsMixin:
         )
 
     def parse_pattern(self) -> 'Pattern':
-        """Parse one match-arm pattern (design 63 T1d)."""
+        """Parse one match-arm pattern."""
         tok = self.current()
 
         # Tuple pattern: `(p0, p1, ...)`
@@ -1296,8 +1250,8 @@ class ExpressionsMixin:
             self.advance()
 
             def _named_pattern_check():
-                # The NAMED pattern form `(x: a, y: b)` is deferred (design 63) —
-                # reject it cleanly rather than positional-parse into confusion.
+                # The named pattern form `(x: a, y: b)` is not supported; reject
+                # it cleanly rather than misparse it positionally.
                 if (self.current().type == TokenType.IDENT
                         and self.peek(1).type == TokenType.COLON):
                     self.error("named tuple patterns (`(x: a)`) are not supported "
@@ -1371,17 +1325,14 @@ class ExpressionsMixin:
         - try! expr                 - force unwrap (panic on error)
         - try expr catch { ... }    - inline catch handler
         - try { ... } catch { ... } - block try-catch
-        - try(as E.Case) expr       - ERROR ROUTING (design 234 §3): propagate
-                                      the callee's error as `E.Case(<it>)`
+        - try(as E.Case) expr       - error routing: propagate the callee's
+                                      error as `E.Case(<it>)` (design 234)
 
-        The routing clause sits in PREFIX position, and that is load-bearing
-        rather than taste: a trailing `try f() as X.Y` cannot be classified at
-        parse time, since `LocalError.Alloc` and `time.Duration` are the same
-        dotted-path shape and `try parse_id() as UserId` is design 63's value
-        projection of the UNWRAPPED result. The prefix slot is owned by `try`,
-        so every trailing `as` stays an ordinary cast. `(` immediately followed
-        by `as` is the tell — `as` can never begin an expression, so
-        `try (foo())` is never mistaken for a clause.
+        The routing clause must be a prefix: a trailing `try f() as X.Y` cannot
+        be classified at parse time, since `LocalError.Alloc` and
+        `time.Duration` have the same shape and a trailing `as` casts the
+        unwrapped result. `(` immediately followed by `as` is the tell; `as`
+        never begins an expression, so `try (foo())` is never a clause.
         """
         start = self.advance()  # consume 'try'
 
@@ -1423,9 +1374,9 @@ class ExpressionsMixin:
         expr = self.parse_expression()
         self.allow_trailing_closure = saved_trailing
 
-        # Check for inline catch — peeking across newlines, and REWINDING when
-        # no `catch` follows (SL-347), so a bare `try f()` keeps the newline
-        # that ends its statement.
+        # Check for inline catch, peeking across newlines and rewinding when
+        # no `catch` follows, so a bare `try f()` keeps the newline that ends
+        # its statement.
         catch_peek = self.pos
         self.skip_newlines()
         if self.match(TokenType.CATCH):
@@ -1452,7 +1403,7 @@ class ExpressionsMixin:
         )
 
     def _parse_try_route_clause(self) -> List[str]:
-        """Parse `(as EnumType.Case)` — design 234 §3's error-routing clause.
+        """Parse `(as EnumType.Case)`, the error-routing clause.
 
         Returns the dotted path as written, at least two segments (the enum and
         its case; a module qualifier makes three). The caller has already
@@ -1481,12 +1432,12 @@ class ExpressionsMixin:
                 f"the enum and the case the error is carried in")
         return segments
 
-    # === Collection Literals (design 54) ===
+    # === Collection Literals ===
 
     def _classify_brace_literal(self) -> str:
         """Bounded lookahead from `{` deciding 'map', 'set', or 'closure'.
 
-        Rules (design 54, NO type feedback):
+        Rules (no type feedback):
           - `{:}`                              -> map (empty)
           - first depth-0 delimiter is `:`     -> map literal
           - first depth-0 delimiter is `,`     -> set literal
@@ -1531,15 +1482,10 @@ class ExpressionsMixin:
                                   TokenType.RETURN, TokenType.BREAK, TokenType.CONTINUE,
                                   TokenType.ASSIGN):
                         return 'closure'   # a statement body -> block
-                # NOTE: `<`/`>` are deliberately NOT treated as depth brackets
-                # (design 59 E2). They are ambiguous — a comparison (`a > 0`) or a
-                # generic-arg bracket (`Map<K, V>`) — and treating them as depth
-                # made an unparenthesized comparison element (`{a > 0, b > 0}`)
-                # drive depth negative so the real depth-0 `,` was missed and the
-                # brace misclassified as a block. Closures are decided BEFORE this
-                # scan (named-param / capture-list checks above), so dropping
-                # `<`/`>` here cannot regress closure parsing. Only `()`/`[]`/`{}`
-                # — which cannot be a comparison — bound nested `,`/`:`.
+                # `<`/`>` are not depth brackets: they may be comparisons
+                # (`{a > 0, b > 0}`), which would drive depth negative and hide
+                # the real depth-0 `,`. Closures are decided before this scan,
+                # so only `()`/`[]`/`{}` bound nested `,`/`:`.
                 if t.type in (TokenType.LPAREN, TokenType.LBRACE,
                               TokenType.LBRACKET):
                     depth += 1
@@ -1551,7 +1497,7 @@ class ExpressionsMixin:
             self.pos = saved
 
     def _parse_map_literal(self) -> MapLiteral:
-        """Parse `{k1: v1, k2: v2, ...}` or the empty map `{:}` (design 54)."""
+        """Parse `{k1: v1, k2: v2, ...}` or the empty map `{:}`."""
         start = self.current()
         self.expect(TokenType.LBRACE)
         self.skip_newlines()
@@ -1578,7 +1524,7 @@ class ExpressionsMixin:
         return MapLiteral(entries=entries, line=start.line, column=start.column)
 
     def _parse_set_literal(self) -> SetLiteral:
-        """Parse `{a, b, ...}` (design 54, two or more elements)."""
+        """Parse `{a, b, ...}` (two or more elements)."""
         start = self.current()
         self.expect(TokenType.LBRACE)
         self.skip_newlines()
@@ -1600,9 +1546,9 @@ class ExpressionsMixin:
     def _parse_closure_expression(self) -> ClosureExpr:
         """Parse a closure expression: { x in x * 2 } or { $0 * 2 }
 
-        An optional bracketed capture list may precede the parameters (design
-        16/29): `{ [&var sum] x in ... }`, `{ [move conn] in ... }`. A `[...]`
-        immediately after `{` is a capture list ONLY when it is followed (after
+        An optional bracketed capture list may precede the parameters:
+        `{ [&var sum] x in ... }`, `{ [move conn] in ... }`. A `[...]`
+        immediately after `{` is a capture list only when it is followed (after
         optional params) by `in`; otherwise it is an array-literal body
         (`{ [1, 2, 3] }`).
         """
@@ -1697,20 +1643,15 @@ class ExpressionsMixin:
             self.pos = saved
 
     def _parse_capture_list(self) -> List['CaptureSpec']:
-        """Parse `[ &var sum, move conn, copy v, &self, x ]` (design 16/29 +
-        design 218 section 4).
+        """Parse `[ &var sum, move conn, copy v, &self, x ]`.
 
-        `self` is a capture name only BEHIND A BORROW SIGIL. A method's receiver
-        IS a reference, so the receiver's own mode dictates the capture's, and a
-        spelling that could contradict it is not offered: bare `[self]` and
-        `[move self]` are refused here with the working spelling, and a CONSUMING
-        `self` receiver is an owned binding that takes the ordinary implicit
-        value capture with no list at all.
+        `self` is a capture name only behind a borrow sigil. A receiver is a
+        reference, so its own mode dictates the capture's: bare `[self]` and
+        `[move self]` are refused with the working spelling.
 
-        The spelling exists so the coroutine transform can EMIT a receiver
-        capture (design 218's litmus: generated code is code a programmer could
-        have written). It means exactly what the implicit `self` capture already
-        means — see `_check_closure`'s frame-pointer capture rule, which judges
+        The spelling exists so the coroutine transform can emit a receiver
+        capture as code a programmer could have written (design 218). It means
+        exactly what the implicit `self` capture means; `_check_closure` judges
         both through one predicate.
         """
         from ast_nodes import CaptureSpec
@@ -1825,8 +1766,8 @@ class ExpressionsMixin:
 
         while True:
             # Reference-capture params: `&data` (immutable borrow) or
-            # `&var data` (mutable borrow) — the closure receives a pointer and
-            # the body reads/mutates through it (design 21 item 3).
+            # `&var data` (mutable borrow): the closure receives a pointer and
+            # the body reads/mutates through it.
             is_reference = False
             reference_mutable = False
             if self.match(TokenType.AMPERSAND):
@@ -1866,9 +1807,8 @@ class ExpressionsMixin:
         final_expr = None
         start = self.current()
 
-        # SL-347: every gap between the body's statements runs through the
-        # separator chokepoint, this first call covering the gap before the
-        # first one.
+        # Every statement gap runs through the separator chokepoint; this
+        # first call covers the gap before the first statement.
         self.expect_statement_end()
         while not self.match(TokenType.RBRACE) and not self.match(TokenType.EOF):
             # Try to parse a statement
@@ -1918,21 +1858,17 @@ class ExpressionsMixin:
 
     def _parse_interpolated_string(self, segments, line: int, column: int) -> StringInterpolation:
         """Build a `StringInterpolation` from an INTERP_STRING token's typed
-        SEGMENTS (design 268) — the ONE consumer of a segment list on the
-        Python side.
+        segments, the one consumer of a segment list on the Python side.
 
         The lexer already decided which braces open interpolations and decoded
-        every escape (see `lexer.StringSegment`), so there is no byte re-scan
-        here and no escaped-brace marker to un-encode: a `text` segment
-        contributes literal content, an `expr` segment contributes one
-        expression (or a design-137 `FormatPlaceholder` when its raw text is
-        blank), and each expression is sub-parsed at the EXACT source position
-        of its opening `{` (design 99: the line was already exact, the column
-        is now exact under escapes too).
+        every escape (`lexer.StringSegment`): a `text` segment contributes
+        literal content, an `expr` segment one expression (or a
+        `FormatPlaceholder` when blank), sub-parsed at the exact source
+        position of its opening `{`.
 
-        The result keeps the node's invariant `len(parts) == len(expressions)
-        + 1`: the pending text run is flushed as a part at every `expr`
-        segment, so two adjacent interpolations are separated by an empty part.
+        Invariant: `len(parts) == len(expressions) + 1`. The pending text is
+        flushed at every `expr` segment, so adjacent interpolations are
+        separated by an empty part.
         """
         parts = []
         expressions = []
@@ -1944,10 +1880,8 @@ class ExpressionsMixin:
                 continue
             parts.append(''.join(pending))
             pending = []
-            # An EMPTY brace pair is a format placeholder (design 137), not an
-            # expression to parse: `panic("out of {}", what)` fills it from the
-            # argument list. Sub-parsing "" used to be the error "Invalid
-            # expression in string interpolation".
+            # An empty brace pair is a format placeholder, not an expression:
+            # `panic("out of {}", what)` fills it from the argument list.
             if seg.text.strip() == "":
                 expressions.append(FormatPlaceholder(
                     line=seg.line, column=seg.column))
@@ -1979,14 +1913,13 @@ class ExpressionsMixin:
             )
 
         try:
-            # Create a sub-parser with these tokens. Thread the enclosing file
-            # through so a `#file`/`#function` (design 98) inside an
-            # interpolation resolves against the real source, not "".
+            # Thread the enclosing file through so a `#file`/`#function`
+            # inside an interpolation resolves against the real source.
             sub_parser = Parser(sub_tokens, source_file=self.source_file)
             expr = sub_parser.parse_expression()
             # The sub-lexer numbered everything from 1:1; rebase onto the
             # enclosing string's source position so diagnostics inside an
-            # interpolation point at the real line (design 99).
+            # interpolation point at the real line.
             self._rebase_interpolation_positions(expr, line, column)
             return expr
         except SyntaxError as e:
@@ -2005,10 +1938,10 @@ class ExpressionsMixin:
         A node on sub-line 1 sits on the string's line, columns offset past the
         `{`; deeper sub-lines (rare: an interpolation spanning lines) keep
         their column and offset the line. Unset positions (0) are stamped with
-        the brace position so no node is left reporting 1:1 (design 99)."""
+        the brace position so no node is left reporting 1:1."""
         # `_seen` is a within-one-walk cycle guard over physical nodes (the
-        # rebase walks arbitrary `vars(node)` graphs, which can alias), not the
-        # persistent identity design 126 R2 replaced.
+        # rebase walks arbitrary `vars(node)` graphs, which can alias), not a
+        # persistent node identity.
         if _seen is None:
             _seen = set()
         if node is None or id(node) in _seen:
@@ -2075,8 +2008,7 @@ class ExpressionsMixin:
                 visit_expr(expr.object)
             elif isinstance(expr, StringInterpolation):
                 # `$N` inside an interpolation (`{ "v={$0}" }`) counts toward the
-                # closure's arity — a natural spelling for a `(T) -> String`
-                # shorthand closure (brief 36's map Int->String test).
+                # closure's arity.
                 for sub in expr.expressions:
                     visit_expr(sub)
             elif isinstance(expr, ForceUnwrap):

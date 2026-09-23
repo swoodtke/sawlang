@@ -1,4 +1,4 @@
-//! Raw bytes with value semantics — `Data`, rebuilt on `Arc` (design 165).
+//! Raw bytes with value semantics.
 //!
 //! `Data` is a window onto `Arc`-owned storage: an offset and a length over a
 //! buffer whose lifetime the `Arc` runs. Copying a `Data` — or slicing one —
@@ -14,64 +14,45 @@
 //! print("{a.len()} {b.len()}")  // 1 2
 //! ```
 //!
-//! Every operation that can run out of memory REPORTS it (design 234) —
+//! Every operation that can run out of memory reports it as
 //! `Result<_, AllocError>`, all-or-nothing. The one exception is the subscript
 //! `d[i] = v`, whose copy-on-write separation panics: it shares a body with the
-//! bounds check, and splitting one of the two failures out as a value would make
-//! `d[i]` mean two different things by which failure it met. `detached()` is the
-//! preflight that attempts the same allocation where a refusal has somewhere to
-//! go.
+//! bounds check, and `d[i]` would otherwise mean two different things by which
+//! failure it met. `detached()` is the preflight that attempts the same
+//! allocation where a refusal has somewhere to go.
 //!
-//! Every mutation takes the same uniqueness gate, so there is no operation that
-//! writes through to a sibling and no rule to remember about which ones do. It
-//! used to be otherwise: `set` wrote through shared storage while `push` and
-//! `append` copied first (tracker DATA-2), which made the answer to "does my
-//! slice see this?" depend on which method you called. The gate dissolves the
-//! question — `Data` is a value, and values do not alias.
-//!
-//! This also retires the hand-rolled refcount that used to live here. `Arc`
-//! owns the count now, so the buffer is freed by exactly one `deinit` in one
-//! place, and an iterator that outlives its `Data` holds a real reference
-//! rather than a dangling pointer (tracker DATA-1).
+//! Every mutation takes the same uniqueness gate, so no operation writes
+//! through to a sibling: `Data` is a value, and values do not alias. An
+//! iterator holds a real reference to the storage, so it may outlive the
+//! `Data` it came from.
 //!
 //! The std triangle this completes: `String` is shared-immutable, `Vector` is
 //! unique-mutable, `Data` is shared-until-written.
 
-// `Data` is an alloc-layer type: it allocates through `GlobalAllocator`
-// (design 19 §4 / brief 28), which wraps the runtime seams — never libc
-// directly. memcpy is a compiler builtin, not a seam.
+// `Data` allocates through `GlobalAllocator`, never libc directly. memcpy is a
+// compiler builtin, not a seam.
 extern "C" {
     func memcpy(dest: UnsafePointer<Int8>, src: UnsafePointer<Int8>, n: Int) -> UnsafePointer<Int8>
 }
 
-// =============================================================================
-// DataBuf — the heap buffer, owned by exactly one Arc
-// =============================================================================
+// DataBuf: the heap buffer, owned by exactly one Arc. The whole unsafe surface
+// of this file is here, reachable two ways only: `&self` reads (which an `Arc`
+// forwards freely, since a live strong reference pins the payload) and
+// `Arc.with_unique`, which hands out `&var DataBuf` only when nobody else holds
+// the storage. There is no third way to write these bytes, which makes the
+// copy-on-write discipline structural rather than a convention.
 //
-// The whole unsafe surface of this file is here, and it is reachable only two
-// ways: through `&self` reads (which an `Arc` forwards freely — a live strong
-// reference pins the payload) and through `Arc.with_unique`, which hands out
-// `&var DataBuf` exactly when nobody else holds the storage. There is no third
-// way to write these bytes, which is what makes the copy-on-write discipline
-// structural rather than a convention.
-//
-// The buffer POINTER is `Int8` because that is what the allocator and `memcpy`
-// speak; every element access below views it as `UnsafePointer<Byte>` instead,
-// so nothing inside this file handles a byte under a second type (design 250's
-// `Data` rider: strict on reads, strict in its own internals).
+// The buffer pointer is `Int8` because the allocator and `memcpy` speak it;
+// every element access views it as `UnsafePointer<Byte>`, so no byte in this
+// file is handled under a second type.
 
 struct DataBuf {
     buffer: UnsafePointer<Int8>
     capacity: Int
 }
 
-// design 186: the assertion behind `Data`'s thread-safety, made where the
-// pointer actually is. The bytes are reachable exactly two ways — `&self` reads
-// through a live strong reference, and `Arc.with_unique`, which hands out
-// `&var DataBuf` only when nobody else holds the storage — so a buffer that two
-// threads can see is a buffer neither can write. `Data` itself needs no
-// declaration: it holds an `Arc<DataBuf>` and derives through this one and
-// `Arc`'s.
+// Given the two access paths above, a buffer two threads can see is a buffer
+// neither can write. `Data` derives Send/Sync through this and `Arc`'s.
 extension DataBuf: UnsafeSend {}
 extension DataBuf: UnsafeSync {}
 
@@ -135,10 +116,7 @@ extension DataBuf: NoCopy {
     }
 }
 
-// =============================================================================
-// Data — a copy-on-write window onto shared storage
-// =============================================================================
-
+// Data: a copy-on-write window onto shared storage.
 public struct Data {
     // `None` is the empty Data: no storage, and none allocated until the first
     // byte arrives. `offset`/`length` are then both 0.
@@ -148,10 +126,6 @@ public struct Data {
 }
 
 extension Data {
-    // =========================================================================
-    // Constructors
-    // =========================================================================
-
     /// An empty buffer. Allocates nothing — storage arrives with the first byte.
     public init() -> Data {
         Data(storage: None, offset: 0, length: 0)
@@ -167,10 +141,6 @@ extension Data {
         return move data
     }
 
-    // =========================================================================
-    // Basic Properties
-    // =========================================================================
-
     /// The number of bytes in this window.
     public func len(&self) -> Int {
         self.length
@@ -184,7 +154,7 @@ extension Data {
     /// How many bytes this `Data` can take before a mutation has to allocate.
     ///
     /// For sole ownership of a whole buffer that is the buffer's capacity. When
-    /// the storage is SHARED, or this is a slice that starts partway in, the
+    /// the storage is shared, or this is a slice that starts partway in, the
     /// next write separates the bytes into a buffer of its own, so the answer
     /// is `len()`. Reserving against this number always reserves enough.
     public func capacity(&self) -> Int {
@@ -194,33 +164,24 @@ extension Data {
         self.length
     }
 
-    // =========================================================================
-    // Element Access
-    // =========================================================================
-
-    /// The byte at `index`, as a PLACE (design 141) — `d[i] = 0` writes it
-    /// where it sits and `d[i] += 1` reads, adds and stores in one window.
+    // `#lend_var` is the compile-time constant naming the specialization being
+    // compiled, so the uniqueness gate is in the exclusive copy only (design
+    // 179). The shared copy may skip it: the bounds check proved `length > 0`,
+    // so the storage it reads through exists.
+    //
+    // The place type is `UInt8`, not `Byte`: a `borrows -> T` has one `T` for
+    // read and write, and a `Byte` place would reject `d[i] = 42` because a
+    // literal does not adopt into a distinct alias. `get`, `pop` and iteration
+    // carry the strict read side (design 250).
+    /// The byte at `index`, as a place: `d[i] = 0` writes it where it sits and
+    /// `d[i] += 1` reads, adds and stores in one window.
     ///
     /// Panics if `index` is outside `0..<len()`, on the same terms as `set`.
     ///
-    /// A READ costs nothing and works on a `let` binding, a `&Data` parameter
-    /// or a slice several `Data`s share. A WRITE separates shared storage first,
-    /// so it needs a `var` root and the first one on shared bytes copies them.
-    /// Both come out of this one declaration: `#lend_var` (design 179) is the
-    /// compile-time constant naming the specialization being compiled, so the
-    /// uniqueness gate is in the exclusive copy and simply is not in the shared
-    /// one. That is what copy-on-write needs and what design 146's single
-    /// use-site-decides-the-flavor rule could not express on its own.
-    ///
-    /// The shared copy may skip the gate safely: the bounds check above already
-    /// proved `length > 0`, so the storage it reads through exists.
-    ///
-    /// The place type is `UInt8` and not `Byte`, deliberately (design 250 §5 Q4
-    /// names the subscript in the sink list). A `borrows -> T` has ONE `T` for
-    /// the read and the write, so a `Byte` place would keep `let v = d[i]`
-    /// honest at the cost of `d[i] = 42` — a literal does not adopt into a
-    /// distinct alias. Writing bytes is what a subscript is for, so the write
-    /// wins here; `get`, `pop` and iteration carry the strict read side.
+    /// A read costs nothing and works on a `let` binding, a `&Data` parameter
+    /// or a slice several `Data`s share. A write separates shared storage first,
+    /// so it needs a `var` root and the first one on shared bytes copies them;
+    /// if that copy cannot be allocated, the write panics (see `detached`).
     public func [](&var self, index: Int) unsafe borrows -> &var UInt8 {
         if index < 0 || index >= self.length {
             panic("Data.[]: index out of range: {} (len {})", index, self.length)
@@ -236,10 +197,8 @@ extension Data {
 
     /// The byte at `index`, or `None` when it is out of range.
     ///
-    /// The `None`-returning twin of `[]`, which panics — the design-146 pairing,
-    /// and the only difference between them now that a shared `d[i]` read
-    /// separates nothing either. Reach for `get` where an out-of-range index is
-    /// data rather than a bug.
+    /// The `None`-returning twin of `[]`, which panics. Reach for `get` where an
+    /// out-of-range index is data rather than a bug.
     public func get(&self, index: Int) -> Byte? {
         if index < 0 || index >= self.length {
             return None
@@ -255,20 +214,13 @@ extension Data {
     /// Panics if `index` is outside `0..<len()`.
     ///
     /// If the storage is shared this separates it first, so the write lands on
-    /// this `Data` and no sibling sees it. That is a BEHAVIOR CHANGE ratified
-    /// with design 165: `set` used to write THROUGH to every holder while
-    /// `push` and `append` copied first.
+    /// this `Data` and no sibling sees it.
     ///
-    /// Only the copy-on-write separation can fail, so on shared storage this is
-    /// all-or-nothing: an `Err` leaves both this `Data` and its siblings exactly
-    /// as they were. An out-of-range `index` still panics — the reporting tier is
-    /// about the allocator, not about bounds (design 130's accessor rule, and
-    /// design 234 §5's fault line).
-    /// `value` is a `UInt8` and not a `Byte` because `Data` deals in nothing but
-    /// bytes, so there is no second reading for a number arriving here (design
-    /// 250 §5 Q4's sink rule). One parameter takes all three arrivals: a `Byte`
-    /// degrades in, a bare literal adopts, a `UInt8` passes. A computed `Int`
-    /// still pays the visible `as UInt8` at the boundary.
+    /// Only the copy-on-write separation can fail, so this is all-or-nothing:
+    /// an `Err` leaves both this `Data` and its siblings exactly as they were.
+    ///
+    /// `value` takes a `Byte`, a `UInt8` or a bare literal; a computed `Int`
+    /// needs `as UInt8`.
     public func set(&var self, index: Int, value: UInt8) -> Result<Void, AllocError> {
         if index < 0 || index >= self.length {
             panic("Data.set: index out of range: {} (len {})", index, self.length)
@@ -279,10 +231,6 @@ extension Data {
         self._store_at(index, Byte(value))
         return
     }
-
-    // =========================================================================
-    // Modification Operations
-    // =========================================================================
 
     /// Appends one byte.
     ///
@@ -359,11 +307,9 @@ extension Data {
 
     /// Appends `len` raw bytes from `src`.
     ///
-    /// The pointer-typed signature is the design-130 visible marker: callers in
-    /// the unsafe domain (std.net's socket read path) fill a `Data` from a stack
-    /// buffer with no per-byte overhead. `src` and `len` must describe `len`
-    /// valid bytes. Reports allocator exhaustion as `Err(AllocError)`; the
-    /// buffer is unchanged then.
+    /// Fills a `Data` from a raw buffer (std.net's socket read path) with no
+    /// per-byte overhead. `src` must point at `len` valid bytes. Reports
+    /// allocator exhaustion as `Err(AllocError)`; the buffer is unchanged then.
     public func append_bytes(&var self, src: UnsafePointer<Int8>, len: Int) unsafe -> Result<Void, AllocError> {
         if len <= 0 {
             return
@@ -379,20 +325,15 @@ extension Data {
     /// A pointer to this window's first byte, or a null pointer when it is
     /// empty.
     ///
-    /// The pointer-typed signature is the design-130 visible marker; std.net's
-    /// write path streams bytes to a socket through it without copying. It
-    /// addresses SHARED storage, so it is a read pointer: writing through it
-    /// would be the write-through this type no longer does.
+    /// std.net's write path streams bytes to a socket through it without
+    /// copying. It may address shared storage, so it is a read pointer only:
+    /// writing through it would reach every sibling.
     public func byte_ptr(&self) unsafe -> UnsafePointer<Int8> {
         guard let _ = self.storage else {
             return 0 as UnsafePointer<Int8>
         }
         self.storage!.head() + self.offset
     }
-
-    // =========================================================================
-    // Slicing and copying
-    // =========================================================================
 
     /// A narrower window onto the same bytes, or `None` when the bounds are
     /// invalid.
@@ -427,10 +368,9 @@ extension Data {
     /// Reports allocator exhaustion as `Err(AllocError)`. All-or-nothing: an
     /// `Err` allocates nothing and leaves this `Data` alone.
     ///
-    /// It is also the PREFLIGHT for `d[i] = v` on shared storage: the subscript's
-    /// own separation panics (design 234 §5 keeps it under the accessor rule it
-    /// shares a body with), and `detached()` is where that same allocation has
-    /// somewhere to report to.
+    /// It is also the preflight for `d[i] = v` on shared storage: the
+    /// subscript's own separation panics, and `detached()` is where that same
+    /// allocation can report a refusal.
     public func detached(&self) unsafe -> Result<Data, AllocError> {
         if self.length == 0 {
             return Data()
@@ -450,24 +390,14 @@ extension Data {
         }
     }
 
-    // =========================================================================
-    // Iteration
-    // =========================================================================
-
     /// An iterator over the bytes of this window.
     ///
-    /// The iterator HOLDS this `Data` — which is to say it holds a retain — so
-    /// one returned from a function outlives the binding it was made from and
-    /// still reads live bytes. It used to copy a raw pointer and no count, so
-    /// exactly that shape was a use-after-free reachable from safe code
-    /// (tracker DATA-1).
+    /// The iterator holds a retain on this `Data`, so one returned from a
+    /// function outlives the binding it was made from and still reads live
+    /// bytes.
     public func iter(&self) -> DataIterator {
         DataIterator(source: self.copy(), index: 0)
     }
-
-    // =========================================================================
-    // Conversion
-    // =========================================================================
 
     /// Decodes these bytes as UTF-8.
     ///
@@ -475,26 +405,19 @@ extension Data {
     /// `e.offset` is the byte index where the first malformed sequence begins
     /// (`String.fromBytes` semantics).
     ///
-    /// A `String`'s contents are ALWAYS valid UTF-8 — literals are
-    /// source-encoded and `String.fromBytes` validates — and the language's own
-    /// iterators rely on that invariant. This used to byte-copy into a
-    /// StringBuilder with no validation, minting Strings that broke it (design
-    /// 122 unit B), so decoding says that it can fail.
+    /// A `String`'s contents are always valid UTF-8, and the language's own
+    /// iterators rely on that, so decoding validates and can fail.
     public func to_string(&self) -> Result<String, Utf8Error> {
         String.fromBytes(&self)
     }
 
-    // =========================================================================
-    // Internal — the uniqueness gate
-    // =========================================================================
-
     // Whether this Data is the sole owner of its storage. An empty Data owns
     // nothing, so it answers `false` and takes the allocating path.
     //
-    // Note both lookups below are BORROWS (design 131): `guard let _ =` binds
-    // nothing and `self.storage!.m()` reaches through the payload in place.
-    // Binding the Arc out (`if let s = self.storage`) would RETAIN it and this
-    // would then never report unique.
+    // Both lookups are borrows: `guard let _ =` binds nothing and
+    // `self.storage!.m()` reaches through the payload in place. Binding the Arc
+    // out (`if let s = self.storage`) would retain it, and this would never
+    // report unique.
     func _is_unique(&self) -> Bool {
         guard let _ = self.storage else {
             return false
@@ -517,18 +440,16 @@ extension Data {
         self._grow_target_from(self.capacity(), min_capacity)
     }
 
-    // THE gate every mutation passes. Leaves this Data the sole owner of a
+    // The gate every mutation passes. Leaves this Data the sole owner of a
     // buffer that starts at offset 0 and holds at least `min_capacity` bytes.
-    // `false` = the allocator refused, and NOTHING changed.
+    // `false` = the allocator refused, and nothing changed.
     //
-    // Two conditions, not one. Sole ownership is the copy-on-write half. A zero
-    // offset is the other: a window that starts partway into a buffer has room
-    // measured from `offset`, and every write site here indexes from 0, so
+    // Sole ownership is the copy-on-write half. The zero offset is the other:
     // re-basing a slice rather than reasoning about `offset + length` against
-    // `capacity` removes a whole class of off-by-offset overruns.
+    // `capacity` removes a class of off-by-offset overruns.
     func _make_ready(&var self, min_capacity: Int) -> Bool {
-        // An empty Data asked for no room needs no storage — `Data(capacity: 0)`
-        // allocates nothing. Every caller that goes on to WRITE asks for at
+        // An empty Data asked for no room needs no storage (`Data(capacity: 0)`
+        // allocates nothing). Every caller that goes on to WRITE asks for at
         // least one byte, so this cannot hand a write an absent buffer.
         if min_capacity <= 0 && self.length == 0 {
             return true
@@ -579,7 +500,7 @@ extension Data {
     }
 
     // Copy `other`'s live bytes onto the end of this window. Read `other`'s
-    // pointer AFTER `_make_ready`: if the two shared storage, the separation
+    // pointer after `_make_ready`: if the two shared storage, the separation
     // has already given this Data a different buffer to write into.
     func _place_data(&var self, other: &Data) unsafe {
         self._place_bytes(other.byte_ptr(), other.length)
@@ -598,17 +519,10 @@ extension Data {
 ///
 /// So `let b = a` and `a.copy()` are refcount bumps, and both spellings still
 /// give value semantics: neither `a` nor `b` can observe the other's edits.
-/// `Data` was `NoCopy` before design 165, which is why the tree is full of
-/// `move` on values that no longer need it — `move` still works on any type, so
-/// none of it had to change.
 ///
 /// `detached()` is the eager spelling for callers who want the bytes now.
 @synthesize
 extension Data: Copy {}
-
-// =============================================================================
-// DataIterator — iteration that holds its storage
-// =============================================================================
 
 public struct DataIterator {
     private source: Data

@@ -1,24 +1,13 @@
-// Set<T, A> — an unordered hash set (design 54).
+// Set<T, A>: an unordered hash set, a thin wrapper over `Map<T, SetMark, A>`
+// whose value is a zero-field unit. Every operation delegates to the Map, so
+// there is one hash implementation to trust.
 //
-// IMPLEMENTATION: Set is a thin wrapper over `Map<T, SetMark, A>`, the
-// open-addressing hash table (design 48). The value is a zero-field `SetMark`
-// unit, so an occupied slot carries only the element (the key) plus an
-// empty struct — no per-element value storage of consequence. Every operation
-// delegates to the Map's already-proven probing/growth/tombstone machinery, so
-// there is exactly ONE hash implementation to trust. (Probed against a parallel
-// open-addressing rewrite; the wrapper handles the empty payload cleanly —
-// insert/contains/remove/keys/each_key all work through `Map<T, SetMark>` — so
-// the wrapper is the chosen implementation.)
-//
-// ORDER IS UNSPECIFIED (table order, inherited from Map): sort a `to_vector()`
-// snapshot for deterministic output. Elements require `Hashable + Equatable`
-// (the same bound as a Map key). Set is ExplicitCopy when its element is
-// (design 251, riding Map's own conformance) — transfer with `move`,
-// duplicate with a spelled `.copy()`/`try_copy()`.
+// Order is unspecified (Map's table order): sort a `to_vector()` snapshot for
+// deterministic output. Set is ExplicitCopy when its element is, riding Map's
+// own conformance.
 
 // The Map value type for a Set: a zero-field unit (trivially Copy). Private to
-// this file, so under design 204 the name is this file's alone and a user type
-// may carry it too.
+// this file, so a user type may carry the same name.
 struct SetMark {}
 
 public struct Set<T, A: Allocator = GlobalAllocator> {
@@ -38,10 +27,8 @@ extension Set<T: Hashable + Equatable, A: Allocator = GlobalAllocator> {
         return move s
     }
 
-    // Build a set from a Vector, CONSUMING it (the vector is moved in and its
-    // elements are drained one by one — works even for NoCopy elements, since
-    // `pop` moves each element out). Duplicate elements collapse (last drained
-    // wins the slot, but they are equal, so the set simply de-duplicates).
+    // Build a set from a Vector, consuming it. `pop` moves each element out, so
+    // NoCopy elements work; duplicates collapse.
     public init(from: Vector<T, A>) -> Result<Set<T, A>, AllocError> {
         var v = move from
         var s = Set<T, A>()
@@ -68,18 +55,12 @@ extension Set<T: Hashable + Equatable, A: Allocator = GlobalAllocator> {
         self.map.contains_key(value)
     }
 
-    /// Inserts `value`, returning whether it was NEWLY inserted.
+    /// Inserts `value`, returning whether it was newly inserted.
     ///
-    /// Inserts `value`, answering whether it was NEWLY inserted.
-    ///
-    /// `Ok(false)` means it was already a member — the one question this `Bool`
-    /// answers. Reports `Err(AllocError)` when the table must be rehashed and
-    /// the allocator refuses; the set is untouched then, and `value` is consumed
-    /// either way. Under design 123 this panicked, and before that it dropped
-    /// the element, counted it anyway and still answered `true`, so the set
-    /// reported `len() == 1` for an element `contains` could not find.
+    /// `Ok(false)` means it was already a member. Reports `Err(AllocError)`
+    /// when the table must be rehashed and the allocator refuses; the set is
+    /// untouched then, and `value` is consumed either way.
     public func insert(&var self, value: T) -> Result<Bool, AllocError> {
-        // Map.insert answers the previous value (Some) if the key existed.
         if let prev = try self.map.insert(move value, SetMark()) {
             return false
         }
@@ -95,41 +76,22 @@ extension Set<T: Hashable + Equatable, A: Allocator = GlobalAllocator> {
     }
 
     /// Visits each element in table order, lending it to `body` as a `&T`.
-    /// Nothing is copied — the element is observed where the set stores it —
-    /// so an element of any copy tier is visitable (design 264 ruling B).
-    /// Order is unspecified; `body` is non-escaping, and mutating THIS set
-    /// inside the visit is a static Law-of-Exclusivity error (inherited from
-    /// `Map.each_key`).
+    /// Nothing is copied, so an element of any copy tier is visitable. Order
+    /// is unspecified; `body` is non-escaping, and mutating this set inside the
+    /// visit is a compile-time Law of Exclusivity error.
     public func each(&self, body: (&T) -> Void) {
         self.map.each_key(body)
     }
 }
 
-// Snapshot + set algebra both DUPLICATE elements into a fresh set/vector while
-// the operands stay live, so the whole extension is bounded `T: Copy` — the
-// same bound `Map.keys()` carries. It stays the SILENT tier under design 219
-// rather than widening to `ExplicitCopy`: two of these bodies spell `e.copy()`,
-// but the rest read each element BY VALUE through the visitors and through
-// `Vector.iter()`, and a by-value read is licensed only by the silent tier.
-// The bound the whole block needs is therefore the stricter one, which admits
-// the spelled copies as well.
-// (This is also the tightest achievable bound: even membership-only ops like
-// `is_subset` must read each element by value to probe the other set — a looser
-// `Hashable + Equatable` bound would need by-reference enum-payload projection,
-// which is not expressible yet, same limit as design 57's snapshots.)
+// Snapshots and set algebra duplicate elements while the operands stay live,
+// and most bodies read elements by value through `Vector.iter()`, which only
+// the silent tier licenses, so the block is bounded `T: Copy` rather than
+// `ExplicitCopy`. Even `is_subset` reads by value, since `contains` takes its
+// argument by value.
 extension Set<T: Hashable + Equatable + Copy, A: Allocator = GlobalAllocator> {
-    // A fresh Vector of all elements (copies), in unspecified (table) order.
-    // Every method in this block BUILDS something, so every one of them reports
-    // a refused allocation (design 234) — including the two predicates, which
-    // answer a `Bool` but have to snapshot to compute it.
-    //
-    // THE SNAPSHOT IS PEELED WITH A `match`, NOT A `try`, THROUGHOUT THIS BLOCK
-    // (DF-257c). Its Ok payload is `Vector<T, A>`, which differs per
-    // instantiation while every instantiation shares one LLVM layout — exactly
-    // the shape a `try` in a generic body resolves once and then reuses. The
-    // `try`s that remain here peel `Result<Bool, AllocError>`, whose payload is
-    // the same type in every instantiation and so cannot be confused with a
-    // sibling. All of these revert to `try` when DF-257c closes.
+    // Every method in this block builds a snapshot, so every one reports a
+    // refused allocation, the two predicates included.
     public func to_vector(&self) -> Result<Vector<T, A>, AllocError> {
         match self.map.keys() {
             case Ok(v) -> { return move v },
@@ -213,32 +175,21 @@ extension Set<T: Hashable + Equatable + Copy, A: Allocator = GlobalAllocator> {
     }
 }
 
-// Set owns a Map (Deinit), so destroying one must run the Map's own deinit —
-// unconditional on `T`, mirroring Map's own unconditional deinit extension
-// (design 251, same placement reasoning as map.saw's). The empty body
-// suffices — the compiler appends the field cleanup, and the Map field's own
-// deinit drops every element.
+// Unconditional on `T`, like Map's, so every Set runs its Map's deinit. The
+// empty body suffices: the compiler appends the field cleanup. It also
+// satisfies `ExplicitCopy: Deinit` for the conformance below.
 extension Set<T, A: Allocator = GlobalAllocator> {
     public func deinit(&var self) {
     }
 }
 
-// Set is ExplicitCopy when its element is (design 251 — it used to be a
-// blanket NoCopy). Set is a thin wrapper over `Map<T, SetMark, A>` (this
-// file's own header comment), so its copy just rides the Map's: `SetMark` is
-// a zero-field struct and trivially Copy (so it always satisfies
-// `ExplicitCopy`), which means the bound Set needs is exactly `T`'s own —
-// `Hashable + Equatable + ExplicitCopy`, the same bound `Map`'s conformance
-// carries for its key.
-// (The `deinit` body is on the unconditional extension above, so it covers
-// every `T`; the `ExplicitCopy: Deinit` requirement is satisfied by that
-// method.)
+// `SetMark` is trivially Copy, so the bound Set's copy needs is exactly `T`'s,
+// the same one Map's conformance carries for its key.
 extension Set<T: Hashable + Equatable + ExplicitCopy, A: Allocator = GlobalAllocator>: ExplicitCopy {
     /// Duplicates the set into a new table, copying each live element at its
-    /// own tier. Panics if the allocator refuses (conformance row A19,
-    /// sibling of Map's A18 and Vector's A17 — `copy` is delegated straight
-    /// to `Map.copy`, so the panic message names `Map.copy`); `try_copy`
-    /// reports the failure instead.
+    /// own tier. Panics if the allocator refuses (the message names
+    /// `Map.copy`, which does the work); `try_copy` reports the failure
+    /// instead.
     public func copy(&self) -> Set<T, A> {
         Set<T, A>(map: self.map.copy())
     }
@@ -248,13 +199,6 @@ extension Set<T: Hashable + Equatable + ExplicitCopy, A: Allocator = GlobalAlloc
 extension Set<T: Hashable + Equatable + ExplicitCopy, A: Allocator = GlobalAllocator> {
     /// Duplicates the set, returning `Err(AllocError)` if the allocator
     /// refuses while rehashing the new table.
-    ///
-    /// Spelled as a `match` rather than a propagating `try` (DF-257c, the
-    /// same reason every other method in this file's snapshot block uses
-    /// `match self.to_vector() { ... }` instead of `try`): this body and
-    /// `Map.try_copy` are two different generic types sharing type
-    /// parameters, which is exactly the shape that confuses `try`'s
-    /// single-instantiation Result extraction.
     public func try_copy(&self) -> Result<Set<T, A>, AllocError> {
         match self.map.try_copy() {
             case Ok(m) -> { return Set<T, A>(map: move m) },

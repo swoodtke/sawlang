@@ -1,48 +1,36 @@
-// Process - Command execution for the Saw standard library
-// Part of the Saw standard library
-//
-// Provides process spawning and command execution.
-// Currently targets macOS/Linux using POSIX APIs.
-
-// =============================================================================
-// FFI declarations for process operations
-// =============================================================================
+// Process spawning and command execution over POSIX (macOS and Linux).
 
 extern "C" {
-    // Process execution (design 122 unit C). A command is spawned through the
-    // runtime seams with a real argv array — never a shell command line — so an
-    // argument containing spaces, quotes or `;` is ONE argument and nothing in
-    // it is ever interpreted. `spawn` hands back an opaque job handle (or a
-    // negated SysError tag); `wait` reaps it and returns the RAW POSIX wait
-    // status, which `decode_wait_status` below turns into an exit code.
+    // A command is spawned with a real argv array, never a shell command line,
+    // so an argument containing spaces, quotes or `;` is one argument and
+    // nothing in it is interpreted. `spawn` returns an opaque job handle or a
+    // negated SysError tag.
     func __saw_rt_proc_spawn(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, flags: Int) -> Int
-    // The same spawn carrying environment OVERRIDES (design 155): `envp` is a
-    // NULL-terminated `NAME=VALUE` array and the child gets this process's
-    // environment with those names set. Only the runtime can reach the process
-    // environment, which is why the merge is behind a seam and not done here.
+    // The same spawn with environment overrides: `envp` is a NULL-terminated
+    // `NAME=VALUE` array, and the child gets this process's environment with
+    // those names set. Only the runtime can reach the process environment, so
+    // the merge happens behind the seam.
     func __saw_rt_proc_spawn_env(path: UnsafePointer<Int8>, argv: UnsafePointer<Int8>, envp: UnsafePointer<Int8>, flags: Int) -> Int
 
-    // The child's stdout pipe is a BLOCKING descriptor, and a child may write
+    // The child's stdout pipe is a blocking descriptor and a child may write
     // nothing for as long as it likes, so the drain is unbounded. `blocking`
-    // makes every call an offload (design 183): the read runs on a worker thread
-    // and the task parks on the job's pipe, so `output()` costs no executor
-    // thread. It is part of the symbol's contract, so no declaration of it can
-    // drop the annotation and get a naked drain back.
+    // makes every call an offload: the read runs on a worker thread and the
+    // task parks, so `output()` holds no executor thread (design 183).
     blocking func __saw_rt_proc_read_stdout(job: Int, buf: UnsafePointer<Int8>, len: Int) -> Int
 
-    // The zero-thread wait (design 182), which BOTH `run()` and `output()` use.
-    // `try_wait` reaps only a child that has already exited and answers
-    // `-WouldBlock` otherwise; `wait_fd` hands back a descriptor to PARK on,
-    // readable once the child exits. The job owns that descriptor — std
-    // registers it with the reactor and never closes it. `release` is the
-    // cancellation exit: drop the job, leave the child alone.
+    // The zero-thread wait both `run()` and `output()` use. `try_wait` reaps
+    // only a child that has already exited, answering `-WouldBlock` otherwise,
+    // and returns the raw POSIX wait status. `wait_fd` hands back a descriptor
+    // to park on, readable once the child exits; the job owns it, so std never
+    // closes it. `release` is the cancellation exit: drop the job, leave the
+    // child alone.
     func __saw_rt_proc_wait_fd(job: Int) -> Int
     func __saw_rt_proc_try_wait(job: Int) -> Int
     func __saw_rt_proc_release(job: Int)
 
-    // design 89-c: the cooperative op-count budget. An io op that completes
-    // WITHOUT parking charges the budget; a nonzero `tick` means it ran out and
-    // the primitive should force one fairness yield. A genuine park resets it.
+    // The cooperative op-count budget. An io op that completes without parking
+    // charges it; a nonzero `tick` means it ran out and the primitive should
+    // force one fairness yield. A genuine park resets it.
     func __saw_rt_op_budget_tick() -> Int
     func __saw_rt_op_budget_reset()
 
@@ -60,57 +48,40 @@ extern "C" {
 static EXEC_FAILED_CODE: Int32 = 127
 // stdout drain granularity for `output()`.
 static PROC_READ_CHUNK: Int = 1024
-// `=`, the byte POSIX reserves to separate an environment variable's NAME from
-// its VALUE — so a name may not contain one.
+// `=`, the byte POSIX reserves to separate an environment variable's name from
+// its value, so a name may not contain one.
 static EQUALS_BYTE: Byte = 61
 
 // The spawn seam's redirection bit set (rt/ABI.md). `output()` asks for the
-// stdout pipe; `merge_stderr()` adds the second bit.
-//
-// The bits are a closed named set, so they are a backed enum (design 153/185)
-// rather than a family of statics; a bit SET is the backing integer they are
-// tags for, which is what the `flags` word stays, and the enum is the single
-// source of the values — projected with `as` where a bit joins the word.
+// stdout pipe; `merge_stderr()` adds the second bit. The enum is the single
+// source of the values; each bit is projected with `as` into the `flags` word.
 enum RedirectFlag: UInt8 {
     case CaptureStdout = 1,
     case MergeStderr = 2
 }
 
-// The portable SysError tag this module branches on (the space is in rt/ABI.md;
-// a failing seam returns the NEGATED tag). `-WouldBlock` from `try_wait` means
+// The one SysError tag this module branches on (the space is in rt/ABI.md; a
+// failing seam returns the negated tag). `-WouldBlock` from `try_wait` means
 // the child is still running.
-//
-// Design 153 leaves this one a static: it belongs to the `SysError` set, and
-// declaring that enum in a std file reserves the name `SysError` for every user
-// program (DF-153b). The rt side of the seam carries the enum already.
 static SYS_WOULD_BLOCK: Int = 1
 
-// The degraded wait, in milliseconds. Reached only when the host cannot hand out
-// a child-exit descriptor at all — descriptor exhaustion, or (on macOS) a child
-// that turned into a zombie between the poll and the ask. Polling on a doubling
-// nap keeps the executor free either way; it is slower than a park, never a
-// thread block. Most children are collected on the first or second pass.
+// The degraded wait, in milliseconds. Reached only when the host cannot hand
+// out a child-exit descriptor at all: descriptor exhaustion, or (on macOS) a
+// child that became a zombie between the poll and the ask. Polling on a
+// doubling nap is slower than a park but never blocks a thread.
 static WAIT_POLL_START_MS: UInt64 = 1
 static WAIT_POLL_MAX_MS: UInt64 = 32
 
-// =============================================================================
-// Wait-status decode (design 59 A, DF2)
-// =============================================================================
-
-// `system()` and `pclose()` return the raw POSIX wait status, NOT an exit code.
-// Dividing it by 256 (`status >> 8`) keeps only the normal-exit byte and DROPS
-// the signal-death information: when the shell child is exec'd into the command
-// and killed (a failed `assert`/`panic` raises SIGABRT, a bad access SIGSEGV),
-// the raw status holds the signal in its low 7 bits and a ZERO exit byte, so the
-// naive decode reads exit 0 = SUCCESS for a crash. `blade test` relies on the
-// exit code, so a killed test binary MUST count as failure.
+// The wait seam returns the raw POSIX wait status, not an exit code. `status
+// >> 8` alone would drop signal deaths: a child killed by SIGABRT or SIGSEGV
+// has the signal in the low 7 bits and a zero exit byte, and would read as
+// success. `blade test` relies on the exit code, so a crash must be nonzero.
 //
-// Decode the way a POSIX shell does, in ONE helper used by every wait path:
-//   - exited normally (low 7 bits == 0): report the 0..255 exit byte;
-//   - killed by signal N (low 7 bits in 1..126): report 128 + N (shell
-//     convention — that is how `$?` surfaces a signal death);
-//   - stopped (low byte == 0x7f) or any other state: report nonzero.
-// The result is 0 ONLY for a genuine normal exit with code 0.
+// Decoded the way a POSIX shell does, in the one helper every wait path uses:
+//   - exited normally (low 7 bits == 0): the 0..255 exit byte;
+//   - killed by signal N (low 7 bits in 1..126): 128 + N, as `$?` reports it;
+//   - stopped (low byte == 0x7f) or any other state: nonzero.
+// The result is 0 only for a normal exit with code 0.
 func decode_wait_status(status: Int32) -> Int32 {
     let low7 = status & (0x7f as Int32)
     if low7 == (0 as Int32) {
@@ -125,19 +96,13 @@ func decode_wait_status(status: Int32) -> Int32 {
     }
 }
 
-// =============================================================================
-// ProcessError - a command that could not be launched (design 92 / 94)
-// =============================================================================
-
-// Returned as the Err of `Command.run()` when the command could not be started
-// (the executable was not found, or a child process could not be created) — as
+// The Err of `Command.run()` when the command could not be started (the
+// executable was not found, or a child process could not be created), as
 // distinct from the command running and exiting nonzero (that is Ok(code)).
-// Conforms to `Error`, so it interpolates and boxes into `Box<any Error>`.
 //
-// One other thing ends a `run()` without an exit code: the task was CANCELLED
-// while waiting for the child. That is a different story from a failed launch —
-// the child launched fine and is still out there — so it says so rather than
-// borrowing the launch wording (`cancelled()` below tells the two apart).
+// The other way a `run()` ends without an exit code is a task cancelled while
+// waiting for the child. The child launched and is still running, so the error
+// says so; `cancelled()` tells the two apart.
 public struct ProcessError {
     private program: String
     // True when the wait was cancelled rather than the launch failing.
@@ -150,10 +115,10 @@ extension ProcessError {
         self.program
     }
 
-    // True when this error ends a run that was CANCELLED while waiting for the
-    // child, rather than one whose command never started. The child was launched
-    // and keeps running (design 102 cancels the wait, not the process); its exit
-    // status is simply no longer being collected.
+    // True when this error ends a run that was cancelled while waiting for the
+    // child, rather than one whose command never started. Cancellation ends the
+    // wait, not the process: the child keeps running and its exit status is no
+    // longer collected.
     public func cancelled(&self) -> Bool {
         self.was_cancelled
     }
@@ -179,10 +144,6 @@ func wait_cancelled(program: String) -> ProcessError {
     ProcessError(program: program, was_cancelled: true)
 }
 
-// =============================================================================
-// CommandOutput - Result of running a command with output capture
-// =============================================================================
-
 public struct CommandOutput {
     public stdout: String
     public exit_code: Int32
@@ -194,25 +155,19 @@ extension CommandOutput {
     }
 }
 
-// =============================================================================
-// Command - Builder for spawning processes
-// =============================================================================
-
+// A builder for spawning a process.
 public struct Command {
     private program: String
-    // One element per argument, kept SEPARATE all the way to `execvp`. The old
-    // representation was a single space-joined byte buffer handed to `system()`,
-    // which meant the shell re-split it: `arg("one two")` became two arguments
-    // and `arg("; echo hi")` ran a second command (design 122 unit C).
+    // One element per argument, kept separate all the way to `execvp`, so no
+    // shell ever re-splits or interprets one.
     private args: Vector<String>
     // True once `merge_stderr` has been called: the child's standard error then
     // goes wherever its standard output goes.
     private merged_stderr: Bool
-    // Environment OVERRIDES, one `NAME=VALUE` element per variable, in the order
-    // `env` first named them. Overrides, not a replacement environment: the
-    // child inherits everything this process has and these names win. Empty for
-    // a Command nobody called `env` on, which then spawns through the seam that
-    // knows nothing about environments at all.
+    // Environment overrides, one `NAME=VALUE` element per variable, in the
+    // order `env` first named them. The child inherits everything this process
+    // has and these names win. Empty for a Command nobody called `env` on,
+    // which then spawns through the environment-free seam.
     private envs: Vector<String>
 }
 
@@ -253,20 +208,17 @@ extension Command {
         self.args.len()
     }
 
-    // Set one environment variable for the child. Same discipline as `arg`:
-    // one call is exactly one variable, and both the name and the value are
-    // bytes the child receives verbatim — nothing is parsed, split, expanded or
-    // interpreted, because no shell is ever involved.
+    // Set one environment variable for the child. Like `arg`, one call is
+    // exactly one variable, and the child receives the name and value bytes
+    // verbatim, since no shell is involved.
     //
     // The child inherits this process's environment and these names override
     // it; a name this process does not have is added. Calling `env` twice for
-    // one name REPLACES the value, so the last call wins and the child never
-    // sees the same variable twice.
+    // one name replaces the value, so the child never sees a variable twice.
     //
-    // Panics on a name that could not be an environment variable at all — empty,
-    // or containing the `=` POSIX reserves as the separator. That is a
-    // programming error in the same class as an out-of-range index, not a
-    // condition the child could report.
+    // Panics on a name that could not be an environment variable at all (empty,
+    // or containing `=`): a programming error in the same class as an
+    // out-of-range index.
     public func env(&var self, name: String, value: String) -> Result<Void, AllocError> {
         if name.is_empty() {
             panic("Command.env: an environment variable name must not be empty")
@@ -298,31 +250,23 @@ extension Command {
         self.envs.len()
     }
 
-    // Send the child's standard error wherever its standard output goes — into
+    // Send the child's standard error wherever its standard output goes: into
     // the captured pipe under `output()`, and to this process's own stdout
-    // under `run()` (exactly what `2>&1` means in a shell).
-    //
-    // Reach for it when you are running children you EXPECT some of to fail and
-    // their diagnostics are not yours to print: without it `output()` captures
-    // stdout while stderr keeps going to the terminal, so a tool that runs a
-    // hundred compiles cannot keep its own report readable. What you capture is
-    // then both streams interleaved, in the order the child wrote them.
+    // under `run()` (what `2>&1` means in a shell). Without it, `output()`
+    // captures stdout while stderr still reaches the terminal. The capture is
+    // both streams interleaved, in the order the child wrote them.
     public func merge_stderr(&var self) {
         self.merged_stderr = true
     }
 
     // Build the NULL-terminated `char**` that `execvp` wants:
-    // `[program, arg0, arg1, ..., NULL]`. The slots BORROW the Strings this
-    // Command owns, so the array is only valid while `self` is alive and must be
-    // freed by the caller; both spawn paths below use it and free it at once.
-    // (Signature names a raw pointer, so this is already the design-81 marked
-    // domain.)
+    // `[program, arg0, arg1, ..., NULL]`. The slots borrow the Strings this
+    // Command owns, so the array is valid only while `self` is alive and must be
+    // freed by the caller.
     //
-    // Panics if the array cannot be allocated. design 234 §5's boundary applies:
-    // `run`/`output` report a `None` here as "could not launch process", which
-    // is a different failure from the one that happened — their error channels
-    // are about the CHILD, not about memory — so the refusal has nowhere honest
-    // to go and says so loudly instead.
+    // Panics if the array cannot be allocated: the error channels of `run` and
+    // `output` are about the child, not memory, so the refusal has nowhere
+    // accurate to go (design 234).
     func build_argv(&self) unsafe -> UnsafePointer<Int8> {
         let n = self.args.len()
         let slot = sizeof<UnsafePointer<Int8>>()
@@ -352,11 +296,8 @@ extension Command {
     }
 
     // Build the NULL-terminated `char**` of `NAME=VALUE` overrides the
-    // env-carrying spawn seam wants. Same discipline as `build_argv`: the slots
-    // BORROW the Strings this Command owns, so the array is valid only while
-    // `self` is alive and must be freed by the caller.
-    //
-    // Panics if the array cannot be allocated (design 123, infallible tier).
+    // env-carrying spawn seam wants. Same borrowing and panic rules as
+    // `build_argv`.
     func build_envp(&self) unsafe -> UnsafePointer<Int8> {
         let n = self.envs.len()
         let slot = sizeof<UnsafePointer<Int8>>()
@@ -389,8 +330,7 @@ extension Command {
     // a pipe the job owns; `merge_stderr()` adds the second redirection bit.
     //
     // A Command with no `env` call goes through the environment-free seam, so
-    // the overwhelmingly common spawn costs exactly what it always did — no
-    // envp array, no merge.
+    // the common spawn builds no envp array and does no merge.
     func spawn_job(&self, capture: Bool) unsafe -> Int {
         var flags = if capture { (RedirectFlag.CaptureStdout as UInt8) as Int } else { 0 }
         if self.merged_stderr {
@@ -413,28 +353,20 @@ extension Command {
 
     // Run the command, inheriting stdin/stdout/stderr.
     //
-    // Ok(code)  = the command LAUNCHED and its process exited with `code`
-    //             (a signal death decodes to 128+signum via decode_wait_status,
-    //             so a crashed child is a nonzero code, never a bogus 0 — DF2).
-    // Err(...)  = the command could not be LAUNCHED: the spawn itself failed
-    //             (no child / no argv memory), or the child could not exec and
-    //             exited 127 (POSIX "command not found / could not exec"). This
-    //             is the design-92 distinction — a failed launch is surfaced,
-    //             not folded into a bogus exit code (never hide errors). The one
-    //             other Err is a CANCELLED wait, which `ProcessError.cancelled()`
-    //             tells apart.
+    // Ok(code)  = the command launched and exited with `code` (a signal death
+    //             decodes to 128+signum, so a crashed child is never 0).
+    // Err(...)  = the command could not be launched: the spawn failed, or the
+    //             child could not exec and exited 127. The one other Err is a
+    //             cancelled wait, which `ProcessError.cancelled()` tells apart.
     //
-    // COOPERATIVE (design 182). Waiting for a child costs no thread: the runtime
-    // hands back a descriptor that goes readable when the child exits, and this
-    // parks on it exactly as a socket read parks. Sibling tasks keep running for
-    // the child's whole lifetime — which they did not before, and which matters
-    // most here because a child may never exit at all.
+    // Waiting costs no thread: this parks on a descriptor that goes readable
+    // when the child exits, so sibling tasks keep running for the child's whole
+    // lifetime (design 182).
     //
-    // CANCELLATION cancels the WAIT, not the CHILD. A cancelled task wakes out of
-    // the park and returns `Err`, and the process it launched keeps running with
-    // nobody collecting its exit status. Killing it is the caller's business, and
-    // deliberately so: a `run()` whose caller lost interest is not evidence that
-    // the work should stop.
+    // Cancellation cancels the wait, not the child. A cancelled task returns
+    // `Err` and the process keeps running, unreaped; killing it is the caller's
+    // business, since a caller losing interest is not evidence the work should
+    // stop.
     public func run(&self) unsafe -> Result<Int32, ProcessError> {
         let job = self.spawn_job(false)
         if job <= 0 {
@@ -456,20 +388,17 @@ extension Command {
 
     // Wait for `job`'s child to exit and reap it, costing no thread.
     //
-    // `raw` is the seam's own answer — the RAW POSIX wait status (>= 0) or a
-    // NEGATED SysError tag — because the two callers report a seam failure in
-    // different channels (`run` as a launch failure, `output` as `None`).
-    // `cancelled` is the other way a wait ends: the TASK was cancelled, and the
-    // child keeps running with nobody collecting its status (design 102 cancels
-    // the wait, not the process). `raw` is meaningless then.
+    // `raw` is the seam's own answer (the raw POSIX wait status, or a negated
+    // SysError tag) because the two callers report a seam failure in different
+    // channels (`run` as a launch failure, `output` as `None`). When
+    // `cancelled` is true the task was cancelled, the child keeps running, and
+    // `raw` is meaningless.
     //
-    // A METHOD, not a free function, and that is load-bearing rather than
-    // stylistic: the coroutine transform embeds a suspending std METHOD as a
-    // sub-frame and cannot reach a std free function, so the same loop written
-    // free would run its `io_wait` outside a frame — where the park degrades to
-    // an inline reactor poll that never cedes, which is a busy wait with the
-    // executor thread held. Measured, not reasoned: as a free function it
-    // regressed `process_run_concurrent` and `process_cancel_during_child`.
+    // This must be a method, not a free function: the coroutine transform
+    // embeds a suspending std method as a sub-frame but cannot reach a std free
+    // function, and outside a frame `io_wait` degrades to an inline reactor
+    // poll that busy-waits with the executor thread held. Pinned by
+    // `process_run_concurrent` and `process_cancel_during_child`.
     func reap(&self, job: Int) -> (raw: Int, cancelled: Bool) {
         var status = 0
         var nap = WAIT_POLL_START_MS
@@ -477,8 +406,8 @@ extension Command {
             if cancelled() {
                 let wfd = __saw_rt_proc_wait_fd(job)
                 if wfd >= 0 {
-                    // DF-134a: leaving the loop with the registration still armed
-                    // would strand a token pointing into this frame.
+                    // Leaving the loop with the registration still armed would
+                    // strand a token pointing into this frame.
                     io_unwait(wfd, 0)
                 }
                 __saw_rt_proc_release(job)
@@ -492,45 +421,35 @@ extension Command {
             let wfd = __saw_rt_proc_wait_fd(job)
             if wfd >= 0 {
                 io_wait(wfd, 0)                // park until the child exits
-                __saw_rt_op_budget_reset()          // design 89-c: parked, budget reset
+                __saw_rt_op_budget_reset()          // parked: budget reset
             } else {
-                // No descriptor to be had — poll on a doubling nap instead. Still
-                // cooperative: `sleep` parks the TASK, never the thread.
+                // No descriptor to be had: poll on a doubling nap instead.
+                // `sleep` parks the task, never the thread.
                 sleep(Duration.ms(nap))
                 if nap < WAIT_POLL_MAX_MS {
                     nap = nap * 2
                 }
             }
         }
-        if __saw_rt_op_budget_tick() != 0 {         // design 89-c: fairness backstop
+        if __saw_rt_op_budget_tick() != 0 {         // fairness backstop
             yield_now()
         }
         (raw: status, cancelled: false)
     }
 
     // Run the command and capture its stdout.
-    // Returns CommandOutput with stdout and exit code, or None if the child
-    // could not be spawned.
     //
-    // The child's STDERR is inherited — it goes to this process's own stderr —
-    // unless `merge_stderr()` was called, which folds it into the captured
-    // stdout instead.
+    // `Ok(Some(output))` carries stdout and the exit code. `Ok(None)` = the
+    // child could not be launched, or the wait was cancelled.
+    // `Err(AllocError)` = the capture buffer could not grow.
     //
-    // COOPERATIVE, like `run()` (DF-181a, closed). Both halves used to hold the
-    // executor thread for the child's whole lifetime: the drain sat in a `read`
-    // on a blocking pipe and the reap in a `waitpid`, and a sibling task's first
-    // tick landed only once the child exited. Now the drain is an OFFLOADED
-    // `blocking` seam — the read runs on a worker thread and this task parks on
-    // the job's pipe — and the reap is the same `reap` park loop `run()` uses.
+    // The child's stderr is inherited unless `merge_stderr()` was called, which
+    // folds it into the captured stdout.
     //
-    // Consequence for callers: `output()` suspends, so a `sync` function cannot
-    // call it. Cancelling the task ends the WAIT, not the child, and answers
-    // `None`; a child cancelled mid-drain keeps running, unreaped.
-    // design 234: the two answers ride separate channels. `Ok(None)` keeps its
-    // old meaning — the child could not be launched, or the wait was cancelled —
-    // and `Err(AllocError)` is the collection buffer running out, which used to
-    // panic inside `Data.append_bytes` and now reaches the caller that asked for
-    // the output.
+    // Cooperative like `run()`: the drain is an offloaded `blocking` seam and
+    // the reap is the same `reap` park loop, so `output()` suspends and a
+    // `sync` function cannot call it. Cancelling the task ends the wait, not the
+    // child; a child cancelled mid-drain keeps running, unreaped.
     public func output(&self) unsafe -> Result<CommandOutput?, AllocError> {
         let job = self.spawn_job(true)
         if job <= 0 {
@@ -538,16 +457,12 @@ extension Command {
             return absent
         }
 
-        // Both buffers are FRAME-RESIDENT, which is design 183's pointer rule
-        // rather than a preference: the worker thread reads and writes through
-        // the chunk pointer while this task is parked, so the storage has to
-        // outlive the park, and a `[Int8; N]` local of a suspending body lives
-        // in the heap-resident frame. It is also what keeps `output()` itself
-        // spawnable into a multi-threaded group — a frame holding a raw
-        // `UnsafePointer` across the park is not `Send`, and the hand-rolled
-        // realloc buffer this replaced was exactly that. `Data` grows itself, so
-        // the old grow loop, its capacity arithmetic and its manual NUL
-        // terminator are gone with it.
+        // Both buffers must be frame-resident: the worker thread writes through
+        // the chunk pointer while this task is parked, and a `[Int8; N]` local
+        // of a suspending body lives in the heap-resident frame. It also keeps
+        // `output()` spawnable into a multi-threaded group, since a frame
+        // holding a raw `UnsafePointer` across the park is not `Send`
+        // (design 183).
         var chunk: [Int8; PROC_READ_CHUNK] = [0; PROC_READ_CHUNK]
         var collected = Data()
         var draining = true
@@ -558,14 +473,13 @@ extension Command {
                 let _ = try collected.append_bytes((&chunk) as UnsafePointer<Int8>, n)
             } else {
                 // 0 = EOF (the child closed stdout / exited); < 0 = a read
-                // error. Either way there is nothing more to collect — the
+                // error. Either way there is nothing more to collect; the
                 // child is still reaped below so its status is not lost.
                 draining = false
             }
         }
 
-        // Reap the child. `raw` is the RAW wait status, decoded the same way
-        // run() does (DF2): a signal death is a nonzero failure, not exit 0.
+        // Decoded as in run(): a signal death is nonzero, not exit 0.
         let w = self.reap(job)
         if w.cancelled || w.raw < 0 {
             let absent: CommandOutput? = None

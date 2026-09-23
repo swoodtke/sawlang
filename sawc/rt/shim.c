@@ -154,9 +154,10 @@ void __saw_rt_thread_detach(void *ctrl) {
 }
 
 /* ---- DF-113c: no variadic extern ---------------------------------------
- * `fcntl` is variadic. On arm64 a fixed-arity declaration passes the F_SETFL
- * argument in a register the callee reads from the stack, so it must be
- * called from C. Returns 0, or -1 if F_GETFL fails. */
+ * `fcntl` is variadic, and a fixed-arity declaration of a variadic function
+ * is wrong on some ABIs: on Apple arm64 the F_SETFL argument would go in a
+ * register the callee reads from the stack. So it is called from C. Returns
+ * 0, or -1 if F_GETFL fails. */
 long __saw_rt_set_nonblocking(long fd) {
     int flags = fcntl((int)fd, F_GETFL, 0);
     if (flags < 0) return -1;
@@ -188,16 +189,17 @@ long __saw_sockopt_name(long option) {
     }
 }
 
-/* A write to a socket whose peer has gone must report EPIPE, never raise
- * SIGPIPE. macOS does this per socket (SO_NOSIGPIPE), Linux per send
- * (MSG_NOSIGNAL); both functions exist on both hosts so
- * rt/common/os_ops.saw calls them unconditionally.
+/* A write to a socket whose peer has gone should report EPIPE rather than
+ * raise SIGPIPE. Linux gets this per send (MSG_NOSIGNAL); macOS sends with
+ * flags 0 after an attempted per-socket SO_NOSIGPIPE setup. Both functions
+ * exist on both hosts so rt/common/os_ops.saw calls them unconditionally.
  *
  * Per socket, not a process-wide SIG_IGN: an ignored disposition is inherited
  * across execve and would reach every child the program spawns.
  *
- * The setsockopt result is ignored on purpose: this is hardening, and a
- * socket that refuses it still works.
+ * The setsockopt result is ignored: this is best-effort hardening applied to
+ * every socket the runtime creates. If a kernel refused it, that socket would
+ * still work but could raise SIGPIPE on a dead peer.
  */
 void __saw_socket_suppress_sigpipe(long fd) {
 #ifdef SO_NOSIGPIPE
@@ -225,8 +227,16 @@ long __saw_socket_send_flags(void) {
  * every thread, including threads that existed before the watch began.
  *
  * The handler is async-signal-safe: one atomic load, one `write(2)`, no locks.
- * A full pipe is ignored; one pending record already means "fired", and
- * non-realtime signals coalesce anyway.
+ * A write to a full pipe is dropped. Normally that loses nothing: one pending
+ * current record already means "fired", and non-realtime signals coalesce
+ * anyway. Every (re-)watch drains the pipe (bounded, but past the default
+ * pipe capacity); after that, the only stale writers are handlers that took
+ * their snapshot before the watch began, at most one record per thread (a
+ * handler blocks its own signal while it runs). Nothing enforces that the
+ * thread count stays below the pipe's record capacity. If enough threads
+ * were paused in that window to fill the pipe with stale records, a current
+ * record could be dropped and the drain would report nothing. That case is
+ * not handled.
  *
  * Three rules hold for the block as a whole. Design 272 records the races
  * each one closes.

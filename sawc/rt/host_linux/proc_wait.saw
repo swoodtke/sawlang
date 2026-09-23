@@ -1,16 +1,13 @@
 // The child-exit descriptor (design 182) — Linux, authored in Saw.
 //
 // The epoll mirror of host_macos/proc_wait.saw; see that file for why the wait
-// is a park at all. Linux hands out the descriptor directly: `pidfd_open` gives
-// a file descriptor for a process, and epoll reports it readable (`EPOLLIN`) once
-// that process has exited. No inner poll set, no filter — the reactor registers
-// it with the same plain read interest it uses for a socket.
+// is a park. `pidfd_open` gives a descriptor for a process, and epoll reports
+// it readable (`EPOLLIN`) once that process has exited, so the reactor
+// registers it with the same plain read interest it uses for a socket.
 //
-// `pidfd_open` is a glibc wrapper (2.36+) / musl wrapper over the Linux 5.3
-// syscall. Declaring the wrapper rather than going through the variadic
-// `syscall(2)` keeps DF-113c's rule — no variadic extern — and turns a libc too
-// old to have it into a link error naming this file, which is a far better
-// failure than a silently wrong argument register.
+// `pidfd_open` is declared as the fixed-signature libc wrapper (glibc 2.36+,
+// musl) rather than reached through variadic `syscall(2)`. A libc too old to
+// have it fails at link time.
 //
 // A zombie needs no special case here, unlike kqueue: `pidfd_open` succeeds for a
 // child that has exited but not been reaped, and the descriptor is readable at

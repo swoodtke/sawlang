@@ -1,33 +1,27 @@
-// The thread-park timer seam (design 45 / 113b / 180), authored in Saw.
+// The thread-park timer seam (design 113b), authored in Saw.
 //
 // `__saw_rt_sleep_ns(ns)` parks the current OS thread for `ns` nanoseconds. A
 // zero request returns at once. Hosted default: a clock-corrected loop of
 // `usleep` calls.
 //
-// WHY A LOOP. `usleep` takes microseconds as a 32-bit unsigned, and historical
-// POSIX made an argument at or past one whole second an error, so a second is
-// the largest chunk every host is known to accept. The pre-180 seam took
-// milliseconds, multiplied by 1000 and narrowed to 32 bits in ONE step, so a
-// request past about 35 minutes wrapped to a short nap (DF-170a). Chunking
-// removes the bound rather than checking it.
+// Why a loop: `usleep` takes microseconds as a 32-bit unsigned, so a long
+// sleep must be chunked. The chunk is one second, which the hosted targets
+// (macOS, glibc) accept, although POSIX allows `usleep(1000000)` to fail.
+// Chunking removes the bound rather than checking it.
 //
-// WHY THE CLOCK. Each `usleep` returns a little late, and a plain countdown
-// would bank every one of those overruns: 2400 chunks of a 40-minute park
-// measured about 0.7% long. Each pass therefore charges what the monotonic
-// clock says it actually slept, so an overrun shortens the next chunk and the
-// total converges on the span asked for instead of drifting away from it.
+// Why the clock: each `usleep` returns a little late, and a plain countdown
+// would accumulate those overruns. Each pass charges what the monotonic clock
+// says it slept, so an overrun shortens the next chunk and the total converges
+// on the request.
 //
-// A park is a floor, so the two roundings both go UP: the tail is rounded to a
-// whole microsecond (the finest unit `usleep` can express), and the loop exits
-// only once the elapsed total has reached the request.
+// A park is a floor, so both roundings go up: the tail rounds to a whole
+// microsecond, and the loop exits only once the elapsed total reaches the
+// request.
 //
-// NOT INTERRUPTIBLE. The seam returns when the whole span has elapsed and there
-// is no way to cut it short from another thread — chunking buys total-elapsed
-// fidelity, not responsiveness. That is why the executor does not park here when
-// it may need to abandon the wait: design 180 unit 5 parks it in the reactor
-// with the same deadline as the poll timeout, which the design-102 self-wake
-// pipe can rouse. This seam is the no-reactor fallback and the body behind a
-// `sleep` reached outside any executor.
+// Not interruptible: nothing on another thread can cut the park short. The
+// executor therefore parks in the reactor when it may need to abandon a wait;
+// this seam is the no-reactor fallback and the body behind a `sleep` outside
+// any executor (design 180).
 
 extern "C" {
     func usleep(us: UInt32) -> Int32

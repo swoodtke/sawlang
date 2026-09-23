@@ -1,10 +1,7 @@
-// Numeric extensions on the Int and Float primitives (design 57 Part 5).
-//
-// These attach to the `Int` / `Float` pseudo-structs (the same mechanism
-// `String` methods use). Int arithmetic is checked — `abs`/`pow` panic on
-// overflow per the house rule (design 31), which is a BUG signal, distinct
-// from data-level failures. Float methods follow IEEE semantics (NaN
-// propagates) and lower to the libm math functions.
+// Numeric extensions on the Int and Float primitives. Int arithmetic is
+// checked: `abs`/`pow` panic on overflow, a bug signal distinct from
+// data-level failures. Float methods follow IEEE semantics (NaN propagates)
+// and lower to libm.
 
 // =============================================================================
 // libm (Float math)
@@ -25,8 +22,8 @@ extern "C" {
 // =============================================================================
 
 extension Int {
-    // Absolute value. PANICS on Int.min: its magnitude is unrepresentable as a
-    // positive Int, so the negation overflows (house overflow rule, design 31).
+    // Absolute value. Panics on Int.min, whose magnitude is unrepresentable as
+    // a positive Int.
     public func abs(&self) -> Int {
         if self < 0 {
             -self
@@ -56,7 +53,7 @@ extension Int {
     }
 
     // Integer power by repeated (checked) multiplication. A negative exponent
-    // has no integer result, so it PANICS; overflow panics via the checked `*`.
+    // has no integer result, so it panics; overflow panics via the checked `*`.
     public func pow(&self, exp: Int) -> Int {
         if exp < 0 {
             panic("negative exponent")

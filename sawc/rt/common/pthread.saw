@@ -1,12 +1,8 @@
-// The pthread wrapper seams (design 21 / 113b), authored in Saw.
+// The pthread wrapper seams (design 113b), authored in Saw.
 //
-// Thin wrappers so the stdlib never has to spell a NULL attr pointer at the Saw
-// level. `mutex_init`/`cond_init`/`join` are pure Saw (they pass NULL as
-// `0 as UnsafePointer<Int8>` and treat `pthread_t` as an opaque pointer-sized
-// word). `pthread_create` stays in shim.c — DF-113b: it takes a raw C function
-// pointer (the start routine), which Saw's surface cannot name (closures are fat
-// pointers). pthread symbols resolve from libSystem (macOS) / libc+libpthread
-// (Linux); the default clang link line pulls them in.
+// Thin wrappers so std never spells a NULL attr pointer. `pthread_t` is
+// treated as an opaque pointer-sized word. `pthread_create` stays in shim.c
+// because it takes a raw C function pointer, which Saw cannot name (DF-113b).
 
 extern "C" {
     func pthread_mutex_init(m: UnsafePointer<Int8>, attr: UnsafePointer<Int8>) -> Int32
@@ -30,8 +26,7 @@ func rt_pthread_cond_init_default(c: UnsafePointer<Int8>) unsafe {
     pthread_cond_init(c, 0 as UnsafePointer<Int8>)
 }
 
-// design 117: join an OS thread by its handle VALUE (the pointer-sized
-// pthread_t returned by `__saw_rt_thread_spawn`), passing a NULL retval.
+// Join an OS thread by the handle value `__saw_rt_thread_spawn` returned.
 @export("__saw_rt_thread_join")
 func rt_thread_join(handle: Int) unsafe {
     pthread_join(handle, 0 as UnsafePointer<Int8>)

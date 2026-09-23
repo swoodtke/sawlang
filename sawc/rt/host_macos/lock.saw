@@ -1,21 +1,17 @@
-// The one-word lock seams (design 186 unit 5) — macOS.
+// The one-word lock seams (design 186) — macOS.
 //
-// `os_unfair_lock` IS a single `uint32_t`, and `OS_UNFAIR_LOCK_INIT` is ZERO.
-// That is the whole reason `Mutex<T>` can be a `static` with no initializer:
-// the unlocked state is the zero pattern, so an idle mutex is bss and costs no
-// image bytes. A `pthread_mutex_t` could never give us that on Darwin — its
-// static initializer writes a nonzero signature word, which a Saw `static`
-// would have to carry as baked bytes in `__DATA`.
+// `os_unfair_lock` is a single `uint32_t` and `OS_UNFAIR_LOCK_INIT` is zero,
+// so the unlocked state is the zero pattern: a `static` `Mutex<T>` needs no
+// initializer and an idle one lives in bss. A `pthread_mutex_t` cannot do this
+// on Darwin, because its static initializer has a nonzero signature word.
 //
 // The word std hands over is a platform `Int` (rt/ABI.md) and the lock uses its
-// low four bytes; the rest is padding std never reads. Both hosted targets are
-// little-endian, which is what lets ONE Saw field serve a 4-byte lock here and
-// a 4-byte futex word on Linux.
+// low four bytes. Both hosted targets are little-endian, which is what lets one
+// Saw field serve a 4-byte lock here and a 4-byte futex word on Linux.
 //
-// `os_unfair_lock` parks the waiting THREAD, which is the blocking semantics
-// `Mutex.lock` has always had. It is unfair by design (no FIFO guarantee) and
-// NOT recursive: taking it twice on one thread traps in libplatform rather than
-// deadlocking, which is the better failure.
+// `os_unfair_lock` parks the waiting thread. It is unfair (no FIFO guarantee)
+// and not recursive: taking it twice on one thread traps in libplatform rather
+// than deadlocking.
 
 extern "C" {
     func os_unfair_lock_lock(l: UnsafePointer<Int>)

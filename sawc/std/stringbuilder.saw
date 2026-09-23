@@ -1,12 +1,7 @@
-// StringBuilder - Mutable string buffer
+// StringBuilder: a mutable string buffer.
 
-// =============================================================================
-// FFI declarations
-// =============================================================================
-
-// StringBuilder is an alloc-layer type: it allocates through the `GlobalAllocator`
-// allocator (design 19 §4 / brief 28), which wraps the runtime seams — never
-// libc directly. memcpy is a compiler builtin, not a seam.
+// StringBuilder allocates through `GlobalAllocator`, never libc directly.
+// memcpy is a compiler builtin, not a seam.
 extern "C" {
     func memcpy(dest: UnsafePointer<Int8>, src: UnsafePointer<Int8>, n: Int) -> UnsafePointer<Int8>
 
@@ -14,16 +9,12 @@ extern "C" {
     func __saw_string_from_bytes(src: UnsafePointer<Int8>, len: Int) -> String
 }
 
-// =============================================================================
-// StringBuilder - A mutable string buffer
-// =============================================================================
-
 static ASCII_ZERO: Int = 48
 static MINUS_SIGN: Byte = 45
 
-// The truncation marker a FIXED builder stamps when content does not fit: `…`
-// (U+2026), whose UTF-8 encoding is these three bytes. A cut message says so —
-// a silently short one is a hidden error (design 137).
+// The truncation marker a fixed builder stamps when content does not fit: `…`
+// (U+2026), whose UTF-8 encoding is these three bytes. A silently short
+// message would be a hidden error.
 static MARKER_LEN: Int = 3
 static MARKER_BYTE_0: Byte = 226
 static MARKER_BYTE_1: Byte = 128
@@ -37,20 +28,18 @@ public struct StringBuilder {
     private buffer: UnsafePointer<Int8>?
     private length: Int
     private capacity: Int
-    // Fixed mode (design 137): the buffer is caller-provided storage that is
-    // never grown and never freed. Overflow truncates and marks instead of
-    // reallocating, which is what lets `panic`, `assert` and `print` assemble a
-    // message with the allocator refusing everything.
+    // Fixed mode: the buffer is caller-provided storage that is never grown and
+    // never freed. Overflow truncates and marks instead of reallocating, which
+    // lets `panic`, `assert` and `print` assemble a message with the allocator
+    // refusing everything.
     private fixed: Bool
     private truncated: Bool
 }
 
-// design 186: the buffer pointer blocks the derivation, and a `StringBuilder`
-// owns those bytes outright — nobody else can reach them, since every mutation
-// is a `&var self` method and the Law of Exclusivity gates those. So moving one
-// between threads is sound, and sharing one hands out reads of storage no
-// `&self` method writes. In FIXED mode the buffer is caller storage, which the
-// caller's own borrow already pins.
+// The buffer pointer blocks the Send/Sync derivation, but a `StringBuilder`
+// owns those bytes outright: every mutation is a `&var self` method gated by
+// the Law of Exclusivity, and no `&self` method writes. In fixed mode the
+// buffer is caller storage, which the caller's own borrow pins (design 186).
 extension StringBuilder: UnsafeSend {}
 extension StringBuilder: UnsafeSync {}
 
@@ -77,7 +66,7 @@ extension StringBuilder {
     ///
     /// `bytes` must address at least `capacity` writable bytes and must outlive
     /// the builder, which neither grows nor frees them. Content that does not
-    /// fit is TRUNCATED rather than dropped silently: the text is cut on a
+    /// fit is truncated rather than dropped silently: the text is cut on a
     /// UTF-8 boundary, the marker `…` is stamped in its place, and
     /// `is_truncated` answers yes from then on.
     ///
@@ -100,16 +89,16 @@ extension StringBuilder {
                       truncated: false)
     }
 
-    /// Points a FIXED builder at `bytes`, keeping its length and truncation.
+    /// Points a fixed builder at `bytes`, keeping its length and truncation.
     ///
-    /// For storage that MOVED with the value holding it. A fixed builder stores
+    /// For storage that moved with the value holding it. A fixed builder stores
     /// the address of its buffer, and a Saw move copies bytes, so a builder that
     /// travels alongside its own storage — `FixedStringBuilder<N>`, whose buffer
     /// is a field beside it — is left pointing at where the bytes used to be.
     /// Re-aiming it before each use costs one store and makes the whole
     /// arrangement move-safe.
     ///
-    /// `bytes` must address the SAME content, at least `capacity` bytes of it.
+    /// `bytes` must address the same content, at least `capacity` bytes of it.
     /// This does not clear the buffer and does not re-check capacity; pointing a
     /// builder at unrelated storage keeps a length that describes neither.
     /// Growable builders own their buffer and have nothing to re-aim, so this
@@ -140,9 +129,8 @@ extension StringBuilder {
     ///
     /// Length comes from the O(1) header, not a strlen scan, so interior NUL
     /// bytes are preserved and no libc call is made. Reports allocator
-    /// exhaustion as `Err(AllocError)`; the builder is unchanged then — no
-    /// partial append. (The refused grow used to leave `capacity` short and the
-    /// copy below then wrote past the end of the buffer.)
+    /// exhaustion as `Err(AllocError)`; the builder is unchanged then (no
+    /// partial append). A fixed builder never fails; it truncates instead.
     public func append(&var self, s: String) -> Result<Void, AllocError> {
         let s_len = s.len()
         if s_len == 0 {
@@ -150,9 +138,9 @@ extension StringBuilder {
         }
         let needed = self.length + s_len + 1
         if not self._reserve(needed) {
-            // Fixed storage refuses nothing — there is no allocator to fail, so
-            // an `AllocError` here would name a failure that did not happen.
-            // The overflow is reported by the `…` marker and `is_truncated`.
+            // Fixed storage has no allocator to fail, so an `AllocError` would
+            // name a failure that did not happen. The overflow is reported by
+            // the `…` marker and `is_truncated`.
             if self.fixed {
                 self._overflow(s, s_len)
                 return
@@ -163,9 +151,8 @@ extension StringBuilder {
         return
     }
 
-    // Internal: copy `s_len` bytes of `s` into the (already reserved) buffer
-    // and re-terminate. Split out from `append` so the placement rule lives in
-    // one place; it used to be shared with the retired `try_append` twin.
+    // Copy `s_len` bytes of `s` into the (already reserved) buffer and
+    // re-terminate.
     func _place(&var self, s: String, s_len: Int) unsafe {
         if let buf = self.buffer {
             var i = 0
@@ -178,21 +165,18 @@ extension StringBuilder {
         }
     }
 
+    // Not `"{value}"`, which would build a heap String on the one formatting
+    // path that must survive allocator exhaustion; the digits are emitted
+    // most-significant-first by repeated division.
     /// Appends the decimal rendering of `value`.
     ///
-    /// Overload of `append` (design 55): `sb.append(42)` and `sb.append("s")`
-    /// share one name, resolved by argument type.
-    ///
-    /// Allocation-free (design 137). It used to route through `"{value}"`,
-    /// which builds a heap String only to copy it straight back out — a hidden
-    /// allocation in the middle of the one formatting path that has to survive
-    /// allocator exhaustion. The digits are emitted most-significant-first by
-    /// repeated division instead, so nothing is staged anywhere.
+    /// Stages nothing on the heap, so it works on a fixed builder with the
+    /// allocator exhausted.
     public func append(&var self, value: Int) -> Result<Void, AllocError> {
         if value < 0 {
             let _ = try self.append(MINUS_SIGN)
         }
-        // The magnitude is carried on the NEGATIVE side: `0 - Int.min` overflows
+        // The magnitude is carried on the negative side: `0 - Int.min` overflows
         // but `Int.min` itself is representable, so every Int works here. `/`
         // and `%` truncate toward zero, which makes each `%` result the negated
         // digit.
@@ -213,9 +197,8 @@ extension StringBuilder {
 
     /// Appends the decimal rendering of `value`.
     ///
-    /// The unsigned twin of `append(value: Int)`, and equally allocation-free.
-    /// It exists so an unsigned field renders across its whole range: the signed
-    /// overload cannot represent anything above `Int.max`.
+    /// The unsigned twin of `append(value: Int)`, equally allocation-free, for
+    /// values above `Int.max`.
     public func append(&var self, value: UInt) -> Result<Void, AllocError> {
         var scale: UInt = 1
         var probe = value
@@ -231,26 +214,17 @@ extension StringBuilder {
         return
     }
 
+    // `append(value: Float)` lives in `sawc/std/float.saw` beside the
+    // shortest-round-trip machinery (design 253).
     /// Appends one raw byte, reporting allocator exhaustion as `Err(AllocError)`.
     ///
-    /// The overload of `append` that writes a byte AS a byte, where the `Int`
-    /// and `UInt` siblings above write its decimal rendering. Which one a call
-    /// reaches is decided by the argument's type and nothing else: `append(65)`
-    /// writes `65`, and `append(Byte(65))` writes `A`. That is why the parameter
-    /// is a `Byte` and not a `UInt8` — an integer never becomes a raw byte by
-    /// accident (design 250 §4). To render a byte's digits, widen it on purpose:
-    /// `append(b as Int)`.
+    /// Writes the byte itself, where the `Int` and `UInt` overloads write a
+    /// decimal rendering. The argument's type alone decides: `append(65)` writes
+    /// `65`, and `append(Byte(65))` writes `A`. The parameter is a `Byte`, not a
+    /// `UInt8`, so an integer never becomes a raw byte by accident; to render a
+    /// byte's digits, write `append(b as Int)`.
     ///
-    /// This was `append_char(c: Int8)` before design 250. The name said
-    /// "character" for something that is one byte of a possibly multi-byte
-    /// scalar; the `Scalar` overload below is the one that speaks characters.
-    ///
-    /// THE FIFTH `append` OVERLOAD IS NOT IN THIS FILE: `append(value: Float)`
-    /// is declared in `sawc/std/float.saw`, beside `String.to_float` and the
-    /// shortest-round-trip machinery both directions share (design 253). It
-    /// behaves exactly as these do — writes bytes, stages nothing, reports the
-    /// growable builder's refusal — and it is what every float rendering in
-    /// the language goes through.
+    /// A fixed builder that is full truncates instead of failing.
     public func append(&var self, b: Byte) -> Result<Void, AllocError> {
         let needed = self.length + 2
         if not self._reserve(needed) {
@@ -264,14 +238,13 @@ extension StringBuilder {
         return
     }
 
-    // Internal (fixed mode): `s` does not fit, so copy the prefix that does and
-    // stamp the truncation marker after it.
+    // Fixed mode: `s` does not fit, so copy the prefix that does and stamp the
+    // truncation marker after it.
     //
     // `_reserve` holds MARKER_LEN bytes back from every fit test, so `length`
-    // never passes `capacity - 1 - MARKER_LEN` and the marker always has its
-    // room waiting — no overwriting of text already placed, and no re-scan of
-    // it for a UTF-8 boundary. The cut point in `s` IS scanned back to one: a
-    // message ending in half a scalar is not a message.
+    // never passes `capacity - 1 - MARKER_LEN` and the marker always has room:
+    // no text already placed is overwritten or re-scanned. The cut point in `s`
+    // is scanned back to a UTF-8 boundary so no half scalar is emitted.
     func _overflow(&var self, s: String, s_len: Int) unsafe {
         if self.truncated {
             return                          // already cut; the buffer is full
@@ -295,9 +268,9 @@ extension StringBuilder {
         self._mark_truncated()
     }
 
-    // Internal (fixed mode): stamp `…` at the current end and seal the builder.
-    // Idempotent — once marked, `length` sits at the buffer's text limit, so
-    // every later append re-enters here and returns.
+    // Fixed mode: stamp `…` at the current end and seal the builder. Idempotent:
+    // once marked, `length` sits at the buffer's text limit, so every later
+    // append re-enters here and returns.
     func _mark_truncated(&var self) unsafe {
         if self.truncated {
             return
@@ -312,15 +285,12 @@ extension StringBuilder {
         }
     }
 
-    // Internal: whether `b` is a UTF-8 continuation byte (0b10xxxxxx). Bytes are
-    // unsigned since design 250, so this is the comparison it always wanted to
-    // be — it used to fold a negative `Int8` back into 0..255 first, because
-    // every continuation byte has its high bit set.
+    // Whether `b` is a UTF-8 continuation byte (0b10xxxxxx).
     func _is_continuation(&self, b: Byte) -> Bool {
         b >= 128 && b < 192
     }
 
-    // Internal: place one byte into the (already reserved) buffer.
+    // Place one byte into the (already reserved) buffer.
     func _place_char(&var self, b: Byte) unsafe {
         if let buf = self.buffer {
             buf[self.length] = self._c_char(b)
@@ -329,22 +299,14 @@ extension StringBuilder {
         }
     }
 
-    /// Appends the UTF-8 encoding of `scalar` — the character, not its number.
+    // The code units are assembled with multiplication, as in the decoder in
+    // `sawc/std/string.saw`: *64, *4096 and *262144 are the 6/12/18-bit shifts.
+    /// Appends the UTF-8 encoding of `scalar`: the character, not its number.
     ///
-    /// The overload of `append` that speaks characters, where the `Byte`
-    /// sibling above writes one raw byte and the `Int`/`UInt` ones write
-    /// decimal digits. It is the encoding inverse of `String.scalars()`, so an
-    /// encode/decode round-trip is the identity on every scalar.
-    ///
-    /// Reports allocator exhaustion as `Err(AllocError)`, and nothing else can
-    /// go wrong: a `Scalar` is a scalar by construction, which is what retired
-    /// the `Ok(None)` the old `append_scalar` answered for an invalid one
-    /// (design 245 §3 — the refusal now lives at `Scalar(value:)`, where it
-    /// names its cause and cannot be dropped on the floor).
-    ///
-    /// Assembles the code units with multiplication rather than bit shifts, the
-    /// spelling the decoder in `sawc/std/string.saw` uses: the shifts are *64
-    /// (6 bits), *4096 (12), *262144 (18).
+    /// The inverse of `String.scalars()`, so an encode/decode round-trip is the
+    /// identity on every scalar. Reports allocator exhaustion as
+    /// `Err(AllocError)`; nothing else can fail, since a `Scalar` is valid by
+    /// construction.
     public func append(&var self, scalar: Scalar) -> Result<Void, AllocError> {
         let code = scalar.value()
         if code < 128 {
@@ -369,22 +331,18 @@ extension StringBuilder {
         return
     }
 
-    // A code unit 0..255, computed in `Int` by the scalar encoder above, AS a
-    // byte. `Byte` cannot be built from an `Int` directly — the construction
-    // takes the underlying `UInt8` — so the narrowing is spelled once, here.
+    // A code unit 0..255 computed in `Int`, as a byte. `Byte` is built from a
+    // `UInt8`, not an `Int`, so the narrowing is spelled once, here.
     func _scalar_byte(&self, u: Int) -> Byte {
         Byte(UInt8.from(truncating: u))
     }
 
-    // THE WRITE FUNNEL (design 250 §3): a byte value as the C `char` with the
-    // same bit pattern. The buffer is `UnsafePointer<Int8>`, and a byte at or
-    // above 0x80 has no `Int8` value, so a checked `as` would panic on every
-    // continuation byte; keeping the low 8 bits is the operation, and design 170
-    // gave it a name.
+    // The write funnel: a byte value as the C `char` with the same bit pattern.
+    // A byte at or above 0x80 has no `Int8` value, so a checked `as` would panic
+    // on every continuation byte (design 250). The bare `buf[...] = 0`
+    // terminator writes are `Int8` literals and do not come through here.
     //
-    // ENTRY POINTS: `_place`, `_place_char`, `_overflow`, `_mark_truncated` —
-    // every store of a byte VALUE into `self.buffer`. (The bare `buf[...] = 0`
-    // terminator writes are `Int8` literals and never come through here.)
+    // ENTRY POINTS: `_place`, `_place_char`, `_overflow`, `_mark_truncated`.
     func _c_char(&self, b: Byte) -> Int8 {
         Int8.from(truncating: b)
     }
@@ -399,18 +357,14 @@ extension StringBuilder {
         }
     }
 
-    // Produce an owned, independently refcounted String from the bytes built so
-    // far. `__saw_string_from_bytes` COPIES into a fresh refcount=1 block, so the
-    // result never aliases the builder's buffer: the builder keeps its buffer
-    // (and may keep appending), and the returned String is freed on its own
-    // schedule (no leak, no double-free). Returning `buf as String` would instead
-    // hand back a header-less pointer that corrupts on len()/release.
+    // Produce an owned String from the bytes built so far.
+    // `__saw_string_from_bytes` copies into a fresh refcount=1 block, so the
+    // result never aliases the builder's buffer. `buf as String` would be a
+    // header-less pointer that corrupts on len()/release.
     //
-    // Panics if the String allocation is refused: the String layer is design
-    // 234 §5's last panicking one, and returning `""` here — which is what a NULL
-    // from the allocator used to produce — is indistinguishable from a builder
-    // that legitimately has nothing in it. The `""` below is the second case
-    // and only the second case: a builder that was never appended to.
+    // Panics if the String allocation is refused (the String layer panics on
+    // exhaustion; design 234). The `""` below is only for a builder that was
+    // never appended to.
     public func build(&self) unsafe -> String {
         if let buf = self.buffer {
             __saw_string_from_bytes(buf, self.length)
@@ -419,12 +373,12 @@ extension StringBuilder {
         }
     }
 
-    // Backwards-compatible alias for `build()`.
+    // Alias for `build()`.
     public func as_str(&self) -> String {
         self.build()
     }
 
-    // Internal: the capacity a growth to `min_capacity` would allocate.
+    // The capacity a growth to `min_capacity` would allocate.
     func _grow_target(&self, min_capacity: Int) -> Int {
         var target = if self.capacity == 0 { 16 } else { self.capacity * 2 }
         while target < min_capacity {
@@ -433,11 +387,10 @@ extension StringBuilder {
         target
     }
 
-    // Internal: ensure `capacity >= min_capacity`. Returns whether the builder
-    // now has that room — FALSE means the allocator refused and the builder is
-    // untouched. The old `grow` returned Void, so the appends copied into a
-    // buffer that had never grown and wrote past its end (RS-1's shape,
-    // repeated here).
+    // Ensure `capacity >= min_capacity`. Returns whether the builder now has
+    // that room; `false` means the allocator refused (or fixed storage is
+    // full) and the builder is untouched. Every caller must check it before
+    // placing bytes.
     func _reserve(&var self, min_capacity: Int) unsafe -> Bool {
         if self.fixed {
             // Fixed storage never grows, and the last MARKER_LEN bytes are held
@@ -471,7 +424,6 @@ extension StringBuilder {
     }
 }
 
-// StringBuilder is NoCopy
 extension StringBuilder: NoCopy {
     public func deinit(&var self) unsafe {
         // Fixed storage is borrowed, not owned: the caller's buffer outlives

@@ -1,10 +1,9 @@
-// std.time clock seams (design 57 / 113b) — macOS.
+// std.time clock seams (design 113b) — macOS.
 //
-// `clock_gettime(clk_id, &timespec)`; on the 64-bit hosted targets
-// `struct timespec` is { Int64 tv_sec; Int64 tv_nsec } (declared here as a Saw
-// struct — declaration-order natural ABI). OS-divergent: CLOCK_MONOTONIC is 6
-// on macOS (1 on Linux); CLOCK_REALTIME is 0 on both — this constant is exactly
-// what makes these host-runtime material.
+// On the 64-bit hosted targets `struct timespec` is { Int64 tv_sec; Int64
+// tv_nsec }, which the Saw struct below matches in declaration order.
+// CLOCK_MONOTONIC is 6 on macOS and 1 on Linux; that constant is why these
+// seams are per-host.
 
 extern "C" {
     func clock_gettime(clk_id: Int32, tp: UnsafePointer<Int8>) -> Int32

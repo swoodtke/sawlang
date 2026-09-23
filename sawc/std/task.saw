@@ -12,61 +12,32 @@
 //!
 //! Requires `import std.task`.
 
-// Thread<T> - the handle to a spawned OS thread (design 21 item 5, design 21b;
-// renamed from `Task<T>` by design 242, which gave the cooperative engine the
-// `Task` vocabulary and left this one the `Thread` namespace it always meant).
+// `Thread.spawn` codegen launches the thread and allocates its control block;
+// this file is the value-level API over that block. Layout (the compiler's;
+// rt/ABI.md's `__saw_rt_thread_detach` entry freezes the state word):
+//     [0,  8)  pthread_t tid  (the word `__saw_rt_thread_spawn` returned)
+//     [8, 16)  i8* env        (the closure's heap environment)
+//     [16,24)  state          (the detach ownership handshake)
+//     [24, ..) T result       (written by the trampoline when the body returns)
+// `join` never touches the state word: a joined thread was never detached, so
+// the joiner is the block's only owner.
 //
-// `Thread.spawn { ... } -> Thread<T>` launches the closure on a fresh pthread
-// (hosted engine) and hands back this NoCopy handle. The thread-launch machinery
-// lives in spawn codegen; this file provides the value-level API over the
-// control block.
-//
-// Control block (allocated by spawn codegen), laid out as:
-//     { pthread_t tid (8 bytes), i8* env, word state, T result }
-// The pthread_t lives at byte 0 (design 117: spawn codegen stores the handle
-// __saw_rt_thread_spawn returns there; join loads it and passes it by value to
-// __saw_rt_thread_join), the closure's heap environment pointer at byte 8, the
-// design-242 ownership handshake word at byte 16 (which `join` never touches —
-// a joined thread was never detached, so the joiner is the block's only owner),
-// and the task's result at byte 24 (written by the trampoline after the body
-// returns). rt/ABI.md's `__saw_rt_thread_detach` entry freezes the state word.
-//
-// Structured by default: a thread's lifetime is a value's lifetime, and design
-// 242 ruling 5 makes the way it ends something the author writes. The engine
-// never exposes a thread id/handle to Saw code.
-//
-// NOTE (deviation from the item-5 sketch): the original brief wrote
-// `join(move self)`. Saw has no `move self` receiver form, so `join` takes
-// `&var self` and sets a `joined` flag once joined. Since design 242 that flag
-// reads "this handle's fate has been written" — `deinit` faults when it is
-// still clear.
+// Saw has no `move self` receiver, so `join` and `detach` take `&var self` and
+// set `joined`, which means "this handle's fate has been written"; `deinit`
+// faults while it is clear.
 
 extern "C" {
-    // design 117: join an OS thread by its handle value (pthread_t word).
     func __saw_rt_thread_join(handle: Int)
-    // design 242 ruling 4: detach the thread whose CONTROL BLOCK this is, and
-    // hand the block's ownership to that thread's own exit path (rt/ABI.md).
+    // Hands the block's ownership to the thread's own exit path (rt/ABI.md).
     func __saw_rt_thread_detach(ctrl: UnsafePointer<Int8>)
 }
 
-// =============================================================================
-// The NativeThread trait (design 118 stage 4)
-// =============================================================================
-// The minimal OS-thread surface the executor's Saw side consumes: JOIN by handle.
-// The SPAWN half stays the compiler-emitted `__saw_rt_thread_spawn` primitive (spawn
-// codegen builds a control block + a raw C-ABI trampoline pointer — DF-113b, a value
-// Saw cannot express — the thread analog of the coroutine frame layout the compiler
-// keeps). `PosixThread` wraps `__saw_rt_thread_join`; a future SOS-hosted runtime
-// implements the SAME trait over kernel threads (its thread handle == the word). Both
-// the `Thread.spawn` engine (here) and the MT `TaskGroup` drain (which joins its
-// workers as `VoidThread`s) join through this surface. Consumed by static dispatch
-// through the conformance — no per-join boxing; the impl is link/compile-time
-// selected, so an `any NativeThread` existential would add an allocation with no
-// runtime-swap benefit (same rationale as the design-118 stage-3
-// `Reactor`/`SystemReactor`). Internal to the thread engine (not `public`).
-//
-// Design 242 renamed it from `Thread`: that name is the user-facing handle now,
-// and this trait is the OS thread the handle is a handle TO.
+// The OS-thread surface the executor consumes: join by handle. Spawn stays the
+// compiler-emitted `__saw_rt_thread_spawn`, because it passes a raw C-ABI
+// trampoline pointer Saw cannot express (DF-113b). The `Thread.spawn` handles
+// and the multi-threaded `TaskGroup` drain both join through this trait, by
+// static dispatch: the implementation is chosen at build time, so an
+// `any NativeThread` would cost an allocation for nothing (design 118).
 trait NativeThread {
     func join(&self)
 }
@@ -88,16 +59,16 @@ extension PosixThread: NativeThread {
 /// where the thread is spawned. The handle cannot be copied, so exactly one
 /// place owns the thread.
 public struct Thread<T> {
-    // Points at the thread control block (`None` only on the inert OOM path).
+    // The thread control block. Spawn panics on allocator refusal, so this is
+    // always `Some`; the `None` arms below are unreachable.
     private handle: UnsafePointer<Int8>?
-    // Set once the thread has been joined, so `deinit` does not double-join/free.
+    // Set once the handle's fate (join or detach) is written.
     private joined: Bool
 }
 
-// design 186: the control-block pointer blocks both derivations. A handle is
-// one owner of a block the thread engine already synchronizes, and the only
-// value that crosses is the RESULT — so both directions hold exactly when `T`
-// may travel.
+// The control-block pointer blocks both derivations. A handle is one owner of a
+// block the thread engine synchronizes, and the only value that crosses is the
+// result, so both hold exactly when `T` may travel.
 extension Thread<T: Send>: UnsafeSend {}
 extension Thread<T: Send>: UnsafeSync {}
 
@@ -109,19 +80,15 @@ extension Thread<T> {
     /// second time panics.
     public func join(&var self) unsafe -> T {
         if self.joined {
-            // Already joined (or inert): no result to hand back. Misuse —
-            // panic deterministically (design 49).
             panic("Thread.join: thread already joined")
         } else {
             if let h = self.handle {
                 PosixThread(handle: (h as UnsafePointer<Int>)[0]).join()
-                // design 230 unit B: the body is provably finished — the thread
-                // is joined — so the quiescent report may stop counting it as
-                // something this process could still run.
+                // The body is finished, so the quiescent deadlock report stops
+                // counting it as work this process could still run.
                 __saw_exec_thread_task_ended()
                 let result_ptr = (h + 24) as UnsafePointer<T>
-                // The control block is freed on the next line, so the result's
-                // ownership leaves it here (design 219 unit A2).
+                // The block is freed next, so the result is moved out of it.
                 let result = move result_ptr[0]
                 GlobalAllocator().dealloc(h, 24 + sizeof<T>(), 16)
                 self.joined = true
@@ -145,10 +112,8 @@ extension Thread<T> {
             panic("Thread.detach: this thread's fate was already written")
         } else {
             if let h = self.handle {
-                // design 230 unit B: the body may still run, but nothing in this
-                // process will ever observe its result, so it stops counting
-                // toward "could something still publish a value" exactly as a
-                // join does.
+                // The body may still run, but nothing will observe its result,
+                // so the deadlock report stops counting it, as after a join.
                 __saw_exec_thread_task_ended()
                 __saw_rt_thread_detach(h)
                 self.joined = true
@@ -159,15 +124,10 @@ extension Thread<T> {
     }
 }
 
-// design 242 ruling 9b: an unconsumed handle PANICS here. It used to JOIN,
-// which is what made `let _ = spawn { ... }` — the natural fire-and-forget
-// guess — a silent sequential call plus thread overhead, and what made every
-// exit edge of a function holding one a blocking edge. Every fate is explicit
-// now: ruling 5's must-consume check refuses an unconsumed handle at compile
-// time, and this is the backstop for the one path that check cannot see —
-// ruling 9a's storage discharge, where the owner's own deinit was trusted to
-// consume and forgot. A caller-checkable bug is a fault, not a status (the
-// design-134 double-join precedent).
+// An unconsumed handle panics here rather than joining, which would turn a
+// dropped handle into a silent blocking edge. The compile-time must-consume
+// check refuses unconsumed handles; this is the backstop for a handle stored in
+// a field whose owner's deinit forgot to consume it (design 242).
 //
 // Panics do not unwind, so a panic raised from a destructor cannot meet another
 // one on the way out.
@@ -184,18 +144,12 @@ extension Thread<T>: NoCopy {
     }
 }
 
-// VoidThread — the handle for a spawned thread whose body returns `Void`
-// (design 242 ruling 2, the thread-engine twin of `VoidTask`). A distinct named
-// type rather than `Thread<Void>` for two reasons: the visible-`Void` rule
-// (designs 122/132) makes `Thread<Void>` unwritable as an annotation, so a
-// handle you cannot name is a handle you cannot store; and joining one has
-// nothing to hand back, so its `join` is `-> Void` where the generic one is
-// `-> T`.
+// A distinct type rather than `Thread<Void>`, which the visible-`Void` rule
+// makes unwritable as an annotation (so it could not be stored).
 //
-// Layout is `Thread<T>`'s: the control block's result slot is a one-byte
-// placeholder that is never stored and never read, so this handle simply has
-// no result to take. The `16` in the deallocations below is that same
-// `16 + sizeof<T>()` at `T = Void`.
+// Layout is `Thread<T>`'s with a one-byte result placeholder that is never
+// stored or read. The `24` in the deallocation below is `24 + sizeof<T>()` at
+// `T = Void`.
 /// The handle to a spawned thread that returns nothing.
 ///
 /// `Thread.spawn { ... }` returns one when the body's value is `Void`. `join`
@@ -248,8 +202,8 @@ extension VoidThread {
 
 /// A thread handle is not copyable — one owner, one join.
 extension VoidThread: NoCopy {
-    /// Panics if the thread was neither joined nor detached — see
-    /// `Thread.deinit` for why (design 242 ruling 9b).
+    /// Panics if the thread was neither joined nor detached: a thread's fate is
+    /// explicit, and dropping the handle is not one of the fates.
     public func deinit(&var self) unsafe {
         if not self.joined {
             if let _ = self.handle {
@@ -259,13 +213,9 @@ extension VoidThread: NoCopy {
     }
 }
 
-// design 114: the public cooperative-yield primitive. `yield_now()` hands
-// control back to the scheduler and is immediately re-ready — the one explicit
-// cede a PURE-compute task loop needs (a task doing I/O yields implicitly when
-// it parks on the reactor). This is a thin surface over the stdlib-internal
-// `yield_now` cooperative-yield intrinsic; the bare intrinsic name is gated to
-// std bodies, so user code reaches the yield only through this wrapper. Requires
-// `import std.task` (design-82 prelude discipline — not auto-visible).
+// The body calls the std-internal `yield_now` intrinsic, whose bare name is
+// gated to std bodies; user code reaches the yield only through this wrapper
+// (design 114).
 /// Hands control back to the scheduler, ready to run again immediately.
 ///
 /// Suspends, so the caller must itself be driven by the scheduler. A loop that
@@ -275,11 +225,8 @@ public func yield_now() {
     yield_now()
 }
 
-// design 158: the user-facing name for the in-process task dump. The walker
-// itself lives beside the run queue it reads (std/taskgroup.saw, which is a
-// prelude module); this is the import-gated surface, next to `yield_now`,
-// because a task dump is a TASK-facing debug tool and nothing should reach it
-// by accident.
+// The walker lives beside the run queue it reads (taskgroup.saw, a prelude
+// module); this is the import-gated surface, so nothing reaches it by accident.
 /// Writes every live task's logical backtrace to standard output.
 ///
 /// One task per entry — which group and slot holds it, and why it is not

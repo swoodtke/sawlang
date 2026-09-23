@@ -1,42 +1,34 @@
-// Arc<T> - atomic reference-counted shared ownership
-// Part of the Saw standard library (design 21 item 2, design 16 Arc notes).
+// Arc<T>: atomic reference-counted shared ownership.
 //
-// One heap control block laid out as { i64 strong, i64 weak, T payload },
-// allocated through the runtime seams (never libc directly). The weak count is
-// RESERVED NOW as ABI (init 1 = the strong refs' collective weak) even though
-// `Weak` does not ship in v1 - retrofitting it would change this layout.
+// One heap control block, { i64 strong, i64 weak, T payload }, allocated
+// through the allocator (never libc directly). The weak count is reserved as ABI (init 1
+// = the strong refs' collective weak) although `Weak` does not exist yet;
+// adding it later must not change this layout.
 //
-// Arc is `Copy + Deinit`:
-//   - copy()  = retain: atomic add (monotonic) on strong.
-//   - deinit() = release: atomic sub (release) on strong; the thread that takes
-//     strong to 0 issues an acquire fence, runs the payload's drop glue in
-//     place, then decrements weak (release); at weak 0 it fences acquire and
-//     frees the whole block. This is the two-phase protocol of design 07/16.
+// copy() retains: atomic add (monotonic) on strong. deinit() releases: atomic
+// sub (release) on strong; the thread that takes strong to 0 fences acquire,
+// drops the payload in place, then decrements weak (release); at weak 0 it
+// fences acquire and frees the block.
 
 extern "C" {
-    // Atomic seams, emitted by codegen (see core.py _declare_atomic_runtime);
-    // ordering per design 07's Arc protocol.
+    // Atomic seams emitted by codegen (core.py `_declare_atomic_runtime`).
     func __saw_atomic_add_i64(ptr: UnsafePointer<Int>, delta: Int) -> Int
     func __saw_atomic_sub_i64_release(ptr: UnsafePointer<Int>, delta: Int) -> Int
     func __saw_atomic_fence_acquire()
 }
 
 public struct Arc<T> {
-    // Points at the control block's byte 0 (the strong count). Always live in a
-    // constructed Arc — `init` panics rather than build an inert one (design
-    // 123). The field keeps its optional TYPE because codegen's payload-method
-    // forwarding reads this exact `{ i1, i8* }` layout out of the Arc struct;
-    // the `None` case is unreachable, not a state the library can produce.
+    // Points at the control block's strong count. Always `Some` in a
+    // constructed Arc: `init` reports allocator failure instead of building
+    // one. The field stays optional because codegen's payload-method
+    // forwarding reads this exact `{ i1, i8* }` layout; the `None` arms are
+    // unreachable.
     private ptr: UnsafePointer<Int8>?
 }
 
-// The thread-safety `Arc` has always had, said out loud (design 186 — it used
-// to be an entry in a list of names the compiler kept). The control block's
-// pointer is what blocks the derivation, and it is exactly what the unsafe
-// domain owns here: the strong/weak counts are updated with atomic
-// read-modify-writes, so handing a second handle to another thread is safe when
-// the PAYLOAD is safe to move there and safe to share there. Both halves are
-// required — an `Arc` shares its payload by construction.
+// The counts are updated with atomic read-modify-writes, so a handle may cross
+// threads when the payload may be both moved and shared there. Both bounds are
+// required: an `Arc` shares its payload by construction (design 186).
 extension Arc<T: Send + Sync>: UnsafeSend {}
 extension Arc<T: Send + Sync>: UnsafeSync {}
 
@@ -44,10 +36,7 @@ extension Arc<T> {
     /// Constructs a fresh `Arc` owning `value` (strong = 1, weak = 1),
     /// reporting allocator exhaustion as `Err(AllocError)`.
     ///
-    /// `value` is destroyed on the failure path rather than leaked. Under design
-    /// 123 this panicked, and before that it built an INERT `Arc` — `value`
-    /// silently dropped, `strong_count()` reporting 0, and any forwarded payload
-    /// method dereferencing a null block.
+    /// `value` is destroyed on the failure path rather than leaked.
     public init(value: T) unsafe -> Result<Arc<T>, AllocError> {
         let size = 16 + sizeof<T>()
         if let block = GlobalAllocator().alloc(size, 16) {
@@ -77,13 +66,11 @@ extension Arc<T> {
     /// only strong owner, and hands back what `body` returned. Answers `None`
     /// — without running `body` — when the value is shared.
     ///
-    /// This is the copy-on-write gate. Mutating a shared payload through an
-    /// `Arc` is otherwise impossible by construction: payload-method forwarding
-    /// (design 21b) passes `&self` methods through and refuses `&var self` ones,
-    /// because an aliased write is what `Mutex` exists to make safe. Uniqueness
-    /// is the other sound answer — nobody else can observe a write to a value
-    /// only you hold — and this method is that answer, with the test and the
-    /// access fused so the count cannot go stale between them.
+    /// This is the copy-on-write gate. Payload-method forwarding passes `&self`
+    /// methods through and refuses `&var self` ones, because an aliased write
+    /// is what `Mutex` exists to make safe. Uniqueness is the other sound
+    /// answer: nobody else can observe a write to a value only you hold. The
+    /// test and the access are fused so the count cannot go stale between them.
     ///
     /// ```saw
     /// var solo = Arc<Counter>(value: Counter(n: 0))
@@ -114,9 +101,8 @@ extension Arc<T> {
     }
 }
 
-// Arc's copy policy is Copy — a copy is a refcount bump — and its
-// `deinit` lives inside that conformance (design 131: `Deinit` is the policy
-// hierarchy's base, inherited, never declared on its own).
+// A copy is a refcount bump. `deinit` lives inside the copy-policy
+// conformance because `Deinit` is never declared on its own.
 extension Arc<T>: Copy {
     public func deinit(&var self) unsafe {
         if let block = self.ptr {

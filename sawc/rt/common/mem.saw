@@ -1,34 +1,22 @@
-// The global allocation seams (design 113 / 113b), authored in Saw.
+// The global allocation seams (design 113b), authored in Saw.
 //
 // `__saw_rt_alloc`/`__saw_rt_dealloc` are the hosted default allocator: thin
-// wrappers over libc malloc/free. `align` is ignored — malloc guarantees an
-// alignment of at least alignof(max_align_t) (>= 16 on the hosted targets),
-// which covers every Saw allocation. The seams return/free a RAW `i8*` (NULL on
-// failure); the optional-wrapping (`UnsafePointer<Int8>?`) is added at the Saw
-// call site by std/alloc.saw's `extern` declaration, so the ABI symbol itself
-// is a plain pointer (an `@export` return cannot be optional).
+// wrappers over libc malloc/free. `align` is ignored because malloc already
+// aligns to alignof(max_align_t) (>= 16 on the hosted targets), which covers
+// every Saw allocation. The seams traffic in a raw `i8*` (NULL on failure);
+// std/alloc.saw's `extern` declaration adds the optional wrapping, because an
+// `@export` return cannot be optional.
 //
-// ALLOCATION BUDGET (design 123). The three-tier failure policy is only worth
-// as much as its tests, and most of std allocates through the GLOBAL allocator
-// — `String`, `StringBuilder`, `Data`, `Arc`, `Mutex`, `Channel` take no
-// allocator type parameter, so the review's `Vector<T, FailAlloc>` probe
-// technique cannot reach them. `__saw_rt_alloc_deny_after(allow)` permits
-// `allow` more allocations and refuses everything after, so a test can drive
-// any OOM path in the library deterministically. A NEGATIVE `allow` disarms.
+// `__saw_rt_alloc_deny_after(allow)` is the test hook for OOM paths: most of
+// std (`String`, `StringBuilder`, `Data`, `Arc`, `Channel`) allocates through the
+// global allocator and takes no allocator type parameter, so a test drives
+// those paths by permitting `allow` more allocations and refusing the rest.
+// Denial is a mode: it stays armed until a negative `allow` disarms it.
 //
-// Denial is a MODE, armed and disarmed (design 137). It used to be a bounded
-// window — `deny_after(allow, deny)` refused exactly `deny` allocations and
-// then re-armed itself — because a Saw `panic(msg)` assembled its message into
-// a fresh allocation, so under blanket denial every panic reported "string
-// allocation failed" instead of the one the failing method raised. Panic
-// messages are assembled in stack scratch now, so nothing needs the allocator
-// to come back on its own, and a test that wants to keep running after the
-// failure it came for says so with an explicit `deny_after(-1)`.
-//
-// This is a facility of the HOSTED default allocator only: std never references
-// it (a freestanding runtime need not provide the symbol), and a test that
-// wants it declares the `extern` itself. Default is inactive, and the inactive
-// cost is one atomic load per allocation — noise against malloc.
+// Only the hosted default allocator has this hook. std never references it (a
+// freestanding runtime need not provide the symbol); a test that wants it
+// declares the `extern` itself. Inactive, it costs one atomic load per
+// allocation (design 123).
 
 extern "C" {
     func malloc(size: Int) -> UnsafePointer<Int8>
@@ -41,9 +29,8 @@ extern "C" {
 static ALLOC_LIMIT_ACTIVE: Atomic<Int> = Atomic(0)
 static ALLOC_ALLOW: Atomic<Int> = Atomic(0)
 
-// Permit `allow` more allocations, then refuse every one after. A NEGATIVE
-// `allow` disarms the limit outright, so a test can restore ordinary allocation
-// once it has driven the failure path it came for.
+// Permit `allow` more allocations, then refuse every one after. A negative
+// `allow` disarms the limit.
 @export("__saw_rt_alloc_deny_after")
 func rt_alloc_deny_after(allow: Int) {
     if allow < 0 {

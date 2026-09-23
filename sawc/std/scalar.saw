@@ -5,22 +5,20 @@
 //! exactly what a `String` is a sequence of — `String.scalars()` yields them and
 //! `StringBuilder.append` writes them back out.
 //!
-//! The invariant is checked in ONE place, the fallible `init`. Everything past
+//! The invariant is checked in one place, the fallible `init`. Everything past
 //! it is total: `value()` always answers, `append` always encodes, and a
-//! `Scalar` printed is the CHARACTER rather than its number.
+//! `Scalar` printed is the character rather than its number.
 //!
 //! `Scalar` is in the prelude and needs no import, for the reason `Byte` is:
 //! every scalar API in std names it, so there is no module a reader would think
 //! to import it from. Nothing here allocates and nothing here touches the OS, so
 //! both types are available freestanding.
 
-// std.scalar (design 245 v1). The type sits in its own file rather than in
-// `std.string` because prelude membership is decided per FILE (the module gate
-// in `sawc.py`), and `std.string` carries a per-symbol carve-out already.
+// Its own file rather than part of `std.string` because prelude membership is
+// decided per file (the module gate in `sawc.py`).
 //
-// The scalar space, written as the Unicode standard writes it. A code point is
-// 0..0x10FFFF; the block 0xD800..0xDFFF is reserved for UTF-16 surrogate pairs
-// and no scalar value occupies it, which is why UTF-8 refuses to encode one.
+// A code point is 0..0x10FFFF; the block 0xD800..0xDFFF is reserved for UTF-16
+// surrogate pairs and no scalar value occupies it.
 static MAX_SCALAR: Int = 0x10FFFF
 static SURROGATE_MIN: Int = 0xD800
 static SURROGATE_MAX: Int = 0xDFFF
@@ -74,8 +72,7 @@ extension Scalar {
     /// `0x10FFFF`, `Surrogate` for the `0xD800..0xDFFF` block. A caller for whom
     /// absence is the whole answer writes `try? Scalar(value: n)`.
     ///
-    /// Construction is order-independent NAME matching, like every other struct
-    /// construction, so the label is written:
+    /// Construction uses named matching, so the `value:` label is required.
     ///
     /// ```saw
     /// let quote = try! Scalar(value: 34)   // U+0022, the ASCII quote
@@ -95,16 +92,14 @@ extension Scalar {
     /// Returns the code point, in `0..0x10FFFF`.
     ///
     /// Total: a `Scalar` exists only for a value in the domain, so there is
-    /// nothing to report. This is the read a comparison goes through —
-    /// `ch.value() == 34` — until scalar literals exist.
+    /// nothing to report. There is no scalar literal, so a comparison reads
+    /// the code point: `ch.value() == 34`.
     public func value(&self) -> Int {
         self.raw
     }
 }
 
-// `Scalar` is a trivial (POD) struct, so it auto-conforms to Equatable and
-// Hashable; the `@synthesize`d compare runs over the single `raw` field, i.e.
-// code-point order.
+// The synthesized compare runs over the single `raw` field: code-point order.
 /// Scalars order by code point.
 @synthesize
 extension Scalar: Comparable {

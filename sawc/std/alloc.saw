@@ -17,87 +17,59 @@
 //! ```
 //!
 //! `try!` is the spelling for code that would rather die than handle it, and it
-//! panics NAMING the error. Nothing truncates, returns a plausible substitute,
+//! panics naming the error. Nothing truncates, returns a plausible substitute,
 //! or hands back an object that has quietly stopped working; and no operation
-//! partially applies itself — on `Err` the container is exactly as it was.
+//! partially applies itself: on `Err` the container is exactly as it was. The
+//! `try_` prefix means non-blocking (`try_receive`, `try_lock`), not
+//! "reports allocation failure".
 //!
-//! Design 234 retired the two-tier arrangement this file used to describe: an
-//! infallible operation that panicked, with a `try_`-prefixed twin beside it
-//! that reported. The twins are gone and the prefix now means one thing,
-//! NON-BLOCKING (`try_receive`, `try_lock`).
+//! Five places panic, each because the report has nowhere to go:
 //!
-//! THREE PLACES STILL PANIC, each because the report has nowhere to go:
-//!
-//! - the allocations the COMPILER inserts that no source construct names —
-//!   string interpolation, an escaping closure's captured environment, a
-//!   coroutine frame — where there is no expression to hang a `try` on.
-//!   `--no-hidden-alloc` is the opt-out for code that cannot accept that;
+//! - the allocations the compiler inserts (string interpolation, an escaping
+//!   closure's captured environment, a coroutine frame, a spawn's control
+//!   block). `--no-hidden-alloc` rejects the ones no source construct names
+//!   (interpolation, an escaping closure's environment); a spawn's control
+//!   block and frame are allowed because the spawn call names them;
+//! - a collection literal, whose element pushes are synthesized;
 //! - `copy()`, the `ExplicitCopy` hook, whose signature belongs to the trait;
 //! - `Data`'s subscript, whose copy-on-write separation shares a body with the
-//!   bounds check (`detached()` is the preflight that reports instead).
+//!   bounds check (`detached()` is the preflight that reports instead);
+//! - `String` producers, which return a plain `String`.
 //!
 //! A type parameterized by its allocator (`Vector<T, A>`, `Box<T, A>`,
 //! `Map<K, V, A>`, `Set<T, A>`) is the freestanding toolkit. Types with no
-//! allocator parameter — `String`, `StringBuilder`, `Data`, `Arc`, `Mutex`,
-//! `Channel` — allocate through `GlobalAllocator`.
+//! allocator parameter (`String`, `StringBuilder`, `Data`, `Arc`, `Channel`)
+//! allocate through `GlobalAllocator`.
 
-// Allocator trait, GlobalAllocator allocator, and AllocError
-// Part of the Saw standard library — design 19 §4, brief 28 (stage 3)
-//
-// This is the alloc-layer allocation surface. Alloc-layer containers (Vector,
-// Map, Arc, ...) route every allocation through the `Allocator` trait rather
-// than calling the `__saw_rt_alloc`/`__saw_rt_dealloc` seams directly. As of stage 4
-// (brief 37) the allocator is a PUBLIC type parameter with a default —
-// `Vector<T, A: Allocator = GlobalAllocator>`, `Map<K, V, A = GlobalAllocator>` — so hosted code
-// omits it (`Vector<T>` fills `A = GlobalAllocator`) while a custom allocator is a
-// distinct type end to end. `GlobalAllocator` remains the default and the seam wrapper.
-// Still future work: per-type slab allocators (F3) and module-level `static`
-// declarations (F4). The core/alloc/std layer split (design 19 §1) is also
-// future work — this file builds no layer enforcement.
-
-// =============================================================================
-// The global allocation seams (design 20)
-// =============================================================================
+// Containers route every allocation through the `Allocator` trait rather than
+// calling the `__saw_rt_alloc`/`__saw_rt_dealloc` seams directly, so a custom
+// allocator is a distinct type end to end and `Vector<T>` fills the default.
 
 // Hosted defaults wrap malloc/free; the freestanding profile leaves these as
-// declarations the user's environment provides at link time. Because all std
-// files are merged into one namespace, these declarations are shared with the
-// alloc-layer container modules — they no longer declare the seams themselves.
+// declarations the user's environment provides at link time. All std files
+// share one namespace, so the container modules use these declarations.
 extern "C" {
     func __saw_rt_alloc(size: Int, align: Int) -> UnsafePointer<Int8>?
     func __saw_rt_dealloc(ptr: UnsafePointer<Int8>, size: Int, align: Int)
 }
 
-// =============================================================================
-// Allocator trait (design 19 §4)
-// =============================================================================
-
 /// The allocation contract every container routes through.
 ///
-/// An implementation reports exhaustion by returning `None` from `alloc`; what
-/// happens next is the caller's tier, not the allocator's (see the module
-/// documentation). `dealloc` must be handed the same `size`/`align` the block
-/// was allocated with: the seams carry no per-block metadata, so the container
-/// remembers the layout.
-/// Both requirements are `unsafe` (design 130): each names a raw pointer in its
-/// signature, so every implementation and every caller is unsafe by the trigger
-/// rule. `dealloc` is the shape rule 7 describes — its precondition (the pointer
-/// really came from this allocator, with this layout) is expressed by taking an
-/// unsafe-typed parameter, which is what carries the obligation to the caller.
+/// An implementation reports exhaustion by returning `None` from `alloc`; the
+/// caller turns that into an `AllocError`. `dealloc` must be handed the same
+/// `size`/`align` the block was allocated with: the seams carry no per-block
+/// metadata, so the container remembers the layout.
+///
+/// Both requirements are `unsafe` because each names a raw pointer. `dealloc`'s
+/// precondition (the pointer came from this allocator, with this layout) is
+/// carried to the caller by its unsafe-typed parameter.
 public trait Allocator {
     func alloc(&self, size: Int, align: Int) unsafe -> UnsafePointer<Int8>?
     func dealloc(&self, ptr: UnsafePointer<Int8>, size: Int, align: Int) unsafe
 }
 
-// =============================================================================
-// GlobalAllocator — the default, seam-backed allocator
-// =============================================================================
-
-// A zero-field unit struct: it carries no state (its "storage" is whatever the
-// __saw_rt_alloc seam is bound to at link time). Being zero-sized, `GlobalAllocator()` is a
-// zero-size placeholder and `GlobalAllocator().alloc(...)` monomorphizes to a direct
-// call into the seam with no allocator value materialized at runtime — the
-// zero-cost static dispatch that design 19 option C relies on.
+// Zero-sized: `GlobalAllocator().alloc(...)` monomorphizes to a direct call into
+// the seam with no allocator value materialized at runtime.
 public struct GlobalAllocator {}
 
 extension GlobalAllocator: Allocator {
@@ -110,11 +82,7 @@ extension GlobalAllocator: Allocator {
     }
 }
 
-// =============================================================================
-// AllocError — failure context for fallible factories (design 19 open-Q tier 2)
-// =============================================================================
-
-/// The error every `try_` operation reports: the allocator refused a request.
+/// The error an allocating operation reports: the allocator refused a request.
 ///
 /// `size` is the byte count that was asked for and `align` its alignment, so an
 /// out-of-memory site can be logged with enough context to tell a 24-byte

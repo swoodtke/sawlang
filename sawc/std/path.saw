@@ -1,16 +1,7 @@
-// Path - File path manipulation for the Saw standard library
-// Part of the Saw standard library
-//
-// Provides platform-aware path handling with methods for
-// manipulating file and directory paths.
-
-// =============================================================================
-// FFI declarations
-// =============================================================================
+// Path: a file system path held as a `/`-separated String.
 
 extern "C" {
-    // memcpy is a compiler/runtime builtin (not a seam) and stays available in
-    // both profiles; Path does its own buffer allocation via String helpers.
+    // memcpy is a compiler builtin (not a seam), available in both profiles.
     func memcpy(dest: UnsafePointer<Int8>, src: UnsafePointer<Int8>, n: Int) -> UnsafePointer<Int8>
 }
 
@@ -124,11 +115,7 @@ extension Path {
     /// Joins this path with another component.
     ///
     /// An absolute `other` replaces this path entirely, and an empty component
-    /// on either side yields the other one. Allocator exhaustion panics inside
-    /// `__saw_string_alloc` (design 123): this used to return the UN-joined
-    /// parent path, so `Path("/tmp").join("data.db")` could yield `/tmp` — and
-    /// the caller would then open, write or unlink the directory it meant to
-    /// create a file in.
+    /// on either side yields the other one. Panics if the allocator refuses.
     public func join(&self, other: String) unsafe -> Path {
         let self_len = self.value.len()
         let other_len = other.len()
@@ -152,8 +139,6 @@ extension Path {
         let self_ptr = self.value as UnsafePointer<Int8>
         let other_ptr = other as UnsafePointer<Int8>
 
-        // Copy self (memcpy returns dst — a raw pointer — so the discarded
-        // call is itself a pointer producer under design 81).
         memcpy(buf, self_ptr, self_len)
 
         var offset = self_len
@@ -163,8 +148,6 @@ extension Path {
             offset = offset + 1
         }
 
-        // Copy other (one marker covers both the pointer arithmetic and the
-        // pointer-returning memcpy call).
         memcpy(buf + offset, other_ptr, other_len)
 
         buf[new_len] = 0 as Int8

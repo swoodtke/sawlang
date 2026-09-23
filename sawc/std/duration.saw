@@ -11,16 +11,11 @@
 //! Nothing here allocates and nothing here touches the OS, so the type is
 //! available in the freestanding profile as well as the hosted one.
 
-// std.duration (design 180 unit 2). Carved out of std/time.saw, which is
-// HOSTED-ONLY and import-required: `sleep(d: Duration)` is a prelude builtin, so
-// its one argument type has to be reachable wherever `sleep` is, in both
-// profiles and with no import. `Instant` stayed behind — it reads a clock, which
-// is exactly what a kernel supplies for itself.
+// Separate from std.time (hosted-only, import-required) because `sleep` is a
+// prelude builtin in both profiles and this is its argument type.
 //
-// The backing is UNSIGNED. A span has no negative values, and the whole
-// u64-nanosecond range (about 584 years) is reachable from every constructor, so
-// no request a caller can spell wraps into a shorter one — which is what DF-170a
-// was about at the millisecond API this replaced.
+// The backing is unsigned: a span has no negative values, and each constructor
+// panics rather than wrap a request into a shorter span.
 
 // Unit conversions, named rather than spelled at each site.
 static NANOS_PER_MICRO: UInt64 = 1000
@@ -102,13 +97,11 @@ extension Duration {
     }
 }
 
-// The executor's wake-reason projection (design 180). A suspended frame carries
-// its deadline in a platform-Int `__wake` word, so a span past `Int.max`
-// nanoseconds — about 292 years on a 64-bit host — saturates there. Both values
-// mean the task is not coming back and no observer can tell them apart, whereas
-// refusing the span would make `sleep` panic on a `Duration` the type is happy
-// to hold. The coroutine transform emits this call; nothing else calls it, and
-// user code cannot (the lexer reserves the `__saw_` prefix).
+// The executor's wake-reason projection. A suspended frame carries its sleep
+// span in a platform-Int `__wake` word, so a span past `Int.max` nanoseconds (about
+// 292 years on a 64-bit host) saturates: no observer can tell the two apart,
+// and refusing would make `sleep` panic on a valid `Duration`. Only the
+// coroutine transform emits this call (the lexer reserves `__saw_`).
 func __saw_wake_nanos(d: Duration) -> Int {
     let ns = d.as_nanos()
     if ns >= (Int.max as UInt64) {
@@ -117,8 +110,7 @@ func __saw_wake_nanos(d: Duration) -> Int {
     ns as Int
 }
 
-// Duration is a trivial (POD) struct, so it auto-conforms to Equatable; the
-// `@synthesize`d compare runs over the single `nanos` field, i.e. numeric order.
+// The synthesized compare runs over the single `nanos` field: numeric order.
 /// Durations order by length.
 @synthesize
 extension Duration: Comparable {

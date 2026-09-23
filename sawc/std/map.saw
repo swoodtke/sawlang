@@ -80,9 +80,8 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
     }
 
     // There is deliberately no helper that reads a key or value out of a slot
-    // by value: at the owning tiers that read is an alias the map still owns,
-    // a double free waiting for its release. Reach payloads by reference or
-    // through a `borrows` accessor.
+    // by value. Payloads are reached by reference or through a `borrows`
+    // accessor, which copies and retains nothing and works at every copy tier.
 
     // The bucket holding `key`, or -1 if absent. A separate function because
     // `lend` may not appear in a loop, so a searching `borrows` accessor finds
@@ -157,7 +156,8 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
             match slot {
                 case Occupied(k, v) -> {
                     // Rehashed keys are unique and the new table has no
-                    // tombstones, so the first empty slot is the home.
+                    // tombstones, so the probe from the key's home bucket
+                    // takes the first empty slot without comparing keys.
                     var b = self._hash_code(k) & mask
                     var found = false
                     while not found {
@@ -316,11 +316,10 @@ extension Map<K: Hashable + Equatable, V, A: Allocator = GlobalAllocator> {
 //
 // Keys and values are lent as `&K` and `&V`: the walk reaches each slot as a
 // `&MapSlot<K, V>` through `Vector.each` and matches that reference, so the
-// arm bindings alias the stored entry. Nothing is retained or dropped, which
-// is what makes every copy tier visitable; reading the payload out by value
-// would leak at the Copy tier and alias at the owning tiers. The reference
-// match is not a place window because a window's body is `sync`, which would
-// force `sync` onto every visitor.
+// arm bindings alias the stored entry. Nothing is copied, retained or
+// dropped, which is what makes every copy tier visitable at zero cost. The
+// reference match is not a place window because a window's body is `sync`,
+// which would force `sync` onto every visitor's closure type.
 //
 // `each*` borrow the map for the whole walk, so a visitor that also captures
 // the map mutably is an exclusivity error (examples/map_each_mutate_error.saw).

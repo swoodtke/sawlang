@@ -19,47 +19,33 @@
 //! no readiness a reactor can wait on, so there is nothing to park on.
 //!
 //! There is no per-call opt-out. Code that knows it is on a network mount and
-//! cannot afford the stall should do that work in a `spawn`-ed `Task`, whose own
-//! thread is then the one that waits.
+//! cannot afford the stall should do that work on a `Thread.spawn` thread, which
+//! is then the one that waits.
 //!
 //! Part of the Saw standard library. POSIX system calls behind the runtime seams.
-
-// =============================================================================
-// FFI declarations for file operations
-// =============================================================================
 
 extern "C" {
     func close(fd: Int32) -> Int32
 
-    // File info and manipulation
     func access(path: UnsafePointer<Int8>, mode: Int32) -> Int32
-    // design 117: status-carrying fs ops (0 = ok, -SysError tag on failure).
+    // Status-carrying seams: 0 on success, the negated SysError tag on failure.
     func __saw_rt_fs_unlink(path: UnsafePointer<Int8>) -> Int
     func __saw_rt_fs_rename(oldpath: UnsafePointer<Int8>, newpath: UnsafePointer<Int8>) -> Int
-    // design 132 unit G: the file-I/O seams, same convention — the natural
-    // non-negative result (fd, byte count, offset) or the negated SysError tag.
-    // They replaced bare `open`/`read`/`write`/`lseek` calls, whose failure
-    // cause std had no way to read (errno is runtime-internal, rt/ABI.md).
+    // The natural non-negative result (fd, byte count, offset) or the negated
+    // SysError tag. errno is runtime-internal (rt/ABI.md), so std learns a
+    // failure's cause only through these seams.
     func __saw_rt_fs_open(path: UnsafePointer<Int8>, flags: Int, mode: Int) -> Int
     func __saw_rt_fs_read(fd: Int, buf: UnsafePointer<Int8>, count: Int) -> Int
     func __saw_rt_fs_write(fd: Int, buf: UnsafePointer<Int8>, count: Int) -> Int
     func __saw_rt_fs_lseek(fd: Int, offset: Int, whence: Int) -> Int
 
-    // Memory
     func malloc(size: Int) -> UnsafePointer<Int8>?
     func free(ptr: UnsafePointer<Int8>)
 }
 
-// How a file is being opened. This is a PORTABLE mode the runtime translates
-// into its host's `O_*` bits, not a POSIX flag word (design 155).
-//
-// It used to be a flag word, written here as the decimal LINUX values and used
-// on both hosts. On macOS those bits mean something else entirely: `create`
-// came out as `O_WRONLY | O_ASYNC | O_CREAT` — no `O_TRUNC`, so writing 3 bytes
-// over a 30-byte file left a 30-byte file with the old tail still on it — and
-// `open_append` came out as `O_WRONLY | O_ASYNC | O_TRUNC`, which neither
-// created a missing file nor appended to a present one. A per-host macro cannot
-// be a portable literal, so std stopped trying to spell one.
+// How a file is being opened: a portable mode the runtime translates into its
+// host's `O_*` bits. Never spell `O_*` values here; they differ between Linux
+// and macOS.
 enum OpenMode: UInt8 {
     /// Read an existing file.
     case Read = 0
@@ -71,11 +57,8 @@ enum OpenMode: UInt8 {
 
 static MODE_RW_R_R: Int = 420             // 0644
 
-// Where an lseek(2) offset is measured from. A closed set of modes, so it is a
-// backed enum rather than a family of statics (design 153) — the same shape
-// `OpenMode` above has, and the same `(w as UInt8) as Int` projection where it
-// crosses the seam. The values are POSIX's `SEEK_SET`/`SEEK_CUR`/`SEEK_END`,
-// which the seam hands to lseek(2) unchanged.
+// Where an lseek(2) offset is measured from. The values are POSIX's
+// `SEEK_SET`/`SEEK_CUR`/`SEEK_END`, which the seam passes to lseek(2) unchanged.
 enum SeekWhence: UInt8 {
     /// From the beginning of the file.
     case Start = 0
@@ -85,23 +68,12 @@ enum SeekWhence: UInt8 {
     case End = 2
 }
 
-// =============================================================================
-// File - A file handle with automatic cleanup
-// =============================================================================
-
 public struct File {
     private fd: Int32
 }
 
 extension File {
-    // =========================================================================
-    // Static methods for opening files
-    // =========================================================================
-
-    // Open `path` for reading.
-    //
-    // `Err` carries the reason open(2) refused — ENOENT and EACCES are different
-    // problems and the caller can now tell them apart (design 92).
+    // Open `path` for reading. `Err` carries the reason open(2) refused.
     public static func open(path: Path) unsafe -> Result<File, IoError> {
         File._opened(path, OpenMode.Read, 0, "open")
     }
@@ -126,20 +98,13 @@ extension File {
         return File(fd: fd as Int32)
     }
 
-    // =========================================================================
-    // Reading - returns Data
-    // =========================================================================
-
     // Read bytes from the file. With `size <= 0` (the default) that is the whole
     // remainder; otherwise at most `size` bytes.
     //
     // `Err` carries the errno cause of the failing lseek(2) or read(2). An empty
-    // `Ok` means the file had nothing left, which is a different answer from a
-    // failure and always was — it just used to share `None` with it (design 92).
-    // Allocator exhaustion is a THIRD answer (design 234): the staging buffer
-    // and the `Data` fill below both report, mapped onto this domain's word for
-    // it (`ResourcesExhausted`), so a short buffer cannot make this return FEWER
-    // bytes than the file holds and cannot be mistaken for EOF either.
+    // `Ok` means the file had nothing left. Allocator refusal of the staging
+    // buffer or the `Data` is `ResourcesExhausted`, so it cannot shorten the
+    // result or pass for end of file.
     public func read(&var self, size: Int = 0) unsafe -> Result<Data, IoError> {
         var bytes_to_read = size
 
@@ -165,9 +130,6 @@ extension File {
             return Data()
         }
 
-        // design 234: the read buffer's own refusal is an answer now, not a
-        // panic, and this domain already has the word for it. Same on the two
-        // `Data` allocations below.
         guard let buf = malloc(bytes_to_read) else {
             return IoError.of("read", IoErrorKind.ResourcesExhausted)
         }
@@ -177,10 +139,9 @@ extension File {
             return IoError.of("read", 0 - bytes_read)
         }
 
-        // Create Data and copy bytes. The read buffer is `Int8` (C `char`) and
-        // `Data` holds `UInt8`, so each byte is REINTERPRETED, not converted:
-        // a file byte >= 0x80 arrives negative and a checked `as` would panic
-        // on it (design 170). Same width, so this is a pure bit reinterpret.
+        // The read buffer is `Int8` (C `char`) and `Data` holds `UInt8`, so each
+        // byte is reinterpreted, not converted: a byte >= 0x80 arrives negative
+        // and a checked `as` would panic on it.
         var data = match Data(capacity: bytes_read) {
             case Ok(d) -> move d,
             case Err(_) -> {
@@ -203,14 +164,10 @@ extension File {
         return move data
     }
 
-    // =========================================================================
-    // Writing - accepts Data
-    // =========================================================================
-
     // Write `data` to the file, returning the number of bytes written.
     //
-    // `Err` carries the errno cause of the failing write(2), or — since design
-    // 234 — this domain's word for the staging buffer's own refusal.
+    // `Err` carries the errno cause of the failing write(2), or
+    // `ResourcesExhausted` when the staging buffer cannot be allocated.
     public func write(&self, data: Data) unsafe -> Result<Int, IoError> {
         if data.len() == 0 {
             return 0
@@ -219,8 +176,7 @@ extension File {
         guard let buf = malloc(data.len()) else {
             return IoError.of("write", IoErrorKind.ResourcesExhausted)
         }
-        // Copy data bytes to buffer — the `UInt8` -> `Int8` reinterpret that
-        // mirrors `read` above, byte values >= 128 included (design 170).
+        // The `UInt8` -> `Int8` reinterpret that mirrors `read`.
         var i = 0
         while i < data.len() {
             if let b = data.get(i) {
@@ -238,12 +194,8 @@ extension File {
         return written
     }
 
-    // =========================================================================
-    // Seeking
-    // =========================================================================
-
     // Each returns the resulting absolute offset, or the errno cause of the
-    // failing lseek(2) (design 92 — `None` said only "it did not work").
+    // failing lseek(2).
 
     public func seek_start(&self, offset: Int) unsafe -> Result<Int, IoError> {
         File._seek(self.fd, offset, SeekWhence.Start)
@@ -269,17 +221,12 @@ extension File {
         return result
     }
 
-    // =========================================================================
-    // Static utility methods
-    // =========================================================================
-
     public static func exists(path: Path) unsafe -> Bool {
         let ptr = path.as_str() as UnsafePointer<Int8>
         access(ptr, 0 as Int32) == (0 as Int32)
     }
 
-    // Remove a file. Returns Ok on success or the errno cause honestly (design
-    // 92 — a Bool hid WHY it failed; `exists` stays a genuine boolean question).
+    // Remove a file. `Err` carries the errno cause of the failing unlink(2).
     public static func remove(path: Path) unsafe -> Result<Void, IoError> {
         let ptr = path.as_str() as UnsafePointer<Int8>
         let e = __saw_rt_fs_unlink(ptr)
@@ -289,7 +236,8 @@ extension File {
         return
     }
 
-    // Rename/move a file. Ok on success, Err(IoError) with the SysError cause.
+    // Rename or move a file. `Err` carries the errno cause of the failing
+    // rename(2).
     public static func rename(from_path: Path, to_path: Path) unsafe -> Result<Void, IoError> {
         let from_ptr = from_path.as_str() as UnsafePointer<Int8>
         let to_ptr = to_path.as_str() as UnsafePointer<Int8>

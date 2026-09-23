@@ -2,10 +2,13 @@
 Saw Language Parser Package
 
 This package provides the Parser class for parsing Saw source code into an AST.
-The implementation is split across multiple mixin modules for better organization:
+The implementation is split across mixin modules:
 
-- core.py: Main Parser class and core parsing utilities
-- types.py: Type annotation parsing
+- core.py: the Parser class, token access, doc comments, top-level declarations
+- declarations.py: structs, enums, traits, extensions, functions, externs
+- statements.py: blocks and statements
+- expressions.py: expressions, closures, patterns
+- types.py: type annotations
 
 Usage:
     from parser import Parser

@@ -12919,8 +12919,8 @@ an overrun truncates and no `AllocError` exists at all.
 
 A type parameterized by its allocator (`Vector<T, A>`, `Box<T, A>`,
 `Map<K, V, A>`, `Set<T, A>`) is the freestanding toolkit. Types with no
-allocator parameter — `String`, `StringBuilder`, `Data`, `Arc`, `Mutex`,
-`Channel` — allocate through `GlobalAllocator`.
+allocator parameter — `String`, `StringBuilder`, `Data`, `Arc`, `Channel` —
+allocate through `GlobalAllocator`; `Mutex` allocates nothing.
 
 What none of these do is degrade. There is no truncated `Vector`, no
 `Ok("")` from a validating constructor, no un-joined path returned from `join`,

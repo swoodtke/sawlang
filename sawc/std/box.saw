@@ -1,29 +1,13 @@
-// Box<T, A> — a single owned heap allocation (design 42 item 1).
+// Box<T, A>: one `T` owned on the heap through allocator `A`. Hosted code
+// writes `Box<T>`; a kernel writes `Box<Task, TaskSlab>` to place the value in
+// a per-type slab. Box is NoCopy, and its `T` is released exactly once.
 //
-// `Box<T, A: Allocator = GlobalAllocator>` owns one `T` allocated through allocator `A`.
-// Hosted code writes `Box<T>` (the default fills `A = GlobalAllocator`); a kernel writes
-// `Box<Task, TaskSlab>` to place the value in a per-type slab — the design-19 §4
-// "kernel idiom". Box is NoCopy: transferring it is a `move`, and its single
-// heap `T` is released exactly once on deinit.
-//
-// FACTORY SURFACE (design 42 item 1, "report the surface chosen"): the
-// constructor is a STATIC METHOD on Box, reached through the brief-28
-// static-factory path — `Box<T>.make(v)`. Static methods
-// on the generic struct were chosen over free `MakeBox`/`MakeBoxOr` functions
-// because the struct's own type arguments (and their `A = GlobalAllocator` default) are
-// supplied and defaulted at the call site by the same generics machinery
-// `Vector(capacity:)` already uses, with no free-function type-inference gap.
-// `make` IS the D4-pinned `MakeBox`; design 123's fallible twin `try_make`
-// retired into it (design 234 — one operation, and it reports).
-//
-// There is no `init(value:)`: `make` is a static because the allocator type
-// parameter is named at the call site (`Box<T, TaskSlab>.make(...)`), not
-// because construction is special. A memberwise `Box(ptr:)` still exists (used
-// internally) but is a raw wrapper, not the API.
+// The constructor is the static `make` so the allocator type parameter is
+// named at the call site (`Box<T, TaskSlab>.make(...)`). The memberwise
+// `Box(ptr:)` is a raw internal wrapper, not the API.
 
 public struct Box<T, A: Allocator = GlobalAllocator> {
-    // Points directly at the heap `T`. Always valid in a live Box: `make`
-    // returns `Err` without constructing one, so no inert/None state exists.
+    // Always valid in a live Box: `make` returns `Err` without constructing one.
     private ptr: UnsafePointer<T>
 }
 
@@ -38,58 +22,38 @@ extension Box<T, A: Allocator = GlobalAllocator> {
         let align = alignof<T>()
         if let raw = A().alloc(size, align) {
             let ptr = raw as UnsafePointer<T>
-            // PLACEMENT-MOVE (LANGUAGE_SPEC "Placement writes"): `ptr[0]` is an
-            // uninitialized, freshly-allocated chunk, so this store bitwise-moves
-            // `value` in and does NOT release any prior occupant. `value` is
-            // consumed by the value-transfer checkpoint.
+            // A placement move into fresh storage: no prior occupant to release
+            // (LANGUAGE_SPEC "Placement writes").
             ptr[0] = move value
             return Box<T, A>(ptr: ptr)
         }
-        // `value` unmoved -> deinit'd at scope exit; surface the failure.
         return AllocError(size: size, align: align)
     }
 }
 
-// Deinit is registered before NoCopy so the `NoCopy: Deinit` supertrait
-// requirement is already satisfied when NoCopy is checked (mirrors Task/Arc).
 extension Box<T, A: Allocator = GlobalAllocator>: NoCopy {
     public func deinit(&var self) unsafe {
-        // Release the LIVE payload in place (its own drop glue), THEN free the
-        // chunk through THIS box's own allocator `A` — a Box<T, TaskSlab> frees
-        // through the slab, never GlobalAllocator. Exactly one release of the payload.
+        // Drop the payload in place, then free the chunk through this box's own
+        // allocator `A`: a box with a custom allocator never falls back to
+        // GlobalAllocator.
         __saw_deinit_in_place(self.ptr)
         let raw = self.ptr as UnsafePointer<Int8>
         A().dealloc(raw, sizeof<T>(), alignof<T>())
     }
 }
 
-// Read accessor for the payload (design 42 item 1), as a PLACE (design 141/146).
-//
-// It LENDS the heap `T` where it sits rather than handing back a duplicate, so
-// there is no bound to owe and no payload it cannot serve. The USE SITE decides
-// what the window is for: `b.value().method()` borrows it, `b.value().n += 1`
-// writes it in the box's own allocation, and reading the place OUT as a value
-// follows the payload's copy tier — bitwise for a trivial `T`, a retain for a
-// `String`, and the ordinary place-read refusal (naming `move`/`.copy()`) for an
-// `ExplicitCopy`/`NoCopy` payload.
-//
-// It was `T: ExplicitCopy` + a body spelling `.copy()` until design 218 unit 1.5
-// stage 3c. That body is only sound for a payload that HAS a `copy()`, and the
-// bound did not fence the erased box: `Box<any Error>` — which the compiler's own
-// erased-error channel builds — reached it and the substituted body asked an
-// existential for a method its trait does not declare. Lending the storage is the
-// answer the surface wanted all along; nothing copies, so nothing has to.
+// Lends the heap `T` where it sits, so it needs no bound and serves every
+// payload, including the erased `Box<any Error>`. The use site decides the
+// window: `b.value().method()` borrows, `b.value().n += 1` writes in place, and
+// reading the place out as a value follows the payload's copy tier.
 extension Box<T, A: Allocator = GlobalAllocator> {
     public func value(&var self) unsafe borrows -> &var T {
         lend self.ptr[0]
     }
 }
 
-// PAYLOAD METHOD FORWARDING (design 42 item 1, "like Arc"): an immutable `&self`
-// method on the payload `T` that is NOT defined on Box itself is callable through
-// the Box — `box.peek()` forwards to `T.peek()` — resolved and lowered by the
-// compiler (typechecker `_resolve_arc_forward` keyed on struct name "Box";
-// codegen borrows the payload at `ptr[0]`). A `&var self` payload method is
-// REJECTED, same as through Arc: aliased mutation of owned-through-a-handle state
-// is exactly what a `Mutex` payload exists to make safe. No Saw-level code is
-// needed here; this comment documents where the mechanism lives.
+// Payload method forwarding, as for Arc: a `&self` method of `T` not defined on
+// Box is callable through the Box (`box.peek()` forwards to `T.peek()`). The
+// compiler does it (typechecker `_resolve_arc_forward`); there is no Saw code.
+// A `&var self` payload method is rejected, since aliased mutation through a
+// handle is what `Mutex` exists to make safe.

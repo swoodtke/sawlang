@@ -29,7 +29,7 @@ COMPOUND_ASSIGN_OPS = {
     TokenType.STAR_ASSIGN: '*',
     TokenType.SLASH_ASSIGN: '/',
     TokenType.PERCENT_ASSIGN: '%',
-    # Bitwise compound assignments (design 50).
+    # Bitwise compound assignments.
     TokenType.AMP_ASSIGN: '&',
     TokenType.PIPE_ASSIGN: '|',
     TokenType.CARET_ASSIGN: '^',
@@ -44,9 +44,8 @@ class StatementsMixin:
     def parse_block(self) -> Block:
         start = self.current()
         self.expect(TokenType.LBRACE)
-        # SL-347: the block's statement gaps all run through the separator
-        # chokepoint, this first call covering the gap before the first
-        # statement (it skips the newlines `skip_newlines` used to).
+        # Every statement gap runs through the separator chokepoint; this
+        # first call covers the gap before the first statement.
         self.expect_statement_end()
 
         statements = []
@@ -73,14 +72,10 @@ class StatementsMixin:
         )
 
     def parse_statement(self) -> Statement:
-        # DF-232b: `type` is a contextual keyword, so `type X = Y` in a BLOCK is
-        # two identifiers in a row rather than a declaration. A local type alias
-        # is not legal in Saw (no statement form has ever parsed one), and
-        # without this the shape falls through to the expression parser and
-        # reports `undefined variable `type``, which describes the tokens and
-        # not the mistake. `type` as an ordinary local binding is unaffected —
-        # that is `let type = ...` / `var type = ...`, which never reaches here
-        # with an IDENT following.
+        # A local type alias is not legal. Without this check `type X = Y` in
+        # a block falls through to the expression parser and reports
+        # "undefined variable `type`", which describes the tokens, not the
+        # mistake. `let type = ...` is unaffected.
         if self.at_type_alias_start():
             self.error(
                 "a type alias may only be declared at module level, or as an "
@@ -105,12 +100,12 @@ class StatementsMixin:
         elif self.match(TokenType.CONTINUE):
             return self.parse_continue_statement()
         elif self.match(TokenType.AT):
-            # DF-300b: `@align(N)` ahead of a local `let`/`var` — the one
-            # attribute a statement accepts. Every other name, and every other
-            # statement kind, is refused through the two position funnels.
+            # `@align(N)` ahead of a local `let`/`var` is the one attribute a
+            # statement accepts; everything else is refused through the two
+            # position funnels.
             return self._parse_attributed_local()
         elif self.match_ident("static_assert") and self.peek(1).type == TokenType.LPAREN:
-            # Compile-time assertion in statement position (design 53).
+            # Compile-time assertion in statement position.
             return self.parse_static_assert()
         else:
             # Try to parse assignment or expression statement
@@ -119,13 +114,11 @@ class StatementsMixin:
             return self.parse_assignment_or_expression_statement()
 
     def _parse_attributed_local(self) -> Statement:
-        """Parse an attribute block ahead of a local binding (DF-300b).
+        """Parse an attribute block ahead of a local binding.
 
-        The statement-position entry of `parse_attributes`. Only `@align(N)`
-        is legal here and only on a `let`/`var` that binds ONE name — a
-        destructuring `let` binds several, and one alignment cannot say which
-        of them it is about, so it is refused where it is written rather than
-        silently applied to the first.
+        Only `@align(N)` is legal here, and only on a `let`/`var` that binds one
+        name: a destructuring `let` binds several and one alignment cannot say
+        which, so it is refused rather than applied to the first.
         """
         at_token = self.current()
         at_pos = self.pos
@@ -159,7 +152,7 @@ class StatementsMixin:
         mutable = self.current().type == TokenType.VAR
         self.advance()  # consume 'let' or 'var'
 
-        # Tuple pattern over an Optional tuple (design 63): `guard let (x, y) = ..`
+        # Tuple pattern over an Optional tuple: `guard let (x, y) = ..`
         guard_pattern = None
         guard_name = ""
         if self.match(TokenType.LPAREN):
@@ -172,8 +165,8 @@ class StatementsMixin:
         saved_trailing = self.allow_trailing_closure
         self.allow_trailing_closure = False
         optional_expr = self.parse_expression()
-        # Design 111: `guard let _ = x?.y = v else { ... }` — an optional-chain
-        # ASSIGNMENT (type `Void?`) consumed by the binding. The scrutinee is the
+        # `guard let _ = x?.y = v else { ... }`: an optional-chain assignment
+        # (type `Void?`) consumed by the binding. The scrutinee is the
         # OptionalChainAssign, not the chain read.
         if self.match(TokenType.ASSIGN) and isinstance(optional_expr, OptionalEvalExpr):
             assign_tok = self.advance()
@@ -216,8 +209,8 @@ class StatementsMixin:
 
         name_token = self.expect(TokenType.IDENT, "Expected variable name")
 
-        # `_` is a discard, not a binding (design 53 / DF1). `var _` has nothing
-        # to mutate, so it is rejected.
+        # `_` is a discard, not a binding. `var _` has nothing to mutate, so it
+        # is rejected.
         if name_token.value == "_" and mutable:
             self.error("`var _` is not allowed: `_` is a discard binding and has "
                        "nothing to mutate (use `let _` to evaluate and drop)")
@@ -245,15 +238,12 @@ class StatementsMixin:
         start_pos = self.pos
         target_expr = self.parse_expression()
 
-        # Optional-chain assignment `x?.y = v` / `x?.y += v` (design 111 +
-        # design 227 unit 4): the target is an OptionalEvalExpr, and which
-        # operator follows decides the OP, not whether the statement is a chain
-        # assignment at all. Recognized ABOVE the plain/compound split, which is
-        # where it used to sit on the plain branch only — so `o?.n += 5` was
-        # "Invalid compound assignment target", a message about the shape of a
-        # target that is fine (DF-225l). It becomes an OptionalChainAssign
-        # expression (type `Void?`) wrapped in an ExpressionStatement —
-        # statement position discards the `Void?` silently.
+        # Optional-chain assignment `x?.y = v` / `x?.y += v`: the target is an
+        # OptionalEvalExpr, and the operator that follows decides the op, not
+        # whether this is a chain assignment. Recognized above the
+        # plain/compound split so both spellings reach it. It becomes an
+        # OptionalChainAssign (type `Void?`) wrapped in an ExpressionStatement,
+        # which discards the `Void?`.
         if isinstance(target_expr, OptionalEvalExpr):
             chain_op = None
             chain_write = False
@@ -283,19 +273,13 @@ class StatementsMixin:
             self.advance()  # consume '='
             value_expr = self.parse_expression()
 
-            # Validate that target is assignable (Identifier, MemberAccess,
-            # TupleIndex, ArrayIndex, or `self` — design 110 `&var self`
-            # replacement). A tuple index is a place like any other projection
-            # (DF-151j), so `t.0 = fresh` is the whole-element write.
-            #
-            # Design 176 adds the two PLACE spellings the grammar had not caught
-            # up with. `m[k]! = v` (DF-146n) is the whole-value write through a
-            # forced conditional lend — symmetric with `v[i] = fresh`, panicking
-            # on an absent key — so a ForceUnwrap is a target. `c.slot(1) = 99`
-            # (DF-175d) is the same write through a NAMED accessor, so a
-            # MethodCall is one too; whether that call actually lends a place is
-            # a question only the checker can answer, and it answers it with a
-            # diagnostic naming the accessor.
+            # Validate that target is assignable: a variable, field, tuple
+            # element or index, `self` (whole-referent replacement through
+            # `&var self`), or a place reached through a lend. `m[k]! = v`
+            # writes through a forced conditional lend (panicking on an absent
+            # key); `c.slot(1) = 99` writes through a named accessor. Whether
+            # that call really lends a place is the checker's question, and it
+            # answers with a diagnostic naming the accessor (design 176).
             if not isinstance(target_expr, (Identifier, MemberAccess, ArrayIndex,
                                             TupleIndex, SelfExpr, ForceUnwrap,
                                             MethodCall)):
@@ -315,9 +299,7 @@ class StatementsMixin:
             self.advance()  # consume the compound operator
             value_expr = self.parse_expression()
 
-            # Validate that target is assignable (Identifier, MemberAccess,
-            # TupleIndex, ArrayIndex, or — design 176 — a place reached through
-            # a forced conditional lend or a named accessor).
+            # Same targets as plain assignment, except `self`.
             if not isinstance(target_expr, (Identifier, MemberAccess, ArrayIndex,
                                             TupleIndex, ForceUnwrap, MethodCall)):
                 self.error("Invalid compound assignment target")
@@ -338,13 +320,12 @@ class StatementsMixin:
         )
 
     def parse_lend_statement(self) -> LendStatement:
-        """`lend <place>` (design 141) — the borrow window of a borrows body.
+        """`lend <place>`, the borrow window of a borrows body (design 141).
 
-        Deliberately shaped like `return` and deliberately not one: the
-        function pauses here rather than finishing, and what follows the
-        keyword names STORAGE rather than producing a value. A bare `lend` is
-        rejected here so the "a place, not a value" error can be about the
-        expression the author wrote.
+        Shaped like `return` but not one: the function pauses here rather than
+        finishing, and the operand names storage rather than producing a
+        value. A bare `lend` is rejected here so the "a place, not a value"
+        error can be about an expression the author wrote.
         """
         start = self.advance()  # consume 'lend'
 
@@ -375,9 +356,8 @@ class StatementsMixin:
     def parse_while_statement(self) -> WhileExpr:
         start = self.advance()  # consume 'while'
 
-        # design 233: `while let x = SCRUT { ... }` — the drain loop's header
-        # spelling. `let`/`var` right after `while` is the only thing it can be
-        # (a condition never starts with either keyword), so no lookahead.
+        # `while let x = SCRUT { ... }`. A condition never starts with
+        # `let`/`var`, so no lookahead is needed.
         if self.match(TokenType.LET, TokenType.VAR):
             return self._parse_while_let(start)
 
@@ -401,41 +381,30 @@ class StatementsMixin:
         )
 
     def _parse_while_let(self, start) -> WhileExpr:
-        """design 233: `while let x = SCRUT { BODY }` — the drain loop.
+        """`while let x = SCRUT { BODY }`, the drain loop (design 233).
 
-        LOWERED HERE into the two constructs it means, so nothing about it is a
-        second implementation of anything:
+        Lowered here into the constructs it means:
 
-            while {                        # conditionless: the only way out is
-                if let x = SCRUT {         # the binding failing
+            while {
+                if let x = SCRUT {
                     BODY
                 } else { break }
             }
 
-        The scrutinee sits INSIDE the loop body, which is what makes this a
-        drain: it re-evaluates every iteration, and `continue` — the loop head —
-        re-runs it. Exhaustion (`None`) takes the else edge and leaves the loop.
+        The scrutinee sits inside the loop, so it re-evaluates every iteration
+        and `continue` re-runs it. Because the node is an `if let`, every
+        binding rule reaches it through the `if let` funnel
+        (`_check_if_let_expr`) with no new position to keep in sync.
 
-        OBLIGATION 1. The binding rules are `if let`'s because the node IS an
-        `if let`: the design-100 derived-shadow rule (`while let x = x.next()`
-        reads as derived, exactly as `if let x = x` does), the design-63 tuple
-        pattern, the design-131 payload-read tier, the design-62 G2 scrutinee
-        hoist and the design-104 CFG split all reach it through their own
-        existing entry points with no new position to keep in sync. This method
-        is the funnel's new entry point; `typechecker/expressions.py
-        _check_if_let_expr` is the funnel.
-
-        Both halves are MARKED — `IfLetExpr.while_let` and
-        `WhileExpr.is_while_let` — because the desugared tree no longer says
-        what the author wrote: diagnostics have to name `while let`, the
-        synthesized `else { break }` must not be reported as a branch the author
-        can retype, and value position has to be refusable.
+        Both halves are marked (`IfLetExpr.while_let`, `WhileExpr.is_while_let`)
+        so diagnostics name `while let`, the synthesized `else { break }` is
+        never reported as the author's branch, and value position is refusable.
         """
         mutable = self.current().type == TokenType.VAR
         self.advance()  # consume 'let' or 'var'
 
-        # Tuple pattern over an Optional tuple (design 63), exactly as `if let`
-        # takes one: `while let (k, v) = pairs.pop()`.
+        # Tuple pattern over an Optional tuple, as `if let` takes one:
+        # `while let (k, v) = pairs.pop()`.
         pattern = None
         name = ""
         if self.match(TokenType.LPAREN):
@@ -455,11 +424,10 @@ class StatementsMixin:
         self.skip_newlines()
         body = self.parse_block()
 
-        # There is no `else` clause: a `while let`'s absent case IS the loop
-        # exit, so an `else` would be asking for a branch that already has a
-        # meaning. Say that where it is written rather than letting the generic
-        # "unexpected token" land on it. Peek across newlines and rewind, so a
-        # loop with no `else` keeps the statement terminator the caller expects.
+        # No `else` clause: the absent case is the loop exit. Report a written
+        # `else` directly rather than as an unexpected token. Peek across
+        # newlines and rewind, so a loop with no `else` keeps the statement
+        # separator the caller expects.
         saved_pos = self.pos
         self.skip_newlines()
         if self.match(TokenType.ELSE):

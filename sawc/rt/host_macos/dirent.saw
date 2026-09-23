@@ -1,10 +1,8 @@
-// `struct dirent` name projection (design 122 unit F) — macOS.
+// `struct dirent` name projection (design 122) — macOS.
 //
-// `readdir()` hands back a `struct dirent*` whose `d_name` offset is
-// OS-DIVERGENT, and std had the macOS number (21) baked into `Directory.list`,
-// so every filename listed on Linux came back shifted by two bytes. The offset
-// is the only divergent part, so it — and nothing else — moves behind the host
-// split: std still opens, walks and closes the directory.
+// The offset of `d_name` in `struct dirent` differs per host, so it alone sits
+// behind the host split; std still opens, walks and closes the directory.
+// Keep in step with host_linux/dirent.saw.
 //
 // macOS `struct dirent`:
 //   d_ino     UInt64   @0

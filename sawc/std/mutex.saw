@@ -1,7 +1,7 @@
 //! Mutual exclusion for state several threads share.
 //!
-//! `Mutex<T>` is ONE INLINE WORD beside its payload. It allocates nothing,
-//! frees nothing, and needs no constructor to be valid — zero means unlocked,
+//! `Mutex<T>` is one inline word beside its payload. It allocates nothing,
+//! frees nothing, and needs no constructor to be valid: zero means unlocked,
 //! so a `static` holds one with no initializer at all:
 //!
 //! ```saw
@@ -14,35 +14,27 @@
 //! }
 //! ```
 //!
-//! Until design 186 it was a `pthread_mutex_t` in a heap block, which a static
-//! could not construct: `PTHREAD_MUTEX_INITIALIZER` writes a nonzero signature
-//! word on Darwin, so the zero pattern was not a valid mutex there and the type
-//! had to allocate. The lock is `os_unfair_lock` on macOS and a futex on Linux
-//! now, both of which ARE zero when unlocked (rt/ABI.md,
-//! `__saw_rt_lock_acquire`).
+//! The lock is `os_unfair_lock` on macOS and a futex on Linux, both of which
+//! are zero when unlocked.
 //!
-//! MOVABILITY, which the heap block used to buy with an address-stability
-//! contract and which the Law of Exclusivity gives for free: a thread inside
-//! `lock()` holds a live `&self` borrow of the mutex for the whole critical
-//! section, and moving a value requires exclusive access to it. So a move
-//! cannot be spelled while any thread is inside the lock — not because the
-//! address is pinned, but because the borrow is. `Mutex` is therefore ordinary
-//! `NoCopy` and NOT `NoMove` (design 188): moving an IDLE mutex relocates one
-//! word and a payload, and nothing was pointing at either.
+//! A thread inside `lock()` holds a `&self` borrow of the mutex for the whole
+//! critical section, and moving a value requires exclusive access to it, so a
+//! move cannot be spelled while any thread holds the lock. `Mutex` is therefore
+//! `NoCopy` but not `NoMove`: moving an idle mutex relocates one word and a
+//! payload, and nothing points at either.
 //!
-//! `lock(body)` is NON-REENTRANT: locking a mutex this thread already holds is
+//! `lock(body)` is not reentrant: locking a mutex this thread already holds is
 //! a program bug (macOS traps, Linux deadlocks). The closure runs exactly once,
 //! synchronously, with `&var` access to the payload, and is a `sync` function
-//! type — suspending inside a critical section is a compile error rather than a
-//! livelock.
+//! type, so suspending inside a critical section is a compile error rather than
+//! a livelock.
 //!
-//! It blocks the calling THREAD, which is unchanged from the pthread version.
-//! Hold it briefly, and prefer a `Channel` where a task would otherwise wait.
+//! It blocks the calling thread. Hold it briefly, and prefer a `Channel` where
+//! a task would otherwise wait.
 
 extern "C" {
-    // rt/ABI.md: acquire/release ONE platform word, zero = unlocked. The whole
-    // lock protocol is the runtime's — os_unfair_lock on macOS, a futex on
-    // Linux — so std never has to know which host it is on.
+    // Acquire/release one platform word, zero = unlocked (rt/ABI.md). The lock
+    // protocol is the runtime's, so std never knows which host it is on.
     func __saw_rt_lock_acquire(state: UnsafePointer<Int>)
     func __saw_rt_lock_release(state: UnsafePointer<Int>)
 }
@@ -53,18 +45,12 @@ extern "C" {
 /// whatever the closure returned. `NoCopy` — a copied mutex is two mutexes
 /// guarding two payloads.
 ///
-/// `Sync` is DECLARED (design 186): a `Mutex` carries interior cells, so it
-/// derives none. Sharing one across threads is safe exactly when MOVING a `T`
-/// across is, because the lock serializes every access and no two threads ever
-/// hold the payload at once. `Send` needs no declaration — a cell moves fine,
-/// and both of this type's fields are cells.
+/// A `Mutex` is `Sync` when `T` is `Send`: the lock serializes every access,
+/// so no two threads ever hold the payload at once.
 public struct Mutex<T> {
-    // The lock word. An interior CELL, which is what makes `lock` a `&self`
-    // method that reaches the CALLER's word rather than a copy of it: a
-    // cell-carrying receiver travels by pointer (design 186).
+    // An interior cell, so `lock` on `&self` reaches the caller's word rather
+    // than a copy: a cell-carrying receiver travels by pointer (design 186).
     private state: UnsafeMutableInterior<Int>,
-    // The guarded value, inline. No control block, no second allocation, and
-    // no fixed offset arithmetic — the payload is a field.
     private value: UnsafeMutableInterior<T>
 }
 
@@ -73,8 +59,7 @@ extension Mutex<T: Send>: UnsafeSync {}
 extension Mutex<T> {
     /// Takes ownership of `value` and wraps it behind a fresh unlocked mutex.
     ///
-    /// Allocates nothing, so it cannot fail — the design-123 `try_make` twin is
-    /// gone with the allocation it reported. A `static` needs this even less:
+    /// Allocates nothing, so it cannot fail. A `static` does not need this:
     /// declare it without an initializer and the zero pattern is already an
     /// unlocked mutex over a zeroed payload.
     public init(value: T) unsafe -> Mutex<T> {
@@ -97,18 +82,17 @@ extension Mutex<T> {
     /// forwarding passes it through; a `&var self` method would be refused
     /// there.
     ///
-    /// NON-REENTRANT: locking a mutex this thread already holds is a program
-    /// bug. `body` is a `sync` function type (design 22), so suspending inside
+    /// Not reentrant: locking a mutex this thread already holds is a program
+    /// bug. `body` is a `sync` function type, so suspending inside
     /// the critical section is a compile error and calling `body` does not make
     /// `lock` itself suspend.
     public func lock<R>(&self, body: (&var T) sync -> R) unsafe -> R {
         let word = self.state.ptr()
         __saw_rt_lock_acquire(word)
-        // The release rides a scope guard so `body` can stay in TAIL position:
-        // binding its result would need a local typed `R`, and `R` is `Void`
-        // for every critical section that computes nothing. The guard deinits
-        // after the tail expression is evaluated, so the payload is still under
-        // the lock while `body` runs.
+        // The release rides a scope guard so `body` can stay in tail position:
+        // binding its result would need a local typed `R`, which is `Void` for
+        // a critical section that computes nothing. The guard deinits after
+        // the tail expression, so `body` runs under the lock.
         let held = LockRelease(word: word)
         body(self.value.ptr())
     }
@@ -125,15 +109,12 @@ extension LockRelease: NoCopy {
     }
 }
 
-// A copied mutex is two mutexes guarding two payloads, which is never what
-// anyone wants. There is no `deinit` any more: the lock owns no OS resource to
-// destroy and no block to free, and the payload's own drop is the memberwise
-// one the compiler synthesizes.
+// No hand-written `deinit`: the lock owns no OS resource and no block, and the
+// payload's drop is the synthesized memberwise one.
 extension Mutex<T>: NoCopy {}
 
-// Snapshot the payload under the lock. Bounded `T: ExplicitCopy` — the body
-// spells `.copy()`, and that is the bound licensing the spelling (design 219) —
-// so the read duplicates rather than moves the guarded value out.
+// Snapshot the payload under the lock. The body spells `.copy()`, which the
+// `ExplicitCopy` bound licenses, so the read duplicates rather than moves.
 extension Mutex<T: ExplicitCopy> {
     /// Returns a copy of the payload, read under the lock.
     public func get(&self) unsafe -> T {

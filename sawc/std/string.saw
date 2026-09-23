@@ -1,42 +1,27 @@
-// String Methods - Extensions on the String primitive type
-
-// =============================================================================
-// FFI declarations
-// =============================================================================
+// String methods: extensions on the String primitive type.
 
 extern "C" {
     func strlen(s: UnsafePointer<Int8>) -> Int
 
-    // Refcounted String runtime, defined by the compiler (see codegen/core.py).
-    // A String value is a pointer to the `bytes` field of a heap block laid out
-    // as { i64 refcount, i64 len, bytes, NUL }; the header sits at negative
-    // offsets, so `as UnsafePointer<Int8>` stays a no-op and FFI is unchanged.
-    //  - __saw_string_len:  O(1) length from the header (no strlen scan)
-    //  - __saw_string_alloc: allocate a fresh refcount=1 String buffer of `len`
-    //    bytes (+ header + NUL); the returned bytes pointer is a valid String.
-    //    It PANICS rather than returning NULL on allocator exhaustion, which is
-    //    why it is declared non-optional here: every producer below returns a
-    //    plain `String`, so a NULL had nowhere to go except into a plausible
-    //    wrong answer. That is design 234 §5's String boundary, from inside.
+    // Refcounted String runtime, defined by the compiler (codegen/core.py). A
+    // String value points at the `bytes` field of a heap block laid out as
+    // { i64 refcount, i64 len, bytes, NUL }; the header sits at negative
+    // offsets, so `as UnsafePointer<Int8>` is a no-op for FFI.
+    //  - __saw_string_len: O(1) length from the header.
+    //  - __saw_string_alloc: a fresh refcount=1 buffer of `len` bytes (+ header
+    //    + NUL). It panics on allocator exhaustion rather than return NULL, so
+    //    every producer below can return a plain `String` (design 234).
     func __saw_string_len(s: UnsafePointer<Int8>) -> Int
     func __saw_string_alloc(len: Int) -> UnsafePointer<Int8>
     func __saw_string_from_bytes(src: UnsafePointer<Int8>, len: Int) -> String
 }
 
-// =============================================================================
-// The write funnel (design 250 §3)
-// =============================================================================
-
-// A byte value as the C `char` with the same bit pattern.
-//
-// A `String`'s storage is `UnsafePointer<Int8>` — C's `char` — and a byte at or
-// above 0x80 has no `Int8` value, so a checked `as` would panic on the first
-// one. Keeping the low bits IS the operation, and design 170 named it.
-//
-// This is the ONE place a byte value meets the character storage; the read side
-// is `String.byte_at`. The parameter is `UInt8` rather than `Byte` because
-// arithmetic on a byte lands in `UInt8` (`c - 32` in `to_uppercase`), and a
-// `Byte` flows in unchanged.
+// A byte value as the C `char` with the same bit pattern. A byte at or above
+// 0x80 has no `Int8` value, so a checked `as` would panic; keeping the low bits
+// is the operation. This is the one place a byte value meets the character
+// storage; the read side is `String.byte_at`. The parameter is `UInt8` because
+// arithmetic on a byte lands there (`c - 32` in `to_uppercase`), and a `Byte`
+// flows in unchanged (design 250).
 //
 // ENTRY POINTS: `_substring`, `to_uppercase`, `to_lowercase`, `replace`,
 // `fromBytes`, `Vector<String>.join`.
@@ -44,12 +29,8 @@ func to_c_char(b: UInt8) -> Int8 {
     Int8.from(truncating: b)
 }
 
-// =============================================================================
-// String Extension - Methods on String values
-// =============================================================================
-
 extension String {
-    // Get the length of the string in bytes (O(1): reads the header `len` field)
+    // O(1): reads the header `len` field.
     public func len(&self) unsafe -> Int {
         __saw_string_len(self as UnsafePointer<Int8>)
     }
@@ -58,20 +39,11 @@ extension String {
         self.len() == 0
     }
 
-    /// The byte at `index`.
-    ///
-    /// BOUNDS-CHECKED: an index outside `0..<len()` panics, exactly like every
-    /// other indexing operation in the language (design 122 unit A). The
-    /// signature carries nothing unsafe, so the caller gets no signal that a bad
-    /// index would read arbitrary heap — reading past the end from a safe method
-    /// is never acceptable, and the check is one O(1) header read.
-    ///
-    /// THE READ FUNNEL (design 250 §3). The storage is C `char`, so a byte at or
-    /// above 0x80 arrives as a negative `Int8`; widening, masking and narrowing
-    /// recovers the value, and `Byte(...)` says what it is. Every byte the String
-    /// layer hands out comes through here — `bytes()`, `starts_with`, the UTF-8
-    /// decoder and `to_data` all read through this one accessor — so the sign
-    /// question is answered once and nowhere else.
+    // The read funnel: the storage is C `char`, so a byte at or above 0x80
+    // arrives as a negative `Int8`, and this is the one place it is converted.
+    // `bytes()`, `starts_with`, the UTF-8 decoder and `to_data` all read through
+    // it (design 250).
+    /// Returns the byte at `index`. Panics if `index` is outside `0..<len()`.
     public func byte_at(&self, index: Int) unsafe -> Byte {
         if index < 0 || index >= self.len() {
             panic("String.byte_at: index out of range: {} (len {})",
@@ -199,12 +171,8 @@ extension String {
         self.trim_start().trim_end()
     }
 
-    // Create a substring (allocates new memory).
-    //
-    // The `""` below is the empty-range answer and nothing else: allocator
-    // exhaustion panics inside `__saw_string_alloc` (design 123). It used to
-    // return `""` for BOTH, so `trim()` on a long string could hand back an
-    // empty one and no caller could tell.
+    // Allocates a new String. The `""` is the empty-range answer only;
+    // allocator exhaustion panics inside `__saw_string_alloc`.
     func _substring(&self, start: Int, length: Int) unsafe -> String {
         if length <= 0 {
             ""
@@ -220,11 +188,7 @@ extension String {
         }
     }
 
-    // Convert to uppercase (ASCII only).
-    //
-    // Returning `self` on allocator exhaustion — the UN-cased string, which is
-    // a perfectly legal result — was one of the six degradations design 123
-    // removed. Exhaustion panics inside `__saw_string_alloc` now.
+    // ASCII only. Allocator exhaustion panics inside `__saw_string_alloc`.
     public func to_uppercase(&self) unsafe -> String {
         let len = self.len()
         if len == 0 {
@@ -247,7 +211,7 @@ extension String {
         }
     }
 
-    // Convert to lowercase (ASCII only). Same tier as `to_uppercase`.
+    // ASCII only, like `to_uppercase`.
     public func to_lowercase(&self) unsafe -> String {
         let len = self.len()
         if len == 0 {
@@ -314,10 +278,8 @@ extension String {
                 // Calculate new size
                 let new_size = self_len - (count * old_len) + (count * new_len)
 
-                // Allocator exhaustion panics inside `__saw_string_alloc`
-                // (design 123). Returning `self` here handed back the string
-                // with NO replacements performed, identical in shape to the
-                // legitimate "no match" return above.
+                // Allocator exhaustion panics inside `__saw_string_alloc`;
+                // returning `self` would be indistinguishable from "no match".
                 let new_ptr = __saw_string_alloc(new_size)
                 var src_i = 0
                 var dst_i = 0
@@ -345,18 +307,11 @@ extension String {
         }
     }
 
-    // Compare two strings for equality.
-    //
-    // `other` stays BY VALUE where design 239 gave `Equatable.equals` an
-    // `&Self` operand, and deliberately. `String` conforms builtin — there is
-    // no `extension String: Equatable` for the requirement's signature to be
-    // matched against — so this is String's own public API, and it is called
-    // as `s.equals("literal")` at 200 sites in the tree. A literal has no
-    // address, so `&` is not merely noisy there, it is unwritable. Nothing is
-    // lost: the body READS `other`, `String` is on the Copy tier, and neither
-    // of the two paths that need the requirement's shape comes through here —
-    // `==` lowers via `_emit_string_equals`, and a call through an `Equatable`
-    // bound lowers with the operator's emitter (`comparison_dispatch`).
+    // `other` is by value, unlike `Equatable.equals`'s `&Self` operand: String
+    // conforms builtin, so this is String's own API, called as
+    // `s.equals("literal")`, and a literal has no address. `==` lowers via
+    // `_emit_string_equals` and an `Equatable`-bound call via
+    // `comparison_dispatch`, so neither needs the requirement's shape here.
     public func equals(&self, other: String) -> Bool {
         let self_len = self.len()
         let other_len = other.len()
@@ -376,12 +331,10 @@ extension String {
         }
     }
 
-    // Byte-lexicographic comparison (design 48): String's builtin Comparable
-    // conformance. Bytes are UNSIGNED, so this is code-point order for ASCII /
-    // UTF-8 — a shorter string that is a prefix of a longer one is Less.
-    // `< <= > >=` on String lower to this. `other` stays by value on `equals`'s
-    // terms above (design 239). The `& 255` this used to carry was the signed
-    // era's fold and is gone with it (design 250).
+    // Byte-lexicographic comparison, String's builtin Comparable conformance;
+    // `< <= > >=` on String lower to this. Bytes are unsigned, so this is
+    // code-point order for UTF-8, and a proper prefix is Less. `other` is by
+    // value for the reason `equals` gives.
     public func compare(&self, other: String) -> Ordering {
         let self_len = self.len()
         let other_len = other.len()
@@ -399,10 +352,8 @@ extension String {
         Ordering.Equal
     }
 
-    // Byte-streaming hash (design 48): String's builtin Hashable conformance.
-    // Streams each byte (as an unsigned 0..255 Int) into the Hasher, so equal
-    // string content hashes identically — upholding the hash/== contract with
-    // `equals` (which also compares byte content).
+    // String's builtin Hashable conformance. It hashes byte content, which is
+    // what `equals` compares, so the hash/== contract holds.
     public func hash(&self, h: &var Hasher) {
         let n = self.len()
         var i = 0
@@ -417,12 +368,6 @@ extension String {
     ///
     /// Panics if the range is reversed (`start > end`) or reaches outside
     /// `0..len()`. An empty range is legal and yields `""`.
-    ///
-    /// This used to CLAMP: `"hello".substring(5, 2)` returned `""` and
-    /// `"hello".substring(-9, 99)` returned `"hello"`, so a caller could not
-    /// tell a bug from an empty slice — the clamped `""` collided with the
-    /// legitimate `substring(2, 2)`. Design 130's accessor rule replaced the
-    /// clamp with the same always-on bounds check indexing has.
     public func substring(&self, start: Int, end: Int) -> String {
         let len = self.len()
         if start < 0 || end > len || start > end {
@@ -435,15 +380,9 @@ extension String {
         self._substring(start, end - start)
     }
 
-    /// The offset of the first byte equal to `b`, or `None`.
-    ///
-    /// The needle is a `UInt8` rather than a `Byte` so `index_of(47)` — a
-    /// literal separator — stays writable (design 250 §5 Q4's sink rule: a
-    /// single-semantics byte parameter takes a `Byte`, a `UInt8` and a literal
-    /// alike). It was `index_of_char(c: Int8)` before design 250: the name said
-    /// "character" for a byte, which is wrong the moment a scalar exceeds one
-    /// byte, and the type said signed. This is the overload set a String-needle
-    /// search joins later.
+    // The needle is a `UInt8` so it takes a `Byte`, a `UInt8` and a literal
+    // alike (`index_of(47)`) (design 250).
+    /// Returns the offset of the first byte equal to `b`, or `None`.
     public func index_of(&self, b: UInt8) -> Int? {
         let len = self.len()
         var i = 0
@@ -456,8 +395,7 @@ extension String {
         None
     }
 
-    /// The offset of the last byte equal to `b`, or `None`. The backward twin
-    /// of `index_of`, with the same needle rule.
+    /// Returns the offset of the last byte equal to `b`, or `None`.
     public func last_index_of(&self, b: UInt8) -> Int? {
         let len = self.len()
         var i = len - 1
@@ -470,9 +408,8 @@ extension String {
         None
     }
 
-    // Split the string by a separator, returning a Vector of substrings. The
-    // Vector is built, so a refused allocation is reported (design 234); the
-    // SUBSTRINGS themselves are refcounted views and cost no allocation.
+    // A refused Vector allocation is reported; each substring is a fresh
+    // String whose allocation panics on exhaustion, like `_substring`.
     public func split(&self, separator: String) -> Result<Vector<String>, AllocError> {
         var result = Vector<String>()
         let self_len = self.len()
@@ -516,12 +453,6 @@ extension String {
         }
     }
 
-    // Convert String bytes to Data.
-    //
-    // One byte type on both sides since design 250: `byte_at` hands out a
-    // `Byte` and `Data.push` takes it. This used to spell a reinterpret here,
-    // because `byte_at` yielded a signed `Int8` and every byte of a non-ASCII
-    // scalar arrived negative.
     public func to_data(&self) -> Result<Data, AllocError> {
         var data = Data()
         var i = 0
@@ -532,20 +463,16 @@ extension String {
         return move data
     }
 
-    // =========================================================================
-    // Number parsing (design 57) — Optional results, panic-free.
-    // =========================================================================
-    //
-    // Parse failure is DATA, not a bug, so these never panic: they return None
-    // on empty input, trailing/leading junk, an invalid digit, or overflow. The
-    // whole string must match (no trimming — the caller trims via `trim`; no
-    // partial parse). Overflow is detected with WRAPPING arithmetic and
-    // divide-back checks, so it works at any platform Int width without needing
-    // an `Int.max` constant.
+    // Number parsing. Parse failure is data, not a bug, so these never panic:
+    // they return None on empty input, leading or trailing junk, an invalid
+    // digit, or overflow. The whole string must match (no trimming, no partial
+    // parse). Overflow is detected with wrapping arithmetic and divide-back
+    // checks, so it works at any platform Int width without an `Int.max`
+    // constant.
 
     // The value of an ASCII digit byte for base up to 36: '0'..'9' -> 0..9,
-    // 'a'..'z' / 'A'..'Z' -> 10..35. Returns -1 for any non-alphanumeric byte.
-    // `b` is an unsigned byte (0..255), as from `_ubyte_at`.
+    // 'a'..'z' / 'A'..'Z' -> 10..35, -1 for anything else. `b` is an unsigned
+    // byte (0..255), as from `_ubyte_at`.
     func _digit_value(&self, b: Int) -> Int {
         if b >= 48 && b <= 57 {
             b - 48            // '0'..'9'
@@ -558,11 +485,10 @@ extension String {
         }
     }
 
-    // Parse the whole string as a signed integer in `radix` (2..=36). Digits are
-    // accumulated as a NON-POSITIVE magnitude (`acc = acc*radix - d`, acc <= 0),
-    // because the negative side of two's complement has one more representable
-    // value than the positive — this lets Int.min parse without an intermediate
-    // that overflows. Overflow at any step returns None.
+    // Parses the whole string as a signed integer in `radix` (2..=36). Digits
+    // accumulate as a non-positive magnitude (`acc = acc*radix - d`), because
+    // two's complement has one more negative value than positive: Int.min
+    // parses without an overflowing intermediate.
     func _parse_int(&self, radix: Int) -> Int? {
         let len = self.len()
         if len == 0 {
@@ -607,13 +533,13 @@ extension String {
         return pos
     }
 
-    // Parse the whole string as a base-10 signed integer, or None.
+    // Parses the whole string as a base-10 signed integer, or None.
     public func to_int(&self) -> Int? {
         self._parse_int(10)
     }
 
-    // Parse the whole string in an explicit radix (2..=36), or None (design 55
-    // overload of `to_int`). No `0x`/`0b` prefix handling — the caller strips it.
+    // Parses the whole string in `radix` (2..=36), or None. No `0x`/`0b`
+    // prefix handling; the caller strips it.
     public func to_int(&self, radix: Int) -> Int? {
         if radix < 2 || radix > 36 {
             return None
@@ -621,12 +547,9 @@ extension String {
         self._parse_int(radix)
     }
 
-    // Parse the whole string as an UNSIGNED integer in `radix`, accumulating into
-    // a UInt. This reaches the 2^63..2^64-1 range a signed `Int` cannot hold
-    // (`UInt.max == 2**64 - 1`), the companion to `_parse_int`. Overflow past
-    // `UInt.max` at any step returns None, detected with WRAPPING arithmetic plus
-    // a divide-back (multiply) and carry (add) check — panic-free, and correct at
-    // any platform UInt width without needing the bound as a literal.
+    // Parses the whole string as an unsigned integer in `radix`, reaching the
+    // range above `Int.max`. Overflow past `UInt.max` is caught by a
+    // divide-back (multiply) and carry (add) check on wrapping arithmetic.
     func _parse_uint(&self, radix: Int) -> UInt? {
         let len = self.len()
         if len == 0 {
@@ -663,17 +586,14 @@ extension String {
         return acc
     }
 
-    // Parse the whole string as a base-10 UNSIGNED integer, or None (design 119).
-    // The unsigned companion to `to_int`, closing the DF-116b gap: it covers the
-    // full 0..UInt.max range (a `UInt64.max` magnitude a signed parse rejects).
-    // Same whole-string, no-trimming, panic-free contract — overflow is None.
+    // Parses the whole string as a base-10 unsigned integer (0..UInt.max), or
+    // None, on the same contract as `to_int`.
     public func to_uint(&self) -> UInt? {
         self._parse_uint(10)
     }
 
-    // Parse the whole string in an explicit radix (2..=36) as UNSIGNED, or None
-    // (overload of `to_uint`, mirroring `to_int(radix:)`). No `0x`/`0b` prefix
-    // handling — the caller strips it.
+    // Parses the whole string in `radix` (2..=36) as unsigned, or None. No
+    // `0x`/`0b` prefix handling; the caller strips it.
     public func to_uint(&self, radix: Int) -> UInt? {
         if radix < 2 || radix > 36 {
             return None
@@ -681,44 +601,24 @@ extension String {
         self._parse_uint(radix)
     }
 
-    // `String.to_float` IS NOT IN THIS FILE. It is declared in
-    // `sawc/std/float.saw`, beside `Float.to_string` and the bit-level layer
-    // both directions share (design 253) — one module owns the whole
-    // `Float`<->text story, and splitting it would mean inventing a second
-    // public spelling for each direction just to cross a file boundary.
-    //
-    // What used to be here was a naive left-to-right accumulation in `Float`
-    // arithmetic, documented as NOT a correctly-rounded strtod: the last ULP
-    // could differ, and a long or extreme input was simply wrong. It is
-    // Eisel-Lemire over an exact decimal fallback now, and nothing about the
-    // signature changed.
+    // `String.to_float` lives in `sawc/std/float.saw`, beside `Float.to_string`
+    // and the bit-level layer both directions share (design 253).
 
-    // =========================================================================
-    // UTF-8 decoding / validation (brief 38 items 1 & 2)
-    // =========================================================================
-    //
-    // The byte at `i` WIDENED to an Int, which is the width the decoder and the
-    // number parsers work in: scalar assembly multiplies by 4096 and 262144, and
+    // The byte at `i` widened to Int, the width the decoder and the number
+    // parsers work in: scalar assembly multiplies by 4096 and 262144, and
     // `b0 - 224` would not fit a byte.
-    //
-    // It used to fold a NEGATIVE `Int8` back into 0..255 as well — the sign
-    // correction design 250 deleted. Only the widening is left, and the name
-    // still says what it hands back: the unsigned byte value.
     func _ubyte_at(&self, i: Int) -> Int {
         self.byte_at(i) as Int
     }
 
-    // Decode ONE UTF-8 scalar starting at byte offset `i` (with `len` the total
+    // Decodes one UTF-8 scalar starting at byte offset `i` (`len` is the total
     // byte length). Returns `(scalar, nbytes)`:
     //   - nbytes in 1..4 and `scalar` the Unicode scalar value on success;
-    //   - nbytes == 0 signals a malformed sequence STARTING at `i` (invalid
-    //     lead, bad/short continuation, overlong, surrogate, or > U+10FFFF).
-    // This is the single source of UTF-8 truth: `_utf8_error_offset` (feeding
-    // `fromBytes`) and `StringScalars` (feeding `scalars()`) both decode
-    // through it.
-    // Scalar assembly uses multiplication rather than bit-shifts (no bitwise
-    // operators in Saw): the code-unit shifts are *64 (6 bits), *4096 (12),
-    // *262144 (18).
+    //   - nbytes == 0 for a malformed sequence starting at `i` (invalid lead,
+    //     bad/short continuation, overlong, surrogate, or > U+10FFFF).
+    // The single source of UTF-8 truth: `_utf8_error_offset` (for `fromBytes`)
+    // and `StringScalars` both decode through it. Scalar assembly multiplies
+    // (*64, *4096, *262144) for the 6/12/18-bit shifts.
     func _decode_at(&self, i: Int, len: Int) -> (Int, Int) {
         let b0 = self._ubyte_at(i)
         if b0 < 128 {
@@ -772,10 +672,8 @@ extension String {
         return (0, 0)
     }
 
-    // Scan the whole buffer; return the byte offset at which the FIRST malformed
-    // UTF-8 sequence begins, or None if the entire buffer is valid UTF-8. The
-    // offset is the start of the bad sequence (Rust's `valid_up_to()` semantics),
-    // which is what `Utf8Error.offset` carries.
+    // The byte offset at which the first malformed UTF-8 sequence begins, or
+    // None if the whole buffer is valid (Rust's `valid_up_to()` semantics).
     func _utf8_error_offset(&self) -> Int? {
         let len = self.len()
         var i = 0
@@ -792,12 +690,8 @@ extension String {
     /// Builds a validated `String` from raw bytes.
     ///
     /// `Err(Utf8Error)` carries the byte offset at which the first malformed
-    /// sequence begins; the partly-built candidate is released, not leaked. The
-    /// `Err` answers exactly one question — "are these bytes UTF-8?" — and
-    /// allocator exhaustion panics rather than joining it (design 123): this
-    /// used to return `Ok("")` on allocation failure, so the one function whose
-    /// whole job is to report a decoding failure reported SUCCESS on a
-    /// different failure and threw away every byte.
+    /// sequence begins. The `Err` means only "these bytes are not UTF-8";
+    /// allocator exhaustion panics.
     ///
     /// Static: call as `String.fromBytes(&data)`.
     public static func fromBytes(data: &Data) unsafe -> Result<String, Utf8Error> {
@@ -809,10 +703,8 @@ extension String {
         var i = 0
         while i < n {
             if let b = data.get(i) {
-                // A REINTERPRET, not a conversion: this function exists to
-                // accept arbitrary bytes and validate them afterwards, so a
-                // lead or continuation byte >= 0x80 must reach the validator
-                // rather than trapping on the way in (design 170).
+                // A reinterpret, not a conversion: a byte >= 0x80 must reach
+                // the validator rather than trap on the way in.
                 ptr[i] = to_c_char(b)
             }
             i = i + 1
@@ -820,73 +712,39 @@ extension String {
         ptr[n] = 0 as Int8
         let candidate = ptr as String
         if let off = candidate._utf8_error_offset() {
-            // Malformed: hand back the offset; `candidate` (rc=1) is
-            // released at scope exit.
+            // `candidate` (rc=1) is released at scope exit.
             return Utf8Error(offset: off)
         }
-        // `move` transfers ownership of the owned String into the Ok
-        // payload. As of design 40 item 5 the plain `return candidate` also
-        // works (auto-wrap retains the Copy value at the wrap site);
-        // the explicit move is kept as the clearest intent — it consumes
-        // `candidate` outright rather than retain-then-release.
-        return move candidate               // valid: move the owned String out
+        // `move` consumes `candidate` rather than retain-then-release.
+        return move candidate
     }
 
-    // =========================================================================
-    // Iterators (brief 38 item 2)
-    // =========================================================================
-
-    // Iterate the raw bytes. Element type is `Byte`, matching `byte_at`. The
-    // iterator holds its OWN retain on the String (the `s` field is an
-    // Copy capture), so `for b in makeString().bytes()` keeps the bytes
-    // alive for the whole loop even though the temporary receiver is gone.
+    // The iterator holds its own retain on the String, so
+    // `for b in makeString().bytes()` keeps the bytes alive for the whole loop.
     public func bytes(&self) -> StringBytes {
         StringBytes(s: self, index: 0, length: self.len())
     }
 
-    // Iterate Unicode scalar values, decoded from UTF-8, yielded as `Scalar`.
-    // Like `bytes()`, the iterator retains the String. String contents are
-    // always valid UTF-8 (literals are source-encoded; `fromBytes` validates),
-    // so a decode error is unreachable; should unsafe code ever corrupt a
-    // buffer, the iterator stops (defined behavior — see `StringScalars.next`).
-    //
-    // This was `chars()` yielding a bare `Int` until design 245. The name said
-    // "character" for a scalar, which is Rust's standing footgun, and the
-    // element type could not say what it was — so a `for` loop over one printed
-    // NUMBERS where every reader expected characters.
+    // Iterates Unicode scalar values, retaining the String like `bytes()`.
+    // String contents are always valid UTF-8 (literals are source-encoded;
+    // `fromBytes` validates), so a decode error is unreachable; on a buffer
+    // corrupted by unsafe code the iterator stops (see `StringScalars.next`).
     public func scalars(&self) -> StringScalars {
         StringScalars(s: self, index: 0, length: self.len())
     }
 
-    // Scoped C-string borrow (brief 38 item 3). Hands `body` an
-    // `UnsafePointer<Int8>` to the String's NUL-terminated bytes, valid for the
-    // duration of the call. The refcounted String payload is ALREADY
-    // NUL-terminated (see codegen/core.py `_declare_string_runtime`), so the
-    // bytes pointer is passed directly — no copy. `body` is a NON-ESCAPING
-    // closure parameter (brief 29 default): the compiler forbids it from being
-    // stored or otherwise outliving the call, which is the entire safety story —
-    // the pointer cannot leak past the borrow.
-    //
-    // `R` is a METHOD-level generic type parameter (brief 40 item 9 / C6): the
-    // borrow's result type, chosen at the call site (`s.withCString<Int> { ... }`).
-    // The value flows straight out — `s.withCString<Int> { ptr in strlen(ptr) }`
-    // — so a scoped C-borrow no longer needs the capture-and-write workaround.
-    //
-    // The slot is `unsafe` (design 130): `body` receives a raw pointer, so by
-    // the trigger rule any closure written for it is an unsafe closure, and the
-    // effect position is where that is declared. A caller still needs no
-    // ceremony to CALL this — only the callback itself carries the obligation.
+    // Scoped C-string borrow. The String payload is already NUL-terminated
+    // (codegen/core.py `_declare_string_runtime`), so `body` gets the bytes
+    // pointer directly, with no copy. `body` is a non-escaping closure
+    // parameter, so the pointer cannot outlive the call. `body` is `unsafe`
+    // because it receives a raw pointer (design 130); calling this needs no
+    // ceremony.
     public func withCString<R>(&self, body: (UnsafePointer<Int8>) unsafe -> R) unsafe -> R {
         body(self as UnsafePointer<Int8>)
     }
 }
 
-// =============================================================================
-// Vector<String> Extension - Specialized methods for string vectors
-// =============================================================================
-
 extension Vector<String> {
-    // Join all strings in the vector with a separator
     public func join(&self, separator: String) unsafe -> String {
         let count = self.len()
 
@@ -912,10 +770,7 @@ extension Vector<String> {
             // Add separator lengths (count - 1 separators)
             total_len = total_len + (sep_len * (count - 1))
 
-            // Allocate buffer and build result. Allocator exhaustion panics
-            // inside `__saw_string_alloc` (design 123); joining a non-empty
-            // vector into `""` was a plausible wrong answer no caller could
-            // detect.
+            // Allocator exhaustion panics inside `__saw_string_alloc`.
             let buf = __saw_string_alloc(total_len)
             var pos = 0
             var idx = 0
@@ -949,21 +804,13 @@ extension Vector<String> {
     }
 }
 
-// =============================================================================
-// UTF-8 validation error (brief 38 item 1)
-// =============================================================================
-
 // Returned by `String.fromBytes` when the input is not valid UTF-8. `offset` is
 // the byte index at which the first malformed sequence begins (the bytes before
-// it decode cleanly — Rust's `Utf8Error::valid_up_to()` semantics).
+// it decode cleanly).
 public struct Utf8Error {
     public offset: Int
 }
 
-// `Error` so a decode failure propagates like any other: it interpolates
-// (`"{e}"`), boxes into `Result<T, Box<any Error>>` at a `try` boundary, and is
-// downcastable. `Data.to_string()` (design 122 unit B) is the caller that made
-// this necessary — a byte buffer that fails to decode has to travel.
 extension Utf8Error: Error {
     public func format(&self, into: &var StringBuilder) {
         try! into.append("invalid UTF-8 at byte offset ")
@@ -971,22 +818,12 @@ extension Utf8Error: Error {
     }
 }
 
-// =============================================================================
-// String iterators (brief 38 item 2)
-// =============================================================================
+// Both iterators store the source String by value: String is Copy, so the
+// field retains it and the synthesized deinit releases it. That independent
+// retain keeps a temporary receiver's bytes alive across every `next()` in
+// `for c in makeString().scalars()`.
 //
-// Both iterators store the source String by value. String is Copy, so
-// the field initialization RETAINS it (refcount bump) and the struct's
-// synthesized deinit RELEASES it when the iterator dies. That independent retain
-// is what makes a temporary receiver safe: in `for c in makeString().scalars()`
-// the temporary String is released right after `scalars()` returns, but the
-// iterator's own reference keeps the bytes alive across every `next()`.
-
-// `public` because `String.bytes()` HANDS ONE OUT: a public API needs public
-// types (Aug 21), and a caller that holds the value of a `for b in s.bytes()`
-// must be able to name its type. The fields stay private, which is where the
-// internals were all along — `std.data`'s `DataIterator` was already written
-// this way.
+// Public because `String.bytes()` returns one; the fields stay private.
 public struct StringBytes {
     private s: String
     private index: Int
@@ -1007,8 +844,7 @@ extension StringBytes: Iterator {
     }
 }
 
-// `public` for the same reason as `StringBytes` above: `String.scalars()`
-// returns one.
+// Public because `String.scalars()` returns one.
 public struct StringScalars {
     private s: String
     private index: Int
@@ -1031,8 +867,7 @@ extension StringScalars: Iterator {
         }
         self.index = self.index + d.1
         // `_decode_at` rejects surrogates and anything past U+10FFFF, so this
-        // construction cannot fail. `try!` is what says so at the one place the
-        // invariant is checked, rather than a second copy of the range tests.
+        // construction cannot fail.
         try! Scalar(value: d.0)
     }
 }
