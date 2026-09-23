@@ -2865,6 +2865,24 @@ ALIGN_SURFACE_HINT = (
     "yet — an alignment the TYPE carries is its own design")
 
 
+def carry_retain_stamps(source: 'Expression', target: 'Expression') -> None:
+    """Carry an audited retain decision onto a lowering-time reshaping of its value.
+
+    `needs_copy` and `payload_needs_copy` are obligations, and the typechecker's
+    `_stamp_retain` is the one place that DECIDES and records them. This is not
+    a second decider: codegen calls it when it rebuilds a checked construction
+    as a different node shape after the preservation audit has run, so the
+    obligation recorded for `source` travels with the value instead of being
+    re-judged or silently dropped. Legal only under `sawc/codegen/`; the
+    transferdecisions lane fails any other caller (design 267).
+
+    Entry points:
+      codegen/structs.py `_as_memberwise_struct_init`
+    """
+    target.needs_copy = source.needs_copy
+    target.payload_needs_copy = source.payload_needs_copy
+
+
 def find_attribute(node: 'ASTNode', name: str) -> Optional['Attribute']:
     """Return the `Attribute` with the given name on `node`, or None."""
     for attr in getattr(node, 'attributes', None) or []:

@@ -151,10 +151,42 @@ def check_every_exit_records():
 #: be the only thing writing them.
 RETAIN_ATTRS = ("needs_copy", "payload_needs_copy")
 RETAIN_FUNNEL = "_stamp_retain"
+#: The one non-deciding writer: `ast_nodes.carry_retain_stamps` copies an
+#: already-recorded obligation onto a node codegen synthesizes AFTER the audit
+#: has run, and is legal only from files under this directory.
+RETAIN_CARRIER = "carry_retain_stamps"
+RETAIN_CARRIER_DIR = os.path.join("sawc", "codegen")
+#: The carrier's ONE definition: a top-level function of this name in this file.
+#: The exemption below is bound to that definition, not to the spelling, so a
+#: second function of the same name anywhere is a finding rather than a hatch.
+RETAIN_CARRIER_HOME = os.path.join("sawc", "ast_nodes.py")
+RETAIN_CARRIER_MODULE = "ast_nodes"
+
+
+def _sanctioned_carrier(tree, rel):
+    """The one exempt definition in this module, or None.
+
+    Only the home module can hold it, and only when it holds exactly one
+    top-level function of the name: Python binds the name to the LAST
+    definition, so a second top-level one would replace the carrier with a
+    decider while every caller check stayed satisfied.
+    """
+    if rel != RETAIN_CARRIER_HOME:
+        return None
+    defs = [n for n in tree.body
+            if isinstance(n, ast.FunctionDef) and n.name == RETAIN_CARRIER]
+    return defs[0] if len(defs) == 1 else None
 
 
 def check_retain_has_one_writer():
     """Every write of a retain annotation goes through `_stamp_retain`.
+
+    The one exception is the carrier: codegen rebuilds a checked construction
+    as a different node shape, and the obligation the typechecker recorded for
+    the original must travel with the value. `carry_retain_stamps` copies the
+    two annotations and decides nothing, which is only sound after the
+    preservation audit has run — so `check_retain_carrier_is_codegen_only`
+    confines its callers to `sawc/codegen/`.
 
     THE PROPERTY, and why it is static. A retain annotation is an OBLIGATION —
     codegen duplicates a value because one of these is set and for no other
@@ -185,13 +217,29 @@ def check_retain_has_one_writer():
                     tree = ast.parse(f.read())
                 except SyntaxError:
                     continue
-            funnels = [n for n in ast.walk(tree)
-                       if isinstance(n, ast.FunctionDef)
-                       and n.name == RETAIN_FUNNEL]
+            rel = os.path.relpath(path, REPO)
+            sanctioned = _sanctioned_carrier(tree, rel)
+            funnels = []
+            for n in ast.walk(tree):
+                if not isinstance(n, ast.FunctionDef):
+                    continue
+                if n.name == RETAIN_FUNNEL:
+                    funnels.append(n)
+                elif n.name == RETAIN_CARRIER:
+                    if n is sanctioned:
+                        funnels.append(n)
+                    else:
+                        problems.append(
+                            f"{rel}:{n.lineno}: a definition of "
+                            f"`{RETAIN_CARRIER}` that is not THE carrier; "
+                            f"the carrier is the single top-level function "
+                            f"of that name in `{RETAIN_CARRIER_HOME}`, and "
+                            f"any other one (elsewhere, nested, or a second "
+                            f"top-level one at home, which Python would bind "
+                            f"the name to) would decide under its exemption")
             inside = set()
             for fn in funnels:
                 inside.update(id(n) for n in ast.walk(fn))
-            rel = os.path.relpath(path, REPO)
             for node in ast.walk(tree):
                 if not isinstance(node, (ast.Assign, ast.AugAssign)):
                     continue
@@ -208,7 +256,82 @@ def check_retain_has_one_writer():
                         f"{rel}:{node.lineno}: `{t.attr}` is assigned directly; "
                         f"every retain stamp must go through "
                         f"`{RETAIN_FUNNEL}`, which is what records the "
-                        f"obligation the preservation audit checks")
+                        f"obligation the preservation audit checks (codegen "
+                        f"carries a recorded one with `{RETAIN_CARRIER}`)")
+    return problems
+
+
+def _carrier_call_lines(tree):
+    """Line numbers of every call that reaches the carrier from this module.
+
+    A call reaches it by its own name, by any name an import binds it to
+    (`from ast_nodes import carry_retain_stamps as carry`), or as an
+    attribute of any name the module is imported under (`import ast_nodes as
+    nodes; nodes.carry_retain_stamps(...)`). Ordinary import spellings only;
+    a value assigned from the function is not followed.
+    """
+    local_names = {RETAIN_CARRIER}
+    module_names = {RETAIN_CARRIER_MODULE}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            if node.module and node.module.split(".")[-1] == RETAIN_CARRIER_MODULE:
+                for alias in node.names:
+                    if alias.name == RETAIN_CARRIER:
+                        local_names.add(alias.asname or alias.name)
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name.split(".")[-1] == RETAIN_CARRIER_MODULE:
+                    module_names.add(alias.asname or alias.name.split(".")[0])
+    lines = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        fn = node.func
+        if isinstance(fn, ast.Name) and fn.id in local_names:
+            lines.append(node.lineno)
+        elif isinstance(fn, ast.Attribute) and fn.attr == RETAIN_CARRIER:
+            lines.append(node.lineno)
+        elif (isinstance(fn, ast.Attribute) and isinstance(fn.value, ast.Name)
+              and fn.value.id in module_names and fn.attr in local_names):
+            lines.append(node.lineno)
+    return lines
+
+
+def check_retain_carrier_is_codegen_only():
+    """The carrier is called only from `sawc/codegen/`.
+
+    Copying a stamp is sound only once the decision it copies has been made
+    and audited; the front half runs more than once over one AST and a
+    carrier call there would forward a stale or absent decision past the
+    audit. The confinement is read from the source so a new caller in the
+    typechecker, mono_copy or the coroutine transform fails the build.
+    """
+    problems = []
+    seen_in_codegen = 0
+    for root, _dirs, files in os.walk(os.path.join(REPO, "sawc")):
+        for name in sorted(files):
+            if not name.endswith(".py"):
+                continue
+            path = os.path.join(root, name)
+            with open(path) as f:
+                try:
+                    tree = ast.parse(f.read())
+                except SyntaxError:
+                    continue
+            rel = os.path.relpath(path, REPO)
+            for lineno in _carrier_call_lines(tree):
+                if rel.startswith(RETAIN_CARRIER_DIR + os.sep):
+                    seen_in_codegen += 1
+                    continue
+                problems.append(
+                    f"{rel}:{lineno}: `{RETAIN_CARRIER}` is called outside "
+                    f"`{RETAIN_CARRIER_DIR}/`; it copies an audited decision "
+                    f"and must not run before the preservation audit")
+    if seen_in_codegen == 0:
+        problems.append(
+            f"no call to `{RETAIN_CARRIER}` under `{RETAIN_CARRIER_DIR}/`: "
+            f"the entry-point list on the carrier names one, so either the "
+            f"caller stamps directly again or the list is stale")
     return problems
 
 
@@ -933,7 +1056,8 @@ def check_preservation():
 
 
 def main():
-    problems = check_every_exit_records() + check_retain_has_one_writer()
+    problems = (check_every_exit_records() + check_retain_has_one_writer()
+                + check_retain_carrier_is_codegen_only())
     if problems:
         print("TRANSFER-DECISION GATE FAILED — the funnel has an exit that "
               "records nothing.")

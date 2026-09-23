@@ -13,7 +13,7 @@ from llvmlite import ir
 from ast_nodes import (StructInit, FunctionCall, MethodCall, MemberAccess,
                        Identifier, MoveExpr, NoneLiteral, ForceUnwrap, EnumInit,
                        TypeKind, SelfExpr, ArrayIndex, ArrayLiteral, OptionalWrap,
-                       ResultOkWrap, ResultErrWrap)
+                       ResultOkWrap, ResultErrWrap, carry_retain_stamps)
 from const_eval import INT_LIMIT_SPECS
 
 
@@ -95,9 +95,8 @@ class StructsMixin:
         literal.autowrap_to_result = expr.autowrap_to_result
         literal.autowrap_result_err = expr.autowrap_result_err
         literal.expected_type = expr.expected_type
-        literal.needs_copy = expr.needs_copy
+        carry_retain_stamps(expr, literal)
         literal.closure_lend = expr.closure_lend
-        literal.payload_needs_copy = expr.payload_needs_copy
         literal.materialize_for_transfer = getattr(
             expr, "materialize_for_transfer", False)
         return literal
