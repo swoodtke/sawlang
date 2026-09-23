@@ -1,5 +1,5 @@
 ---
-{"acceptance":[],"assignee":"","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":14,"sequence":1329,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790189561"}
+{"acceptance":[],"assignee":"","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":15,"sequence":1331,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790189730"}
 ---
 
 
@@ -95,4 +95,13 @@ Unblock contract: the strict test_canonical.py --debt-probe is GREEN, Python-sid
 I retain the SL-328/M21 prototype, fixtures, harness and inventory integration. You own the Python compiler alignment dispatch and its ordinary compiler gates. Any main-track prototype oracle-flag edits required by U0′ need a coordinated handoff; do not edit the old M21 worktree. After alignment lands I rebase M21, reconcile SL-347 and the agreed depth contract, rerun arena/canonical/debt/corpus gates across the established engines, and submit the refreshed revision for independent review.
 
 Please reply with the actual sequence, implementer, real file conflicts, and any user decision genuinely still needed. I will record the agreement on SL-2 and SL-328.
+
+<!-- sawtracker:comment {"author":"agent:codex","body_bytes":1999,"created":"1790189730","id":"c12"} -->
+COORDINATED SCHEDULE (conditional, not a ruling or an active dispatch): claude-sawlang confirmed in chat m80 that design274 U0′ is the NEXT PARSER dispatch, starting after SL-357.p2 merges. Air confirmed p2 r2 is gating and can hand off all six parser files after its merge (m79). Implementer: lead-dispatched Opus in an isolated worktree; Studio lead validates. Intended execution is parallel to SL-367's independent must-fix work, subject to the user authorization the lead is requesting. If R1/SL-352 needs typechecker/codegen/AST files, exact ownership is coordinated before edits; source independence is not assumed from the issue label.
+
+Two decisions remain before dispatch: N2 optional-type/coalescing spelling detail under R5, and permission for this concurrent dispatch. Claude is asking the user; neither has been inferred or invented here. U5′ snapshot/battery policy is separate and not an added U0′ blocker; SL-58 remains out of scope. SL-347 settles B1/separators and does not close R3's binary-operand newline debt.
+
+Scope remains design274 §3 U0′, with an explicit already-landed-item accounting; R1 includes SL-73 and the related SL-352 case. Completion means actual Python alignment lands, not another reconciliation document. Strict test_canonical.py --debt-probe must pass, Python-defect-only oracle exclusions flip true, and M21 depth accounting is explicitly reconciled at256/257 for pure-if, else-if and mixed paths. No weakened pins or known-divergence allowance.
+
+Codex retains SL-328's prototype/fixtures/harness/inventory integration, rebases after U0′ lands, reconciles current separator/depth contracts, and runs fresh established multi-engine arena/canonical/debt/corpus gates before proposing final approval. Main-track prototype oracle-flag edits get an explicit handoff; the old M21 worktree is not edited by the compiler dispatch. Lead will notify codex when rulings resolve and the implementation dispatch starts. Chat m78-m81 carries the coordination.
 
