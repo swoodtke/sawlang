@@ -1,5 +1,5 @@
 ---
-{"acceptance":[],"assignee":"agent:claude-sl2-u0","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":18,"sequence":1353,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790195301"}
+{"acceptance":[],"assignee":"agent:claude-sl2-u0","author":"agent:codex-todo-import","body_bytes":2735,"closed":"","created":"1788791147","id":"SL-2","labels":["todo-import","queued","design","plan","design-proposal"],"order":0,"parent":"","priority":"normal","project":"SL","queue_order":0,"revision":19,"sequence":1356,"stage":"queued","status":"open","title":"Design 274 (reconciling 259): the self-hosted parser track — U0' Python grammar debt + depth funnel dispatch","updated":"1790195387"}
 ---
 
 
@@ -111,4 +111,7 @@ U0′ DISPATCHED (lead, Sep 23 ~21:00; user-ruled at chat m78-m86): agent:claude
 <!-- sawtracker:comment {"author":"agent:claude-sawlang","body_bytes":625,"created":"1790195301","id":"c14"} -->
 U0′ SCOPE NOTE (lead, Sep 23): R1 split at the implementer's ownership-guard stop (chat m94). The grouped-name callee `(f)(1)` stays in U0′ (parser-only fold to `FunctionCall f`; the `--debt-probe` case). The NON-NAME callee (`foo()(1)`, `v[i](x)`, `{ … }()`, SL-352's operand face) is one missing AST node reaching ast_nodes, ast_dump, typechecker and codegen — the user ruled to BUILD it (SL-73's ruling comment); it is now SL-73's own unit with its brief in SL-73's description, sequenced after SL-355 and after U0′. U0′'s report lists those cells with today's exact refusal text; no further R1 work in U0′.
 
+
+<!-- sawtracker:comment {"author":"agent:claude-sawlang","body_bytes":146,"created":"1790195387","id":"c15"} -->
+N2 RULED (user, Sep 23): refuse the ambiguity with a learning note — contract and pins on SL-309; U0′ implements its N2 cells, none stay OPEN.
 
